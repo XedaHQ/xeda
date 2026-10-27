@@ -16,7 +16,7 @@ import pytest
 import xeda
 from xeda import flows
 from xeda.flow import Flow
-from xeda.flow_runner import get_flow_class
+from xeda.flow_runner import FlowNotFoundError, get_flow_class
 
 from .flow_registry import preserved_flow_registry
 
@@ -48,10 +48,10 @@ def test_flow_resolvable_by_canonical_name(flow_class):
 
 
 @pytest.mark.parametrize("flow_class", ALL_FLOW_CLASSES, ids=lambda cls: cls.name)
-def test_flow_resolvable_by_class_name_and_aliases(flow_class):
-    assert get_flow_class(flow_class.__name__) is flow_class
-    for alias in flow_class.aliases:
-        assert get_flow_class(alias) is flow_class
+def test_flow_is_not_resolvable_by_class_name(flow_class):
+    with pytest.raises(FlowNotFoundError) as refused:
+        get_flow_class(flow_class.__name__)
+    assert refused.value.suggestions[0] == flow_class.name
 
 
 @pytest.mark.parametrize("flow_class", ALL_FLOW_CLASSES, ids=lambda cls: cls.name)
@@ -61,9 +61,10 @@ def test_flow_settings_schema_is_generatable(flow_class):
     assert "properties" in schema
 
 
-def test_flow_name_lookup_is_dash_and_case_insensitive():
-    assert get_flow_class("vivado-synth") is get_flow_class("vivado_synth")
-    assert get_flow_class("VIVADO_SYNTH") is get_flow_class("vivado_synth")
+def test_flow_name_lookup_is_exact():
+    for spelling in ("vivado-synth", "VIVADO_SYNTH"):
+        with pytest.raises(FlowNotFoundError):
+            get_flow_class(spelling)
 
 
 # --- The list of built-in flows ----------------------------------------------------------------

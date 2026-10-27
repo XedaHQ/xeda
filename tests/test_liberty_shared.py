@@ -82,12 +82,6 @@ def test_without_a_library_nothing_is_given(tmp_path):
     assert liberty_of(planned) == {name: [] for name in FLOWS}
 
 
-def test_the_name_library_is_the_same_setting(tmp_path):
-    (lib,) = libraries(tmp_path, "a.lib")
-    planned = plan(tmp_path, "openroad", typed={"flows.yosys.library": [str(lib)]}, rtl=True)
-    assert liberty_of(planned)["openroad"] == [lib.resolve()]
-
-
 def test_two_different_libraries_disagree_and_the_message_names_both_nodes(tmp_path):
     a, b = libraries(tmp_path, "a.lib", "b.lib")
     message = refusal(

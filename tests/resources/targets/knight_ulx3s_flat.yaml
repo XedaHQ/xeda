@@ -3,7 +3,7 @@ name: knight
 rtl:
   top: knight
   sources: [knight.v, por_sync.v, ulx3s.lpf]
-  clock: {port: CLK}
+  clocks: [{port: CLK}]
   parameters: {WIDTH: 4}
   defines: {CLK_HZ: 25000000}
 tb:
@@ -11,4 +11,4 @@ tb:
   sources: [knight_tb.v]
 flows:
   nextpnr: {seed: 3, board: ulx3s_85f}
-  vivado_synth: {clock: {period: 10 ns}}
+  vivado_synth: {clocks: {main_clock: {period: 10 ns}}}

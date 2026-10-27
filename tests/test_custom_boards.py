@@ -586,7 +586,7 @@ def test_a_board_with_an_empty_table_is_a_board_with_no_data_in_either_format(
 
 def test_assigning_a_board_with_no_value_is_refused_and_changes_nothing(tmp_path):
     path = tmp_path / "boards.yaml"
-    path.write_text("MY_BOARD:\n  fpga: LFE5U-25F-6BG381C\nEMPTY:\n")
+    path.write_text("MY_BOARD:\n  fpga: {part: LFE5U-25F-6BG381C}\nEMPTY:\n")
     settings = Nextpnr.Settings.from_input(
         {"board": "MY_BOARD", "custom_boards_file": str(path)}, design_root=tmp_path
     )

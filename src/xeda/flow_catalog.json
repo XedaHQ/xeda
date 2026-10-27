@@ -1,7 +1,5 @@
 {
   "bsc": {
-    "aliases": [],
-    "class_name": "Bsc",
     "followers": {
       "": [
         "dc",
@@ -88,11 +86,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -698,8 +691,6 @@
     }
   },
   "bsc_sim": {
-    "aliases": [],
-    "class_name": "BscSim",
     "followers": {
       "": []
     },
@@ -735,11 +726,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -1399,8 +1385,6 @@
     "default_producers": []
   },
   "dc": {
-    "aliases": [],
-    "class_name": "Dc",
     "followers": {
       "": []
     },
@@ -1436,11 +1420,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -1737,8 +1716,6 @@
     ]
   },
   "diamond_synth": {
-    "aliases": [],
-    "class_name": "DiamondSynth",
     "followers": {
       "": []
     },
@@ -1774,11 +1751,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -2019,8 +1991,6 @@
     ]
   },
   "fpga_pack": {
-    "aliases": [],
-    "class_name": "FpgaPack",
     "followers": {
       "": [
         "openfpgaloader"
@@ -2061,11 +2031,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -2212,7 +2177,7 @@
       "board": {
         "children": false,
         "assignable": true,
-        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. A bundled board is found by its name in any letter case; a name in a custom database is case-sensitive."
+        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. Board names are case-sensitive: a bundled board is named in lower case."
       },
       "custom_boards_file": {
         "children": false,
@@ -2286,10 +2251,6 @@
     ]
   },
   "ghdl_sim": {
-    "aliases": [
-      "ghdl"
-    ],
-    "class_name": "GhdlSim",
     "followers": {
       "": []
     },
@@ -2325,11 +2286,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -2477,15 +2433,6 @@
         "assignable": true,
         "help": "Additional warning flags."
       },
-      "warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat every warning as an error."
-      },
       "werror": {
         "children": false,
         "assignable": true,
@@ -2494,15 +2441,6 @@
           "true"
         ],
         "help": "Treat every warning as an error."
-      },
-      "elab_warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat warnings as errors during elaboration."
       },
       "elab_werror": {
         "children": false,
@@ -2685,8 +2623,6 @@
     "default_producers": []
   },
   "ghdl_synth": {
-    "aliases": [],
-    "class_name": "GhdlSynth",
     "followers": {
       "": [],
       "verilog": []
@@ -2723,11 +2659,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -2849,15 +2780,6 @@
         "assignable": true,
         "help": "Additional warning flags."
       },
-      "warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat every warning as an error."
-      },
       "werror": {
         "children": false,
         "assignable": true,
@@ -2866,15 +2788,6 @@
           "true"
         ],
         "help": "Treat every warning as an error."
-      },
-      "elab_warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat warnings as errors during elaboration."
       },
       "elab_werror": {
         "children": false,
@@ -3038,8 +2951,6 @@
     "default_producers": []
   },
   "ise_synth": {
-    "aliases": [],
-    "class_name": "IseSynth",
     "followers": {
       "": []
     },
@@ -3075,11 +2986,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -3318,8 +3224,6 @@
     ]
   },
   "modelsim": {
-    "aliases": [],
-    "class_name": "Modelsim",
     "followers": {
       "": []
     },
@@ -3355,11 +3259,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -3525,8 +3424,6 @@
     ]
   },
   "nextpnr": {
-    "aliases": [],
-    "class_name": "Nextpnr",
     "followers": {
       "": [
         "fpga_pack",
@@ -3569,11 +3466,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -3720,7 +3612,7 @@
       "board": {
         "children": false,
         "assignable": true,
-        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. A bundled board is found by its name in any letter case; a name in a custom database is case-sensitive."
+        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. Board names are case-sensitive: a bundled board is named in lower case."
       },
       "custom_boards_file": {
         "children": false,
@@ -4153,8 +4045,6 @@
     }
   },
   "nvc": {
-    "aliases": [],
-    "class_name": "Nvc",
     "followers": {
       "": []
     },
@@ -4190,11 +4080,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -4355,15 +4240,6 @@
           "warning"
         ],
         "help": "Print messages at the selected severity or higher to stderr instead of stdout. The default sends all messages to stderr. The levels are `note`, `warning`, `error` and `failure`."
-      },
-      "warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat the warnings of the analysis as errors (`-Werror`)."
       },
       "werror": {
         "children": false,
@@ -4533,8 +4409,6 @@
     "default_producers": []
   },
   "openfpgaloader": {
-    "aliases": [],
-    "class_name": "Openfpgaloader",
     "followers": {
       "": []
     },
@@ -4570,11 +4444,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -4721,7 +4590,7 @@
       "board": {
         "children": false,
         "assignable": true,
-        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. A bundled board is found by its name in any letter case; a name in a custom database is case-sensitive."
+        "help": "Target development board. Fills in `fpga` (and board-specific constraint files) from the board database. See `xeda list-boards`. Board names are case-sensitive: a bundled board is named in lower case."
       },
       "custom_boards_file": {
         "children": false,
@@ -4881,8 +4750,6 @@
     ]
   },
   "openroad": {
-    "aliases": [],
-    "class_name": "Openroad",
     "followers": {
       "": [
         "openroad_place"
@@ -4932,11 +4799,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -4996,11 +4858,6 @@
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
       "liberty": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
-      },
-      "library": {
         "children": false,
         "assignable": true,
         "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
@@ -5792,8 +5649,6 @@
     ]
   },
   "openroad_cts": {
-    "aliases": [],
-    "class_name": "OpenroadCts",
     "followers": {
       "": [
         "openroad_grt",
@@ -5838,11 +5693,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -5902,11 +5752,6 @@
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
       "liberty": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
-      },
-      "library": {
         "children": false,
         "assignable": true,
         "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
@@ -6462,8 +6307,6 @@
     }
   },
   "openroad_grt": {
-    "aliases": [],
-    "class_name": "OpenroadGrt",
     "followers": {
       "": [
         "openroad"
@@ -6508,11 +6351,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -6572,11 +6410,6 @@
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
       "liberty": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
-      },
-      "library": {
         "children": false,
         "assignable": true,
         "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
@@ -7133,8 +6966,6 @@
     ]
   },
   "openroad_place": {
-    "aliases": [],
-    "class_name": "OpenroadPlace",
     "followers": {
       "": [
         "openroad_cts",
@@ -7180,11 +7011,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -7293,11 +7119,6 @@
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
       "liberty": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
-      },
-      "library": {
         "children": false,
         "assignable": true,
         "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
@@ -9140,8 +8961,6 @@
     }
   },
   "quartus": {
-    "aliases": [],
-    "class_name": "Quartus",
     "followers": {
       "": []
     },
@@ -9177,11 +8996,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -9524,8 +9338,6 @@
     ]
   },
   "vcs": {
-    "aliases": [],
-    "class_name": "Vcs",
     "followers": {
       "": []
     },
@@ -9561,11 +9373,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -9913,8 +9720,6 @@
     ]
   },
   "verilator": {
-    "aliases": [],
-    "class_name": "Verilator",
     "followers": {
       "": []
     },
@@ -9950,11 +9755,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -10268,8 +10068,6 @@
     ]
   },
   "vivado_alt_synth": {
-    "aliases": [],
-    "class_name": "VivadoAltSynth",
     "followers": {
       "": [
         "openfpgaloader",
@@ -10318,11 +10116,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -10731,8 +10524,6 @@
     ]
   },
   "vivado_impl": {
-    "aliases": [],
-    "class_name": "VivadoImpl",
     "followers": {
       "": [
         "openfpgaloader",
@@ -10780,11 +10571,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -11128,8 +10914,6 @@
     ]
   },
   "vivado_postsynth_sim": {
-    "aliases": [],
-    "class_name": "VivadoPostsynthSim",
     "followers": {
       "": [
         "vivado_power"
@@ -11173,11 +10957,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -11559,8 +11338,6 @@
     ]
   },
   "vivado_power": {
-    "aliases": [],
-    "class_name": "VivadoPower",
     "followers": {
       "": []
     },
@@ -11596,11 +11373,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -11819,8 +11591,6 @@
     ]
   },
   "vivado_project": {
-    "aliases": [],
-    "class_name": "VivadoProject",
     "followers": {
       "": []
     },
@@ -11856,11 +11626,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -12278,8 +12043,6 @@
     ]
   },
   "vivado_sim": {
-    "aliases": [],
-    "class_name": "VivadoSim",
     "followers": {
       "": []
     },
@@ -12315,11 +12078,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -12547,8 +12305,6 @@
     ]
   },
   "vivado_synth": {
-    "aliases": [],
-    "class_name": "VivadoSynth",
     "followers": {
       "": [
         "openfpgaloader",
@@ -12598,11 +12354,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -13011,8 +12762,6 @@
     ]
   },
   "yosys": {
-    "aliases": [],
-    "class_name": "Yosys",
     "followers": {
       "": [
         "openroad_place",
@@ -13060,11 +12809,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -13252,11 +12996,6 @@
         ],
         "help": "Redirect stdout from execution of tools to files."
       },
-      "ghdl.ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
-      },
       "ghdl.nthreads": {
         "children": false,
         "assignable": true,
@@ -13377,15 +13116,6 @@
         "assignable": true,
         "help": "Additional warning flags."
       },
-      "ghdl.warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat every warning as an error."
-      },
       "ghdl.werror": {
         "children": false,
         "assignable": true,
@@ -13394,15 +13124,6 @@
           "true"
         ],
         "help": "Treat every warning as an error."
-      },
-      "ghdl.elab_warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat warnings as errors during elaboration."
       },
       "ghdl.elab_werror": {
         "children": false,
@@ -13712,11 +13433,6 @@
         "assignable": true,
         "help": "Flags passed to yosys' `rename` after synthesis, e.g. [\"-hide\"]."
       },
-      "netlist": {
-        "children": false,
-        "assignable": true,
-        "help": "Write the synthesized gate-level netlist to this Verilog file. Set to null to skip."
-      },
       "netlist_verilog": {
         "children": false,
         "assignable": true,
@@ -13795,11 +13511,6 @@
         "assignable": true,
         "help": "Attributes to strip from the design before writing any netlist."
       },
-      "json_netlist": {
-        "children": false,
-        "assignable": true,
-        "help": "Write the synthesized netlist to this JSON file. Consumers such as `nextpnr` need it."
-      },
       "netlist_json": {
         "children": false,
         "assignable": true,
@@ -13863,11 +13574,6 @@
         "help": "Name of the corner of the platform, or one of its aliases. The default is the default corner of the platform. A flow works on one corner: a list of corners is refused."
       },
       "liberty": {
-        "children": false,
-        "assignable": true,
-        "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
-      },
-      "library": {
         "children": false,
         "assignable": true,
         "help": "Standard cell (Liberty) libraries that the flow reads for mapping and timing, instead of the Liberty files of the corner of the platform. Xeda reads each file as it is (`yosys` gives each to `dfflibmap` and to `abc`). Without them, the flow uses the Liberty files of the platform. The platform still gives everything else, and its files must be installed. The files of a producer and its consumer agree, in the same order."
@@ -14590,8 +14296,6 @@
     }
   },
   "yosys_fpga": {
-    "aliases": [],
-    "class_name": "YosysFpga",
     "followers": {
       "": [
         "nextpnr",
@@ -14640,11 +14344,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -14883,11 +14582,6 @@
         ],
         "help": "Redirect stdout from execution of tools to files."
       },
-      "ghdl.ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
-      },
       "ghdl.nthreads": {
         "children": false,
         "assignable": true,
@@ -15008,15 +14702,6 @@
         "assignable": true,
         "help": "Additional warning flags."
       },
-      "ghdl.warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat every warning as an error."
-      },
       "ghdl.werror": {
         "children": false,
         "assignable": true,
@@ -15025,15 +14710,6 @@
           "true"
         ],
         "help": "Treat every warning as an error."
-      },
-      "ghdl.elab_warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat warnings as errors during elaboration."
       },
       "ghdl.elab_werror": {
         "children": false,
@@ -15343,11 +15019,6 @@
         "assignable": true,
         "help": "Flags passed to yosys' `rename` after synthesis, e.g. [\"-hide\"]."
       },
-      "netlist": {
-        "children": false,
-        "assignable": true,
-        "help": "Write the synthesized gate-level netlist to this Verilog file. Set to null to skip."
-      },
       "netlist_verilog": {
         "children": false,
         "assignable": true,
@@ -15425,11 +15096,6 @@
         "children": false,
         "assignable": true,
         "help": "Attributes to strip from the design before writing any netlist."
-      },
-      "json_netlist": {
-        "children": false,
-        "assignable": true,
-        "help": "Write the synthesized netlist to this JSON file. Consumers such as `nextpnr` need it."
       },
       "netlist_json": {
         "children": false,
@@ -15703,8 +15369,6 @@
     }
   },
   "yosys_sim": {
-    "aliases": [],
-    "class_name": "YosysSim",
     "followers": {
       "": []
     },
@@ -15740,11 +15404,6 @@
           "true"
         ],
         "help": "Redirect stdout from execution of tools to files."
-      },
-      "ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
       },
       "nthreads": {
         "children": false,
@@ -15958,11 +15617,6 @@
         ],
         "help": "Redirect stdout from execution of tools to files."
       },
-      "ghdl.ncpus": {
-        "children": false,
-        "assignable": true,
-        "help": "Maximum number of threads."
-      },
       "ghdl.nthreads": {
         "children": false,
         "assignable": true,
@@ -16083,15 +15737,6 @@
         "assignable": true,
         "help": "Additional warning flags."
       },
-      "ghdl.warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat every warning as an error."
-      },
       "ghdl.werror": {
         "children": false,
         "assignable": true,
@@ -16100,15 +15745,6 @@
           "true"
         ],
         "help": "Treat every warning as an error."
-      },
-      "ghdl.elab_warn_error": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Treat warnings as errors during elaboration."
       },
       "ghdl.elab_werror": {
         "children": false,

@@ -244,7 +244,7 @@ def test_the_sweep_finds_each_kind_of_judgment(name, expected):
 # results that its `parse_reports()` stores.
 # --------------------------------------------------------------------------------------------
 
-_DESIGN_FIELDS: Dict[str, Any] = {"sources": [], "top": "dummy", "clock": "clk"}
+_DESIGN_FIELDS: Dict[str, Any] = {"sources": [], "top": "dummy", "clocks": [{"port": "clk"}]}
 
 
 def build(tmp_path: Path, flow_class: type, **settings: Any) -> Any:

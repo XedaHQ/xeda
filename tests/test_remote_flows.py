@@ -40,14 +40,14 @@ pytestmark = [pytest.mark.skipif(os.name != "posix", reason="POSIX")]
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
 TARGETS = TESTS_DIR / "resources" / "targets"
-SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clock.period=5ns"]
+SQRT_SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clocks.main_clock.period=5ns"]
 
 
 def _sqrt_design(root: Path, extra: str = "") -> Path:
     root.mkdir(parents=True, exist_ok=True)
     shutil.copy(SQRT / "sqrt.vhdl", root)
     (root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clock: {port: clk}\n" + extra
+        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clocks: [{port: clk}]\n" + extra
     )
     return root / "sqrt.yaml"
 
@@ -193,7 +193,7 @@ def test_a_flow_without_declared_io_has_the_identity_it_was_sent(tmp_path, remot
     `flow_hash` is the one this side computed."""
     design = _sqrt_design(tmp_path / "design")
     (design.parent / "cells.db").write_text("")
-    settings = ["target_libraries=cells.db", "clock.period=5ns"]
+    settings = ["target_libraries=cells.db", "clocks.main_clock.period=5ns"]
     outcome = remote_request(tmp_path, design, "dc", flow_settings=settings)
     # the fake `dc_shell` writes no timing report, so the run itself may report failure: what is
     # compared is the identity
@@ -407,7 +407,7 @@ def _mac_design(root: Path) -> Path:
         "  always @(posedge clk) q <= a * b;\nendmodule\n"
     )
     design = root / "mac.yaml"
-    design.write_text("name: mac\nrtl:\n  sources: [mac.v]\n  top: mac\n  clock: {port: clk}\n")
+    design.write_text("name: mac\nrtl:\n  sources: [mac.v]\n  top: mac\n  clocks: [{port: clk}]\n")
     return design
 
 
@@ -431,7 +431,11 @@ def test_a_platform_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_
     remote_host.expose("yosys")
     _stores(tmp_path, monkeypatch, remote_host)
     design = _mac_design(tmp_path / "design")
-    settings = [f"platform_file={TINY_RESIDUE}", "clock.period=2ns", "pdk_root=elsewhere"]
+    settings = [
+        f"platform_file={TINY_RESIDUE}",
+        "clocks.main_clock.period=2ns",
+        "pdk_root=elsewhere",
+    ]
     document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
     results = _results(document)
     assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
@@ -455,7 +459,11 @@ def test_a_liberty_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_h
     library.parent.mkdir()
     library.write_text((store / "tiny" / "tiny.lib").read_text())
     design = _mac_design(tmp_path / "design")
-    settings = [f"platform_file={TINY_RESIDUE}", f"liberty={library}", "clock.period=2ns"]
+    settings = [
+        f"platform_file={TINY_RESIDUE}",
+        f"liberty={library}",
+        "clocks.main_clock.period=2ns",
+    ]
     document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
     results = _results(document)
     assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
@@ -500,7 +508,7 @@ def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host,
         # the section of a flow that is not in the plan lists the same file, which then also
         # travels as a plain path setting
         f"flows.yosys.liberty={library}",
-        "clock.period=2ns",
+        "clocks.main_clock.period=2ns",
     ]
     document = _succeeded(
         remote_request(tmp_path, design_file, "openroad_place", flow_settings=settings)
@@ -524,7 +532,7 @@ def _bluespec_design(tmp_path: Path) -> Path:
     root = tmp_path / "gcd"
     shutil.copytree(TESTS_DIR.parent / "examples" / "bluespec" / "gcd", root)
     document = yaml.safe_load((root / "gcd.yaml").read_text())
-    document["flows"] = {"yosys": {"clock": {"period": "2 ns"}}}
+    document["flows"] = {"yosys": {"clocks": {"main_clock": {"period": "2 ns"}}}}
     del document["targets"]
     (root / "gcd.yaml").write_text(yaml.safe_dump(document, sort_keys=False))
     return root / "gcd.yaml"
@@ -632,7 +640,10 @@ def test_a_producers_settings_only_file_is_shipped(tmp_path, remote_host, monkey
 
 @pytest.mark.parametrize(
     "sections",
-    [{"__place": {"fpga": "LFE5U-25F-6BG256C"}}, {"__synth": {"fpga": "LFE5U-25F-6BG256C"}}],
+    [
+        {"__place": {"fpga": {"part": "LFE5U-25F-6BG256C"}}},
+        {"__synth": {"fpga": {"part": "LFE5U-25F-6BG256C"}}},
+    ],
     ids=["requested", "producer"],
 )
 def test_the_remote_runs_the_nodes_planning_names(tmp_path, remote_host, sections):
@@ -750,7 +761,10 @@ def test_declared_shared_settings_must_agree_before_connecting(tmp_path, remote_
 
     design = _declared_design(
         tmp_path / "design",
-        {"__place": {"fpga": "LFE5U-25F-6BG256C"}, "__synth": {"fpga": "LFE5U-85F-6BG381C"}},
+        {
+            "__place": {"fpga": {"part": "LFE5U-25F-6BG256C"}},
+            "__synth": {"fpga": {"part": "LFE5U-85F-6BG381C"}},
+        },
     )
     outcome = remote_request(tmp_path, design, _Place.name)
     assert isinstance(outcome.error, FlowSettingsError) and "disagree" in str(outcome.error)

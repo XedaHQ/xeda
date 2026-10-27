@@ -61,7 +61,10 @@ def test_unparseable_unit_is_a_validation_error(bad):
 
 def test_valid_units_still_convert():
     clock = PhysicalClock(freq="200 MHz")
-    assert (clock.freq, clock.period) == (Frequency("200 MHz"), Time("5 ns"))
+    assert (clock.freq, clock.period) == (
+        Frequency("200 MHz"),
+        Time("5 ns"),
+    )
     assert PhysicalClock(period="5.5ns").period.to("ns") == 5.5
 
 

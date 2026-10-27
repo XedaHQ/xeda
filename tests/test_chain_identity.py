@@ -14,6 +14,7 @@ from xeda.flow import FlowFatalError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.chains import parse_request
+from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.trace import TRACE_FORMAT
 
@@ -72,11 +73,13 @@ def test_identity_is_the_settings_hash_and_the_ordered_input_origins(tmp_path):
         ("more", ()),
     )
     for node in plan.nodes:
-        assert node.flowrun_hash == node_identity(node.settings_hash, node.origins)
+        assert node.flowrun_hash == node_identity(
+            node.settings_hash, configuration_hash(node.configuration), node.origins
+        )
         assert node.flowrun_hash != node.settings_hash
 
 
-@pytest.mark.parametrize("reference", ["__maker", "__maker.made", "_Maker", "__MAKER"])
+@pytest.mark.parametrize("reference", ["__maker", "__maker.made"])
 def test_a_restated_default_under_any_spelling_is_the_bare_request_s_identity(tmp_path, reference):
     bare = _plan(tmp_path, _Taker)
     restated = _plan(tmp_path, _Taker, {"__taker": {"inputs": {"made": reference}}})
@@ -122,7 +125,7 @@ def test_another_producer_another_output_and_another_order_are_other_identities(
 def test_a_source_supplied_input_is_another_identity_than_a_produced_one(tmp_path):
     produced = _plan(tmp_path, _Taker)
     sourced = _plan(tmp_path, _Taker, sources=[("x.dat", SourceType.Data)])
-    assert sourced.node("__taker").origins == (("made", "source"),)
+    assert sourced.node("__taker").origins == (("made", ("source", (("x.dat", "Data"),))),)
     assert _settings_ids(sourced)["__taker"] == _settings_ids(produced)["__taker"]
     assert _ids(sourced)["__taker"] != _ids(produced)["__taker"]
 
@@ -192,8 +195,8 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
         ]
         paths.append(flow.run_path)
     assert paths[0] != paths[1] and all(path.is_dir() for path in paths)
-    assert trace["declared_inputs"][0]["binding_origin"] == "file" and trace["format"] == 19
-    assert TRACE_FORMAT == 19
+    assert trace["declared_inputs"][0]["binding_origin"] == "file"
+    assert trace["format"] == TRACE_FORMAT
 
 
 def test_a_tampered_identity_fails_before_execution(tmp_path):

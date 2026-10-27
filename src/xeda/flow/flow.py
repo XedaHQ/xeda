@@ -7,9 +7,6 @@ import logging
 import os
 import re
 from abc import ABCMeta, abstractmethod
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path, PurePath
 from types import UnionType
@@ -36,7 +33,7 @@ from typing import (
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
-from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError
+from pydantic_core import ErrorDetails, InitErrorDetails
 
 from ..dataclass import (
     DELIVERABLE_ROLE,
@@ -45,7 +42,9 @@ from ..dataclass import (
     BaseModel,
     Field,
     ListLiteralText,
+    NoReplacement,
     PrivateAttr,
+    SecondSpelling,
     ValidationError,
     WaveformText,
     XedaBaseModel,
@@ -60,13 +59,15 @@ from ..dataclass import (
     nested_model,
     opaque_key_declaration_problems,
     opaque_key_fields_of,
+    removed_setting_error,
     validation_errors,
     written_always,
     waveform_format,
     waveform_value,
     written_role,
 )
-from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
+from ..design import LANGUAGE_TYPES, Design, Source, SourceType
+from ..frozen import FrozenDict
 from ..records import REJECTED, ErrorInfo, RunRecord
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..units import count, finalize_template_value, to_filter
@@ -79,6 +80,7 @@ from ..utils import (
     location_free,
     location_roots,
     parse_patterns_in_file,
+    path_identity,
     path_variables,
     rebuild_like,
     regex_match,
@@ -682,39 +684,16 @@ def _name_unset_outputs(model: BaseModel, design: str, prefix: str = "") -> None
             _name_unset_outputs(nested, design, key + ".")
 
 
-_path_identities: ContextVar[Mapping[str, str]] = ContextVar("path_identities", default={})
-
-
-def _canonical_path(text: str) -> str:
-    """Return an absolute path as this file system resolves it.
-
-    The identity of a shipped file is keyed by this one spelling, whether or not its run
-    directory is reached through a symbolic link."""
-    return os.path.realpath(text) if os.path.isabs(text) else text
-
-
-@contextmanager
-def using_path_identities(paths: Mapping[str, str]) -> Iterator[None]:
-    """Keep the original identity of a shipped read path while tools use its relocated file.
-
-    The keys of `paths` are the relocated paths as this file system resolves them
-    (`_canonical_path`). A lookup resolves the given path the same way, so a file is found under
-    any spelling of its path (through a symbolic link or not) and under none that names another
-    file."""
-    token = _path_identities.set({_canonical_path(path): value for path, value in paths.items()})
-    try:
-        yield
-    finally:
-        _path_identities.reset(token)
-
-
-def _with_path_identities(value: Any, paths: Mapping[str, str]) -> Any:
+def _with_path_identities(value: Any) -> Any:
+    """Return `value` with each path that a remote launch moved written as the client counts it
+    (`path_identity`, role `setting`)."""
     if isinstance(value, dict):
-        return {key: _with_path_identities(item, paths) for key, item in value.items()}
+        return {key: _with_path_identities(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return rebuild_like(value, [_with_path_identities(item, paths) for item in value])
+        return rebuild_like(value, [_with_path_identities(item) for item in value])
     if isinstance(value, (str, os.PathLike)):
-        return paths.get(_canonical_path(os.fspath(value)), value)
+        found = path_identity(value, "setting")
+        return value if found is None else found
     return value
 
 
@@ -729,9 +708,7 @@ def identity_values(
     roots = location_roots(settings.context.get("design_root"), settings.context.get("runner_cwd"))
     identity = identity_settings(settings, design_name)
     values = identity.model_dump()
-    paths = _path_identities.get()
-    if paths:
-        values = _with_path_identities(values, paths)
+    values = _with_path_identities(values)
     return dict(flow_name=flow_name, flow_settings=location_free(values, roots))
 
 
@@ -765,55 +742,12 @@ def is_unset(value: Any) -> bool:
     return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
-class NoReplacement(str):
-    """The reason Xeda refuses a removed setting when nothing replaces it.
-
-    The entry of the setting in `removed_settings` is `NoReplacement("no flow read it")`, and
-    the error says "`<name>` was removed: no flow read it; delete it". Any other entry is what
-    to use instead: "`<name>` was removed: use <entry>"."""
-
-
-def removed_message(name: str, replacement: str, value: Any) -> str:
-    """Return the message that refuses the removed setting `name`."""
-    if isinstance(replacement, NoReplacement):
-        return f"`{name}` was removed: {replacement}; delete it"
-    return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
-
-
-def removed_setting_error(name: str, replacement: str, value: Any) -> PydanticCustomError:
-    """Return the validation error that refuses the removed setting `name`: its type is
-    `removed_setting`, and its message is `removed_message`."""
-    return PydanticCustomError(
-        "removed_setting", "{message}", {"message": removed_message(name, replacement, value)}
-    )
-
-
-def _removed_replacement(replacement: str, value: Any) -> str:
-    """Return the replacement text for a removed setting.
-
-    A `<key>` in it stands for each key that the removed value gave."""
-    if "<key>" not in replacement or not isinstance(value, Mapping) or not value:
-        return replacement
-
-    def keys(mapping: Mapping, prefix: str = "") -> list[str]:
-        found: list[str] = []
-        for key, item in mapping.items():
-            if isinstance(item, Mapping) and item:
-                found += keys(item, f"{prefix}{key}.")
-            else:
-                found.append(f"{prefix}{key}")
-        return found
-
-    return ", ".join(replacement.replace("<key>", key) for key in keys(value))
-
-
 class Flow(metaclass=ABCMeta):
     """A flow runs one or more tools for one design with one set of settings.
 
     All tool executables should be available on the host or in the same Docker image."""
 
     name: str  # set automatically
-    aliases: List[str] = []  # list of alternative names for the flow
 
     #: The metrics this flow writes to `results` (and therefore to `results.json`), each with a
     #: description, a type and a unit. Reported by `xeda list-results <flow>`. Build it with
@@ -1059,7 +993,7 @@ class Flow(metaclass=ABCMeta):
             )
 
     @classmethod
-    def _testbench_hint(cls, unread: list[DesignSource], by_part: dict[str, Any]) -> str:
+    def _testbench_hint(cls, unread: list[Source], by_part: dict[str, Any]) -> str:
         """Return `; simulate a <language> testbench with <flows>` for a simulator that is given a
         testbench in a language it cannot read, when other simulators read that language; else "".
 
@@ -1142,7 +1076,6 @@ class Flow(metaclass=ABCMeta):
         )
         nthreads: Optional[int] = Field(
             None,
-            alias="ncpus",
             description="Maximum number of threads.",
             json_schema_extra=count(),
         )
@@ -1212,6 +1145,7 @@ class Flow(metaclass=ABCMeta):
             "timeout_seconds": "`timeout`, on the flows that have one (the simulators); no other "
             "flow limits a tool's run time",
             "no_console": NoReplacement("no flow read it"),
+            "ncpus": SecondSpelling("`nthreads`"),
         }
 
         @classmethod
@@ -1413,13 +1347,11 @@ class Flow(metaclass=ABCMeta):
         log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
-            # Register under the canonical (snake_case) name first, then the class name and any
-            # aliases. `cls.name` is what the CLI and the docs use, so it must be resolvable
-            # without a lossy round trip from snake_case to CamelCase.
-            for name in unique([cls.name, cls_name] + cls.aliases):
-                if name in registered_flows:
-                    log.warning("Duplicate name: %s while registering flow %s", name, cls_name)
-                registered_flows[name] = (mod_name, cls)
+            # A flow has one name, `cls.name`: the only spelling that the CLI, the files and the
+            # docs accept.
+            if cls.name in registered_flows:
+                log.warning("Duplicate name: %s while registering flow %s", cls.name, cls_name)
+            registered_flows[cls.name] = (mod_name, cls)
 
     def init(self) -> None:
         """Run the custom initialization of the flow.
@@ -1581,9 +1513,6 @@ class Flow(metaclass=ABCMeta):
             if design.get("design_root") is None:
                 design["design_root"] = run_path
             design = Design(**design)
-        else:
-            # The flow's own copy, as a launched flow gets: some flows edit their design.
-            design = design.model_copy(deep=True) if isinstance(design, Design) else design
         assert isinstance(design, Design), "design is not a Design object"
 
         self.design: Design = design
@@ -1594,11 +1523,16 @@ class Flow(metaclass=ABCMeta):
         #: directory that the run did not write is a previous run's (`report_file`).
         self.run_started: bool = False
         self.timestamp: Optional[str] = None
-        #: The identity of the run (its settings and where its inputs come from) and the hash of
-        #: its settings alone, which the identity is made of (`bindings.node_identity`).
+        #: The identity of the run (its settings, its design configuration and where its inputs
+        #: come from) and the hash of its settings alone, which the identity is made of
+        #: (`bindings.node_identity`). The `design_hash` is the content of the design it reads,
+        #: evidence of freshness and no part of the identity.
         self.flow_hash: Optional[str] = None
         self.settings_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
+        #: What the run reads of its design (`flow_runner.configuration`): the configuration
+        #: that the plan froze for its node.
+        self.configuration: Mapping[str, Any] = FrozenDict()
         self.declared_input_records: tuple[Any, ...] = ()
 
         if isinstance(settings, dict):
@@ -1783,7 +1717,7 @@ class Flow(metaclass=ABCMeta):
                 log=None,
             ).as_json_value()
 
-    def sources_read(self, rtl: bool = True, tb: bool = False) -> list[DesignSource]:
+    def sources_read(self, rtl: bool = True, tb: bool = False) -> list[Source]:
         """Return the sources of the design that this flow reads (`reads_sources`), in design order.
 
         These are the sources that its code and scripts hand to the tool. `rtl` and `tb` select

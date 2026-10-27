@@ -35,6 +35,7 @@ import yaml
 
 from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
+from ..frozen import freeze, thaw
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -76,7 +77,6 @@ from ..utils import (
     backup_existing,
     dump_json,
     settings_to_dict,
-    snakecase_to_camelcase,
     unique,
 )
 from ..version import __version__
@@ -95,6 +95,7 @@ from .bindings import (
 from . import launch_identity, launch_input, launch_producers, launch_report, launch_run
 from .chains import ChainElement, FlowRequest, parse_request
 from .code_digest import CodeDigests
+from .configuration import configuration_hash
 from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -110,6 +111,7 @@ from .resolver import (
     Plan,
     PlanNode,
     check_launchable,
+    planned_configuration,
     planned_design_of,
     resolve as resolve_plan,
 )
@@ -126,11 +128,12 @@ from .settings_layers import (
     COMMAND_LINE_ORIGIN,
     SUPPLIED_SECTIONS_ORIGIN,
     FlowNotFoundError,
-    check_not_removed,
+    check_flow_name,
     command_line_sections,
     compose_flow_settings,
     host_profile_origin,
     merge_flow_sections,
+    registered_flow,
     split_flow_sections,
     transitive_dependencies,
 )
@@ -300,44 +303,27 @@ def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
     return difflib.get_close_matches(flow_name, canonical, n=limit, cutoff=0.6)
 
 
-def _registered_flow_class(flow_name: str) -> Type[Flow] | None:
-    """Find a registered canonical name, class name, or alias, regardless of case."""
-    _mod, flow_class = registered_flows.get(flow_name, (None, None))
-    if flow_class is not None:
-        return flow_class
-    lowered = flow_name.lower()
-    return next(
-        (cls for name, (_mod, cls) in registered_flows.items() if name.lower() == lowered),
-        None,
-    )
-
-
 def get_flow_class(
     flow_name: str, module_name: str = "xeda.flows", package: str = __package__ or "xeda"
 ) -> Type[Flow]:
-    flow_name = flow_name.strip().replace("-", "_")
-    # Before any lookup or import: a removed name is neither a flow nor a near miss of one.
-    check_not_removed(flow_name)
-    flow_class = _registered_flow_class(flow_name)
+    """Return the registered flow whose name is `flow_name`.
+
+    A flow has one name, `Flow.name`. The name of a removed flow, and any other spelling of the
+    name of a flow, is an error that says what to use (`check_flow_name`)."""
+    flow_class = registered_flow(flow_name)
     if flow_class is None:
         log.debug(
             "Flow %s was not found in registered flows. Trying to load using `importlib`.",
             flow_name,
         )
         try:
-            module = importlib.import_module(module_name)
+            importlib.import_module(module_name)
         except ModuleNotFoundError as e:
             raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name)) from e
-        # Importing the module registers aliases as well as canonical and class names.
-        flow_class = _registered_flow_class(flow_name)
-        flow_class_name = snakecase_to_camelcase(flow_name)
-        if flow_class is None and module:
-            try:
-                flow_class = getattr(module, flow_class_name)
-            except AttributeError:
-                pass
-        if not flow_class or not issubclass(flow_class, Flow):
-            raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name))
+        flow_class = registered_flow(flow_name)
+    if flow_class is None:
+        check_flow_name(flow_name)
+        raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name))
     return flow_class
 
 
@@ -639,7 +625,7 @@ class FlowLauncher:
         layers: list[BindingLayer] = []
         clean_origins = []
         if direct:
-            clean, bindings = split_bindings(deepcopy(design.flow), location=design_label)
+            clean, bindings = split_bindings(thaw(design.flows), location=design_label)
             clean_origins.append((design_label, clean))
             layers.append(bindings)
         layers.extend(binding_layers)
@@ -755,21 +741,34 @@ class FlowLauncher:
             or as_recorded(sections or {}) != captured[2]
         ):
             raise FlowFatalError("The plan does not match this request's settings")
-        # Every node's identity is recomputed from its settings and its ordered input origins,
-        # producers first, by the one helper the resolver froze it with.
+        # Every node's identity is recomputed from its settings, its design configuration and its
+        # ordered input origins, producers first, by the helpers the resolver froze it with.
         identities: dict[str, str] = {}
         for planned in plan.nodes:
             try:
-                origins = input_origins(planned.inputs, identities.__getitem__)
+                origins = input_origins(planned.inputs, identities.__getitem__, design)
             except KeyError as error:
                 raise FlowFatalError(
                     f"The plan's node {planned.name} reads a node that does not precede it"
                 ) from error
             settings_hash = flow_run_hash(planned.flow_class.name, planned.settings, design.name)
-            identities[planned.name] = node_identity(settings_hash, origins)
+            configuration = freeze(
+                planned_configuration(
+                    plan,
+                    planned,
+                    design,
+                    self.run_path_of,
+                    planned.flow_class,
+                    planned.settings,
+                )
+            )
+            identities[planned.name] = node_identity(
+                settings_hash, configuration_hash(configuration), origins
+            )
             if (
                 planned.settings_hash != settings_hash
                 or planned.origins != origins
+                or planned.configuration != configuration
                 or planned.flowrun_hash != identities[planned.name]
                 or planned.run_path
                 != self.run_path_of(
@@ -799,7 +798,7 @@ class FlowLauncher:
         this flow against them. The stages, in order:
 
         1. Input (`launch_input.input_settings`). Validate the settings in their context
-           (design root, start directory) and apply the `--debug` option of the launcher. The
+           (design root, start directory) and apply the `debug` setting of the launcher. The
            result is the input of the run, never modified afterwards. A missing required
            setting, or a design that the flow cannot run, fails the launch here.
         2. Identity (`launch_identity.run_identity`). Compute the hash of the design and the
@@ -1272,6 +1271,7 @@ class FlowLauncher:
             failure: BaseException | None = None
             try:
                 flow.design_hash = design_hash
+                flow.configuration = node.configuration
                 flow.flow_hash = flowrun_hash
                 flow.settings_hash = settings_hash
                 flow.started = datetime.now(timezone.utc)
@@ -2341,7 +2341,7 @@ class FlowLauncher:
             design, Design
         ), f"BUG: design should be of type Design but was {type(design)}"
 
-        # Canonicalize the aliases of flow sections, and merge the own settings of an embedded
+        # Merge the own settings of an embedded
         # or project-selected design too. One origin per file, each normalized on its own:
         # origin decides first, nesting only within one origin (`compose_flow_settings`).
         project_label = str(Path(xedaproject).absolute())
@@ -2351,7 +2351,7 @@ class FlowLauncher:
         host_label, host_table = host_layer if host_layer is not None else ("", {})
         host_sections, host_bindings = split_bindings(host_table, location=host_label)
         project_sections, project_bindings = split_bindings(flows_settings, location=project_label)
-        design_sections, design_bindings = split_bindings(design.flow, location=design_label)
+        design_sections, design_bindings = split_bindings(thaw(design.flows), location=design_label)
         # The `-s flows.<node>.key` items of the command line are the third origin. They may only
         # name a flow of this run, and `-s key` is a leaf of the requested flow.
         cli_sections, cli_own = split_flow_sections(
@@ -2466,10 +2466,3 @@ def remove_file_logger(handler: Optional[logging.Handler]) -> None:
     if handler is not None:
         log.root.removeHandler(handler)
         handler.close()
-
-
-class XedaOptions(XedaBaseModel):
-    verbose: bool = False
-    quiet: bool = False
-    debug: bool = False
-    detailed_logs: bool = True

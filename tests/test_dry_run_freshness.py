@@ -549,7 +549,7 @@ def test_a_clock_setting_the_design_has_no_port_for_is_refused_by_the_plan(
     """The plan makes the check a launch makes when it constructs the flow (a clock the design
     has no port for), so no freshness is judged for a request a launch refuses."""
     graph = FpgaGraph(tmp_path, monkeypatch)
-    graph.settings.append("clock.freq=100MHz")
+    graph.settings.append("clocks.main_clock.freq=100MHz")
     with pytest.raises(FlowSettingsError, match="No clock ports specified"):
         graph.dry()
 

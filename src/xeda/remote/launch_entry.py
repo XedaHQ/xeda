@@ -60,8 +60,9 @@ class LaunchRequest(XedaBaseModel):
     inputs_dir: str
     #: The run root of the launch.
     run_root: str
-    #: The identity of every shipped read path, by its path here (`using_path_identities`).
-    path_identities: Dict[str, str]
+    #: The identity text of every shipped path, by its path here and its role
+    #: (`using_path_identities`).
+    path_identities: Dict[str, Dict[str, str]]
     hashed_run_dirs: bool
     clean: bool
     rebuild_all: bool
@@ -300,7 +301,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     # The launcher and the CLI helpers load the whole of Xeda, so they load here and not when this
     # module is imported (the agent imports `LaunchRequest` and nothing else).
     from ..cli import setup_logger
-    from ..flow.flow import using_path_identities
+    from ..utils import using_path_identities
     from ..flow_runner import DefaultRunner
     from ..flow_runner.chains import parse_request
     from ..flow_runner.error_codes import public_error, request_error_info

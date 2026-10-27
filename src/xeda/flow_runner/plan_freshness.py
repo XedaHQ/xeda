@@ -179,6 +179,7 @@ def _bare_flow(
         node.settings_hash,
         design_hash,
     )
+    flow.configuration = node.configuration
     return flow
 
 
@@ -406,6 +407,7 @@ def judge_node(
         name=flow.name,
         flowrun_hash=node.flowrun_hash,
         settings_hash=node.settings_hash,
+        configuration=node.configuration,
         design_hash=design_hash,
         run_path=node.run_path,
         design=view,

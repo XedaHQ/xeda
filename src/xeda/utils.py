@@ -17,6 +17,7 @@ import unittest
 from collections import OrderedDict, defaultdict
 from collections.abc import Iterable, Mapping, MutableMapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta
 from enum import Enum
@@ -41,6 +42,7 @@ from xml.etree import ElementTree
 from varname import argname  # type: ignore
 
 from .dataclass import AtomicName, BaseModel, XedaBaseModel
+from .frozen import FrozenDict, thaw
 from .units import Quantity
 
 __all__ = [
@@ -62,6 +64,9 @@ __all__ = [
     "rebuild_like",
     "location_free",
     "location_roots",
+    "path_identity",
+    "plain_json",
+    "using_path_identities",
     # str utils
     "camelcase_to_snakecase",
     "snakecase_to_camelcase",
@@ -461,7 +466,7 @@ def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
     in order, most specific first, and the first one that holds the path under any spelling of
     either names it. A place reached through a symbolic link therefore counts as the same place
     however it is spelled."""
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
@@ -480,17 +485,79 @@ def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
     return value
 
 
+#: The roles of a path whose identity text a remote launch carries (`using_path_identities`):
+#: a path that a setting names, a source of the design and a value of a design parameter.
+PATH_IDENTITY_ROLES = ("setting", "source", "parameter")
+
+_path_identities: ContextVar[Mapping[str, Mapping[str, str]]] = ContextVar(
+    "path_identities", default={}
+)
+
+
+def _canonical_path(text: str) -> str:
+    """Return an absolute path as this file system resolves it.
+
+    The identity of a shipped file is keyed by this one spelling, whether or not its run
+    directory is reached through a symbolic link."""
+    return os.path.realpath(text) if os.path.isabs(text) else text
+
+
+@contextmanager
+def using_path_identities(paths: Mapping[str, Mapping[str, str]]) -> Iterator[None]:
+    """Keep the original identity of a shipped path while tools use its relocated file.
+
+    A remote launch moves some of the paths of a request: it flattens the sources outside the
+    design root and rewrites the files that settings and parameters name. The host must count
+    each one as the client does. `paths` maps the path as the host sees it to the identity text
+    that the client counts for it, by role (`PATH_IDENTITY_ROLES`): the same file can be a source
+    and the value of a parameter, with two identity texts.
+
+    The keys of `paths` are the paths as this file system resolves them (`_canonical_path`). A
+    lookup resolves the given path the same way, so a file is found under any spelling of its
+    path (through a symbolic link or not) and under none that names another file."""
+    unknown = {role for roles in paths.values() for role in roles} - set(PATH_IDENTITY_ROLES)
+    if unknown:
+        raise ValueError(f"unknown path identity roles: {', '.join(sorted(unknown))}")
+    token = _path_identities.set(
+        {_canonical_path(path): dict(roles) for path, roles in paths.items()}
+    )
+    try:
+        yield
+    finally:
+        _path_identities.reset(token)
+
+
+def path_identity(path: Union[str, os.PathLike], role: str) -> Optional[str]:
+    """Return the identity text that the client counts for `path` in `role`, or None.
+
+    This is the one lookup. There is an answer only inside `using_path_identities`, for a path
+    that the remote launch moved or rewrote. Look a path up before it becomes relative to a root
+    (`root_relative_text`, `location_free`): the key is the absolute path."""
+    assert role in PATH_IDENTITY_ROLES, role
+    paths = _path_identities.get()
+    if not paths:
+        return None
+    return paths.get(_canonical_path(os.fspath(path)), {}).get(role)
+
+
+def plain_json(value: Any) -> Any:
+    """Return `value` as plain JSON data, the form a record holds and a document writes.
+
+    A number that is not finite raises `ValueError`: a document never holds `NaN`."""
+    return json.loads(json.dumps(with_json_keys(value), default=json_encodable, allow_nan=False))
+
+
 def json_encodable(obj: Any) -> Any:
     """Return a form of `obj` that `json` can encode, for an object it cannot encode by itself.
 
     A pydantic model goes through pydantic (`mode="json"`), so every serializer that its fields
     declare runs, and what lands in `settings.json` is what the model would validate back.
-    Reading `__dict__` would record a `DesignSource` as its raw instance state, private
+    Reading `__dict__` would record a `Source` as its raw instance state, private
     attributes included, which nothing can load. It would also skip the `Path`, enum and
     `FileResource` conversions that the models define.
 
     Any object that is not a model says how it is written by defining `as_json_value()`
-    (`FileResource`, `DesignSource`, `FlowOutcome`). An `Enum` is written as its value, as
+    (`FileResource`, `Source`, `FlowOutcome`). An `Enum` is written as its value, as
     pydantic writes one in JSON mode. A set or frozenset is written as a list.
 
     Nothing is written by reading its `__dict__`. The attributes of an object are not a
@@ -506,6 +573,8 @@ def json_encodable(obj: Any) -> Any:
         return with_json_keys(obj.model_dump(mode="json"))
     if isinstance(obj, Enum):
         return with_json_keys(obj.value)
+    if isinstance(obj, FrozenDict):
+        return with_json_keys(thaw(obj))
     if isinstance(obj, (set, frozenset)):
         return list(obj)  # as `json` itself writes a tuple; `str()` would write `{...}` text
     as_json_value = getattr(obj, "as_json_value", None)
@@ -538,6 +607,8 @@ def with_json_keys(value: Any) -> Any:
     printed document still agrees with the file. A key whose JSON text another key of the same
     mapping already has is qualified with its type, so neither value is dropped.
     """
+    if isinstance(value, FrozenDict):
+        value = thaw(value)
     if isinstance(value, dict):
         converted: Dict[str, Any] = {}
         for key, item in value.items():
@@ -736,7 +807,7 @@ def get_hierarchy(dct: Dict[str, Any], path: Union[str, List[str]]) -> Optional[
 
 
 def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
-    """Set `value` in `dct` at `path`, a dotted key (`"clock.period"`) or its parts, making a
+    """Set `value` in `dct` at `path`, a dotted key (`"fpga.part"`) or its parts, making a
     table of each key before the last. A dict `value` is set key by key, so a dotted key in it is
     a path too.
 
@@ -1432,7 +1503,7 @@ def semantic_hash(data: Any) -> str:
             # An enum member's `__dict__` carries `__objclass__`, the enum class, whose own
             # `__dict__` lists every member, so descending into it never terminates. Hash the
             # member as it is written out instead. `SourceType` reaches here through
-            # `DesignSource.type` whenever a design is hashed directly.
+            # `Source.type` whenever a design is hashed directly.
             return str(data)
         if isinstance(data, type):
             return f"{data.__module__}.{data.__qualname__}"

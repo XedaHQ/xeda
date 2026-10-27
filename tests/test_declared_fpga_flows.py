@@ -88,8 +88,8 @@ def _design(root: Path, sources=("blink.v",), flows=None) -> Design:
     return Design(
         name="blink",
         design_root=root,
-        rtl={"sources": list(sources), "top": "blink", "clock": "clk"},
-        flow=flows or {},
+        rtl={"sources": list(sources), "top": "blink", "clocks": ["clk"]},
+        flows=flows or {},
     )
 
 
@@ -218,7 +218,7 @@ def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
     )
     design_file = root / "blink.toml"
     design_file.write_text(
-        'name = "blink"\n[rtl]\nsources = ["blink.v"]\ntop = "blink"\nclock.port = "clk"\n'
+        'name = "blink"\n[rtl]\nsources = ["blink.v"]\ntop = "blink"\nclocks = ["clk"]\n'
         f'[flows.yosys_fpga]\nfpga.part = "{yosys_part}"\n'
     )
     return design_file
@@ -278,9 +278,9 @@ def test_nextpnr_reads_nothing_of_yosys_fpga_s_but_its_netlist(tmp_path, monkeyp
 @pytest.mark.parametrize(
     "settings",
     [
-        {"fpga": "xc7a35tcpg236"},  # a 7-series part without its speed grade
+        {"fpga": {"part": "xc7a35tcpg236"}},  # a 7-series part without its speed grade
         {"fpga": {"family": "ice40", "device": "iCE40UL1K"}},
-        {"fpga": PART, "opt_timing": True},
+        {"fpga": {"part": PART}, "opt_timing": True},
     ],
 )
 def test_invalid_target_is_rejected_by_pure_planning(tmp_path, monkeypatch, settings):
@@ -311,7 +311,9 @@ CONFIGS = [
 def test_enabled_family_configuration_is_recorded(
     tmp_path, monkeypatch, tools, part, setting, filename
 ):
-    flow = _runner(tmp_path, monkeypatch).run_flow(Nextpnr, _design(tmp_path / "d"), {"fpga": part})
+    flow = _runner(tmp_path, monkeypatch).run_flow(
+        Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": part}}
+    )
     assert flow.succeeded
     assert flow.outputs.config == flow.run_path / filename
     assert flow.results["outputs"]["config"]["path"] == str(flow.outputs.config)
@@ -328,7 +330,7 @@ def test_missing_or_stale_configuration_fails(
     runner = _runner(tmp_path, monkeypatch)
     design = _design(tmp_path / "d")
     if stale:
-        assert runner.run_flow(Nextpnr, design, {"fpga": part}).succeeded
+        assert runner.run_flow(Nextpnr, design, {"fpga": {"part": part}}).succeeded
 
     def no_config(self, *args, env=None):
         for arg in map(str, args):
@@ -338,7 +340,7 @@ def test_missing_or_stale_configuration_fails(
     monkeypatch.setattr(NextpnrTool, "run", no_config)
     runner = DefaultRunner(tmp_path / "xeda_run", rebuild_all=True, display_results=False)
     with pytest.raises(FlowFatalError, match=setting):
-        runner.run_flow(Nextpnr, design, {"fpga": part})
+        runner.run_flow(Nextpnr, design, {"fpga": {"part": part}})
     import json
 
     result = json.loads((tmp_path / "xeda_run" / "blink" / "nextpnr" / "results.json").read_text())
@@ -348,7 +350,7 @@ def test_missing_or_stale_configuration_fails(
 
 def test_ecp5_out_of_context_has_no_configuration(tmp_path, monkeypatch, tools):
     flow = _runner(tmp_path, monkeypatch).run_flow(
-        Nextpnr, _design(tmp_path / "d"), {"fpga": PART, "out_of_context": True}
+        Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}, "out_of_context": True}
     )
     assert flow.succeeded and flow.outputs.config is None
     assert not flow.results["outputs"]
@@ -361,10 +363,10 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
     project = tmp_path / PROJECT_FILE
     project.write_text(
         project.read_text()
-        + "    clock: {period: 10 ns}\n  yosys_fpga: {netlist_src_attrs: false, flatten: true}\n"
+        + "    clocks.main_clock.period: 10 ns\n  yosys_fpga: {netlist_src_attrs: false, flatten: true}\n"
     )
     design_file.write_text(
-        design_file.read_text() + 'clock.uncertainty = "0.3 ns"\nflatten = false\n'
+        design_file.read_text() + 'clocks.main_clock.uncertainty = "0.3 ns"\nflatten = false\n'
     )
     runner = _runner(tmp_path, monkeypatch)
     plan = runner.plan("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
@@ -388,7 +390,7 @@ def test_yosys_inherited_init_creates_no_output_directories(tmp_path, monkeypatc
     design = _design(tmp_path / "d")
     flow = YosysFpga(
         YosysFpga.Settings(
-            fpga=PART,
+            fpga={"part": PART},
             netlist_json="nested/netlist.json",
             rtl_json="rtl/design.json",
             rtl_verilog="rtl/design.v",
@@ -406,7 +408,7 @@ def test_yosys_inherited_init_creates_no_output_directories(tmp_path, monkeypatc
 def test_reused_yosys_initialization_makes_no_directory_calls(tmp_path, monkeypatch, tools):
     runner = _runner(tmp_path, monkeypatch)
     design = _design(tmp_path / "d")
-    assert runner.run_flow(Nextpnr, design, {"fpga": PART}).succeeded
+    assert runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}}).succeeded
     original = YosysFpga.init
 
     def init(self):
@@ -419,7 +421,7 @@ def test_reused_yosys_initialization_makes_no_directory_calls(tmp_path, monkeypa
             original(self)
 
     monkeypatch.setattr(YosysFpga, "init", init)
-    again = runner.run_flow(Nextpnr, design, {"fpga": PART})
+    again = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}})
     assert again.reused and producers_of(runner, again)[0].reused
 
 
@@ -439,7 +441,7 @@ def test_successful_declared_launch_and_delivery_preserve_outside_tree(
     runner = DefaultRunner(world.root, display_results=False, outputs_to=world.delivered)
     before = _state(world.parent, [world.root, world.delivered])
     with watching(world) as violations:
-        flow = runner.run_flow(Nextpnr, design, {"fpga": PART})
+        flow = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}})
     assert flow.succeeded
     assert not violations
     assert _state(world.parent, [world.root, world.delivered]) == before
@@ -484,18 +486,18 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
 
     monkeypatch.setattr(NextpnrTool, "run", run)
     runner = _runner(tmp_path, monkeypatch)
-    flow = runner.run_flow(Nextpnr, design, {"fpga": PART})
+    flow = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}})
     assert flow.succeeded
     opened = {Path(p).resolve() for p in json.loads((flow.run_path / "opened.json").read_text())}
     producer = flow.inputs.netlist.parent
     assert {p for p in opened if p.is_relative_to(producer)} == {flow.inputs.netlist}
     assert tmp_path / "canary.json" not in opened
-    again = runner.run_flow(Nextpnr, design, {"fpga": PART})
+    again = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}})
     assert again.reused
     if not source_supplied:
         assert producers_of(runner, again)[0].reused
     assert again.inputs.netlist == flow.inputs.netlist
-    changed = runner.run_flow(Nextpnr, design, {"fpga": PART, "seed": 1})
+    changed = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}, "seed": 1})
     assert changed.succeeded and not changed.reused
     if not source_supplied:
         assert producers_of(runner, changed)[0].reused

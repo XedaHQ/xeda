@@ -76,8 +76,10 @@ User-facing rules: `docs/run-directories.rst`.
 results) -> `run()`, `parse_reports()`, `check_results()` -> `results.json` -> `trace.json`, last
 and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
-- Never modify the input settings or the design; the flow gets copies
-  (`tests/test_flow_design_isolation.py`). A launch leaves no process-wide state
+- Never modify the input settings; the flow gets copies (`tests/test_flow_design_isolation.py`).
+  A design is immutable (`Design`, its parts, `Source`, and every table and list in it): build a
+  changed one with `model_copy(update=...)` and call `invalidate_cached_properties()`
+  (`tests/test_frozen_design.py`). A launch leaves no process-wide state
   (`tests/test_isolation.py` sweeps it, `tests/test_shared_state.py` has its offenders).
 - `init()` runs even for a fresh flow: no dependency, no input read, no file written. A file it
   or `prepare_inputs()` registers in `Flow.implicit_inputs` needs a `locate_prepared_inputs()`
@@ -133,8 +135,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   allowed and is never a producer of a `design` input. A generated source counts by its content,
   type and name within the converter's output, never by its path
   (`tests/test_design_edges.py`, `tests/test_generated_names.py`).
-- A node's identity is its settings hash plus its ordered input origins
-  (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
+- A node's identity is its settings hash, its design configuration (`flow_runner/configuration.py`)
+  and its ordered input origins (`bindings.node_identity`). A producer's settings never depend on
+  which consumer asked. The configuration holds what the node reads of the design, never content
+  or a target label, and a source file that supplies an input counts by place and type; the remote host counts a moved path as the client does
+  (`utils.path_identity`, `tests/test_remote_packaging.py`).
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
   `prjxray_db`, `platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`,
   `pdk_version`, `pdk_root`, `hierarchical`, `wire_rc` and `out_of_context` (`SHARED_SETTINGS`) must
@@ -146,7 +151,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 ### Adding or changing a flow
 
 - Add the class to the import list and to `__all__` in `xeda/flows/__init__.py`
-  (`tests/test_flow_registry.py`). After a change to flows, aliases, I/O, settings models, or
+  (`tests/test_flow_registry.py`). After a change to flows, I/O, settings models, or
   `action_reason`, run `python tools/generate_flow_catalog.py` and commit the catalog
   (`tests/test_flow_catalog.py`).
 - OpenROAD flows: every OpenROAD process (`openroad` runs two or three) starts with the restart
@@ -198,6 +203,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - A removed setting fails with "`<name>` was removed:" and either the setting to use or, for
   `NoReplacement`, why there is none ("...; delete it"). The entry is in `removed_settings` of the
   class that had the field (`tests/test_settings_a_flow_does_not_use.py`).
+- Every name has one spelling: no field has an alias, and a flow has one name. Another spelling
+  that is refused is a `SecondSpelling` entry (`removed_settings` of a flow, `removed_inputs` of a
+  design model; code `removed_alias`), and a row of `REMOVED_SPELLINGS`
+  (`tests/test_removed_spellings.py`).
 - A setting accepts exactly its type; never add an implicit conversion. A boolean takes only
   `true`/`false`; list text is comma-separated and `[...]` text is refused; `Code` is for
   number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`).

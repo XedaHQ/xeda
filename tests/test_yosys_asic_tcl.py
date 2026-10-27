@@ -862,7 +862,9 @@ def _launch(tmp_path: Path, source: str, top: str, **given: Any):
     root.mkdir()
     (root / "top.v").write_text(source)
     design = Design(
-        name=top, design_root=root, rtl={"sources": ["top.v"], "top": top, "clock": {"port": "clk"}}
+        name=top,
+        design_root=root,
+        rtl={"sources": ["top.v"], "top": top, "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
         Yosys, design, _tiny(tmp_path, **given)
@@ -1026,7 +1028,7 @@ def _launch_ram(tmp_path: Path, **given: Any):
     design = Design(
         name="top",
         design_root=root,
-        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     return DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
         Yosys, design, _tiny(tmp_path, **given)

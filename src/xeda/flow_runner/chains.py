@@ -861,14 +861,10 @@ def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[
             ):
                 found.append(f"{typed}{name}.{made}")
         return found
-    wanted = name.lower().replace("-", "_")
     direct: list[str] = []
     passing: list[str] = []
     for flow_class in candidates:
-        spellings = [
-            n for n in (flow_class.name, *flow_class.aliases) if n.lower().startswith(wanted)
-        ]
-        if not spellings:
+        if not flow_class.name.startswith(name):
             continue
         passes = False
         if head:
@@ -876,8 +872,7 @@ def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[
                 passes = bool(_check_chain((*head, ChainElement(flow_class)))[-1].through)
             except (FlowSettingsException, _EdgeFailure):
                 continue
-        spelling = flow_class.name if flow_class.name in spellings else spellings[0]
-        (passing if passes else direct).append(typed + spelling)
+        (passing if passes else direct).append(typed + flow_class.name)
     return direct + passing
 
 

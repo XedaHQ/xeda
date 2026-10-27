@@ -394,14 +394,14 @@ def test_process_handover_and_second_launch_reuse(part, tmp_path, monkeypatch):
     source.write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     design = Design(name="top", rtl={"sources": [source], "top": "top"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run("nextpnr", design, flow_settings={"fpga": part})
+    first = runner.run("nextpnr", design, flow_settings={"fpga": {"part": part}})
     assert first is not None and first.succeeded
     producer = tool_utils.producers_of(runner, first)[0]
     call = _calls(first.run_path)[0]
     assert call["inputs"] == [str(first.inputs.netlist)]
     assert str(first.inputs.netlist) == producer.results["outputs"]["netlist"]["path"]
     assert first.outputs.config.read_bytes()
-    again = runner.run("nextpnr", design, flow_settings={"fpga": part})
+    again = runner.run("nextpnr", design, flow_settings={"fpga": {"part": part}})
     assert again is not None and again.reused and tool_utils.producers_of(runner, again)[0].reused
     assert len(_calls(first.run_path)) == len(_calls(producer.run_path)) == 1
 

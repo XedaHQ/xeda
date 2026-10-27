@@ -124,7 +124,6 @@ def test_a_leaf_entry_describes_the_leaf(listing_flow):
     mode = by_name["outer.mode"]
     assert mode == {
         "name": "outer.mode",
-        "alias": None,
         "type": "string",
         "required": False,
         "default": "a",
@@ -354,52 +353,7 @@ def test_the_tier_option_offers_the_tiers_of_a_setting():
     assert option.default is None
 
 
-# ------------------------------------------------------------- aliases and shared groups
-
-
-class _Aliased(SettingsGroup):
-    """A group with a field that has a second name."""
-
-    knob: Optional[int] = Field(
-        None, alias="knob_alias", description="A number.", json_schema_extra=tier("common")
-    )
-    plain: Optional[int] = Field(None, description="No second name.")
-
-
-@pytest.fixture
-def aliased_flow():
-    with preserved_flow_registry():
-
-        class AliasedToy(Flow):
-            """A flow whose group has a field with an alias."""
-
-            results_description: ClassVar[dict[str, MetricSpec]] = {}
-
-            class Settings(Flow.Settings):
-                aliased: _Aliased = Field(default_factory=_Aliased, description="The group.")
-
-            def run(self) -> None:
-                pass
-
-        yield AliasedToy
-
-
-def test_a_field_of_a_group_reports_its_alias_as_a_dotted_path(aliased_flow):
-    by_name = {f["name"]: f for f in settings_info(aliased_flow)["fields"]}
-    assert by_name["aliased.knob"]["alias"] == "aliased.knob_alias"
-    assert by_name["aliased.plain"]["alias"] is None
-    assert by_name["aliased"]["alias"] is None
-
-
-def test_the_dotted_alias_of_a_group_field_is_accepted_as_a_setting(aliased_flow):
-    from xeda.flow_runner.settings_layers import compose_flow_settings
-
-    settings = aliased_flow.Settings.from_input(
-        compose_flow_settings(aliased_flow, [], ["aliased.knob_alias=3"])
-    )
-    assert settings.aliased.knob == 3
-    by_name = {f["name"]: f for f in settings_info(aliased_flow)["fields"]}
-    assert by_name["aliased.knob"]["alias"] == "aliased.knob_alias"
+# ------------------------------------------------------------------------ shared groups
 
 
 @pytest.fixture

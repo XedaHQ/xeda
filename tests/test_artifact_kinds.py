@@ -205,7 +205,7 @@ def test_the_netlist_that_is_declared_is_the_one_the_script_writes(
 
     settings = dict(given)
     if mapped:
-        settings = tiny_settings(tiny_store(tmp_path), clock={"period": "2 ns"})
+        settings = tiny_settings(tiny_store(tmp_path), clocks={"main_clock": {"period": "2 ns"}})
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     script = (run_dir / "yosys_synth.ys").read_text()
     chosen = Yosys.netlist_output(Yosys.Settings(**settings))
@@ -283,7 +283,7 @@ def run_yosys(tmp_path: Path, *settings: str) -> tuple[dict, Path]:
     design.mkdir()
     (design / "top.v").write_text(RTL)
     (design / "design.yaml").write_text(
-        "name: top\nrtl:\n  sources: [top.v]\n  top: top\n  clock:\n    port: clk\n"
+        "name: top\nrtl:\n  sources: [top.v]\n  top: top\n  clocks: [clk]\n"
     )
     run_root = tmp_path / "xeda_run"
     proc = subprocess.run(
@@ -318,7 +318,10 @@ def test_a_run_with_a_library_records_the_mapped_netlist(tmp_path):
     require_yosys()
     store = tiny_store(tmp_path)
     results, run_dir = run_yosys(
-        tmp_path, f"platform_file={TINY_RESIDUE}", f"pdk_root={store}", "clock.period=2ns"
+        tmp_path,
+        f"platform_file={TINY_RESIDUE}",
+        f"pdk_root={store}",
+        "clocks.main_clock.period=2ns",
     )
     # the record lists every declared output, and the generic netlist was not written
     assert results["outputs"]["netlist_generic"]["names"] == []
@@ -363,7 +366,7 @@ def test_a_consumer_of_the_generic_netlist_is_handed_it_and_the_mapped_one_is_no
         design = Design(
             name="top",
             design_root=design_root,
-            rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+            rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
         )
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
         plan = runner.plan(_GenericTaker, design)

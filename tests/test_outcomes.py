@@ -195,8 +195,7 @@ def flows(producer_registered):  # noqa: F811
     found = _flows()
     yield found
     for cls in found.values():
-        for name in (cls.name, cls.__name__):
-            registered_flows.pop(name, None)
+        registered_flows.pop(cls.name, None)
 
 
 def _design(tmp_path: Path) -> Design:
@@ -418,8 +417,7 @@ def test_values_are_deeply_frozen_and_picklable(tmp_path):
         "nextpnr": {"seed": 7, "clocks": {"main_clock": {"period": "10 ns"}}, "list": [1, [2]]}
     }
     spec = Spec("nextpnr", design, settings=settings)
-    design.rtl.top = "changed"  # a caller's later change of the design does not reach the spec
-    assert spec.design.rtl.top == "top"
+    assert spec.design == design and spec.design.rtl.top == "top"
     settings["nextpnr"]["seed"] = 8
     settings["nextpnr"]["list"].append(3)
     assert spec.settings["nextpnr"]["seed"] == 7

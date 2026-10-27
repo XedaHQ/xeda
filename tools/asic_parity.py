@@ -149,7 +149,6 @@ RESERVED_SETTINGS = (
     "pdk_provider",
     "pdk_version",
     "pdk_root",
-    "clock",
     "clocks",
     "hierarchical",
     "fail_timing",
@@ -223,7 +222,7 @@ def make_argv(
 def xeda_argv(python: str, chain: str, design_file: Path, run_root: Path) -> list[str]:
     """Return the command line that runs `chain` on the generated design file of a half."""
     return [
-        python, "-m", "xeda", "run", chain, "--design", str(design_file),
+        python, "-m", "xeda", "run", chain, str(design_file),
         "--run-root", str(run_root), "--json",
     ]  # fmt: skip
 
@@ -292,10 +291,10 @@ def tool_version(executable: str, flag: str, home: Path) -> Optional[str]:
 
 
 def registered_flow_names() -> frozenset[str]:
-    """Return the names and aliases of the flows that this xeda has."""
+    """Return the names of the flows that this xeda has."""
     from xeda.introspect import all_flow_classes
 
-    return frozenset(name for cls in all_flow_classes() for name in [cls.name, *cls.aliases])
+    return frozenset(cls.name for cls in all_flow_classes())
 
 
 # ---- the design file -------------------------------------------------------------------------
@@ -975,7 +974,7 @@ def generated_design(
         "name": f"{config.platform}_{config.design}",
         "rtl": {
             "top": variables["DESIGN_NAME"],
-            "clock": {"port": config.clock_port},
+            "clocks": [{"port": config.clock_port}],
             "sources": sources,
         },
         "flows": flows,

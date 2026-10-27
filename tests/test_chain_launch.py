@@ -290,7 +290,7 @@ def _fpga_design(tmp_path: Path, flows) -> Design:
     root.mkdir(exist_ok=True)
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     return Design(
-        name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"}, flow=flows
+        name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"}, flows=flows
     )
 
 
@@ -300,7 +300,7 @@ def test_a_chain_delivers_only_after_the_whole_graph_succeeded(tmp_path, toolcha
     config = tmp_path / "delivered" / "routed.config"
     config.parent.mkdir()
     outputs = tmp_path / "out"
-    design = _fpga_design(tmp_path, {"nextpnr": {"fpga": ECP5, "textcfg": str(config)}})
+    design = _fpga_design(tmp_path, {"nextpnr": {"fpga": {"part": ECP5}, "textcfg": str(config)}})
     chain = parse_request("yosys_fpga+nextpnr+fpga_pack")
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "ecppack")
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "partial")
@@ -328,7 +328,7 @@ def test_a_chain_delivers_only_after_the_whole_graph_succeeded(tmp_path, toolcha
 
 def test_a_delivery_cannot_replace_a_file_the_chain_reads(tmp_path, toolchain):
     """A handed-over input is a file the launch reads: no node's delivery may land on it."""
-    design = _fpga_design(tmp_path, {"nextpnr": {"fpga": ECP5}})
+    design = _fpga_design(tmp_path, {"nextpnr": {"fpga": {"part": ECP5}}})
     runner = _runner(tmp_path)
     flow = runner.run(parse_request("nextpnr+fpga_pack"), design)
     assert flow.succeeded

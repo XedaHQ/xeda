@@ -4,7 +4,6 @@ from .default_runner import (
     DefaultRunner,
     FlowNotFoundError,
     FlowRunner,
-    XedaOptions,
     add_file_logger,
     get_flow_class,
 )
@@ -17,7 +16,6 @@ __all__ = [
     "Dse",
     "FlowNotFoundError",
     "FlowRunner",
-    "XedaOptions",
     "add_file_logger",
     "dse",
     "get_flow_class",

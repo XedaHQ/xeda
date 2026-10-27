@@ -59,10 +59,10 @@ def test_alternative_bindings_of_the_three_inputs_use_only_the_alternative(tmp_p
     write_vivado_design(tmp_path)
     names = ("netlist", "netlist_timing", "sdf")
     settings = [
-        "flows.vivado_synth.fpga=xc7a12tcsg325-1",
-        "flows.vivado_synth.clock.period=5ns",
-        "flows.vivado_alt_synth.fpga=xc7a12tcsg325-1",
-        "flows.vivado_alt_synth.clock.period=5ns",
+        "flows.vivado_synth.fpga.part=xc7a12tcsg325-1",
+        "flows.vivado_synth.clocks.main_clock.period=5ns",
+        "flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1",
+        "flows.vivado_alt_synth.clocks.main_clock.period=5ns",
         "timing_sim=true",
         *(f"inputs.{name}=vivado_alt_synth.{name}" for name in names),
     ]
@@ -82,10 +82,10 @@ def test_alternative_bindings_of_the_three_inputs_use_only_the_alternative(tmp_p
 def test_a_partial_binding_is_refused_instead_of_pairing_two_runs(tmp_path):
     write_vivado_design(tmp_path)
     settings = [
-        "flows.vivado_synth.fpga=xc7a12tcsg325-1",
-        "flows.vivado_synth.clock.period=5ns",
-        "flows.vivado_alt_synth.fpga=xc7a12tcsg325-1",
-        "flows.vivado_alt_synth.clock.period=5ns",
+        "flows.vivado_synth.fpga.part=xc7a12tcsg325-1",
+        "flows.vivado_synth.clocks.main_clock.period=5ns",
+        "flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1",
+        "flows.vivado_alt_synth.clocks.main_clock.period=5ns",
         "timing_sim=true",
         "inputs.netlist=vivado_alt_synth.netlist",
     ]
@@ -168,8 +168,8 @@ def test_three_alternative_bindings_run_only_the_alternative_and_relaunch_nothin
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
     settings = [
-        "flows.vivado_alt_synth.fpga=xc7a12tcsg325-1",
-        "flows.vivado_alt_synth.clock.period=5ns",
+        "flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1",
+        "flows.vivado_alt_synth.clocks.main_clock.period=5ns",
         "timing_sim=true",
         *(
             f"inputs.{name}=vivado_alt_synth.{name}"

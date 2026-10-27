@@ -10,7 +10,10 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-__all__ = ["FrozenDict", "freeze", "thaw"]
+from pydantic import BaseModel
+from pydantic_core import core_schema
+
+__all__ = ["Frozen", "FrozenDict", "FrozenModel", "freeze", "thaw"]
 
 
 class FrozenDict(Mapping[str, Any]):
@@ -66,3 +69,59 @@ def thaw(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [thaw(item) for item in value]
     return value
+
+
+def _serialization() -> Any:
+    """Return the serializer of a frozen value: a dump holds plain tables and lists."""
+    return core_schema.plain_serializer_function_ser_schema(
+        thaw, return_schema=core_schema.any_schema()
+    )
+
+
+class Frozen:
+    """A field annotation: the field is validated as its type says, then frozen.
+
+    `Annotated[Mapping[str, Any], Frozen()]` is a field that takes a table and holds a
+    `FrozenDict`. Every table and list inside it is frozen too. The JSON schema of the field is
+    that of the type. A dump of the model holds plain tables and lists."""
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        return core_schema.no_info_after_validator_function(
+            freeze, handler(source), serialization=_serialization()
+        )
+
+    def __hash__(self) -> int:
+        return hash(type(self))
+
+    def __eq__(self, other: object) -> bool:
+        return type(other) is type(self)
+
+
+class FrozenModel:
+    """A field annotation: a model validates the value, and the field holds the model's fields
+    as a `FrozenDict`.
+
+    `Annotated[Mapping[str, Any], FrozenModel(Clock)]` takes anything that `Clock` takes (a table,
+    a clock, or a form that `Clock` reads), reports a mistake at the place that `Clock` does, and
+    holds `freeze(clock.model_dump())`. The JSON schema of the field is that of the model."""
+
+    def __init__(self, model: type[BaseModel]) -> None:
+        self.model = model
+
+    @property
+    def models(self) -> tuple[type[BaseModel], ...]:
+        """The models that the annotation validates a value with."""
+        return (self.model,)
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        return core_schema.no_info_after_validator_function(
+            lambda value: freeze(value.model_dump()),
+            handler(self.model),
+            serialization=_serialization(),
+        )
+
+    def __hash__(self) -> int:
+        return hash(self.model)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, FrozenModel) and other.model is self.model

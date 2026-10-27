@@ -103,7 +103,7 @@ def _example(unit_name: str) -> str:
 
 def _parse_value(value: Any, to_name: str) -> tuple[float, str | None]:
     """Return the magnitude of `value` and the registry name of its unit (`None` if bare)."""
-    # `bool` is an `int`: `clock.period: true` would be a 1 ns clock.
+    # `bool` is an `int`: `clocks.main_clock.period: true` would be a 1 ns clock.
     if isinstance(value, bool) or not isinstance(value, (str, numbers.Real, decimal.Decimal)):
         raise ValueError(
             f"cannot interpret {value!r} as a quantity: expected a number, or text such as "

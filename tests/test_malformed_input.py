@@ -72,7 +72,7 @@ def test_malformed_flow_settings_are_validation_errors(cls):
 
 @pytest.mark.parametrize("section", ["rtl", "tb"])
 def test_malformed_design_sections_are_validation_errors(section):
-    fields = ["sources", "top", "parameters", "generics", "defines", "clock", "clocks", "cocotb"]
+    fields = ["sources", "top", "parameters", "defines", "clocks", "cocotb"]
 
     def build(field, bad):
         payload = {"name": "d", "rtl": dict(RTL)}
@@ -85,7 +85,7 @@ def test_malformed_design_sections_are_validation_errors(section):
 
 
 def test_malformed_top_level_design_keys_are_validation_errors():
-    fields = ["name", "flow", "dependencies", "authors", "language", "rtl", "tb"]
+    fields = ["name", "flows", "dependencies", "authors", "language", "rtl", "tb"]
 
     leaks = _leaks(lambda field, bad: Design(**{"name": "d", "rtl": dict(RTL), field: bad}), fields)
 
@@ -98,15 +98,6 @@ def test_malformed_top_level_design_keys_are_validation_errors():
 # ---------------------------------------------------------------------------------------------
 
 
-def test_a_bare_part_number_is_accepted_as_the_fpga_setting():
-    """`fpga = "xc7a..."` is the documented shorthand, and it is accepted."""
-    settings = YosysFpga.Settings(fpga="LFE5U-25F-6BG381C")  # type: ignore[arg-type]
-
-    assert settings.fpga is not None
-    assert settings.fpga.part == "LFE5U-25F-6BG381C"
-    assert settings.fpga.family == "ecp5"  # the part number was also decoded
-
-
 def test_a_non_string_part_is_reported_by_the_part_field():
     """The FPGA root validator called `part.strip()` before `part` was type-checked."""
     with pytest.raises(ValidationError) as excinfo:
@@ -117,7 +108,9 @@ def test_a_non_string_part_is_reported_by_the_part_field():
 
 @pytest.mark.parametrize("entry", ["W", 1, None], ids=repr)
 def test_a_parameter_list_entry_that_is_not_an_object_is_a_design_error(entry):
-    with pytest.raises(DesignValidationError, match="parameters/generics"):
+    with pytest.raises(
+        DesignValidationError, match="parameters must be a dictionary or a list of objects"
+    ):
         Design(name="d", rtl={**RTL, "parameters": [entry]})
 
 
@@ -386,19 +379,18 @@ def test_the_design_s_own_table_is_judged_whichever_target_is_selected(tmp_path,
 
 
 @pytest.mark.parametrize("selected", ["a", "b"])
-@pytest.mark.parametrize("key", ["flows", "flow"])
 def test_a_malformed_table_of_a_target_is_refused_at_the_target_whichever_is_selected(
-    tmp_path, selected, key
+    tmp_path, selected
 ):
     """Every target's overlay is checked, selected or not, and the mistake is located in the
     target that wrote it, not in the merged design."""
-    design = _write_design(tmp_path, targets={"a": {key: {"verilator": 3}}, "b": {}})
+    design = _write_design(tmp_path, targets={"a": {"flows": {"verilator": 3}}, "b": {}})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
 
     with pytest.raises(DesignValidationError) as refused:
         runner.plan("verilator", design, target=selected)
 
-    assert [location for location, *_ in refused.value.errors] == [f"targets.a.{key}"]
+    assert [location for location, *_ in refused.value.errors] == ["targets.a.flows"]
     assert "`flows.verilator` must be a mapping of settings" in str(refused.value)
 
 
@@ -462,7 +454,7 @@ KEY_PAIRS = [
     ("timing", "timing.x"),
     ("flows", "flows.verilator.timing"),
     ("flows.verilator", "flows.verilator.timing"),
-    ("clock", "clock.period"),
+    ("clocks.main_clock", "clocks.main_clock.period"),
     ("tb", "tb.top"),
 ]
 #: what the value key is given: text the command line can write, and what a file or code can
@@ -521,10 +513,10 @@ def _plan_with_keys(
         _write_design(directory)
         entry = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top"}, **dict(items)}
         project = directory / PROJECT_FILE
-        project.write_text(json.dumps({"design": [entry]}))
+        project.write_text(json.dumps({"designs": [entry]}))
         return runner.plan("verilator", None, xedaproject=str(project))
     if origin == "section of a flows table":
-        section = [("clock", value), ("clock.period", 5)]
+        section = [("clocks.main_clock", value), ("clocks.main_clock.period", 5)]
         if child_first:
             section.reverse()
         return runner.plan(

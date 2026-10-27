@@ -198,7 +198,7 @@ def test_the_auto_delay_target_takes_the_derated_clock_period(tmp_path, monkeypa
         tmp_path,
         abc={"delay_target": "auto", "clock_derating": 0.1},
     )
-    given["clock"] = {"period": "2.5 ns"}
+    given["clocks"] = {"main_clock": {"period": "2.5 ns"}}
     commands = _commands(
         _scripted_launch(tmp_path, monkeypatch, Yosys, given), script_format, tmp_path
     )

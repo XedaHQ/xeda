@@ -2,7 +2,13 @@ import logging
 import re
 from typing import Any, Optional
 
-from ..dataclass import Code, Field, XedaBaseModel, accepts_non_mapping, model_validator
+from ..dataclass import (
+    Code,
+    Field,
+    XedaBaseModel,
+    accepts_non_mapping,
+    model_validator,
+)
 from ..units import count
 from ..utils import try_convert
 
@@ -60,8 +66,6 @@ class FPGA(XedaBaseModel):
     @classmethod
     @accepts_non_mapping
     def _fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
-        # The positional form `FPGA("xc7a...")` accepts a part number. A field value does the
-        # same through this expansion.
         expanded = cls.as_mapping(values)
         if expanded is not None:
             values = expanded

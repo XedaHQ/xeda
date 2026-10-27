@@ -192,7 +192,7 @@ CASES = [
         "vivado_synth",
         ("inv.vhd", VHDL_INVERTER),
         ("tb.vhd", VHDL_TB),
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}},
+        {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "5.5 ns"}}},
         "fake",
     ),
     Case("yosys", ("inv.v", VERILOG_RTL), ("tb.v", VERILOG_TB), {}, "yosys"),
@@ -217,7 +217,7 @@ class Project:
         return Design(
             name="inv",
             design_root=self.root,
-            rtl={"sources": [self.case.rtl[0]], "top": "inv", "clock": "a"},
+            rtl={"sources": [self.case.rtl[0]], "top": "inv", "clocks": ["a"]},
             tb={"sources": [self.case.tb[0]], "top": "tb"},
             language=language,
         )

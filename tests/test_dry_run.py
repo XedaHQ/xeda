@@ -331,7 +331,7 @@ def test_switched_on_outputs_and_cli_shared_settings_are_reported(tmp_path, json
     design = _design_file(tmp_path / "d", yosys_part=OTHER_PART)
     proc = run_xeda(
         "run",
-        "Nextpnr",
+        "nextpnr",
         str(design),
         "--dry-run",
         *(["--json"] if json_flag else []),

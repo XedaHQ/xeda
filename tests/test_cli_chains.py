@@ -114,13 +114,6 @@ def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp
     assert failure["outcome"] is None and failure["nodes"] == []
 
 
-def test_help_settings_of_a_chain_are_its_last_flow_s(tmp_path):
-    result = _xeda("run", "__input_maker+__taker", "--help-settings", "--json")
-    assert result.exit_code == 0, result.output
-    document = json.loads(result.stdout)
-    assert document["flow"] == "__taker"
-
-
 def test_run_help_explains_chains_with_yaml_examples():
     import click
 
@@ -355,7 +348,7 @@ def test_a_malformed_request_is_refused_even_for_a_missing_design(tmp_path):
 @pytest.mark.parametrize(
     "command",
     [
-        ("dse", "__input_maker+__taker", "--design", "design.yaml"),
+        ("dse", "__input_maker+__taker", "design.yaml"),
         ("scrub", "__input_maker+__taker", "demo"),
         ("list-settings", "__input_maker+__taker"),
         ("list-results", "__input_maker+__taker"),

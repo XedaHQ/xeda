@@ -79,7 +79,7 @@ TIME_MARKER_PREFIX = ".xeda-time-"
 
 
 def content_digest(path: Path) -> str:
-    """Return the SHA3-256 of the file content, cut to 128 bits (`DesignSource.content_hash`)."""
+    """Return the SHA3-256 of the file content, cut to 128 bits (`Source.content_hash`)."""
     h = hashlib.sha3_256()
     with open(path, "rb") as f:
         while chunk := f.read(_CHUNK):

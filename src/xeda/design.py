@@ -25,6 +25,7 @@ from glob import glob
 from os.path import isfile
 from pathlib import Path
 from typing import (
+    Annotated,
     Any,
     Callable,
     ClassVar,
@@ -45,34 +46,38 @@ from typing_extensions import TypedDict
 
 from .dataclass import (
     WHOLE,
-    AliasChoices,
+    ConfigDict,
     Field,
     PrivateAttr,
+    SecondSpelling,
     SerializeAsAny,
     ValidationError,
     XedaBaseModel,
-    canonical_tree,
     escaped_names_atomic,
     field_validator,
     input_names,
     model_validator,
     model_with_allow_extra,
+    removed_error,
+    removed_inputs_in,
     shape_problems,
     unspecified,
     validation_errors,
 )
 from .digest import content_digest
+from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
 from .generation import judging_generation
 from .proc_utils import run_child
 from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
+    hierarchical_merge,
     ConflictingKeys,
     XedaException,
     expand_env_vars,
     expand_hierarchy,
     flows_table_problems,
-    hierarchical_merge,
     location_free,
+    path_identity,
     removesuffix,
     semantic_hash,
     settings_to_dict,
@@ -98,10 +103,12 @@ __all__ = [
     "DESIGN_PARTS",
     "Design",
     "DesignFileParseError",
-    "DesignSource",
+    "DesignPart",
+    "Source",
     "DesignValidationError",
     "FileResource",
     "LanguageSettings",
+    "Rtl",
     "SOURCE_SUFFIXES",
     "AMBIGUOUS_SUFFIXES",
     "TYPE_ONLY",
@@ -110,7 +117,11 @@ __all__ = [
     "source_type_named",
     "source_type_of",
     "SourceType",
+    "Testbench",
     "VhdlSettings",
+    "cocotb_of",
+    "generator_of",
+    "language_of",
 ]
 
 
@@ -463,6 +474,18 @@ def _describe_generator(generator: Any) -> str:
 
 
 class FileResource:
+    """A file of the design. It is immutable: no attribute changes after the constructor."""
+
+    file: Path
+    _specified_path: Path
+    _checked: bool
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(f"a {type(self).__name__} is read-only: cannot set `{name}`")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"a {type(self).__name__} is read-only: cannot delete `{name}`")
+
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
@@ -497,7 +520,7 @@ class FileResource:
         # design's identity does not depend on it (see `Design._source_fingerprint`). A flow that
         # names a file after where it came from (GHDL, for two VHDL sources with the same stem)
         # needs what the design said, not an absolute location.
-        self._specified_path = Path(path)
+        specified_path = Path(path)
         path = _expand_design_path(path, root)
         if not path.is_absolute():
             path = root / path
@@ -505,9 +528,11 @@ class FileResource:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
         if resolve and not path.is_file():
             raise IsADirectoryError(errno.EISDIR, "a directory, not a file", str(path))
-        self.file = path.resolve() if resolve else path.absolute()
+        attributes = vars(self)
+        attributes["_specified_path"] = specified_path
+        attributes["file"] = path.resolve() if resolve else path.absolute()
         #: True for a file that must exist (`file`), false for one that need not exist yet (`path`).
-        self._checked = bool(resolve)
+        attributes["_checked"] = bool(resolve)
 
     @property
     def path(self) -> Path:
@@ -958,14 +983,25 @@ def root_relative_text(root: Path, path: Path) -> str:
         return Path(path).as_posix()
 
 
-class DesignSource(FileResource):
+class Source(FileResource):
+    """A source file of a design. It is immutable."""
+
     type: SourceType
+    _stated: dict[str, Any]
+    #: The place of a source that a converter flow generated, in the output of that flow. Only
+    #: the design a converter derives sets it (`xeda.flow.derived`). The identity of the design
+    #: counts the source by this name, never by its path (`Design._source_fingerprint`),
+    #: because the path into a run directory depends on where the run root is. It is no part
+    #: of the table of a source, and a design that is loaded from a file never has it.
+    generated_name: str | None
 
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
         typ: Union[str, SourceType, None] = None,
         _root_path: Optional[Path] = None,
+        *,
+        generated_name: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Build a design source while retaining its stated type."""
@@ -979,12 +1015,13 @@ class DesignSource(FileResource):
                 typ = stated_type
         super().__init__(path, _root_path=_root_path, **kwargs)
 
+        attributes = vars(self)
         if isinstance(typ, SourceType):
-            self.type = typ
+            attributes["type"] = typ
         elif isinstance(typ, str):
-            self.type = source_type_named(typ)
+            attributes["type"] = source_type_named(typ)
         elif typ is None:
-            self.type = source_type_of(self.file)
+            attributes["type"] = source_type_of(self.file)
         else:
             raise ValueError(f"a source's `type` is the name of a source type, not {typ!r}")
         # The type that the design stated, as opposed to the one that the file name implied. Only
@@ -992,13 +1029,13 @@ class DesignSource(FileResource):
         # suffix again. A stated `type` that contradicts the suffix
         # (`{file: legacy.v, type: SystemVerilog}`) would be lost if the dump left it out, and it
         # is part of the design's identity.
-        self._stated: dict[str, Any] = {"type": str(self.type)} if typ is not None else {}
-        #: The place of a source that a converter flow generated, in the output of that flow. Only
-        #: the design a converter derives sets it (`xeda.flow.derived`). The identity of the design
-        #: counts the source by this name, never by its path (`Design._source_fingerprint`),
-        #: because the path into a run directory depends on where the run root is. It is no part
-        #: of the table of a source, and a design that is loaded from a file never has it.
-        self.generated_name: str | None = None
+        attributes["_stated"] = {"type": str(self.type)} if typ is not None else {}
+        attributes["generated_name"] = generated_name
+
+    @property
+    def generated(self) -> bool:
+        """Whether a converter flow generated the source (`generated_name`)."""
+        return self.generated_name is not None
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
         """Serialize a source with only the metadata explicitly supplied."""
@@ -1050,8 +1087,7 @@ Tuple012 = Union[Tuple[str, ...], Tuple[str], Tuple[str, str]]  # xtype: ignore
 
 
 _PARAMETERS_FORM_ERROR = (
-    "parameters/generics must be a dictionary or a list of objects with 'name' and 'value' "
-    "attributes"
+    "parameters must be a dictionary or a list of objects with 'name' and 'value' attributes"
 )
 
 
@@ -1094,12 +1130,14 @@ def _normalize_parameters(value: Any) -> Any:
         # become `{}` like any other list.
         return value
     value = _parameters_as_mapping(value)
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got {type(value).__name__}: {value!r}")
-    for key, parameter in value.items():
-        if isinstance(parameter, dict) and ("file" in parameter or "path" in parameter):
+    # A new table: the input stays as it is.
+    value = dict(value)
+    for key, parameter in list(value.items()):
+        if isinstance(parameter, Mapping) and ("file" in parameter or "path" in parameter):
             try:
-                value[key] = str(FileResource(parameter))
+                value[key] = str(FileResource(dict(parameter)))
             except IsADirectoryError as e:
                 raise ValueError(f"parameter {key!r}: {e.filename} is a directory") from e
             except FileNotFoundError as e:
@@ -1110,6 +1148,20 @@ def _normalize_parameters(value: Any) -> Any:
 def _parameters_form(value: Any) -> Any:
     """Return the table that a list of `{name, value}` objects stands for (`field_shorthands`)."""
     return _parameters_as_mapping(value) if isinstance(value, list) else None
+
+
+def _already_listed(sources: Iterable[Source], source: Source) -> bool:
+    """Whether `sources` lists the file of `source`."""
+    return any(listed.file.absolute() == source.file.absolute() for listed in sources)
+
+
+def _distinct_sources(sources: Iterable[Source]) -> list[Source]:
+    """Return `sources` in order, with a file that is listed twice kept once, at its first place."""
+    kept: list[Source] = []
+    for source in sources:
+        if not _already_listed(kept, source):
+            kept.append(source)
+    return kept
 
 
 #: What `sources` accepts, shown by `xeda design-schema`.
@@ -1123,18 +1175,18 @@ SOURCES_DESCRIPTION = (
 )
 
 
-class DVSettings(XedaBaseModel):
-    """Design/Verification settings"""
+class DesignPart(XedaBaseModel):
+    """Design/Verification settings. A part is immutable (`Design.model_copy` makes a changed one)."""
 
-    sources: List[DesignSource] = Field(description=SOURCES_DESCRIPTION)
-    parameters: Dict[str, DefineType] = Field(
+    model_config = ConfigDict(frozen=True)
+
+    sources: Tuple[Source, ...] = Field(description=SOURCES_DESCRIPTION)
+    parameters: Annotated[Mapping[str, DefineType], Frozen()] = Field(
         default={},
-        validation_alias=AliasChoices("parameters", "generics"),
         description="Parameters of the top module (Verilog parameters or VHDL generics): a "
-        "mapping, or a list of `{name, value}` objects. `generics` is accepted as another name "
-        "for the same setting.",
+        "mapping, or a list of `{name, value}` objects.",
     )
-    defines: Dict[str, DefineType] = Field(
+    defines: Annotated[Mapping[str, DefineType], Frozen()] = Field(
         default={},
         description="Verilog preprocessor macros, as a mapping of macro name to value. A value of "
         "`null` defines the macro without a value.",
@@ -1148,15 +1200,6 @@ class DVSettings(XedaBaseModel):
     appended_fields: ClassVar[tuple[str, ...]] = ("sources",)
     #: One source stands for a list of one (`as_source_list`).
     single_item_fields: ClassVar[tuple[str, ...]] = ("sources",)
-
-    @property
-    def generics(self) -> Dict[str, DefineType]:
-        """Return `parameters` by its VHDL name. It is one setting, stored once."""
-        return self.parameters
-
-    @generics.setter
-    def generics(self, value: Any) -> None:
-        self.parameters = value
 
     @field_validator("parameters", mode="before")
     @classmethod
@@ -1175,16 +1218,13 @@ class DVSettings(XedaBaseModel):
 
         def ds(src: Union[str, Path], typ=None):
             """Create a design source from a path and optional source type."""
-            return DesignSource(src, typ=typ)
+            return Source(src, typ=typ)
 
         value = as_source_list(value)
-        sources: List[DesignSource] = []
+        sources: List[Source] = []
 
-        def source_already_exists(src: DesignSource) -> bool:
-            for s in sources:
-                if s.file.absolute() == src.file.absolute():
-                    return True
-            return False
+        def source_already_exists(src: Source) -> bool:
+            return _already_listed(sources, src)
 
         if not isinstance(value, (list, tuple, set)):
             raise ValueError(
@@ -1199,12 +1239,12 @@ class DVSettings(XedaBaseModel):
                     sources.extend(s for s in srcs if not source_already_exists(s))
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
-            if not isinstance(src, DesignSource):
+            if not isinstance(src, Source):
                 try:
                     if isinstance(src, (str, Path)):
                         src = ds(src, None)
                     else:
-                        src = DesignSource(src)
+                        src = Source(src)
                 except IsADirectoryError as e:
                     raise ValueError(f"a source is a file, but {e.filename} is a directory") from e
                 except FileNotFoundError as e:
@@ -1217,17 +1257,16 @@ class DVSettings(XedaBaseModel):
         return sources
 
 
-#: The two spellings of a design's clock, which are one setting.
-CLOCK_SPELLINGS = ("clock", "clocks")
-
-
 class Clock(XedaBaseModel):
+    # `Rtl.clocks` validates each of its entries as a `Clock` and holds it as a table.
+    model_config = ConfigDict(frozen=True)
+
     port: str
     name: Optional[str] = None
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:
-        """Read a bare string as the clock's port: `clock: CLK` means `clock: {port: CLK}`."""
+        """Read a bare string as the clock's port: `CLK` means `{port: CLK}`."""
         return {"port": value} if isinstance(value, str) else None
 
     @field_validator("name", mode="before")
@@ -1237,16 +1276,25 @@ class Clock(XedaBaseModel):
         return values.get("port", None) if value is None or value == "" else value
 
 
+#: The shell that runs the text of a `shell` generator. It is the shell that runs a command line
+#: on a POSIX system (`subprocess` with `shell=True` runs it too).
+POSIX_SHELL = "/bin/sh"
+
+
 class Generator(XedaBaseModel):
     cwd: Optional[str] = None
     executable: Optional[str] = None
-    class_: Optional[str] = Field(None, alias="class")
     args: List[str] = Field(
         default_factory=list,
         description="The arguments the executable is run with: a list, or one string split on "
         "whitespace (as `command` is).",
     )
     command: Optional[str] = None
+    shell: Optional[str] = Field(
+        None,
+        description="A command line that a shell runs, such as `python soc.py --build`. Xeda "
+        "expands nothing in it: the shell does. `shell` excludes `command` and `executable`.",
+    )
     check: bool = True
     env: Optional[Dict[str, str]] = None
     # Sweepable parameters used in the command.
@@ -1276,6 +1324,34 @@ class Generator(XedaBaseModel):
         "`rtl.sources` or hold one. Empty, every one of `rtl.sources` is judged, so editing a "
         "source the generator does not write runs it again.",
     )
+
+    removed_inputs: ClassVar[Dict[str, str]] = {"use": SecondSpelling("`class`")}
+
+    #: Whether the generator may run a shell command line (`shell`).
+    takes_shell: ClassVar[bool] = True
+
+    @model_validator(mode="after")
+    def _shell_excludes_the_other_command_keys(self):
+        """A table has one way to say what runs: `shell`, or `command`, or `executable`."""
+        if self.shell is None:
+            return self
+        if not self.takes_shell:
+            raise ValueError(f"a {type(self).__name__} runs its own command: `shell` is not valid")
+        named = [
+            key
+            for key, value in (("command", self.command), ("executable", self.executable))
+            if value is not None
+        ]
+        if named:
+            raise ValueError(
+                f"`shell` and `{'` and `'.join(named)}` exclude each other: "
+                "a generator runs one command line"
+            )
+        if self.args:
+            raise ValueError(
+                "`shell` and `args` exclude each other: write the arguments in `shell`"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -1310,24 +1386,42 @@ class Generator(XedaBaseModel):
     @field_validator("sources", mode="before")
     @classmethod
     def _sources_to_files(cls, value):
-        """Expand source patterns and normalize the resulting paths."""
+        """Expand source patterns and normalize the resulting paths.
+
+        A relative source lies below the root of the design that is being loaded
+        (`loading_in_design_root`; `generator_of` gives the root of its design). Without a root,
+        only an absolute source is valid: no source resolves against the working directory."""
+        root = _loading_root.get()
+
+        def below_root(path: Path) -> Path:
+            if path.is_absolute():
+                return path
+            if root is None:
+                raise ValueError(
+                    f"the generator source {str(path)!r} is relative, and no design root says "
+                    "where it lies"
+                )
+            return root / path
+
         if isinstance(value, str):
             value = [value]
-        root = design_relative_root()
         sources: List[Path] = []
         for src in unique(value):
             if isinstance(src, str):
+                if root is None and not os.path.isabs(src):
+                    below_root(Path(src))  # raises: a relative source needs a root
+                base = root if root is not None else Path(os.sep)
                 if _is_source_pattern(src):
                     sources.extend(
-                        (root / m).resolve()
-                        for m in _expand_source_glob(src, root, "generator source")
+                        below_root(Path(m)).resolve()
+                        for m in _expand_source_glob(src, base, "generator source")
                     )
                 else:
-                    sources.append((root / _expand_design_path(src, root)).resolve())
+                    sources.append(below_root(_expand_design_path(src, base)).resolve())
             elif isinstance(src, Path):
                 # Resolve it like the string spelling, so a relative path does not keep
                 # depending on the working directory it was given in.
-                sources.append((root / src).resolve())
+                sources.append(below_root(src).resolve())
             else:
                 raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
         # Remove duplicates and keep the order.
@@ -1340,7 +1434,12 @@ class Generator(XedaBaseModel):
         return sources
 
     def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
-        """Return the argv that this generator runs, for execution and the freshness identity."""
+        """Return the argv that this generator runs, for execution and the freshness identity.
+
+        A `shell` generator runs as `/bin/sh -c <text>`, the shell that runs a command line on a
+        POSIX system. The freshness identity names that same shell, not an `sh` on `PATH`."""
+        if self.shell:
+            return [POSIX_SHELL, "-c", self.shell]
         if self.command:
             return self.command.split()
         elif not self.executable:
@@ -1443,6 +1542,8 @@ class Generator(XedaBaseModel):
 
     def command_text(self, design_root: Optional[Path] = None) -> str:
         """Return what this generator runs, for a message, or its kind if that is not known yet."""
+        if self.shell:
+            return self.shell
         try:
             return shlex.join(self.execution_command(design_root))
         except ValueError:
@@ -1450,6 +1551,8 @@ class Generator(XedaBaseModel):
 
 
 class ChiselGenerator(Generator):
+    takes_shell: ClassVar[bool] = False
+
     main: Optional[str] = None
     project: Optional[str] = None
     build_system: str = "mill"
@@ -1510,20 +1613,123 @@ class ChiselGenerator(Generator):
         return self.run_cmd(self.execution_command())
 
 
-class RtlSettings(DVSettings):
+#: The classes of generator that a recipe names with `class`. Without `class`, a recipe is a
+#: plain `Generator`.
+GENERATOR_CLASSES = ("chisel",)
+
+
+def generator_model(recipe: Any, root: Optional[Path] = None) -> Generator | None:
+    """Return the generator that a table recipe stands for, or `None` for no recipe.
+
+    The table names its class with `class` (`chisel`); without one it is a plain `Generator`. A
+    mistake in the table raises the `ValidationError` of the model, and an unknown class raises a
+    `ValueError`. The relative `sources` of the table lie below `root`."""
+    if isinstance(recipe, Generator):
+        return recipe
+    if not isinstance(recipe, Mapping):
+        return None
+    table = thaw(recipe)
+    clazz = table.pop("class", None)
+    if clazz and not isinstance(clazz, str):
+        raise ValueError(f"class={clazz} must be a string")
+    if clazz and clazz not in GENERATOR_CLASSES:
+        raise ValueError(f"unknown generator class: {clazz}")
+    model = ChiselGenerator if clazz else Generator
+    with nullcontext() if root is None else loading_in_design_root(root):
+        return model(**table)
+
+
+def _generator_recipe(value: Any, root: Optional[Path] = None) -> Optional[FrozenDict]:
+    """Return the recipe of `rtl.generator` as a read-only table, or `None` for no generator.
+
+    A design file writes the recipe in one of three forms, and the design keeps one:
+
+    - a command line for a shell, ``"python soc.py"``, is ``{shell: "python soc.py"}``;
+    - a list of arguments, ``[python3, soc.py]``, is ``{executable: python3, args: [soc.py]}``;
+    - a table stays as it is. A `Generator` is read as the table that makes it again.
+
+    An empty command line or list stands for no generator. A table is checked here
+    (`generator_model`, with its sources below `root`), so a mistake in it fails when the design
+    loads, though the table is what the design keeps."""
+    if isinstance(value, Generator):
+        table = value.model_dump(by_alias=True, exclude_none=True)
+        if isinstance(value, ChiselGenerator):
+            table["class"] = "chisel"
+        value = table
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return FrozenDict({"shell": value}) if value else None
+    if isinstance(value, (list, tuple)):
+        if not all(isinstance(argument, str) for argument in value):
+            raise ValueError(f"a generator given as a list holds only text, got {value!r:.80}")
+        if not value:
+            return None
+        return FrozenDict({"executable": value[0], "args": tuple(value[1:])})
+    if isinstance(value, Mapping):
+        if not value:
+            return None
+        recipe = freeze(value)
+        for name, _, _ in Generator.removed_input_problems(recipe):
+            # Report it at the key as written, as the design reports a removed key.
+            raise ValidationError.from_exception_data(
+                "Generator",
+                [
+                    InitErrorDetails(
+                        type=removed_error(
+                            name, Generator.removed_inputs[name], recipe[name], "removed_key"
+                        ),
+                        loc=(name,),
+                        input=recipe[name],
+                    )
+                ],
+            )
+        generator_model(recipe, root)
+        return recipe
+    raise ValueError(
+        f"a generator is a command line, a list of arguments or a table, not {value!r:.80}"
+    )
+
+
+def _generator_form(value: Any) -> Any:
+    """Return the table that a command line or a list of arguments stands for as `rtl.generator`
+    (`field_shorthands`); an empty one stands for the empty table, which is no generator."""
+    recipe = _generator_recipe(value)
+    return {} if recipe is None else thaw(recipe)
+
+
+class _GeneratorRecipe:
+    """The annotation of `Rtl.generator`: the recipe, frozen, with the schema of the three forms."""
+
+    #: The models that validate a table recipe (the schema describes them).
+    models = (Generator, ChiselGenerator)
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        return core_schema.no_info_plain_validator_function(
+            _generator_recipe,
+            json_schema_input_schema=handler(Union[str, List[str], Generator, None]),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                thaw, return_schema=core_schema.any_schema()
+            ),
+        )
+
+
+CLOCK_SPELLINGS = ("clock", "clocks")
+
+
+class Rtl(DesignPart):
     """The RTL: sources, top module, clocks, generator, attributes, parameters and defines."""
 
     top: Optional[str] = Field(
         None,
         description="The RTL top module (a Verilog module or a VHDL entity).",
     )
-    # `SerializeAsAny`: a generator may be a `ChiselGenerator`, and pydantic 2 serializes a
-    # nested model by its annotated type unless told otherwise. The field declares it. A blanket
-    # dump flag would duck-type every value and so skip the serializer that an arbitrary type
-    # like `DesignSource` attaches to its own schema, which made `Design.model_dump_json()` raise
-    # `PydanticSerializationError`.
-    generator: Union[str, List[str], SerializeAsAny[Generator], None] = None
-    attributes: Dict[str, Dict[str, Any]] = Field(
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"generator": _generator_form}
+    #: The recipe of the generator as a table. A design file may write a command line or a list
+    #: of arguments too, and the design keeps the table that stands for it
+    #: (`_generator_recipe`). `generator_of(rtl, root=...)` gives the validated `Generator`.
+    generator: Annotated[Optional[Mapping[str, Any]], _GeneratorRecipe()] = None
+    attributes: Annotated[Mapping[str, Mapping[str, Any]], Frozen()] = Field(
         dict(),
         description="""
         HDL attributes for modules, ports and other objects. The flow that reads an attribute
@@ -1535,26 +1741,18 @@ class RtlSettings(DVSettings):
             - the value is the value of the attribute
         """,
     )
-    # The only stored form of the design's clock ports. `clock` is an input and API shorthand for
-    # the first of them, and a property below derives it.
-    clocks: List[Clock] = []
+    # Each clock is a table `{"port": ..., "name": ...}`; `Clock` validates it (`name` is the
+    # port when the design gives none).
+    clocks: Tuple[Annotated[Mapping[str, str], FrozenModel(Clock)], ...] = ()
 
-    #: The inputs that Xeda refuses, with what to use instead for each. Giving one is an error
-    #: that says so, in place of "extra inputs are not permitted". It is the design's equivalent
-    #: of `Flow.Settings.removed_settings`. A flat top-level key, a target's key and
-    #: `--design-overrides` reach the same check, because each is folded into `rtl` first.
-    removed_inputs: ClassVar[Dict[str, str]] = {"clock_port": "`clock: <port>`"}
+    #: The inputs that Xeda refuses, with what to use instead for each: another spelling of a
+    #: key that stays (`removed_alias`), or a key that is gone (`removed_key`).
+    removed_inputs: ClassVar[Dict[str, str]] = {
+        "generics": SecondSpelling("`rtl.parameters`"),
+        "clock_port": "`rtl.clocks`, as `rtl.clocks: [{port: <port>}]`",
+    }
     #: One clock stands for a list of one (`clock_tables`).
     single_item_fields: ClassVar[tuple[str, ...]] = ("clocks",)
-
-    @classmethod
-    def removed_input_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, str]]:
-        """Return the removed inputs that `values` writes, each with its error message."""
-        return [
-            (name, f"`{name}` was removed: use {replacement}")
-            for name, replacement in cls.removed_inputs.items()
-            if name in values
-        ]
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
@@ -1579,20 +1777,6 @@ class RtlSettings(DVSettings):
             # unrelated assignments must not reconstruct or detach the established list.
             return values
 
-        for name, message in cls.removed_input_problems(values):
-            # Report it at the key as written, as for a wrong form of a clock.
-            raise ValidationError.from_exception_data(
-                cls.__name__,
-                [
-                    InitErrorDetails(
-                        type=PydanticCustomError(
-                            "removed_input", "{message}", {"message": message}
-                        ),
-                        loc=(name,),
-                        input=values[name],
-                    )
-                ],
-            )
         present = [name for name in CLOCK_SPELLINGS if name in values]
         if len(present) > 1:
             raise ValueError(
@@ -1642,14 +1826,18 @@ class RtlSettings(DVSettings):
                 return []
             if isinstance(value, (str, Mapping, Clock)):
                 value = [value]
-            if not isinstance(value, list):
+            if not isinstance(value, (list, tuple)):
                 raise ValueError(f"Expecting 'clocks' to be a list but found {value}")
             items = value
         else:
             items = [value]
         # An empty table, like `null` and `""`, says nothing: there is no clock.
         return [
-            Clock.as_mapping(item) if isinstance(item, str) else item
+            (
+                Clock.as_mapping(item)
+                if isinstance(item, str)
+                else dict(item) if isinstance(item, Mapping) else item
+            )
             for item in items
             if item is not None and item != "" and not (isinstance(item, Mapping) and not item)
         ]
@@ -1685,13 +1873,13 @@ class RtlSettings(DVSettings):
     def merge_inputs(cls, merged: Dict[str, Any], values: Dict[str, Any]) -> None:
         """Merge the design's clock from a higher layer (`values`) into the layer below (`merged`).
 
-        The design's clock is `clock` or `clocks`, two spellings of one list of clocks. Where
+        The design's clock is `clock` or `clocks`, two input forms of one list of clocks. Where
         `values` writes one of them and `merged` has one below, the two meet as lists of tables.
-        `clocks`, in any form, replaces the list below. `clock` names the first design clock (as
-        the `clock` property does) and refines it key by key. `clock: null` means no clock, which
-        replaces. A layer that writes two spellings, or a clock that is not a form of a clock,
-        stays as it is, so validation reports it. A lower clock that is not a form of a clock is
-        kept, and the clock of the higher layer is dropped."""
+        `clocks`, in any form, replaces the list below. `clock` refines the first design clock
+        key by key. `clock: null` means no clock, which replaces. A layer that writes two
+        spellings, or a clock that is not a form of a clock, stays as it is, so validation
+        reports it. A lower clock that is not a form of a clock is kept, and the clock of the
+        higher layer is dropped."""
         written = [name for name in CLOCK_SPELLINGS if name in values]
         below = [name for name in CLOCK_SPELLINGS if name in merged]
         if not written or not below:
@@ -1724,24 +1912,11 @@ class RtlSettings(DVSettings):
         else:
             merged["clocks"] = [hierarchical_merge(dict(lowest[0]), dict(higher[0])), *lowest[1:]]
 
-    @property
-    def clock(self) -> Optional[Clock]:
-        """The first design clock, or `None` when the design has none."""
-        return self.clocks[0] if self.clocks else None
-
-    @clock.setter
-    def clock(self, value: Clock | Dict[str, Any] | str | None) -> None:
-        if value is None:
-            self.clocks = []
-        elif isinstance(value, Clock):
-            self.clocks = [value.model_copy(deep=True)]
-        elif isinstance(value, str):
-            self.clocks = [Clock(port=value)] if value else []
-        else:
-            self.clocks = [Clock.model_validate(value)]
-
 
 class CocotbTestbench(XedaBaseModel):
+    # `Testbench.cocotb` validates its table as a `CocotbTestbench` and holds it as a table.
+    model_config = ConfigDict(frozen=True)
+
     @classmethod
     def as_mapping(cls, value: Any) -> Any:
         """Return the table that a shorthand value stands for.
@@ -1765,10 +1940,10 @@ class CocotbTestbench(XedaBaseModel):
 PYTHON_PACKAGE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
-class TbSettings(DVSettings):
+class Testbench(DesignPart):
     """The testbench: sources, top modules, unit under test, cocotb, parameters and defines."""
 
-    sources: List[DesignSource] = Field([], description=SOURCES_DESCRIPTION)
+    sources: Tuple[Source, ...] = Field((), description=SOURCES_DESCRIPTION)
     top: Tuple012 = Field(
         tuple(),
         description="The testbench top modules: the primary top module and, optionally, a "
@@ -1777,14 +1952,17 @@ class TbSettings(DVSettings):
     uut: Optional[str] = Field(
         None, description="The instance name of the unit under test in the testbench."
     )
-    cocotb: Optional[CocotbTestbench] = Field(
+    removed_inputs: ClassVar[Dict[str, str]] = {"generics": SecondSpelling("`tb.parameters`")}
+    # The table of cocotb settings. `CocotbTestbench` validates it, and `cocotb_of(tb)` gives the
+    # model.
+    cocotb: Optional[Annotated[Mapping[str, Any], FrozenModel(CocotbTestbench)]] = Field(
         None,
         description="Set this when the testbench is based on the cocotb framework: `true` for "
         "the defaults, or a table of cocotb settings. `false` means no cocotb testbench. A source "
         "of type `Cocotb` sets it automatically.",
     )
-    python_packages: List[str] = Field(
-        [],
+    python_packages: Tuple[str, ...] = Field(
+        (),
         description="Python packages that the testbench imports, for example cocotb. Xeda checks "
         "that they are installed before a simulation, and installs the same versions on a remote "
         "host.",
@@ -1792,7 +1970,7 @@ class TbSettings(DVSettings):
 
     @field_validator("python_packages")
     @classmethod
-    def _python_package_names(cls, value: List[str]) -> List[str]:
+    def _python_package_names(cls, value: Tuple[str, ...]) -> Tuple[str, ...]:
         for name in value:
             if not PYTHON_PACKAGE_NAME.fullmatch(name):
                 raise ValueError(
@@ -1821,6 +1999,8 @@ class TbSettings(DVSettings):
     @field_validator("cocotb", mode="before")
     @classmethod
     def _auto_set_cocotb(cls, value, info):
+        if (info.context or {}).get("merged"):
+            return value  # the design again, with its dependencies: nothing is derived again
         values = info.data if isinstance(info.data, dict) else {}
         form = CocotbTestbench.as_mapping(value)
         if form is WHOLE:
@@ -1829,7 +2009,7 @@ class TbSettings(DVSettings):
         def has_cocotb(tb):
             sources = tb.get("sources", [])
             for src in sources:
-                if isinstance(src, DesignSource) and src.type == SourceType.Cocotb:
+                if isinstance(src, Source) and src.type == SourceType.Cocotb:
                     return True
                 if isinstance(src, dict) and src.get("type") in ["cocotb", SourceType.Cocotb]:
                     return True
@@ -1842,12 +2022,32 @@ class TbSettings(DVSettings):
         return value
 
 
+def generator_of(rtl: Rtl, *, root: Path) -> Generator | None:
+    """Return the generator that the recipe `rtl.generator` stands for, validated, or `None` when
+    there is no recipe.
+
+    The result is a new `Generator`. Its relative `sources` lie below `root`, the root of the
+    design that holds `rtl`."""
+    return generator_model(rtl.generator, root)
+
+
+def language_of(design: Design) -> Language:
+    """Return the language settings of `design` as a validated model."""
+    return Language(**thaw(design.language))
+
+
+def cocotb_of(tb: Testbench) -> CocotbTestbench | None:
+    """Return the cocotb settings of `tb` as a validated model, or `None` for no cocotb testbench."""
+    return None if tb.cocotb is None else CocotbTestbench(**thaw(tb.cocotb))
+
+
 class LanguageSettings(XedaBaseModel):
-    standard: Optional[str] = Field(
-        None,
-        description="The version of the language standard.",
-        alias="version",
-    )
+    model_config = ConfigDict(frozen=True)
+
+    standard: Optional[str] = Field(None, description="The version of the language standard.")
+    removed_inputs: ClassVar[Dict[str, str]] = {
+        "version": SecondSpelling("`language.verilog.standard`")
+    }
 
     @field_validator("standard", mode="before")
     @classmethod
@@ -1872,9 +2072,14 @@ class LanguageSettings(XedaBaseModel):
 
 class VhdlSettings(LanguageSettings):
     synopsys: bool = False
+    removed_inputs: ClassVar[Dict[str, str]] = {
+        "version": SecondSpelling("`language.vhdl.standard`")
+    }
 
 
 class Language(XedaBaseModel):
+    model_config = ConfigDict(frozen=True)
+
     vhdl: VhdlSettings = VhdlSettings()  # type: ignore
     verilog: LanguageSettings = LanguageSettings()  # type: ignore
 
@@ -1887,10 +2092,14 @@ class Language(XedaBaseModel):
 
 
 class RtlDep(XedaBaseModel):
+    model_config = ConfigDict(frozen=True)
+
     pos: int = 0
 
 
 class TbDep(XedaBaseModel):
+    model_config = ConfigDict(frozen=True)
+
     pos: int = 0
 
 
@@ -2032,6 +2241,8 @@ def loading_in_run_root(
 
 
 class DesignReference(XedaBaseModel):
+    model_config = ConfigDict(frozen=True)
+
     uri: str
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
@@ -2427,19 +2638,6 @@ class GitReference(DesignReference):
 
 DesignType = TypeVar("DesignType", bound="Design")
 
-#: The top-level shorthands that `Design.process_compatibility` folds into `rtl`. A design file
-#: (and a target) may write them at its root.
-FLAT_RTL_KEYS = (
-    "sources",
-    "top",
-    "clock",
-    "clocks",
-    "parameters",
-    "generics",
-    "defines",
-    "generator",
-)
-
 #: Keys a target may not hold: they belong to the design itself.
 TARGET_FORBIDDEN_KEYS = frozenset({"name", "targets", "target", "design_root"})
 # Settings shared by the flows of a graph (`board`, `fpga`, ...): written once, they would apply to
@@ -2541,9 +2739,9 @@ def _flow_named(name: str) -> str | None:
     """Return the flow whose name `name` is, or whose run directory's name `name` is, else None.
 
     A run directory's name is the flow's name, an underscore and a hash
-    (`run_dir.run_directory_name`). A flow is a registered flow's name or alias, or a removed
-    flow's name (`settings_layers.REMOVED_FLOWS`), as the command line takes it (dashes become
-    underscores, any letter case)."""
+    (`run_dir.run_directory_name`). A flow is a registered flow's name, or a removed
+    flow's name (`settings_layers.REMOVED_FLOWS`). Another letter case or dashes name the flow too,
+    for this judgment: on a file system that ignores letter case, they are one directory."""
     # Import here and by name: the flows import this module and are registered by being
     # imported.
     importlib.import_module("xeda.flows")
@@ -2573,6 +2771,10 @@ class _GitReferenceInput(TypedDict):
 
 
 class Design(XedaBaseModel):
+    # A design is immutable, and so is everything in it. `model_copy(update=...)` makes a changed
+    # design; call `invalidate_cached_properties()` on the copy.
+    model_config = ConfigDict(frozen=True)
+
     name: str = Field(
         description="The unique name of the design. It starts with a letter and has only "
         "letters, digits, `_` and `-`. Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*."
@@ -2580,9 +2782,8 @@ class Design(XedaBaseModel):
 
     design_root: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
     description: Optional[str] = Field(None, description="A brief description of the design.")
-    authors: List[str] = Field(
-        [],
-        alias="author",
+    authors: Tuple[str, ...] = Field(
+        (),
         description='The authors of the design, each in "Name <email>" format (the RFC 5322 '
         'mailbox format), for example ["Jane Doe <jane@example.com>", '
         '"John Doe <john@example.com>"].',
@@ -2591,21 +2792,20 @@ class Design(XedaBaseModel):
     # nested model by its annotated type unless told otherwise. That would silently drop
     # `repo_url`, `design_file`, `branch`, `commit` and the clone settings that the package of a
     # remote run relies on.
-    dependencies: List[SerializeAsAny[DesignReference]] = []
-    rtl: RtlSettings
-    tb: TbSettings = TbSettings()  # type: ignore
-    language: Language = Field(
-        Language(),
-        alias="hdl",
+    dependencies: Tuple[SerializeAsAny[DesignReference], ...] = ()
+    rtl: Rtl
+    tb: Testbench = Testbench()  # type: ignore
+    # A table of the settings of `Language`, which `language_of(design)` gives as a model.
+    language: Annotated[Mapping[str, Any], FrozenModel(Language)] = Field(
+        default_factory=dict,
         description="HDL language settings",
     )
-    flow: Dict[str, Dict[str, Any]] = Field(
+    flows: Annotated[Mapping[str, Mapping[str, Any]], Frozen()] = Field(
         dict(),
-        alias="flows",
         description="Design-specific flow settings. Each key is the name of a flow, and each "
         "value is the design's settings for that flow.",
     )
-    license: Union[str, List[str], None] = None
+    license: Union[str, Tuple[str, ...], None] = None
     version: Optional[str] = None
     url: Optional[str] = None
     target: str | None = Field(
@@ -2617,7 +2817,26 @@ class Design(XedaBaseModel):
     )
 
     #: A design whose `flows` is `null` has none.
-    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"flow": unspecified}
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"flows": unspecified}
+
+    #: The keys that Xeda refuses, with what to use instead for each. The flat keys of the RTL
+    #: (`sources`, `top`, ...) and of the testbench (`tests`, `test`) belong in `rtl` and `tb`.
+    removed_inputs: ClassVar[Dict[str, str]] = {
+        "author": SecondSpelling("`authors`"),
+        "hdl": SecondSpelling("`language`"),
+        "flow": SecondSpelling("`flows`"),
+        "tests": SecondSpelling("`tb`"),
+        "test": SecondSpelling("`tb`"),
+        "sources": SecondSpelling("`rtl.sources`"),
+        "top": SecondSpelling("`rtl.top`"),
+        "clock": SecondSpelling("`rtl.clocks`"),
+        "clocks": SecondSpelling("`rtl.clocks`"),
+        "parameters": SecondSpelling("`rtl.parameters`"),
+        "generics": SecondSpelling("`rtl.parameters`"),
+        "defines": SecondSpelling("`rtl.defines`"),
+        "generator": SecondSpelling("`rtl.generator`"),
+        "clock_port": "`rtl.clocks`, as `rtl.clocks: [{port: <port>}]`",
+    }
 
     #: The design file that `from_file` read (absolute), or `None` for any other design. It is no
     #: field: a saved design, a hash and a comparison of settings never see it.
@@ -2647,7 +2866,7 @@ class Design(XedaBaseModel):
             )
         return value
 
-    @field_validator("flow", mode="before")
+    @field_validator("flows", mode="before")
     @classmethod
     def _flow_settings(cls, value):
         return _flows_table(value)
@@ -2659,7 +2878,7 @@ class Design(XedaBaseModel):
     )
     @classmethod
     def _dependencies_from_str(cls, value):
-        if value and isinstance(value, list):
+        if value and isinstance(value, (list, tuple)):
             value = [DesignReference.from_data(v) for v in value]
         return value
 
@@ -2671,49 +2890,11 @@ class Design(XedaBaseModel):
         return value
 
     @classmethod
-    def process_compatibility(cls, data: dict[str, Any], defaults: bool = True) -> dict[str, Any]:
-        """Fold the flat top-level form into `rtl` and `tb`.
-
-        The same function folds a target's overlay, with `defaults=False`: only the keys that the
-        overlay wrote, so it overrides no more than it says."""
-        if "rtl" in data:
-            # Beside an `rtl` section the flat keys are not folded, but a removed one still says
-            # what replaced it, in place of "extra inputs are not permitted".
-            for _, message in RtlSettings.removed_input_problems(data):
-                raise ValueError(message)
-        else:
-            # A removed input is folded too: `rtl` is where its removal is reported.
-            given = {
-                name: data.pop(name)
-                for name in (*FLAT_RTL_KEYS, *RtlSettings.removed_inputs)
-                if name in data
-            }
-            # Multiple spellings written together (`parameters` and `generics`, the clock
-            # inputs) are all kept: the corresponding model validator then reports the
-            # ambiguity instead of silently choosing one.
-            if defaults:
-                data["rtl"] = {
-                    "sources": [],
-                    "generator": None,
-                    "defines": {},
-                    "top": None,
-                    **given,
-                }
-            elif given:
-                data["rtl"] = given
-        tb = data.get("tb", {})
-        tests = data.pop("tests", [])
-        if tests and not isinstance(tests, list):
-            tests = [tests]
-        test = data.pop("test", None)
-        if test:
-            tests.append(test)
-        if tests and not tb:
-            # TODO add support for multiple tests per design
-            test = tests[0]
-            if not isinstance(test, dict):
-                raise ValueError(f"test: {test} is not a dictionary")
-            data["tb"] = test
+    def with_default_rtl(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Return `data` with an empty `rtl` section when it has none. A design with no RTL
+        sources is a design."""
+        if "rtl" not in data:
+            data["rtl"] = {"sources": [], "generator": None, "defines": {}, "top": None}
         return data
 
     @classmethod
@@ -2724,7 +2905,7 @@ class Design(XedaBaseModel):
         `target` the result is the design itself, with no overlay, and `target` stays unset.
 
         A target is an overlay: it takes the keys of the design file itself (all but
-        `TARGET_FORBIDDEN_KEYS`), folded as the design's own are (`process_compatibility`) and
+        `TARGET_FORBIDDEN_KEYS`), checked as the design's own are and
         merged over them. Mappings merge key by key at every depth; `rtl.sources` and
         `tb.sources` are appended after the design's; any other list replaces the design's.
 
@@ -2782,13 +2963,13 @@ class Design(XedaBaseModel):
             )
         overlay = overlays[target]
         try:
-            base = cls.process_compatibility(deepcopy(data))
+            base = cls.with_default_rtl(deepcopy(data))
         except ValueError as e:
             raise invalid("", str(e)) from e
         # The flows table is judged first, as the design validator judges it: the design is as
         # valid as it is, whichever target is selected.
         for key, value in base.items():
-            if input_names(cls).get(key) == "flow":
+            if input_names(cls).get(key) == "flows":
                 try:
                     _flows_table(value)
                 except ValueError as e:
@@ -2804,23 +2985,23 @@ class Design(XedaBaseModel):
         cls, base: Mapping[str, Any], overlay: Mapping[str, Any], *, append: bool
     ) -> dict[str, Any]:
         """Return the design `base` with an overlay (a target, or the `--design-overrides`)
-        merged over it, both folded as `process_compatibility` folds them.
+        merged over it, both given in the form of a design file.
 
         One rule serves every key: the rule that merges the settings layers of a flow
         (`settings_layers.merge_layers`). Each side is read as the tables that its shorthands
         stand for (a clock as its port, `parameters` as a list of objects, `vhdl` as its
-        standard) and under the field names that its aliases stand for. Tables merge key by key
+        standard). Tables merge key by key
         at every depth, and everything else that the overlay writes replaces. A target passes
         `append`: its sources come after the design's, because it adds the files of a board. The
         sources of any other overlay replace the design's. Each flow's section is merged by that
-        flow's own rules, including an alias and a clock shorthand. A value of the design that is
+        flow's own rules. A value of the design that is
         not a table where one is expected is kept as it is, with nothing of the overlay merged
         over it, so validation reports it as it would with no target."""
         layers = importlib.import_module("xeda.flow_runner.settings_layers")
-        base, overlay = canonical_tree(cls, base), canonical_tree(cls, overlay)
+        base, overlay = dict(base), dict(overlay)
         flows: list[dict[str, Any] | None] = []
         for side in (base, overlay):
-            names = [key for key in side if input_names(cls).get(key) == "flow"]
+            names = [key for key in side if input_names(cls).get(key) == "flows"]
             flows.append(_flows_table(side.pop(names[0])) if len(names) == 1 else None)
         low, high = flows
         merged = layers.merge_layers(base, overlay, settings_cls=cls, append=append)
@@ -2837,7 +3018,7 @@ class Design(XedaBaseModel):
                 continue
             settings_cls = flow_cls.Settings if flow_cls is not None else None
             merged_flows[name] = layers.merge_layers(below, above, settings_cls=settings_cls)
-        merged["flow"] = merged_flows
+        merged["flows"] = merged_flows
         return merged
 
     @classmethod
@@ -2845,8 +3026,8 @@ class Design(XedaBaseModel):
         """Check and fold one target's overlay, as a design's own top level is."""
         loc = f"targets.{name}"
 
-        def invalid(key: str | None, msg: str) -> DesignValidationError:
-            return DesignValidationError([(f"{loc}.{key}" if key else loc, msg, "", "value_error")])
+        def invalid(key: str | None, msg: str, kind: str = "value_error") -> DesignValidationError:
+            return DesignValidationError([(f"{loc}.{key}" if key else loc, msg, "", kind)])
 
         problem = target_name_problem(name)
         if problem is not None:
@@ -2854,16 +3035,16 @@ class Design(XedaBaseModel):
         if not isinstance(overlay, Mapping):
             raise invalid(
                 None,
-                "a target is a table of the design's own keys (`sources`, `defines`, `rtl`, "
-                f"`tb`, `flows`, ...), got {type(overlay).__name__}",
+                "a target is a table of the design's own keys (`rtl`, `tb`, `flows`, ...), "
+                f"got {type(overlay).__name__}",
             )
         try:
             overlay = expand_hierarchy(dict(overlay))
         except ConflictingKeys as e:
             raise invalid(None, str(e)) from e
-        known = {*input_names(cls), *FLAT_RTL_KEYS, "test", "tests"} - TARGET_FORBIDDEN_KEYS
-        for name, message in RtlSettings.removed_input_problems(overlay):
-            raise invalid(name, message)
+        known = {*input_names(cls)} - TARGET_FORBIDDEN_KEYS
+        for path, message, kind in removed_inputs_in(cls, overlay):
+            raise invalid(".".join(path), message, kind)
         for key in overlay:
             if key in TARGET_FORBIDDEN_KEYS:
                 raise invalid(
@@ -2885,18 +3066,12 @@ class Design(XedaBaseModel):
                     + (f" (did you mean `{close[0]}`?)" if close else ""),
                 )
         for key, value in overlay.items():
-            if input_names(cls).get(key) == "flow":
+            if input_names(cls).get(key) == "flows":
                 try:
                     _flows_table(value)
                 except ValueError as e:
                     raise invalid(key, str(e)) from e
-        try:
-            folded = cls.process_compatibility(overlay, defaults=False)
-        except ValueError as e:
-            raise invalid(None, str(e)) from e
-        if isinstance(folded.get("rtl"), Mapping):
-            for name, message in RtlSettings.removed_input_problems(folded["rtl"]):
-                raise invalid(f"rtl.{name}", message)
+        folded = overlay
         # A key that a source table does not take (a removed key included) is also the target's
         # own mistake, reported whether or not the target is selected.
         for part in ("rtl", "tb"):
@@ -2910,17 +3085,17 @@ class Design(XedaBaseModel):
         # A value that is not a table where one is expected is the target's own mistake,
         # reported where it is written, whether or not the target is selected.
         for path, value in shape_problems(cls, folded):
-            if input_names(cls).get(path[0]) != "flow":  # a `flows` table is judged on its own
-                # This is the design's clock, not any key of that name (an `rtl.attributes`
+            if input_names(cls).get(path[0]) != "flows":  # a `flows` table is judged on its own
+                # This is the design's clocks, not any key of that name (an `rtl.attributes`
                 # entry).
                 takes = (
-                    RtlSettings.clock_expected()
-                    if path == ("rtl", "clock")
+                    Rtl.clock_expected()
+                    if path in (("rtl", "clock"), ("rtl", "clocks"))
                     else "a table or a short form of one"
                 )
                 raise invalid(".".join(path), f"takes {takes}, not {value!r:.60}")
         for key, value in folded.items():
-            if input_names(cls).get(key) == "flow":
+            if input_names(cls).get(key) == "flows":
                 for path, value in _flow_section_problems(_flows_table(value)):
                     raise invalid(
                         ".".join((key, *path)),
@@ -2936,7 +3111,10 @@ class Design(XedaBaseModel):
         design_root = design_root.resolve()
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
-        generator = rtl.pop("generator", None)
+        # The recipe stays in `rtl`: the design keeps what it declared.
+        # Every form of a recipe is a table; a malformed one is refused before anything runs.
+        recipe = _generator_recipe(rtl.get("generator"), design_root)
+        generator = generator_model(recipe, design_root)
         deferring = _deferred_load.get()
 
         def defer(what: str) -> None:
@@ -2945,7 +3123,7 @@ class Design(XedaBaseModel):
             deferring.defer(what)
             rtl["sources"] = _declared_sources(rtl.get("sources", []), deferring)
 
-        if generator:
+        if generator is not None:
             if _planning_load.get():
                 generator_lease: AbstractContextManager[None] = nullcontext()
             else:
@@ -2957,84 +3135,53 @@ class Design(XedaBaseModel):
                 # own paths. This replaces whatever the shell exports, which is another
                 # directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}
-                if isinstance(generator, str):
-                    if deferring is not None:
-                        return defer(f"generator command `{generator}`")
-                    if _planning_load.get():
-                        raise ValueError("Cannot plan a design that needs a generator")
-                    log.info("Running generator command: %s", generator)
-                    run_child(
-                        generator,
-                        source="generator",
-                        shell=True,
-                        check=True,
-                        cwd=design_root,
-                        env=env,
-                    )
-                elif isinstance(generator, (dict, Generator)):
-                    if isinstance(generator, (dict)):
-                        clazz = generator.get("class") or generator.get("use")
-                        if clazz:
-                            if not isinstance(clazz, str):
-                                raise ValueError(f"class={clazz} must be a string")
-                            if clazz.lower() == "chisel":
-                                generator = ChiselGenerator(**generator)
-                            else:
-                                raise Exception(f"unknown generator class: {clazz}")
-                        else:
-                            generator = Generator(**generator)
 
-                    # Judge it before the defaults below complete it: its identity is the
-                    # configuration that the design states, never the environment of this shell.
-                    def generated() -> Optional[List[Path]]:
-                        declared = generator.generated_sources or rtl.get("sources", [])
-                        return _source_paths_as_given(declared, design_root)
+                # The model is new: the run adds the working directory and the environment to
+                # it, and the recipe in `rtl` stays as the design declared it. Judge it before
+                # the defaults below complete it: its identity is the configuration that the
+                # design states, never the environment of this shell.
+                def generated() -> Optional[List[Path]]:
+                    declared = generator.generated_sources or rtl.get("sources", [])
+                    return _source_paths_as_given(declared, design_root)
 
-                    planning = _planning_load.get()
-                    context = load_context.get()
-                    design_name = data.get("name")
-                    description = generator.describe(
-                        design_name if isinstance(design_name, str) else None, design_root
-                    )
-                    with judging_generation(
-                        generator,
-                        design_root,
-                        generated,
-                        description=description,
-                        run_root=context.run_root if context else None,
-                        planning=planning,
-                        read_only=deferring is not None,
-                        rebuild_all=bool(context and context.rebuild_all),
-                    ) as generation:
-                        if generation.reason is None:
-                            log.info(
-                                "Not running %s: its generated sources are what its "
-                                "last generation left",
-                                description,
-                            )
+                planning = _planning_load.get()
+                context = load_context.get()
+                design_name = data.get("name")
+                description = generator.describe(
+                    design_name if isinstance(design_name, str) else None, design_root
+                )
+                with judging_generation(
+                    generator,
+                    design_root,
+                    generated,
+                    description=description,
+                    run_root=context.run_root if context else None,
+                    planning=planning,
+                    read_only=deferring is not None,
+                    rebuild_all=bool(context and context.rebuild_all),
+                ) as generation:
+                    if generation.reason is None:
+                        log.info(
+                            "Not running %s: its generated sources are what its "
+                            "last generation left",
+                            description,
+                        )
+                    else:
+                        if deferring is not None:
+                            return defer(description)
+                        if planning:
+                            raise ValueError("Cannot plan a design that needs a generator")
+                        if generator.cwd is None:
+                            generator.cwd = str(design_root)
+                        if generator.env is None:
+                            generator.env = dict(env)
                         else:
-                            if deferring is not None:
-                                return defer(description)
-                            if planning:
-                                raise ValueError("Cannot plan a design that needs a generator")
-                            if generator.cwd is None:
-                                generator.cwd = str(design_root)
-                            if generator.env is None:
-                                generator.env = dict(env)
-                            else:
-                                # An `env` the design states is the generator's whole
-                                # environment, and a `DESIGN_ROOT` in it is the design's own word.
-                                generator.env.setdefault("DESIGN_ROOT", str(design_root))
-                            log.info("Running %s: %s", description, generation.reason)
-                            generator.run()
-                            generation.produced()
-                else:
-                    if deferring is not None:
-                        return defer(f"generator `{_describe_generator(generator)}`")
-                    if _planning_load.get():
-                        raise ValueError("Cannot plan a design that needs a generator")
-                    args = generator
-                    run_child(args, source="generator", check=True, cwd=design_root, env=env)
+                            # An `env` the design states is the generator's whole
+                            # environment, and a `DESIGN_ROOT` in it is the design's own word.
+                            generator.env.setdefault("DESIGN_ROOT", str(design_root))
+                        log.info("Running %s: %s", description, generation.reason)
+                        generator.run()
+                        generation.produced()
                 # Whatever the design declares as a source must exist now. Expand it again and do
                 # not reuse the result of the skip check above, because the generator is what a
                 # pattern was waiting for. A source written as `path` skips the check of the
@@ -3048,11 +3195,7 @@ class Design(XedaBaseModel):
                         f"{'sources' if len(missing) > 1 else 'the source'} the design declares: "
                         + ", ".join(missing)
                     )
-                if (
-                    isinstance(generator, Generator)
-                    and generator.generated_sources
-                    and produced is not None
-                ):
+                if generator.generated_sources and produced is not None:
                     # Check here, where the tree is complete: a pattern of `rtl.sources` that the
                     # generator is still to fill matches nothing before the generator has run.
                     declared = [os.path.normpath(src) for src in produced]
@@ -3076,7 +3219,7 @@ class Design(XedaBaseModel):
 
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        data = cls.process_compatibility(data)
+        data = cls.with_default_rtl(data)
         log.debug("Design data: %s", _shown_dependencies(data))
         cls.process_generation(data)
         return data
@@ -3126,6 +3269,20 @@ class Design(XedaBaseModel):
                 data = self.select_target(data)
             try:
                 data = Design.process_dict(data)
+            except ValidationError as e:  # the recipe of the generator
+                raise DesignValidationError(
+                    [
+                        (
+                            f"rtl -> generator -> {loc}" if loc else "rtl -> generator",
+                            msg,
+                            ctx,
+                            kind,
+                        )
+                        for loc, msg, ctx, kind in _design_errors(e.errors())
+                    ],
+                    data=data,
+                    design_root=design_root,
+                ) from e
             except (ValueError, TypeError, AssertionError) as e:
                 raise invalid(None, str(e)) from e
             try:
@@ -3135,46 +3292,75 @@ class Design(XedaBaseModel):
                     _design_errors(e.errors()), data=data, design_root=design_root
                 ) from e
 
-            deferring = _deferred_load.get()
-            for dep in self.dependencies:
-                if deferring is not None and isinstance(dep, GitReference):
-                    # Its sources, top module and testbench are known only once it is fetched.
-                    deferring.defer(f"Git dependency {redacted_url(dep.repo_url)}", complete=False)
-                    continue
-                try:
-                    dep_design = dep.fetch_design()
-                except ValueError as e:
-                    kind = MISSING_FILE_ERROR if isinstance(e, MissingFile) else "value_error"
-                    raise invalid("dependencies", str(e), kind) from e
-                log.info("adding dependency sources from %s", dep_design.name)
-                pos = dep.rtl.pos
-                sources = list(self.rtl.sources)
-                if pos == -1:  # -1 means append 'after' the last element
-                    sources.extend(dep_design.rtl.sources)
-                    if not self.rtl.top and dep_design.rtl.top:
-                        self.rtl.top = dep_design.rtl.top
-                    if not self.rtl.parameters and dep_design.rtl.parameters:
-                        self.rtl.parameters = dep_design.rtl.parameters
-                    if not self.rtl.clocks and dep_design.rtl.clocks:
-                        self.rtl.clocks = dep_design.rtl.clocks
-                else:
-                    if pos < 0:
-                        pos += 1  # afterwards: pos=-2 means the position 'before' the last element
-                    sources[pos:pos] = dep_design.rtl.sources
-                # Assign the list and do not edit it in place, so the merge is validated like
-                # sources given in any other way: a file that the design and the dependency both
-                # list is compiled once.
-                self.rtl.sources = sources
-                if not self.tb.sources and dep_design.tb.sources:
-                    self.tb.sources = dep_design.tb.sources
-                if not self.tb.top and dep_design.tb.top:
-                    self.tb.top = dep_design.tb.top
-            # The merge consumes the dependencies: the design now holds their sources itself, and
-            # it is recorded as built. A record that kept the dependencies as well would merge
-            # them again on every reload (a `settings.json`, the package of a remote run) and
-            # duplicate sources.
             if self.dependencies:
-                self.dependencies = []
+                merged = self._merged_with_dependencies(invalid)
+                try:
+                    self._validate({**data, **merged}, merged=True)
+                except ValidationError as e:
+                    raise DesignValidationError(
+                        _design_errors(e.errors()), data=data, design_root=design_root
+                    ) from e
+
+    def _validate(self, data: dict[str, Any], *, merged: bool = False) -> None:
+        """Validate `data` into this design.
+
+        `merged` says that `data` is the design again, with its dependencies merged in: what the
+        first validation derived (the cocotb settings of a testbench) stays as it was."""
+        self.__pydantic_validator__.validate_python(
+            data, self_instance=self, context={"merged": merged}
+        )
+
+    def _merged_with_dependencies(
+        self, invalid: Callable[..., DesignValidationError]
+    ) -> dict[str, Any]:
+        """Return the fields of the design as they are with the dependencies merged in.
+
+        The design holds the sources, top module, parameters and clocks of its dependencies
+        itself afterwards, and no dependency. A record that kept the dependencies as well would
+        merge them again on every reload (a `settings.json`, the package of a remote run) and
+        duplicate sources. The result is the input of a second validation, so a file that the
+        design and a dependency both list is compiled once."""
+        deferring = _deferred_load.get()
+        sources = list(self.rtl.sources)
+        top = self.rtl.top
+        parameters = self.rtl.parameters
+        clocks = self.rtl.clocks
+        tb_sources = self.tb.sources
+        tb_top = self.tb.top
+        for dep in self.dependencies:
+            if deferring is not None and isinstance(dep, GitReference):
+                # Its sources, top module and testbench are known only once it is fetched.
+                deferring.defer(f"Git dependency {redacted_url(dep.repo_url)}", complete=False)
+                continue
+            try:
+                dep_design = dep.fetch_design()
+            except ValueError as e:
+                kind = MISSING_FILE_ERROR if isinstance(e, MissingFile) else "value_error"
+                raise invalid("dependencies", str(e), kind) from e
+            log.info("adding dependency sources from %s", dep_design.name)
+            pos = dep.rtl.pos
+            if pos == -1:  # -1 means append 'after' the last element
+                sources.extend(dep_design.rtl.sources)
+                if not top and dep_design.rtl.top:
+                    top = dep_design.rtl.top
+                if not parameters and dep_design.rtl.parameters:
+                    parameters = dep_design.rtl.parameters
+                if not clocks and dep_design.rtl.clocks:
+                    clocks = dep_design.rtl.clocks
+            else:
+                if pos < 0:
+                    pos += 1  # afterwards: pos=-2 means the position 'before' the last element
+                sources[pos:pos] = dep_design.rtl.sources
+            sources = _distinct_sources(sources)
+            if not tb_sources and dep_design.tb.sources:
+                tb_sources = dep_design.tb.sources
+            if not tb_top and dep_design.tb.top:
+                tb_top = dep_design.tb.top
+        rtl = {name: getattr(self.rtl, name) for name in Rtl.model_fields}
+        rtl.update(sources=sources, top=top, parameters=parameters, clocks=clocks)
+        tb = {name: getattr(self.tb, name) for name in Testbench.model_fields}
+        tb.update(sources=tb_sources, top=tb_top)
+        return {"rtl": rtl, "tb": tb, "dependencies": ()}
 
     def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
         """Return the directory of every Verilog or SystemVerilog header that the design lists.
@@ -3188,9 +3374,9 @@ class Design(XedaBaseModel):
 
     def sources_of_type(
         self, *source_types: Union[str, SourceType], rtl=True, tb=False
-    ) -> List[DesignSource]:
+    ) -> List[Source]:
         source_types_str = [str(st).lower() for st in source_types]
-        sources = []
+        sources: List[Source] = []
         if rtl:
             sources.extend(self.rtl.sources)
         if tb and self.tb:
@@ -3199,13 +3385,13 @@ class Design(XedaBaseModel):
             return sources
         return [src for src in sources if str(src.type).lower() in source_types_str]
 
-    def sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[DesignSource]:
+    def sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[Source]:
         if not self.tb:
             return []
         return self.sources_of_type(*source_types, rtl=True, tb=True)
 
     @property
-    def sim_sources(self) -> List[DesignSource]:
+    def sim_sources(self) -> List[Source]:
         return self.sim_sources_of_type(
             SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl
         )
@@ -3213,7 +3399,7 @@ class Design(XedaBaseModel):
     @property
     def sim_tops(self) -> Tuple012:
         if self.tb:
-            if self.tb.cocotb and self.rtl.top:
+            if self.tb.cocotb is not None and self.rtl.top:
                 return (self.rtl.top,)
             if self.tb.top is not None:
                 return self.tb.top
@@ -3227,9 +3413,7 @@ class Design(XedaBaseModel):
 
     @classmethod
     def remove_keys(cls, data: dict[str, Any], names: Iterable[str]) -> None:
-        """Remove the keys `names` from the design data `data`, each in every spelling.
-
-        A field is one key, whichever alias or field name the data uses (`flows` and `flow`)."""
+        """Remove the keys `names` from the design data `data`,"""
         spelled = input_names(cls)
         fields = {spelled.get(name, name) for name in names}
         for key in [key for key in data if spelled.get(key, key) in fields]:
@@ -3286,9 +3470,8 @@ class Design(XedaBaseModel):
             design_dict = cls.target_selected(design_dict, target, overrides)
             if packaged:
                 # the names of a table that layers merged, `A` and `A.B` (`dataclass.AtomicName`)
-                for section in ("flow", "flows"):
-                    if section in design_dict:
-                        design_dict[section] = escaped_names_atomic(design_dict[section])
+                if "flows" in design_dict:
+                    design_dict["flows"] = escaped_names_atomic(design_dict["flows"])
             if recorded_target is not None:
                 design_dict["target"] = recorded_target
             if "name" not in design_dict:
@@ -3370,11 +3553,11 @@ class Design(XedaBaseModel):
             )
         if not overrides:
             return selected
+        for path, message, kind in removed_inputs_in(cls, overrides):
+            raise DesignValidationError([(".".join(path), message, "", kind)], data=dict(data))
         try:
-            # Fold both as a target and its design are folded, so a flat key means the same in each.
-            overrides = cls.process_compatibility(overrides, defaults=False)
             return cls._merge_target(
-                cls.process_compatibility(deepcopy(selected)), overrides, append=False
+                cls.with_default_rtl(deepcopy(selected)), overrides, append=False
             )
         except (ValueError, XedaException) as e:
             raise DesignValidationError(
@@ -3428,6 +3611,31 @@ class Design(XedaBaseModel):
         )
         return "_".join(part for part in parts if part)
 
+    def part_metadata(self, part: str) -> Dict[str, Any]:
+        """Return the metadata of a design part (`rtl` or `tb`): everything but its sources.
+
+        This is what the identity of a run counts of a part, beside the places and types of its
+        sources (`flow_runner.configuration`), and what the freshness fingerprint counts beside
+        their content. It reads no file. Every value is the validated one: the clocks are
+        complete, and so is the `cocotb` table."""
+        if part == "rtl":
+            return {
+                "top": self.rtl.top,
+                "parameters": self._parameters_fingerprint(self.rtl),
+                "defines": thaw(self.rtl.defines),
+                "clocks": thaw(self.rtl.clocks),
+                "attributes": thaw(self.rtl.attributes),
+            }
+        if part == "tb":
+            return {
+                "top": self.tb.top,
+                "parameters": self._parameters_fingerprint(self.tb),
+                "defines": thaw(self.tb.defines),
+                "uut": self.tb.uut,
+                "cocotb": thaw(self.tb.cocotb),
+            }
+        raise ValueError(f"{part!r} is not a part of a design (its parts are rtl and tb)")
+
     @property
     def rtl_fingerprint(self) -> Dict[str, Any]:
         """Location-independent inputs that can change RTL compilation or synthesis.
@@ -3439,12 +3647,8 @@ class Design(XedaBaseModel):
         """
         return {
             "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
-            "parameters": self._parameters_fingerprint(self.rtl),
-            "defines": dict(self.rtl.defines),
-            "top": self.rtl.top,
-            "attributes": self.rtl.attributes,
-            "clocks": [clock.model_dump() for clock in self.rtl.clocks],
-            "language": self.language.model_dump(),
+            **self.part_metadata("rtl"),
+            "language": thaw(self.language),
         }
 
     @property
@@ -3452,23 +3656,28 @@ class Design(XedaBaseModel):
         """The location-independent testbench inputs that identify a run."""
         return {
             "sources": [self._source_fingerprint(src) for src in self.tb.sources],
-            "parameters": self._parameters_fingerprint(self.tb),
-            "defines": dict(self.tb.defines),
-            "top": self.tb.top,
-            "uut": self.tb.uut,
-            "cocotb": self.tb.cocotb.model_dump() if self.tb.cocotb is not None else None,
+            **self.part_metadata("tb"),
         }
 
-    def _parameters_fingerprint(self, dv: DVSettings) -> Dict[str, Any]:
+    def _parameters_fingerprint(self, dv: DesignPart) -> Dict[str, Any]:
         """Return the parameter values as the tool sees them.
 
         A path under the design root counts relative to it (`$DESIGN_ROOT/rom.mem`), the rule
         that `flowrun_hash` applies to settings. So a design that is given a file under its root
         keeps its identity wherever it is moved. A path outside the root is the location that
         the design names, and counts as such.
+
+        A remote launch moves some of the paths. Then the host counts the value as the client
+        does (`path_identity`, role `parameter`).
         """
         roots = [("DESIGN_ROOT", self.root_path)] if self.design_root else []
-        return {k: location_free(v, roots) for k, v in dv.parameters.items()}
+
+        def counted(value: Any) -> Any:
+            value = thaw(value)
+            known = path_identity(value, "parameter") if isinstance(value, str) else None
+            return location_free(value, roots) if known is None else known
+
+        return {k: counted(v) for k, v in dv.parameters.items()}
 
     def relative_to_root(self, path: Union[str, os.PathLike]) -> Optional[Path]:
         """Return `path` relative to the design root, or None when it is not an absolute path
@@ -3482,10 +3691,10 @@ class Design(XedaBaseModel):
             return path.relative_to(self.root_path)
         return None
 
-    def _source_fingerprint(self, source: DesignSource) -> Dict[str, Any]:
+    def _source_fingerprint(self, source: Source) -> Dict[str, Any]:
         """Return what identifies a source: its content, its type and its place: its path relative
         to the design root, or for a file that a converter generated, its name in the output of
-        the converter (`DesignSource.generated_name`).
+        the converter (`Source.generated_name`).
 
         A source's location may affect include resolution, commands in a sourced constraint or
         script, and tool lookup. Counting every declared source by path avoids reusing a cached
@@ -3503,8 +3712,17 @@ class Design(XedaBaseModel):
             # A file a converter generated: where it sits in the output of the converter.
             fingerprint["generated"] = source.generated_name
         else:
-            fingerprint["path"] = root_relative_text(self.root_path, source.file)
+            fingerprint["path"] = self.source_place(source)
         return fingerprint
+
+    def source_place(self, source: Source) -> str:
+        """Return the place of `source` as the identity of a run counts it: its path from the
+        design root, as POSIX text (`root_relative_text`).
+
+        A remote launch moves the sources outside the design root. Then the host counts the
+        place as the client does (`path_identity`, role `source`)."""
+        known = path_identity(source.file, "source")
+        return known if known is not None else root_relative_text(self.root_path, source.file)
 
     @property
     def rtl_hash(self) -> str:

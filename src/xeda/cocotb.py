@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 from xml.etree import ElementTree
 
 from .dataclass import (
@@ -15,7 +15,7 @@ from .dataclass import (
     deliverable,
     field_validator,
 )
-from .design import Design, SourceType
+from .design import Design, SourceType, cocotb_of
 from .tool import Tool, ToolException
 from .units import count
 
@@ -253,7 +253,8 @@ def cocotb_toplevel(design: Design) -> str | None:
 
     It is `tb.cocotb.toplevel` if the testbench sets it, else `rtl.top`. A simulator that names
     its top module makes it this module."""
-    return (design.tb.cocotb.toplevel if design.tb.cocotb else None) or design.rtl.top
+    cocotb = cocotb_of(design.tb)
+    return (cocotb.toplevel if cocotb else None) or design.rtl.top
 
 
 def cocotb_verdict(
@@ -423,7 +424,7 @@ class Cocotb(CocotbSettings, Tool):
         compiles it), so without this prefix every cocotb run would write into the user's tree."""
         return self.working_directory() / "__pycache__"
 
-    def check_python_packages(self, python_bin: str, packages: List[str]) -> None:
+    def check_python_packages(self, python_bin: str, packages: Sequence[str]) -> None:
         """Check testbench distributions in the Python that cocotb will embed."""
         if not packages:
             return
@@ -451,15 +452,14 @@ class Cocotb(CocotbSettings, Tool):
         wrote.
         """
         environ: Dict[str, Any] = dict()
-        if design.tb.cocotb:
+        cocotb = cocotb_of(design.tb)
+        if cocotb is not None:
             if design.tb is None or not design.tb.sources:
                 raise ValueError("'design.tb.cocotb' is set, but 'design.tb.sources' is empty.")
-            if not design.tb.top:
-                if not design.rtl.top:
-                    raise ValueError(
-                        f"[cocotb] In design {design.name}: Either `tb.top` or `rtl.top` must be specified."
-                    )
-                design.tb.top = (design.rtl.top,)
+            if not design.tb.top and not design.rtl.top:
+                raise ValueError(
+                    f"[cocotb] In design {design.name}: Either `tb.top` or `rtl.top` must be specified."
+                )
             cocotb_sources = design.sources_of_type(SourceType.Cocotb, rtl=False, tb=True)
             if cocotb_sources:
                 top_cocotb_source = cocotb_sources[-1].file
@@ -471,8 +471,8 @@ class Cocotb(CocotbSettings, Tool):
             if current_py_path:
                 py_path += current_py_path.split(os.pathsep)
             coco_module = None
-            if design.tb.cocotb.module:
-                design_module_split = design.tb.cocotb.module.split("/")
+            if cocotb.module:
+                design_module_split = cocotb.module.split("/")
                 coco_module = design_module_split[-1]
                 if len(design_module_split) > 1:
                     module_path = Path(os.sep.join(design_module_split[:-1]))
@@ -512,7 +512,7 @@ class Cocotb(CocotbSettings, Tool):
             }
             if self.coverage:
                 environ["COVERAGE"] = 1
-            environ.update(self.test_selection(self.testcase or design.tb.cocotb.testcase))
+            environ.update(self.test_selection(self.testcase or cocotb.testcase))
             if self.random_seed != "random":
                 environ["COCOTB_RANDOM_SEED"] = str(self.random_seed)
             if self.gpi_extra:

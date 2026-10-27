@@ -275,7 +275,7 @@ def test_a_design_file_loads_and_names_registered_flows(spec: str) -> None:
     assert config.platform == spec.split("/")[0]
     assert config.clock_port == facts["port"]
     assert Time(config.clock_period).to("ns") == pytest.approx(facts["period"])
-    registered = {name for cls in all_flow_classes() for name in [cls.name, *cls.aliases]}
+    registered = {cls.name for cls in all_flow_classes()}
     assert config.flows, "a design file configures at least one flow"
     assert set(config.flows) <= registered
 
@@ -319,7 +319,7 @@ def test_the_generated_design_is_a_valid_design(spec: str, tmp_path: Path) -> No
     assert design.name == f"{config.platform}_{spec.split('/')[1]}"
     assert design.rtl.top == FACTS[spec]["top"]
     (clock,) = design.rtl.clocks
-    assert clock.port == FACTS[spec]["port"]
+    assert clock["port"] == FACTS[spec]["port"]
     listed = [str(s.path) for s in design.rtl.sources]
     for word in variables["VERILOG_FILES"].split():
         assert word in listed
@@ -790,7 +790,6 @@ def test_the_xeda_command_runs_the_chain_on_the_generated_design() -> None:
         "xeda",
         "run",
         "yosys",
-        "--design",
         "/w/design.yaml",
         "--run-root",
         "/w/xeda_run",

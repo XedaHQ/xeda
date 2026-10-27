@@ -27,29 +27,26 @@ the schema leaves property sets open (dotted keys expand before validation).
 | `inputs`, and tables keyed by tool names (`set_synth_properties`, `set_impl_properties`, ISE `*_options`, `set_attribute`, `set_mod_attribute`, `rtl.attributes`) | a nested block |
 | A source with a type | one line: `- {file: "top.json", type: JsonNetlist}` |
 
-Give one table one spelling per mapping: `clock.port` and a `clock:` block together are a
+Give one table one spelling per mapping: `fpga.part` and an `fpga:` block together are a
 `ConflictingKeys` error that names both, in either order. So is a key that is a value and a table
 (`timing: true` with `timing.x: 1`). Two dotted keys under one table (`fpga.part`, `fpga.speed`)
 are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` over a design's
-`fpga:` block). Do not mix the flat form (`sources`, `top`, `clock` at the root) with
-`rtl.*` keys; write `rtl:`.
+`fpga:` block). The keys of `rtl` (`sources`, `top`, `clocks`, `parameters`, `defines`,
+`generator`) go in `rtl:`, never at the root.
 
 ## Top level
 
 | Key | Meaning |
 | --- | --- |
 | `name` | Design name. Defaults to the file's stem; names the run directory. |
-| `rtl` | The design (required unless the flat form is used). |
+| `rtl` | The design. |
 | `tb` | The testbench. Simulation flows need it. |
-| `description`, `authors` (`author`), `license`, `version`, `url` | Metadata; no flow reads them. `authors` is a `"Name <email>"` string or a list. |
-| `language` (`hdl`) | Language standards. |
+| `description`, `authors`, `license`, `version`, `url` | Metadata; no flow reads them. `authors` is a `"Name <email>"` string or a list. |
+| `language` | Language standards. |
 | `flows` | Per-flow settings. |
 | `targets` | One overlay per board. |
 | `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. |
 | `design_root` | Base for relative paths. Defaults to the design file's directory. |
-
-The flat form (`sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `defines`,
-`generator` at the root) is folded into `rtl`.
 
 ## `rtl`: the design
 
@@ -57,12 +54,12 @@ The flat form (`sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `d
 | --- | --- |
 | `sources` | Required. Sources in compilation order, relative to the design file's directory. |
 | `top` | Top module or entity. Synthesis flows need it. |
-| `parameters` (`generics`) | Verilog parameters or VHDL generics of the top module. Use one spelling. |
+| `parameters` | Verilog parameters or VHDL generics of the top module. |
 | `defines` | Verilog preprocessor macros. |
 | `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
 | `clocks` | A list of clocks for several clocks. |
 | `attributes` | HDL attributes, `attribute -> (object -> value)`. |
-| `generator` | A command or class that writes the sources before the flow runs. |
+| `generator` | What writes the sources before the flow runs: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
 
 A generator runs again when its executable, its `sources` (a directory counts as every file in
 it) or its produced sources change. `generated_sources` names the files it writes when it writes
@@ -74,8 +71,7 @@ or a source that `bsc` passes through.
 
 ## `tb`: the testbench
 
-`test` and `tests` are aliases. `tb` has `sources`, `parameters` (`generics`) and `defines` like
-`rtl`, and:
+`tb` has `sources`, `parameters` and `defines` like `rtl`, and:
 
 | Key | Meaning |
 | --- | --- |
@@ -87,7 +83,7 @@ or a source that `bsc` passes through.
 
 `rtl` names the clock ports. The flow settings give the period or frequency, because they
 constrain one build. Xeda refuses the settings `clock_port` (design) and `clock_period` (flow):
-use `clock: <port>` and `clock.period`.
+use `clock: <port>` in the design and `clock.period` in a flow.
 
 ```yaml
 rtl:
@@ -108,7 +104,7 @@ rtl:
       name: aux
 flows:
   vivado_synth:
-    clocks.main_clock.period: 5 ns
+    clock.period: 5 ns
     clocks.aux.freq: 100 MHz
 ```
 
@@ -243,7 +239,7 @@ language.vhdl.standard: 2008 # 93, 2008, 2019, ...
 language.verilog.standard: 2005
 ```
 
-`version` is an alias of `standard`. Write the four-digit year; a two-digit year needs quotes
+Write the four-digit year; a two-digit year needs quotes
 (`"08"`), because an unquoted `08` is the number 8. The standard applies to every source of that
 language (GHDL and NVC compile all VHDL of a run under one standard).
 
@@ -327,11 +323,11 @@ targets:
   nothing. Layers, lowest first: flow defaults, project, design, target, `-s`, API.
 - A short form means its table in every merge (`clock: CLK` is `clock.port: CLK`; `fpga: <part>`
   is `fpga.part: <part>`). A target's `clock` refines the design's first clock, its `clocks`
-  replaces all, `clock: null` means none. A value that is no table where one is expected
-  (`tb: 3`) is an error.
+  replaces all, `clock: null` means none. A value
+  that is no table where one is expected (`tb: 3`) is an error.
 - `--design-overrides KEY=VALUE...` merge by the same rules, except that only a target appends
   `sources`: an override's `rtl.sources` or `tb.sources` replaces the whole list.
-- A target name matches `[A-Za-z][A-Za-z0-9_-]*` and is not a flow's name, alias or hashed run
+- A target name matches `[A-Za-z][A-Za-z0-9_-]*` and is not a flow's name or hashed run
   directory name; two names that differ only in case are refused. A design file has no `target`
   key. `--json` documents report `target`.
 - A selected target has its own run directories, `<run root>/<design>/<target>/<flow>`; runs made
@@ -377,8 +373,9 @@ flows:
     clock.period: 5 ns
 ```
 
-- Top-level keys: `designs` (`design`) and `flows` (`flow`). Any other key fails with
-  `ProjectFileError: ... unknown key(s) ...; a project has 'designs', 'design', 'flows', 'flow'`.
+- Top-level keys: `designs` and `flows`. Any other key fails with
+  `ProjectFileError: ... unknown key(s) ...; a project has 'designs', 'flows'`. The singular
+  `design` and `flow` were removed.
 - Each design entry and each flow section follows the rules of a design file, dotted keys
   included. A dotted key cannot reach into `designs` from the project's root.
 - Xeda finds the file as `--xedaproject FILE`, else the one `xedaproject.yaml`, `.yml` or `.toml`

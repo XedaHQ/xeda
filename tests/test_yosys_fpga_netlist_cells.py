@@ -456,7 +456,7 @@ def _counter(tmp_path: Path) -> Design:
     return Design(
         name="t1",
         design_root=root,
-        rtl={"sources": ["t1.v"], "top": "t1", "clock": {"port": "clk"}},
+        rtl={"sources": ["t1.v"], "top": "t1", "clocks": [{"port": "clk"}]},
     )
 
 
@@ -466,7 +466,7 @@ def _ulx3s_blinky(_tmp_path: Path) -> Design:
     return Design(
         name="blinky",
         design_root=EXAMPLES_DIR / "boards" / "ulx3s" / "blinky",
-        rtl={"sources": ["blinky.v"], "top": "blinky", "clock": {"port": "clk_25mhz"}},
+        rtl={"sources": ["blinky.v"], "top": "blinky", "clocks": [{"port": "clk_25mhz"}]},
     )
 
 
@@ -478,7 +478,9 @@ DESIGNS = {"counter": _counter, "ulx3s-blinky": _ulx3s_blinky}
 def test_the_netlist_holds_only_cells_nextpnr_can_place(fpga, design, tmp_path):
     require_yosys()
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        YosysFpga, DESIGNS[design](tmp_path), {"fpga": fpga, "clock": {"period": "10 ns"}}
+        YosysFpga,
+        DESIGNS[design](tmp_path),
+        {"fpga": fpga, "clocks": {"main_clock": {"period": "10 ns"}}},
     )
     assert flow is not None and flow.succeeded, "yosys_fpga did not synthesize the design"
     netlist = json.loads((Path(flow.run_path) / "netlist.json").read_text())

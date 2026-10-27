@@ -51,7 +51,9 @@ def test_hashed_run_dirs_give_each_settings_variant_its_own_directory(sqrt, tmp_
     settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
     _, stable = _run(str(sqrt), *settings, "--json")
     _, hashed = _run(str(sqrt), *settings, "--hashed-run-dirs", "--json")
-    _, other = _run(str(sqrt), *settings, "clock.period=7ns", "--hashed-run-dirs", "--json")
+    _, other = _run(
+        str(sqrt), *settings, "clocks.main_clock.period=7ns", "--hashed-run-dirs", "--json"
+    )
     design_dir = (tmp_path / "xeda_run" / "sqrt").resolve()
     assert Path(stable["nodes"][0]["run_dir"]) == design_dir / "vivado_synth"
     for document in (hashed, other):

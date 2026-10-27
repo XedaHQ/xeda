@@ -60,7 +60,7 @@ def _design(root: Path) -> Design:
     return Design(
         name="mac",
         design_root=root,
-        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
+        rtl={"sources": ["mac.v"], "top": "mac", "clocks": [{"port": "clk"}]},
     )
 
 
@@ -128,7 +128,7 @@ def _effective(run_dir: Path) -> dict:
 
 def _tiny(tmp_path: Path, **given: Any) -> dict[str, Any]:
     """Settings that select the `tiny` platform, in a store under `tmp_path`, and a 2 ns clock."""
-    return tiny_settings(tiny_store(tmp_path), clock={"period": "2 ns"}, **given)
+    return tiny_settings(tiny_store(tmp_path), clocks={"main_clock": {"period": "2 ns"}}, **given)
 
 
 # ------------------------------------------------------------------------------ the output
@@ -225,7 +225,7 @@ def test_every_liberty_file_is_read_and_mapped_to_and_the_dont_use_cells_are_wor
     patched, merged or written."""
     settings = {
         **_stage_platform(tmp_path, platform_s),
-        "clock": {"period": "2 ns"},
+        "clocks": {"main_clock": {"period": "2 ns"}},
         "dont_use_cells": own,
     }
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
@@ -295,7 +295,10 @@ def test_without_a_liberty_library_nothing_is_derived(tmp_path, monkeypatch):
     """A generic-gate run is what it was: no abc script, no constraints, no flattening, the
     netlist's attributes kept -- the group settings act on a liberty mapping."""
     run_dir = _scripted_launch(
-        tmp_path, monkeypatch, Yosys, {"gates": ["AND", "OR", "NOT"], "clock": {"period": "2 ns"}}
+        tmp_path,
+        monkeypatch,
+        Yosys,
+        {"gates": ["AND", "OR", "NOT"], "clocks": {"main_clock": {"period": "2 ns"}}},
     )
     script = _script(run_dir)
     assert "-script" not in script and "-constr" not in script
@@ -316,7 +319,7 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
     design = tmp_path / "design"
     _design(design)
     (design / "design.yaml").write_text(
-        'name: mac\nrtl:\n  sources: ["mac.v"]\n  top: mac\n  clock:\n    port: clk\n'
+        'name: mac\nrtl:\n  sources: ["mac.v"]\n  top: mac\n  clocks: [{port: clk}]\n'
     )
     run_root = tmp_path / "xeda_run"
     store = tiny_store(tmp_path)
@@ -333,7 +336,7 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
             "-s",
             f"platform_file={TINY_RESIDUE}",
             f"pdk_root={store}",
-            "clock.period=2ns",
+            "clocks.main_clock.period=2ns",
             "--json",
         ],
         cwd=design,
@@ -387,7 +390,10 @@ def test_the_gate_mapping_keeps_its_post_synthesis_optimization_setting(
 ):
     """Mapping to gates is not the liberty mapping: it runs the optimization after synthesis
     when `post_synth_opt` is true, and not otherwise."""
-    settings: dict[str, Any] = {"gates": ["AND", "OR", "NOT"], "clock": {"period": "2 ns"}}
+    settings: dict[str, Any] = {
+        "gates": ["AND", "OR", "NOT"],
+        "clocks": {"main_clock": {"period": "2 ns"}},
+    }
     if given is not None:
         settings["post_synth_opt"] = given
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
@@ -554,7 +560,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
     require_yosys()
     _design(tmp_path)
     (tmp_path / "design.yaml").write_text(
-        'name: mac\nrtl:\n  sources: ["mac.v"]\n  top: mac\n  clock:\n    port: clk\n'
+        'name: mac\nrtl:\n  sources: ["mac.v"]\n  top: mac\n  clocks: [{port: clk}]\n'
     )
     root = tmp_path / "runs"
     proc = subprocess.run(
@@ -571,7 +577,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
             "-s",
             f"platform_file={TINY_RESIDUE}",
             f"pdk_root={tiny_store(tmp_path)}",
-            "clock.period=2ns",
+            "clocks.main_clock.period=2ns",
             "abc.driver_cell=INV_X1",
             "abc.load=2.5 fF",
             "black_box=mul8",
@@ -650,7 +656,7 @@ def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch
         {
             "liberty": ["lib/x.lib"],
             "sequential": {"dff_liberty": "lib/dff.lib"},
-            "clock": {"period": "2 ns"},
+            "clocks": {"main_clock": {"period": "2 ns"}},
         },
     )
     assert flow.succeeded
@@ -899,7 +905,7 @@ def test_abc_dff_and_splitnets_follow_the_mapping_unless_set(
     shutil.copy(TINY / "tiny.lib", cells)
     settings: dict[str, Any] = {
         **{k: ([str(cells)] if k == "liberty" else v) for k, v in mapping.items()},
-        "clock": {"period": "2 ns"},
+        "clocks": {"main_clock": {"period": "2 ns"}},
     }
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     script = _script(run_dir)
@@ -1001,7 +1007,7 @@ def _counter_design(root: Path) -> Design:
     return Design(
         name="counter",
         design_root=root,
-        rtl={"sources": ["counter.v"], "top": "counter", "clock": {"port": "clk"}},
+        rtl={"sources": ["counter.v"], "top": "counter", "clocks": [{"port": "clk"}]},
     )
 
 
@@ -1097,12 +1103,15 @@ def test_a_liberty_file_that_includes_another_is_refused_before_yosys_starts(tmp
         platform_lib.read_text().replace('  time_unit : "1ns";\n', f"  include_file({units});\n")
     )
     cases = {
-        "liberty": ({"liberty": [str(own)], "clock": {"period": "2 ns"}}, str(own)),
+        "liberty": (
+            {"liberty": [str(own)], "clocks": {"main_clock": {"period": "2 ns"}}},
+            str(own),
+        ),
         "dff_liberty": (
             {
                 "liberty": [str(clean)],
                 "sequential": {"dff_liberty": str(own)},
-                "clock": {"period": "2 ns"},
+                "clocks": {"main_clock": {"period": "2 ns"}},
             },
             str(own),
         ),

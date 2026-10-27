@@ -35,9 +35,9 @@ def make_flow(tmp_path: Path, report: Any, family: str = "ecp5") -> Nextpnr:
     """A Nextpnr instance whose run directory holds `report` as its nextpnr report."""
     design = Design(
         name="dummy",
-        rtl={"sources": [], "top": "dummy", "clock": "clk"},  # type: ignore[arg-type]
+        rtl={"sources": [], "top": "dummy", "clocks": ["clk"]},  # type: ignore[arg-type]
     )
-    settings = Nextpnr.Settings(fpga=FPGA(family=family), clock={"period": "5 ns"})  # type: ignore[call-arg]
+    settings = Nextpnr.Settings(fpga=FPGA(family=family), clocks={"main_clock": {"period": "5 ns"}})  # type: ignore[call-arg]
     flow = Nextpnr(settings, design, tmp_path)
     report_path = tmp_path / str(settings.report)
     if report is not None:
@@ -415,7 +415,7 @@ def test_nextpnr_expands_design_root_in_file_settings(tmp_path, monkeypatch):
     args = _nextpnr_args(
         tmp_path,
         monkeypatch,
-        fpga="LFE5U-25F-6BG381C",
+        fpga={"part": "LFE5U-25F-6BG381C"},
         sdc="$DESIGN_ROOT/timing.sdc",
         pre_route="hooks/pre_route.py",
         py_script="report.py",
@@ -428,12 +428,12 @@ def test_nextpnr_expands_design_root_in_file_settings(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "fpga,flags",
     [
-        ("iCE40UP5K-SG48I", {"--up5k", "--package=sg48"}),
-        ("iCE40LP1K-SWG16TR", {"--lp1k", "--package=swg16tr"}),
+        ({"part": "iCE40UP5K-SG48I"}, {"--up5k", "--package=sg48"}),
+        ({"part": "iCE40LP1K-SWG16TR"}, {"--lp1k", "--package=swg16tr"}),
         ({"family": "ice40", "device": "iCE40UP5K", "package": "UWG30"}, {"--package=uwg30"}),
-        ("LFE5U-85F-8MG285C", {"--85k", "--speed=8", "--package=CSFBGA285"}),
+        ({"part": "LFE5U-85F-8MG285C"}, {"--85k", "--speed=8", "--package=CSFBGA285"}),
         ({"family": "ecp5", "capacity": "25k", "package": "cabga256"}, {"--package=CABGA256"}),
-        ("LFD2NX-40-7BG256C", {"--device=LFD2NX-40-7BG256C", "--fasm=config.fasm"}),
+        ({"part": "LFD2NX-40-7BG256C"}, {"--device=LFD2NX-40-7BG256C", "--fasm=config.fasm"}),
     ],
 )
 def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch, fpga, flags):
@@ -444,13 +444,13 @@ def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch,
     "settings,message",
     [
         ({"fpga": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"}}, "no tested"),
-        ({"fpga": "xc7a35tcpg236"}, "full part"),
+        ({"fpga": {"part": "xc7a35tcpg236"}}, "full part"),
         (
-            {"fpga": "iCE40HX1K-TQ144", "lpf_allow_unconstrained": True},
+            {"fpga": {"part": "iCE40HX1K-TQ144"}, "lpf_allow_unconstrained": True},
             "does not take lpf_allow_unconstrained",
         ),
         (
-            {"fpga": "LFE5U-25F-6BG381C", "opt_timing": True, "no_pack_lutff": True},
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}, "opt_timing": True, "no_pack_lutff": True},
             "does not take opt_timing, no_pack_lutff",
         ),
         ({"fpga": {"family": "nexus", "device": "LIFCL-40"}}, "LIFCL-40-9BG400C"),
@@ -480,13 +480,17 @@ def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
     design = Design(
         name="blink",
         design_root=tmp_path,
-        rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
+        rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
     )
     monkeypatch.chdir(tmp_path)
     flow = DefaultRunner(tmp_path / "runs").run_flow(
         Nextpnr,
         design,
-        {"fpga": "iCE40HX1K-TQ144", "clock": {"period": "20 ns"}, "pcf_allow_unconstrained": True},
+        {
+            "fpga": {"part": "iCE40HX1K-TQ144"},
+            "clocks": {"main_clock": {"period": "20 ns"}},
+            "pcf_allow_unconstrained": True,
+        },
     )
     assert flow is not None and flow.succeeded
     assert (flow.run_path / "config.asc").is_file()
@@ -617,12 +621,12 @@ def test_nextpnr_runs_with_its_device_given_only_for_yosys_fpga(tmp_path, monkey
     design = Design(
         name="blink",
         design_root=tmp_path,
-        rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
-        flow={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}},
+        rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
+        flows={"yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}}},
     )
     monkeypatch.chdir(tmp_path)
     flow = DefaultRunner(tmp_path / "xeda_run").run(
-        Nextpnr, design, flow_overrides={"clock": {"period": "20 ns"}}
+        Nextpnr, design, flow_overrides={"clocks": {"main_clock": {"period": "20 ns"}}}
     )
     assert flow is not None and flow.succeeded
     assert flow.settings.fpga is not None and flow.settings.fpga.part == "LFE5U-25F-6BG381C"
@@ -638,8 +642,8 @@ def _blink(tmp_path: Path, flows: dict[str, Any]) -> Design:
     return Design(
         name="blink",
         design_root=tmp_path,
-        rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
-        flow=flows,
+        rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
+        flows=flows,
     )
 
 
@@ -664,7 +668,7 @@ def _yosys_launch_settings(tmp_path, monkeypatch, flow_cls, flows=None, cli=(), 
         DefaultRunner(tmp_path / "xeda_run").run(
             flow_cls,
             _blink(tmp_path, flows or {}),
-            flow_settings=[f"fpga={part or ICE40_PART}", *cli],
+            flow_settings=[f"fpga.part={part or ICE40_PART}", *cli],
         )
     settings = captured["settings"]
     assert isinstance(settings, YosysFpga.Settings)
@@ -720,20 +724,24 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
             project = tmp_path / "project.yaml"
             project.write_text("flows:\n  nextpnr:\n    yosys:\n      flatten: true\n")
             runner.plan(
-                Nextpnr, design, xedaproject=str(project), flow_settings=[f"fpga={ICE40_PART}"]
+                Nextpnr, design, xedaproject=str(project), flow_settings=[f"fpga.part={ICE40_PART}"]
             )
         elif origin == "cli":
-            runner.plan(Nextpnr, design, flow_settings=[f"fpga={ICE40_PART}", "yosys.flatten=true"])
+            runner.plan(
+                Nextpnr, design, flow_settings=[f"fpga.part={ICE40_PART}", "yosys.flatten=true"]
+            )
         elif origin == "api":
-            runner.run_flow(Nextpnr, design, {"fpga": ICE40_PART, "yosys": {"flatten": True}})
+            runner.run_flow(
+                Nextpnr, design, {"fpga": {"part": ICE40_PART}, "yosys": {"flatten": True}}
+            )
         elif origin == "loader-cli":
             runner.run(
                 Openfpgaloader,
                 design,
-                flow_settings=[f"fpga={ICE40_PART}", "flows.nextpnr.yosys.flatten=true"],
+                flow_settings=[f"fpga.part={ICE40_PART}", "flows.nextpnr.yosys.flatten=true"],
             )
         else:
-            runner.plan(Nextpnr, design, flow_settings=[f"fpga={ICE40_PART}"])
+            runner.plan(Nextpnr, design, flow_settings=[f"fpga.part={ICE40_PART}"])
     with pytest.raises(Exception, match="`yosys` was removed: use `flows.yosys_fpga.<key>`"):
         Nextpnr.Settings(yosys=YosysFpga.Settings())
 
@@ -777,8 +785,8 @@ def test_nextpnr_ice40_places_a_netlist_with_src_unless_told_otherwise(
         Nextpnr,
         _blink(tmp_path, flows),
         flow_settings=[
-            "fpga=iCE40HX1K-TQ144",
-            "clock.period=20ns",
+            "fpga.part=iCE40HX1K-TQ144",
+            "clocks.main_clock.period=20ns",
             "pcf_allow_unconstrained=true",
         ],
     )

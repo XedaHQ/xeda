@@ -73,7 +73,7 @@ class _DeclaredOptimizer(Optimizer):
             for delta in (
                 {"tag": "one"},
                 {"tag": "two"},
-                {"tag": "clock", "clock": {"period": "12 ns"}},
+                {"tag": "clock", "clocks": {"main_clock": {"period": "12 ns"}}},
             )
         ]
 
@@ -94,10 +94,17 @@ def test_worker_deltas_do_not_replay_serialized_path_defaults():
 
 def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
+        _DsePlace,
+        design,
+        flow_settings={
+            "fpga": {"part": "LFE5U-25F-6BG256C"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+        },
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -128,10 +135,17 @@ class _DseLeaf(FpgaSynthFlow):
 
 def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
+        _DseLeaf,
+        design,
+        flow_settings={
+            "fpga": {"part": "LFE5U-25F-6BG256C"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+        },
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -146,7 +160,9 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
     not improve, once their outcome is in. It is not the launch-wide purge of `xeda run`, which
     would delete the best run too: each launch of the exploration leaves its run directory."""
     monkeypatch.chdir(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(
         _DeclaredOptimizer,
         run_root=tmp_path / "run",
@@ -155,7 +171,12 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
         post_cleanup_purge=True,
     )
     runner.run(
-        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
+        _DseLeaf,
+        design,
+        flow_settings={
+            "fpga": {"part": "LFE5U-25F-6BG256C"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+        },
     )
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
     best = outcomes["one"].run_path
@@ -171,7 +192,7 @@ def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, mo
         name="d",
         design_root=tmp_path,
         rtl={"sources": [], "top": "t"},
-        flow={"__synth": {"fpga": "LFE5U-85F-6BG381C"}},
+        flows={"__synth": {"fpga": {"part": "LFE5U-85F-6BG381C"}}},
     )
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     with pytest.raises(FlowSettingsError, match="disagree"):
@@ -206,7 +227,7 @@ def test_declared_dse_adjustments_are_resolved_before_any_write(tmp_path, monkey
     monkeypatch.setattr(runner, "resolve", resolved)
     monkeypatch.setattr(dse_runner, "add_file_logger", before_logging)
     with pytest.raises(RuntimeError, match="checked before writing logs"):
-        runner.run_flow(_DsePlace, design, {"fpga": "LFE5U-25F-6BG256C"})
+        runner.run_flow(_DsePlace, design, {"fpga": {"part": "LFE5U-25F-6BG256C"}})
 
 
 def _write_dse_project(tmp_path):
@@ -230,7 +251,6 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
             "xeda",
             "dse",
             "vivado_synth",
-            "--design",
             "sqrt.yaml",
             "--max-workers",
             "2",
@@ -295,7 +315,7 @@ def test_an_exploration_that_fails_at_input_makes_no_run_root(tmp_path, monkeypa
     (tmp_path / "bad.toml").write_text(
         'name = "bad"\n[rtl]\nsources = ["missing.vhdl"]\ntop = "bad"\n'
     )
-    result = CliRunner().invoke(cli, ["dse", "vivado_synth", "--design", "bad.toml", "--json"])
+    result = CliRunner().invoke(cli, ["dse", "vivado_synth", "bad.toml", "--json"])
     assert result.exit_code != 0 and not (tmp_path / "xeda_run").exists()
 
 
@@ -310,7 +330,6 @@ def _dse(tmp_path, design_toml: str, *args):
             "xeda",
             "dse",
             "vivado_synth",
-            "--design",
             "d.toml",
             *args,
             "--json",
@@ -324,7 +343,7 @@ def _dse(tmp_path, design_toml: str, *args):
     return proc, json.loads(proc.stdout)
 
 
-BARE = 'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclock.port = "clk"\n'
+BARE = 'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclocks = ["clk"]\n'
 
 
 def test_a_search_without_its_bounds_names_them(tmp_path):
@@ -431,10 +450,17 @@ class _PromotingOptimizer(_DeclaredOptimizer):
 
 def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(_PromotingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert runner.run(
-        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
+        _DsePlace,
+        design,
+        flow_settings={
+            "fpga": {"part": "LFE5U-25F-6BG256C"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+        },
     )
     assert len(runner.optimizer.outcomes) == 2
     assert [o.results["producer_period"] for o in runner.optimizer.outcomes] == [12.0, 14.0]
@@ -463,7 +489,9 @@ class _ObservedFmax(FmaxOptimizer):
 
 def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(
         _ObservedFmax,
         optimizer_settings={
@@ -479,7 +507,10 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
     assert runner.run(
         _FmaxPlace,
         design,
-        flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
+        flow_settings={
+            "fpga": {"part": "LFE5U-25F-6BG256C"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+        },
     )
     assert len(runner.optimizer.outcomes) >= 2
 
@@ -497,7 +528,7 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock": "clk"}
+        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
     )
     runner = Dse(
         _IdleFmax,
@@ -509,7 +540,10 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     runner.run(
         "vivado_alt_synth",
         design,
-        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
+        flow_settings={
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "5 ns"}},
+        },
     )
     return runner
 
@@ -694,7 +728,9 @@ def _as_json(results) -> dict:
 
 
 def _search_timing_judged(tmp_path) -> Dse:
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(
         _OneBatchFmax,
         optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 300.0},
@@ -705,7 +741,10 @@ def _search_timing_judged(tmp_path) -> Dse:
     assert runner.run(
         _TimingJudged,
         design,
-        flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
+        flow_settings={
+            "fpga": {"part": "LFE5U-25F-6BG256C"},
+            "clocks": {"main_clock": {"period": "10 ns"}},
+        },
     )
     return runner
 
@@ -828,7 +867,6 @@ def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
             [
                 "dse",
                 "openroad_place",
-                "--design",
                 str(design),
                 "--init-freq-low",
                 "100",
@@ -845,13 +883,18 @@ def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
 
 def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]}
+    )
     runner = Dse(_ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert (
         runner.run(
             _DseLeaf,
             design,
-            flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
+            flow_settings={
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
         )
         is not None
     )
@@ -867,7 +910,7 @@ def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_t
     design = Design(
         name="d",
         design_root=tmp_path,
-        rtl={"sources": ["Top.bsv"], "top": "mkTop", "clock": "CLK"},
+        rtl={"sources": ["Top.bsv"], "top": "mkTop", "clocks": ["CLK"]},
     )
     runner = Dse(
         _IdleFmax,
@@ -878,5 +921,8 @@ def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_t
     runner.run(
         "vivado_alt_synth",
         design,
-        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
+        flow_settings={
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "5 ns"}},
+        },
     )

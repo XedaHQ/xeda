@@ -16,7 +16,7 @@ from xeda.design import (
     AMBIGUOUS_SUFFIXES,
     SOURCE_SUFFIXES,
     TYPE_ONLY,
-    DesignSource,
+    Source,
     SourceType,
 )
 from xeda.flow import FlowSettingsException
@@ -178,7 +178,7 @@ def test_the_functional_and_the_timing_netlist_cannot_be_crossed(
             flow_settings=[
                 *VIVADO_SETTINGS,
                 *(
-                    ["flows.vivado_alt_synth.fpga=xc7a12tcsg325-1"]
+                    ["flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1"]
                     if producer == "vivado_alt_synth"
                     else []
                 ),
@@ -210,10 +210,10 @@ def test_the_stage_types_are_given_by_type_only_and_a_checkpoint_suffix_asks_for
     path = tmp_path / "top.dcp"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"`\.dcp` names several kinds of file") as error:
-        DesignSource(path)
+        Source(path)
     assert "SynthCheckpoint" in str(error.value) and "RoutedCheckpoint" in str(error.value)
     for member in CHECKPOINTS:
-        assert DesignSource({"file": str(path), "type": member.name}).type is member
+        assert Source({"file": str(path), "type": member.name}).type is member
 
 
 def test_the_openroad_types_are_given_by_type_only_and_an_odb_suffix_asks_for_one(tmp_path):
@@ -225,9 +225,9 @@ def test_the_openroad_types_are_given_by_type_only_and_an_odb_suffix_asks_for_on
     path = tmp_path / "top.odb"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"`\.odb` names several kinds of file"):
-        DesignSource(path)
+        Source(path)
     for member in OPENROAD_DBS:
-        assert DesignSource({"file": str(path), "type": member.name}).type is member
+        assert Source({"file": str(path), "type": member.name}).type is member
 
 
 # ------------------------------------------------------------------------------ the sweep

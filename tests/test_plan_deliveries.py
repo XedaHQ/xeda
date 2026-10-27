@@ -122,7 +122,7 @@ class _Both(Flow):
 _REGISTERED = {
     name: registered_flows[name]
     for cls in (_ReadsDir, _Delivers, _Both)
-    for name in (cls.name, cls.__name__)
+    for name in (cls.name,)
     if name in registered_flows
 }
 for _name in _REGISTERED:

@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from xeda.design import Design, DesignFileParseError, DesignValidationError
+from xeda.frozen import thaw
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
 
@@ -199,7 +200,7 @@ def test_explicit_core_tags_and_ordinary_aliases(tmp_path):
         '    B: *a\n    "<<": text\n'
     )
     design = Design.from_file(path)
-    assert design.rtl.parameters == {
+    assert thaw(design.rtl.parameters) == {
         "A": [10, "off", 1000.0, True],
         "B": [10, "off", 1000.0, True],
         "<<": "text",

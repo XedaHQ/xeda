@@ -238,6 +238,8 @@ def test_a_generator_glob_expands_in_a_stable_order_and_must_match(root):
         assert generator.sources == [root / "a.vhd", root / "sub" / "b.vhd"]
         with pytest.raises(ValueError, match="no file matches the generator source pattern"):
             Generator(command="true", sources=["*.sv"])
+    with pytest.raises(ValueError, match="no design root says where it lies"):
+        Generator(command="true", sources=["sub/b.vhd"])
 
 
 def test_pwd_is_not_expanded_in_a_source(root):
@@ -575,5 +577,4 @@ def test_a_source_not_yet_written_can_be_validated_again(tmp_path):
     )
     assert [src.file.name for src in design.rtl.sources] == ["top.vhd", "later.v"]
 
-    design.rtl.sources = list(design.rtl.sources)
     assert Design(**design.model_dump()).rtl.sources[1].file == tmp_path.resolve() / "gen/later.v"

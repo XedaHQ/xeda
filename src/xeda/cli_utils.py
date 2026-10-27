@@ -50,7 +50,7 @@ from .cli_types import (
 from .console import console, console_target, redirect_console, restore_console
 from .design import Design
 from .flow import Flow
-from .flow_runner import FlowNotFoundError, XedaOptions, get_flow_class
+from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
 from .introspect import settings_info, type_str
 from .outcomes import Result
@@ -213,7 +213,7 @@ _EXTRA_ARGUMENT = "Got unexpected extra argument ("
 def unit_after_space_hint(message: str, args: Sequence[str]) -> Optional[str]:
     """Return the hint for a unit that a user wrote after a space, or None.
 
-    `-s clock.period=5.5 ns` ends the list of `KEY=VALUE` items at `ns`, and click reports `ns` as
+    `-s clocks.main_clock.period=5.5 ns` ends the list of `KEY=VALUE` items at `ns`, and click reports `ns` as
     an extra argument. `message` is the text of that error and `args` the command line. The hint
     applies when the first extra argument is exactly a unit of a quantity and the token before it
     is an item whose value is a number.
@@ -358,7 +358,6 @@ class XedaHelpGroup(ColorizedGroup):
 #: The code of a file that a path parameter of `run` names and that does not exist.
 _MISSING_FILE_CODES = {
     "design_file": "design_file_not_found",
-    "design_file_opt": "design_file_not_found",
     "xedaproject": "project_file_not_found",
 }
 
@@ -614,8 +613,6 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     table.add_column("Description", overflow="fold")
     for field in fields:
         name = escape(field["name"])
-        if field.get("alias"):
-            name += f"\n[dim](alias: {escape(str(field['alias']))})[/dim]"
         description = field.get("description") or ""
         if field.get("enum"):
             choices = ", ".join(str(c) for c in field["enum"])
@@ -629,12 +626,9 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     return table
 
 
-def _definitions_tables(definitions: Dict[str, Any], debug: bool = False) -> None:
+def _definitions_tables(definitions: Dict[str, Any]) -> None:
     for type_name, type_def in definitions.items():
         properties = (type_def or {}).get("properties")
-        if debug:
-            console.print(f"Type: {type_name}")
-            console.print_json(data=type_def)
         if not properties:
             enum = (type_def or {}).get("enum")
             if enum:
@@ -668,7 +662,6 @@ def _definitions_tables(definitions: Dict[str, Any], debug: bool = False) -> Non
 
 def print_flow_settings(
     flow: Union[str, Type[Flow]],
-    options: Optional[XedaOptions] = None,
     output_format: str = "table",
     include_common: bool = True,
     tier: Optional[str] = None,
@@ -707,7 +700,7 @@ def print_flow_settings(
             console.print(_settings_table(f"{info['flow']} settings: {name}", in_tier))
     if common:
         console.print(_settings_table("Common settings (accepted by every flow)", common))
-    _definitions_tables(info.get("definitions", {}), debug=bool(options and options.debug))
+    _definitions_tables(info.get("definitions", {}))
 
 
 def discover_flow_class(flow: str) -> Type[Flow]:

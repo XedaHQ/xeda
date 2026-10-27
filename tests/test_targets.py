@@ -20,6 +20,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.design import DESIGN_PARTS, DesignValidationError
 from xeda.flow import FlowSettingsError
+from xeda.frozen import thaw
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import merge_flow_sections, registered_flow
 from xeda.flows import VivadoSynth
@@ -39,7 +40,7 @@ def design_hash(design: Design) -> str:
 
 def flows_as_read(design: Design) -> dict:
     """The design's `flows` sections as the launcher reads them."""
-    return merge_flow_sections(design.flow, flow_class_for=registered_flow)
+    return merge_flow_sections(design.flows, flow_class_for=registered_flow)
 
 
 def write_design(tmp_path: Path, data: dict, name: str = "d.yaml") -> Path:
@@ -98,7 +99,7 @@ def test_a_selected_target_is_the_design_written_flat_by_hand(design, target, fl
 
 def test_the_target_name_is_not_identity(tmp_path):
     """Two targets with the same overlay are the same design under two names."""
-    overlay = {"defines": {"A": 1}}
+    overlay = {"rtl": {"defines": {"A": 1}}}
     path = write_design(tmp_path, {**BASE, "targets": {"one": overlay, "two": dict(overlay)}})
     one, two = Design.from_file(path, target="one"), Design.from_file(path, target="two")
     assert (one.target, two.target) == ("one", "two")
@@ -114,7 +115,7 @@ def test_sources_are_appended_and_other_lists_replace(tmp_path):
         "targets": {
             "t": {
                 "authors": ["C <c@example.com>"],
-                "sources": ["arty.xdc"],
+                "rtl": {"sources": ["arty.xdc"]},
                 "tb": {"sources": ["ulx3s.lpf"]},
             }
         },
@@ -122,7 +123,7 @@ def test_sources_are_appended_and_other_lists_replace(tmp_path):
     design = Design.from_file(write_design(tmp_path, data), target="t")
     assert [s.file.name for s in design.rtl.sources] == ["knight.v", "por_sync.v", "arty.xdc"]
     assert [s.file.name for s in design.tb.sources] == ["knight_tb.v", "ulx3s.lpf"]
-    assert design.authors == ["C <c@example.com>"]
+    assert design.authors == ("C <c@example.com>",)
     assert design.rtl.top == "knight" and design.tb.top == ("knight_tb",)
 
 
@@ -130,48 +131,35 @@ def test_mappings_merge_key_by_key_at_every_depth():
     design = Design.from_file(KNIGHT, target="ulx3s")
     assert design.rtl.parameters == {"WIDTH": 4}
     assert design.rtl.defines == {"CLK_HZ": 25000000}
-    assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
-    assert design.flow["vivado_synth"] == {"clock": {"period": "10 ns"}}
-    assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
-
-
-def test_a_target_meets_the_design_s_other_spelling_of_a_key(tmp_path):
-    """`flow`/`flows`, `generics`/`parameters`: one setting, however each side spells it."""
-    data = {
-        "name": "d",
-        "rtl": {"sources": ["knight.v"], "top": "knight", "generics": {"WIDTH": 8, "DEPTH": 2}},
-        "flow": {"nextpnr": {"seed": 3}},
-        "targets": {
-            "t": {"parameters": {"WIDTH": 4}, "flows": {"nextpnr": {"board": "ulx3s_85f"}}}
-        },
-    }
-    design = Design.from_file(write_design(tmp_path, data), target="t")
-    assert design.rtl.parameters == {"WIDTH": 4, "DEPTH": 2}
-    assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
+    assert design.flows["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
+    assert design.flows["vivado_synth"] == {"clocks": {"main_clock": {"period": "10 ns"}}}
+    assert design.rtl.clocks[0]["port"] == "CLK"
 
 
 def test_dotted_keys_in_a_target_are_expanded(tmp_path):
-    data = {**BASE, "targets": {"t": {"clock.port": "CLK", "flows.nextpnr.seed": 5}}}
+    data = {**BASE, "targets": {"t": {"rtl.clocks": [{"port": "CLK"}], "flows.nextpnr.seed": 5}}}
     design = Design.from_file(write_design(tmp_path, data), target="t")
-    assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
-    assert design.flow == {"nextpnr": {"seed": 5}}
+    assert design.rtl.clocks[0]["port"] == "CLK"
+    assert design.flows == {"nextpnr": {"seed": 5}}
 
 
 def test_a_target_s_paths_resolve_against_the_design_root(tmp_path, monkeypatch):
     (tmp_path / "elsewhere").mkdir()
     monkeypatch.chdir(tmp_path / "elsewhere")
     (tmp_path / "d").mkdir()
-    path = write_design(tmp_path / "d", {**BASE, "targets": {"t": {"sources": ["arty.xdc"]}}})
+    path = write_design(
+        tmp_path / "d", {**BASE, "targets": {"t": {"rtl": {"sources": ["arty.xdc"]}}}}
+    )
     design = Design.from_file(path, target="t")
     assert design.rtl.sources[-1].file == (tmp_path / "d" / "arty.xdc").resolve()
 
 
 def test_design_overrides_win_over_the_target(tmp_path):
-    data = {**BASE, "targets": {"t": {"top": "from_target", "defines": {"A": 1, "B": 1}}}}
+    data = {**BASE, "targets": {"t": {"rtl": {"top": "from_target", "defines": {"A": 1, "B": 1}}}}}
     design = Design.from_file(
         write_design(tmp_path, data),
         target="t",
-        overrides={"top": "from_override", "defines": {"A": 2}},
+        overrides={"rtl": {"top": "from_override", "defines": {"A": 2}}},
     )
     assert design.rtl.top == "from_override"
     assert design.rtl.defines == {"A": 2, "B": 1}
@@ -186,7 +174,7 @@ SOURCES_DESIGN = {
     "rtl": {"sources": ["knight.v", "por_sync.v"], "top": "knight"},
     "tb": {"sources": ["knight_tb.v"], "top": "knight_tb"},
 }
-SOURCES_TARGET = {"sources": ["arty.xdc"], "tb": {"sources": ["ulx3s.lpf"]}}
+SOURCES_TARGET = {"rtl": {"sources": ["arty.xdc"]}, "tb": {"sources": ["ulx3s.lpf"]}}
 
 
 @pytest.mark.parametrize("with_target", [False, True], ids=["no target", "a target"])
@@ -194,10 +182,8 @@ SOURCES_TARGET = {"sources": ["arty.xdc"], "tb": {"sources": ["ulx3s.lpf"]}}
     "overrides, rtl_sources, tb_sources",
     [
         ({"rtl": {"sources": ["arty.xdc"]}}, ["arty.xdc"], None),
-        ({"sources": ["arty.xdc"]}, ["arty.xdc"], None),
         ({"rtl": {"sources": "arty.xdc"}}, ["arty.xdc"], None),
         ({"tb": {"sources": ["arty.xdc", "knight_tb.v"]}}, None, ["arty.xdc", "knight_tb.v"]),
-        ({"test": {"sources": ["arty.xdc"]}}, None, ["arty.xdc"]),
         (
             {"rtl": {"sources": ["arty.xdc"]}, "tb": {"sources": ["knight.v"]}},
             ["arty.xdc"],
@@ -206,7 +192,7 @@ SOURCES_TARGET = {"sources": ["arty.xdc"], "tb": {"sources": ["ulx3s.lpf"]}}
         (settings_to_dict(["rtl.sources=arty.xdc"]), ["arty.xdc"], None),
         (settings_to_dict(["tb.sources=arty.xdc"]), None, ["arty.xdc"]),
     ],
-    ids=["rtl", "flat", "text", "tb", "test", "both", "-s rtl", "-s tb"],
+    ids=["rtl", "text", "tb", "both", "-s rtl", "-s tb"],
 )
 def test_a_sources_override_replaces_the_design_s_sources(
     tmp_path, with_target, overrides, rtl_sources, tb_sources
@@ -247,7 +233,7 @@ def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(t
 
 @pytest.mark.parametrize("reported_target", ["another", None])
 def test_design_overrides_cannot_change_or_hide_the_selected_target(tmp_path, reported_target):
-    path = write_design(tmp_path, {**BASE, "targets": {"t": {"top": "from_target"}}})
+    path = write_design(tmp_path, {**BASE, "targets": {"t": {"rtl": {"top": "from_target"}}}})
     with pytest.raises(DesignValidationError, match="cannot be overridden"):
         Design.from_file(path, target="t", overrides={"target": reported_target})
 
@@ -279,7 +265,7 @@ def test_several_targets_and_no_selection_is_the_design_itself():
     assert "targets" not in base.model_dump()
     assert [s.file.name for s in base.rtl.sources] == ["knight.v", "por_sync.v"]
     assert base.rtl.parameters == {"WIDTH": 8}
-    assert base.flow["nextpnr"] == {"seed": 3}
+    assert base.flows["nextpnr"] == {"seed": 3}
     assert design_hash(base) != design_hash(Design.from_file(KNIGHT, target="arty"))
 
 
@@ -293,8 +279,8 @@ def test_no_selection_is_the_design_written_without_its_targets(tmp_path):
 
 
 def test_a_target_that_is_not_selected_is_still_checked_for_its_form(tmp_path):
-    message = error_of(tmp_path, {**BASE, "targets": {"t": {}, "u": {"sorces": ["x"]}}})
-    assert "targets.u.sorces" in message and "did you mean `sources`" in message
+    message = error_of(tmp_path, {**BASE, "targets": {"t": {}, "u": {"rtl": ["x"], "flws": {}}}})
+    assert "targets.u.flws" in message and "did you mean `flows`" in message
     message = error_of(tmp_path, {**BASE, "targets": {"t": {}, "T": {}}})
     assert "differ only in letter case" in message
 
@@ -344,12 +330,14 @@ def test_an_empty_targets_table_is_no_targets(tmp_path):
 
 def test_a_design_built_from_data_has_no_target_unless_one_is_selected(tmp_path):
     write_design(tmp_path, BASE)
-    for targets in ({"t": {"defines": {"A": 1}}}, {"a": {}, "b": {}}):
+    for targets in ({"t": {"rtl": {"defines": {"A": 1}}}}, {"a": {}, "b": {}}):
         design = Design(design_root=tmp_path, **BASE, targets=targets)
         assert design.target is None and design.rtl.defines == {}
     chosen = Design(
         design_root=tmp_path,
-        **Design.select_target({**BASE, "targets": {"a": {}, "b": {"defines": {"A": 1}}}}, "b"),
+        **Design.select_target(
+            {**BASE, "targets": {"a": {}, "b": {"rtl": {"defines": {"A": 1}}}}}, "b"
+        ),
     )
     assert chosen.target == "b" and chosen.rtl.defines == {"A": 1}
 
@@ -371,7 +359,7 @@ def test_a_target_name_is_a_name(tmp_path, name):
     assert repr(name) in message and "not a target name" in message
 
 
-@pytest.mark.parametrize("name", ["vivado_synth", "VivadoSynth", "nextpnr", "vivado-synth"])
+@pytest.mark.parametrize("name", ["vivado_synth", "nextpnr", "vivado-synth", "Nextpnr"])
 def test_a_target_is_not_named_as_a_flow(tmp_path, name):
     message = error_of(tmp_path, {**BASE, "targets": {"ok": {}, name: {}}}, target="ok")
     assert repr(name) in message and "flow" in message
@@ -405,7 +393,7 @@ def test_a_name_that_only_looks_like_a_run_directory_is_a_target_name(tmp_path, 
     assert target_name_problem(name) is None
 
 
-def test_every_flow_name_and_alias_is_refused_as_a_target_name(tmp_path):
+def test_every_flow_name_is_refused_as_a_target_name(tmp_path):
     from xeda.flow import registered_flows
 
     write_design(tmp_path, BASE)
@@ -423,9 +411,9 @@ def test_keys_that_are_the_design_s_alone_are_refused_in_a_target(tmp_path, key)
 
 
 def test_an_unknown_key_in_a_target_names_it_and_a_close_match(tmp_path):
-    data = {**BASE, "targets": {"t": {}, "u": {"sorces": ["arty.xdc"]}}}
+    data = {**BASE, "targets": {"t": {}, "u": {"flws": {}}}}
     message = error_of(tmp_path, data, target="t")
-    assert "targets.u.sorces" in message and "did you mean `sources`" in message
+    assert "targets.u.flws" in message and "did you mean `flows`" in message
 
 
 def test_an_unknown_nested_key_in_a_target_is_the_loader_s_error(tmp_path):
@@ -461,7 +449,7 @@ def test_a_project_design_takes_a_target_the_same_way(tmp_path):
     design = project.get_design("knight", target="ulx3s")
     assert design is not None and design.target == "ulx3s"
     flat = Design.from_file(RESOURCES / "knight_ulx3s_flat.yaml")
-    assert design.rtl_hash == flat.rtl_hash and design.flow == flat.flow
+    assert design.rtl_hash == flat.rtl_hash and design.flows == flat.flows
     with pytest.raises(DesignValidationError, match="arty, ulx3s"):
         project.get_design("knight", target="nexys")
     base = project.get_design("knight")
@@ -500,9 +488,9 @@ def test_the_launcher_applies_overrides_to_a_dictionary_design(tmp_path):
     launcher = DefaultRunner(tmp_path / "xeda_run")
     request = launcher._request(
         "vivado_synth",
-        design={"name": "d", "targets": {"t": {"top": "from_target"}}},
+        design={"name": "d", "targets": {"t": {"rtl": {"top": "from_target"}}}},
         target="t",
-        design_overrides={"top": "from_api"},
+        design_overrides={"rtl": {"top": "from_api"}},
     )
     assert request.design.target == "t"
     assert request.design.rtl.top == "from_api"
@@ -657,7 +645,6 @@ def test_dse_takes_a_target(tmp_path, monkeypatch):
     result, document = invoke(
         "dse",
         "vivado_synth",
-        "--design",
         str(KNIGHT),
         "--target",
         "nexys",
@@ -678,7 +665,7 @@ def test_dse_uses_the_design_unless_a_target_is_given(tmp_path, target):
         shutil.copy(sqrt / name, tmp_path)
     text = (sqrt / "sqrt.yaml").read_text() + "\ntargets:\n  a: {}\n  b: {}\n"
     (tmp_path / "sqrt.yaml").write_text(text)
-    command = [sys.executable, "-m", "xeda", "dse", "vivado_synth", "--design", "sqrt.yaml"]
+    command = [sys.executable, "-m", "xeda", "dse", "vivado_synth", "sqrt.yaml"]
     command += ["--max-workers", "2", "--init-freq-low", "100", "--init-freq-high", "300"]
     command += ["--dse-settings", "max_failed_iters=2", "--json"]
     command += ["--target", target] if target else []
@@ -773,8 +760,8 @@ def test_a_target_overrides_the_design_and_only_where_it_writes(tmp_path):
         tmp_path, "layered", "ulx3s", flow_settings=["seed=9"], flow_overrides={"seed": 11}
     )
     assert both.seed == 11  # API > command line > target
-    board = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["board=ARTY_A7_35T"])
-    # a command-line `board` beats the target's too, and is stored under the board's one name
+    board = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["board=arty_a7_35t"])
+    # a command-line `board` beats the target's too
     assert board.board == "arty_a7_35t"
 
 
@@ -796,7 +783,7 @@ def test_two_nodes_still_must_agree_when_a_target_supplies_one_side(tmp_path):
         "name": "d",
         "rtl": {"sources": ["knight.v"], "top": "knight"},
         "flows": {"nextpnr": {"board": "arty_a7_100t"}},
-        "targets": {"t": {"flows": {"yosys_fpga": {"fpga": "LFE5U-85F-6BG381C"}}}},
+        "targets": {"t": {"flows": {"yosys_fpga": {"fpga": {"part": "LFE5U-85F-6BG381C"}}}}},
     }
     path = write_design(tmp_path, data)
     with pytest.raises(FlowSettingsError, match="disagrees with yosys_fpga"):
@@ -815,24 +802,24 @@ def test_a_shared_leaf_at_a_target_s_top_level_is_refused_and_says_where_it_goes
 
 
 def test_a_design_clock_carries_no_frequency(tmp_path):
-    """Investigation (a): `rtl.clock` names a port; a constraint is a flow's `clock` setting."""
+    """Investigation (a): `rtl.clocks` names ports; a constraint is a flow's `clocks` setting."""
     message = error_of(
         tmp_path,
-        {**BASE, "targets": {"t": {"clock": {"port": "CLK", "freq": "100MHz"}}}},
+        {**BASE, "targets": {"t": {"rtl": {"clocks": [{"port": "CLK", "freq": "100MHz"}]}}}},
         target="t",
     )
     assert "freq" in message and "Extra inputs are not permitted" in message
 
 
 def test_a_target_constrains_a_flow_s_clock_through_its_flow_section(tmp_path):
-    """What works today: the target's `flows.<flow>.clock`, matched to the design's clock port."""
+    """What works today: the target's `flows.<flow>.clocks`, matched to the design's clock port."""
     data = {
         "name": "d",
-        "rtl": {"sources": ["knight.v"], "top": "knight", "clock": {"port": "CLK"}},
+        "rtl": {"sources": ["knight.v"], "top": "knight", "clocks": [{"port": "CLK"}]},
         "flows": {"vivado_synth": {"fpga": {"part": "xc7a100tcsg324-1"}}},
         "targets": {
-            "fast": {"flows": {"vivado_synth": {"clock": {"freq": "200MHz"}}}},
-            "slow": {"flows": {"vivado_synth": {"clock": {"freq": "25MHz"}}}},
+            "fast": {"flows": {"vivado_synth": {"clocks": {"main_clock": {"freq": "200MHz"}}}}},
+            "slow": {"flows": {"vivado_synth": {"clocks": {"main_clock": {"freq": "25MHz"}}}}},
         },
     }
     path = write_design(tmp_path, data)
@@ -840,7 +827,7 @@ def test_a_target_constrains_a_flow_s_clock_through_its_flow_section(tmp_path):
     periods = {}
     for target in ("fast", "slow"):
         design = Design.from_file(path, target=target)
-        settings = VivadoSynth.Settings(**design.flow["vivado_synth"])
+        settings = VivadoSynth.Settings(**thaw(design.flows["vivado_synth"]))
         flow = VivadoSynth(settings, design, tmp_path / target)
         clock = flow.settings.clocks["main_clock"]
         periods[target] = clock.period.to("ns")

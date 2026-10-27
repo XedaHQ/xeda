@@ -35,16 +35,12 @@ def test_catalog_generator_excludes_registered_extension_flows():
     code = r"""
 import json
 import runpy
-from typing import ClassVar
-
 from xeda.flow import Flow
 from xeda.introspect import all_flow_classes
 
 generator = runpy.run_path("tools/generate_flow_catalog.py")
 
 class CatalogExtensionFlow(Flow):
-    aliases: ClassVar[list[str]] = ["catalog_extension_alias"]
-
     def run(self) -> None:
         pass
 
@@ -103,13 +99,12 @@ cases = {
     "yosys_fpga+open_xc7+fpga_pack+",
 }
 
-by_spelling = {name: cls for cls in classes for name in (cls.name, *cls.aliases)}
+by_spelling = {name: cls for cls in classes for name in (cls.name,)}
 for cls in classes:
     spellings = {
         cls.name,
         cls.name.replace("_", "-"),
         cls.__name__,
-        *cls.aliases,
     }
     for spelling in spellings:
         cases.update({spelling, spelling[:1], spelling[:3], spelling + "+"})
@@ -137,7 +132,7 @@ for cls in classes:
 
 # Include each actual follower and a partial follower prefix for every builtin producer spelling.
 for cls in classes:
-    for spelling in {cls.name, *cls.aliases}:
+    for spelling in {cls.name}:
         for candidate in complete_request(spelling + "+", classes):
             suffix = candidate[len(spelling) + 1:]
             cases.add(spelling + "+" + suffix[:1])
@@ -166,7 +161,7 @@ for incomplete in sorted(cases):
 
 
 def _spellings(cls):
-    return {cls.name, cls.name.replace("_", "-"), cls.__name__, *cls.aliases}
+    return {cls.name, cls.name.replace("_", "-"), cls.__name__}
 
 
 def _agreement_cases(classes, complete_request):
@@ -259,9 +254,9 @@ def test_a_catalog_without_routes_completes_every_follower_as_a_direct_one(monke
     from xeda import flow_catalog
 
     records = {
-        "a": {"aliases": [], "class_name": "A", "followers": {"": ["b", "c"]}},
-        "b": {"aliases": [], "class_name": "B", "followers": {"": ["c"]}},
-        "c": {"aliases": [], "class_name": "C", "followers": {"": []}},
+        "a": {"followers": {"": ["b", "c"]}},
+        "b": {"followers": {"": ["c"]}},
+        "c": {"followers": {"": []}},
     }
     monkeypatch.setattr(flow_catalog, "_builtin_flows", lambda: list(records.items()))
     assert flow_catalog.complete_builtin_request("a+") == ["a+b", "a+c"]

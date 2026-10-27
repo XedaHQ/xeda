@@ -412,7 +412,7 @@ def test_each_platform_floorplans_a_four_cell_netlist(name, tmp_path):
         rtl={
             "sources": [{"file": "top_netlist.v", "type": "VerilogNetlist"}],
             "top": "top",
-            "clock": {"port": "clk"},
+            "clocks": [{"port": "clk"}],
         },
     )
     settings = OpenroadPlace.Settings.from_input(
@@ -485,7 +485,10 @@ def gcd_settings(store: Path, period: str | None = None) -> list[str]:
     the two flows that take it, if `period` is given."""
     settings = [f"pdk_root={store}"]
     if period is not None:
-        settings += [f"flows.{flow}.clock.period={period}" for flow in ("yosys", "openroad_place")]
+        settings += [
+            f"flows.{flow}.clocks.main_clock.period={period}"
+            for flow in ("yosys", "openroad_place")
+        ]
     return settings
 
 
@@ -547,8 +550,8 @@ def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
         store,
         *chosen,
         *(f"flows.yosys.{setting}" for setting in chosen),
-        "flows.yosys.clock.period=4ns",
-        "flows.openroad_place.clock.period=4ns",
+        "flows.yosys.clocks.main_clock.period=4ns",
+        "flows.openroad_place.clocks.main_clock.period=4ns",
         "write_gds=true",
         flow="bsc+openroad",
     )

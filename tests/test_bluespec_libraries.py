@@ -10,6 +10,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim
 
+from .design_edits import with_updates
 from .tool_utils import require_bluesim, require_bsc, run_report
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples/bluespec"
@@ -210,7 +211,7 @@ def test_stream_app_bytes_uses_link_configuration(defines, tmp_path, capfd):
         for name, value in design.rtl.defines.items()
         if name not in {"LL_APP_GCD", "LL_APP_ASCON"}
     }
-    design.rtl.defines = {**app_defines, **defines}
+    design = with_updates(design, rtl={"defines": {**app_defines, **defines}})
     flow = DefaultRunner(tmp_path, display_results=False).run_flow(Bsc, design)
     captured = capfd.readouterr()
     assert flow is not None and flow.succeeded, run_report(flow, captured)

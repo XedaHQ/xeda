@@ -7,7 +7,7 @@ from colorama import Fore as fg
 from colorama import Style as style
 
 from ..dataclass import WORKING, Field, field_validator, waveform
-from ..design import SourceType
+from ..design import SourceType, language_of
 from ..flow import (
     Flow,
     FlowSettingsException,
@@ -397,9 +397,9 @@ class Vcs(SimFlow):
         # every header's directory is an include directory, as for Verilator and yosys
         for d in self.design.header_dirs(tb=True):
             vlogan_args.append(f"+incdir+{d}")
-        if self.design.language.vhdl.standard in ("08", "2008"):
+        if language_of(self.design).vhdl.standard in ("08", "2008"):
             vhdlan_args.append("-vhdl08")
-        elif self.design.language.vhdl.standard in ("02", "2002"):
+        elif language_of(self.design).vhdl.standard in ("02", "2002"):
             vhdlan_args.append("-vhdl02")
         if ss.vlogan_warns:
             vlogan_args.append(f"+warn={ss.vlogan_warns}")

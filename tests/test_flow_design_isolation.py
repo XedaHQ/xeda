@@ -21,6 +21,8 @@ from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Nvc
 
+from .design_edits import with_updates
+
 
 @pytest.fixture
 def toy_flows():
@@ -57,7 +59,7 @@ def toy_flows():
             )
 
         def init(self) -> None:
-            self.design.rtl.parameters = {}
+            self.design = with_updates(self.design, rtl={"parameters": {}})
 
         def run(self) -> None:
             seen["flow"] = dict(self.design.rtl.parameters)
@@ -67,8 +69,7 @@ def toy_flows():
 
     yield DesignEditor, seen
     for cls in (DesignDep, DesignEditor):
-        for name in (cls.name, cls.__name__):
-            registered_flows.pop(name, None)
+        registered_flows.pop(cls.name, None)
 
 
 def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):

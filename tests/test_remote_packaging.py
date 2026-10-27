@@ -68,11 +68,11 @@ def test_locator_setting_comes_only_from_the_host_profile(tmp_path, place):
     design = _design(tmp_path)
 
     local_only = _package(design, {key: local}, tmp_path)
-    assert _shipped(local_only)["flow"][key] == expected(None)
+    assert _shipped(local_only)["flows"][key] == expected(None)
 
     # both set: the host profile wins on the remote, the local value never travels
     with_host = _package(design, {key: local}, tmp_path, host_flows={key: host})
-    assert _shipped(with_host)["flow"][key] == expected("/opt/pdk")
+    assert _shipped(with_host)["flows"][key] == expected("/opt/pdk")
     for package in (local_only, with_host):
         assert not package.files and not package.path_identities
         assert list(package.generated) == [package.design_file]
@@ -87,7 +87,7 @@ def test_host_value_of_another_flow_is_not_used(tmp_path):
         tmp_path,
         host_flows={NESTED_KEY: {"where": {"store": "/opt/pdk"}}},
     )
-    assert _shipped(package)["flow"][STORE_KEY] == {"store": None}
+    assert _shipped(package)["flows"][STORE_KEY] == {"store": None}
 
 
 def _liberty_chain(tmp_path: Path) -> Path:
@@ -112,7 +112,7 @@ def test_liberty_rewrite_names_the_remote_inputs_path(tmp_path):
     library = _liberty_chain(tmp_path)
     package = _package(_design(tmp_path), _openroad_sections(library), tmp_path)
 
-    (shipped,) = _shipped(package)["flow"]["openroad_place"]["liberty"]
+    (shipped,) = _shipped(package)["flows"]["openroad_place"]["liberty"]
     assert shipped.startswith("$DESIGN_ROOT/_liberty_inputs/")
     copy = package.generated[shipped.removeprefix("$DESIGN_ROOT/")].decode()
     include = copy.split("include_file(")[1].split(")")[0]
@@ -123,9 +123,9 @@ def test_liberty_rewrite_names_the_remote_inputs_path(tmp_path):
     assert str(REMOTE_INPUTS).encode() in gzip.decompress(nested)
     assert any(name.endswith("units.lib.gz") for name in package.files)  # nothing to rename
     # the identity of the run is that of the original file
-    assert package.path_identities[
-        str(REMOTE_INPUTS / shipped.removeprefix("$DESIGN_ROOT/"))
-    ] == str(library)
+    assert package.path_identities[str(REMOTE_INPUTS / shipped.removeprefix("$DESIGN_ROOT/"))] == {
+        "setting": str(library)
+    }
 
 
 def test_liberty_of_a_flow_outside_the_plan_travels_as_a_path(tmp_path):
@@ -243,7 +243,10 @@ def test_the_package_lists_only_regular_files_that_exist(tmp_path):
 TARGETS = Path(__file__).parent / "resources" / "targets"
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 PROJECT = {
-    "flows": {"vivado_synth": {"clock": {"period": "5 ns"}}, "nextpnr": {"seed": 9}},
+    "flows": {
+        "vivado_synth": {"clocks": {"main_clock": {"period": "5 ns"}}},
+        "nextpnr": {"seed": 9},
+    },
 }
 
 
@@ -294,7 +297,7 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     """Package a prepared request, put the package where the remote has it, load the document as
     the launch entry does and plan it. Return the package, the plan of the remote, the run root of
     the remote and the directory of the inputs."""
-    from xeda.flow.flow import using_path_identities
+    from xeda.utils import using_path_identities
     from xeda.flow_runner import DefaultRunner
     from xeda.remote.launch_entry import load_packaged_design
 
@@ -324,12 +327,17 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     "case",
     [
         dict(flow="vivado_synth", target="arty", settings=[]),
-        dict(flow="vivado_synth", target="arty", settings=["clock.period=8 ns"]),
+        dict(flow="vivado_synth", target="arty", settings=["clocks.main_clock.period=8 ns"]),
         dict(flow="vivado_synth", target=None, settings=["fpga.part=xc7a100tcsg324-1"]),
         dict(flow="nextpnr", target="ulx3s", settings=["seed=4"]),
         dict(flow="yosys_fpga+nextpnr", target="ulx3s", settings=["seed=4"]),
         dict(flow="nextpnr", target="ulx3s", settings=[], project=True),
-        dict(flow="vivado_synth", target="arty", settings=["clock.period=8 ns"], project=True),
+        dict(
+            flow="vivado_synth",
+            target="arty",
+            settings=["clocks.main_clock.period=8 ns"],
+            project=True,
+        ),
         dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory=True),
         dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory="inside"),
     ],
@@ -390,7 +398,7 @@ def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
     design = _design(tmp_path)
     package = _package(design, {"__input_maker": {"input_file": str(data)}}, tmp_path)
     assert all(path.is_file() for path in package.files.values())
-    (setting,) = _shipped(package)["flow"]["__input_maker"].values()
+    (setting,) = _shipped(package)["flows"]["__input_maker"].values()
     relative = setting.removeprefix("$DESIGN_ROOT/")
     assert set(package.files) >= {f"{relative}/top.txt", f"{relative}/deep/deeper/x.txt"}
     assert package.directories == [f"{relative}/empty/inner"]
@@ -433,8 +441,8 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
     (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
-        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clock.period: 5ns\n"
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clocks: [{port: clk}]}\n"
+        "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    clocks.main_clock.period: 5ns\n"
         "    set_synth_properties: {A: 1}\n"
     )
     local_root = tmp_path / "local" / "xeda_run"
@@ -451,7 +459,7 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
         "set_synth_properties",
         expected={"A": "1", "A.B": "2"},
     )
-    shipped = _shipped(package)["flow"]["vivado_synth"]["set_synth_properties"]
+    shipped = _shipped(package)["flows"]["vivado_synth"]["set_synth_properties"]
     assert shipped == {"A": 1, "A\\.B": "2"}, "the document writes the names with escaped dots"
 
 
@@ -462,7 +470,7 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
     (design_root / "sqrt.yaml").write_text(
-        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clock: {port: clk}}\n"
+        "name: sqrt\nrtl: {sources: [sqrt.vhdl], top: sqrt, clocks: [{port: clk}]}\n"
     )
     local_root = tmp_path / "local" / "xeda_run"
     prepared = DefaultRunner(local_root, display_results=False).prepare_request(
@@ -470,7 +478,7 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
         design=design_root / "sqrt.yaml",
         flow_settings=[
             "fpga.part=xc7a12tcsg325-1",
-            "clock.period=5ns",
+            "clocks.main_clock.period=5ns",
             "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
             "set_synth_properties.A.B=2",
             "set_synth_properties.A.C=3",
@@ -534,10 +542,10 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
     document = {
         "name": "d",
         "rtl": {"sources": [], "top": "t"},
-        "flow": {"vivado_synth": {"set_synth_properties": {"A": 1, "A\\.B": 2}}},
+        "flows": {"vivado_synth": {"set_synth_properties": {"A": 1, "A\\.B": 2}}},
     }
     path.write_text(json.dumps(document))
-    table = Design.from_file(path, packaged=True).flow["vivado_synth"]["set_synth_properties"]
+    table = Design.from_file(path, packaged=True).flows["vivado_synth"]["set_synth_properties"]
     assert {type(key) for key in table} == {str, AtomicName}
     assert {
         key.name if isinstance(key, AtomicName) else key: item for key, item in table.items()
@@ -546,7 +554,7 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
         "A.B": 2,
     }
     # A user's design file gets no such key: the setting refuses the name when it is read.
-    plain = Design.from_file(path).flow["vivado_synth"]["set_synth_properties"]
+    plain = Design.from_file(path).flows["vivado_synth"]["set_synth_properties"]
     assert not any(isinstance(key, AtomicName) for key in plain)
 
 
@@ -611,8 +619,8 @@ EXAMPLES = sorted(
 def test_every_example_design_unpacks_with_the_same_sources(design_file, tmp_path):
     """What the remote loads from the package has the sources of the example, each with its type
     and its content, in order, and the same settings of the design. (A source outside the design
-    root has another place there, so the hash of the design may differ: the run identity does not
-    count a place.)"""
+    root has another place there, so the hash of the design may differ. The run identity does not:
+    the host counts the place as this side does.)"""
     design = Design.from_file(design_file)
     restored = _unpacked(_package(design, {}, tmp_path), tmp_path / "remote")
 
@@ -782,9 +790,222 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
         tmp_path, prepared, local_root, case["flow"], hashed
     )
     assert _wiring(remote_plan, remote_root) == _wiring(prepared.plan, local_root)
-    shipped = _shipped(package)["flow"]
+    shipped = _shipped(package)["flows"]
     holding = {name for name, section in shipped.items() if "inputs" in section}
     if case.get("shipped_inputs") is False:
         assert not holding  # the chain binds the input, and the remote gets the chain
     else:
         assert holding and all(name not in ("__maker",) for name in holding)
+
+
+# --- The identity of a node is the same on both ends -------------------------------------------
+
+
+def _places_outside_the_root(tmp_path: Path) -> Design:
+    """A design with the four paths that packaging moves or keeps by a rule of its own:
+
+    - a source outside the design root, which travels among the flat sources,
+    - a file outside the root that is a source and the value of a parameter,
+    - a file outside the root that is only the value of a parameter,
+    - a directory under the root that is the value of a parameter, as an absolute path."""
+    root = tmp_path / "design"
+    (root / "assets").mkdir(parents=True)
+    (root / "top.v").write_text("module top(input clk); endmodule\n")
+    (root / "assets" / "a.txt").write_text("a\n")
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "ext.v").write_text("module ext(); endmodule\n")
+    (tmp_path / "lib" / "shared.v").write_text("module shared(); endmodule\n")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "rom.mem").write_text("00\n")
+    return Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": [
+                "top.v",
+                str(tmp_path / "lib" / "ext.v"),
+                str(tmp_path / "lib" / "shared.v"),
+            ],
+            "top": "top",
+            "parameters": {
+                "ROM": str(tmp_path / "data" / "rom.mem"),
+                "SHARED": str(tmp_path / "lib" / "shared.v"),
+                "ASSETS": str(root / "assets"),
+                "W": 8,
+            },
+        },
+    )
+
+
+@pytest.mark.parametrize("hashed", [False, True])
+def test_the_remote_has_the_identities_and_configurations_of_the_local_plan(tmp_path, hashed):
+    """Packaging puts a source outside the design root among the flat sources and moves the files
+    that parameters name. The host still computes the identities of the local plan, from the
+    configuration as the client counted it."""
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    design = _places_outside_the_root(tmp_path)
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=hashed)
+    prepared = local.prepare_request("yosys", design=design)
+
+    package, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys", hashed
+    )
+
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    configuration = thaw(prepared.plan.node("yosys").configuration)
+    assert thaw(remote_plan.node("yosys").configuration) == configuration
+    # the client's spelling: places relative to the design root, `../` outside it
+    assert [source["path"] for source in configuration["rtl"]["sources"]] == [
+        "top.v",
+        "../lib/ext.v",
+        "../lib/shared.v",
+    ]
+    assert configuration["rtl"]["parameters"] == {
+        "ROM": str(tmp_path / "data" / "rom.mem"),
+        "SHARED": str(tmp_path / "lib" / "shared.v"),
+        "ASSETS": "$DESIGN_ROOT/assets",
+        "W": 8,
+    }
+    # the package moved the files: the host sees other places than the client does
+    assert any(path.startswith("d/sources/") for path in package.files)
+
+
+def test_a_converted_design_has_the_same_identities_on_the_remote(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    from .flow_registry import preserved_flow_registry
+    from .test_node_configuration import bluespec_design, converted_chain
+
+    with preserved_flow_registry():
+        converter, consumer, chain = converted_chain()
+        design = bluespec_design(tmp_path / "design")
+        local_root = tmp_path / "local" / "xeda_run"
+        local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+        prepared = local.prepare_request(chain, design=design)
+
+        _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+            tmp_path, prepared, local_root, chain, True
+        )
+
+        assert [node.name for node in remote_plan.nodes] == [converter.name, consumer.name]
+        assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+        for node in prepared.plan.nodes:
+            assert thaw(remote_plan.node(node.name).configuration) == thaw(node.configuration)
+        assert thaw(prepared.plan.node(consumer.name).configuration)["converted_from"] == (
+            converter.name
+        )
+
+
+def test_a_file_that_is_a_source_and_a_parameter_has_a_text_for_each_role(tmp_path):
+    design = _places_outside_the_root(tmp_path)
+    package = _package(design, {}, tmp_path)
+
+    shared = tmp_path / "lib" / "shared.v"
+    (key,) = [
+        key
+        for key, roles in package.path_identities.items()
+        if roles.get("source") == "../lib/shared.v"
+    ]
+    assert key.startswith(str(REMOTE_INPUTS / "d" / "sources"))
+    assert package.path_identities[key] == {"source": "../lib/shared.v", "parameter": str(shared)}
+    # a value that travels as it is is keyed by itself
+    assets = str(design.root_path / "assets")
+    assert package.path_identities[assets] == {"parameter": "$DESIGN_ROOT/assets"}
+
+
+def test_two_texts_for_one_file_in_one_role_are_refused(tmp_path):
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "rom.mem").write_text("00\n")
+    design = _design(
+        tmp_path,
+        rtl={
+            "sources": [],
+            "top": "t",
+            "parameters": {"A": str(lib / "rom.mem"), "B": str(lib / ".." / "lib" / "rom.mem")},
+        },
+    )
+
+    with pytest.raises(FlowSettingsException, match="same role"):
+        _package(design, {}, tmp_path)
+
+
+def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_remote(tmp_path):
+    """The origin of a declared input that the sources supply names the file by its place under
+    the design root. Packaging moves a netlist from outside the root among the flat sources, and
+    the host counts the place as the client does."""
+    from xeda.flow_runner import DefaultRunner
+
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "n.json").write_text("{}\n")
+    root = tmp_path / "design"
+    root.mkdir()
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": [{"file": str(tmp_path / "lib" / "n.json"), "type": "JsonNetlist"}],
+            "top": "t",
+        },
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+    prepared = local.prepare_request(
+        "nextpnr", design=design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"]
+    )
+
+    _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "nextpnr", True
+    )
+
+    assert prepared.plan.node("nextpnr").origins[0] == (
+        "netlist",
+        ("source", (("../lib/n.json", "JsonNetlist"),)),
+    )
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+
+
+def test_a_testbench_with_cocotb_has_the_same_identity_on_the_remote(tmp_path):
+    """The testbench part, its sources, its cocotb table and the defines (literal text, even when
+    it looks like a path) are the same on both ends."""
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    root = tmp_path / "design"
+    root.mkdir()
+    for name in ("top.v", "tb.v"):
+        (root / name).write_text(f"module {name[:-2]}(); endmodule\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={
+            "sources": ["top.v"],
+            "top": "top",
+            "clocks": ["clk"],
+            "defines": {"DUMP": "/not/a/path/here", "FAST": 1},
+        },
+        tb={
+            "sources": ["tb.v"],
+            "top": "tb",
+            "uut": "dut",
+            "defines": {"TRACE": None},
+            "cocotb": {"module": "test_top", "testcase": ["a", "b"]},
+        },
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+    prepared = local.prepare_request("verilator", design=design)
+
+    _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "verilator", True
+    )
+
+    configuration = thaw(prepared.plan.node("verilator").configuration)
+    assert configuration["tb"]["cocotb"]["testcase"] == ["a", "b"]
+    assert configuration["rtl"]["defines"] == {"DUMP": "/not/a/path/here", "FAST": 1}
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    assert thaw(remote_plan.node("verilator").configuration) == configuration

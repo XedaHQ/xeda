@@ -59,8 +59,8 @@ DESIGN = {
     "top.v": b"module top(input clk, output q); assign q = clk; endmodule\n",
     "top.yaml": (
         "name: top\n"
-        "rtl:\n  sources: [top.v]\n  top: top\n  clock.port: clk\n"
-        f"flows:\n  nextpnr:\n    fpga.part: {PART}\n    clock.freq: 100 MHz\n"
+        "rtl:\n  sources: [top.v]\n  top: top\n  clocks: [{port: clk}]\n"
+        f"flows:\n  nextpnr:\n    fpga.part: {PART}\n    clocks.main_clock.freq: 100 MHz\n"
     ).encode(),
 }
 

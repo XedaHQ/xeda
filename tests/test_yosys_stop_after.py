@@ -34,7 +34,7 @@ FLOWS = {
     "yosys_fpga": dict(
         fake=tool_utils.use_fake_fpga_tools,
         formats=["ys"],
-        needs=[f"fpga={ECP5}"],
+        needs=[f"fpga.part={ECP5}"],
         off=["netlist_json=", "netlist_verilog="],
     ),
     "yosys": dict(  # its stand-in runs `.ys` scripts only
@@ -159,7 +159,7 @@ def test_the_default_netlists_are_refused_with_the_settings_to_write(flow, tmp_p
 #: A stopped flow and the flow that takes the netlist it would write, as a chain: what each side
 #: needs besides, and the settings that turn the stopped flow's netlists off.
 CONSUMERS = {
-    "yosys_fpga+nextpnr": ["flows.nextpnr.fpga=" + ECP5, "flows.yosys_fpga.netlist_json="],
+    "yosys_fpga+nextpnr": ["flows.nextpnr.fpga.part=" + ECP5, "flows.yosys_fpga.netlist_json="],
     "yosys+openroad_place": ["flows.yosys.netlist_json="],
     "yosys+openroad": ["flows.yosys.netlist_json="],
 }

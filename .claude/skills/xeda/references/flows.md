@@ -25,7 +25,7 @@ Artifacts: `log`, `simulation_log`, `waveform`, `c_log`, `cc_log`, `executable`
 
 ### `ghdl_sim`
 
-*aliases: `ghdl` | supports cocotb testbenches*
+*supports cocotb testbenches*
 
 Simulate a VHDL design with GHDL.
 

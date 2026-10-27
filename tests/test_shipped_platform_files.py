@@ -229,13 +229,13 @@ def test_the_flow_reads_the_shipped_map_with_the_defines_and_registers_it(tmp_pa
     design = Design(
         name="top",
         design_root=design_root,
-        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     user = user_file(tmp_path, "name: tiny\nextends: tiny\n")
     settings = {
         "platform_file": str(user),
         "pdk_root": str(store),
-        "clock": {"period": "2 ns"},
+        "clocks": {"main_clock": {"period": "2 ns"}},
         "defines": {"OPENROAD_CLKGATE": None},
     }
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(

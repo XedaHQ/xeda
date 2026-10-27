@@ -248,7 +248,7 @@ def _import_registration_problems() -> list[str]:
         ):
             continue
         builtin = cls.__module__.startswith("xeda.")
-        for name in dict.fromkeys([cls.name, cls.__name__, *cls.aliases]):
+        for name in (cls.name,):
             if name not in registered_flows:
                 if builtin:  # a reviewed module may unregister its own flow, never a built-in
                     problems.append(f"{name}: {cls.__module__}.{cls.__qualname__} is unregistered")

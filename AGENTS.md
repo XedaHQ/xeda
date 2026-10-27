@@ -33,8 +33,8 @@ xeda design-schema                                # JSON Schema of a design file
 xeda run <flow> <design> -s key=value --json      # run it; tool output goes to stderr
 ```
 
-Discover, do not guess: an unknown setting is a hard error, not a warning. Flow names tolerate
-dashes, underscores and CamelCase; setting names do not.
+Discover, do not guess: an unknown setting is a hard error, not a warning. Flow names and setting
+names have one spelling each; another spelling is an error that names the right one.
 
 ## Contributing to Xeda itself
 

@@ -69,15 +69,21 @@ def test_a_table_given_as_a_whole_after_a_value_conflicts_too(value):
 
 def test_the_keys_are_named_in_full_wherever_they_are_deep():
     with pytest.raises(ConflictingKeys) as deep:
-        settings_to_dict(["flows.verilator.clock=3", "flows.verilator.clock.period=5ns"])
+        settings_to_dict(
+            ["flows.verilator.clocks.main_clock=3", "flows.verilator.clocks.main_clock.period=5ns"]
+        )
     with pytest.raises(ConflictingKeys) as nested:
-        expand_hierarchy({"flows": {"verilator": {"clock": 3, "clock.period": 5}}})
+        expand_hierarchy(
+            {"flows": {"verilator": {"clocks.main_clock": 3, "clocks.main_clock.period": 5}}}
+        )
 
-    assert "`flows.verilator.clock` is set to a value, and `flows.verilator.clock.period`" in str(
-        deep.value
+    assert (
+        "`flows.verilator.clocks.main_clock` is set to a value, and "
+        "`flows.verilator.clocks.main_clock.period`" in str(deep.value)
     )
-    assert "`flows.verilator.clock` is set to a value, and `flows.verilator.clock.period`" in str(
-        nested.value
+    assert (
+        "`flows.verilator.clocks.main_clock` is set to a value, and "
+        "`flows.verilator.clocks.main_clock.period`" in str(nested.value)
     )
 
 
@@ -217,22 +223,30 @@ from xeda.xedaproject import XedaProject
 
 DESIGN = {
     "language": {"vhdl": {"standard": "2008"}},
-    "rtl": {"sources": ["a.vhd"], "top": "a", "clock": {"port": "clk"}},
+    "rtl": {"sources": ["a.vhd"], "top": "a", "clocks": [{"port": "clk"}]},
     "tb": {"top": "tb"},
-    "flows": {"vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": "5 ns"}}},
+    "flows": {
+        "vivado_synth": {
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "5 ns"}},
+        }
+    },
 }
 #: the same keys, written as dotted keys at every level
 DOTTED = {
     "language.vhdl.standard": "2008",
     "rtl.sources": ["a.vhd"],
     "rtl.top": "a",
-    "rtl.clock.port": "clk",
+    "rtl.clocks": [{"port": "clk"}],
     "tb.top": "tb",
     "flows.vivado_synth.fpga.part": "xc7a12tcsg325-1",
-    "flows.vivado_synth.clock.period": "5 ns",
+    "flows.vivado_synth.clocks.main_clock.period": "5 ns",
 }
-OVERLAY_NESTED = {"tb": {"top": "other"}, "flows": {"vivado_synth": {"clock": {"period": "4 ns"}}}}
-OVERLAY_DOTTED = {"tb.top": "other", "flows.vivado_synth.clock.period": "4 ns"}
+OVERLAY_NESTED = {
+    "tb": {"top": "other"},
+    "flows": {"vivado_synth": {"clocks": {"main_clock": {"period": "4 ns"}}}},
+}
+OVERLAY_DOTTED = {"tb.top": "other", "flows.vivado_synth.clocks.main_clock.period": "4 ns"}
 
 
 def _dump(design: Design, root: Path) -> dict:
@@ -258,7 +272,7 @@ def _project(
     tmp_path: Path, entry: dict, flows: dict | None = None, target: str | None = None, **options
 ) -> Design:
     path = _root(tmp_path) / "xedaproject.json"
-    path.write_text(json.dumps({"design": [{"name": "d", **entry}], "flows": flows or {}}))
+    path.write_text(json.dumps({"designs": [{"name": "d", **entry}], "flows": flows or {}}))
     design = XedaProject.from_file(path, **options).get_design(0, target)
     assert design is not None and design.target == target
     return design
@@ -301,8 +315,8 @@ def test_a_dotted_key_means_the_same_in_every_origin_of_a_design(origin, tmp_pat
 
 
 def test_a_dotted_key_in_a_projects_flows_means_the_same(tmp_path):
-    nested = {"vivado_synth": {"fpga": {"part": "p"}, "clock": {"period": "5 ns"}}}
-    dotted = {"vivado_synth": {"clock.period": "5 ns", "fpga.part": "p"}}
+    nested = {"vivado_synth": {"fpga": {"part": "p"}, "clocks": {"main_clock": {"period": "5 ns"}}}}
+    dotted = {"vivado_synth": {"clocks.main_clock.period": "5 ns", "fpga.part": "p"}}
     (tmp_path / "nested").mkdir()
     (tmp_path / "dotted").mkdir()
     flows = {}
@@ -382,8 +396,8 @@ def test_a_design_file_takes_the_normal_forms(tmp_path):
         tmp_path / "nested", "flows:\n  vivado_synth:\n    fpga:\n      part: p\n      speed: -1\n"
     )
 
-    assert Design.from_file(dotted).flow == Design.from_file(nested).flow
-    assert Design.from_file(dotted).flow["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
+    assert Design.from_file(dotted).flows == Design.from_file(nested).flows
+    assert Design.from_file(dotted).flows["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
 
 
 def test_a_target_refuses_it_at_the_target_whichever_is_selected(tmp_path):

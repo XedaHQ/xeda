@@ -16,10 +16,12 @@ from pathlib import Path
 
 
 from xeda import Design
+from xeda.design import Source
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.proc_utils import run_process
 from xeda.tool import Tool
 
+from .design_edits import with_updates
 from .settings_samples import minimal_settings
 from .tool_utils import fake_calls, use_fake_tools
 from .tool_utils import HANG_GUARD
@@ -96,14 +98,14 @@ def launch_case(
     design = Design(
         name="oracle",
         design_root=work,
-        rtl={"sources": [source], "top": top, "clock": {"port": "clk"}},
+        rtl={"sources": [source], "top": top, "clocks": [{"port": "clk"}]},
         tb={"sources": [source], "top": top, "uut": "dut"},
         language={"vhdl": {"standard": "2008"}},
     )
     if foreign_source:
         foreign = work / "foreign.c"
         foreign.write_text("int foreign(void) { return 1; }\n")
-        design.rtl.sources = [*design.rtl.sources, foreign]
+        design = with_updates(design, rtl={"sources": [*design.rtl.sources, Source(foreign)]})
     flow_class = get_flow_class(case.flow)
     settings = minimal_settings(flow_class)
     if case.backend:
@@ -319,7 +321,15 @@ def launch_case(
 
     monkeypatch.setattr(Tool, "execute", execute)
     if case.flow == "vivado_postsynth_sim":
-        design.flow = {"vivado_synth": {"fpga": "xc7a100tcsg324-1", "clock": {"period": "5 ns"}}}
+        design = with_updates(
+            design,
+            flows={
+                "vivado_synth": {
+                    "fpga": {"part": "xc7a100tcsg324-1"},
+                    "clocks": {"main_clock": {"period": "5 ns"}},
+                }
+            },
+        )
     flow = DefaultRunner(work / "runs", display_results=False, rebuild_all=True).run_flow(
         flow_class, design, settings
     )

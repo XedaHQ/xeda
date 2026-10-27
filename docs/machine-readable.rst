@@ -52,7 +52,7 @@ document:
 .. code-block:: bash
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
-    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml --json
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
     xeda scrub vivado_synth sqrt --json
 
 .. note::
@@ -68,7 +68,6 @@ Discovering what to run
 
     {
       "name": "vivado_postsynth_sim",
-      "aliases": [],
       "class": "VivadoPostsynthSim",
       "module": "xeda.flows.vivado.vivado_postsynthsim",
       "qualified_name": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim",
@@ -82,7 +81,7 @@ Discovering what to run
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
     }
 
-``name`` is the canonical name, and ``aliases`` are the other accepted names. ``dependencies`` are
+``name`` is the name of the flow, the only name that Xeda accepts for it. ``dependencies`` are
 the default producers of the declared inputs of the flow. A design source or a binding can replace a
 default producer, so use the resolved plan to see the producers that a request needs.
 
@@ -160,7 +159,6 @@ under the name that you can type as ``-s <name>=<value>``:
       "fields": [
         {
           "name": "nthreads",
-          "alias": "ncpus",
           "type": "integer",
           "required": false,
           "default": null,
@@ -187,7 +185,6 @@ under the name that you can type as ``-s <name>=<value>``:
 * ``common`` marks the settings that every flow accepts. ``--no-common`` leaves them out.
   The tier ``"common"`` (see ``tier``) is a different thing: it says how often a user needs
   the setting.
-* ``alias`` is a second accepted name. Both names work.
 * ``writes`` says whether the flow writes to the path that the setting names. The value
   ``"working"`` is an intermediate location, which the flow always uses as a bare name inside the
   run directory, whatever the value is (``sim_dir`` or a log path). The value ``"deliverable"`` is
@@ -324,12 +321,17 @@ The record has these fields:
     The version of Xeda that ran, the name of the flow, the name of the design, and the target (or
     ``null``).
 ``identity``
-    The identity of the run: the hash of its settings and of the origins of its inputs.
+    The identity of the run: the hash of its settings, of its design configuration (see
+    ``configuration`` below) and of the origins of its inputs.
 ``configuration``
     What the flow read of the design: for each part it reads (``rtl``, ``tb``), the ``top``, the
     ``parameters`` and the ``defines``, the ``clocks`` and ``attributes`` (``rtl``) or the ``uut``
-    and ``cocotb`` (``tb``), and ``sources`` as a list of ``{path, type}`` with paths relative to
-    the design root. ``language`` is there for ``rtl``.
+    and ``cocotb`` (``tb``), and ``language`` for ``rtl``. A flow that reads the sources of the
+    design also has ``sources`` for each part, a list of ``{path, type}`` with paths relative to the
+    design root (``../`` outside it). A flow that reads a design that a converter made has no
+    ``sources``. It has ``converted_from`` (the name of the converter), and the sorted
+    ``transforms`` and ``produces`` types of the conversion. The configuration is part of the
+    identity of the run.
 ``outcome``
     ``passed``, ``rejected``, ``failed`` or ``canceled``. It replaces the ``success`` flag of older
     files. Only ``passed`` and ``rejected`` runs are reused.
@@ -651,9 +653,10 @@ not deliver an output that a setting or ``--outputs-to`` named), ``cleanup_faile
 The code of an error of a request that started no launch is the code of the setting, design,
 project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
 ``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
-``removed_setting``, ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
+``removed_setting``, ``removed_alias`` (another spelling of a name that stays), ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
 ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
 ``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
+``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
 With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome it had.
@@ -818,11 +821,12 @@ top is ``blinky``. It also shows a consumer that switches an optional output of 
 ``nodes`` is ordered with the producers before the consumers and the requested flow last.
 ``run_path`` and ``flowrun_hash`` identify each planned run. ``--hashed-run-dirs`` adds the usual
 16-character hash suffix. ``flowrun_hash`` is the identity of the node. It combines the settings
-(``settings_hash``, the hash of the flow name and the input settings alone) with the origin of each
-input, in order: the identity and output of a producer, or the sources of the design. The same flow
-with the same settings therefore has another identity when another producer, another output or
-another producer configuration feeds it. Where a binding was written (a file, the command line or a
-chain) changes nothing.
+(``settings_hash``, the hash of the flow name and the input settings alone), the design
+configuration (the ``configuration`` of its record) and the origin of each input, in order: the
+identity and output of a producer, or the place and type of the source files of the design. The same
+flow with the same settings therefore has another identity when the top or a parameter of the design
+is another, or when another producer, another output or another producer configuration feeds it.
+Where a binding was written (a file, the command line or a chain) changes nothing.
 
 Each input has these keys:
 
@@ -985,6 +989,9 @@ To run a flow:
     if flow and flow.record and flow.record.passed:
         print(flow.record.metric("fmax"))
 
+A ``Design`` and every value in it is read-only. An assignment raises an error, and a list or
+table in a design cannot change.
+
 To inspect a plan without constructing or running flows:
 
 .. code-block:: python
@@ -1005,8 +1012,8 @@ Notes for coding agents
 * Prefer ``--json`` to parsing the tables. Table output wraps to the terminal width.
 * Discover the settings and do not guess them. ``xeda list-settings <flow> --json`` lists every
   accepted setting. An unknown setting is a hard error, not a warning.
-* Setting names are exact. Flow names are forgiving: dashes, underscores and the CamelCase class
-  name all resolve, and a near miss suggests alternatives.
+* Setting names and flow names are exact. A second spelling or a near miss is an error that
+  suggests the right name.
 * ``xeda run --json`` gives both the record of each run (its metrics are in
   ``.nodes[-1].record.metrics``) and the run directory of each node, so you never need to guess
   where the output landed.

@@ -80,15 +80,15 @@ def _design(root: Path, kind: str = "verilog", **sections: Any) -> Design:
         data["rtl"] = {"sources": ["top.vhd"], "top": "top"}
         data["tb"] = {"sources": ["tb.vhd"], "top": "tb"}
     else:
-        data["rtl"] = {"sources": ["top.v"], "top": "top", "clock": "clk"}
+        data["rtl"] = {"sources": ["top.v"], "top": "top", "clocks": ["clk"]}
         data["tb"] = {"sources": ["tb.v"], "top": "tb"}
     data.update(sections)
-    data["flows"] = {"vivado_synth": {"fpga": PART}, **data.get("flows", {})}
+    data["flows"] = {"vivado_synth": {"fpga": {"part": PART}}, **data.get("flows", {})}
     return Design(**data)
 
 
 def _without_top(root: Path) -> Design:
-    return _design(root, rtl={"sources": ["top.v"], "clock": "clk"})
+    return _design(root, rtl={"sources": ["top.v"], "clocks": ["clk"]})
 
 
 class Case:
@@ -194,17 +194,17 @@ CASES: dict[str, Case] = {
     "yosys-fpga-sta-without-flatten": Case(
         YosysFpga,
         "cannot be combined with flatten=false",
-        {"sta": True, "flatten": False, "fpga": "ice40"},
+        {"sta": True, "flatten": False, "fpga": {"part": "ice40"}},
     ),
     "yosys-fpga-out-of-context-repeats-a-flag": Case(
         YosysFpga,
         r"`-noiopad` in `synth_flags`.*out_of_context",
-        {"fpga": "xc7a35tcpg236-1", "out_of_context": True, "synth_flags": ["-noiopad"]},
+        {"fpga": {"part": "xc7a35tcpg236-1"}, "out_of_context": True, "synth_flags": ["-noiopad"]},
     ),
     "yosys-fpga-out-of-context-contradicting-flag": Case(
         YosysFpga,
         r"`-iopad` in `synth_flags`.*out_of_context",
-        {"fpga": "LFE5U-25F-6BG256C", "out_of_context": True, "synth_flags": ["-iopad"]},
+        {"fpga": {"part": "LFE5U-25F-6BG256C"}, "out_of_context": True, "synth_flags": ["-iopad"]},
     ),
     "yosys-sim-stop-time": Case(YosysSim, "cannot enforce stop_time", {"stop_time": "1us"}),
     "yosys-platform-with-gates": Case(
@@ -278,7 +278,7 @@ CASES: dict[str, Case] = {
         {"simulator": "verilator"},
         _bsv(tb={"sources": ["Probe.bsv", "imported.c"], "top": "mkProbe"}),
     ),
-    "ise-without-top": Case(IseSynth, "rtl.top", {"fpga": "xc6slx9"}, _without_top),
+    "ise-without-top": Case(IseSynth, "rtl.top", {"fpga": {"part": "xc6slx9"}}, _without_top),
     "synth-clock-without-port": Case(
         VivadoSynth,
         "no corresponding clock port",

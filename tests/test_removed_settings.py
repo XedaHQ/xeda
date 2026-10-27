@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from xeda.flow import Flow, FlowSettingsError, registered_flows
-from xeda.flow.flow import removed_message
+from xeda.dataclass import SecondSpelling, removed_message
 from xeda.flows import Openroad
 
 FLOWS = sorted({cls for _, cls in registered_flows.values()}, key=lambda c: c.name)
@@ -285,7 +285,9 @@ def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path)
 
 # ------------------------------------------------------------------------ `clock_period`
 
-CLOCK_PERIOD_REMOVED = "`clock_period` was removed: use `clock.period` or `clock.freq`"
+CLOCK_PERIOD_REMOVED = (
+    "`clock_period` was removed: use `clocks.<name>.period` or `clocks.<name>.freq`"
+)
 
 
 def _synth_flows():
@@ -310,7 +312,7 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
     fpga = {"part": "xc7a100tcsg324-1"}
-    data: dict = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"}}
+    data: dict = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top", "clocks": ["clk"]}}
     if origin == "design":
         data["flows"] = {"vivado_synth": {"fpga": fpga, "clock_period": 5.0}}
     elif origin == "target":
@@ -457,7 +459,11 @@ def _setting_exists(model, dotted: str) -> bool:
 
 
 def test_openroad_removed_settings_are_the_old_fields_it_lost_and_the_yosys_entries():
-    own = set(vars(OPENROAD_FLOW.Settings).get("removed_settings", {}))
+    own = {
+        name
+        for name, replacement in vars(OPENROAD_FLOW.Settings).get("removed_settings", {}).items()
+        if not isinstance(replacement, SecondSpelling)
+    }
     own -= set(Flow.Settings.removed_setting_replacements())
     lost = {name for name in OLD_OPENROAD_FIELDS if name not in OPENROAD_FLOW.Settings.model_fields}
     assert own == lost | set(OLD_OPENROAD_YOSYS_ENTRIES)

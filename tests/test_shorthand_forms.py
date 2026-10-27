@@ -1,7 +1,6 @@
 """The shorthand forms of a key that takes a table, found from the models, not listed by hand.
 
-A key may take a table and other forms that each stand for one table (`fpga` as a part number,
-`vhdl` as a standard, `cocotb: true`, `parameters` as a list of objects). The merge of two layers
+A key may take a table and other forms that each stand for one table (`vhdl` as a standard, `cocotb: true`, `parameters` as a list of objects). The merge of two layers
 reads both sides as tables, so every form a field accepts has to be one the merge knows: a model's
 `as_mapping`, or its `field_shorthands` entry. The sweep walks every field that takes a table, of
 the design and of every flow's settings, through nested models. It pairs each with a value of
@@ -29,6 +28,7 @@ from xeda.dataclass import (
     annotation_mistake,
     appended_fields_of,
     field_shorthands_of,
+    field_type,
     input_names,
     is_mistake,
     mapping_form,
@@ -37,7 +37,7 @@ from xeda.dataclass import (
     table_entries,
     unspecified,
 )
-from xeda.design import DesignValidationError, RtlSettings
+from xeda.design import DesignValidationError, Rtl
 from xeda.flow import FlowSettingsError
 from xeda.flow.fpga import FPGA
 from xeda.flow.synth import SynthFlow
@@ -66,7 +66,7 @@ def table_fields(root: type) -> list[tuple[type, str]]:
             return
         seen.add(model)
         for name, info in model.model_fields.items():
-            kind, child, _ = annotation_kind(info.annotation)
+            kind, child, _ = annotation_kind(field_type(info))
             if kind in ("model", "dict"):
                 found.append((model, name))
             if child is not None:
@@ -178,22 +178,22 @@ def test_every_form_a_field_accepts_stands_for_a_table_and_validates_as_it():
 
 
 def test_the_sweep_finds_a_form_that_has_no_table(monkeypatch):
-    """The mutation check: when the merge cannot read the part number as a table, the sweep
-    names the field that still accepts it."""
+    """The mutation check: when the merge cannot read a standard as a table, the sweep names the
+    field that still accepts it."""
     import xeda.dataclass as dataclass_module
 
     read = dataclass_module.mapping_form
 
-    def forgetting_the_part_number(owner, field, value):
+    def forgetting_the_standard(owner, field, value):
         return (
             value
             if isinstance(value, Mapping)
-            else None if field == "fpga" else read(owner, field, value)
+            else None if field == "vhdl" else read(owner, field, value)
         )
 
-    monkeypatch.setattr(dataclass_module, "mapping_form", forgetting_the_part_number)
-    monkeypatch.setattr(sys.modules[__name__], "mapping_form", forgetting_the_part_number)
-    assert any("fpga" in problem and "accepts" in problem for problem in problems_of_the_forms())
+    monkeypatch.setattr(dataclass_module, "mapping_form", forgetting_the_standard)
+    monkeypatch.setattr(sys.modules[__name__], "mapping_form", forgetting_the_standard)
+    assert any("vhdl" in problem and "accepts" in problem for problem in problems_of_the_forms())
 
 
 def test_the_sweep_finds_a_null_that_is_declared_valid_and_refused(monkeypatch):
@@ -206,9 +206,9 @@ def test_the_sweep_finds_a_null_that_is_declared_valid_and_refused(monkeypatch):
 
 
 def test_the_sweep_finds_a_field_shorthand_that_was_dropped(monkeypatch):
-    from xeda.design import DVSettings
+    from xeda.design import DesignPart
 
-    monkeypatch.setattr(DVSettings, "field_shorthands", {})
+    monkeypatch.setattr(DesignPart, "field_shorthands", {})
     assert any("parameters" in problem for problem in problems_of_the_forms())
 
 
@@ -222,10 +222,10 @@ def test_the_sweep_walks_the_fields_that_have_forms():
         ("Design", "rtl"),
         ("Design", "language"),
         ("Language", "vhdl"),
-        ("TbSettings", "cocotb"),
-        ("RtlSettings", "parameters"),
-        ("TbSettings", "parameters"),
-        ("RtlSettings", "attributes"),
+        ("Testbench", "cocotb"),
+        ("Rtl", "parameters"),
+        ("Testbench", "parameters"),
+        ("Rtl", "attributes"),
     ]:
         assert any(
             qualname.endswith(expected[0]) and name == expected[1] for qualname, name in visited
@@ -297,20 +297,20 @@ def test_the_sweep_finds_a_table_that_replaces_a_malformed_entry(monkeypatch):
 
     monkeypatch.setattr(layers, "table_entries", lambda annotation: None)
     found = problems_of_the_entries()
-    assert any("RtlSettings.attributes" in problem for problem in found), found
+    assert any("Rtl.attributes" in problem for problem in found), found
 
 
 def test_the_sweep_walks_the_dictionaries_of_tables():
     visited = {(model.__qualname__, name) for model, name, _ in every_dictionary_of_tables()}
     for expected in [
-        ("RtlSettings", "attributes"),
+        ("Rtl", "attributes"),
         ("Settings", "clocks"),
         ("Settings", "set_mod_attribute"),
     ]:
         assert any(
             qualname.endswith(expected[0]) and name == expected[1] for qualname, name in visited
         ), expected
-    assert ("RtlSettings", "parameters") not in visited, "its entries are values, not tables"
+    assert ("Rtl", "parameters") not in visited, "its entries are values, not tables"
 
 
 def test_the_forms_that_stand_for_a_table():
@@ -372,7 +372,7 @@ class _SettingsWithAnotherForm(_SettingsWithAForm):
     }
 
 
-class _Rtl(RtlSettings):
+class _Rtl(Rtl):
     appended_fields: ClassVar[tuple[str, ...]] = ("top",)
 
 
@@ -389,7 +389,7 @@ def test_the_form_a_subclass_declares_for_a_field_wins_over_its_base():
 
 
 def test_a_subclass_adds_its_appended_fields_to_those_of_its_bases():
-    assert appended_fields_of(RtlSettings) == ("sources",)
+    assert appended_fields_of(Rtl) == ("sources",)
     assert appended_fields_of(_Rtl) == ("sources", "top")
     below, above = {"sources": ["a"], "top": ["x"]}, {"sources": ["b"], "top": ["y"]}
     appended = merge_layers(below, above, settings_cls=_Rtl, append=True)
@@ -399,8 +399,8 @@ def test_a_subclass_adds_its_appended_fields_to_those_of_its_bases():
 def test_a_layer_replaces_an_appended_field_unless_the_merge_appends():
     """Only a target adds to the design's `sources`; a list of any other layer replaces."""
     below, above = {"sources": ["a"], "top": "x"}, {"sources": ["b"], "top": "y"}
-    assert merge_layers(below, above, settings_cls=RtlSettings) == above
-    assert merge_layers(below, above, settings_cls=RtlSettings, append=True) == {
+    assert merge_layers(below, above, settings_cls=Rtl) == above
+    assert merge_layers(below, above, settings_cls=Rtl, append=True) == {
         "sources": ["a", "b"],
         "top": "y",
     }

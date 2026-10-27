@@ -10,6 +10,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim
 
+from .design_edits import with_updates
 from .tool_utils import (
     require_bluesim,
     require_bsc,
@@ -34,10 +35,10 @@ CONFIGURATIONS = (
 def _design(ascon128a: bool, unroll_factor: int) -> Design:
     design = Design.from_file(DESIGN_FILE)
     assert design.rtl is not None
-    design.rtl.defines = {"UNROLL_FACTOR": unroll_factor}
+    defines: dict[str, object] = {"UNROLL_FACTOR": unroll_factor}
     if ascon128a:
-        design.rtl.defines["ASCON128A"] = True
-    return design
+        defines["ASCON128A"] = True
+    return with_updates(design, rtl={"defines": defines})
 
 
 def _run(design: Design, run_root: Path):
@@ -78,8 +79,7 @@ def test_ascon128a_testbench_catches_an_injected_bug(tmp_path: Path, capfd):
     """The Ascon-128a build fails its first reference comparison after fault injection."""
     require_bluesim()
     design = _design(True, 1)
-    assert design.tb is not None
-    design.tb.defines = {"XEDA_INJECT_BUG": True}
+    design = with_updates(design, tb={"defines": {"XEDA_INJECT_BUG": True}})
     flow = _run(design, tmp_path)
     output = capfd.readouterr().out
     assert not flow.succeeded

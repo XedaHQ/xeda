@@ -280,7 +280,7 @@ def test_a_location_given_to_a_finished_run_delivers_without_running_again(tmp_p
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def launch(**settings):
-        flow = runner.run("fpga_pack", design, flow_settings={"fpga": ECP5, **settings})
+        flow = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": ECP5}, **settings})
         assert flow is not None and flow.succeeded
         return flow
 

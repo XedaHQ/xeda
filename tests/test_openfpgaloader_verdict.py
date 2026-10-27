@@ -719,7 +719,7 @@ def program(tmp_path, settings=None):
     """Launch the programmer on a prebuilt bitstream; the flow (a failed one too)."""
     assert_fake_loader()
     flow = _runner(tmp_path).run(
-        "openfpgaloader", _prebuilt(tmp_path), flow_settings=settings or {"fpga": ECP5}
+        "openfpgaloader", _prebuilt(tmp_path), flow_settings=settings or {"fpga": {"part": ECP5}}
     )
     assert flow is not None
     return flow
@@ -1037,7 +1037,7 @@ def test_a_xilinx_flash_write_of_two_chips_is_reported_for_each(tmp_path, fake_l
     second one (xilinx.cpp:319-324, main.cpp:1186-1194): the device is one of those three, and
     `--secondary-bitstream` comes from `extra_args`."""
     both = {
-        "fpga": "xcku040-ffva1156",
+        "fpga": {"part": "xcku040-ffva1156"},
         "write_flash": True,
         "target_flash": "both",
         "extra_args": ["--secondary-bitstream", "second.bit"],
@@ -1192,5 +1192,4 @@ def test_the_oracle_sees_an_action_that_takes_the_exit_status_for_the_verdict():
         from xeda.flow import registered_flows
 
         for cls in (Silent, Judging, Checking):
-            for name in (cls.name, cls.__name__):
-                registered_flows.pop(name, None)
+            registered_flows.pop(cls.name, None)

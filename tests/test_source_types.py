@@ -13,7 +13,7 @@ from xeda.design import (
     SOURCE_SUFFIXES,
     TYPE_ONLY,
     Design,
-    DesignSource,
+    Source,
     DesignValidationError,
     SourceType,
     source_type_named,
@@ -56,7 +56,7 @@ def test_no_suffix_is_both_inferred_and_ambiguous():
 def test_a_suffix_types_its_source(tmp_path, suffix, expected):
     path = tmp_path / f"f.{suffix}"
     path.write_text("x\n")
-    source = DesignSource(path)
+    source = Source(path)
     assert source.type is expected
 
 
@@ -70,7 +70,7 @@ def test_an_ambiguous_suffix_asks_for_a_type(tmp_path, suffix):
     path = tmp_path / f"f.{suffix}"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=rf"`\.{suffix}` names several kinds of file") as raised:
-        DesignSource(path)
+        Source(path)
     assert "type: " in str(raised.value)
 
 
@@ -78,20 +78,20 @@ def test_an_odb_file_asks_for_the_stage_of_its_database(tmp_path):
     path = tmp_path / "design.odb"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"`\.odb` names several kinds of file") as raised:
-        DesignSource(path)
+        Source(path)
     for name in ("OpenroadDbPlaced", "OpenroadDbCts", "OpenroadDbGlobalRouted", "OpenroadDbRouted"):
         assert name in str(raised.value)
     assert "odb" not in SOURCE_SUFFIXES
     assert SourceType.Odb in TYPE_ONLY
     for name in ("OpenroadDbPlaced", "OpenroadDbCts", "OpenroadDbGlobalRouted", "OpenroadDbRouted"):
-        assert DesignSource({"file": str(path), "type": name}).type is SourceType[name]
+        assert Source({"file": str(path), "type": name}).type is SourceType[name]
 
 
 def test_an_unknown_suffix_asks_for_a_type_and_offers_data(tmp_path):
     path = tmp_path / "notes.txt"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"infers no source type from `\.txt`") as raised:
-        DesignSource(path)
+        Source(path)
     assert "type: Data" in str(raised.value)
 
 
@@ -99,14 +99,14 @@ def test_a_file_without_a_suffix_asks_for_a_type(tmp_path):
     path = tmp_path / "Makefile"
     path.write_text("x\n")
     with pytest.raises(ValueError, match="a file without a suffix"):
-        DesignSource(path)
+        Source(path)
 
 
 def test_a_suffix_in_another_case_names_the_type_it_would_have(tmp_path):
     path = tmp_path / "TOP.VHD"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"`\.vhd` is Vhdl"):
-        DesignSource(path)
+        Source(path)
 
 
 def test_an_explicit_type_types_any_file(tmp_path):
@@ -116,7 +116,7 @@ def test_an_explicit_type_types_any_file(tmp_path):
         ("chip.bin", SourceType.Chipdb),
     ):
         (tmp_path / name).write_text("x\n")
-        source = DesignSource({"file": str(tmp_path / name), "type": member.name})
+        source = Source({"file": str(tmp_path / name), "type": member.name})
         assert source.type is member
 
 
@@ -129,7 +129,7 @@ def test_an_unknown_explicit_type_names_the_closest_members(tmp_path):
     path = tmp_path / "f.v"
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"unknown source type 'Verlog'; did you mean `Verilog`"):
-        DesignSource({"file": str(path), "type": "Verlog"})
+        Source({"file": str(path), "type": "Verlog"})
 
 
 def test_a_design_with_a_source_xeda_cannot_type_does_not_load(tmp_path):
@@ -157,16 +157,16 @@ def test_an_invalid_explicit_type_never_falls_back_to_the_suffix(tmp_path, typ, 
     path.write_text("module top; endmodule\n")
     with pytest.raises(ValueError, match="source type|source's `type`"):
         if form == "table":
-            DesignSource({"file": str(path), "type": typ})
+            Source({"file": str(path), "type": typ})
         else:
-            DesignSource(path, typ=typ)
+            Source(path, typ=typ)
 
 
 def test_a_source_table_keeps_the_callers_table_and_round_trips_its_type(tmp_path):
     path = tmp_path / "top.bsv"
     path.write_text("x\n")
     table = {"file": str(path), "type": "Vhdl"}
-    source = DesignSource(table, typ=SourceType.Bluespec)
+    source = Source(table, typ=SourceType.Bluespec)
     assert source.type is SourceType.Bluespec
     assert table == {"file": str(path), "type": "Vhdl"}
 
@@ -179,9 +179,9 @@ def test_source_construction_and_round_trips_preserve_the_callers_table(tmp_path
         path.write_text("module top; endmodule\n")
     table = {key: "top.v", "type": "SystemVerilog"}
     before = dict(table)
-    source = DesignSource(table, _root_path=tmp_path)
+    source = Source(table, _root_path=tmp_path)
     assert table == before
-    again = DesignSource(source.as_json_value())
+    again = Source(source.as_json_value())
     assert again.type is SourceType.SystemVerilog
     assert again.as_json_value() == source.as_json_value()
 

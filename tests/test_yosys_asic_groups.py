@@ -605,7 +605,7 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
     settings = Yosys.Settings.from_input(
         tiny_settings(
             store,
-            clock={"period": "2 ns"},
+            clocks={"main_clock": {"period": "2 ns"}},
             abc={"load": "1.5 fF", "delay_target": "auto"},
             techmap_files=["extra.v"],
             memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
@@ -637,7 +637,9 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
 
 def test_without_a_liberty_mapping_the_pure_method_gives_nothing(tmp_path):
     design = _design(tmp_path / "design")
-    flow = Yosys(Yosys.Settings(gates=["AND"], clock={"period": "2 ns"}), design, tmp_path)
+    flow = Yosys(
+        Yosys.Settings(gates=["AND"], clocks={"main_clock": {"period": "2 ns"}}), design, tmp_path
+    )
     values = flow.asic_values()
     assert values.latch_map is None and values.adder_map is None and values.abc_script is None
     assert values.constraints == () and values.techmap_files == ()
@@ -765,7 +767,11 @@ def test_the_auto_delay_target_needs_a_clock():
     problems = dict(_refused(platform="nangate45", abc={"delay_target": "auto"}))
     assert "`abc.delay_target: auto`" in problems["abc.delay_target"]
     Yosys.check_settings_supported(
-        Yosys.Settings(platform="nangate45", abc={"delay_target": "auto"}, clock={"period": "2 ns"})
+        Yosys.Settings(
+            platform="nangate45",
+            abc={"delay_target": "auto"},
+            clocks={"main_clock": {"period": "2 ns"}},
+        )
     )
     Yosys.check_settings_supported(
         Yosys.Settings(platform="nangate45", abc={"delay_target": "1 ns"})
@@ -831,7 +837,7 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
 
 
 def _given(store: Path, **extra: Any) -> dict[str, Any]:
-    return tiny_settings(store, clock={"period": "2 ns"}, **extra)
+    return tiny_settings(store, clocks={"main_clock": {"period": "2 ns"}}, **extra)
 
 
 def test_editing_a_user_latch_map_makes_the_next_launch_stale(fake_yosys):

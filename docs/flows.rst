@@ -11,7 +11,7 @@ Discovering flows and their settings
 
 .. code-block:: bash
 
-    xeda list-flows                     # name, aliases, category, description, dependencies,
+    xeda list-flows                     # name, category, description, dependencies,
                                         # declared inputs/outputs, what can follow it in a chain
     xeda list-settings <flow>           # every setting: name, type, default, meaning
     xeda list-results <flow>            # every metric the flow writes, with its type and unit
@@ -65,11 +65,9 @@ Discovering flows and their settings
 ``other``
     A flow that is none of the above (``bsc``).
 
-``list-flows`` folds an alias into its flow. ``ghdl`` appears as an alias of ``ghdl_sim`` and has no
-row of its own. Either name works everywhere.
-
-Flow names are forgiving: ``vivado_synth``, ``vivado-synth`` and ``VivadoSynth`` all resolve to
-the same flow. An unrecognized name gets a list of close matches.
+A flow has one name, the one that ``list-flows`` shows (``vivado_synth``). Another spelling of it
+(``vivado-synth``, ``VivadoSynth``, or ``ghdl`` for ``ghdl_sim``) is an error that suggests the
+name. An unrecognized name gets a list of close matches.
 
 Settings
 ========
@@ -88,18 +86,14 @@ the lowest to the highest precedence:
    ``flow_settings``".
 7. the API, with ``flow_overrides``
 
-The layers merge key by key. ``-s clock.freq=100MHz`` changes that one setting of a ``clock``
+The layers merge key by key. ``-s clock.freq=100MHz`` changes that one clock setting
 section from the design file and does not replace the whole section. A higher layer replaces only
 the keys that it writes. This holds for a target as well: its value wins over the value of the
 design for the same key, and only for the keys that the target writes.
 
-A short form means exactly the table that it stands for, in every merge. ``fpga: xc7a35tcpg236-1``
-is ``fpga: {part: xc7a35tcpg236-1}``, so ``-s fpga.speed=-2`` refines a part that the design wrote
-as text. ``-s fpga=<part>`` over an ``fpga`` table of the design changes the part and keeps the
-other keys that the design wrote (a speed grade, say), as ``-s fpga.part=<part>`` does. Xeda reads
-the aliases of a setting (``nthreads`` and ``ncpus``) and the clock spellings of a synthesis flow
-(``clock`` and ``clocks``) in each layer on its own, so a higher layer changes what a lower layer
-wrote, whichever spelling each used. A value that is no table where a table is expected
+A short form means exactly the table that it stands for, in every merge. A name has one spelling:
+a second spelling of a setting (``ncpus``, ``clock``, a bare part number as ``fpga``) is an error
+that names the spelling to use. A value that is no table where a table is expected
 (``synth: 3``) is an error, whatever a higher layer writes over it.
 
 A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
@@ -207,10 +201,10 @@ Settings shared by every flow
 -----------------------------
 
 Every flow accepts the settings below, in addition to its own. The tools of some flows have no
-matching option. Such a flow accepts ``ncpus``, ``redirect_stdout`` or ``lib_paths`` and does
+matching option. Such a flow accepts ``nthreads``, ``redirect_stdout`` or ``lib_paths`` and does
 nothing with it.
 
-``ncpus`` (alias of ``nthreads``)
+``nthreads``
     The maximum number of threads that the tools may use.
 
 ``dockerized`` / ``docker``
@@ -680,8 +674,8 @@ longer be that of ``b`` alone.
 Rules for chains
 ----------------
 
-* ``+`` is the only separator, and each flow may appear once. Name a flow as anywhere else
-  (canonical name, alias or dashes). ``FLOW.OUTPUT`` names one output of a producer that has
+* ``+`` is the only separator, and each flow may appear once. Name a flow as anywhere else.
+  ``FLOW.OUTPUT`` names one output of a producer that has
   several: ``nextpnr.config+fpga_pack``.
 * A flow supplies every compatible required input of the next one, or the inputs that it feeds in
   the plan of the next one when the link passes through flows. Optional inputs are not bound. An
@@ -730,9 +724,8 @@ neither node. Write the device for a flow of the chain (``flows.vivado_synth.fpg
 ``board`` for ``openfpgaloader``), or give ``-s fpga.part=<part>``. The error that a flow needs
 ``fpga`` names each section that gives it without reaching the flow.
 
-``--help-settings`` is that of the last flow. The exit status follows the ``outcome`` of the launch,
-which an error of the whole launch, such as a failed delivery, can make ``failed`` after the last
-flow passed. ``--json`` lists every flow of
+The exit status follows the ``outcome`` of the launch, which an error of the whole launch, such as a
+failed delivery, can make ``failed`` after the last flow passed. ``--json`` lists every flow of
 the plan in ``nodes``, with its record and its ``outcome`` (``roots`` names the last flow). A flow
 that Xeda planned but never started after a failure is ``blocked`` or ``skipped`` (see
 :doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and
@@ -1215,7 +1208,7 @@ master XDC of Digilent, and they keep its port names (``CLK100MHZ``, ``led[0]``,
 ``btn[0]`` and so on). A design that relies on the fallback names the ports of its top module that
 way. The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on), and
 it sets a 25 MHz constraint on ``clk_25mhz``. The bundled Xilinx files contain no clock constraint.
-Timing comes from the ``clock`` or ``clocks`` setting of the flow, or from the files of the design,
+Timing comes from the ``clocks`` setting of the flow, or from the files of the design,
 and each clock has one authority. With no clock constraint at all, nextpnr analyzes at its default
 of 12 MHz, and Xeda says so. nextpnr reads ``set_property PULLTYPE PULLUP [get_ports rst]``. It
 ignores ``set_property PULLUP true [get_ports rst]`` and prints no warning, so a port that uses the
@@ -1535,7 +1528,7 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit # and a bitstream
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
-``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows, and one
+``fpga`` and ``clocks`` are shared along the edge, so one section gives them to both flows, and one
 clock period drives the ABC9 delay of Yosys and the constraint of Vivado. Xeda writes the bitstream
 when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
 ``openfpgaloader``. A bitstream needs every port to be constrained. Without ``bitstream``, Vivado
@@ -1971,7 +1964,7 @@ The flows
     placement. It writes ``place.odb`` and ``place.sdc``. Its groups are ``design``,
     ``floorplan``, ``tapcell``, ``pdn``, ``io``, ``global_placement``, ``resize``, ``arith_swap``,
     ``detailed_placement``, ``routing`` and ``tie``. The constraints are the SDC files of the
-    design, then the clocks of ``clocks`` (or ``clock.period``), then ``sdc_files``.
+    design, then the clocks of ``clocks``, then ``sdc_files``.
 ``openroad_cts``
     Builds the clock tree, legalizes the placement and repairs the timing with propagated clocks.
     It writes ``cts.odb`` and ``cts.sdc``. Its groups are ``buffers``, ``sink_clustering``,
@@ -2002,7 +1995,7 @@ The database keeps neither the wire resistance and capacitance nor the way it wa
 along the chain (see `Producers and consumers`_). ``wire_rc`` replaces the wire RC of the platform
 layer by layer. ``dont_use_cells`` adds to the cells that the platform excludes.
 
-Each OpenROAD flow also has the shared setting ``liberty`` (alias ``library``). It names the
+Each OpenROAD flow also has the shared setting ``liberty``. It names the
 Liberty files that the flow times against, in place of the Liberty files of the corner of the
 platform. The platform model still comes from the platform: the units, the tie cells, the wire RC
 and the site. So the platform files must be installed. The flow refuses a ``liberty`` file whose
@@ -2548,13 +2541,13 @@ that takes the design alone fails with a ``TypeError`` when the launch is planne
 argument.
 
 Registration is automatic. ``Flow.__init_subclass__`` derives the flow name from the class name
-(``VivadoSynth`` -> ``vivado_synth``) and registers it, with any extra names listed in
-``aliases``. Add the class to both the import list and ``__all__`` in
+(``VivadoSynth`` -> ``vivado_synth``) and registers it. That name is the only spelling of the flow.
+Add the class to both the import list and ``__all__`` in
 ``src/xeda/flows/__init__.py``, so that Xeda ships it and users can discover it. Then run
 ``python tools/generate_flow_catalog.py`` and commit the updated ``src/xeda/flow_catalog.json``.
-Shell completion reads that file. Run the same command again after you change the aliases, the
+Shell completion reads that file. Run the same command again after you change the
 inputs, the outputs, the settings models, or the ``action_reason`` of a flow. The catalog includes
-nested setting paths, accepted aliases, and finite value choices derived from the settings
+nested setting paths and finite value choices derived from the settings
 models. Do not add setting names to the catalog by hand.
 
 The test suite enforces two things that a new flow owes its users:

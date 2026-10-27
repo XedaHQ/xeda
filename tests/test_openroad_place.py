@@ -3658,7 +3658,7 @@ def test_a_launch_writes_the_constraints_and_the_files_of_the_stage(tmp_path, mo
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clock.period": "5 ns"}),
+        flow_settings=openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}),
     )
     assert flow is not None and flow.succeeded
     run_dir = Path(flow.run_path)
@@ -3687,7 +3687,7 @@ def test_a_launch_removes_the_failed_database_of_an_earlier_run(tmp_path, monkey
     use_fake_openroad(monkeypatch)
     store = tiny_store(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    settings = openroad_settings(store, **{"clock.period": "5 ns"})
+    settings = openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
     design = openroad_design(tmp_path / "design")
     with monkeypatch.context() as failing:
         failing.setenv("XEDA_FAKE_TOOL_FAIL", "pdngen")
@@ -3797,7 +3797,7 @@ def test_a_detailed_padding_above_the_global_padding_is_a_warning(tmp_path, monk
     store = tiny_store(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     settings = openroad_settings(
-        store, **{"clock.period": "5 ns", "detailed_placement.cell_padding": "2"}
+        store, **{"clocks.main_clock.period": "5 ns", "detailed_placement.cell_padding": "2"}
     )
     with caplog.at_level("WARNING"):
         flow = runner.run(
@@ -3900,7 +3900,7 @@ def launch(tmp_path, monkeypatch):
     store = tiny_store(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    settings = openroad_settings(store, **{"clock.period": "5 ns"})
+    settings = openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
     flow = runner.run(OpenroadPlace, design, flow_settings=settings)
     assert flow is not None and flow.succeeded
     return runner, design, settings, flow
@@ -3951,7 +3951,7 @@ def test_a_missing_metrics_file_fails_the_reading_of_the_results(tmp_path, monke
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clock.period": "5 ns"}),
+        flow_settings=openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}),
     )
     assert flow is None or not flow.succeeded
     (run_dir,) = (tmp_path / "xeda_run").rglob("openroad_place")
@@ -3972,7 +3972,7 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, m
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clock.period": "5 ns"}),
+        flow_settings=openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}),
     )
     assert flow is None or not flow.succeeded
 
@@ -4030,7 +4030,9 @@ def test_a_dry_run_shows_a_missing_store_as_unknown_with_the_message_of_the_laun
     empty.mkdir()
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = Design.from_file(openroad_design(tmp_path / "design"))
-    given = dict(s.split("=", 1) for s in openroad_settings(empty, **{"clock.period": "5 ns"}))
+    given = dict(
+        s.split("=", 1) for s in openroad_settings(empty, **{"clocks.main_clock.period": "5 ns"})
+    )
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
     assert states["openroad_place"].state == "unknown"
     with pytest.raises(PdkNotInstalled) as refused:
@@ -4049,7 +4051,8 @@ def test_a_synthesized_netlist_chains_into_the_placement(tmp_path, monkeypatch):
     use_fake_asic_tools(monkeypatch, tmp_path / "bin")
     store = tiny_store(tmp_path)
     given = dict(
-        text.split("=", 1) for text in openroad_settings(store, **{"clock.period": "5 ns"})
+        text.split("=", 1)
+        for text in openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
     )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design", rtl=True)

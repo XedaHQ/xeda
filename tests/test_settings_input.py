@@ -36,7 +36,9 @@ pytestmark = pytest.mark.python_compat
         (lambda: Design(name=True, rtl={"sources": [], "top": "t"}), "name"),
         (lambda: _flow("verilator").Settings(compile_args=["-j", 8]), "compile_args"),
         (
-            lambda: _flow("vivado_synth").Settings(fpga="xc7a100tftg256-2L", suppress_msgs=[8]),
+            lambda: _flow("vivado_synth").Settings(
+                fpga={"part": "xc7a100tftg256-2L"}, suppress_msgs=[8]
+            ),
             "suppress_msgs",
         ),
     ],
@@ -112,7 +114,9 @@ def test_vivado_run_properties_take_text_numbers_and_booleans():
     from xeda.flows.vivado.vivado_synth import VivadoSynth, tcl_property_value
 
     properties = {"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": 0, "A": 1.5, "B": True, "C": "none"}
-    settings = VivadoSynth.Settings(fpga="xc7a100tftg256-2L", set_synth_properties=properties)
+    settings = VivadoSynth.Settings(
+        fpga={"part": "xc7a100tftg256-2L"}, set_synth_properties=properties
+    )
 
     assert settings.set_synth_properties == properties
     assert [tcl_property_value(v) for v in properties.values()] == ["0", "1.5", "true", "none"]
@@ -466,7 +470,7 @@ def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
     start = tmp_path / "start"
     flow = VivadoSynth(
         VivadoSynth.Settings(
-            fpga="xc7a100t",
+            fpga={"part": "xc7a100t"},
             xdc_files=["$DESIGN_ROOT/already-present.xdc"],
         ),
         design,
@@ -485,7 +489,7 @@ def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
     design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
-    settings = VivadoSynth.Settings(fpga="xc7a100t")
+    settings = VivadoSynth.Settings(fpga={"part": "xc7a100t"})
     settings.xdc_files = ["$DESIGN_ROOT/pins.xdc"]
 
     validated = input_settings(VivadoSynth, settings, design, tmp_path / "start")
@@ -698,13 +702,13 @@ def _names(error: Exception, name: str, alias: "str | None") -> bool:
 @pytest.mark.parametrize("given", [{}, {"a": 1}, 5, 2.5, True, {"a"}], ids=repr)
 def test_a_testbench_top_of_another_type_is_refused_not_dropped(given):
     """`tb.top: 5` used to become no top module at all."""
-    from xeda.design import TbSettings
+    from xeda.design import Testbench
 
     with pytest.raises(ValidationError, match="top"):
-        TbSettings(top=given)
-    assert TbSettings(top=None).top == TbSettings(top="").top == TbSettings(top=[]).top == ()
-    assert TbSettings(top="t").top == ("t",)
-    assert TbSettings(top=["a", "b"]).top == ("a", "b")
+        Testbench(top=given)
+    assert Testbench(top=None).top == Testbench(top="").top == Testbench(top=[]).top == ()
+    assert Testbench(top="t").top == ("t",)
+    assert Testbench(top=["a", "b"]).top == ("a", "b")
 
 
 def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():

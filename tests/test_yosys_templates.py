@@ -85,12 +85,15 @@ def _render(
 
 def _fpga_settings(**kw: Any) -> dict[str, Any]:
     return dict(
-        fpga=FPGA(part="xc7a12tcsg325-1"), clock={"period": "5 ns"}, set_attribute=ATTRS, **kw
+        fpga=FPGA(part="xc7a12tcsg325-1"),
+        clocks={"main_clock": {"period": "5 ns"}},
+        set_attribute=ATTRS,
+        **kw,
     )
 
 
 def _asic_settings(**kw: Any) -> dict[str, Any]:
-    return dict(clock={"period": "5 ns"}, set_attribute=ATTRS, **kw)
+    return dict(clocks={"main_clock": {"period": "5 ns"}}, set_attribute=ATTRS, **kw)
 
 
 #: Each flow with each format it writes: only `yosys` has settings that need a Tcl script.
@@ -687,7 +690,7 @@ def _vhdl_design(root: Path, *others: str) -> Design:
     return Design(
         name="inv",
         design_root=root,
-        rtl={"sources": sources, "top": "inv", "clock": "clk", "parameters": {"W": 5}},
+        rtl={"sources": sources, "top": "inv", "clocks": [{"port": "clk"}], "parameters": {"W": 5}},
     )
 
 
@@ -717,7 +720,7 @@ def test_a_verilog_top_listed_after_a_vhdl_file_still_gets_chparam(flow_cls, tmp
     design = Design(
         name="top",
         design_root=root,
-        rtl={"sources": sources, "top": "top", "clock": "clk", "parameters": {"W": 5}},
+        rtl={"sources": sources, "top": "top", "clocks": [{"port": "clk"}], "parameters": {"W": 5}},
     )
     assert "chparam -set W 5 top" in _render(flow_cls, _settings_for(flow_cls), tmp_path, design)
 
@@ -735,7 +738,9 @@ def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
     for name in names:
         (root / name).write_text("// a source\n")
     design = Design(
-        name="top", design_root=root, rtl={"sources": names, "top": "top", "clock": "clk"}
+        name="top",
+        design_root=root,
+        rtl={"sources": names, "top": "top", "clocks": [{"port": "clk"}]},
     )
     monkeypatch.setattr(flow_cls, "reads_sources", frozenset({SourceType.Verilog}))
     script = _render(flow_cls, _settings_for(flow_cls), tmp_path, design)

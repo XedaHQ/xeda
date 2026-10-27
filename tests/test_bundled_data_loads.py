@@ -26,4 +26,4 @@ def test_every_bundled_board_is_usable_as_a_flow_setting():
     if not boards:
         pytest.skip("no bundled boards available")
     for board in boards:
-        WithFpgaBoardSettings(board=board, clock={"period": "10 ns"})
+        WithFpgaBoardSettings(board=board, clocks={"main_clock": {"period": "10 ns"}})

@@ -62,13 +62,10 @@ def _set_up(ctx: click.Context, json_flag: bool) -> None:
     of the provisioning."""
     from ..cli import setup_logger
     from ..cli_utils import machine_readable_mode
-    from ..flow_runner import XedaOptions
 
     if json_flag:
         machine_readable_mode()
-    options: XedaOptions = ctx.obj or XedaOptions()
-    level = logging.DEBUG if options.debug else logging.WARNING if options.quiet else logging.INFO
-    setup_logger(level, options.debug)
+    setup_logger(logging.INFO, False)
 
 
 def _agent_document(

@@ -6,9 +6,10 @@ import re
 from functools import cached_property
 from glob import escape as glob_escape
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
 
-from ...dataclass import WORKING, Field, deliverable, field_validator
+from ...dataclass import WORKING, Field, SecondSpelling, deliverable, field_validator
 from ...design import LANGUAGE_TYPES, Design, SourceType
 from ...flow import (
     ArtifactSpec,
@@ -21,6 +22,7 @@ from ...flow import (
 )
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
+from ...frozen import thaw
 from ...utils import ToolException, hierarchical_merge, tcl_word, unique
 from .flag_hatches import SLANG_HATCHES, WRITE_VERILOG_SWITCHES, flag_problems
 
@@ -588,7 +590,7 @@ class YosysBase(Flow):
                 ss.set_mod_attribute[kh] = {}
             for mod in ss.keep_hierarchy:
                 ss.set_mod_attribute[kh][mod] = 1
-        ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
+        ss.set_attribute = hierarchical_merge(thaw(self.design.rtl.attributes), ss.set_attribute)
 
         if ss.rtl_json:
             self.artifacts.rtl_json = ss.rtl_json
@@ -758,6 +760,11 @@ class YosysSynthesisBase(YosysBase):
     artifacts_description = describe_artifacts("log", **RTL_ARTIFACTS, **REPORT_ARTIFACTS)
 
     class Settings(YosysBase.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **YosysBase.Settings.removed_settings,
+            "netlist": SecondSpelling("`netlist_verilog`"),
+            "json_netlist": SecondSpelling("`netlist_json`"),
+        }
         splitnets: bool = Field(
             False, description="Run `splitnets`, splitting multi-bit nets into individual bits."
         )
@@ -814,7 +821,6 @@ class YosysSynthesisBase(YosysBase):
 
         netlist_verilog: Optional[Path] = Field(
             Path("netlist.v"),
-            alias="netlist",
             description="Write the synthesized gate-level netlist to this Verilog file. Set to "
             "null to skip.",
             json_schema_extra=deliverable(),
@@ -867,7 +873,6 @@ class YosysSynthesisBase(YosysBase):
 
         netlist_json: Optional[Path] = Field(
             Path("netlist.json"),
-            alias="json_netlist",
             description="Write the synthesized netlist to this JSON file. Consumers such as "
             "`nextpnr` need it.",
             json_schema_extra=deliverable(),
@@ -1016,7 +1021,7 @@ class YosysSynthesisBase(YosysBase):
                 self.run_directory.inside(path).parent.mkdir(parents=True, exist_ok=True)
 
 
-def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:
+def process_parameters(parameters: Mapping[str, Any]) -> Dict[str, str]:
     out = dict()
     for k, v in parameters.items():
         if isinstance(v, bool):

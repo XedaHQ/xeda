@@ -73,12 +73,12 @@ def _design(root: Path) -> Design:
     return Design(
         name="rd",
         design_root=root,
-        rtl={"sources": ["top.vhd"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
         tb={"sources": ["tb.vhd"], "top": "tb", "uut": "uut"},
     )
 
 
-FPGA = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}}
+FPGA = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}}
 
 
 @pytest.mark.skipif(not shutil.which("tclsh"), reason="the fake Vivado runs its TCL under tclsh")

@@ -440,7 +440,7 @@ class Verilator(SimFlow):
         super().check_design_supported(design, settings)
         if not isinstance(settings, cls.Settings):
             return
-        if design.tb.cocotb:
+        if design.tb.cocotb is not None:
             if settings.main:
                 raise FlowSettingsException(
                     "main is true, but cocotb's own main runs the model: leave `main` unset"

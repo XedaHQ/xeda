@@ -10,7 +10,8 @@ import sys
 
 import pytest
 
-from xeda.design import Design, DesignSource, DesignValidationError, SourceType
+from xeda.dataclass import ConfigDict
+from xeda.design import Design, Source, DesignValidationError, SourceType
 from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
@@ -29,7 +30,7 @@ def test_design_schema_is_generatable():
 
 
 def test_design_source_schema_documents_the_object_form():
-    sources = Design.model_json_schema()["$defs"]["RtlSettings"]["properties"]["sources"]
+    sources = Design.model_json_schema()["$defs"]["Rtl"]["properties"]["sources"]
     item = sources["items"]
     assert item["description"]
     string_form, object_form = item["anyOf"]
@@ -80,7 +81,7 @@ def test_source_type_from_str_accepts_legacy_ordinals():
 def test_design_source_type_inferred_from_suffix(tmp_path):
     src = tmp_path / "foo.vhdl"
     src.write_text("entity foo is end;\n")
-    assert DesignSource(src).type is SourceType.Vhdl
+    assert Source(src).type is SourceType.Vhdl
 
 
 # --------------------------------------------------------------- input syntax vs. the loader
@@ -109,15 +110,10 @@ INPUT_SHORTHANDS = {
         "rtl": {"sources": [], "top": "t"},
         "tb": {"sources": [], "cocotb": True},
     },
-    "language (field name)": {
+    "language": {
         "name": "d",
         "rtl": {"sources": [], "top": "t"},
         "language": {"vhdl": {"standard": "2008"}},
-    },
-    "hdl (alias)": {
-        "name": "d",
-        "rtl": {"sources": [], "top": "t"},
-        "hdl": {"vhdl": {"standard": "2008"}},
     },
     "language.vhdl as a string": {
         "name": "d",
@@ -134,8 +130,14 @@ INPUT_SHORTHANDS = {
         "rtl": {"sources": [], "top": "t"},
         "authors": "Jane Doe <jane@example.com>",
     },
-    "flat top-level form": {"name": "d", "sources": [], "top": "t", "clock": {"port": "clk"}},
-    "test as a tb alias": {"name": "d", "sources": [], "top": "t", "test": {"sources": []}},
+    "rtl.clocks as a port name": {
+        "name": "d",
+        "rtl": {"sources": [], "top": "t", "clocks": ["clk"]},
+    },
+    "rtl.clocks as a table": {
+        "name": "d",
+        "rtl": {"sources": [], "top": "t", "clocks": [{"port": "clk"}]},
+    },
 }
 
 
@@ -200,46 +202,36 @@ def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader
         Generator(executable="py", args=3)  # type: ignore[arg-type]
 
 
-def test_the_clock_shorthand_is_in_the_input_schema_and_the_removed_clock_port_is_not():
-    """The derived `clock` alias is documented without becoming a stored model field."""
+def test_the_schema_advertises_the_clock_short_form_without_flat_rtl_keys():
+    """The single-clock short form belongs in `rtl`; flat RTL keys stay refused."""
     schema = design_schema()
-    rtl = schema["$defs"]["RtlSettings"]["properties"]
+    rtl = schema["$defs"]["Rtl"]["properties"]
     root = schema["properties"]
 
-    for properties in (rtl, root):
-        assert {"clock", "clocks"} <= set(properties)
-        assert properties["clock"].get("x-xeda-input-only") is True
-        assert "clock_port" not in properties
-
-
-def test_flat_clock_is_accepted_by_the_loader_and_schema():
-    data = {"name": "d", "sources": [], "top": "t", "clock": "clk"}
-
-    Design(**data)
-    assert validator().is_valid(data)
+    assert "clocks" in rtl and rtl["clock"]["x-xeda-input-only"] is True
+    assert "clock_port" not in rtl
+    assert not {"sources", "top", "clock", "clocks", "parameters", "generics", "defines"} & set(
+        root
+    )
+    assert not {"generator", "author", "hdl", "flow", "test", "tests"} & set(root)
 
 
 @pytest.mark.parametrize(
     "data",
     [
-        {"name": "d", "sources": [], "top": "t", "clock_port": "clk"},
         {"name": "d", "rtl": {"sources": [], "top": "t", "clock_port": "clk"}},
+        {"name": "d", "clock_port": "clk"},
     ],
 )
 def test_clock_port_was_removed(data):
-    with pytest.raises(Exception, match="`clock_port` was removed: use `clock: <port>`"):
+    with pytest.raises(Exception, match="`clock_port` was removed: use `rtl.clocks`"):
         Design(**data)
 
 
-def test_mixed_flat_clock_spellings_are_rejected_loudly():
-    data = {
-        "name": "d",
-        "sources": [],
-        "top": "t",
-        "clock": {"port": "a"},
-        "clocks": [{"port": "b"}],
-    }
-    with pytest.raises(Exception, match="Specify only one"):
+def test_a_flat_clock_is_refused_with_the_key_to_use():
+    data = {"name": "d", "sources": [], "top": "t", "clocks": [{"port": "a"}]}
+
+    with pytest.raises(Exception, match="`sources` was removed: use `rtl.sources`"):
         Design(**data)
 
 
@@ -261,7 +253,7 @@ def test_source_object_may_not_name_both_a_file_and_a_path():
     """
     both = {"file": "a.v", "path": "generated/a.v"}
     with pytest.raises(ValueError, match="mutually exclusive"):
-        DesignSource(both)
+        Source(both)
     assert not validator().is_valid({"name": "d", "rtl": {"sources": [both], "top": "t"}})
 
 
@@ -289,7 +281,7 @@ def test_source_object_form_loads_and_validates(label, tmp_path):
 
     `_sources_to_files` deduplicates its input with `unique()`, which hashed every element --
     so a source given as an object failed with `unhashable type: 'dict'` before the validator
-    ever looked at it, even though `DesignSource` accepts a dict. The schema documented a form
+    ever looked at it, even though `Source` accepts a dict. The schema documented a form
     the loader could not read.
     """
     (tmp_path / "design0.sv").write_text("module design0; endmodule\n")
@@ -321,7 +313,7 @@ def test_model_schema_is_still_available():
 def test_embedded_example_designs_validate_against_the_published_schema(path):
     project = XedaProject.from_file(path)
     raw = load_design_file(path)
-    designs = raw.get("design", raw.get("designs", []))
+    designs = raw.get("designs", [])
     if isinstance(designs, dict):
         designs = [designs]
     assert designs
@@ -341,10 +333,9 @@ def test_targets_are_published_in_the_input_schema_only():
     targets = schema["properties"]["targets"]
     assert targets["description"]
     overlay = targets["additionalProperties"]["properties"]
-    # the design's own keys, in every form a design file takes them...
-    assert {"rtl", "tb", "flows", "flow", "sources", "defines", "top", "clock", "test"} <= set(
-        overlay
-    )
+    # the design's own keys...
+    assert {"rtl", "tb", "flows", "language", "authors"} <= set(overlay)
+    assert not {"flow", "sources", "defines", "top", "clock", "test"} & set(overlay)
     # ...but for the ones that are the design's alone
     for name in ("name", "targets", "target", "design_root"):
         assert overlay[name] is False, name
@@ -390,7 +381,7 @@ def test_the_schema_refuses_what_the_loader_refuses_in_targets(targets, tmp_path
         Design(design_root=tmp_path, **Design.select_target(data, selected))
 
 
-@pytest.mark.parametrize("spelling", ["parameters", "generics"])
+@pytest.mark.parametrize("spelling", ["parameters"])
 @pytest.mark.parametrize(
     "entry",
     [{"name": "", "value": 1}, {"name": "W", "value": None}, {"name": "W"}, {"value": 1}],
@@ -426,7 +417,9 @@ def list_fields():
 
     for model in _models_reachable_from(Design):
         for name, info in model.model_fields.items():
-            if typing.get_origin(info.annotation) is list or "List[" in repr(info.annotation):
+            if typing.get_origin(info.annotation) in (list, tuple) or "List[" in repr(
+                info.annotation
+            ):
                 yield model, name, {name, info.alias or name}
 
 
@@ -435,10 +428,13 @@ def loader_takes_a_bare_string(model, name) -> bool:
     than refuse it as a value that is no list."""
     from pydantic import ValidationError
 
+    # A frozen model refuses an assignment before it validates the value, so probe a copy of the
+    # model that is not frozen: its fields and validators are the same.
+    probe = type(model.__name__, (model,), {"model_config": ConfigDict(frozen=False)})
     try:
-        model.__pydantic_validator__.validate_assignment(model.model_construct(), name, "x")
+        probe.__pydantic_validator__.validate_assignment(probe.model_construct(), name, "x")
     except ValidationError as error:
-        return all(e["type"] != "list_type" for e in error.errors())
+        return all(e["type"] not in ("list_type", "tuple_type") for e in error.errors())
     return True
 
 
@@ -480,9 +476,9 @@ def test_the_sweep_sees_a_list_field_that_the_schema_describes_as_a_list_only(mo
     monkeypatch.setattr(introspect, "single_item_fields_of", lambda model: ())
     gaps = fields_that_take_a_bare_string_but_the_schema_does_not(design_schema())
     assert {
-        ("RtlSettings", "sources"),
-        ("TbSettings", "sources"),
-        ("RtlSettings", "clocks"),
+        ("Rtl", "sources"),
+        ("Testbench", "sources"),
+        ("Rtl", "clocks"),
     } <= set(gaps)
 
 
@@ -496,20 +492,18 @@ def test_every_declared_single_item_field_is_one_the_loader_takes():
         for name in single_item_fields_of(model)
     }
     assert {(m.__name__, n) for m, n in declared} >= {
-        ("RtlSettings", "sources"),
-        ("TbSettings", "sources"),
-        ("RtlSettings", "clocks"),
+        ("Rtl", "sources"),
+        ("Testbench", "sources"),
+        ("Rtl", "clocks"),
         ("Generator", "sources"),
     }
     for model, name in declared:
         assert loader_takes_a_bare_string(model, name), f"{model.__name__}.{name}"
 
 
-@pytest.mark.parametrize(
-    "section", ["", "rtl", "tb", "rtl.generator"], ids=["flat", "rtl", "tb", "generator"]
-)
+@pytest.mark.parametrize("section", ["rtl", "tb", "rtl.generator"], ids=["rtl", "tb", "generator"])
 def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, section):
-    """The same forms at the root, in `rtl`, in `tb` and in a generator: the loader and the
+    """The same forms in `rtl`, in `tb` and in a generator: the loader and the
     schema agree for a path and (not for a generator) a table."""
     (tmp_path / "a.v").write_text("module a; endmodule\n")
     forms = ["a.v", {"file": "a.v"}, {"path": "a.v", "type": "Verilog"}]
@@ -517,9 +511,7 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
         forms = ["a.v"]
     for form in forms:
         data: dict = {"name": "d", "rtl": {"top": "a", "sources": []}, "tb": {"sources": []}}
-        if section == "":
-            data = {"name": "d", "top": "a", "sources": form}
-        elif section == "rtl.generator":
+        if section == "rtl.generator":
             data["rtl"]["generator"] = {
                 "executable": sys.executable,
                 "args": ["-c", "pass"],
@@ -552,22 +544,10 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
 )
 def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
     """`clocks` as one clock, a list of port names and tables, and the items that say there is
-    no clock (`null`, `""`, an empty table): `RtlSettings.clock_tables` reads all of them."""
+    no clock (`null`, `""`, an empty table): `Rtl.clock_tables` reads all of them."""
     data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
     assert len(Design(**data).rtl.clocks) == count
     assert list(validator().iter_errors(data)) == []
-
-
-@pytest.mark.parametrize("clock", [None, "", "clk", {}, {"port": "clk"}], ids=repr)
-def test_every_form_of_clock_the_loader_reads_is_in_the_schema(clock):
-    """`clock` takes a port name, a table, and `null`, `""` or an empty table for no clock, in
-    `rtl` and in the flat form."""
-    for data in (
-        {"name": "d", "rtl": {"sources": [], "top": "t", "clock": clock}},
-        {"name": "d", "sources": [], "top": "t", "clock": clock},
-    ):
-        Design(**data)
-        assert list(validator().iter_errors(data)) == []
 
 
 def test_a_returned_schema_shares_nothing_with_the_next_one():
@@ -589,3 +569,12 @@ def test_a_returned_schema_shares_nothing_with_the_next_one():
     disturb(first)
     assert design_schema() == reference
     assert design_schema() == design_schema()
+
+
+def test_the_schema_of_a_generator_lists_its_class():
+    from xeda.design import GENERATOR_CLASSES
+
+    properties = design_schema()["$defs"]["Generator"]["properties"]
+
+    assert properties["class"]["enum"] == list(GENERATOR_CLASSES)
+    assert "chisel" in GENERATOR_CLASSES

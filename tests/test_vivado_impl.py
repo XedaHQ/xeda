@@ -32,6 +32,7 @@ from xeda.flow.flow import NoReadableSource
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
+from .design_edits import with_updates
 from .test_chain_documentation import FLOWS_RST, _blocks, _stage
 from .test_edif import _peak_memory, _write_large_netlist
 from .test_edif import netlist as edif_netlist
@@ -76,7 +77,7 @@ BLINKY_OVER_A_COUNTER = (
 PINS = "set_property -dict {PACKAGE_PIN W5 IOSTANDARD LVCMOS33} [get_ports clk]\n"
 TOP = "blinky"
 #: the settings of a run: the device and a clock, given once, to the node that is requested
-SETTINGS = {"fpga": PART, "clock": {"period": "10 ns"}}
+SETTINGS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}
 #: an EDIF netlist as a design lists it, whatever its file is called
 NETLIST = (
     "(edif other (edifVersion 2 0 0) (edifLevel 0) (keywordMap (keywordLevel 0))\n"
@@ -102,10 +103,10 @@ def _design(
     (root / "blinky.v").write_text(BLINKY)
     (root / "pins.xdc").write_text(PINS)
     (root / "given.edf").write_text(NETLIST)
-    rtl = {"sources": list(sources), "top": top, "clock": {"port": "clk"}}
+    rtl = {"sources": list(sources), "top": top, "clocks": [{"port": "clk"}]}
     if attributes:
         rtl["attributes"] = attributes
-    return Design(name="blinky", design_root=root, rtl=rtl, flow=flows or {})
+    return Design(name="blinky", design_root=root, rtl=rtl, flows=flows or {})
 
 
 def _edif_design(root: Path, **kwargs) -> Design:
@@ -114,7 +115,7 @@ def _edif_design(root: Path, **kwargs) -> Design:
 
 
 #: the device and clock as command-line items, for a request that names its flows by chain
-_DEV = ["fpga=xc7a35tcpg236-1", "clock.period=10ns"]
+_DEV = ["fpga.part=xc7a35tcpg236-1", "clocks.main_clock.period=10ns"]
 SIM_INPUTS = ("netlist", "netlist_timing", "sdf")
 
 
@@ -288,7 +289,9 @@ def test_a_chain_to_the_loader_switches_the_bitstream_on_with_its_conventional_n
             "`stop_after: rtl`",
             id="stop_after_rtl",
         ),
-        pytest.param({"fpga": "LFE5U-25F-6BG381C"}, "not a Xilinx device", id="not_xilinx"),
+        pytest.param(
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}}, "not a Xilinx device", id="not_xilinx"
+        ),
     ],
 )
 def test_no_edif_netlist_is_written_for_a_synthesis_vivado_cannot_read(
@@ -333,17 +336,17 @@ def test_the_edif_is_named_only_where_it_is_written(tmp_path) -> None:
     assert _plan(tmp_path, "yosys_fpga", design).node("yosys_fpga").settings.netlist_edif == Path(
         "a.edif"
     )
-    for settings in ({"flatten": False}, {"fpga": "iCE40HX1K-TQ144"}):
+    for settings in ({"flatten": False}, {"fpga": {"part": "iCE40HX1K-TQ144"}}):
         flows = {"yosys_fpga": {**SETTINGS, "netlist_edif": "a.edif", **settings}}
         with pytest.raises(FlowSettingsException, match="netlist_edif names a file"):
             _plan(tmp_path, "yosys_fpga", _design(tmp_path / "d", flows=flows))
     with pytest.raises(Exception, match="always writes its EDIF netlist"):
-        YosysFpga.Settings.from_input({"fpga": PART, "netlist_edif": ""})
+        YosysFpga.Settings.from_input({"fpga": {"part": PART}, "netlist_edif": ""})
 
 
 def test_vivado_impl_implements_xilinx_devices_only(tmp_path) -> None:
     design = _edif_design(
-        tmp_path / "d", flows={"vivado_impl": {**SETTINGS, "fpga": "iCE40HX1K-TQ144"}}
+        tmp_path / "d", flows={"vivado_impl": {**SETTINGS, "fpga": {"part": "iCE40HX1K-TQ144"}}}
     )
     with pytest.raises(FlowSettingsException, match="implements Xilinx devices"):
         _plan(tmp_path, "vivado_impl", design)
@@ -590,7 +593,7 @@ def _write_yaml(tmp_path: Path, flows: dict) -> Path:
     path = root / "blinky.yaml"
     document = {
         "name": "blinky",
-        "rtl": {"sources": ["blinky.v", "pins.xdc"], "top": TOP, "clock": {"port": "clk"}},
+        "rtl": {"sources": ["blinky.v", "pins.xdc"], "top": TOP, "clocks": [{"port": "clk"}]},
         "flows": flows,
     }
     path.write_text(yaml.safe_dump(document))
@@ -623,7 +626,7 @@ def test_the_implementation_options_are_the_non_project_strategies(tmp_path, too
     assert ["place_design", "-directive", "ExtraPostPlacementOpt"] in calls
     assert ["route_design", "-directive", "Explore"] in calls  # a step's own options win
     with pytest.raises(Exception, match="Unknown strategy: Fastest"):
-        VivadoImpl.Settings.from_input({"fpga": PART, "impl": {"strategy": "Fastest"}})
+        VivadoImpl.Settings.from_input({"fpga": {"part": PART}, "impl": {"strategy": "Fastest"}})
 
 
 @needs_tclsh
@@ -905,7 +908,7 @@ def test_every_text_of_the_design_reaches_vivado_as_one_literal_word(tmp_path, t
         rtl={
             "sources": [{"file": "net [x] $v.edf", "type": "Edif"}, "pins [x] $v.xdc"],
             "top": top,
-            "clock": {"port": f"clk {EVIL}"},
+            "clocks": [{"port": f"clk {EVIL}"}],
         },
     )
     flow = _runner(tmp_path).run_flow(
@@ -946,7 +949,7 @@ def test_a_verilog_netlist_is_no_input(tmp_path) -> None:
     design = _design(
         root, sources=("blinky.v", "pins.xdc", {"file": "net.v", "type": "VerilogNetlist"})
     )
-    design.flow = {"vivado_impl": SETTINGS}
+    design = with_updates(design, flows={"vivado_impl": SETTINGS})
     plan = _plan(tmp_path, "vivado_impl", design)
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "vivado_impl"]
     for node in plan.nodes:
@@ -1017,9 +1020,18 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
         yaml.safe_dump(
             {
                 "name": "blinky",
-                "rtl": {"sources": ["blinky.v", "pins.xdc"], "top": TOP, "clock": {"port": "clk"}},
+                "rtl": {
+                    "sources": ["blinky.v", "pins.xdc"],
+                    "top": TOP,
+                    "clocks": [{"port": "clk"}],
+                },
                 "tb": {"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
-                "flows": {"vivado_impl": {"fpga": {"part": PART}, "clock": {"period": "10 ns"}}},
+                "flows": {
+                    "vivado_impl": {
+                        "fpga": {"part": PART},
+                        "clocks": {"main_clock": {"period": "10 ns"}},
+                    }
+                },
             }
         )
     )

@@ -157,7 +157,7 @@ def test_a_nested_model_s_files_are_candidates_but_not_a_dependency_s(tmp_path):
     )
     assert setting_files(yosys) == [(tmp_path / "ghdl.lib").resolve()]
     producer = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a100t", "xdc_files": ["pins.xdc"]},
+        {"fpga": {"part": "xc7a100t"}, "xdc_files": ["pins.xdc"]},
         design_root=tmp_path,
         runner_cwd=tmp_path,
     )

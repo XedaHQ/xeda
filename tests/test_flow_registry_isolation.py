@@ -46,8 +46,8 @@ def test_the_helper_keeps_the_built_in_flows_of_a_registry_that_was_not_loaded()
                 results_description = {}
                 def run(self): pass
                 def parse_reports(self): return True
-            assert "_Probe" in registered_flows
-        print("_Probe" in registered_flows, "nextpnr" in registered_flows,
+            assert _Probe.name in registered_flows
+        print(_Probe.name in registered_flows, "nextpnr" in registered_flows,
               "openfpgaloader" in registered_flows)
         """)
     assert out == "False True True"
@@ -214,8 +214,8 @@ def test_the_scan_leaves_the_registration_of_a_flow_by_name_alone(tmp_path, sour
 
 # --------------------------------------------- what the import of the test modules leaves
 #
-# A flow class registers itself when it is defined, under its snake-case name, its class name and
-# its aliases. A flow that a test defines is gone after the test (`_flow_registry_is_put_back` in
+# A flow class registers itself when it is defined, under its one name, the snake case of its
+# class name. A flow that a test defines is gone after the test (`_flow_registry_is_put_back` in
 # `conftest.py`). A flow that a test module defines as it is imported stays registered in every
 # test of the worker, so the session checks it (`_importing_the_tests_leaves_the_flow_registry_
 # alone`): only a module in `REVIEWED_IMPORT_REGISTRATIONS` may keep one, and every name that a
@@ -252,17 +252,16 @@ def test_a_flow_that_an_unreviewed_module_keeps_registered_is_reported():
     _flow("LeftBehind", __name__)
     problems = _import_registration_problems()
     assert f"left_behind ({__name__})" in problems
-    assert f"LeftBehind ({__name__})" in problems
 
 
-def test_a_reviewed_flow_whose_alias_replaces_a_builtin_name_is_reported():
+def test_a_reviewed_flow_that_replaces_a_builtin_name_is_reported():
     from .conftest import _import_registration_problems
 
     builtin = _builtin()
-    _flow("Shadow", REVIEWED, aliases=[builtin.name])
+    _flow(builtin.__name__, REVIEWED)
     assert (
-        f"{builtin.name}: {builtin.__module__}.{builtin.__qualname__} and {REVIEWED}.Shadow"
-        in _import_registration_problems()
+        f"{builtin.name}: {builtin.__module__}.{builtin.__qualname__} and "
+        f"{REVIEWED}.{builtin.__name__}" in _import_registration_problems()
     )
 
 
@@ -285,9 +284,8 @@ def test_a_reviewed_flow_that_its_module_unregisters_is_no_problem():
 
     from .conftest import _import_registration_problems
 
-    _flow("Withdrawn", REVIEWED, aliases=["withdrawn_alias"])
-    for name in ("withdrawn", "Withdrawn", "withdrawn_alias"):
-        del registered_flows[name]
+    _flow("Withdrawn", REVIEWED)
+    del registered_flows["withdrawn"]
     assert not [problem for problem in _import_registration_problems() if "Withdrawn" in problem]
 
 

@@ -166,12 +166,12 @@ Design Rules
 def test_dc_writes_the_declared_types(tmp_path):
     design = Design(
         name="top",
-        rtl={"sources": [], "top": "top", "clock": "clk"},  # type: ignore[arg-type]
+        rtl={"sources": [], "top": "top", "clocks": ["clk"]},  # type: ignore[arg-type]
     )
     lib = tmp_path / "cells.db"
     lib.write_text("")
     settings = Dc.Settings.from_input(
-        {"target_libraries": [str(lib)], "clock": {"period": "10 ns"}}
+        {"target_libraries": [str(lib)], "clocks": {"main_clock": {"period": "10 ns"}}}
     )
     run_path = tmp_path / "run"
     run_path.mkdir()
@@ -250,10 +250,10 @@ def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_pa
 def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
     design = Design(
         name="top",
-        rtl={"sources": [], "top": "top", "clock": "clk"},  # type: ignore[arg-type]
+        rtl={"sources": [], "top": "top", "clocks": ["clk"]},  # type: ignore[arg-type]
     )
     settings = Quartus.Settings.from_input(
-        {"fpga": {"part": "10CL025YU256C8G"}, "clock": {"period": "10 ns"}}
+        {"fpga": {"part": "10CL025YU256C8G"}, "clocks": {"main_clock": {"period": "10 ns"}}}
     )
     flow = Quartus(settings, design, tmp_path)
     flow.init()

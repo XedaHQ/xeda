@@ -4,6 +4,7 @@ import logging
 import re
 from abc import ABCMeta
 from collections import OrderedDict
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
@@ -77,7 +78,7 @@ SDF = "sdf"
 RUN_STATUS_FILE = "run_status.txt"
 
 
-def vivado_synth_generics(parameters: dict) -> List[str]:
+def vivado_synth_generics(parameters: Mapping[str, Any]) -> List[str]:
     generics = []
     for k, v in parameters.items():
         if isinstance(v, bool):

@@ -51,7 +51,7 @@ Completion of command names, options, built-in flow chains, and settings reads a
 It does not load the flow implementations or read the design file. Generate the script again
 after you upgrade Xeda, then load the new script in your shell.
 
-After selecting a flow, press Tab after ``-s``, ``--settings``, or ``--flow-settings`` to complete
+After selecting a flow, press Tab after ``-s`` or ``--settings`` to complete
 a setting. Nested names use dots::
 
     xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s fpga.p<Tab>
@@ -157,6 +157,6 @@ Explore the design space
 ``xeda dse`` runs many instances of a flow in parallel under an optimizer. The default optimizer
 searches for the highest clock frequency::
 
-    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml
 
 ``xeda list-optimizers`` shows the available optimizers and their settings.

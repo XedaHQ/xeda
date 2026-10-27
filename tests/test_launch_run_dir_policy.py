@@ -70,8 +70,7 @@ def toy_flows():
 
     yield ToyDep, ToyTop
     for cls in (ToyDep, ToyTop):
-        for name in (cls.name, cls.__name__):
-            registered_flows.pop(name, None)
+        registered_flows.pop(cls.name, None)
 
 
 @pytest.fixture

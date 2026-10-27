@@ -57,7 +57,7 @@ def _design(tmp_path: Path, part: str = ECP5, flows=None) -> Design:
         (root / "pins.xdc").write_text(PINS)
         sources.append("pins.xdc")
     return Design(
-        name="top", design_root=root, rtl={"sources": sources, "top": "top"}, flow=flows or {}
+        name="top", design_root=root, rtl={"sources": sources, "top": "top"}, flows=flows or {}
     )
 
 
@@ -93,13 +93,13 @@ def _input(plan, node, name):
         ("nextpnr+fpga_pack+openfpgaloader", Openfpgaloader),
         ("fpga_pack+openfpgaloader", Openfpgaloader),
         ("yosys_fpga+nextpnr+fpga_pack", FpgaPack),
-        ("nextpnr+fpga-pack", FpgaPack),
-        ("YosysFpga+nextpnr", Nextpnr),
+        ("nextpnr+fpga_pack", FpgaPack),
+        ("yosys_fpga+nextpnr", Nextpnr),
     ],
 )
 def test_the_default_route_spelled_as_a_chain_is_the_bare_plan(tmp_path, chain, requested):
     runner = _runner(tmp_path, hashed_run_dirs=True)
-    design = _design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    design = _design(tmp_path, flows={"nextpnr": {"fpga": {"part": ECP5}}})
     bare = runner.plan(requested, design)
     spelled = runner.plan(parse_request(chain), design)
     assert _graph(spelled) == _graph(bare)
@@ -138,7 +138,9 @@ def test_a_chain_that_does_not_fit_says_what_each_side_takes_and_makes():
 @pytest.mark.parametrize("part, config", [(ECP5, "EcpConfig"), (ICE40, "IceAsc"), (A100T, "Fasm")])
 def test_a_chain_narrows_the_packer_s_input_to_the_family_nextpnr_selects(tmp_path, part, config):
     plan = _runner(tmp_path).plan(
-        parse_request("nextpnr+fpga_pack"), _design(tmp_path, part), flow_settings={"fpga": part}
+        parse_request("nextpnr+fpga_pack"),
+        _design(tmp_path, part),
+        flow_settings={"fpga": {"part": part}},
     )
     nodes = {node["name"]: node for node in plan_info(plan)["nodes"]}
     assert nodes["nextpnr"]["output_types"]["config"] == [config]
@@ -176,13 +178,13 @@ class _AscWriter(Flow):
 
 
 def test_a_configuration_of_another_family_is_refused_for_the_packer(tmp_path):
-    flows = {"fpga_pack": {"fpga": ECP5, "inputs": {"config": "__asc_maker.config"}}}
+    flows = {"fpga_pack": {"fpga": {"part": ECP5}, "inputs": {"config": "__asc_maker.config"}}}
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).plan(FpgaPack, _design(tmp_path, flows=flows))
     message = str(raised.value)
     assert "fpga_pack.config: __asc_maker.config has no compatible output" in message
     assert "takes EcpConfig, makes IceAsc" in message
-    ice = {"fpga_pack": {"fpga": ICE40, "inputs": {"config": "__asc_maker"}}}
+    ice = {"fpga_pack": {"fpga": {"part": ICE40}, "inputs": {"config": "__asc_maker"}}}
     plan = _runner(tmp_path).plan(FpgaPack, _design(tmp_path, ICE40, flows=ice))
     assert [node.name for node in plan.nodes] == ["__asc_maker", "fpga_pack"]
 
@@ -196,7 +198,9 @@ def test_a_database_override_agrees_along_a_chained_edge(tmp_path, owner):
     (tmp_path / "design" / "db").mkdir()
     design = _design(tmp_path, A100T, flows={owner: {"prjxray_db": "db"}})
     plan = _runner(tmp_path).plan(
-        parse_request("yosys_fpga+nextpnr+fpga_pack"), design, flow_settings={"fpga": A100T}
+        parse_request("yosys_fpga+nextpnr+fpga_pack"),
+        design,
+        flow_settings={"fpga": {"part": A100T}},
     )
     database = (tmp_path / "design" / "db").resolve()
     assert plan.node("fpga_pack").settings.prjxray_db == database
@@ -206,7 +210,7 @@ def test_a_database_override_agrees_along_a_chained_edge(tmp_path, owner):
         _runner(tmp_path).plan(
             parse_request("nextpnr+fpga_pack"),
             _design(tmp_path, A100T, flows=flows),
-            flow_settings={"fpga": A100T},
+            flow_settings={"fpga": {"part": A100T}},
         )
 
 
@@ -214,7 +218,7 @@ def test_a_database_override_agrees_along_a_chained_edge(tmp_path, owner):
 def test_a_board_given_at_one_node_is_every_chained_node_s_device(tmp_path, owner):
     """The board, or the device, written once anywhere on the chain reaches every node that
     declares it, through the explicit edges."""
-    setting = {"fpga": ECP5} if owner == "yosys_fpga" else {"board": "ulx3s_85f"}
+    setting = {"fpga": {"part": ECP5}} if owner == "yosys_fpga" else {"board": "ulx3s_85f"}
     plan = _runner(tmp_path).plan(
         parse_request("yosys_fpga+nextpnr+fpga_pack+openfpgaloader"),
         _design(tmp_path, flows={owner: setting}),
@@ -238,31 +242,10 @@ def _boards(plan) -> dict[str, str]:
     return {n.name: n.settings.board for n in plan.nodes if hasattr(n.settings, "board")}
 
 
-def test_a_bundled_board_named_in_two_cases_along_a_chain_is_one_board(tmp_path):
+def test_a_bundled_board_in_another_letter_case_is_refused_along_a_chain(tmp_path):
     flows = {"fpga_pack": {"board": "ULX3S_85F"}, "nextpnr": {"board": "ulx3s_85f"}}
-    plan = _runner(tmp_path).plan(
-        parse_request("nextpnr+fpga_pack"), _design(tmp_path, flows=flows)
-    )
-    assert _boards(plan) == {"nextpnr": "ulx3s_85f", "fpga_pack": "ulx3s_85f"}
-
-
-def test_the_case_of_a_bundled_board_name_changes_nothing_about_the_run(tmp_path):
-    """The same board is the same run: settings, identities and run directories alike."""
-    graphs = []
-    for spelling in ("ulx3s_85f", "ULX3S_85F", "Ulx3s_85F"):
-        plan = _runner(tmp_path).plan(
-            parse_request("yosys_fpga+nextpnr+fpga_pack"),
-            _design(tmp_path, flows={"nextpnr": {"board": spelling}}),
-        )
-        graphs.append(_graph(plan))
-    assert graphs[0] == graphs[1] == graphs[2]
-    # given on the command line or through the API, it is stored the same way
-    plan = _runner(tmp_path).plan(
-        parse_request("yosys_fpga+nextpnr+fpga_pack"),
-        _design(tmp_path),
-        flow_settings={"board": "ULX3S_85F"},
-    )
-    assert _graph(plan) == graphs[0]
+    with pytest.raises(FlowSettingsError, match="Did you mean 'ulx3s_85f'"):
+        _runner(tmp_path).plan(parse_request("nextpnr+fpga_pack"), _design(tmp_path, flows=flows))
 
 
 def test_a_custom_board_named_in_two_cases_along_a_chain_is_two_boards(tmp_path):
@@ -358,7 +341,7 @@ def _write_design(tmp_path: Path, sources=("top.v",), flows=None, name="top") ->
     (root / "given.json").write_text('{"modules": {"top": {"ports": {}, "cells": {}}}}\n')
     document = {
         "name": name,
-        "rtl": {"sources": list(sources), "top": "top", "clock": "clk"},
+        "rtl": {"sources": list(sources), "top": "top", "clocks": ["clk"]},
         "flows": flows or {},
     }
     path = root / f"{name}.yaml"
@@ -500,7 +483,7 @@ def test_two_stages_of_a_chain_naming_one_destination_are_refused_before_any_too
 ):
     """The synthesis netlist and the placed design both go to one file: the first would be
     delivered and the second refused after both tools ran, as a change nobody made."""
-    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": {"part": ECP5}}})
     same = tmp_path / "same.out"
     result, document = _xeda(
         "run",
@@ -523,7 +506,7 @@ def test_two_stages_of_a_chain_naming_one_destination_are_refused_before_any_too
 def _refused_before_any_tool(tmp_path, toolchain, first, second) -> dict:
     """`yosys_fpga+nextpnr` with the synthesis netlist and the placed design given the
     destinations `first` and `second`: the document of the refusal, with no tool started."""
-    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": {"part": ECP5}}})
     result, document = _xeda(
         "run",
         "yosys_fpga+nextpnr",
@@ -573,7 +556,7 @@ def test_an_outputs_to_file_the_last_run_predicts_is_refused_before_any_tool_or_
     its last run made it. The synthesis netlist is given that very destination, where the user has
     a file: the refusal names both, rather than the question whether to replace the file, which
     the collision would refuse after both tools ran."""
-    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": {"part": ECP5}}})
     first, _ = _xeda("run", "yosys_fpga+nextpnr", design)
     assert first.exit_code == 0, first.output
     started = [(call, call.read_text()) for call in _every_call(tmp_path)]
@@ -764,7 +747,7 @@ def test_a_configuration_of_the_wrong_family_never_reaches_the_programmer(tmp_pa
     chain = "__asc_writer+fpga_pack+openfpgaloader"
     design = _write_design(tmp_path)
     # the control: an iCE40 configuration for an iCE40 device is packed, and programmed
-    result, document = _xeda("run", chain, design, "-s", f"fpga={ICE40_PART}")
+    result, document = _xeda("run", chain, design, "-s", f"fpga.part={ICE40_PART}")
     assert result.exit_code == 0, result.output
     assert _states(document) == {
         "__asc_writer": "ran",
@@ -780,7 +763,7 @@ def test_a_configuration_of_the_wrong_family_never_reaches_the_programmer(tmp_pa
     ]
     # the same chain for an ECP5 device: refused in planning, before any tool starts
     shutil.rmtree(tmp_path / "xeda_run")
-    result, refused = _xeda("run", chain, design, "-s", f"fpga={ECP5}")
+    result, refused = _xeda("run", chain, design, "-s", f"fpga.part={ECP5}")
     assert result.exit_code == 2 and refused["outcome"] is None
     assert refused["error"]["code"] == "unsupported_setting"
     assert "takes EcpConfig, makes IceAsc" in refused["error"]["message"]
@@ -795,7 +778,7 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
     packer is not entered and the programmer never starts."""
     design = _write_design(tmp_path)
     result, document = _xeda(
-        "run", "__asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga={ICE40_PART}"
+        "run", "__asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga.part={ICE40_PART}"
     )
     assert result.exit_code == 1 and document["outcome"] == "failed"
     # the failure is the producer's: each consumer is blocked by it and does not run
@@ -929,7 +912,7 @@ def test_a_prebuilt_bitstream_is_programmed_alone_until_a_chain_names_the_packer
 ):
     design = _write_design(tmp_path, BITSTREAM_SOURCE)
     given = tmp_path / "design/given.bit"
-    result, document = _xeda("run", "openfpgaloader", design, "-s", f"fpga={ECP5}")
+    result, document = _xeda("run", "openfpgaloader", design, "-s", f"fpga.part={ECP5}")
     assert result.exit_code == 0, result.output
     assert _states(document) == {"openfpgaloader": "ran"}  # no producer is run for it
     (call,) = _calls(tmp_path, "top", "openfpgaloader")
@@ -939,7 +922,7 @@ def test_a_prebuilt_bitstream_is_programmed_alone_until_a_chain_names_the_packer
     assert not [r for r in _every_call(tmp_path) if r.parent.name != "openfpgaloader"]
     # the chain's own adjacency is an explicit binding: it selects the packer, whose bitstream
     # is what the programmer then reads, not the file the design lists
-    result, document = _xeda("run", "fpga_pack+openfpgaloader", design, "-s", f"fpga={ECP5}")
+    result, document = _xeda("run", "fpga_pack+openfpgaloader", design, "-s", f"fpga.part={ECP5}")
     assert result.exit_code == 0, result.output
     assert list(_states(document).values()) == ["ran"] * 4
     packed = tmp_path / "xeda_run/top/fpga_pack/outputs/top.bit"
@@ -957,7 +940,7 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
     flows = {"nextpnr": {"inputs": {"netlist": "yosys_fpga"}}} if route == "design file" else {}
     given = tmp_path / "design/given.json"
     design = _write_design(tmp_path, NETLIST_SOURCE, flows=flows)
-    settings = ("-s", f"fpga={ECP5}")
+    settings = ("-s", f"fpga.part={ECP5}")
     head = "yosys_fpga+nextpnr+fpga_pack" if route == "chain" else "nextpnr+fpga_pack"
     if route == "chain":  # the control: unbound, the typed source stands for the producer
         result, document = _xeda("run", "nextpnr+fpga_pack", design, *settings)
@@ -1055,7 +1038,9 @@ def test_a_vivado_synthesis_precedes_the_loader_and_has_its_bitstream_switched_o
     tool_utils.use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     design = _write_design(
-        tmp_path, flows={flow: {"fpga": A100T, "clock": {"period": "5 ns"}}}, name="top"
+        tmp_path,
+        flows={flow: {"fpga": {"part": A100T}, "clocks": {"main_clock": {"period": "5 ns"}}}},
+        name="top",
     )
     result, document = _xeda(
         "run", f"{flow}+openfpgaloader", design, "--dry-run", "-s", f"fpga.part={A100T}"
@@ -1071,7 +1056,7 @@ def test_a_vivado_synthesis_precedes_the_loader_and_has_its_bitstream_switched_o
 
 def _unbound_design(tmp_path: Path, flow: str, bound: bool) -> Path:
     """A design that plans `flow` (an FPGA flow needs a device), `inputs.design` or not."""
-    section = {"fpga": ECP5}
+    section = {"fpga": {"part": ECP5}}
     if bound:
         section["inputs"] = {"design": "bsc"}
     return _write_design(tmp_path, flows={flow: section}, name="bound" if bound else "top")

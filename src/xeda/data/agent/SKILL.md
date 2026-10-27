@@ -14,8 +14,8 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 
 | Need | Command |
 | --- | --- |
-| Flows, with aliases, default producers, declared I/O and chain relations | `xeda list-flows --json` |
-| Settings of a flow (name, alias, type, default, enum, `writes`, `common`, `tier`, `group`) | `xeda list-settings <flow> --json` (`--no-common` omits the settings every flow has; `--tier common` keeps the most used) |
+| Flows, with default producers, declared I/O and chain relations | `xeda list-flows --json` |
+| Settings of a flow (name, type, default, enum, `writes`, `common`, `tier`, `group`) | `xeda list-settings <flow> --json` (`--no-common` omits the settings every flow has; `--tier common` keeps the most used) |
 | Result keys of a flow | `xeda list-results <flow> --json` |
 | Design file schema | `xeda design-schema` |
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
@@ -23,7 +23,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s pdk_provider=lambdapdk` then selects) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s KEY=VALUE --json` |
-| Search for the highest clock frequency | `xeda dse <flow> --design <design> --json` |
+| Search for the highest clock frequency | `xeda dse <flow> <design> --json` |
 | Remove a flow's old run directories | `xeda scrub <flow> <design> [--target NAME] --json` |
 
 Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`, `yaml`); `--json` is
@@ -118,7 +118,7 @@ flows:
   `{file: "top.json", type: JsonNetlist}`. A source a generator writes is `{path: "gen/top.v"}`.
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
-- Give the clock port in `rtl.clock.port` and the period in the flow: `clock.period` (`5 ns`) or
+- Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
   `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
 - A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
   quotes), `abc.load: 3.9 fF`. A bare number fails with `` `5` needs a unit, such as `10 ns` ``.
@@ -164,9 +164,9 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `ndr.assignments`) takes a dotted name as one key:
   `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
   `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
-- Settings every flow accepts (`"common": true`) include `nthreads` (alias `ncpus`), `dockerized`
+- Settings every flow accepts (`"common": true`) include `nthreads`, `dockerized`
   (run the tools from their Docker image), `docker`, `quiet`, `verbose`, `debug`,
-  `redirect_stdout` and `lib_paths`. A setting with an `alias` accepts both names. A flow whose
+  `redirect_stdout` and `lib_paths`. A flow whose
   tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
   only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
   flows read `lib_paths`. `ghdl_sim`, `ghdl_synth` and `nvc` take a relative path as relative to the
@@ -212,7 +212,7 @@ no flow takes). A listed netlist is your claim: Xeda does not parse it or compar
 `platform`, `liberty` or `fpga`, and the tool that reads it reports unknown cells.
 
 A chain runs flows in order and binds each output to the next flow's required input; the last flow
-is the one requested (its record in the run document, `--help-settings` and exit status):
+is the one requested (its record in the run document and exit status):
 
 ```bash
 xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
@@ -354,7 +354,8 @@ file without `schema_version` was written by an older Xeda: a launch runs that f
 
 Runs go to `./xeda_run/<design>/<flow>/` (`<design>/<target>/<flow>/` with a target); `--run-root`
 or `XEDA_RUN_ROOT` moves the root. A dependency's directory is a sibling. `--hashed-run-dirs`
-appends the run hash (`<flow>_<hash>`) so settings variants coexist. A launch holds each finished
+appends the run hash (`<flow>_<hash>`) so variants of the settings or of the design (its top,
+parameters, defines, source places) coexist. A launch holds each finished
 producer for reading until it ends; another Xeda process that would rebuild, clean or scrub that
 directory waits (POSIX).
 
@@ -382,7 +383,7 @@ trace (indirect programs, environment variables, files a tool finds on its own) 
 | --- | --- |
 | Run every flow | `--rebuild-all` |
 | Empty each run directory, then run every flow | `--clean` |
-| Keep settings variants side by side | `--hashed-run-dirs` |
+| Keep variants of the settings or of the design side by side | `--hashed-run-dirs` |
 | Remove the flow's other run directories first (prompts for `yes`) | `--scrub` |
 | Keep only `settings.json`, `results.json` and artifacts afterward | `--post-cleanup` |
 | Remove each run directory afterward | `--post-cleanup-purge` |
@@ -536,8 +537,8 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 
 | `error.code` | Do |
 | --- | --- |
-| `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
-| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project` | The message names the key (`rtl.sources:`) or the file. Check the file against `xeda design-schema`. |
+| `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
+| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
@@ -551,8 +552,8 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `storage_error` | A file or directory error of the operating system, or a path that leaves the run directory, ended the node (the record may be missing). Check the disk and permissions. |
 | `internal_error` | A bug of Xeda. Report it with the message. |
 
-Add `--debug` for verbose logs and a traceback. Flow names accept `vivado_synth`, `vivado-synth`
-and `VivadoSynth`; setting names are exact.
+Add `--log-level 10 --detailed-logs` for debug logs. Flow names and setting names are exact: a
+second spelling is refused, and the error names the right one.
 
 ## References
 
@@ -561,7 +562,7 @@ and `VivadoSynth`; setting names are exact.
 | `references/design-file.md` | Writing or fixing a design or project file; source types; clocks; targets; dotted keys |
 | `references/fpga-flows.md` | yosys_fpga, nextpnr, fpga_pack, openfpgaloader, openXC7, boards, pin constraints, `vivado_impl` |
 | `references/troubleshooting.md` | A failure, a simulation verdict, a waveform setting, a number that looks wrong |
-| `references/flows.md` | A flow's category, aliases, producers and result keys (generated by `xeda skill install`) |
+| `references/flows.md` | A flow's category, producers and result keys (generated by `xeda skill install`) |
 
 ## Library
 
@@ -574,5 +575,8 @@ flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clo
 if flow and flow.results.success:
     print(flow.results.fmax)
 ```
+
+A `Design` and everything in it is read-only (assigning raises an error). Change a copy with
+`design.model_copy(update=...)`, then call `invalidate_cached_properties()` on it.
 
 `xeda.introspect` returns the data the CLI's `--json` renders.

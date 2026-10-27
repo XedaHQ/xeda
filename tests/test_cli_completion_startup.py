@@ -155,9 +155,10 @@ def test_run_option_completion_before_a_flow_is_light(shell, tmp_path):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_plain_flow_completion_includes_canonical_name_and_ghdl_alias(shell, tmp_path):
+def test_plain_flow_completion_offers_the_names_of_the_flows_only(shell, tmp_path):
     candidates = _candidates(shell, _complete(shell, "xeda run ghdl"))
-    assert {"ghdl", "ghdl_sim"} <= set(candidates)
+    assert {"ghdl_sim", "ghdl_synth"} <= set(candidates)
+    assert "ghdl" not in candidates
     _assert_light_imports(_modules_seen(shell, "xeda run ghdl", tmp_path))
 
 

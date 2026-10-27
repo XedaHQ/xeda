@@ -4,7 +4,7 @@ name: shorthands
 rtl:
   top: knight
   sources: [knight.v]
-  clock: CLK
+  clocks: [CLK]
   parameters:
     - {name: WIDTH, value: 8}
     - {name: DEPTH, value: 2}
@@ -16,13 +16,13 @@ language:
   vhdl: "08"
 flows:
   vivado_synth:
-    fpga: xc7a35tcpg236-1
-    ncpus: 2
-    clock: {period: 10 ns}
+    fpga: {part: xc7a35tcpg236-1}
+    nthreads: 2
+    clocks: {main_clock: {period: 10 ns}}
 targets:
   tables:
     rtl:
-      clock: {name: sys}
+      clocks: [{port: CLK, name: sys}]
       parameters: {WIDTH: 4}
     tb:
       cocotb: {module: m}
@@ -32,4 +32,4 @@ targets:
       vivado_synth:
         fpga: {speed: -2}
         nthreads: 4
-        clock: {freq: 200MHz}
+        clocks: {main_clock: {freq: 200MHz}}

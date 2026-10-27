@@ -692,15 +692,15 @@ def test_the_settings_schema_of_a_flow_checks_the_form_of_a_quantity_and_names_i
     jsonschema = pytest.importorskip("jsonschema")
     schema = introspect.settings_info("yosys")["json_schema"]
     validator = jsonschema.Draft202012Validator(schema)
-    assert not list(validator.iter_errors({"clock": {"period": "10 ns"}}))
+    assert not list(validator.iter_errors({"clocks": {"main_clock": {"period": "10 ns"}}}))
     assert not list(validator.iter_errors({"abc": {"delay_target": "auto", "load": "3.9 fF"}}))
     # a bare number is not text: the schema can say so
-    assert list(validator.iter_errors({"clock": {"period": 10}}))
+    assert list(validator.iter_errors({"clocks": {"main_clock": {"period": 10}}}))
     assert list(validator.iter_errors({"abc": {"delay_target": 500}}))
     # it cannot check the unit in a text: Xeda refuses `10` and `10 MHz` as a time, and the
     # schema accepts both
-    assert not list(validator.iter_errors({"clock": {"period": "10"}}))
-    assert not list(validator.iter_errors({"clock": {"period": "10 MHz"}}))
+    assert not list(validator.iter_errors({"clocks": {"main_clock": {"period": "10"}}}))
+    assert not list(validator.iter_errors({"clocks": {"main_clock": {"period": "10 MHz"}}}))
     clock = schema["$defs"]["PhysicalClock"]["properties"]
     assert (clock["period"]["type"], clock["period"]["x-xeda-quantity"]) == ("string", "time")
     assert (clock["freq"]["type"], clock["freq"]["x-xeda-quantity"]) == ("string", "frequency")
@@ -876,7 +876,11 @@ def test_rendering_a_quantity_directly_is_refused_and_names_the_filter(env) -> N
         _render(env, "{{ t }}", t=Time("1 ns"))
     assert "filter" in str(caught.value)
     with pytest.raises(TypeError, match=r"\bto\b"):
-        _render(env, "period {{ clock.period }} ns", clock={"period": Time("1 ns")})
+        _render(
+            env,
+            "period {{ clocks.main_clock.period }} ns",
+            clocks={"main_clock": {"period": Time("1 ns")}},
+        )
 
 
 @pytest.mark.parametrize(

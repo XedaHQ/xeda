@@ -7,7 +7,6 @@ def quartus_synth():
             "xeda",
             "run",
             "quartus",
-            "--design",
             "pipelined_adder.yaml",
             "--settings",
             "dockerized=true",

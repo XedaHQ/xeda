@@ -1,7 +1,7 @@
 """The second stage of a launch: who the run is and where it runs.
 
-A run is identified by its design hash and the hash of its node (`bindings.node_identity`); its
-run directory is decided from those and the launcher's run root alone. Free functions with
+A run is identified by the hash of its node (`bindings.node_identity`); its run directory is
+decided from that and the launcher's run root alone. Its design hash is evidence of freshness. Free functions with
 explicit arguments. This module never imports `default_runner`: the launcher passes what each
 function needs.
 """
@@ -25,6 +25,7 @@ from ..run_dir import (
 )
 from ..run_root import ensure_run_root
 from .bindings import node_identity
+from .configuration import configuration_hash
 from .resolver import PlanNode
 
 
@@ -159,13 +160,18 @@ def run_identity(
 ) -> tuple[str, str, Path, str]:
     """Return `(design_hash, flowrun_hash, run_path, settings_hash)`.
 
-    The hash of the run is the identity of its node (`bindings.node_identity`): its settings
-    and the ordered origins of its inputs. The design counts by the parts that the flow reads
-    (`Flow.design_parts`) and the types of source that it takes (`Flow.design_source_types`), so
-    an edit to a testbench or to a source that the flow does not read changes nothing of it."""
+    The hash of the run is the identity of its node (`bindings.node_identity`): its settings, its
+    design configuration and the ordered origins of its inputs. The configuration is the one
+    the plan froze for the node (`PlanNode.configuration`, checked by the launcher). The design
+    hash counts the design by content, by the parts that the flow reads (`Flow.design_parts`)
+    and the types of source that it takes (`Flow.design_source_types`), so an edit to a
+    testbench or to a source that the flow does not read changes nothing of it. It is evidence
+    of freshness and no part of the identity."""
     design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
     settings_hash = flow_run_hash(flow_name, settings, design.name)
-    flowrun_hash = node_identity(settings_hash, node.origins)
+    flowrun_hash = node_identity(
+        settings_hash, configuration_hash(node.configuration), node.origins
+    )
     # A directory the flow cannot work in is refused on the path alone: nothing is created yet
     # (`get_flow_run_path` creates the run root).
     flow_class.check_run_directory(

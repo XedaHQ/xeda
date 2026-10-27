@@ -44,8 +44,8 @@ def isolate_test_flow_registration():
         yield
 
 
-def test_parse_normalizes_names_and_keeps_a_single_element_request():
-    request = parse_request("_ChainProducer.json_a+_ChainAmbiguousDefault")
+def test_parse_names_the_flows_and_keeps_a_single_element_request():
+    request = parse_request("__chain_producer.json_a+__chain_ambiguous_default")
 
     assert isinstance(request, FlowRequest)
     assert request.elements == (
@@ -53,19 +53,20 @@ def test_parse_normalizes_names_and_keeps_a_single_element_request():
         ChainElement(_ChainAmbiguousDefault),
     )
     assert request.requested is _ChainAmbiguousDefault
-    assert parse_request("Chain-Source").requested is _ChainProducer
-    assert parse_request("_ChainSimpleConsumer").elements == (ChainElement(_ChainSimpleConsumer),)
+    assert parse_request(_ChainSimpleConsumer.name).elements == (
+        ChainElement(_ChainSimpleConsumer),
+    )
 
 
 @pytest.mark.parametrize(
     "text, message",
     [
-        ("+_ChainSimpleConsumer", "element 1 is empty"),
-        ("_ChainSimpleConsumer+", "element 2 is empty"),
-        ("_ChainSimpleProducer++_ChainSimpleConsumer", "element 2 is empty"),
-        ("_ChainSimpleProducer..data", "output qualifier"),
-        ("_ChainSimpleProducer.data.extra", "output qualifier"),
-        ("_ChainSimpleProducer+_ChainSimpleConsumer.netlist", "last element"),
+        ("+__chain_simple_consumer", "element 1 is empty"),
+        ("__chain_simple_consumer+", "element 2 is empty"),
+        ("__chain_simple_producer++__chain_simple_consumer", "element 2 is empty"),
+        ("__chain_simple_producer..data", "output qualifier"),
+        ("__chain_simple_producer.data.extra", "output qualifier"),
+        ("__chain_simple_producer+__chain_simple_consumer.netlist", "last element"),
     ],
 )
 def test_invalid_grammar_is_reported_with_position_or_qualifier(text, message):
@@ -75,15 +76,15 @@ def test_invalid_grammar_is_reported_with_position_or_qualifier(text, message):
 
 def test_unknown_flow_and_output_have_suggestions():
     with pytest.raises(FlowNotFoundError, match="chain_simple_consumer"):
-        parse_request("_ChainSimpleProducer+__chain_simple_consmer")
+        parse_request("__chain_simple_producer+__chain_simple_consmer")
 
     with pytest.raises(FlowSettingsException, match="json_a.*json_b"):
         match_required_inputs(_ChainProducer, _ChainAmbiguousConsumer, output="jsn_a")
 
 
-def test_repeated_flows_are_rejected_after_name_normalization():
+def test_repeated_flows_are_rejected():
     with pytest.raises(FlowSettingsException, match="__chain_simple_producer.*more than once"):
-        parse_request("__chain_simple_producer+__chain-simple-producer")
+        parse_request("__chain_simple_producer+__chain_simple_producer")
 
 
 def test_adjacency_binds_every_required_compatible_input_in_declaration_order():
@@ -117,13 +118,13 @@ def test_many_output_cannot_feed_scalar_input():
 
 
 def test_a_flow_without_declarations_is_allowed_alone_but_makes_nothing_to_chain():
-    assert parse_request("_ChainUndeclared").requested is _ChainUndeclared
+    assert parse_request(_ChainUndeclared.name).requested is _ChainUndeclared
     with pytest.raises(FlowSettingsException, match="no compatible output"):
         validate_chain((ChainElement(_ChainUndeclared), ChainElement(_ChainAction)))
 
 
 def test_actions_can_only_appear_at_the_end():
-    assert parse_request("_ChainSimpleProducer+_ChainAction").requested is _ChainAction
+    assert parse_request("__chain_simple_producer+__chain_action").requested is _ChainAction
     with pytest.raises(
         FlowSettingsException, match="performs a test action and can only end a chain"
     ):
@@ -136,7 +137,7 @@ def test_parsing_and_matching_do_not_construct_flows_or_touch_a_run_root(monkeyp
 
     monkeypatch.setattr(Flow, "__init__", forbidden_init)
 
-    request = parse_request("_ChainSimpleProducer+_ChainSimpleConsumer")
+    request = parse_request("__chain_simple_producer+__chain_simple_consumer")
     assert match_required_inputs(_ChainSimpleProducer, request.requested) == [
         ("netlist", "netlist"),
         ("data", "data"),
@@ -281,7 +282,7 @@ def test_a_suggestion_resolves_with_a_valid_design(tmp_path):
     design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
     suggestion, _qualified = _suggestions("yosys_fpga.netlist_edif+fpga_pack")
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-        parse_request(suggestion), design, flow_settings={"fpga": "LFE5U-25F-6BG381C"}
+        parse_request(suggestion), design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
     )
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
     assert plan.requested == "fpga_pack"
@@ -587,9 +588,6 @@ def test_a_link_that_passes_through_flows_is_listed_with_the_flows_it_binds():
         ("yosys_fpga+openfpgaloader+fpga_pack", []),
         ("nextpnr+openfpgaloader+fpga_pack", []),
         ("ne", ["nextpnr"]),
-        # the prefix is returned as it was typed, whatever spelling it used
-        ("yosys-fpga+ne", ["yosys-fpga+nextpnr"]),
-        ("YosysFpga+ne", ["YosysFpga+nextpnr"]),
         # no followers: an action ends a chain, nothing repeats, an undeclared flow is alone
         ("openfpgaloader+", []),
         ("fpga_pack+openfpgaloader+", []),
@@ -618,8 +616,8 @@ def test_a_link_that_passes_through_flows_is_listed_with_the_flows_it_binds():
             "__chain_producer+__chain_a",
             ["__chain_producer+__chain_action", "__chain_producer+__chain_ambiguous_default"],
         ),
-        # an alias prefix completes to the alias; a canonical match wins over an alias
-        ("__chain_simple_producer+sink", ["__chain_simple_producer+sink_alias"]),
+        # a flow completes by its name only
+        ("__chain_simple_producer+sink", []),
         ("__chain_simple_producer+__chain_ali", ["__chain_simple_producer+__chain_aliased"]),
         # malformed or unknown text completes to nothing, never raises
         ("nosuch+ne", []),

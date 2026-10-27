@@ -20,8 +20,8 @@
    a `nextpnr` timing miss without `timing_allow_fail` (nextpnr stops itself).
 3. `settings.json` in `run_dir`: `flow_settings` is what you asked for, `effective_flow_settings`
    is what the flow made of it.
-4. The tool log and the generated scripts in `run_dir`. Add `--debug` for verbose logs and a
-   traceback.
+4. The tool log and the generated scripts in `run_dir`. Add `--log-level 10 --detailed-logs` for
+   debug logs.
 
 ## Messages and fixes
 
@@ -50,7 +50,7 @@
 | --- | --- |
 | `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is `{path: "gen/top.v"}`. |
 | `rtl.<key>: Extra inputs are not permitted` | Unknown design key. |
-| `<key>: Extra inputs are not permitted` at the root, often with `rtl.sources: Field required` | The flat form (`sources`, `top`, `clock` at the root) beside an `rtl:` section. Write everything under `rtl:`. |
+| `` `<key>` was removed: use `rtl.<key>` `` | A key of `rtl` (`sources`, `top`, `clocks`, ...) written at the root. The code is `removed_alias`. Put the key under `rtl:`. |
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
 | `` `standard` was removed from a source `` | Use `language.vhdl.standard`. |
 | `<flow> reads none of the design's sources: ...` (`NoReadableSource`) | The design lists no source the flow reads. Pick a flow for the design's languages, or give a source its `type`. |
@@ -91,7 +91,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  (`--debug` appends `, PATH:...`). Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
+  Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
   launch, the log shows the executable that Xeda found.
 - `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `record.error`. The
   generated script and the tool's log are in its `run_dir`.
@@ -119,7 +119,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 `--remote` failures have their own types, which start the log line (`RemoteConnectionError: ...`); the document has the code `remote_failed`, `remote_fetch_failed`, `delivery_failed`, `remote_detached` or `canceled`, and the message without the type. The message names the step and the cause. Test the
 destination with `ssh HOST true` first; `xeda remote check HOST --json` is the first diagnostic
-(connection, environment, disk, tools on the login `PATH`); add `--debug` for the commands and the
+(connection, environment, disk, tools on the login `PATH`); add `--log-level 10` for the commands and the
 output of the host. A login profile that prints text does no harm (up to 1 MiB before the agent).
 
 | Type (start of the log line) | Fix |

@@ -161,13 +161,9 @@ def output_format_option(
 class FlowChoice(click.Choice[str]):
     """The Click parameter type for a flow name.
 
-    `get_flow_class` resolves the name, so every name that it accepts works on the command line:
-    the canonical snake_case name, the CamelCase class name, any alias, and dashes for
-    underscores. An unknown name gets the close-match suggestions of the resolver. The
-    `click.Choice` base class serves shell completion and `--help`.
-
-    The converted value is the canonical name of the flow, so downstream code never has to
-    normalize it again.
+    `get_flow_class` resolves the name. A flow has one name (`Flow.name`, in snake_case). Any
+    other spelling of it, and an unknown name, is refused with the suggestions of the resolver
+    (`FlowNotFoundError`). The `click.Choice` base class serves shell completion and `--help`.
 
     With `removed=True`, the name of a removed flow is accepted too, as its canonical name:
     `xeda scrub` only removes directories, and the run directories of a removed flow still exist.

@@ -8,6 +8,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 
+from .design_edits import with_updates
 from .tool_utils import require_bsc, require_cocotb, require_verilator, run_report
 
 APPS = Path(__file__).resolve().parents[1] / "examples/bluespec/uart_link/apps"
@@ -25,7 +26,7 @@ def test_uart_stream_application(application, serial, tmp_path, capfd, monkeypat
     assert path.is_file(), f"missing UART application design: {path}"
     design = Design.from_file(path, target="sim_uart" if serial else "sim_bytes")
     if application == "ascon128a":
-        design.rtl.defines["ASCON128A"] = True
+        design = with_updates(design, rtl={"defines": {**design.rtl.defines, "ASCON128A": True}})
     monkeypatch.setenv("STREAM_SOURCE_ROOT", str(APPS.parents[3]))
     monkeypatch.setenv("STREAM_APP", application)
     monkeypatch.setenv("STREAM_SERIAL", str(int(serial)))

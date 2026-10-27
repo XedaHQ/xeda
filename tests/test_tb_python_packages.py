@@ -137,7 +137,7 @@ def test_cocotb_reports_a_package_missing_from_its_python_before_removing_result
 
 
 def test_the_default_is_no_package():
-    assert _design([]).tb.python_packages == []
+    assert _design([]).tb.python_packages == ()
 
 
 def test_installed_packages_pass(tmp_path):
@@ -166,7 +166,7 @@ def test_only_a_distribution_name_is_accepted(name):
 
 @pytest.mark.parametrize("name", ["cocotb", "cocotb-bus", "zope.interface", "a_b", "7zip"])
 def test_a_distribution_name_is_accepted(name):
-    assert _design([name]).tb.python_packages == [name]
+    assert _design([name]).tb.python_packages == (name,)
 
 
 def test_planning_refuses_a_missing_package_before_any_run_directory(tmp_path):

@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from ...dataclass import Field
-from ...design import DesignSource, RtlSettings, SourceType
+from ...design import Source, Rtl, SourceType
 from ...flow import (
     Flow,
     FlowFatalError,
@@ -108,14 +108,17 @@ class VivadoPostsynthSim(VivadoSim):
         synth_netlist_path = self.inputs.netlist_timing if ss.timing_sim else self.inputs.netlist
         if synth_netlist_path is None or not synth_netlist_path.is_file():
             raise FlowFatalError(f"The netlist {synth_netlist_path} does not exist.")
-        postsynth_sources = [DesignSource(synth_netlist_path)]
+        postsynth_sources = (Source(synth_netlist_path),)
         log.info("Setting post-synthesis sources to: %s", postsynth_sources)
         # Keep only the top module: drop the top parameters and every other RTL setting.
-        self.design.rtl = RtlSettings(
-            top=self.design.rtl.top, sources=postsynth_sources, attributes={}
-        )
         assert self.design.tb and self.design.tb.top
-        self.design.tb.top = (self.design.tb.top[0], "glbl")
+        self.design = self.design.model_copy(
+            update={
+                "rtl": Rtl(top=self.design.rtl.top, sources=postsynth_sources, attributes={}),
+                "tb": self.design.tb.model_copy(update={"top": (self.design.tb.top[0], "glbl")}),
+            }
+        )
+        self.design.invalidate_cached_properties()
 
         # the functional netlist instantiates UNISIM primitives, the timing netlist SIMPRIM ones
         libraries = ["simprims_ver"] if ss.timing_sim else ["unisims_ver", "simprims_ver"]

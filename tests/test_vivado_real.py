@@ -18,6 +18,7 @@ from xeda import Design
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSim, VivadoSynth, YosysFpga
 
+from .design_edits import with_updates
 from .tool_utils import (
     checkout_work_dir,
     require_bsc,
@@ -75,11 +76,13 @@ def test_vivado_synth_reads_every_file_by_its_own_name(work_dir) -> None:
         rtl={
             "sources": ["rtl/inv [x] $v.v", "rtl/top [x] $v.vhd"],
             "top": "top",
-            "clock": "clk",
+            "clocks": [{"port": "clk"}],
         },
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoSynth, design, {"fpga": PART, "clock": {"period": "10 ns"}, "xdc_files": [xdc]}
+        VivadoSynth,
+        design,
+        {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}, "xdc_files": [xdc]},
     )
     assert flow is not None and flow.succeeded
     assert flow.results["lut"] >= 1 and flow.results["ff"] >= 1
@@ -102,9 +105,13 @@ def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc
     design = Design(
         name="bit",
         design_root=root,
-        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
     )
-    settings = {"fpga": PART, "clock": {"period": "10 ns"}, "bitstream": "outputs/top.bit"}
+    settings = {
+        "fpga": {"part": PART},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+        "bitstream": "outputs/top.bit",
+    }
     if waive_drc:
         settings["impl"] = {"steps": {"WRITE_BITSTREAM": {"TCL": {"PRE": waiver}}}}
     flow = DefaultRunner(work_dir / "run").run_flow(VivadoSynth, design, settings)
@@ -133,10 +140,12 @@ def test_vivado_alt_synth_reads_the_xdc_files_it_is_given(work_dir) -> None:
     design = Design(
         name="alt",
         design_root=root,
-        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoAltSynth, design, {"fpga": PART, "clock": {"period": "10 ns"}, "xdc_files": [xdc]}
+        VivadoAltSynth,
+        design,
+        {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}, "xdc_files": [xdc]},
     )
     assert flow is not None and flow.succeeded
     assert _logged(flow.run_path, f"Parsing XDC File [{xdc}]")
@@ -152,10 +161,12 @@ def test_vivado_project_creates_the_project_without_a_display(work_dir) -> None:
     design = Design(
         name="proj",
         design_root=root,
-        rtl={"sources": ["inv.v", "top.vhd", "io.xdc"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["inv.v", "top.vhd", "io.xdc"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoProject, design, {"fpga": PART, "clock": {"period": "10 ns"}}
+        VivadoProject,
+        design,
+        {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
     )
     assert flow is not None and flow.succeeded
     project = flow.run_path / flow.artifacts["project"]
@@ -315,13 +326,20 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
     design = Design(
         name="power",
         design_root=root,
-        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
-    design.flow = {
-        "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}, "ncpus": 2},
-        "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
-    }
+    design = with_updates(
+        design,
+        flows={
+            "vivado_synth": {
+                "fpga": {"part": PART},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+                "nthreads": 2,
+            },
+            "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
+        },
+    )
     runner = DefaultRunner(work_dir / "run")
     launch = lambda: runner.run_flow(VivadoPower, design, {})
     flow = launch()
@@ -391,7 +409,7 @@ def test_xsim_native_partial_line_finish_during_prerun(work_dir):
 
 IMPL_RESOURCES = Path(__file__).parent / "resources" / "vivado_impl"
 BASYS3 = "xc7a35tcpg236-1"
-IMPL_SETTINGS = {"fpga": BASYS3, "clock": {"period": "10 ns"}}
+IMPL_SETTINGS = {"fpga": {"part": BASYS3}, "clocks": {"main_clock": {"period": "10 ns"}}}
 
 
 def _impl_design(root: Path, name: str, netlist: str | None = None) -> Design:
@@ -407,7 +425,7 @@ def _impl_design(root: Path, name: str, netlist: str | None = None) -> Design:
     return Design(
         name=name,
         design_root=root,
-        rtl={"sources": sources, "top": name, "clock": {"port": "clk"}},
+        rtl={"sources": sources, "top": name, "clocks": [{"port": "clk"}]},
     )
 
 
@@ -509,7 +527,7 @@ def test_vivado_impl_implements_an_edif_netlist_it_is_given(work_dir) -> None:
     file, so the flow reads a copy named for it."""
     require_yosys()
     synthesis = DefaultRunner(work_dir / "synthesis").run_flow(
-        YosysFpga, _impl_design(work_dir / "design", "blinky"), {"fpga": BASYS3}
+        YosysFpga, _impl_design(work_dir / "design", "blinky"), {"fpga": {"part": BASYS3}}
     )
     assert synthesis is not None and synthesis.succeeded
     shutil.copy(synthesis.run_path / "netlist.edif", work_dir / "design" / "given.edf")
@@ -529,7 +547,7 @@ def test_vivado_finds_the_top_of_an_edif_netlist_by_the_name_of_its_file(work_di
     """The behavior the staged copy answers: a netlist not named for its top is not found."""
     require_yosys()
     synthesis = DefaultRunner(work_dir / "synthesis").run_flow(
-        YosysFpga, _impl_design(work_dir / "design", "blinky"), {"fpga": BASYS3}
+        YosysFpga, _impl_design(work_dir / "design", "blinky"), {"fpga": {"part": BASYS3}}
     )
     assert synthesis is not None and synthesis.succeeded
     shutil.copy(synthesis.run_path / "netlist.edif", work_dir / "given.edf")
@@ -620,14 +638,14 @@ def test_vivado_synth_sets_a_run_property_given_with_dots(work_dir) -> None:
     design = Design(
         name="props",
         design_root=root,
-        rtl={"sources": ["rtl/inv.v", "rtl/top.vhd"], "top": "top", "clock": "clk"},
+        rtl={"sources": ["rtl/inv.v", "rtl/top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
         VivadoSynth,
         design,
         {
-            "fpga": PART,
-            "clock": {"period": "10 ns"},
+            "fpga": {"part": PART},
+            "clocks": {"main_clock": {"period": "10 ns"}},
             "set_synth_properties": {"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": 0},
         },
     )

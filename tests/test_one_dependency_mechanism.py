@@ -796,6 +796,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     from xeda import Design
     from xeda.flow import flowrun_hash
     from xeda.flow_runner.bindings import node_identity
+    from xeda.flow_runner.configuration import configuration_hash
     from xeda.flow_runner.default_runner import DefaultRunner
     from xeda.flow_runner.trace import as_recorded
 
@@ -828,7 +829,9 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
         return
     assert [n.name for n in plan.nodes] == [flow_class.name]
     assert node.inputs == () and node.origins == ()
-    assert node.flowrun_hash == node_identity(node.settings_hash)
+    assert node.flowrun_hash == node_identity(
+        node.settings_hash, configuration_hash(node.configuration)
+    )
     # what a launch without a plan made: the flow's own settings, validated in the same context
     direct = flow_class.Settings.from_input(
         settings, design_root=design.root_path, runner_cwd=Path.cwd()

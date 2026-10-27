@@ -27,6 +27,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner, get_flow_class
+from xeda.frozen import thaw
 from xeda.flow_runner.bindings import split_bindings
 from xeda.flow_runner.chains import complete_request, parse_request
 from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
@@ -183,7 +184,7 @@ def test_the_openroad_fixture_is_the_example_that_the_real_tool_tests_run(tmp_pa
             design.tb.top,
             design.tb.defines,
             design.tb.parameters,
-            design.flow,
+            design.flows,
         )
 
     example_file = ROOT / "examples/bluespec/gcd/gcd.yaml"
@@ -221,7 +222,7 @@ def test_a_documented_fixture_loads_and_agrees_with_the_published_schema(tmp_pat
         design = Design.from_file(root / name)
         jsonschema.validate(data, design_schema())
         assert design.name == data["name"]
-        sections = design.flow or {}
+        sections = thaw(design.flows) or {}
     assert sections, "a fixture without a flows section teaches no binding"
     remaining, _bindings = split_bindings(sections, location=name)
     assert all("inputs" not in section for section in remaining.values())
@@ -789,7 +790,7 @@ def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
 def test_every_other_command_takes_one_flow_and_says_where_chains_go(tmp_path):
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
-    for command in (("dse", CHAIN, "--design", design), ("scrub", CHAIN, "routed_demo")):
+    for command in (("dse", CHAIN, design), ("scrub", CHAIN, "routed_demo")):
         result = CliRunner().invoke(cli, [str(a) for a in command])
         assert result.exit_code == 2
         assert "A chain is a request for `xeda run`" in " ".join(result.output.split()), command

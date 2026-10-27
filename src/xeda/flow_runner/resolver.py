@@ -23,11 +23,11 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel, expand_forms, nested_model
+from ..dataclass import BaseModel, expand_forms
 from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
-from ..flow.derived import planned_design
+from ..flow.derived import DesignConversion, planned_design
 from ..flow.fpga import FPGA
 from ..flow.io import (
     declared_inputs,
@@ -37,6 +37,7 @@ from ..flow.io import (
     selected_types,
 )
 from ..flow.synth import PhysicalClock
+from ..frozen import FrozenDict, freeze
 from ..units import Quantity
 from .bindings import (
     BindingLayer,
@@ -55,6 +56,7 @@ from .chains import (
     fitting_outputs,
     request_text,
 )
+from .configuration import configuration_hash, conversion_descriptor, node_configuration
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -197,6 +199,9 @@ class PlanNode:
     #: recompute the identity.
     settings_hash: str = ""
     origins: tuple[tuple[str, Any], ...] = ()
+    #: What the node reads of its design, frozen (`configuration.node_configuration`). It is the
+    #: third part of `flowrun_hash`.
+    configuration: Mapping[str, Any] = field(default_factory=FrozenDict)
 
     @property
     def settings(self) -> Flow.Settings:
@@ -250,6 +255,33 @@ def check_launchable(
         raise
 
 
+def _design_conversion(
+    planned: Plan | Sequence[_Request], node: PlanNode | _Request
+) -> tuple[DesignConversion, str] | None:
+    """Return the conversion that makes the `design` input of `node` and the label of its
+    converter, or None when the node reads the design as it is.
+
+    The conversion is the final one: it is declared by the settings of the converter in the plan
+    (`Flow.design_conversion`). `planned` is the plan, or the requests of the resolver while it
+    builds one."""
+    if isinstance(planned, Plan):
+        assert isinstance(node, PlanNode)
+        selected = next((item for item in node.inputs if item.name == "design"), None)
+        if selected is None or not selected.references:
+            return None
+        producer = planned.node(selected.references[0].node)
+        flow_class, settings, label = producer.flow_class, producer.settings, producer.name
+    else:
+        found = node.producers.get("design") if isinstance(node, _Request) else None
+        if not found:
+            return None
+        child = found[0][0]
+        assert child.settings is not None
+        flow_class, settings, label = child.cls, child.settings, child.label
+    conversion = flow_class.design_conversion(settings)
+    return None if conversion is None else (conversion, label)
+
+
 def planned_design_of(
     planned: Plan | Sequence[_Request],
     node: PlanNode | _Request,
@@ -260,29 +292,39 @@ def planned_design_of(
 
     That is the loaded `design`, or, when the `design` input of the node comes from a converter
     (`xeda.flow.derived.planned_design`), the design that the converter will derive. The view
-    serves checks only: the languages the flow will get, its metadata and its clocks. It is no
-    identity. `planned` is the plan, or the requests of the resolver while it builds one.
+    serves checks and the design configuration of the node (`planned_configuration`): the
+    languages the flow will get, its metadata and its clocks. Its list of sources is never
+    counted. `planned` is the plan, or the requests of the resolver while it builds one.
     `run_path` is the `run_path_of` of the launcher, which names the run directory of the
     converter (without a run hash) for messages."""
-    if isinstance(planned, Plan):
-        assert isinstance(node, PlanNode)
-        selected = next((item for item in node.inputs if item.name == "design"), None)
-        if selected is None or not selected.references:
-            return design
-        producer = planned.node(selected.references[0].node)
-        flow_class, settings, label = producer.flow_class, producer.settings, producer.name
-    else:
-        found = node.producers.get("design") if isinstance(node, _Request) else None
-        if not found:
-            return design
-        child = found[0][0]
-        assert child.settings is not None
-        flow_class, settings, label = child.cls, child.settings, child.label
-    conversion = flow_class.design_conversion(settings)
-    if conversion is None:
+    found = _design_conversion(planned, node)
+    if found is None:
         return design
+    conversion, label = found
     return planned_design(
         design, conversion, run_path(design.name, label, None, target=design.target)
+    )
+
+
+def planned_configuration(
+    planned: Plan | Sequence[_Request],
+    node: PlanNode | _Request,
+    design: Design,
+    run_path: Callable[..., Path],
+    flow_class: type[Flow],
+    settings: Flow.Settings,
+) -> dict[str, Any]:
+    """Return the design configuration of `node` (`configuration.node_configuration`).
+
+    The resolver freezes it into the plan, and the launcher recomputes it from the same view of
+    the design to check the plan. A node whose design a converter makes gets the metadata of the
+    planned design and the declared conversion."""
+    found = _design_conversion(planned, node)
+    return node_configuration(
+        planned_design_of(planned, node, design, run_path),
+        flow_class,
+        settings,
+        conversion=None if found is None else conversion_descriptor(found[1], found[0]),
     )
 
 
@@ -356,93 +398,21 @@ class _Location:
 class _Located:
     values: dict[str, Any] = field(default_factory=dict)
     locations: dict[tuple[str, ...], _Location] = field(default_factory=dict)
-    clock_inputs: dict[tuple[str, ...], dict[str, Any]] = field(default_factory=dict)
-
-
-def _at(values: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
-    for key in path:
-        values = values.setdefault(key, {})
-    return values
 
 
 def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
-    """Merge as `settings_layers` does, keeping single-clock spellings.
-
-    A single-clock spelling stays as written until the lower layer is known."""
-    values = deepcopy(layer.values)
-    incoming = dict(layer.locations)
-    clock_inputs = dict(base.clock_inputs)
-    retained = dict(base.locations)
-    for path, clock_input in layer.clock_inputs.items():
-        subtree = _at(values, path)
-        subtree.pop("clocks", None)
-        subtree.update(clock_input)
-        existing = _at(deepcopy(base.values), path).get("clocks", {})
-        clock = clock_input.get("clock", {})
-        name = clock.get("name") or "main_clock"
-        destination = name
-        if existing and name not in existing:
-            if name == "main_clock":
-                destination = next(iter(existing))
-            elif len(existing) == 1:
-                old_name = next(iter(existing))
-                retained = {
-                    (
-                        (*path, "clocks", name, *key[len(path) + 2 :])
-                        if key[: len(path) + 2] == (*path, "clocks", old_name)
-                        else key
-                    ): loc
-                    for key, loc in retained.items()
-                }
-        incoming = {
-            (
-                (*path, "clocks", destination, *key[len(path) + 2 :])
-                if key[: len(path) + 2] == (*path, "clocks", name)
-                else key
-            ): loc
-            for key, loc in incoming.items()
-        }
-        if existing:
-            clock_inputs.pop(path, None)
-        else:
-            clock_inputs[path] = clock_input
-    merged = merge_layers(base.values, values, settings_cls=cls.Settings)
+    """Merge as `settings_layers` does, keeping where each leaf came from."""
+    merged = merge_layers(base.values, layer.values, settings_cls=cls.Settings)
     leaves = _leaves(merged)
-    locations = {path: loc for path, loc in retained.items() if path in leaves}
-    locations.update({path: loc for path, loc in incoming.items() if path in leaves})
-    return _Located(merged, locations, clock_inputs)
-
-
-def _clock_inputs(
-    values: dict[str, Any], model: type[BaseModel], prefix: tuple[str, ...] = ()
-) -> dict[tuple[str, ...], dict[str, Any]]:
-    result: dict[tuple[str, ...], dict[str, Any]] = {}
-    if "clock" in values and "clocks" not in values and "clocks" in model.model_fields:
-        raw = values["clock"]
-        if isinstance(raw, Mapping):
-            result[prefix] = {"clock": deepcopy(raw)}
-    for key, value in values.items():
-        info = model.model_fields.get(key)
-        child = nested_model(info.annotation) if info else None
-        if child and isinstance(value, dict):
-            result.update(_clock_inputs(value, child, (*prefix, key)))
-    return result
+    locations = {path: loc for path, loc in base.locations.items() if path in leaves}
+    locations.update({path: loc for path, loc in layer.locations.items() if path in leaves})
+    return _Located(merged, locations)
 
 
 def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> _Located:
     values = expand_forms(cls.Settings, merge_layers(_explicit(raw), settings_cls=cls.Settings))
     locations = {path: _Location(label, kind) for path in _leaves(values)}
-    # `settings_layers` synthesizes a name when a singular spelling creates a clock. That name is
-    # not input from the caller.
-    original = merge_layers(_explicit(raw))
-    singular = original.get("clock", {})
-    if "clock" in original and isinstance(singular, Mapping) and not singular.get("name"):
-        locations = {
-            path: loc
-            for path, loc in locations.items()
-            if not (path[0] == "clocks" and path[-1] == "name")
-        }
-    return _Located(values, locations, _clock_inputs(original, cls.Settings))
+    return _Located(values, locations)
 
 
 def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: str) -> _Located:
@@ -738,8 +708,6 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
     for shared in SHARED_SETTINGS:
         if shared in cls.Settings.model_fields:
             ordinary.pop(shared, None)
-    if "clocks" in cls.Settings.model_fields:
-        ordinary.pop("clock", None)
     return ordinary
 
 
@@ -1562,8 +1530,15 @@ def resolve(
         assert request.settings is not None and request.key is not None
         label = request.label
         settings_hash = flowrun_hash(request.cls.name, request.settings, design.name)
-        origins = input_origins(request.inputs, identities.__getitem__)
-        identity = identities[label] = node_identity(settings_hash, origins)
+        origins = input_origins(request.inputs, identities.__getitem__, design)
+        configuration = freeze(
+            planned_configuration(
+                requests, request, design, run_path, request.cls, request.settings
+            )
+        )
+        identity = identities[label] = node_identity(
+            settings_hash, configuration_hash(configuration), origins
+        )
         nodes.append(
             PlanNode(
                 label,
@@ -1576,6 +1551,7 @@ def resolve(
                 request.key,
                 settings_hash,
                 origins,
+                configuration,
             )
         )
     return Plan(

@@ -41,8 +41,8 @@ OTHER_PART = "LFE5U-85F-6BG381C"
 
 #: Where the design writes the device: in the requested flow's section, or in its producer's alone.
 SECTIONS = {
-    "requested": {"__place": {"fpga": PART}},
-    "producer": {"__synth": {"fpga": PART}},
+    "requested": {"__place": {"fpga": {"part": PART}}},
+    "producer": {"__synth": {"fpga": {"part": PART}}},
 }
 NODES = ["__synth", "__place"]
 
@@ -57,7 +57,7 @@ def _design(root: Path, where: str, sections=None) -> Design:
         name="d",
         design_root=root,
         rtl={"sources": [], "top": "t"},
-        flow=copy.deepcopy(SECTIONS[where] if sections is None else sections),
+        flows=copy.deepcopy(SECTIONS[where] if sections is None else sections),
     )
 
 
@@ -102,7 +102,7 @@ def test_the_device_is_planned_from_the_design_alone(tmp_path, where):
 @pytest.mark.parametrize("door", DOORS)
 def test_a_launch_runs_the_nodes_planning_names(tmp_path, where, door):
     design = _design(tmp_path, where)
-    before = copy.deepcopy(design.flow)
+    before = copy.deepcopy(design.flows)
     planned = _planned(tmp_path, design)
     runner = DefaultRunner(tmp_path / door, display_results=False)
 
@@ -111,7 +111,7 @@ def test_a_launch_runs_the_nodes_planning_names(tmp_path, where, door):
     assert flow is not None and flow.succeeded
     assert _launched(runner) == planned
     assert flow.settings.fpga.part == PART
-    assert design.flow == before, "composing a launch edits no section of the design"
+    assert design.flows == before, "composing a launch edits no section of the design"
 
 
 @pytest.mark.parametrize("where", SECTIONS)
@@ -206,9 +206,9 @@ def test_the_caller_s_settings_win_over_the_design_s_sections(tmp_path, door):
     design = _design(tmp_path, "requested")
     runner = DefaultRunner(tmp_path / door, display_results=False)
     launches = {
-        "run": lambda: runner.run(_Place, design, flow_overrides={"fpga": OTHER_PART}),
-        "run_flow": lambda: runner.run_flow(_Place, design, {"fpga": OTHER_PART}),
-        "launch_flow": lambda: runner.launch_flow(_Place, design, {"fpga": OTHER_PART}),
+        "run": lambda: runner.run(_Place, design, flow_overrides={"fpga": {"part": OTHER_PART}}),
+        "run_flow": lambda: runner.run_flow(_Place, design, {"fpga": {"part": OTHER_PART}}),
+        "launch_flow": lambda: runner.launch_flow(_Place, design, {"fpga": {"part": OTHER_PART}}),
     }
 
     flow = launches[door]()
@@ -222,7 +222,7 @@ def test_the_caller_s_settings_win_over_the_design_s_sections(tmp_path, door):
 def test_sections_handed_to_a_launch_win_over_the_design_s(tmp_path, door):
     design = _design(tmp_path, "requested")
     runner = DefaultRunner(tmp_path / door, display_results=False)
-    sections = {"__place": {"fpga": OTHER_PART}}
+    sections = {"__place": {"fpga": {"part": OTHER_PART}}}
 
     flow = getattr(runner, door)(_Place, design, {}, all_flows_settings=sections)
 
@@ -231,13 +231,13 @@ def test_sections_handed_to_a_launch_win_over_the_design_s(tmp_path, door):
 
 @pytest.mark.parametrize("door", ["run_flow", "launch_flow"])
 def test_handing_a_launch_the_design_s_own_sections_changes_nothing(tmp_path, door):
-    """Callers worked around the gap by passing `design.flow` as the sections: still the same
+    """Callers worked around the gap by passing `design.flows` as the sections: still the same
     launch."""
     design = _design(tmp_path, "producer")
     planned = _planned(tmp_path, design)
     runner = DefaultRunner(tmp_path / door, display_results=False)
 
-    getattr(runner, door)(_Place, design, {}, all_flows_settings=design.flow)
+    getattr(runner, door)(_Place, design, {}, all_flows_settings=design.flows)
 
     assert _launched(runner) == planned
 
@@ -250,7 +250,7 @@ def _bound_design(root: Path) -> Design:
         name="d",
         design_root=root,
         rtl={"sources": [], "top": "t"},
-        flow={
+        flows={
             "__taker": {"inputs": {"made": "__input_maker.made"}},
             "__input_maker": {"input_file": str(root / "in.txt")},
         },
@@ -328,8 +328,8 @@ def _plan_error(tmp_path, **kwargs) -> str:
     return str(raised.value)
 
 
-DISAGREEING_MAPPING = {"fpga": OTHER_PART, "flows": {"__synth": {"fpga": PART}}}
-DISAGREEING_ITEMS = [f"fpga={OTHER_PART}", f"flows.__synth.fpga={PART}"]
+DISAGREEING_MAPPING = {"fpga": {"part": OTHER_PART}, "flows": {"__synth": {"fpga": {"part": PART}}}}
+DISAGREEING_ITEMS = [f"fpga.part={OTHER_PART}", f"flows.__synth.fpga.part={PART}"]
 
 
 @pytest.mark.parametrize(
@@ -351,7 +351,10 @@ def test_a_conflict_in_the_api_layer_still_names_the_api(tmp_path):
             _Place,
             design,
             {},
-            api_overrides={"__place": {"fpga": OTHER_PART}, "__synth": {"fpga": PART}},
+            api_overrides={
+                "__place": {"fpga": {"part": OTHER_PART}},
+                "__synth": {"fpga": {"part": PART}},
+            },
         )
     assert "in the API" in str(raised.value) and "command line" not in str(raised.value)
 

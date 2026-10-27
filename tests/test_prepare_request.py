@@ -32,7 +32,7 @@ def start_in_tmp_path(tmp_path, monkeypatch):
 
 
 def _design(root, **flow) -> Design:
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flow=flow)
+    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=flow)
 
 
 def _runner(tmp_path) -> DefaultRunner:
@@ -99,7 +99,7 @@ def test_host_layer_merges_key_by_key_with_the_layers_above(tmp_path):
 
 
 def test_host_layer_reaches_the_settings_of_a_producer_and_the_requested_flow(tmp_path):
-    host = {"__synth": {"fpga": PART}}
+    host = {"__synth": {"fpga": {"part": PART}}}
 
     prepared = _runner(tmp_path).prepare_request(
         _Place, _design(tmp_path), host_flows=host, host=HOST
@@ -148,7 +148,7 @@ def test_prepare_request_runs_no_flow_and_refuses_what_run_refuses(tmp_path):
 
     # a request that `run` refuses on the plan, `prepare_request` refuses with the same error
     refused = _runner(tmp_path / "refused")
-    flow, settings = "vivado_synth", {"fpga": "xc7a12tcsg325-1"}
+    flow, settings = "vivado_synth", {"fpga": {"part": "xc7a12tcsg325-1"}}
     (tmp_path / "a.sc").write_text("")
     design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.sc"], "top": "t"})
     with pytest.raises(FlowSettingsException) as from_run:
@@ -198,7 +198,7 @@ def test_prepare_request_refuses_outputs_to_for_a_programmer(tmp_path):
 def test_message_names_the_host_profile_layer(tmp_path):
     """Two flows of the host profile that disagree on a shared leaf: the message names the
     layer, and the host."""
-    host = {"__place": {"fpga": OTHER_PART}, "__synth": {"fpga": PART}}
+    host = {"__place": {"fpga": {"part": OTHER_PART}}, "__synth": {"fpga": {"part": PART}}}
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).prepare_request(_Place, _design(tmp_path), host_flows=host, host=HOST)
     assert f"in {host_profile_origin(HOST)}" in str(raised.value), raised.value
@@ -206,7 +206,7 @@ def test_message_names_the_host_profile_layer(tmp_path):
 
 
 def test_message_names_the_host_profile_without_a_host_name(tmp_path):
-    host = {"__place": {"fpga": OTHER_PART}, "__synth": {"fpga": PART}}
+    host = {"__place": {"fpga": {"part": OTHER_PART}}, "__synth": {"fpga": {"part": PART}}}
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).prepare_request(_Place, _design(tmp_path), host_flows=host)
     assert f"in {HOST_PROFILE_ORIGIN}" in str(raised.value), raised.value

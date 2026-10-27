@@ -1,8 +1,7 @@
 """A target overlay and its design may write one setting in different forms.
 
 Many design keys accept more than one form: a clock as a port name or a table, `parameters` as a
-table or a list of `{name, value}` objects, `vhdl` as a standard or a table, a flow's `fpga` as a
-part number or a table. The loader merges the selected target over the design before any of
+table or a list of `{name, value}` objects, `vhdl` as a standard or a table. The loader merges the selected target over the design before any of
 those forms is expanded, so two things can go wrong when the two sides use different forms:
 
 * the merge replaces one form by the other, and what the replaced value said is lost, or the two
@@ -27,6 +26,7 @@ from xeda import Design
 from xeda.dataclass import shape_problems
 from xeda.design import DesignValidationError
 from xeda.flow import FlowSettingsError
+from xeda.frozen import thaw
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows import GhdlSim, VivadoSynth, Yosys
 from xeda.utils import json_encodable, settings_to_dict
@@ -79,7 +79,6 @@ KNIGHT_TB = {"top": "knight_tb", "sources": ["knight_tb.v"]}
 #: (id, the design's fragment, the target's fragment, the flat fragment).
 # fmt: off
 SHAPES = [
-    # ---- the design's clock: a port name, a table, or `clocks`
     ("clock: name then table", rtl(clock="CLK"), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
     ("clock: table then name", rtl(clock={"port": "CLK", "name": "sys"}), rtl(clock="CLK2"), rtl(clock={"port": "CLK2", "name": "sys"})),
     ("clock: table then table", rtl(clock={"port": "CLK"}), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
@@ -95,7 +94,20 @@ SHAPES = [
     ("clock: clocks then null", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clock=None), rtl(clocks=[])),
     ("clock: null then name", rtl(clock=None), rtl(clock="CLK"), rtl(clock="CLK")),
     ("clock: one clocks then table", rtl(clocks=[{"port": "A"}]), rtl(clock={"name": "sys"}), rtl(clocks=[{"port": "A", "name": "sys"}])),
-    # ---- the testbench: top, cocotb, and the `test`/`tests` spellings
+    # ---- the design's clocks: a port name, or a list of tables
+    ("clocks: name then table", rtl(clocks="CLK"), rtl(clocks=[{"port": "CLK", "name": "sys"}]), rtl(clocks=[{"port": "CLK", "name": "sys"}])),
+    ("clocks: table then name", rtl(clocks=[{"port": "CLK", "name": "sys"}]), rtl(clocks="CLK2"), rtl(clocks=[{"port": "CLK2"}])),
+    ("clocks: table then table", rtl(clocks=[{"port": "CLK", "name": "sys"}]), rtl(clocks=[{"port": "CLK"}]), rtl(clocks=[{"port": "CLK"}])),
+    ("clocks: name then name", rtl(clocks="CLK"), rtl(clocks="CLK2"), rtl(clocks="CLK2")),
+    ("clocks: name then list", rtl(clocks="CLK"), rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}])),
+    ("clocks: table then list", rtl(clocks=[{"port": "CLK"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}])),
+    ("clocks: list then list", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "C"}]), rtl(clocks=[{"port": "C"}])),
+    ("clocks: list then name", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks="C"), rtl(clocks=[{"port": "C"}])),
+    ("clocks: table then null", rtl(clocks=[{"port": "CLK"}]), rtl(clocks=None), rtl(clocks=[])),
+    ("clocks: table then empty table", rtl(clocks=[{"port": "CLK"}]), rtl(clocks=[{}]), rtl(clocks=[])),
+    ("clocks: list then null", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=None), rtl(clocks=[])),
+    ("clocks: null then name", rtl(clocks=None), rtl(clocks="CLK"), rtl(clocks="CLK")),
+    # ---- the testbench: top and cocotb
     ("tb.top: text then list", tb(top="tb"), tb(top=["a", "b"]), tb(top=["a", "b"])),
     ("tb.top: list then text", tb(top=["a", "b"]), tb(top="c"), tb(top="c")),
     ("tb.cocotb: true then table", tb(cocotb=True), tb(cocotb={"module": "m"}), tb(cocotb={"module": "m"})),
@@ -103,21 +115,16 @@ SHAPES = [
     ("tb.cocotb: table then false", tb(cocotb={"module": "m"}), tb(cocotb=False), tb(cocotb=False)),
     ("tb.cocotb: false then table", tb(cocotb=False), tb(cocotb={"module": "m"}), tb(cocotb={"module": "m"})),
     ("tb.cocotb: table then table", tb(cocotb={"module": "m"}), tb(cocotb={"toplevel": "t"}), tb(cocotb={"module": "m", "toplevel": "t"})),
-    ("tb: test then tb", {"test": KNIGHT_TB}, tb(top="tb2"), tb(top="tb2", sources=["knight_tb.v"])),
-    ("tb: tb then tests", tb(**KNIGHT_TB), {"tests": [{"top": "tb2"}]}, tb(top="tb2", sources=["knight_tb.v"])),
     # ---- the languages
-    ("vhdl: standard then table", {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"version": "08", "synopsys": True}}}),
-    ("vhdl: number then table", {"language": {"vhdl": 2008}}, {"language": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"version": "2008", "synopsys": True}}}),
-    ("vhdl: table then standard", {"language": {"vhdl": {"version": "93", "synopsys": True}}}, {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"version": "08", "synopsys": True}}}),
-    ("vhdl: standard then version", {"language": {"vhdl": {"standard": "93"}}}, {"language": {"vhdl": {"version": "08"}}}, {"language": {"vhdl": {"version": "08"}}}),
-    ("verilog: standard then version", {"language": {"verilog": {"standard": "2001"}}}, {"language": {"verilog": {"version": "2005"}}}, {"language": {"verilog": {"version": "2005"}}}),
-    ("language: hdl then language", {"hdl": {"vhdl": "93"}}, {"language": {"vhdl": "08"}}, {"language": {"vhdl": "08"}}),
-    # ---- parameters (a table or a list of `{name, value}`), generics, defines
+    ("vhdl: standard then table", {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"standard": "08", "synopsys": True}}}),
+    ("vhdl: number then table", {"language": {"vhdl": 2008}}, {"language": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"standard": "2008", "synopsys": True}}}),
+    ("vhdl: table then standard", {"language": {"vhdl": {"standard": "93", "synopsys": True}}}, {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"standard": "08", "synopsys": True}}}),
+    ("vhdl: standard then standard", {"language": {"vhdl": {"standard": "93"}}}, {"language": {"vhdl": {"standard": "08"}}}, {"language": {"vhdl": {"standard": "08"}}}),
+    ("verilog: standard then standard", {"language": {"verilog": {"standard": "2001"}}}, {"language": {"verilog": {"standard": "2005"}}}, {"language": {"verilog": {"standard": "2005"}}}),
+    # ---- parameters (a table or a list of `{name, value}`), defines
     ("parameters: list then table", rtl(parameters=PARAMETER_LIST), rtl(parameters={"WIDTH": 4}), rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
     ("parameters: table then list", rtl(parameters={"WIDTH": 8, "DEPTH": 2}), rtl(parameters=[{"name": "WIDTH", "value": 4}]), rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
     ("parameters: list then list", rtl(parameters=PARAMETER_LIST), rtl(parameters=[{"name": "WIDTH", "value": 4}]), rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
-    ("parameters: generics list then table", rtl(generics=PARAMETER_LIST), rtl(parameters={"WIDTH": 4}), rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
-    ("parameters: table then generics list", rtl(parameters={"WIDTH": 8, "DEPTH": 2}), rtl(generics=[{"name": "WIDTH", "value": 4}]), rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
     ("parameters: table then table", rtl(parameters={"WIDTH": 8, "DEPTH": 2}), rtl(parameters={"WIDTH": 4}), rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
     ("tb.parameters: list then table", tb(parameters=PARAMETER_LIST), tb(parameters={"WIDTH": 4}), tb(parameters={"WIDTH": 4, "DEPTH": 2})),
     ("defines: table then table", rtl(defines={"A": 1, "B": 2}), rtl(defines={"B": 3}), rtl(defines={"A": 1, "B": 3})),
@@ -126,8 +133,6 @@ SHAPES = [
     ("sources: table then table", rtl(sources={"file": "knight.v"}), rtl(sources={"file": "por_sync.v"}), rtl(sources=["knight.v", "por_sync.v"])),
     ("sources: list then path", rtl(sources=["knight.v"]), rtl(sources="por_sync.v"), rtl(sources=["knight.v", "por_sync.v"])),
     ("tb.sources: path then list", tb(sources="knight_tb.v"), tb(sources=["por_sync.v"]), tb(sources=["knight_tb.v", "por_sync.v"])),
-    # ---- the other spellings of a design key
-    ("author: author then authors", {"author": "A <a@example.com>"}, {"authors": ["B <b@example.com>"]}, {"authors": ["B <b@example.com>"]}),
 ]
 # fmt: on
 
@@ -163,7 +168,7 @@ def test_a_target_in_another_form_gives_the_design_written_flat_by_hand(
 
 def composed(flow_class, design: Design, *layers: Any) -> dict:
     """The settings of `flow_class` that the design's `flows` section (then `layers`) give."""
-    given = compose_flow_settings(flow_class, [design.flow], *layers)
+    given = compose_flow_settings(flow_class, [thaw(design.flows)], *layers)
     settings = flow_class.Settings.from_input(given, design_root=design.root_path)
     return settings.model_dump(mode="json")
 
@@ -172,17 +177,14 @@ PART = "xc7a35tcpg236-1"
 # fmt: off
 FLOW_SHAPES = [
     # (id, flow, the design's section, the target's section, the flat section)
-    ("fpga: part then table", VivadoSynth, {"fpga": PART}, {"fpga": {"speed": -2}}, {"fpga": {"part": PART, "speed": -2}}),
-    ("fpga: part then part", VivadoSynth, {"fpga": PART}, {"fpga": "xc7a100tcsg324-1"}, {"fpga": "xc7a100tcsg324-1"}),
+    ("fpga: part then part", VivadoSynth, {"fpga": {"part": PART}}, {"fpga": {"part": "xc7a100tcsg324-1"}}, {"fpga": {"part": "xc7a100tcsg324-1"}}),
     ("fpga: table then table", VivadoSynth, {"fpga": {"part": PART}}, {"fpga": {"speed": -2}}, {"fpga": {"part": PART, "speed": -2}}),
-    ("threads: ncpus then nthreads", VivadoSynth, {"fpga": PART, "ncpus": 2}, {"nthreads": 4}, {"fpga": PART, "nthreads": 4}),
-    ("threads: nthreads then ncpus", VivadoSynth, {"fpga": PART, "nthreads": 2}, {"ncpus": 4}, {"fpga": PART, "nthreads": 4}),
-    ("warnings: warn_error then werror", GhdlSim, {"warn_error": True}, {"werror": False}, {"werror": False}),
-    ("clock: period then freq", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
-    ("clock: freq then period", VivadoSynth, {"fpga": PART, "clock": {"freq": "200MHz"}}, {"clock": {"period": "5 ns"}}, {"fpga": PART, "clock": {"period": "5 ns"}}),
-    ("clock: clock then clocks", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clocks": {"main_clock": {"uncertainty": "100ps"}}}, {"fpga": PART, "clock": {"period": "10 ns", "uncertainty": "100ps"}}),
-    ("clock: clocks then clock", VivadoSynth, {"fpga": PART, "clocks": {"sys": {"port": "clk", "period": "10 ns"}}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clocks": {"sys": {"port": "clk", "freq": "200MHz"}}}),
-    ("clock: period then period", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clock": {"period": "5 ns"}}, {"fpga": PART, "clock": {"period": "5 ns"}}),
+    ("threads: nthreads then nthreads", VivadoSynth, {"fpga": {"part": PART}, "nthreads": 2}, {"nthreads": 4}, {"fpga": {"part": PART}, "nthreads": 4}),
+    ("warnings: werror then werror", GhdlSim, {"werror": True}, {"werror": False}, {"werror": False}),
+    ("clocks: period then freq", VivadoSynth, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}, {"clocks": {"main_clock": {"freq": "200MHz"}}}, {"fpga": {"part": PART}, "clocks": {"main_clock": {"freq": "200MHz"}}}),
+    ("clocks: freq then period", VivadoSynth, {"fpga": {"part": PART}, "clocks": {"main_clock": {"freq": "200MHz"}}}, {"clocks": {"main_clock": {"period": "5 ns"}}}, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5 ns"}}}),
+    ("clocks: period then uncertainty", VivadoSynth, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}, {"clocks": {"main_clock": {"uncertainty": "100ps"}}}, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns", "uncertainty": "100ps"}}}),
+    ("clocks: period then period", VivadoSynth, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}, {"clocks": {"main_clock": {"period": "5 ns"}}}, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5 ns"}}}),
 ]
 # fmt: on
 
@@ -198,37 +200,6 @@ def test_a_target_s_flow_section_in_another_form_gives_the_section_written_flat_
     assert composed(flow_class, selected) == composed(flow_class, expected)
 
 
-def test_a_part_given_as_text_survives_a_higher_layer_that_refines_the_device(tmp_path):
-    """The same class between origins, with no target: the design writes the part as text, and
-    `-s fpga.speed=-2` refines it."""
-    design = Design.from_file(
-        write_design(tmp_path, {**BASE, "flows": {"vivado_synth": {"fpga": PART}}})
-    )
-    flat = Design.from_file(
-        write_design(
-            tmp_path, {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART}}}}, "flat.json"
-        )
-    )
-    refined = composed(VivadoSynth, design, {"fpga": {"speed": -2}})
-    assert refined == composed(VivadoSynth, flat, {"fpga": {"speed": -2}})
-    assert refined["fpga"]["part"] == PART
-
-
-def test_a_part_given_as_text_refines_a_lower_table_as_the_key_does(tmp_path):
-    """`fpga: P` is exactly `fpga.part: P` wherever layers meet: it keeps what a lower layer pins
-    (the speed grade), as `-s fpga.part=P` always did."""
-    design = Design.from_file(
-        write_design(
-            tmp_path, {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART, "speed": -2}}}}
-        )
-    )
-    other = "xc7a100tcsg324-1"
-    as_text = composed(VivadoSynth, design, {"fpga": other})
-    as_key = composed(VivadoSynth, design, {"fpga": {"part": other}})
-    assert as_text == as_key
-    assert as_text["fpga"]["part"] == other and as_text["fpga"]["speed"] == "-2"
-
-
 @pytest.mark.parametrize("key", ["fpga", "synth", "impl"])
 @pytest.mark.parametrize("probe", [3, [1], True])
 def test_a_malformed_lower_layer_is_reported_whatever_the_layer_above_writes(tmp_path, key, probe):
@@ -236,7 +207,9 @@ def test_a_malformed_lower_layer_is_reported_whatever_the_layer_above_writes(tmp
     expected, and `-s` writes one."""
     higher = {"fpga": {"part": PART}, "synth": {"strategy": "x"}, "impl": {"strategy": "y"}}[key]
     design = Design.from_file(
-        write_design(tmp_path, {**BASE, "flows": {"vivado_synth": {"fpga": PART, key: probe}}})
+        write_design(
+            tmp_path, {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART}, key: probe}}}
+        )
     )
     with pytest.raises(FlowSettingsError, match=key):
         composed(VivadoSynth, design, {key: higher})
@@ -245,18 +218,10 @@ def test_a_malformed_lower_layer_is_reported_whatever_the_layer_above_writes(tmp
 def test_a_null_clocks_below_is_reported_whatever_the_layer_above_writes(tmp_path):
     """`clocks` takes a table, and `null` is no form of one: it is reported at `clocks`, not
     replaced by the table of a layer above."""
-    section = {"fpga": PART, "clocks": None}
+    section = {"fpga": {"part": PART}, "clocks": None}
     design = Design.from_file(write_design(tmp_path, {**BASE, "flows": {"vivado_synth": section}}))
     with pytest.raises(FlowSettingsError, match="clocks"):
         composed(VivadoSynth, design, {"clocks": {"main": {"period": "10 ns"}}})
-
-
-@pytest.mark.parametrize("clock", [0, False, [], 3, ["x"], True])
-def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(tmp_path, clock):
-    """A number silently meant no clock, because falsy clocks were dropped."""
-    with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clock=clock))))
-    assert "rtl.clock:" in str(raised.value), raised.value
 
 
 @pytest.mark.parametrize("value", ["CLK", "", None, {"port": "A"}])
@@ -264,7 +229,7 @@ def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(
     "where, at",
     [
         ("design", "rtl.clock_port"),
-        ("flat design", "rtl.clock_port"),
+        ("beside rtl", "clock_port"),
         ("selected target", "targets.bad.rtl.clock_port"),
         ("unselected target", "targets.bad.rtl.clock_port"),
         ("flat target", "targets.bad.clock_port"),
@@ -273,33 +238,23 @@ def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(
 )
 def test_clock_port_was_removed_wherever_it_is_written(tmp_path, value, where, at):
     """The design's `clock_port` is refused with its replacement, at the key as written, in the
-    design, in its flat form and in a target's overlay, selected or not."""
+    design, at its root and in a target's overlay, selected or not."""
     if where == "design":
         data = overlay(BASE, rtl(clock_port=value))
-    elif where == "flat design":
+    elif where == "beside rtl":
         data = {**BASE, "clock_port": value}
-        data.pop("rtl", None)
-        data.update(BASE["rtl"])
     else:
         bad = (
             {"clock_port": value}
             if where == "flat target"
             else {"rtl.clock_port": value} if where == "dotted target" else rtl(clock_port=value)
         )
-        data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": bad}}
+        data = {**BASE, "targets": {"good": rtl(defines={"A": 1}), "bad": bad}}
     target = "good" if where == "unselected target" else "bad" if "target" in where else None
     with pytest.raises(DesignValidationError) as raised:
         Design.from_file(write_design(tmp_path, data), target=target)
     assert f"{at}:" in str(raised.value), raised.value
-    assert "`clock_port` was removed: use `clock: <port>`" in str(raised.value), raised.value
-
-
-def test_clock_port_was_removed_also_beside_an_rtl_section(tmp_path):
-    data = {**BASE, "clock_port": "CLK"}
-    with pytest.raises(
-        DesignValidationError, match="`clock_port` was removed: use `clock: <port>`"
-    ):
-        Design.from_file(write_design(tmp_path, data))
+    assert "`clock_port` was removed: use `rtl.clocks`" in str(raised.value), raised.value
 
 
 @pytest.mark.parametrize("overrides", [{"clock_port": "CLK"}, {"rtl": {"clock_port": "CLK"}}])
@@ -317,27 +272,30 @@ def test_a_clock_in_clocks_that_is_no_clock_is_refused_at_clocks(tmp_path, clock
 
 @pytest.mark.parametrize(
     "fragment",
-    [rtl(clock={}), rtl(clocks={}), rtl(clocks=[{}]), rtl(clocks=[{}, None, ""]), rtl(clocks=[])],
-    ids=["clock {}", "clocks {}", "clocks [{}]", "clocks [{}, null, '']", "clocks []"],
+    [
+        rtl(clocks={}),
+        rtl(clocks=[{}]),
+        rtl(clocks=[{}, None, ""]),
+        rtl(clocks=[]),
+    ],
+    ids=["clocks {}", "clocks [{}]", "clocks [{}, null, '']", "clocks []"],
 )
 def test_an_empty_table_is_no_clock(tmp_path, fragment):
     """An empty table says nothing, as `null` and `""` do (the loader has always read it so)."""
     design = Design.from_file(write_design(tmp_path, overlay(BASE, fragment)))
-    assert design.rtl.clocks == [] and design.rtl.clock is None
+    assert design.rtl.clocks == ()
 
 
-@pytest.mark.parametrize("spelling", ["clock", "clocks"])
 @pytest.mark.parametrize("selected", [False, True], ids=["unselected", "selected"])
 def test_a_target_clock_that_is_no_clock_is_reported_at_the_key_written_in_the_target(
-    tmp_path, spelling, selected
+    tmp_path, selected
 ):
-    """`clock` is no field, but a target's overlay is judged as the design is:
-    where it is written, whether or not the target is selected."""
-    value = [False] if spelling == "clocks" else 3
-    data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": rtl(**{spelling: value})}}
+    """A target's overlay is judged as the design is: where it is written, whether or not the
+    target is selected."""
+    data = {**BASE, "targets": {"good": rtl(defines={"A": 1}), "bad": rtl(clocks=[False])}}
     with pytest.raises(DesignValidationError) as raised:
         Design.from_file(write_design(tmp_path, data), target="bad" if selected else "good")
-    assert f"targets.bad.rtl.{spelling}:" in str(raised.value), raised.value
+    assert "targets.bad.rtl.clocks:" in str(raised.value), raised.value
 
 
 @pytest.mark.parametrize("name", ["clock", "clock_port"])
@@ -360,8 +318,8 @@ def test_a_target_s_parameters_given_as_generics_are_reported_as_written(tmp_pat
 
 @pytest.mark.parametrize("none", [None, ""])
 def test_an_absent_clock_is_no_clock(tmp_path, none):
-    design = Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clock=none))))
-    assert design.rtl.clocks == [] and design.rtl.clock is None
+    design = Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clocks=none))))
+    assert design.rtl.clocks == ()
 
 
 @pytest.mark.parametrize("standard", [True, False])
@@ -399,11 +357,10 @@ MAPPING_KEYS = [
     (("tb",), {"top": "knight_tb"}),
     (("language",), {"vhdl": {"synopsys": True}}),
     (("language", "vhdl"), {"synopsys": True}),
-    (("language", "verilog"), {"version": "2005"}),
+    (("language", "verilog"), {"standard": "2005"}),
     (("rtl", "parameters"), {"WIDTH": 4}),
     (("rtl", "defines"), {"A": 1}),
     (("rtl", "attributes"), {"keep": {"knight": True}}),
-    (("rtl", "clock"), {"port": "CLK"}),
     (("tb", "parameters"), {"WIDTH": 4}),
     (("tb", "defines"), {"A": 1}),
     (("tb", "cocotb"), {"module": "m"}),
@@ -501,7 +458,7 @@ def test_a_target_s_own_mistake_is_reported_where_it_is_written_selected_or_not(
 ):
     """The target that is not selected is checked as well: the mistake is not left for the day
     someone selects it."""
-    data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": {key: value}}}
+    data = {**BASE, "targets": {"good": {"rtl": {"defines": {"A": 1}}}, "bad": {key: value}}}
     path = write_design(tmp_path, data)
     with pytest.raises(DesignValidationError) as raised:
         Design.from_file(path, target="good")
@@ -534,7 +491,7 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_the_target_writes_a
     name = flow_class.name
     if not shape_problems(flow_class.Settings, {key: probe}):
         pytest.skip("a form the setting accepts as a table (a wrong value in one is not a shape)")
-    design = overlay(BASE, {"flows": {name: {"fpga": PART, key: probe}}})
+    design = overlay(BASE, {"flows": {name: {"fpga": {"part": PART}, key: probe}}})
     alone = flow_error(tmp_path, flow_class, design)
     assert alone is not None, "a value that is no table is an error where a table is expected"
     target = {"flows": {name: {key: table}}}
@@ -545,7 +502,7 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_the_target_writes_a
 
 #: (the flow, a section it can be built from, the dictionary-typed key, an entry, a table for it).
 FLOW_ENTRY_KEYS = [
-    (VivadoSynth, {"fpga": PART}, "clocks", "sys", {"period": "5 ns"}),
+    (VivadoSynth, {"fpga": {"part": PART}}, "clocks", "sys", {"period": "5 ns"}),
     (Yosys, {}, "set_mod_attribute", "top", {"keep": True}),
 ]
 
@@ -580,17 +537,14 @@ def test_a_malformed_entry_of_a_flow_dictionary_is_reported_whatever_table_a_tar
 #: (id, the design's fragment, the overrides as `settings_to_dict` gives them, the flat fragment).
 # fmt: off
 OVERRIDES = [
-    ("clock: name over a port", rtl(clock="CLK"), {"rtl": {"clock": {"name": "sys"}}}, rtl(clock={"port": "CLK", "name": "sys"})),
-    ("clock: port over a table", rtl(clock={"port": "CLK", "name": "sys"}), {"rtl": {"clock": "CLK2"}}, rtl(clock={"port": "CLK2", "name": "sys"})),
-    ("clock: flat name over a port", rtl(clock="CLK"), {"clock": {"name": "sys"}}, rtl(clock={"port": "CLK", "name": "sys"})),
-    ("clock: clocks over a port", rtl(clock="CLK"), {"rtl": {"clocks": [{"port": "A"}, {"port": "B"}]}}, rtl(clocks=[{"port": "A"}, {"port": "B"}])),
-    ("clock: none over a port", rtl(clock="CLK"), {"rtl": {"clock": None}}, rtl(clocks=[])),
+    ("clocks: table over a name", rtl(clocks="CLK"), {"rtl": {"clocks": [{"port": "CLK", "name": "sys"}]}}, rtl(clocks=[{"port": "CLK", "name": "sys"}])),
+    ("clocks: name over a table", rtl(clocks=[{"port": "CLK", "name": "sys"}]), {"rtl": {"clocks": "CLK2"}}, rtl(clocks=[{"port": "CLK2"}])),
+    ("clocks: list over a name", rtl(clocks="CLK"), {"rtl": {"clocks": [{"port": "A"}, {"port": "B"}]}}, rtl(clocks=[{"port": "A"}, {"port": "B"}])),
+    ("clocks: none over a name", rtl(clocks="CLK"), {"rtl": {"clocks": None}}, rtl(clocks=[])),
     ("parameters: table over a list", rtl(parameters=PARAMETER_LIST), {"rtl": {"parameters": {"WIDTH": 4}}}, rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
     ("parameters: list over a table", rtl(parameters={"WIDTH": 8, "DEPTH": 2}), {"rtl": {"parameters": [{"name": "WIDTH", "value": 4}]}}, rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
-    ("parameters: flat generics over a list", rtl(parameters=PARAMETER_LIST), {"generics": {"WIDTH": 4}}, rtl(parameters={"WIDTH": 4, "DEPTH": 2})),
-    ("vhdl: synopsys over a standard", {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"version": "08", "synopsys": True}}}),
-    ("vhdl: standard over a table", {"language": {"vhdl": {"version": "93", "synopsys": True}}}, {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"version": "08", "synopsys": True}}}),
-    ("vhdl: hdl over language", {"language": {"vhdl": "93"}}, {"hdl": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"version": "93", "synopsys": True}}}),
+    ("vhdl: synopsys over a standard", {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"synopsys": True}}}, {"language": {"vhdl": {"standard": "08", "synopsys": True}}}),
+    ("vhdl: standard over a table", {"language": {"vhdl": {"standard": "93", "synopsys": True}}}, {"language": {"vhdl": "08"}}, {"language": {"vhdl": {"standard": "08", "synopsys": True}}}),
     ("cocotb: true over a table", tb(cocotb={"module": "m"}), {"tb": {"cocotb": True}}, tb(cocotb={"module": "m"})),
     ("cocotb: table over true", tb(cocotb=True), {"tb": {"cocotb": {"module": "m"}}}, tb(cocotb={"module": "m"})),
     ("cocotb: false over a table", tb(cocotb={"module": "m"}), {"tb": {"cocotb": False}}, tb(cocotb=False)),
@@ -605,7 +559,7 @@ OVERRIDES = [
 def test_design_overrides_give_the_design_written_flat_by_hand(
     tmp_path, design, overrides, flat, with_target
 ):
-    targets = {"targets": {"t": {"defines": {"A": 1}}}} if with_target else {}
+    targets = {"targets": {"t": {"rtl": {"defines": {"A": 1}}}}} if with_target else {}
     path = write_design(tmp_path, {**overlay(BASE, design), **targets})
     flat_path = write_design(
         tmp_path,
@@ -623,7 +577,6 @@ def test_design_overrides_give_the_design_written_flat_by_hand(
 @pytest.mark.parametrize(
     "design, overrides, flat",
     [
-        (rtl(clock="CLK"), ["rtl.clock.name=sys"], rtl(clock={"port": "CLK", "name": "sys"})),
         (
             rtl(parameters=PARAMETER_LIST),
             ["rtl.parameters.WIDTH=4"],
@@ -632,11 +585,11 @@ def test_design_overrides_give_the_design_written_flat_by_hand(
         (
             {"language": {"vhdl": "08"}},
             ["language.vhdl.synopsys=true"],
-            {"language": {"vhdl": {"version": "08", "synopsys": True}}},
+            {"language": {"vhdl": {"standard": "08", "synopsys": True}}},
         ),
         (tb(cocotb=True), ["tb.cocotb.module=m"], tb(cocotb={"module": "m"})),
     ],
-    ids=["clock", "parameters", "vhdl", "cocotb"],
+    ids=["parameters", "vhdl", "cocotb"],
 )
 def test_design_overrides_given_as_text_are_tables_too(tmp_path, design, overrides, flat):
     """`--design-overrides KEY=VALUE` reaches the loader as `settings_to_dict` makes it."""
@@ -649,10 +602,10 @@ def test_design_overrides_given_as_text_are_tables_too(tmp_path, design, overrid
 
 # fmt: off
 FLOW_OVERRIDES = [
-    ("fpga: speed over a part", VivadoSynth, {"fpga": PART}, {"fpga": {"speed": -2}}, {"fpga": {"part": PART, "speed": -2}}),
-    ("fpga: part over a table", VivadoSynth, {"fpga": {"part": PART, "speed": -2}}, {"fpga": "xc7a100tcsg324-1"}, {"fpga": {"part": "xc7a100tcsg324-1", "speed": -2}}),
-    ("threads: nthreads over ncpus", VivadoSynth, {"fpga": PART, "ncpus": 2}, {"nthreads": 4}, {"fpga": PART, "nthreads": 4}),
-    ("clock: freq over a period", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
+    ("fpga: speed over a part", VivadoSynth, {"fpga": {"part": PART}}, {"fpga": {"speed": -2}}, {"fpga": {"part": PART, "speed": -2}}),
+    ("fpga: part over a table", VivadoSynth, {"fpga": {"part": PART, "speed": -2}}, {"fpga": {"part": "xc7a100tcsg324-1"}}, {"fpga": {"part": "xc7a100tcsg324-1", "speed": -2}}),
+    ("threads: nthreads over nthreads", VivadoSynth, {"fpga": {"part": PART}, "nthreads": 2}, {"nthreads": 4}, {"fpga": {"part": PART}, "nthreads": 4}),
+    ("clocks: freq over a period", VivadoSynth, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}, {"clocks": {"main_clock": {"freq": "200MHz"}}}, {"fpga": {"part": PART}, "clocks": {"main_clock": {"freq": "200MHz"}}}),
 ]
 # fmt: on
 
@@ -700,7 +653,7 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_an_override_writes_
     name = flow_class.name
     if not shape_problems(flow_class.Settings, {key: probe}):
         pytest.skip("a form the setting accepts as a table")
-    design = overlay(BASE, {"flows": {name: {"fpga": PART, key: probe}}})
+    design = overlay(BASE, {"flows": {name: {"fpga": {"part": PART}, key: probe}}})
     alone = flow_error(tmp_path, flow_class, design)
     assert alone is not None
     overridden = flow_error(tmp_path, flow_class, design, overrides={"flows": {name: {key: table}}})
@@ -719,11 +672,8 @@ def test_a_flows_table_that_is_no_table_is_a_design_error_with_overrides(tmp_pat
 NULL_FLOWS = [
     ("table null", {"flows": None}),
     ("table empty", {"flows": {}}),
-    ("flow spelling null", {"flow": None}),
     ("section null", {"flows": {"vivado_synth": None}}),
     ("section empty", {"flows": {"vivado_synth": {}}}),
-    ("section null, flow spelling", {"flow": {"vivado_synth": None}}),
-    ("section null by alias", {"flows": {"VivadoSynth": None}}),
 ]
 
 
@@ -737,17 +687,17 @@ def test_a_null_or_empty_flows_table_or_section_leaves_the_design_s_section(
     design = {
         **BASE,
         "flows": {
-            "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}},
+            "vivado_synth": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
             "nextpnr": {"seed": 3},
         },
     }
     kept = Design.from_file(write_design(tmp_path, design))
     if merged == "a target":
-        data = {**design, "targets": {"t": {"defines": {"A": 1}, **fragment}}}
+        data = {**design, "targets": {"t": {"rtl": {"defines": {"A": 1}}, **fragment}}}
         selected = Design.from_file(write_design(tmp_path, data, "target.json"), target="t")
     else:
         selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
-    assert kept.flow["vivado_synth"]["fpga"] == PART
+    assert kept.flows["vivado_synth"]["fpga"] == {"part": PART}
     assert flows_as_read(selected) == flows_as_read(kept)
 
 
@@ -756,7 +706,7 @@ def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_pa
     design = {
         **BASE,
         "flows": {
-            "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}},
+            "vivado_synth": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
             "nextpnr": {"seed": 3},
         },
     }
@@ -766,8 +716,11 @@ def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_pa
         selected = Design.from_file(write_design(tmp_path, data), target="t")
     else:
         selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
-    assert selected.flow["vivado_synth"] == {"fpga": PART, "clock": {"period": "10 ns"}}
-    assert selected.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
+    assert selected.flows["vivado_synth"] == {
+        "fpga": {"part": PART},
+        "clocks": {"main_clock": {"period": "10 ns"}},
+    }
+    assert selected.flows["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
 
 
 # ------------------------------------------------------------------------------ projects and removed keys
@@ -801,29 +754,29 @@ def test_the_same_overrides_give_the_same_design_through_a_project_and_a_design_
     assert project.designs == [data], "the entries stay as written"
 
 
-@pytest.mark.parametrize("spelling", ["flows", "flow"])
 @pytest.mark.parametrize("merged", ["plain", "a target", "overrides"])
-def test_remove_extra_removes_a_key_in_any_spelling(tmp_path, spelling, merged):
-    """A merge writes the field's name (`flow`), so the key to remove may be written either way."""
-    data = {**BASE, "flows": {"vivado_synth": {"fpga": PART}}, "author": "A <a@example.com>"}
+def test_remove_extra_removes_the_named_key(tmp_path, merged):
+    data = {
+        **BASE,
+        "flows": {"vivado_synth": {"fpga": {"part": PART}}},
+        "authors": ["A <a@example.com>"],
+    }
     if merged == "a target":
-        data["targets"] = {"t": {"defines": {"A": 1}}}
+        data["targets"] = {"t": rtl(defines={"A": 1})}
     overrides = {"rtl": {"top": "knight"}} if merged == "overrides" else None
     path = write_design(tmp_path, data)
     target = "t" if merged == "a target" else None
     kept = Design.from_file(path, target=target, overrides=overrides)
-    assert kept.target == target and kept.flow and kept.authors
-    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=[spelling])
-    assert removed.flow == {} and removed.authors == kept.authors
-    other = "authors" if spelling == "flows" else "author"
-    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=[other])
-    assert removed.authors == [] and removed.flow == kept.flow
+    assert kept.target == target and kept.flows and kept.authors
+    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=["flows"])
+    assert removed.flows == {} and removed.authors == kept.authors
+    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=["authors"])
+    assert removed.authors == () and removed.flows == kept.flows
 
 
-@pytest.mark.parametrize("spelling", ["flows", "flow"])
-def test_design_remove_extra_of_a_project_removes_a_key_in_any_spelling(tmp_path, spelling):
-    data = {**BASE, "flows": {"vivado_synth": {"fpga": PART}}}
+def test_design_remove_extra_of_a_project_removes_the_named_key(tmp_path):
+    data = {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART}}}}
     path = write_project(tmp_path, data)
-    project = XedaProject.from_file(path, design_remove_extra=[spelling])
-    assert [{"flow", "flows"} & set(entry) for entry in project.designs] == [set()]
-    assert project.get_design(0).flow == {}  # type: ignore[union-attr]
+    project = XedaProject.from_file(path, design_remove_extra=["flows"])
+    assert ["flows" in entry for entry in project.designs] == [False]
+    assert project.get_design(0).flows == {}  # type: ignore[union-attr]

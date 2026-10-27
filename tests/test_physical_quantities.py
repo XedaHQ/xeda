@@ -589,7 +589,7 @@ CLOCK_FLOWS = [cls for cls, _ in flow_classes() if "clocks" in cls.Settings.mode
 @pytest.mark.parametrize("cls", CLOCK_FLOWS, ids=[cls.name for cls in CLOCK_FLOWS])
 def test_a_clock_hashes_by_its_value_in_whatever_unit_and_as_period_or_frequency(cls):
     def identity(**clock: str) -> str:
-        given = {**minimal_settings(cls), "clock": clock}
+        given = {**minimal_settings(cls), "clocks": {"main_clock": clock}}
         return flowrun_hash(cls.name, cls.Settings(**given), "d")
 
     period = identity(period="10 ns")
@@ -702,7 +702,10 @@ def test_the_run_document_writes_a_quantity_in_the_metrics_as_text(tmp_path, mon
 @pytest.mark.parametrize("cls", CLOCK_FLOWS, ids=[cls.name for cls in CLOCK_FLOWS])
 def test_the_json_of_settings_with_a_clock_writes_the_clock_as_text_and_reloads(cls):
     settings = cls.Settings(
-        **{**minimal_settings(cls), "clock": {"freq": "0.1 GHz", "rise": "1000 ps"}}
+        **{
+            **minimal_settings(cls),
+            "clocks": {"main_clock": {"freq": "0.1 GHz", "rise": "1000 ps"}},
+        }
     )
     written = json.loads(settings.model_dump_json())
     assert {key: written["clocks"]["main_clock"][key] for key in ("period", "rise")} == {
@@ -723,16 +726,18 @@ def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp
         "quartus",
         str(design),
         "-s",
-        "fpga=10CL025YU256C8G",
+        "fpga.part=10CL025YU256C8G",
         "-s",
-        "clock.period=5500 ps",
+        "clocks.main_clock.period=5500 ps",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
     )
     document = json_stdout(proc)
     assert document["outcome"] == "passed", proc.stderr
-    assert document["spec"]["settings"]["quartus"]["clock"] == {"period": "5500 ps"}
+    assert document["spec"]["settings"]["quartus"]["clocks"] == {
+        "main_clock": {"period": "5500 ps"}
+    }
     node = document["nodes"][-1]
     settings = json.loads((Path(node["run_dir"]) / "settings.json").read_text())
     for key in ("flow_settings", "effective_flow_settings"):

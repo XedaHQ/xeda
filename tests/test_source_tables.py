@@ -22,7 +22,7 @@ from xeda.cli import cli
 from xeda.design import (
     REMOVED_SOURCE_KEYS,
     SOURCE_TABLE_KEYS,
-    DesignSource,
+    Source,
     DesignValidationError,
     SourceType,
 )
@@ -68,12 +68,12 @@ def test_the_removed_keys_are_the_ones_a_source_table_does_not_take() -> None:
 @pytest.mark.parametrize("key", sorted(REFUSED))
 def test_a_source_table_with_another_key_is_refused(design_dir: Path, key: str) -> None:
     with pytest.raises(ValueError, match=re.escape(REFUSED[key])):
-        DesignSource({"file": str(design_dir / "tb.vhd"), key: "08"})
+        Source({"file": str(design_dir / "tb.vhd"), key: "08"})
 
 
 def test_every_wrong_key_of_a_table_is_named(design_dir: Path) -> None:
     with pytest.raises(ValueError) as error:
-        DesignSource({"file": str(design_dir / "tb.vhd"), "standard": "08", "bogus": 1})
+        Source({"file": str(design_dir / "tb.vhd"), "standard": "08", "bogus": 1})
     assert "`standard` was removed" in str(error.value)
     assert "unknown key `bogus`" in str(error.value)
 
@@ -150,9 +150,9 @@ def test_the_command_line_reports_it_as_a_document(design_dir: Path, monkeypatch
 
 
 def test_a_stated_type_is_still_written_back(design_dir: Path) -> None:
-    source = DesignSource({"file": str(design_dir / "tb.vhd"), "type": "Vhdl"})
+    source = Source({"file": str(design_dir / "tb.vhd"), "type": "Vhdl"})
     assert source.as_json_value() == {"file": str(design_dir / "tb.vhd"), "type": "Vhdl"}
-    assert DesignSource(source.as_json_value()).type is SourceType.Vhdl
+    assert Source(source.as_json_value()).type is SourceType.Vhdl
 
 
 def test_the_schema_offers_exactly_the_keys_a_table_takes() -> None:
@@ -161,9 +161,9 @@ def test_the_schema_offers_exactly_the_keys_a_table_takes() -> None:
     schema = design_schema()
     text = json.dumps(schema)
     assert '"standard": {"type": "string"' not in text
-    object_form = Design.model_json_schema()["$defs"]["RtlSettings"]["properties"]["sources"][
-        "items"
-    ]["anyOf"][1]
+    object_form = Design.model_json_schema()["$defs"]["Rtl"]["properties"]["sources"]["items"][
+        "anyOf"
+    ][1]
     assert set(object_form["properties"]) == SOURCE_TABLE_KEYS
 
 
@@ -217,4 +217,4 @@ def test_no_code_or_template_reads_a_source_s_standard_or_variant() -> None:
         if READS_A_SOURCE_S_METADATA.search(line)
     ]
     assert not found, "\n".join(found)
-    assert not hasattr(DesignSource, "standard") and not hasattr(DesignSource, "variant")
+    assert not hasattr(Source, "standard") and not hasattr(Source, "variant")

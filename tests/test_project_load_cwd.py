@@ -24,7 +24,7 @@ designs:
     rtl.top: a
 flows:
   yosys:
-    clock.period: 4 ns
+    clocks.main_clock.period: 4 ns
 """
 
 CHILD = textwrap.dedent("""

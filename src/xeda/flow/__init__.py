@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
+from ..dataclass import NoReplacement
 from .flow import (
     Flow,
     FlowDependencyFailure,
@@ -7,7 +8,6 @@ from .flow import (
     FlowFatalError,
     FlowSettingsError,
     FlowSettingsException,
-    NoReplacement,
     flowrun_hash,
     is_unset,
     registered_flows,

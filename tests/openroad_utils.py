@@ -88,8 +88,7 @@ def openroad_design(
         "rtl:\n"
         f"  sources: [{', '.join(listed)}]\n"
         f"  top: {json.dumps(top)}\n"
-        "  clock:\n"
-        "    port: clk\n"
+        "  clocks: [{port: clk}]\n"
     )
     return design
 

@@ -36,7 +36,14 @@ def _hidden_names(command: click.Command) -> list[str]:
     ]
 
 
-HIDDEN = [(path, name) for path, command in _commands(cli) for name in _hidden_names(command)]
+#: Every long hidden name. A user who loses the last letter of a one-letter option such as `-d`
+#: types `-`, which is no option, so no suggestion can follow.
+HIDDEN = [
+    (path, name)
+    for path, command in _commands(cli)
+    for name in _hidden_names(command)
+    if name.startswith("--")
+]
 
 
 def _mistyped(name: str) -> str:
@@ -58,9 +65,9 @@ def test_no_command_suggests_one_of_its_hidden_options(path, name):
     command = cli
     for step in path:
         command = command.commands[step]  # type: ignore[attr-defined]
-    parent = click.Context(cli)
+    parent = click.Context(cli) if path else None
     with pytest.raises(click.NoSuchOption) as raised:
-        command.make_context(path[-1], [_mistyped(name)], parent=parent)
+        command.make_context(path[-1] if path else "xeda", [_mistyped(name)], parent=parent)
 
     hidden = set(_hidden_names(command))
     assert not hidden & set(raised.value.possibilities or ()), raised.value.format_message()

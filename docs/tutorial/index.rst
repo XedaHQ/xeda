@@ -18,11 +18,11 @@ the flows at the end:
 
 Notes on the file:
 
-* ``clock.port`` names the clock port of the design. The period of the clock is a setting of each
+* ``clocks`` names the clock ports of the design. The period of the clock is a setting of each
   flow, because it constrains one build. A period has a unit, such as ``5 ns``. A number without a
   unit is an error (see :ref:`quantities`).
 * ``sources`` is in compilation order. Paths are relative to the directory of the design file.
-* A dotted key such as ``clock.port`` stands for a nested table: ``clock`` with the key ``port``.
+* A dotted key such as ``fpga.part`` stands for a nested table: ``fpga`` with the key ``part``.
   The command line uses the same keys.
 * A ``.py`` testbench source makes the testbench a cocotb one. No other key is needed.
 * Each flow has its own section under ``flows``. The device is a setting of each flow, so the
@@ -121,7 +121,7 @@ meets timing:
 
 .. code-block:: bash
 
-    xeda dse vivado_synth --design examples/vhdl/sqrt/sqrt.yaml --max-workers 4
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --max-workers 4
 
 Each time the search improves, Xeda writes the best result to a JSON file in the run root,
 ``xeda_run/fmax_<design>_<flow>_<timestamp>.json``. A search that stops early keeps its best

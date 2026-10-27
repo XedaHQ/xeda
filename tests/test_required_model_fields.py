@@ -82,7 +82,7 @@ def _design_file(root: Path, flows: dict | None = None) -> Path:
 def _project_file(root: Path, flows: dict) -> Path:
     path = root / "xedaproject.yaml"
     path.write_text(
-        yaml.safe_dump({"flows": flows, "design": [{"name": "d", "rtl": {"sources": []}}]})
+        yaml.safe_dump({"flows": flows, "designs": [{"name": "d", "rtl": {"sources": []}}]})
     )
     return path
 

@@ -72,6 +72,7 @@ from ..proc_utils import DOCKER_IMAGE_PREFIX, program_state
 from ..records import ErrorInfo
 from ..version import __version__
 from .code_digest import CodeDigests
+from .configuration import configuration_hash
 from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
@@ -631,6 +632,7 @@ def expected_run(
     name: str,
     flowrun_hash: str,
     settings_hash: str,
+    configuration: Mapping[str, Any],
     design_hash: str,
     run_path: Path,
     design: Design,
@@ -653,6 +655,7 @@ def expected_run(
     return Expectation(
         flow=name,
         flowrun_hash=flowrun_hash,
+        configuration_hash=configuration_hash(configuration),
         design_hash=design_hash,
         xeda_version=__version__,
         xeda_code=digests.xeda(),
@@ -697,6 +700,7 @@ def expectation(
         name=flow.name,
         flowrun_hash=flow.flow_hash,
         settings_hash=flow.settings_hash or "",
+        configuration=flow.configuration,
         design_hash=flow.design_hash,
         run_path=flow.run_path,
         design=design,
@@ -1059,6 +1063,7 @@ def build_trace(
         run_id=run_id,
         flowrun_hash=expected.flowrun_hash,
         settings_hash=expected.settings_hash,
+        configuration_hash=expected.configuration_hash,
         design_hash=expected.design_hash,
         xeda_version=expected.xeda_version,
         xeda_code=expected.xeda_code,

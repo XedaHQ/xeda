@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Type, Union
 
 import attrs
 
-from .dataclass import model_with_allow_extra
+from .dataclass import SecondSpelling, model_with_allow_extra, removed_message
 from .design import DESIGN_FILE_FORMATS, Design, DesignValidationError
 from .utils import (
     ConflictingKeys,
@@ -75,10 +75,14 @@ def resolve_project_file(
     return find_default_xedaproject(directory)
 
 
-#: The top-level keys of a project file: its designs and the settings of its flows. Each may be
-#: spelled in the singular.
-PROJECT_KEYS = ("designs", "design", "flows", "flow")
-DESIGN_KEYS = ("designs", "design")
+#: The top-level keys of a project file: its designs and the settings of its flows.
+PROJECT_KEYS = ("designs", "flows")
+DESIGN_KEYS = ("designs",)
+#: The singular spellings that a project file refuses, with the key to use.
+REMOVED_PROJECT_KEYS = {
+    "design": SecondSpelling("`designs`"),
+    "flow": SecondSpelling("`flows`"),
+}
 
 
 @attrs.define
@@ -140,6 +144,13 @@ class XedaProject:
             data = expand_hierarchy(data)
         except ConflictingKeys as e:
             raise ValueError(f"project file {file}: {e}") from e
+        # After the expansion: `flow.yosys_fpga.flatten: true` is a `flow` key too.
+        for key, replacement in REMOVED_PROJECT_KEYS.items():
+            if key in data:
+                raise ProjectFileError(
+                    f"project file {file}: {removed_message(key, replacement, None)}",
+                    code="removed_alias",
+                )
         if any(key in data for key in DESIGN_KEYS):
             raise ValueError(
                 f"project file {file}: a dotted key cannot reach into the design entries: "
@@ -162,18 +173,12 @@ class XedaProject:
             )
         designs = None
         if not skip_designs:
-            if "design" in data and "designs" in data:
-                raise ValueError(
-                    "Specify project designs once, as `designs` (or `design`), not both"
-                )
-            designs = data.get("design", data.get("designs"))
+            designs = data.get("designs")
         if designs:
             if not isinstance(designs, list):
                 designs = [designs]
 
-        if "flow" in data and "flows" in data:
-            raise ValueError("Specify project flow settings once, as `flows` (or `flow`), not both")
-        flows = data.get("flow", data.get("flows"))
+        flows = data.get("flows")
         problems = flows_table_problems(flows)
         if problems:
             raise ValueError(

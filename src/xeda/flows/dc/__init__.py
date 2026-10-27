@@ -8,7 +8,7 @@ import colorama
 from box import Box
 
 from ...dataclass import WORKING, Field, field_validator
-from ...design import SourceType
+from ...design import SourceType, language_of
 from ...flow import (
     AsicSynthFlow,
     Flow,
@@ -337,11 +337,11 @@ class Dc(AsicSynthFlow):
         ss.hdlin["vhdl_preserve_case"] = "true" if ss.vhdl_preserve_case else "false"
 
         if "vhdl_std" not in ss.hdlin:
-            if self.design.language.vhdl.standard in ("19", "2019"):
+            if language_of(self.design).vhdl.standard in ("19", "2019"):
                 ss.hdlin["vhdl_std"] = "2019"
-            elif self.design.language.vhdl.standard in ("02", "2002", "08", "2008"):
+            elif language_of(self.design).vhdl.standard in ("02", "2002", "08", "2008"):
                 ss.hdlin["vhdl_std"] = "2008"
-            elif self.design.language.vhdl.standard in ("93", "1993"):
+            elif language_of(self.design).vhdl.standard in ("93", "1993"):
                 ss.hdlin["vhdl_std"] = "1993"
 
     def run(self):

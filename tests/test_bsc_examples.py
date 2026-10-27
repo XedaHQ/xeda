@@ -23,6 +23,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Bsc, BscSim, Yosys
 
 from .bsc_outputs import collected_verilog
+from .design_edits import with_updates
 from .tool_utils import (
     require_bluesim,
     require_bsc,
@@ -127,7 +128,7 @@ def test_the_generated_verilog_synthesizes(design_file, generated, tmp_path_fact
     netlist_design = Design(
         name=f"{design_file.stem}_verilog",
         design_root=flow.run_path,
-        rtl={"sources": list(collected_verilog(flow)), "top": top, "clock": "CLK"},
+        rtl={"sources": list(collected_verilog(flow)), "top": top, "clocks": ["CLK"]},
     )
     synth = _run(Yosys, netlist_design, tmp_path)
     assert synth.succeeded
@@ -161,7 +162,7 @@ def test_the_testbench_catches_an_injected_bug(design_file, tmp_path, capfd):
     design = _load(design_file)
     simulator = "iverilog" if _imports_verilog(design) else "bluesim"
     _require_simulator(simulator)
-    design.tb.defines = {**design.tb.defines, "XEDA_INJECT_BUG": True}
+    design = with_updates(design, tb={"defines": {**design.tb.defines, "XEDA_INJECT_BUG": True}})
     flow = _run(BscSim, design, tmp_path, simulator=simulator)
     out = capfd.readouterr().out
     assert not flow.succeeded

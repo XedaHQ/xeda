@@ -238,7 +238,7 @@ def probes():
     yield {cls.__name__: cls for cls in classes}
     EDIT.clear()
     for cls in classes:
-        for name in (cls.name, cls.__name__):
+        for name in (cls.name,):
             registered_flows.pop(name, None)
 
 

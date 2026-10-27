@@ -8,21 +8,26 @@ from pathlib import Path
 
 import pytest
 
-from xeda.xedaproject import PROJECT_FILE_NAMES, XedaProject, find_default_xedaproject
+from xeda.xedaproject import (
+    PROJECT_FILE_NAMES,
+    ProjectFileError,
+    XedaProject,
+    find_default_xedaproject,
+)
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 
 DESIGN = """
-design:
+designs:
   name: d
   rtl: {sources: [top.vhd], top: top}
 """
 
 #: the same design as `DESIGN`, in TOML
 TOML_DESIGN = """
-[design]
+[designs]
 name = 'd'
-[design.rtl]
+[designs.rtl]
 sources = ['top.vhd']
 top = 'top'
 """
@@ -32,22 +37,6 @@ def _write(tmp_path: Path, name: str, content: str) -> Path:
     path = tmp_path / name
     path.write_text(content)
     return path
-
-
-def test_both_flow_and_flows_is_a_value_error(tmp_path):
-    path = _write(
-        tmp_path,
-        PROJECT_FILE,
-        DESIGN + """
-flow:
-  ghdl_sim: {warn_error: true}
-flows:
-  ghdl_sim: {warn_error: true}
-""",
-    )
-
-    with pytest.raises(ValueError, match=r"flows.*flow"):
-        XedaProject.from_file(path)
 
 
 @pytest.mark.parametrize("content", ["", "[]\n", "just text\n"])
@@ -64,28 +53,28 @@ def test_only_flows_key_works(tmp_path):
         PROJECT_FILE,
         DESIGN + """
 flows:
-  ghdl_sim: {warn_error: true}
+  ghdl_sim: {werror: true}
 """,
     )
 
     project = XedaProject.from_file(path)
 
-    assert project.flows == {"ghdl_sim": {"warn_error": True}}
+    assert project.flows == {"ghdl_sim": {"werror": True}}
     assert len(project.designs) == 1
 
 
 def test_a_toml_project_file_is_still_accepted(tmp_path):
     """TOML stays supported: the same project, written as `xedaproject.toml`, is discovered
     and loads to the same flows and design as the YAML one."""
-    (tmp_path / TOML_PROJECT_FILE).write_text(TOML_DESIGN + "[flows.ghdl_sim]\nwarn_error = true\n")
+    (tmp_path / TOML_PROJECT_FILE).write_text(TOML_DESIGN + "[flows.ghdl_sim]\nwerror = true\n")
     path = find_default_xedaproject(tmp_path)
     assert path == tmp_path / TOML_PROJECT_FILE
     toml_project = XedaProject.from_file(path)
     (tmp_path / "y").mkdir()
     yaml_project = XedaProject.from_file(
-        _write(tmp_path / "y", PROJECT_FILE, DESIGN + "flows:\n  ghdl_sim: {warn_error: true}\n")
+        _write(tmp_path / "y", PROJECT_FILE, DESIGN + "flows:\n  ghdl_sim: {werror: true}\n")
     )
-    assert toml_project.flows == yaml_project.flows == {"ghdl_sim": {"warn_error": True}}
+    assert toml_project.flows == yaml_project.flows == {"ghdl_sim": {"werror": True}}
     assert toml_project.designs == yaml_project.designs
 
 
@@ -95,34 +84,13 @@ def test_the_yaml_spelling_is_what_discovery_finds_first(tmp_path):
     assert find_default_xedaproject(tmp_path) == tmp_path / "xedaproject.yaml"
 
 
-def test_only_flow_key_works(tmp_path):
-    path = _write(
-        tmp_path,
-        PROJECT_FILE,
-        DESIGN + """
-flow:
-  ghdl_sim: {warn_error: true}
-""",
-    )
+@pytest.mark.parametrize(
+    ("singular", "plural"), [("flow", "flows"), ("design", "designs")], ids=["flow", "design"]
+)
+def test_the_singular_key_of_a_project_was_removed(tmp_path, singular, plural):
+    path = _write(tmp_path, PROJECT_FILE, f"{singular}: {{}}\n")
 
-    project = XedaProject.from_file(path)
-
-    assert project.flows == {"ghdl_sim": {"warn_error": True}}
-
-
-def test_both_design_and_designs_is_a_value_error(tmp_path):
-    path = _write(
-        tmp_path,
-        PROJECT_FILE,
-        """
-design:
-  - {name: d, rtl: {sources: [top.vhd], top: top}}
-designs:
-  - {name: d2, rtl: {sources: [top.vhd], top: top}}
-""",
-    )
-
-    with pytest.raises(ValueError, match=r"designs.*design"):
+    with pytest.raises(ProjectFileError, match=f"`{singular}` was removed: use `{plural}`"):
         XedaProject.from_file(path)
 
 
@@ -131,9 +99,9 @@ def test_a_non_mapping_design_entry_names_its_position_and_type(tmp_path):
         tmp_path,
         PROJECT_FILE,
         """
-design: [a.yaml]
+designs: [a.yaml]
 flows:
-  ghdl_sim: {warn_error: true}
+  ghdl_sim: {werror: true}
 """,
     )
 
@@ -144,9 +112,9 @@ flows:
 def test_a_project_file_suffix_is_read_as_strictly_as_a_design_file_s(tmp_path):
     """One suffix table for both kinds of file: `.yml` is YAML here too, and a mis-cased suffix
     is rejected naming the right spelling rather than read as whatever it resembles."""
-    yml = _write(tmp_path, "xedaproject.yml", "flows:\n  ghdl_sim:\n    warn_error: true\n")
-    assert XedaProject.from_file(yml, skip_designs=True).flows == {"ghdl_sim": {"warn_error": True}}
-    shouting = _write(tmp_path, "xedaproject.TOML", "[flows.ghdl_sim]\nwarn_error = true\n")
+    yml = _write(tmp_path, "xedaproject.yml", "flows:\n  ghdl_sim:\n    werror: true\n")
+    assert XedaProject.from_file(yml, skip_designs=True).flows == {"ghdl_sim": {"werror": True}}
+    shouting = _write(tmp_path, "xedaproject.TOML", "[flows.ghdl_sim]\nwerror = true\n")
     with pytest.raises(ValueError, match=r"case-sensitive.*'\.toml'"):
         XedaProject.from_file(shouting, skip_designs=True)
 
@@ -181,7 +149,7 @@ def test_default_project_discovery_accepts_each_supported_suffix(tmp_path, name)
 @pytest.mark.parametrize(
     ("text", "suggestion"),
     [
-        ("flowz: {}\n", "flow"),
+        ("flowz: {}\n", "flows"),
         ("desings:\n  - name: d\n", "designs"),
         ("flow_settings: {}\n", None),
         ("workspace: {}\n", None),
@@ -198,24 +166,27 @@ def test_a_project_key_that_nothing_reads_is_refused_naming_the_accepted_keys(
         XedaProject.from_file(path)
 
     message = str(raised.value)
-    assert "unknown key(s)" in message and "'designs', 'design', 'flows', 'flow'" in message
+    assert "unknown key(s)" in message and "'designs', 'flows'" in message
     assert text.split(":")[0] in message
     if suggestion:
         assert f"did you mean '{suggestion}'?" in message
 
 
 def test_the_accepted_keys_of_a_project_are_its_designs_and_its_flows(tmp_path):
-    for keys in (("design", "flow"), ("designs", "flows")):
-        body = f"{keys[0]}:\n  - name: d\n    rtl: {{sources: [top.vhd], top: top}}\n"
-        body += f"{keys[1]}:\n  ghdl_sim: {{warn_error: true}}\n"
-        project = XedaProject.from_file(_write(tmp_path, PROJECT_FILE, body))
-        assert project.flows == {"ghdl_sim": {"warn_error": True}}
+    body = "designs:\n  - name: d\n    rtl: {sources: [top.vhd], top: top}\n"
+    body += "flows:\n  ghdl_sim: {werror: true}\n"
+    project = XedaProject.from_file(_write(tmp_path, PROJECT_FILE, body))
+    assert project.flows == {"ghdl_sim": {"werror": True}}
 
 
 def test_a_dotted_key_at_the_root_of_a_project_reaches_its_flows(tmp_path):
-    path = _write(tmp_path, PROJECT_FILE, DESIGN + "flows.vivado_synth.clock.period: 5 ns\n")
+    path = _write(
+        tmp_path, PROJECT_FILE, DESIGN + "flows.vivado_synth.clocks.main_clock.period: 5 ns\n"
+    )
 
-    assert XedaProject.from_file(path).flows == {"vivado_synth": {"clock": {"period": "5 ns"}}}
+    assert XedaProject.from_file(path).flows == {
+        "vivado_synth": {"clocks": {"main_clock": {"period": "5 ns"}}}
+    }
 
 
 CONFLICT = {"name": "d", "rtl": {"sources": ["top.vhd"], "top": "top"}, "tb": 3, "tb.top": "x"}
@@ -225,7 +196,7 @@ def _project_with(tmp_path: Path, entry: dict, *, as_list: bool) -> Path:
     return _write(
         tmp_path,
         PROJECT_FILE,
-        json.dumps({"design": [entry] if as_list else entry, "flows": {"ghdl_sim": {}}}),
+        json.dumps({"designs": [entry] if as_list else entry, "flows": {"ghdl_sim": {}}}),
     )
 
 
@@ -263,7 +234,7 @@ def test_the_runner_reports_that_conflict_as_a_project_file_error(tmp_path):
 
 
 def test_a_dotted_key_cannot_reach_into_the_design_entries(tmp_path):
-    path = _write(tmp_path, PROJECT_FILE, DESIGN + "design.description: text\n")
+    path = _write(tmp_path, PROJECT_FILE, DESIGN + "designs.description: text\n")
 
     with pytest.raises(ValueError, match=r"cannot reach into the design entries"):
         XedaProject.from_file(path)

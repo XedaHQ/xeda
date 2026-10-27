@@ -41,6 +41,7 @@ from .dataclass import (
     PydanticUndefined,
     field_annotation,
     field_shorthands_of,
+    field_type,
     input_names,
     opaque_key_fields_of,
     single_item_fields_of,
@@ -49,8 +50,8 @@ from .dataclass import (
     XedaBaseModel,
 )
 from .design import (
+    GENERATOR_CLASSES,
     DESIGN_NAME,
-    FLAT_RTL_KEYS,
     TARGET_FORBIDDEN_KEYS,
     Design,
     names_a_design_file,
@@ -299,7 +300,6 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     candidates = all_flow_classes()
     return {
         "name": cls.name,
-        "aliases": list(cls.aliases),
         "class": cls.__name__,
         "module": cls.__module__,
         "qualified_name": f"{cls.__module__}.{cls.__name__}",
@@ -520,7 +520,7 @@ def _group_entries(
     holds it. `common` is whether that field is accepted by every flow, and so are all the
     fields of the group. A field that is a group has an entry of its own, then the entries of its
     fields."""
-    schema = group_class.model_json_schema(by_alias=True)
+    schema = group_class.model_json_schema()
     properties = schema.get("properties", {})
     definitions = schema.get("$defs", {})
     entries: List[Dict[str, Any]] = []
@@ -528,12 +528,10 @@ def _group_entries(
         extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
-        prop = properties.get(info.alias or name, properties.get(name, {}))
-        alias = f"{prefix}.{info.alias}" if info.alias and info.alias != name else None
+        prop = properties.get(name, {})
         entries.append(
             {
                 "name": f"{prefix}.{name}",
-                "alias": alias,
                 "type": type_str(prop, definitions),
                 "required": False,
                 "default": _default_of(info),
@@ -555,31 +553,24 @@ def _group_entries(
 
 
 def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
-    schema = cls.Settings.model_json_schema(by_alias=True)
+    schema = cls.Settings.model_json_schema()
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
     definitions = schema.get("$defs", {})
     base_field_names = set(Flow.Settings.model_fields)
 
     entries: List[Dict[str, Any]] = []
-    represented_names: set[str] = set()
     for name, model_field in cls.Settings.model_fields.items():
         info = model_field  # the mapping's values are `FieldInfo`s
         extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
-        alias = model_field.alias if model_field.alias and model_field.alias != name else None
-        represented_names.add(name)
-        represented_names.add(model_field.alias or name)
-        prop = properties.get(model_field.alias or name, properties.get(name, {}))
+        prop = properties.get(name, {})
         entries.append(
             {
                 "name": name,
-                "alias": alias,
                 "type": type_str(prop, definitions),
-                "required": model_field.is_required()
-                or ((model_field.alias or name) in required)
-                or (name in required),
+                "required": model_field.is_required() or (name in required),
                 "default": _default_of(model_field),
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
@@ -598,12 +589,11 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
         if group_class is not None:
             entries += _group_entries(group_class, name, name, name in base_field_names)
     for name, prop in properties.items():
-        if name in represented_names or not prop.get("x-xeda-input-only"):
+        if name in cls.Settings.model_fields or not prop.get("x-xeda-input-only"):
             continue
         entries.append(
             {
                 "name": name,
-                "alias": None,
                 "type": type_str(prop, definitions),
                 "required": name in required,
                 "default": None,
@@ -625,7 +615,7 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
-    shares (`ncpus`, `dockerized`, ...). After a settings group, it has one entry for each field
+    shares (`nthreads`, `dockerized`, ...). After a settings group, it has one entry for each field
     of the group, depth first in declaration order. Its `name` is the dotted path that `-s` and a
     design file accept, and its `group` is the top-level setting that holds the group.
 
@@ -936,7 +926,7 @@ def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
 
 
 #: A list of `{name, value}` objects, which stands for the mapping they give. It is an accepted
-#: input form of `parameters` and `generics`.
+#: input form of `parameters`.
 _PARAMETER_LIST = {
     "type": "array",
     "items": {
@@ -950,60 +940,32 @@ _PARAMETER_LIST = {
 }
 #: The input shapes that the validators of a field accept but the model schema does not describe.
 #: The first key is the definition name ("" for the root Design model), the second is the property
-#: name. A field with an alias lists both names, because the loader accepts either.
+#: name.
 _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
     # `Design.authors` accepts a single "Name <email>" string
-    "": {
-        "author": [{"type": "string"}],
-        "authors": [{"type": "string"}],
-        "parameters": [_PARAMETER_LIST],
-        "generics": [_PARAMETER_LIST],
-    },
-    "RtlSettings": {"parameters": [_PARAMETER_LIST], "generics": [_PARAMETER_LIST]},
+    "": {"authors": [{"type": "string"}]},
+    "Rtl": {"parameters": [_PARAMETER_LIST]},
     # `tb.top` accepts a bare module name, and `tb.cocotb` accepts `true`
-    "TbSettings": {
+    "Testbench": {
         "top": [{"type": "string"}],
         "cocotb": [{"type": "boolean"}],
         "parameters": [_PARAMETER_LIST],
-        "generics": [_PARAMETER_LIST],
     },
     # `language.vhdl: "2008"` and `language.vhdl: 2008` are both accepted
     "Language": {
         "vhdl": [{"type": "string"}, {"type": "integer"}],
         "verilog": [{"type": "string"}, {"type": "integer"}],
     },
-    "LanguageSettings": {"version": [{"type": "integer"}], "standard": [{"type": "integer"}]},
-    "VhdlSettings": {"version": [{"type": "integer"}], "standard": [{"type": "integer"}]},
+    "LanguageSettings": {"standard": [{"type": "integer"}]},
+    "VhdlSettings": {"standard": [{"type": "integer"}]},
     # `generator.args` is one list, and a single string is split on whitespace
     "Generator": {"args": [{"type": "string"}]},
 }
 
 
-def _add_flat_form(schema: Dict[str, Any]) -> None:
-    """Describe the flat top-level form: `sources` at the root in place of `rtl.sources`, for
-    example."""
-    definitions = schema.get("$defs", {})
-    rtl_properties = definitions.get("RtlSettings", {}).get("properties", {})
-    root = schema.setdefault("properties", {})
-    for name in FLAT_RTL_KEYS:
-        if name in rtl_properties and name not in root:
-            root[name] = {
-                **rtl_properties[name],
-                "description": f"Top-level shorthand for `rtl.{name}`.",
-            }
-    if "tb" in root:
-        tb_schema = root["tb"]
-        root.setdefault("test", {**tb_schema, "description": "Top-level shorthand for `tb`."})
-        root.setdefault(
-            "tests",
-            {
-                "type": "array",
-                "items": tb_schema,
-                "description": "Testbenches; only the first is used. Shorthand for `tb`.",
-            },
-        )
-    # `rtl` is synthesized from the flat form when absent, and `name` defaults to the design
-    # file's stem, so neither is required in a file.
+def _make_rtl_and_name_optional(schema: Dict[str, Any]) -> None:
+    """Describe a design file without `rtl` and without `name`: a design with no RTL sources is a
+    design, and `name` defaults to the stem of the design file."""
     required = schema.get("required")
     if required:
         remaining = [name for name in required if name not in ("rtl", "name")]
@@ -1011,6 +973,18 @@ def _add_flat_form(schema: Dict[str, Any]) -> None:
             schema["required"] = remaining
         else:
             schema.pop("required", None)
+
+
+def _add_generator_class(schema: Dict[str, Any]) -> None:
+    """Describe `class` in a generator table. The loader reads it before the model validates the
+    table, so the model has no field for it."""
+    generator = schema.get("$defs", {}).get("Generator", {})
+    generator.setdefault("properties", {})["class"] = {
+        "type": "string",
+        "enum": list(GENERATOR_CLASSES),
+        "description": "The class of the generator. Without it, the table is a plain generator "
+        "that runs `command`, `executable` or `shell`.",
+    }
 
 
 def _add_targets(schema: dict[str, Any]) -> None:
@@ -1024,7 +998,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
     definitions = schema.setdefault("$defs", {})
     # In an overlay `rtl` and `tb` are partial: the design supplies what a target leaves out.
     partial = {}
-    for name in ("RtlSettings", "TbSettings"):
+    for name in ("Rtl", "Testbench"):
         if name in definitions:
             partial[f"#/$defs/{name}"] = f"#/$defs/{name}Overlay"
             definitions[f"{name}Overlay"] = {
@@ -1049,11 +1023,11 @@ def _add_targets(schema: dict[str, Any]) -> None:
         return node
 
     clock_refs = {**partial, "#/$defs/Clock": "#/$defs/ClockOverlay"}
-    rtl_overlay = definitions.get("RtlSettingsOverlay", {}).get("properties", {})
+    rtl_overlay = definitions.get("RtlOverlay", {}).get("properties", {})
     if "clock" in rtl_overlay:
         rtl_overlay["clock"] = overlaid(rtl_overlay["clock"], clock_refs)
     properties: dict[str, Any] = {
-        name: overlaid(spec, clock_refs if name == "clock" else partial)
+        name: overlaid(spec, partial)
         for name, spec in root.items()
         if name not in TARGET_FORBIDDEN_KEYS
     }
@@ -1074,13 +1048,13 @@ def _open_property_sets(node: Any) -> None:
     """Drop `additionalProperties: false` throughout the input schema.
 
     The models set `extra = forbid`, so pydantic emits a closed property set. A design file is
-    not closed in that sense: it may use dotted-key shorthand (`clock.port`, `hdl.vhdl.standard`,
+    not closed in that sense: it may use dotted-key shorthand (`language.vhdl.standard`,
     `fpga.part`) that `Design.from_file` expands before the model sees it. The closed set would
     reject files that load without error. The loader still rejects unknown keys once it has
     expanded the file.
     """
     if isinstance(node, dict):
-        if node.get("title") == "DesignSource":
+        if node.get("title") == "Source":
             return  # a source table is closed: no dotted-key shorthand applies inside it
         if node.get("additionalProperties") is False:
             node.pop("additionalProperties")
@@ -1104,35 +1078,6 @@ def _widen(spec: Dict[str, Any], extra: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {**documentation, "anyOf": [*branches, *deepcopy(extra)]}
 
 
-def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> None:
-    """Accept a field's own name wherever the schema names its alias.
-
-    Models set `populate_by_name`, so `language` and `hdl` (its alias) are equally valid in a
-    design file. A schema generated with aliases alone would reject the field names.
-    """
-
-    def merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
-        dst_props, src_props = dst.get("properties"), src.get("properties")
-        if not dst_props or not src_props:
-            return
-        for name, spec in src_props.items():
-            dst_props.setdefault(name, spec)
-        dst_required, src_required = dst.get("required"), src.get("required")
-        if dst_required and src_required and set(dst_required) != set(src_required):
-            # A required field named differently in the two schemas may appear under either name.
-            dst.setdefault("allOf", []).append(
-                {"anyOf": [{"required": sorted(dst_required)}, {"required": sorted(src_required)}]}
-            )
-            dst.pop("required", None)
-
-    merge(by_alias, by_name)
-    definitions_by_name = by_name.get("$defs", {})
-    for name, spec in by_alias.get("$defs", {}).items():
-        counterpart = definitions_by_name.get(name)
-        if counterpart:
-            merge(spec, counterpart)
-
-
 def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
     found: list[type[BaseModel]] = []
 
@@ -1141,9 +1086,11 @@ def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
             if annotation not in found:
                 found.append(annotation)
                 for info in annotation.model_fields.values():
-                    visit(info.annotation)
+                    visit(field_type(info))
         for arg in get_args(annotation):
             visit(arg)
+        for model in getattr(annotation, "models", ()):
+            visit(model)
 
     visit(model)
     return found
@@ -1159,12 +1106,13 @@ _CLOCK_ITEM_FORMS: List[Dict[str, Any]] = [
 
 
 def _accept_clock_forms(schema: Dict[str, Any]) -> None:
-    """Accept every form of a clock in the items of `clocks`, as `RtlSettings.clock_tables`
+    """Accept every form of a clock in the items of `clocks`, as `Rtl.clock_tables`
     reads them."""
-    properties = schema.get("$defs", {}).get("RtlSettings", {}).get("properties", {})
+    properties = schema.get("$defs", {}).get("Rtl", {}).get("properties", {})
     clocks = properties.get("clocks")
     if clocks and "items" in clocks:
         clocks["items"] = _widen(clocks["items"], _CLOCK_ITEM_FORMS)
+
     clock = properties.get("clock")  # one clock: the same forms of an item
     if clock and "anyOf" in clock:
         clock["anyOf"] = [*clock["anyOf"], deepcopy(_CLOCK_ITEM_FORMS[-1])]
@@ -1182,33 +1130,13 @@ def _accept_single_items(schema: Dict[str, Any]) -> None:
                 properties[name] = _widen(spec, [spec["items"]])
 
 
-def _accept_alias_choices(schema: dict[str, Any]) -> None:
-    """Accept every name of a field with several (`AliasChoices`). The loader takes any of them,
-    but the schema of pydantic names only the first. For example, `generics` is another name of
-    `parameters`. The spellings come from `dataclass.input_names`, the one table of what the
-    loader accepts."""
-    for model in _models_reachable_from(Design):
-        target = schema if model is Design else schema.get("$defs", {}).get(model.__name__)
-        properties = (target or {}).get("properties")
-        if not properties:
-            continue
-        spellings: Dict[str, List[str]] = {}
-        for spelling, name in input_names(model).items():
-            spellings.setdefault(name, []).append(spelling)
-        for names in spellings.values():
-            spec = next((properties[s] for s in names if s in properties), None)
-            if spec is not None:
-                for spelling in names:
-                    properties.setdefault(spelling, spec)
-
-
 def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     """Return the JSON Schema of a Xeda design file (YAML, TOML or JSON).
 
     By default the schema describes the input syntax: everything a design file may contain,
     including the shorthands that the validators of the model accept (a bare string for
-    `tb.top`, `true` for `tb.cocotb`, the name of a field as well as its alias). A file is
-    written against this syntax, so `xeda design-schema` emits it.
+    `tb.top`, `true` for `tb.cocotb`). A file is written against this syntax, so `xeda
+    design-schema` emits it.
 
     Pass `input_syntax=False` for the schema of the model itself, which describes the validated
     object instead of the accepted input.
@@ -1217,18 +1145,17 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     shorthand that is expanded before validation. Use it to check that a design file is well
     formed, not to catch typos. The loader still rejects unknown keys.
     """
-    schema = json_safe(Design.model_json_schema(by_alias=True))
+    schema = json_safe(Design.model_json_schema())
     # pydantic 2 emits draft 2020-12 shapes (`$defs`, `prefixItems` for fixed-length tuples).
     # Declare the draft that pydantic actually produced, so that validators pick the right one.
     # Do not stamp a draft that the document does not follow.
     schema["$schema"] = JSON_SCHEMA_DIALECT
     if not input_syntax:
         return schema
-    _accept_field_names(schema, json_safe(Design.model_json_schema(by_alias=False)))
-    _accept_alias_choices(schema)
     _accept_clock_forms(schema)
     _accept_single_items(schema)
-    _add_flat_form(schema)
+    _make_rtl_and_name_optional(schema)
+    _add_generator_class(schema)
     _open_property_sets(schema)
     for definition, properties in _EXTRA_INPUT_FORMS.items():
         target = schema if not definition else schema.get("$defs", {}).get(definition)

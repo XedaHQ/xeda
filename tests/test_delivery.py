@@ -172,11 +172,11 @@ class _Wrapper(Flow):
 _REGISTERED = {
     _name: registered_flows[_name]
     for _cls in (_Deliverer, _Wrapper)
-    for _name in (_cls.name, _cls.__name__)
+    for _name in (_cls.name,)
     if _name in registered_flows
 }
 for _cls in (_Deliverer, _Wrapper):
-    for _name in (_cls.name, _cls.__name__):
+    for _name in (_cls.name,):
         if _name in _registration_before:
             registered_flows[_name] = _registration_before[_name]
         else:

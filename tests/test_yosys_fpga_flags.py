@@ -631,11 +631,11 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
     design = Design(
         name="top",
         design_root=root,
-        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     settings: Dict[str, Any] = {
         "fpga": TARGETS[target],
-        "clock": {"period": "5 ns"},
+        "clocks": {"main_clock": {"period": "5 ns"}},
         "rtl_json": "rtl.json",
         "rtl_verilog": "rtl.v",
         "rtl_graph": "rtl.dot",
