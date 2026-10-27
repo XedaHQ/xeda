@@ -639,6 +639,43 @@ def test_a_record_is_read_again_only_when_its_file_changed(tmp_path):
     assert "held" in mine.record["files"], "and again, nothing changed since"
 
 
+def _delivered_once(world):
+    """Deliver `net.v` once. Return the destination and a delivery object of the same run
+    directory, which has read the record of that delivery."""
+    flow = _launch(world, netlist="$PWD/net.v")
+    checking = deliver.Deliveries(flow.run_path, world.root, inputs=deliver.ReadInputs())
+    return world.user / "net.v", flow, checking
+
+
+def _recorded(flow, destination) -> dict:
+    return json.loads(delivery_record(flow.run_path).read_text())["files"][str(destination)]
+
+
+def test_the_anchor_of_a_destination_that_was_checked_and_not_copied_is_kept(world, later_clock):
+    """A check refreshes and anchors the record of a destination, and the launch may deliver
+    nothing there. The record keeps the anchor, so the next check reads nothing."""
+    destination, flow, checking = _delivered_once(world)
+    assert "anchor_ns" not in _recorded(flow, destination)
+    assert checking._why_not_ours(destination) is None
+    checking._write_record()
+    assert _recorded(flow, destination)["anchor_ns"] > 0
+
+
+def test_a_refreshed_record_does_not_replace_what_another_launch_wrote_since(world, later_clock):
+    """Another launch delivered a different file to the destination after this one read the
+    record. Its entry stays. The refreshed entry of this launch is for the old file."""
+    destination, flow, checking = _delivered_once(world)
+    assert checking._why_not_ours(destination) is None
+    path = deliver.delivery_record(flow.run_path)
+    document = json.loads(path.read_text())
+    newer = document["files"][str(destination)]
+    newer["record"]["sha"] = "another content"
+    path.write_text(json.dumps(document))
+    checking._write_record()
+    assert _recorded(flow, destination)["record"]["sha"] == "another content"
+    assert "anchor_ns" not in _recorded(flow, destination)
+
+
 def test_a_file_edited_while_the_question_is_open_is_not_replaced(world):
     """A yes is for the file the user was asked about, as it was when the question was asked: a
     file edited while the answer is awaited is not delivered over."""

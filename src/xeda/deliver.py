@@ -821,6 +821,17 @@ def _read_record(path: Path) -> dict[str, Any]:
     return data
 
 
+def _same_file(held: Any, entry: dict[str, Any]) -> bool:
+    """Return whether the record entry `held` is for the same file as `entry`: the same inode
+    and the same content."""
+    if not isinstance(held, dict):
+        return False
+    one, other = held.get("record"), entry.get("record")
+    if not isinstance(one, dict) or not isinstance(other, dict):
+        return False
+    return one.get("inode") == other.get("inode") and one.get("sha") == other.get("sha")
+
+
 def _run_lock() -> Any:
     """Return the module of the locks of Xeda. The import comes late: that package imports this one."""
     from .flow_runner import run_lock
@@ -934,6 +945,10 @@ class Deliveries:
         #: What this node adds to the record: the files it delivers and the directories it
         #: names. `_write_record` merges these into the record as it is on disk by then.
         self._written_files: dict[str, dict[str, Any]] = {}
+        #: The entries that a check refreshed and anchored, by destination, for files this node
+        #: did not copy. A merge keeps one only while the record on disk still holds the same
+        #: file there.
+        self._refreshed: dict[str, dict[str, Any]] = {}
         self._written_directories: list[str] = []
         #: Every destination checked before the run, as it was then.
         self.checked: dict[Path, _State] = {}
@@ -962,8 +977,16 @@ class Deliveries:
             self.record = self._with_written(_read_record(self.record_path))
 
     def _with_written(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Add to `record` what this node has delivered and the directories it names."""
-        record["files"].update(self._written_files)
+        """Add to `record` what this node has delivered, the directories it names, and the
+        anchors it established for files it did not copy.
+
+        An anchor is for one file. When the record holds another file (a later delivery of
+        another launch) or no entry for the destination, the record stays as it is."""
+        files = record["files"]
+        for name, entry in self._refreshed.items():
+            if name not in self._written_files and _same_file(files.get(name), entry):
+                files[name] = entry
+        files.update(self._written_files)
         for directory in self._written_directories:
             if directory not in record["directories"]:
                 record["directories"].append(directory)
@@ -1135,6 +1158,7 @@ class Deliveries:
         if now.inode != record.inode or now.sha != record.sha:
             return "changed since Xeda wrote it"
         self._refresh_entry(entry, now, reading)
+        self._refreshed[str(destination)] = entry
         return None
 
     @staticmethod
