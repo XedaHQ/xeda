@@ -457,7 +457,7 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
         "design": design,
         "source": design.rtl.sources[0],
         "unchecked_source": design.rtl.sources[1],
-        "settings": Flow.Settings(verbose=2),
+        "settings": Flow.Settings(verbosity="verbose"),
         "outcome": FlowOutcome(
             settings=Flow.Settings(),
             results=Flow.Results(success=True),
@@ -514,7 +514,7 @@ def _outcome_built_in_a_worker(_):
     from xeda.flow_runner.dse.dse_runner import FlowOutcome
 
     return FlowOutcome(
-        settings=Flow.Settings(verbose=3),
+        settings=Flow.Settings(verbosity="debug"),
         results=Flow.Results(success=True, fmax=456.7),
         timestamp="from-the-worker",
         run_path=Path("/tmp/child-run"),
@@ -543,7 +543,7 @@ def test_a_dse_outcome_survives_the_process_it_was_built_in():
     assert outcome.timestamp == "from-the-worker"
     assert outcome.run_path == Path("/tmp/child-run")
     assert (outcome.results.fmax, outcome.results.success) == (456.7, True)
-    assert outcome.settings.verbose == 3, "a pydantic settings model crossed with it"
+    assert outcome.settings.verbosity == "debug", "a pydantic settings model crossed with it"
 
 
 def test_a_dse_outcome_pickles_without_losing_anything(tmp_path):
@@ -555,7 +555,7 @@ def test_a_dse_outcome_pickles_without_losing_anything(tmp_path):
     from xeda.flow_runner.dse.dse_runner import FlowOutcome
 
     outcome = FlowOutcome(
-        settings=Flow.Settings(verbose=2),
+        settings=Flow.Settings(verbosity="verbose"),
         results=Flow.Results(success=True, fmax=123.4),
         timestamp="2026-01-01",
         run_path=tmp_path / "run",

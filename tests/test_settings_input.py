@@ -60,24 +60,25 @@ def test_a_value_of_another_type_is_a_validation_error_naming_the_setting(build,
 
 
 @pytest.mark.parametrize("given", ["lots", "", "2.5", 2.5, ["2"], {"level": 2}], ids=repr)
-def test_verbose_takes_a_whole_number_and_refuses_everything_else(given):
-    """`verbose: lots` used to become 0, and `verbose: 2.5` became 2, without a word."""
-    with pytest.raises(FlowSettingsError, match="verbose"):
-        Flow.Settings.from_input({"verbose": given})
+def test_a_whole_number_setting_refuses_everything_else(given):
+    """A whole number setting refuses text and a fraction: `nthreads: 2.5` is no count of threads,
+    and nothing becomes 0 or 2 without a word."""
+    with pytest.raises(FlowSettingsError, match="nthreads"):
+        Flow.Settings.from_input({"nthreads": given})
     with pytest.raises(ValidationError) as refused:
-        Flow.Settings(verbose=given)
-    assert [error["loc"] for error in refused.value.errors()] == [("verbose",)]
+        Flow.Settings(nthreads=given)
+    assert [error["loc"] for error in refused.value.errors()] == [("nthreads",)]
 
-    settings = Flow.Settings(verbose=2)
-    with pytest.raises(ValidationError, match="verbose"):
-        settings.verbose = given
-    assert settings.verbose == 2, "a refused assignment changes nothing"
+    settings = Flow.Settings(nthreads=2)
+    with pytest.raises(ValidationError, match="nthreads"):
+        settings.nthreads = given
+    assert settings.nthreads == 2, "a refused assignment changes nothing"
 
 
-def test_verbose_takes_a_number_and_not_its_text():
-    assert Flow.Settings.from_input({"verbose": 2}).verbose == 2
-    with pytest.raises(FlowSettingsError, match="verbose"):
-        Flow.Settings.from_input({"verbose": "2"})
+def test_a_whole_number_setting_takes_a_number_and_not_its_text():
+    assert Flow.Settings.from_input({"nthreads": 2}).nthreads == 2
+    with pytest.raises(FlowSettingsError, match="nthreads"):
+        Flow.Settings.from_input({"nthreads": "2"})
 
 
 def _codes(build) -> list[str]:
@@ -737,7 +738,7 @@ def test_the_sweep_judges_fields_of_every_plain_kind():
     ]
     kinds = set().union(*(found[0] for _, _, found in judged if found))
     assert {"int", "float", "bool", "str", "path", "literal", "list"} <= kinds
-    assert ("Settings", "verbose", ({"int"}, set())) in [
+    assert ("Settings", "nthreads", ({"int"}, set())) in [
         (model.rpartition(".")[2], name, found) for model, name, found in judged
     ]
     assert sum(found is not None for _, _, found in judged) > 1200
@@ -745,7 +746,7 @@ def test_the_sweep_judges_fields_of_every_plain_kind():
 
 @pytest.mark.parametrize("model", SWEEP_MODELS, ids=[m.__qualname__ for m in SWEEP_MODELS])
 def test_a_scalar_setting_refuses_a_value_of_another_type_naming_the_setting(model):
-    """The class of `verbose: lots` becoming 0: a validator that converts what it cannot read
+    """The class of `nthreads: lots` becoming 0: a validator that converts what it cannot read
     into a default. Every field of a plain type (a number, a switch, text, a path) is given a list,
     a table, and the text or number that its type does not take. Each must be a validation error
     that names the field, on construction and on assignment, and an assignment that fails
