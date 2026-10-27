@@ -395,7 +395,8 @@ output of every program the flow started; a Python caller sees them there and no
 
 A run is make-like: a flow runs only when its settings, sources, tools, Xeda code or outputs
 changed since its last success or rejection; otherwise its recorded results are reused. Inputs outside the
-trace (indirect programs, environment variables, files a tool finds on its own) are not tracked.
+trace (indirect programs, files a tool finds on its own) are not tracked. The inherited
+environment is tracked (see Environment).
 
 | Need | Option |
 | --- | --- |
@@ -410,6 +411,23 @@ A flow that programs a device or draws a new random seed (`random_seed: random`)
 (`always_runs`): it runs every time and keeps no trace. A
 removed option (`--cwd`, `--xeda-run-dir`, `--incremental`, `--cached-dependencies`) fails with
 `<option> was removed: use ...`.
+
+
+## Environment
+
+Every flow has `env` (a table of text variables, part of the identity) and `inherit_env` (default
+`true`). A process gets: with `inherit_env`, the caller's environment; without it, from the caller
+only the essential variables (`PATH`, `HOME`, `LANG`, `LC_*`, ...) and the flow's tool and license
+variables (`locator_variables`, plus the `DOCKER_*` client variables with `docker`). Then come the
+`env` of the private settings files, then `env`, then the variables the flow sets. A Docker
+container gets only those last three. Neither mode is hermetic.
+
+The inherited values a node uses are freshness evidence, not identity: a changed value runs the
+node again, and the stale reason names a variable, never a value. Shell, terminal, login and
+`XEDA_*` session variables (`PWD`, `SHLVL`, `SSH_*`, `TMUX*`, `XEDA_RUN_ROOT`, ...) never count.
+`results.json` lists the names in `inherited_variables`. With `--remote`, the environment is the
+host agent's, and the private `env` of the local files is not sent; the `env` of the host profile
+in `remotes.yaml` applies.
 
 ## Deliverables
 

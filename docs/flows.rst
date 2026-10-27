@@ -261,6 +261,65 @@ matching option. Such a flow accepts ``nthreads`` or ``lib_paths`` and does noth
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
 
+.. _environment:
+
+The environment of tools
+------------------------
+
+Every flow has the settings ``env`` and ``inherit_env``. They decide which environment variables
+the processes of the flow get. Xeda reads the environment of the caller once, when the launch
+starts. Every node of the launch, and every point of a sweep, uses that one copy.
+
+``env``
+    A table of variables for the processes of the flow, for example ``NUM_TV: "8"``. A name has
+    letters, digits and ``_``, and does not start with a digit. A value is text. The variables are
+    part of the identity of the run. A cocotb run refuses an ``env`` variable that it sets itself.
+
+``inherit_env``
+    ``true`` by default. It decides whether a process gets the environment of the caller.
+
+A process gets these variables. A later item replaces an earlier item of the same name.
+
+With ``inherit_env: true``:
+
+1. the environment of the caller,
+2. the ``env`` table of your private settings files (see :ref:`private-files`),
+3. the ``env`` setting of the flow,
+4. the variables that the flow sets itself.
+
+With ``inherit_env: false``:
+
+1. from the caller, only the essential variables (``PATH``, ``HOME``, ``USER``, ``LOGNAME``,
+   ``SHELL``, ``TMPDIR``, ``TERM``, ``LANG``, ``LC_*``, ``TZ``, ``LD_LIBRARY_PATH`` and
+   ``DYLD_LIBRARY_PATH``) and the variables that locate the tool or its license (``XILINX_VIVADO``
+   and ``LM_LICENSE_FILE`` for Vivado, for example; each flow declares its own),
+2. the ``env`` table of your private settings files,
+3. the ``env`` setting of the flow,
+4. the variables that the flow sets itself.
+
+A flow that runs in Docker (``docker: true``) also gets the variables that the ``docker`` client
+needs to find its daemon (``DOCKER_HOST``, ``DOCKER_CONTEXT``, ``DOCKER_CONFIG`` and
+``DOCKER_CERT_PATH``) from the caller. The container is different. It gets only the ``env`` table
+of your private settings files, then the ``env`` setting, then the variables that the flow sets
+itself. No variable of the caller enters a container.
+
+Neither mode is hermetic. A tool can read a file, a home directory or a program that Xeda does not
+track. ``inherit_env: false`` only reduces what the tool receives.
+
+The inherited values that a node uses are evidence for freshness. They are not part of the
+identity of the run, so the run directory does not change with them. A changed value makes the node
+run again. When a variable is added or removed, the reason for the run names the variable. It never
+shows a value. The variables of a shell session, a terminal or a login never count: ``PWD``,
+``OLDPWD``, ``SHLVL``, ``_``, ``COLUMNS``, ``LINES``, ``TERM_SESSION_ID``, ``ITERM_SESSION_ID``,
+``WINDOWID``, ``TMUX``, ``TMUX_PANE``, ``STY``, ``SSH_AUTH_SOCK``, ``SSH_AGENT_PID``,
+``SSH_CLIENT``, ``SSH_CONNECTION``, ``SSH_TTY``, ``XDG_SESSION_ID``, ``XEDA_RUN_ROOT``,
+``XEDA_REMOTE``, ``XEDA_LOG_LEVEL`` and ``XEDA_DETAILED_LOGS``. ``results.json`` lists the names of
+the inherited variables in ``inherited_variables``. It holds no value.
+
+With ``--remote``, Xeda takes the environment on the host, in the environment of the agent. Xeda
+does not send the ``env`` table of your local private settings files to the host. The profile of
+the host in ``remotes.yaml`` has its own ``env`` table (see :ref:`remote-profiles`).
+
 .. _quantities:
 
 Physical quantities and units
