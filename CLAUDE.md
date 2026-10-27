@@ -246,6 +246,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   are named through `RunDirectory.unlinked`. `tests/test_isolation.py` checks it (canary sweep, audit hook,
   read-only tree); a new delete or raw write fails until it is added to `REVIEWED_PY_DELETIONS`,
   `REVIEWED_SCRIPT_DELETIONS` or `REVIEWED_WRITES`.
+- Locks: a delivery is the one phase that holds locks and waits, taking its destinations and delivery
+  records in canonical order; `scrub` and the Git fetch of planning hold one exclusive lock at a time;
+  the remote client locks its whole mirror in one `acquire_all`; a thread that holds a lock gets
+  `lease_held` from a launch, sweep or scrub (`tests/test_graph_locks.py`).
 - Loading a design runs no generator and writes nothing; its generated `rtl.sources` are
   declarations (`Source.declaration`, a name or pattern in the generator output, never expanded; an
   entry is wholly generated or wholly written, `tests/test_generated_declarations.py`). A launch
@@ -255,11 +259,14 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   The key hashes the recipe, `design_configuration` (no content), the generator inputs and the
   executable; the inherited environment is freshness evidence, never key. The generator runs in
   the storage with `DESIGN_ROOT` and `XEDA_GENERATED`; flows get `execution_design`, and the plan,
-  the identity and the node configuration use the declared design. A launch generates before it takes any
-  run-directory lock, and holds the shared lease of the storage until the last delivery
-  (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A dependency with a generator is a unit
-  of generation (`Design.generation_units`, `Source.owner`) with a storage of its own, dependencies
-  first; a generation holds one exclusive lock and waits for no other, and the shared leases of all
+  the identity and the node configuration use the declared design. A launch takes the locks of its
+  whole graph in one `run_lock.acquire_all` call (run directories, then storages, then
+  destinations, each by one resource key; it waits only for the first and, on a busy later lock,
+  releases all and waits for that one), generates under its exclusive locks, takes the storages
+  again shared, and keeps them with the node locks until the last delivery
+  (`tests/test_graph_locks.py`, `tests/test_storage_locks.py`). A dependency with a generator is a
+  unit of generation (`Design.generation_units`, `Source.owner`) with a storage of its own,
+  dependencies first; a generator takes no lock of its own, and the shared leases of all
   storages come after all generations (`tests/test_dependency_generation.py`). Loading reads no
   dependency. Planning merges them (`flow_runner/dependencies.py`): a Git fetch runs after every
   check that reads no value a dependency supplies, into `<run root>/.dependencies/<key>/` (the one
