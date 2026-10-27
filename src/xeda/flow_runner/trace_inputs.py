@@ -685,8 +685,12 @@ def expectation(
     run_root: Path,
     producers: Sequence[Flow],
     digests: CodeDigests,
+    registered: Sequence[Path] | None = None,
 ) -> Expectation:
     """Return what `flow` would consume now.
+
+    `registered` replaces the files that `flow` registered: a node that is not prepared (held
+    shared) is judged by where its preparation puts its files (`located_input_files`).
 
     `design` and `input_settings` are those of the launcher (never modified by the flow), so
     the same inputs are found before and after the run. `run_root` is the root of the run
@@ -711,7 +715,7 @@ def expectation(
         design=design,
         input_settings=input_settings,
         run_root=run_root,
-        registered=flow.implicit_inputs,
+        registered=flow.implicit_inputs if registered is None else registered,
         declared=getattr(flow, "declared_input_records", ()),
         dependency_run_ids=dependency_runs(producers, run_root),
         digests=digests,

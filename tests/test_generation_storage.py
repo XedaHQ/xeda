@@ -228,7 +228,8 @@ def test_a_generator_failure_is_an_error_of_the_whole_launch(tmp_path):
     assert result.error.node is None and "failed" in result.error.message
     assert [(n.name, n.outcome) for n in result.nodes.values()] == [(flow.name, Outcome.SKIPPED)]
     assert world.storages() == [], "a failed generation leaves no storage"
-    assert not any(world.run_root.glob("generated/*")), "no run directory"
+    left = [path for path in world.run_root.glob("generated/*") if path.suffix != ".lock"]
+    assert not left, "no run directory"
     # the design can be mended and launched again
     (world.root / "fail").unlink()
     assert world.launch(flow).outcome is Outcome.PASSED
@@ -498,8 +499,11 @@ def test_two_launches_generate_one_configuration_once(tmp_path, monkeypatch):
         second.join(HANG_GUARD)
     assert [r.outcome for r in results.values()] == [Outcome.PASSED, Outcome.PASSED]
     assert world.runs == 1, "the second launch waited, found the record and reused the storage"
-    (storage,) = world.storages()
-    assert paths[0] == lock_file(storage.resolve())
+    assert world.storages()
+    assert paths[0] == lock_file(world.run_root / "generated" / flow.name), (
+        "the second launch waited for the run directory of the first, the first lock of the set, "
+        "holding nothing"
+    )
 
 
 # ---------------------------------------------------------------- leases

@@ -5,15 +5,21 @@ none, and it waits only while it holds no lock. Delivery is the one phase that h
 waits.
 """
 
+import os
+import shutil
 import sys
 import threading
 import unicodedata
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
 
+from xeda import Design
 from xeda.errors import LeaseHeldError
-from xeda.flow_runner import run_lock
+from xeda.flow_runner import DefaultRunner, launch_generation, launch_locks, run_lock
+from xeda.flow_runner.dse.dse_runner import Dse
+from xeda.flow_runner.dse.fmax import FmaxOptimizer
 from xeda.flow_runner.run_lock import (
     LockRequest,
     LockWaitCanceled,
@@ -26,12 +32,23 @@ from xeda.flow_runner.run_lock import (
     run_dir_read_lock,
     storage_lock,
 )
+from xeda.outcomes import Outcome
 from xeda.run_dir import RunDirectoryError
+from xeda.run_root import ensure_run_root
 
-from .test_storage_locks import _probe
+from .flow_registry import preserved_flow_registry
+from .generation_world import World, reader_flow
+from .io_flows import _Maker, _Taker
+from .test_storage_locks import PROBE, _probe
 from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
+
+
+@pytest.fixture(autouse=True)
+def isolate_registration():
+    with preserved_flow_registry():
+        yield
 
 
 def _tree(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -532,3 +549,301 @@ def test_destinations_are_awaited_in_order_by_a_thread_that_keeps_its_locks(tmp_
     _join(holder)
     _join(caller)
     assert outcome == [2]
+
+
+# ------------------------------------------------------------------------------------ launches
+
+
+def _design(tmp_path: Path) -> Design:
+    root = tmp_path / "d"
+    root.mkdir(exist_ok=True)
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"})
+
+
+def _probe_file(lock: Path, mode: str = "exclusive") -> str:
+    """Whether another process could take the lock file `lock` in `mode` now."""
+    import subprocess
+
+    found = subprocess.run(
+        [sys.executable, "-c", PROBE, str(lock), mode], capture_output=True, text=True, check=True
+    )
+    return found.stdout.strip()
+
+
+@pytest.fixture
+def acquisitions(monkeypatch):
+    """The requests of each acquisition that a launch makes for its graph, as
+    `(kind, name, exclusive)`."""
+    calls: list[list[tuple[str, str, bool]]] = []
+    original = launch_generation.acquire_all
+
+    def record(requests, **kwargs):
+        calls.append([(r.kind, r.path.name, r.exclusive) for r in requests])
+        return original(requests, **kwargs)
+
+    monkeypatch.setattr(launch_generation, "acquire_all", record)
+    return calls
+
+
+def test_a_launch_takes_every_lock_of_its_graph_once_before_any_flow_runs(
+    tmp_path, monkeypatch, acquisitions
+):
+    root = tmp_path / "xeda_run"
+    events: list[str] = []
+    monkeypatch.setattr(run_lock, "acquired_hook", lambda path: events.append(path.name))
+    for flow in (_Maker, _Taker):
+        run = flow.run
+
+        def noted(self, run=run):
+            events.append("run " + self.name)
+            run(self)
+
+        monkeypatch.setattr(flow, "run", noted)
+    runner = DefaultRunner(root, display_results=False)
+    assert runner.launch_flow(_Taker, _design(tmp_path), {}).succeeded
+    assert events == [
+        "__maker.lock",
+        "__taker.lock",
+        "run __maker",
+        "run __taker",
+    ], "the producer takes no lock inside the lock of its consumer"
+    assert acquisitions == [[("run_dir", "__maker", True), ("run_dir", "__taker", True)]]
+
+
+def test_a_node_that_is_stale_under_its_shared_lock_makes_the_launch_start_again(
+    tmp_path, monkeypatch, acquisitions
+):
+    root = tmp_path / "xeda_run"
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).succeeded
+    acquisitions.clear()
+    ran: list[str] = []
+    run = _Maker.run
+
+    def noted(self):
+        ran.append(self.name)
+        run(self)
+
+    monkeypatch.setattr(_Maker, "run", noted)
+    hint = launch_locks.NodeLocks.hint
+
+    def hint_then_spoil(self):
+        hint(self)  # both nodes are up to date: shared
+        (root / "d" / "__maker" / "results.json").unlink()  # not any more, when the locks are held
+
+    monkeypatch.setattr(launch_locks.NodeLocks, "hint", hint_then_spoil)
+    runner = DefaultRunner(root, display_results=False)
+    assert runner.launch_flow(_Taker, design, {}).succeeded
+    assert acquisitions == [
+        [("run_dir", "__maker", False), ("run_dir", "__taker", False)],
+        [("run_dir", "__maker", True), ("run_dir", "__taker", True)],
+    ]
+    assert ran == ["__maker"]
+
+
+def test_the_launch_holds_the_storage_exclusively_to_generate_and_shared_while_flows_run(
+    tmp_path, monkeypatch, acquisitions
+):
+    flow = reader_flow()
+    world = World(tmp_path)
+    events: list[tuple[str, int]] = []
+    monkeypatch.setattr(run_lock, "acquired_hook", lambda p: events.append((p.name, world.runs)))
+    original = flow.run
+    modes: list[tuple[str, str]] = []
+
+    def run(self):
+        (storage,) = world.storages()
+        modes.append((_probe(storage, "exclusive"), _probe(storage, "shared")))
+        original(self)
+
+    monkeypatch.setattr(flow, "run", run)
+    result = world.launch(flow)
+    assert result.outcome is Outcome.PASSED, result.error
+    (storage,) = world.storages()
+    lock = storage.name + ".lock"
+    assert events == [
+        (f"{flow.name}.lock", 0),
+        (lock, 0),
+        (f"{flow.name}.lock", 1),
+        (lock, 1),
+    ], "the nodes are locked before the generator runs"
+    assert acquisitions == [
+        [("run_dir", flow.name, True), ("storage", storage.name, True)],
+        [("run_dir", flow.name, True), ("storage", storage.name, False)],
+    ]
+    assert modes == [("blocked", "free")], "a shared lease while the flow runs"
+    assert world.runs == 1
+
+
+def _busy_storage_lock(monkeypatch, world: World, busy_attempts: set[int]) -> list[int]:
+    """Make the storage lock look held by another process at the attempts numbered in
+    `busy_attempts` (from 1) to take it without waiting. Return the list of restarts."""
+    restarts: list[int] = []
+    attempts = [0]
+    original = run_lock._try_lock
+
+    def try_lock(file, exclusive, path):
+        if path.parent.parent.name == ".generated":
+            attempts[0] += 1
+            if attempts[0] in busy_attempts:
+                return False
+        return original(file, exclusive, path)
+
+    monkeypatch.setattr(run_lock, "_try_lock", try_lock)
+    monkeypatch.setattr(run_lock, "_wait_free", lambda *_args: restarts.append(attempts[0]))
+    return restarts
+
+
+def test_a_launch_that_contention_restarts_many_times_still_completes(tmp_path, monkeypatch):
+    """A restart because another process holds a lock is no failed try of the generator."""
+    flow = reader_flow()
+    world = World(tmp_path)
+    restarts = _busy_storage_lock(monkeypatch, world, {1, 2, 3, 4, 5, 6})
+    result = world.launch(flow)
+    assert result.outcome is Outcome.PASSED, result.error
+    assert len(restarts) == 6
+    assert world.runs == 1
+
+
+def test_a_rebuild_all_launch_generates_once_although_the_acquisition_restarts(
+    tmp_path, monkeypatch
+):
+    flow = reader_flow()
+    world = World(tmp_path)
+    # The first attempt generates. The shared retake of the storage finds it held: a restart.
+    restarts = _busy_storage_lock(monkeypatch, world, {2, 3})
+    result = world.launch(flow, world.runner(rebuild_all=True))
+    assert result.outcome is Outcome.PASSED, result.error
+    assert len(restarts) == 2
+    assert world.runs == 1
+
+
+def test_the_rebuild_of_a_storage_is_remembered_by_its_identity_and_never_hides_an_invalid_one(
+    tmp_path,
+):
+    world = World(tmp_path)
+    design = world.load()
+    run_root = ensure_run_root(world.run_root)
+    state = launch_generation.GenerationState()
+
+    def settle() -> None:
+        with ExitStack() as stack:
+            launch_generation.settle(
+                design,
+                run_root=run_root,
+                environ=dict(os.environ),
+                rebuild_all=True,
+                state=state,
+                stack=stack,
+            )
+
+    settle()
+    assert world.runs == 1 and len(state.generated) == 1
+    (identity,) = state.generated
+    assert identity.startswith(f"{design.name}/")
+    settle()
+    assert world.runs == 1, "the forced rebuild happens once in a launch"
+    (storage,) = world.storages()
+    shutil.rmtree(storage)
+    settle()
+    assert world.runs == 2, "a storage that is not valid is generated again"
+
+
+def test_a_storage_that_another_launch_replaced_in_the_gap_is_accepted_when_it_is_valid(
+    tmp_path, monkeypatch
+):
+    flow = reader_flow()
+    world = World(tmp_path)
+    (world.root / "gen.py").write_text(
+        "import os, sys\n"
+        "from pathlib import Path\n"
+        "with open(sys.argv[1], 'a') as counter:\n"
+        "    counter.write('ran\\n')\n"
+        "count = len(Path(sys.argv[1]).read_text().splitlines())\n"
+        "out = Path(os.environ['XEDA_GENERATED'])\n"
+        "(out / 'gen').mkdir(exist_ok=True)\n"
+        "(out / 'gen' / 'top.v').write_text(f'// run {count}\\n')\n"
+    )
+    original = launch_generation.acquire_all
+    calls = []
+
+    def retake(requests, **kwargs):
+        calls.append(requests)
+        if len(calls) == 2:
+            # The launch released its locks after it generated. Another launch forces a rebuild.
+            assert world.launch(flow, world.runner(rebuild_all=True)).outcome is Outcome.PASSED
+        return original(requests, **kwargs)
+
+    monkeypatch.setattr(launch_generation, "acquire_all", retake)
+    result = world.launch(flow)
+    assert result.outcome is Outcome.PASSED, result.error
+    assert world.runs == 2
+    assert result.nodes[flow.name].record.metrics["seen"] == "// run 2\n"
+
+
+def test_a_node_reused_under_a_shared_lock_is_neither_prepared_nor_refreshed(tmp_path, monkeypatch):
+    root = tmp_path / "xeda_run"
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).succeeded
+    before = {
+        str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns, p.stat().st_ino)
+        for p in sorted((root / "d").rglob("*"))
+        if p.is_file() and p.suffix != ".lock"
+    }
+    prepared: list[str] = []
+    for flow in (_Maker, _Taker):
+        monkeypatch.setattr(flow, "prepare_inputs", lambda self: prepared.append(self.name))
+    held: list[tuple[str, str]] = []
+    place = DefaultRunner._place_generated_deliveries
+
+    def seen_held(self, *args):
+        # Called when the launch has taken its locks, before it runs anything.
+        for name in ("__maker", "__taker"):
+            held.append((_probe(root / "d" / name, "shared"), _probe(root / "d" / name)))
+        return place(self, *args)
+
+    monkeypatch.setattr(DefaultRunner, "_place_generated_deliveries", seen_held)
+    outcome = DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {})
+    assert outcome.reused and prepared == []
+    after = {
+        str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns, p.stat().st_ino)
+        for p in sorted((root / "d").rglob("*"))
+        if p.is_file() and p.suffix != ".lock"
+    }
+    assert after == before, "a shared node is read and never written"
+    assert held == [("free", "blocked")] * 2, "shared: readers may join, a writer may not"
+
+
+# ------------------------------------------------------------------------------- cancellation
+
+
+def test_a_launch_that_waits_for_its_first_lock_observes_cancellation(tmp_path, monkeypatch):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    waiting = threading.Event()
+    monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
+    runner = DefaultRunner(root, display_results=False)
+    runner.canceled = waiting.is_set
+    monkeypatch.setattr(_Maker, "run", lambda self: pytest.fail("it ran"))
+    with run_lock.run_dir_lock(root / "d" / "__maker", root):
+        launch, outcome = _in_thread(lambda: runner.launch_flow(_Maker, design, {}))
+        _join(launch)
+    assert isinstance(outcome[0], LockWaitCanceled)
+    assert _probe(root / "d" / "__maker") == "free", "the launch holds nothing"
+
+
+# ------------------------------------------------------------------------------------- guards
+
+
+def test_a_sweep_is_refused_by_a_thread_that_holds_a_lock(tmp_path):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    sweep = Dse(
+        FmaxOptimizer,
+        {"init_freq_low": 100, "init_freq_high": 200},
+        run_root=root,
+        max_workers=1,
+    )
+    with run_lock.run_dir_read_lock(root / "d" / "flow", root):
+        with pytest.raises(LeaseHeldError) as caught:
+            sweep.run_flow(_Maker, _design(tmp_path), {})
+    assert caught.value.code == "lease_held"

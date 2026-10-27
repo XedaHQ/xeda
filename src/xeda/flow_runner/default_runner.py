@@ -99,9 +99,11 @@ from . import (
     launch_generation,
     launch_identity,
     launch_input,
+    launch_locks,
     launch_producers,
     launch_report,
     launch_run,
+    run_lock,
 )
 from .chains import ChainElement, FlowRequest, parse_request
 from .layer_paths import anchored_sections
@@ -135,7 +137,7 @@ from .plan_freshness import (
     judge_plan,
 )
 from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
-from .run_lock import CompletedRun, run_dir_lock, storage_lock
+from .run_lock import CompletedRun, LockSet
 from .settings_layers import (
     API_ORIGIN,
     COMMAND_LINE_ORIGIN,
@@ -456,6 +458,17 @@ class FlowLauncher:
         self._pending_clean_ups: List[Tuple[Flow, Path, Path, RunDirPolicy]] = []
         #: The run directories the current launch has entered.
         self._claims: set[Path] = set()
+        #: The locks the current launch holds until it has delivered everything, and the lock
+        #: modes of its nodes (`launch_locks`). Set by the requested flow.
+        self._locks: LockSet | None = None
+        self._node_locks: launch_locks.NodeLocks | None = None
+        #: What the current launch generated, which survives a restart of its acquisition.
+        self._generation_state = launch_generation.GenerationState()
+        #: How many times the current launch started again with a node exclusive.
+        self._restarts = 0
+        #: Told while the launch waits for a lock. When it says yes, the wait ends and the launch
+        #: releases everything (`run_lock.LockWaitCanceled`).
+        self.canceled: Callable[[], bool] | None = None
         #: How many flows `launched` held when the current launch began.
         self._launched_before = 0
         #: The replacements the user confirmed in the current launch, each as the file was then.
@@ -841,6 +854,8 @@ class FlowLauncher:
         failure, delivers nothing, not even the outputs of a producer that succeeded
         (`_finish_launch`).
         """
+        if self._launch_depth == 0:
+            run_lock.refuse_if_held()
         if plan is None:
             self._refuse_before_merging(
                 get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class,
@@ -851,48 +866,59 @@ class FlowLauncher:
         design = self._merged(design)
         top_level = self._launch_depth == 0
         if top_level:
-            self._claims = set()
             self._launched_before = len(self.launched)
             self._confirmed_replacements = ConfirmedReplacements()
-            self._deliveries_ahead = {}
-            self._predicted_copies = []
-            self._planned_completed = {}
-            self._completed_runs = {}
-            # Every file that the flows of this launch read: the requested flow registers the
-            # settings of the whole plan, and each flow the files it prepares.
-            self._read_inputs = ReadInputs(self._launch_inputs)
-            self._code_digests = CodeDigests()  # read the code once per launch, never longer
-            self._delivered_files = DeliveredFiles()
-            self._pending_deliveries = []
-            self._generation = None
-            self.collector = LaunchCollector()
-        self._launch_depth += 1
-        attempts = self.collector.depth()
-        try:
-            flow = self._launch(
-                flow_class,
-                design,
-                flow_settings,
-                depender,
-                all_flows_settings,
-                plan=plan,
-                plan_node=plan_node,
-                consumer=consumer,
-            )
-            if plan is not None:
-                self._planned_completed[(id(plan), plan_node or NodeKey(flow.name))] = flow
-            self.collector.attempt_closed(attempts, None)
-        except BaseException as raised:
-            self.collector.attempt_closed(attempts, raised)
-            self._launch_depth -= 1
+            self._generation_state = launch_generation.GenerationState()
+            self._node_locks = None
+            self._restarts = 0
+        while True:
             if top_level:
-                # A launch that failed delivers nothing. The failures of its clean-ups are
-                # logged, and the error of the launch propagates.
-                try:
-                    self._finish_launch(deliver=False)
-                finally:
-                    self._release_generation()
-            raise
+                self._claims = set()
+                self._deliveries_ahead = {}
+                self._predicted_copies = []
+                self._planned_completed = {}
+                self._completed_runs = {}
+                # Every file that the flows of this launch read: the requested flow registers the
+                # settings of the whole plan, and each flow the files it prepares.
+                self._read_inputs = ReadInputs(self._launch_inputs)
+                self._code_digests = CodeDigests()  # read the code once per launch, never longer
+                self._delivered_files = DeliveredFiles()
+                self._pending_deliveries = []
+                self._generation = None
+                self.collector = LaunchCollector()
+            self._launch_depth += 1
+            attempts = self.collector.depth()
+            try:
+                flow = self._launch(
+                    flow_class,
+                    design,
+                    flow_settings,
+                    depender,
+                    all_flows_settings,
+                    plan=plan,
+                    plan_node=plan_node,
+                    consumer=consumer,
+                )
+                if plan is not None:
+                    self._planned_completed[(id(plan), plan_node or NodeKey(flow.name))] = flow
+                self.collector.attempt_closed(attempts, None)
+            except BaseException as raised:
+                self.collector.attempt_closed(attempts, raised)
+                self._launch_depth -= 1
+                if top_level:
+                    if isinstance(raised, launch_locks.NeedsExclusive):
+                        # A node that the launch held shared must be written. Nothing was
+                        # delivered: release every lock, and start again with that node exclusive.
+                        self._start_again(raised)
+                        continue
+                    # A launch that failed delivers nothing. The failures of its clean-ups are
+                    # logged, and the error of the launch propagates.
+                    try:
+                        self._finish_launch(deliver=False)
+                    finally:
+                        self._release_generation()
+                raise
+            break
         self._launch_depth -= 1
         if top_level:
             # Only a requested flow that succeeded, or was found up to date, delivers. One whose
@@ -913,41 +939,103 @@ class FlowLauncher:
                 warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
         return flow
 
-    def _enter_generation(self, design: Design) -> None:
-        """Generate the sources of `design` and hold their storage until the launch ends.
+    def _start_again(self, need: launch_locks.NeedsExclusive) -> None:
+        """Release every lock of the launch and forget what the attempt did, so that the launch
+        starts again with the nodes of `need` locked exclusively.
 
-        This is the generation stage of the requested flow, after every declarative check and
-        before its first producer. It runs the generator unless the storage of its configuration
-        is current, under the exclusive lock of the storage, and then keeps the shared lease of
-        the storage, so nothing regenerates or removes it while a flow reads it. A design
-        without a generator has nothing to generate. A failure is a `GenerationError`, an error of
-        the whole launch.
+        The flows that ran stay on disk and are reused by the next attempt. The clean-ups that
+        they left pending stay pending."""
+        assert self._node_locks is not None
+        self._node_locks.promote(need.nodes)
+        # A clean-up that an earlier attempt left pending writes in its run directory.
+        self._node_locks.promote(flow.name for flow, *_rest in self._pending_clean_ups)
+        self._restarts += 1
+        del self.launched[self._launched_before :]
+        self._generation = None
+        self._leases.close()
+        self._leases = ExitStack()
+        self._locks = None
 
-        The launch holds the shared lease of the storage of each Git dependency that the design
-        merged, from here on, so no fetch replaces its files while a tool reads them."""
-        for record in design.resolved_dependencies:
-            if record.storage is not None:
-                self._leases.enter_context(
-                    storage_lock(record.storage, exclusive=False, run_root=self.run_root)
-                )
-        generation = self._leases.enter_context(
-            launch_generation.generated(
-                design,
+    def _scrub_old_runs(self, plan: Plan) -> None:
+        """Scrub the older sibling runs of every node of the plan (`scrub_old_runs`).
+
+        This comes before the launch takes any lock: a scrub takes one lock at a time, so it
+        cannot wait for a lock that this launch holds, and concurrent hashed variants do not each
+        hold their directory while they wait to delete the other one."""
+        if not self._run_dir_policy().scrub_old_runs:
+            return
+        for planned in plan.nodes:
+            scrub_runs(
+                planned.flow_class.name,
+                planned.run_path.parent,
+                [planned.run_path],
                 run_root=self.run_root,
-                rebuild_all=self.settings.rebuild_all or self.settings.clean,
-                environ=dict(os.environ),
+                confirm=self.confirm_scrub,
+                on_result=self.scrub_done,
             )
+
+    def _lock_graph(self, plan: Plan, design: Design, runner_cwd: Path) -> None:
+        """Lock the whole graph of the launch, generate, and hold the locks until it ends.
+
+        This is the acquisition stage of the requested flow, after every declarative check and
+        before its first producer. One acquisition takes the lock of the run directory of every
+        node of the plan (shared for a node that the launch reuses, exclusive for a node it may
+        run), the lock of each generation storage and of the storage of each Git dependency that
+        the design merged (shared unless the storage must be written), in that order
+        (`launch_generation.settle`). Under the locks, the generators run for the storages that
+        need it, and the launch takes the storages again as a shared lease. A design without a
+        generator has nothing to generate. A failure is a `GenerationError`, an error of the
+        whole launch.
+
+        A node found out of date under a shared lock makes the launch start again with that node
+        exclusive (`launch_locks.NeedsExclusive`)."""
+        rebuild_all = self.settings.rebuild_all or self.settings.clean
+        run_root = self.run_root
+        environ = dict(os.environ)
+        if self._node_locks is None:
+            self._node_locks = launch_locks.NodeLocks(
+                {planned.name: planned.run_path for planned in plan.nodes},
+                lambda: judge_plan(
+                    plan,
+                    design,
+                    run_root=run_root,
+                    runner_cwd=runner_cwd,
+                    rebuild_all=self.settings.rebuild_all,
+                    clean=self._run_dir_policy().clean,
+                    debug=self.debug or self.settings.debug,
+                    run_path=self.run_path_of,
+                    environ=environ,
+                ),
+                everything_runs=rebuild_all,
+            )
+        self._node_locks.hint()
+        leases = [
+            record.storage for record in design.resolved_dependencies if record.storage is not None
+        ]
+        settled = launch_generation.settle(
+            design,
+            run_root=run_root,
+            environ=environ,
+            rebuild_all=rebuild_all,
+            state=self._generation_state,
+            stack=self._leases,
+            participants=self._node_locks,
+            leases=leases,
+            canceled=self.canceled,
         )
-        execution = launch_generation.execution_design(design, generation)
-        self._generation = _LaunchGeneration(design, generation, execution)
+        self._locks = settled.locks
+        execution = launch_generation.execution_design(design, settled.generations)
+        self._generation = _LaunchGeneration(design, settled.generations, execution)
         if execution is not design:
             self._read_inputs.add(design_files(execution))
 
     def _release_generation(self) -> None:
-        """Release the lease of the storage, once the launch has delivered everything."""
+        """Release every lock of the launch, once it has delivered everything."""
         self._generation = None
         self._leases.close()
         self._leases = ExitStack()
+        self._locks = None
+        self._node_locks = None
 
     def _execution_of(self, design: Design) -> Design:
         """Return the design that the flows of this launch get for the declared `design`."""
@@ -958,8 +1046,8 @@ class FlowLauncher:
         """Finish a top-level launch, and return the first failure, if any.
 
         With `deliver` (the launch completed, and its requested flow succeeded or was up to
-        date), deliver the outputs noted for its flows (`_defer_delivery`), each under the lock
-        of its run directory, in completion order. Then run the deferred clean-ups, which may
+        date), deliver the outputs noted for its flows (`_defer_delivery`), in completion order,
+        while the launch keeps the locks of its nodes. Then run the deferred clean-ups, which may
         remove a file that is delivered. A flow whose run directory a clean-up deletes delivers
         by moving its files. Each delivery and each clean-up is made on its own: a failure is
         logged and the next goes on."""
@@ -982,10 +1070,10 @@ class FlowLauncher:
         reached = (
             Deliveries.sources_reached(d for _flow, d in deliveries) if deliver and purged else None
         )
+        # The launch still holds the locks of its nodes: no other launch changes their files.
         for flow, delivery in deliveries if deliver else []:
             try:
-                with run_dir_lock(flow.run_path, self.run_root):
-                    flow.deliveries = delivery.deliver(move=id(flow) in purged, reached=reached)
+                flow.deliveries = delivery.deliver(move=id(flow) in purged, reached=reached)
             except Exception as e:  # noqa: BLE001 - every delivery gets its turn
                 # `deliver()` records, and reports through `delivery.delivered`, whatever it
                 # copied before raising (an `OSError` partway through), so a `--json` reader still
@@ -999,8 +1087,7 @@ class FlowLauncher:
         pending, self._pending_clean_ups = self._pending_clean_ups, []
         for flow, settings_json, results_json, policy in pending:
             try:
-                with run_dir_lock(flow.run_path, self.run_root):
-                    self._clean_up(flow, settings_json, results_json, policy)
+                self._clean_up(flow, settings_json, results_json, policy)
             except Exception as e:  # noqa: BLE001 - every clean-up gets its turn
                 log.error("Cleaning up %s failed: %s", flow.run_path, e, exc_info=True)
                 self.collector.finish_failed("clean-up", e, flow.run_path)
@@ -1293,10 +1380,12 @@ class FlowLauncher:
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
         if plan_node is None:
-            # Every declarative check has passed. The generator of the design runs now, before
-            # the first producer and before any lock of a run directory (a lock of the storage
-            # is taken first by every launch, so two launches cannot wait for each other).
-            self._enter_generation(design)
+            # Every declarative check has passed. The launch locks its whole graph now, and the
+            # generators run under those locks, before the first producer. The older runs of every
+            # node are scrubbed first, while the launch holds no lock.
+            if self._restarts == 0:
+                self._scrub_old_runs(plan)
+            self._lock_graph(plan, design, runner_cwd)
             self._place_generated_deliveries(plan, design, runner_cwd)
         # What the flows read: the design with the files of its generated sources in place.
         execution = self._execution_of(design)
@@ -1307,18 +1396,16 @@ class FlowLauncher:
         self._claim_run_dir(run_path)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
-        # Scrub siblings before taking the lock of this run directory: concurrent hashed
-        # variants must not each hold their directory while waiting to delete the other one.
-        if policy.scrub_old_runs:
-            scrub_runs(
-                flow_name,
-                run_path.parent,
-                [run_path],
-                run_root=self.run_root,
-                confirm=self.confirm_scrub,
-                on_result=self.scrub_done,
-            )
-        with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
+        # The launch holds the lock of this run directory since it locked its graph. A node that
+        # it holds shared is reused or the launch starts again.
+        assert self._locks is not None
+        mode = self._locks.mode_of("run_dir", run_path)
+        assert mode is not None, f"the launch did not lock {run_path}"
+        shared = mode == "shared"
+        if shared and not run_path.is_dir():
+            # Nothing to reuse: the directory is made under an exclusive lock.
+            raise launch_locks.NeedsExclusive([node.name])
+        with ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
             # The deliveries are checked again before `--clean`, before the `init()` of this
@@ -1457,9 +1544,18 @@ class FlowLauncher:
                     # Producers have their own program records. Preparation belongs to this
                     # consumer and happens before its execution recording scope/snapshot.
                     with recording_programs() as programs:
-                        flow.prepare_inputs()
-                    prepared = registered_input_files(flow)
-                    located = located_input_files(flow)
+                        if shared:
+                            # A node that the launch holds shared writes nothing: it is judged
+                            # by where preparation puts its files, and made ready only if it
+                            # runs (the launch then starts again with it exclusive).
+                            located = located_input_files(flow)
+                            if located is None:
+                                raise launch_locks.NeedsExclusive([node.name])
+                            prepared = located
+                        else:
+                            flow.prepare_inputs()
+                            prepared = registered_input_files(flow)
+                            located = located_input_files(flow)
                     if located != prepared:
                         raise FlowFatalError(
                             f"{flow.name} registered {[str(p) for p in prepared]} as its prepared "
@@ -1487,6 +1583,9 @@ class FlowLauncher:
                         ).as_json_value()
                         flow.blocked_by = e.producer
                         raise
+                    if shared:
+                        # The records below are writes. Make them under an exclusive lock.
+                        raise launch_locks.NeedsExclusive([node.name]) from e
                     # The flow could not start: a problem with what its producers hand over, or
                     # with the flow itself. Its directory no longer vouches for a run.
                     remove_trace(run_path)
@@ -1510,17 +1609,29 @@ class FlowLauncher:
                     None
                     if always is not None
                     else expectation(
-                        flow, derived, input_settings, self.run_root, producers, self._code_digests
+                        flow,
+                        derived,
+                        input_settings,
+                        self.run_root,
+                        producers,
+                        self._code_digests,
+                        registered=prepared if shared else None,
                     )
                 )
+                if shared and expected is None:
+                    raise launch_locks.NeedsExclusive([node.name])
                 if expected is None:
                     flow.stale_reason = always
                     log.info("Running %s: %s", flow.name, always)
                 elif not self.settings.rebuild_all and not policy.clean:
                     # A second consumer may be acquiring a lease on this same run. Reuse must
-                    # not change its trace or directory through a clock marker.
+                    # not change its trace or directory through a clock marker. A node held
+                    # shared is never refreshed.
                     freshness = check_trace(
-                        run_path, expected, locate_program, refresh=not producer_launch
+                        run_path,
+                        expected,
+                        locate_program,
+                        refresh=not producer_launch and not shared,
                     )
                     if freshness.fresh and reuse_results(flow, self.run_root, freshness):
                         if freshness.refreshed is not None:
@@ -1561,6 +1672,8 @@ class FlowLauncher:
                         if flow.succeeded:
                             self._defer_delivery(flow, delivery, outputs_to)
                         return flow
+                    if shared:
+                        raise launch_locks.NeedsExclusive([node.name])
                     flow.stale_reason = (
                         freshness.reason or f"no completed results in {results_json}"
                     )

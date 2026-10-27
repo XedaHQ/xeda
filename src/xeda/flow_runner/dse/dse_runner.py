@@ -37,7 +37,7 @@ from ..default_runner import (
 from ..scrub import run_directory_names
 from ..settings_layers import merge_layers, read_command_line_text
 from ..resolver import Plan, planned_design_of
-from ..run_lock import run_dir_lock
+from ..run_lock import refuse_if_held, run_dir_lock
 from ..trace import as_recorded
 
 log = logging.getLogger(__name__)
@@ -368,7 +368,10 @@ class Dse(FlowLauncher):
         all_flows_settings: Optional[Dict[str, Any]] = None,
         plan: Plan | None = None,
     ):
-        """Explore variations of the flow settings and return the best run."""
+        """Explore variations of the flow settings and return the best run.
+
+        The exploration holds no lock while its workers run: a thread that holds one is refused."""
+        refuse_if_held()
         assert isinstance(self.settings, self.Settings)
         _refuse_openroad(self.optimizer, flow_class)
         timer = Timer()

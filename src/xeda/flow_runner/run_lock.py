@@ -256,12 +256,18 @@ def _open(path: Path, run_root: Path | None) -> TextIO:
     return os.fdopen(descriptor, "a")
 
 
-def _try_lock(file: TextIO, exclusive: bool) -> bool:
-    """Take the OS lock on `file` if no other holder keeps it. Never wait."""
+def _try_lock(file: TextIO, exclusive: bool, path: Path) -> bool:
+    """Take the OS lock on `file` (the lock file `path`) if no other holder keeps it. Never wait.
+
+    A system that cannot lock at all (no lock space left) is a `RunDirectoryError`."""
     try:
         fcntl.flock(file.fileno(), (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
     except BlockingIOError:
         return False
+    except OSError as error:
+        raise RunDirectoryError(
+            f"cannot take the {'exclusive' if exclusive else 'shared'} lock {path}: {error}"
+        ) from error
     return True
 
 
@@ -274,7 +280,7 @@ def _wait_for(
     tells `wait_hook` once, when it first finds the lock kept."""
     pause = 0.001
     told = False
-    while not _try_lock(file, exclusive):
+    while not _try_lock(file, exclusive, path):
         if not told:
             told = True
             if wait_hook is not None:
@@ -386,7 +392,7 @@ def _take(
     _guard(request.path)
     file = _open(target.file, run_root)
     try:
-        if not _try_lock(file, request.exclusive):
+        if not _try_lock(file, request.exclusive, target.file):
             if not wait:
                 file.close()
                 return False

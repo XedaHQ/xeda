@@ -13,6 +13,11 @@ generation (`Design.generation_units`, dependencies first, then the design itsel
 and a key of its own, and a launch holds the leases of them all (`Generations`). The sources of a
 dependency's generator keep that dependency as their owner (`Source.owner`).
 
+A launch locks its whole graph in one acquisition: the run directories of its nodes, then the
+storages (`settle`). A generator runs under the exclusive locks of that acquisition and takes no
+other lock. Then the launch releases the set and takes it again with the storages it generated
+shared, and judges every storage again before any node runs.
+
 Planning writes nothing here. `inspect_generation` reads the records of the storages, and says
 whether a launch would run a generator.
 
@@ -24,12 +29,12 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Protocol
 
 from ..dataclass import ValidationError
 from ..deliver import GENERATOR, Delivery
@@ -52,7 +57,7 @@ from ..generation import (
 from ..run_dir import RunDirectory, RunDirectoryError
 from ..utils import NonZeroExitCode, semantic_hash
 from .configuration import design_configuration
-from .run_lock import storage_lock
+from .run_lock import LockRequest, LockSet, acquire_all, storage_lock
 
 log = logging.getLogger(__name__)
 
@@ -253,6 +258,124 @@ def inspect_generation(
     return Inspection(True, Generations(found))
 
 
+@dataclass(frozen=True)
+class Unit:
+    """One generator of a launch, with the storage its configuration names now.
+
+    `owner` is None for the generator of the design itself, and the root of the dependency
+    (`Source.owner`) for the generator of a dependency."""
+
+    owner: str | None
+    design: Design
+    key: str
+    generator: Generator
+    storage: Path
+
+    @property
+    def identity(self) -> str:
+        """The name of the storage below the generation directory: `<design>/<key>`."""
+        return f"{self.design.name}/{self.key}"
+
+
+def units_of(design: Design, run_root: Path, environ: Mapping[str, str]) -> list[Unit]:
+    """Return the units of `design`, dependencies first, each with the key and the storage that
+    what its generator reads names now. A launch locks these storages."""
+    found: list[Unit] = []
+    for owner, unit in generating_units(design):
+        key, generator = generation_key(unit, environ)
+        found.append(
+            Unit(owner, unit, key, generator, generation_storage(run_root, unit.name, key))
+        )
+    return found
+
+
+@dataclass
+class GenerationState:
+    """What a launch remembers about its generations, through every restart of its acquisition.
+
+    `generated` holds the identities of the storages that this launch generated and found valid
+    under their exclusive locks. `rebuild_all` forces such a storage only once. A storage in the
+    set is judged as a launch judges what it just generated: a generator that always runs does
+    not make it stale again. A storage that is not valid still generates."""
+
+    generated: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class Settled:
+    """The result of `settle`: the generations and the locks that the launch holds."""
+
+    generations: Generations | None
+    locks: LockSet
+
+
+class Participants(Protocol):
+    """The locks beside the storages that `settle` takes, and the judgment that they wait for."""
+
+    def requests(self) -> Sequence[LockRequest]:
+        """The locks to take now, for the modes the participants have now."""
+
+    def settled(self) -> bool:
+        """Judge under the locks, after every storage is valid. False: the modes changed, and
+        `settle` starts again with the new requests."""
+
+
+def _reason(
+    unit: Unit, environ: Mapping[str, str], *, rebuild_all: bool, state: GenerationState
+) -> tuple[str | None, dict[str, tuple[str, ...]]]:
+    """Return why the generator of `unit` must run, or None, and the files of its storage.
+
+    `rebuild_all` is the reason only for a storage that this launch has not generated."""
+    done = unit.identity in state.generated
+    reason, matches = judge(
+        unit.storage,
+        unit.key,
+        declarations(unit.design),
+        unit.generator,
+        environ,
+        judging=not done,
+    )
+    if reason is None and rebuild_all and not done:
+        return REBUILD_ALL, {}
+    return reason, matches
+
+
+def generate_unit(unit: Unit, *, run_root: Path, environ: Mapping[str, str]) -> Generation:
+    """Run the generator of `unit` into its storage. The caller holds the exclusive lock of it.
+
+    The generator runs in the storage, or in the directory its recipe names (`cwd`), with
+    `DESIGN_ROOT` and `XEDA_GENERATED` in its environment. The design tree is never written. A
+    failure raises `GenerationError`, and leaves no storage behind. `run_root` exists. The
+    result is not judged: a launch judges the storage again."""
+    names = declarations(unit.design)
+    design, key, generator, storage = unit.design, unit.key, unit.generator, unit.storage
+    description = generator.describe(design.name, design.root)
+    owner = RunDirectory(run_root, run_root)
+    matches: dict[str, tuple[str, ...]] = {}
+    try:
+        if storage.exists():
+            RunDirectory.claimed(storage, run_root).delete()
+        owner.unlinked(storage).mkdir(parents=True)
+        generator.run(design.root, storage, environ)
+        matches = {name: tuple(matches_in(storage, name)) for name in names}
+        if generation_key(design, environ)[0] == key:
+            write_record(owner, storage, key, generator, environ, matches)
+        else:
+            # What the generator reads changed while it ran, itself perhaps (bytecode in a source
+            # directory): its output is not that of this key, so nothing vouches for it, and the
+            # storage of this key goes. The launch generates again.
+            log.info(
+                "The inputs of %s changed while it ran: keeping no output of this key", description
+            )
+            _discard(storage, run_root)
+    except BaseException as error:
+        _discard(storage, run_root)
+        if isinstance(error, (NonZeroExitCode, OSError, ValueError, RunDirectoryError)):
+            raise GenerationError(f"{description} failed: {error}") from error
+        raise
+    return Generation(storage, key, matches, description)
+
+
 def generate(
     design: Design,
     *,
@@ -266,11 +389,9 @@ def generate(
     holds the record of this key, the inherited environment is the one the record names, and
     every generated source is as the last generation left it. Xeda judges that under the
     exclusive lock of the storage, so a second launch of the same configuration waits, finds
-    the record, and generates nothing. With `rebuild_all` the generator always runs.
-
-    The generator runs in the storage, or in the directory its recipe names (`cwd`), with
-    `DESIGN_ROOT` and `XEDA_GENERATED` in its environment. The design tree is never written. A
-    failure raises `GenerationError`, and leaves no storage behind. `run_root` exists."""
+    the record, and generates nothing. With `rebuild_all` the generator always runs. A launch
+    does not call this: it generates the units that need it under the locks of its whole graph
+    (`settle`). `run_root` exists."""
     if design.rtl.generator is None:
         return None
     environ = dict(os.environ) if environ is None else environ
@@ -281,7 +402,7 @@ def generate(
         description = generator.describe(design.name, design.root)
         with storage_lock(storage, exclusive=True, run_root=run_root):
             if generation_key(design, environ)[0] != key:
-                # What the generator reads changed while this launch waited for the lock: the
+                # What the generator reads changed while this call waited for the lock: the
                 # output would not be that of this key. Start again with the new key.
                 continue
             reason, matches = judge(storage, key, names, generator, environ)
@@ -294,30 +415,9 @@ def generate(
                 )
                 return Generation(storage, key, matches, description)
             log.info("Running %s: %s", description, reason)
-            owner = RunDirectory(run_root, run_root)
-            try:
-                if storage.exists():
-                    RunDirectory.claimed(storage, run_root).delete()
-                owner.unlinked(storage).mkdir(parents=True)
-                generator.run(design.root, storage, environ)
-                matches = {name: tuple(matches_in(storage, name)) for name in names}
-                if generation_key(design, environ)[0] == key:
-                    write_record(owner, storage, key, generator, environ, matches)
-                else:
-                    # What the generator reads changed while it ran, itself perhaps (bytecode in
-                    # a source directory): its output is not that of this key, so nothing vouches
-                    # for it, and the storage of this key goes. The launch generates again.
-                    log.info(
-                        "The inputs of %s changed while it ran: keeping no output of this key",
-                        description,
-                    )
-                    _discard(storage, run_root)
-            except BaseException as error:
-                _discard(storage, run_root)
-                if isinstance(error, (NonZeroExitCode, OSError, ValueError, RunDirectoryError)):
-                    raise GenerationError(f"{description} failed: {error}") from error
-                raise
-        return Generation(storage, key, matches, description)
+            return generate_unit(
+                Unit(None, design, key, generator, storage), run_root=run_root, environ=environ
+            )
 
 
 def _discard(storage: Path, run_root: Path) -> None:
@@ -329,6 +429,130 @@ def _discard(storage: Path, run_root: Path) -> None:
         log.warning("Cannot remove the incomplete output %s: %s", storage, error)
 
 
+def settle(
+    design: Design,
+    *,
+    run_root: Path,
+    environ: Mapping[str, str],
+    rebuild_all: bool,
+    state: GenerationState,
+    stack: ExitStack,
+    participants: Participants | None = None,
+    leases: Sequence[Path] = (),
+    canceled: Callable[[], bool] | None = None,
+) -> Settled:
+    """Take every lock of a launch, make the storages of its generators valid, and keep the locks
+    in `stack`. The result holds the generations (None for a design with no generator) and the
+    set of locks.
+
+    One acquisition takes the locks of the `participants` (the nodes of the launch), then the
+    storage of each generator and each of the `leases` (the storages of Git dependencies), shared
+    for a storage that a launch only reads. A storage whose hint says it must be written is
+    requested exclusive. Under the locks, the call judges every storage again and acts on that:
+
+    - A storage that is not valid under a shared lock makes the call release everything and
+      start again with that storage exclusive.
+    - Under the exclusive locks, the generators run in dependency order, taking no more locks.
+      Each storage is then judged under its exclusive lock. The call releases the whole set and
+      takes it again with those storages shared (a lock has no atomic conversion, and another
+      launch may replace a storage in the gap). It judges every storage again, so the files of
+      the result are those of the judgment under the shared lease.
+    - A key that changed, or a lock held elsewhere, makes the call start again. This is no
+      failure and counts for nothing.
+    - A storage that is still invalid after the launch generated it, or whose generator changed
+      what an earlier unit reads, counts as an attempt. After `ATTEMPTS` the call fails with a
+      `GenerationError`.
+
+    Then the participants judge under the locks (`Participants.settled`). The call returns with
+    the locks in `stack`, which the caller closes when it has delivered everything."""
+    units_present = bool(generating_units(design))
+    attempts = 0
+    reason: str | None = None
+    description = "the generator"
+    must_write: set[str] = set()
+    keys_generated: dict[str | None, str] = {}
+    told: set[str] = set()
+    while True:
+        units = units_of(design, run_root, environ) if units_present else []
+        for unit in units:
+            if unit.owner in keys_generated and keys_generated[unit.owner] != unit.key:
+                reason = "what its generator reads changed while it ran"
+                description = unit.generator.describe(unit.design.name, unit.design.root)
+                attempts += 1
+                keys_generated.pop(unit.owner)
+        if attempts >= ATTEMPTS:
+            raise _gave_up(description, reason)
+        write = set(must_write)
+        for unit in units:
+            if _reason(unit, environ, rebuild_all=rebuild_all, state=state)[0] is not None:
+                write.add(unit.identity)
+        requests = [
+            *(participants.requests() if participants is not None else ()),
+            *(LockRequest("storage", u.storage, u.identity in write) for u in units),
+            *(LockRequest("storage", path, False) for path in leases),
+        ]
+        with ExitStack() as held:
+            locks = held.enter_context(acquire_all(requests, run_root=run_root, canceled=canceled))
+            if any(generation_key(u.design, environ)[0] != u.key for u in units):
+                continue  # what a generator reads changed while this call waited: new keys
+            judged: dict[str | None, Generation] = {}
+            ran: list[Unit] = []
+            promote = False
+            for unit in units:
+                found, matches = _reason(unit, environ, rebuild_all=rebuild_all, state=state)
+                description = unit.generator.describe(unit.design.name, unit.design.root)
+                if found is None:
+                    judged[unit.owner] = Generation(unit.storage, unit.key, matches, description)
+                    if unit.identity not in state.generated and unit.identity not in told:
+                        told.add(unit.identity)
+                        log.info(
+                            "Not running %s: its generated sources are what its last generation "
+                            "left",
+                            description,
+                        )
+                    continue
+                if unit.identity in state.generated:
+                    # The launch generated it and found it valid: it is not valid now.
+                    state.generated.discard(unit.identity)
+                    reason = found
+                    attempts += 1
+                if locks.mode_of("storage", unit.storage) != "exclusive":
+                    must_write.add(unit.identity)
+                    promote = True
+                    break
+                log.info("Running %s: %s", description, found)
+                generate_unit(unit, run_root=run_root, environ=environ)
+                ran.append(unit)
+            for unit in ran:
+                # Judged under the exclusive lock the call still holds, as a launch judges what
+                # it just generated.
+                state.generated.add(unit.identity)
+                found, _matches = _reason(unit, environ, rebuild_all=rebuild_all, state=state)
+                if found is None:
+                    must_write.discard(unit.identity)
+                    keys_generated[unit.owner] = unit.key
+                else:
+                    state.generated.discard(unit.identity)
+                    description = unit.generator.describe(unit.design.name, unit.design.root)
+                    reason = found
+                    attempts += 1
+                    must_write.add(unit.identity)
+            if promote or ran:
+                continue  # release the set; take it again, with the generated storages shared
+            if participants is not None and not participants.settled():
+                continue
+            stack.enter_context(held.pop_all())
+            return Settled(Generations(judged) if units else None, locks)
+
+
+def _gave_up(description: str, reason: str | None) -> GenerationError:
+    return GenerationError(
+        f"{description} left no output that Xeda could vouch for after {ATTEMPTS} "
+        f"tries: {reason}. A generator that changes what it reads while it runs (a file it "
+        "writes into a directory in its `sources`) cannot be judged: name only what it reads"
+    )
+
+
 @contextmanager
 def generated(
     design: Design,
@@ -337,81 +561,20 @@ def generated(
     rebuild_all: bool = False,
     environ: Mapping[str, str] | None = None,
 ) -> Iterator[Generations | None]:
-    """Generate (`generate`) for the design and its dependencies that have generators, then hold
+    """Generate for the design and its dependencies that have generators (`settle`), then hold
     the shared lease of every storage while the block runs. None: nothing generates.
 
-    The lease keeps any other launch from regenerating or removing a storage while the launch
-    reads it. A dependency generates before the design that merged it. Xeda cannot turn the
-    exclusive lock of a generation into the shared lease, so it releases the first and takes the
-    second, and then judges every storage again: a launch that regenerated in between left a
-    current storage, or the loop generates again. The block gets the files that this judgment
-    found, and never a storage that it did not accept (one that went, or whose inherited
-    environment changed, or whose generator changes what it reads while it runs): after
-    `ATTEMPTS` tries the launch fails with a `GenerationError`.
-
-    The locks cannot make two launches wait for each other. A generation holds one exclusive
-    lock and waits for no other lock while it holds it. The leases come after all the
-    generations, shared, in the order of the paths of the storages, so a launch that waits for a
-    lease holds shared leases only, and only a generation, which waits for nothing, holds the
-    lock that it waits for."""
-    units = generating_units(design)
-    if not units:
-        yield None
-        return
+    A launch settles its whole graph in one acquisition; this holds the storages alone."""
     environ = dict(os.environ) if environ is None else environ
-    forced = rebuild_all
-    reason: str | None = None
-    description = "the generator"
-    for _attempt in range(ATTEMPTS):
-        ran = [
-            (
-                owner,
-                unit,
-                _generated(unit, run_root=run_root, rebuild_all=forced, environ=environ),
-            )
-            for owner, unit in units
-        ]
-        with ExitStack() as leases:
-            for storage in sorted({found.storage for _, _, found in ran}):
-                leases.enter_context(storage_lock(storage, exclusive=False, run_root=run_root))
-            judged: dict[str | None, Generation] = {}
-            for owner, unit, found in ran:
-                description = found.description
-                # What the unit reads may have changed while a later unit generated: the storage
-                # it holds must be that of its key now.
-                current, generator = generation_key(unit, environ)
-                matches: Mapping[str, tuple[str, ...]] = {}
-                if current != found.key:
-                    reason = "what its generator reads changed while it ran"
-                else:
-                    reason, matches = judge(
-                        found.storage,
-                        found.key,
-                        declarations(unit),
-                        generator,
-                        environ,
-                        judging=False,
-                    )
-                if reason is not None:
-                    break
-                judged[owner] = Generation(found.storage, found.key, matches, found.description)
-            else:
-                yield Generations(judged)
-                return
-        forced = False
-    raise GenerationError(
-        f"{description} left no output that Xeda could vouch for after {ATTEMPTS} "
-        f"tries: {reason}. A generator that changes what it reads while it runs (a file it "
-        "writes into a directory in its `sources`) cannot be judged: name only what it reads"
-    )
-
-
-def _generated(
-    unit: Design, *, run_root: Path, rebuild_all: bool, environ: Mapping[str, str]
-) -> Generation:
-    found = generate(unit, run_root=run_root, rebuild_all=rebuild_all, environ=environ)
-    assert found is not None
-    return found
+    with ExitStack() as stack:
+        yield settle(
+            design,
+            run_root=run_root,
+            environ=environ,
+            rebuild_all=rebuild_all,
+            state=GenerationState(),
+            stack=stack,
+        ).generations
 
 
 def execution_design(design: Design, generations: Generations | None) -> Design:
