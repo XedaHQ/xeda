@@ -1185,9 +1185,9 @@ class Flow(metaclass=ABCMeta):
             3. A setting whose keys are opaque names (`opaque_key_fields`) takes a dotted key as
                one key: the nested tables that every origin makes of it are joined again.
             4. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
-               (`dataclass.waveform_value`): the text `true` or `false` is the boolean, as it is
-               everywhere else, `true` stands for the name the run writes, a name gets the
-               format's extension, and a word such as `yes` is refused.
+               (`dataclass.waveform_value`): the boolean `true` stands for the name the run
+               writes, a name gets the format's extension, and text that reads as a boolean
+               (`true`, `yes`) is refused, as it is for a boolean setting.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:

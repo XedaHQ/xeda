@@ -187,8 +187,8 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
 ### Waveform settings
 
 `vcd`, `fst`, `vcdgz`, `saif` and the other waveform settings take `true` (the conventional file,
-`dump.<format>`), `false`, a file name, or a location. `-s vcd=true` is `vcd: true`. `yes` and `on`
-are refused.
+`dump.<format>`), `false`, a file name, or a location. `-s vcd=true` is `vcd: true`. `yes`, `on`
+and the quoted text `"true"` are refused.
 
 | Message | Fix |
 | --- | --- |

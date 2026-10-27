@@ -25,6 +25,7 @@ from .dataclass import (
     field_type,
     input_names,
     nested_model,
+    waveform_format,
 )
 
 __all__ = ["SettingTextError", "parse_setting_text", "parse_text_leaves"]
@@ -247,7 +248,11 @@ def _read_table(
         if info is None:
             result[key] = value
             continue
-        result[key] = _read(field_type(info), value, f"{prefix}{key}", problems)
+        annotation = field_type(info)
+        if waveform_format(settings_cls, names.get(key, key)) is not None:
+            # A waveform setting is on, off or a name: `-s vcd=true` is the boolean.
+            annotation = Union[bool, annotation]
+        result[key] = _read(annotation, value, f"{prefix}{key}", problems)
     return result
 
 

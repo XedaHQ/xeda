@@ -1,9 +1,10 @@
 """The waveform settings of every simulator.
 
-One rule reads them (`dataclass.waveform_value`, applied by `Flow.Settings`): the text `true` and
-`false` are the booleans, so `-s vcd=true` and `vcd: true` are one setting. A simulator either
-writes the waveform through its own mechanism or refuses the setting when planned; none ignores
-it. The sweeps below classify every waveform setting of every simulator, so a new setting or
+One rule reads them (`dataclass.waveform_value`, applied by `Flow.Settings`): the boolean `true`
+is on, `false` is off, and text that reads as a boolean is refused, as for a boolean setting. The
+command line reads `-s vcd=true` as the boolean, so it and `vcd: true` are one setting. A
+simulator either writes the waveform through its own mechanism or refuses the setting when
+planned; none ignores it. The sweeps below classify every waveform setting of every simulator, so a new setting or
 simulator fails here until it is classified.
 """
 
@@ -27,6 +28,7 @@ from xeda.dataclass import (
 from xeda.flow import FlowSettingsError, FlowSettingsException, SimFlow
 from xeda.flow.flow import identity_settings
 from xeda.flow_runner import DefaultRunner, get_flow_class
+from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flows import GhdlSim, Nvc
 
 from .settings_samples import flow_classes, minimal_settings
@@ -85,20 +87,28 @@ def test_the_sweep_sees_the_simulators_and_their_waveform_settings():
 
 
 @pytest.mark.parametrize("cls,name,field,extension", FIELDS)
-def test_the_text_true_or_false_is_the_boolean(cls, name, field, extension):
-    """`-s <setting>=true` and `<setting>: true` are one setting, for every waveform setting of
-    every simulator: the command line can only write text."""
-    false_text, false_bool = build(cls, **{field: "false"}), build(cls, **{field: False})
-    assert getattr(false_text, field) is getattr(false_bool, field) is None
-    assert false_text.model_dump() == false_bool.model_dump()
+def test_the_text_true_or_false_is_refused_like_a_boolean_settings(cls, name, field, extension):
+    """From Python or a file, a waveform setting takes the boolean `true` or `false`, as a boolean
+    setting does, and refuses the text `"true"` or `"false"`."""
+    assert getattr(build(cls, **{field: False}), field) is None
     assert getattr(build(cls, **{field: ""}), field) is None
-    for text in ("true", "True"):
-        true_text, true_bool = build(cls, **{field: text}), build(cls, **{field: True})
-        assert getattr(true_text, field) == getattr(true_bool, field) is not None
-        assert true_text.model_dump() == true_bool.model_dump()
-        settings = build(cls)  # an assignment is read by the same rule
-        setattr(settings, field, text)
-        assert getattr(settings, field) == getattr(true_bool, field)
+    assert getattr(build(cls, **{field: True}), field) is not None
+    for text in ("true", "True", "false", "FALSE"):
+        with pytest.raises(FlowSettingsError, match=rf"`{text}` is text, not a boolean: write it"):
+            build(cls, **{field: text})
+        with pytest.raises(ValidationError, match="not a boolean"):
+            setattr(build(cls), field, text)
+
+
+@pytest.mark.parametrize("cls,name,field,extension", FIELDS)
+def test_the_command_line_reads_true_or_false_as_the_boolean(cls, name, field, extension):
+    """The command line writes only text, so `-s <setting>=true` is the boolean `true`, for every
+    waveform setting of every simulator, and a name stays a name."""
+    for text, value in (("true", True), ("True", True), ("false", False), ("w", "w")):
+        layer = merge_layers([f"{field}={text}"], settings_cls=cls.Settings)
+        assert layer[field] == value and type(layer[field]) is type(value)
+    with pytest.raises(FlowSettingsError, match="`yes` is text, not a boolean"):
+        build(cls, **merge_layers([f"{field}=yes"], settings_cls=cls.Settings))
 
 
 @pytest.mark.parametrize("cls,name,field,extension", FIELDS)
@@ -124,7 +134,7 @@ def test_true_stands_for_the_name_a_location_is_written_under(cls, name, field, 
     conventional = build(cls).conventional_output(field, "design")
     assert conventional is not None
     assert PurePath(expected.format(design="design")) == conventional
-    on = identity_settings(build(cls, **{field: "true"}), "design")
+    on = identity_settings(build(cls, **{field: True}), "design")
     located = identity_settings(build(cls, **{field: "/elsewhere/w.out"}), "design")
     assert on.model_dump(mode="json") == located.model_dump(mode="json")
     named = getattr(build(cls, **{field: "wave"}), field)
@@ -137,10 +147,7 @@ def test_true_stands_for_the_name_a_location_is_written_under(cls, name, field, 
     "value,extension,name,expected",
     [
         (True, "vcd", "dump.vcd", "dump.vcd"),
-        ("true", "vcd", "dump.vcd", "dump.vcd"),
-        ("TRUE", "fst", "dump.fst", "dump.fst"),
         (False, "vcd", "dump.vcd", None),
-        ("false", "vcd", "dump.vcd", None),
         ("", "vcd", "dump.vcd", None),
         (None, "vcd", "dump.vcd", None),
         ("w", "vcd", "dump.vcd", "w.vcd"),
@@ -172,17 +179,21 @@ def test_the_rule(value, extension, name, expected):
         "TRUE ",
         " False",
         "\ttrue",
+        "true",
+        "TRUE",
+        "false",
     ],
 )
 def test_the_rule_refuses_the_words_yaml_1_1_reads_as_booleans(value):
-    """Text with spaces around `true` is no boolean and no file name, as for a boolean setting."""
+    """Text that reads as a boolean is no boolean and no file name, as for a boolean setting:
+    `true`, `on` and `true` with spaces around it."""
     with pytest.raises(WaveformText, match="is text, not a boolean"):
         waveform_value(value, "vcd", "dump.vcd")
 
 
 def test_true_may_be_a_name_that_holds_the_design_name():
-    assert waveform_value("true", "saif", "outputs/{design}.saif") == "outputs/{design}.saif"
-    assert waveform_value("false", "saif", "outputs/{design}.saif") is None
+    assert waveform_value(True, "saif", "outputs/{design}.saif") == "outputs/{design}.saif"
+    assert waveform_value(False, "saif", "outputs/{design}.saif") is None
 
 
 def test_the_command_line_text_gives_the_run_a_boolean_waveform_would(tmp_path):
@@ -284,11 +295,11 @@ def test_a_waveform_setting_reaches_the_tool_or_is_refused_when_planned(
     )
     if refused is not None:
         with pytest.raises(FlowSettingsException) as raised:
-            launch_case(case, tmp_path, monkeypatch, settings_overrides={field: "true"})
+            launch_case(case, tmp_path, monkeypatch, settings_overrides={field: True})
         assert f"cannot write a waveform from `{field}`" in str(raised.value)
         return
     calls: list = []
-    given = "true"
+    given = True
     flow = launch_case(
         case, tmp_path, monkeypatch, settings_overrides={field: given}, calls_out=calls
     )
@@ -336,7 +347,7 @@ def test_the_options_that_refine_a_waveform_reach_the_tool(tmp_path, monkeypatch
         tmp_path / "nvc",
         monkeypatch,
         settings_overrides={
-            "vcd": "true",
+            "vcd": True,
             "wave_include_glob": "*:keep",
             "wave_exclude_glob": "*:drop",
             "wave_arrays": 8,
@@ -351,7 +362,7 @@ def test_the_options_that_refine_a_waveform_reach_the_tool(tmp_path, monkeypatch
         SimCase("vcs"),
         tmp_path / "vcs",
         monkeypatch,
-        settings_overrides={"vpd": "true", "vpd_size_limit": 4},
+        settings_overrides={"vpd": True, "vpd_size_limit": 4},
         calls_out=calls,
     )
     words = {word for _, args in calls for word in args}
@@ -520,18 +531,18 @@ def test_a_waveform_setting_is_named_after_its_format():
         ("nvc", {"wave_arrays": 8}, "wave_arrays. refines the waveform"),
         ("nvc", {"wave_include_glob": "*:x"}, "wave_include_glob. refines the waveform"),
         ("nvc", {"wave_exclude_glob": "*:x"}, "wave_exclude_glob. refines the waveform"),
-        ("nvc", {"vcd": "true", "fst": "true"}, "one waveform, and vcd and fst are set"),
+        ("nvc", {"vcd": True, "fst": True}, "one waveform, and vcd and fst are set"),
         ("nvc", {"fst": "w.vcd"}, r"`fst` writes FST data.*`vcd`"),
         ("nvc", {"vcd": "w.fst"}, r"`vcd` writes VCD data.*`fst`"),
         ("ghdl_sim", {"wave": "w.vcd"}, r"`wave` writes GHW data.*`vcd`"),
         ("ghdl_sim", {"wave": "/elsewhere/w.fst"}, r"`wave` writes GHW data.*`fst`"),
         ("ghdl_sim", {"vcd": "w.fst"}, r"`vcd` writes VCD data.*`fst`"),
-        ("ghdl_sim", {"vcd": "true", "fst": "true"}, "one waveform, and vcd, fst are set"),
-        ("ghdl_sim", {"wave": "true", "fst": "true"}, "one waveform, and fst, wave are set"),
+        ("ghdl_sim", {"vcd": True, "fst": True}, "one waveform, and vcd, fst are set"),
+        ("ghdl_sim", {"wave": True, "fst": True}, "one waveform, and fst, wave are set"),
         ("ghdl_sim", {"read_wave_opt": "w.opt"}, "read_wave_opt. filters the waveform"),
-        ("vcs", {"vpd": "true", "fsdb": "true"}, "one waveform, and fsdb, vpd are set"),
+        ("vcs", {"vpd": True, "fsdb": True}, "one waveform, and fsdb, vpd are set"),
         ("vcs", {"to_vcd": True}, "to_vcd. converts an FSDB or VPD waveform"),
-        ("vcs", {"to_vcd": True, "evcd": "true"}, "to_vcd. converts an FSDB or VPD waveform"),
+        ("vcs", {"to_vcd": True, "evcd": True}, "to_vcd. converts an FSDB or VPD waveform"),
         ("vcs", {"vpd_size_limit": 4}, "vpd_size_limit. limits the VPD waveform"),
         ("vcs", {"fsdb_size_limit": 7}, "fsdb_size_limit. limits the FSDB waveform"),
         ("vivado_sim", {"vcd_scope": "/tb"}, "vcd_scope. selects what the VCD holds"),
@@ -551,17 +562,17 @@ def test_a_waveform_setting_that_needs_another_is_refused_without_it(flow, setti
     [
         ("nvc", {"fst": "w.fst"}),
         ("nvc", {"fst": "w"}),
-        ("nvc", {"vcd": "true", "fst": "false"}),
-        ("nvc", {"vcd": "true", "wave_include_glob": "*:x"}),
+        ("nvc", {"vcd": True, "fst": False}),
+        ("nvc", {"vcd": True, "wave_include_glob": "*:x"}),
         ("ghdl_sim", {"wave": "w.ghw"}),
-        ("ghdl_sim", {"vcd": "true", "read_wave_opt": "w.opt"}),
-        ("vcs", {"vpd": "true", "to_vcd": True, "vpd_size_limit": 4}),
-        ("vcs", {"fsdb": "true", "to_vcd": True, "fsdb_size_limit": 7}),
+        ("ghdl_sim", {"vcd": True, "read_wave_opt": "w.opt"}),
+        ("vcs", {"vpd": True, "to_vcd": True, "vpd_size_limit": 4}),
+        ("vcs", {"fsdb": True, "to_vcd": True, "fsdb_size_limit": 7}),
         ("vcs", {}),
-        ("nvc", {"fst": "true", "wave_arrays": 8}),
+        ("nvc", {"fst": True, "wave_arrays": 8}),
         ("nvc", {}),
-        ("vivado_sim", {"vcd": "true", "vcd_scope": "/tb", "vcd_level": 2}),
-        ("verilator", {"fst": "true", "trace_structs": True}),
+        ("vivado_sim", {"vcd": True, "vcd_scope": "/tb", "vcd_level": 2}),
+        ("verilator", {"fst": True, "trace_structs": True}),
     ],
 )
 def test_the_same_settings_with_their_waveform_are_accepted(flow, settings):
@@ -707,8 +718,8 @@ def test_a_flow_built_directly_writes_the_design_name_into_a_template(tmp_path):
 @pytest.mark.parametrize(
     "flow_class,settings",
     [
-        (Nvc, {"vcd": "true", "fst": "true"}),
-        (GhdlSim, {"vcd": "true", "vcdgz": "true"}),
+        (Nvc, {"vcd": True, "fst": True}),
+        (GhdlSim, {"vcd": True, "vcdgz": True}),
         (GhdlSim, {"read_wave_opt": "wave.opt"}),
     ],
 )

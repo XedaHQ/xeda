@@ -2406,7 +2406,8 @@ All waveform settings read their value by one rule, on the command line and in a
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the extension of the format.
 * The words that YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``,
-  ``t`` and ``f``) are refused, as they are for a boolean setting. So is ``true`` or ``false`` with
+  ``t`` and ``f``) are refused, as they are for a boolean setting. So is the text ``"true"`` or
+  ``"false"`` (in quotes in a design file, or a ``str`` from Python), and ``true`` or ``false`` with
   spaces around it. Write ``true`` or a file name.
 * Other text is a name. The setting that receives a name decides the format, and the name never
   does: Xeda refuses a name that ends in an extension of another format. A format can have several

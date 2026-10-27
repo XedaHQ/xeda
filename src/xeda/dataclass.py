@@ -894,11 +894,11 @@ WAVEFORM_KEY = "x-xeda-waveform"
 def waveform(extension: str, conventional: Optional[str] = None) -> Dict[str, Any]:
     """Return the marker of a setting that names a waveform file of the format `extension` (`vcd`,
     `fst`, `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name that the run
-    writes when the setting is given a location, `dump.<extension>` by default. `true` stands for
-    that same name, so `true` and a location are one run (`flow.identity_settings`). The name may
-    hold the name of the design (`outputs/{design}.saif`). The setting then keeps the text as it
-    is, and the launcher writes the name of the design where the run writes the file
-    (`deliver.split_deliveries`)."""
+    writes when the setting is given a location, `dump.<extension>` by default. The boolean `true`
+    stands for that same name, so `true` and a location are one run (`flow.identity_settings`). The
+    name may hold the name of the design (`outputs/{design}.saif`). The setting then keeps
+    `{design}` as it is, and the launcher writes the name of the design where the run writes the
+    file (`deliver.split_deliveries`)."""
     marker = deliverable(conventional or f"dump.{extension}")
     marker[WAVEFORM_KEY] = {"format": extension}
     return marker
@@ -993,19 +993,17 @@ def waveform_value(value: Any, extension: str, true_name: str) -> Any:
     """Return a waveform setting as the name it stands for. This is the one rule for every
     simulator.
 
-    `true` (the boolean, or the text in any letter case) stands for `true_name`, the name that
-    the run writes for a location (`waveform`), which may hold `{design}`. `false` (likewise) and
-    an empty name stand for none. A name without an extension gets `.<extension>`. A setting is
-    on, off or a name, so the other words that YAML 1.1 reads as a boolean (`yes`, `on`, `n`, ...)
-    are refused as they are for a boolean field (`boolean_text_message`). So is `true` or `false`
-    with spaces around it, given as the whole value. Other text is a name. Anything else is left
-    as it is, for the validation of the field."""
+    The boolean `true` stands for `true_name`, the name that the run writes for a location
+    (`waveform`), which may hold `{design}`. The boolean `false` and an empty name stand for none.
+    A name without an extension gets `.<extension>`. A setting is on, off or a name, so text that
+    reads as a boolean is refused as it is for a boolean field (`boolean_text_message`): `true` and
+    `false` in any letter case, with or without spaces around them, and the other words that YAML
+    1.1 reads as a boolean (`yes`, `on`, `n`, ...), each given as the whole value. The command line
+    reads `true` and `false` as the booleans before they get here (`setting_text`). Other text is
+    a name. Anything else is left as it is, for the validation of the field."""
     if isinstance(value, str):
         word = value.strip().lower()
-        if value.lower() in ("true", "false"):
-            value = value.lower() == "true"
-        elif word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
-            # As for a boolean field, text with spaces around `true` is no boolean and no name.
+        if word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
             raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
     if value is True:
         return true_name
@@ -1281,8 +1279,8 @@ class XedaBaseModel(BaseModel):
         of pydantic would read `true`, `yes`, `on`, `y` and `1` as `True`, but a setting accepts
         exactly its declared type. The command line is no exception: its text is read as a
         boolean before it reaches a model (`setting_text`). A number is refused for a field that
-        takes a boolean or text too (`Union[bool, str]`), and so is the text `true` or `false`
-        (a waveform setting reads it as a boolean, `waveform_value`). `true` and `false` given to a
+        takes a boolean or text too (`Union[bool, str]`), and a waveform setting refuses the text
+        `true` or `false` (`waveform_value`). `true` and `false` given to a
         deliverable that is no waveform are refused too. Every model of Xeda shares this rule:
         flow settings, the design and nested models. The input is only read and never
         rewritten."""
