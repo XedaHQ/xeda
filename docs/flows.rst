@@ -1390,8 +1390,8 @@ anything runs when neither ``fpga`` nor a board gives it. What the loader printe
 ``openfpgaloader.log`` in the run directory of the flow. In a terminal, Xeda runs the loader with a
 terminal of its own, as you would run it by hand: the colors work, and the progress bar is redrawn
 in place. The log has the same text without the escape codes, with one line for each redraw. Without
-a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
-line for each update of the bar.
+a terminal (a pipe, a file, a CI log), or with colors switched off (the ``NO_COLOR`` environment
+variable), the loader writes a line for each update of the bar.
 
 openFPGALoader opens the first probe whose USB id fits the cable (``digilent`` is
 ``0x0403:0x6010``). It does this before it reads the ID code of any FPGA, and ``--fpga-part`` does

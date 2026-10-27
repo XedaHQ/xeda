@@ -10,7 +10,7 @@ the schema leaves property sets open (dotted keys expand before validation).
   `0o17` is 15, `0x1F` is 31, `1e3` is a float. Dates, `1:30` and `1_000` are strings.
   `true`/`false` are booleans and `null`/`~` are null. Quote HDL text, bit vectors, leading-zero
   text and source paths.
-- A boolean setting accepts only `true` and `false` (also `-s key=true`). `debug: yes` fails with
+- A boolean setting accepts only `true` and `false` (also `-s key=true`). `docker: yes` fails with
   "`yes` is text, not a boolean: write `true`".
 - Mapping keys are strings. A duplicate key fails and names the file, the key and both lines.
   Merge keys (`<<`), recursive aliases and non-core tags are refused; ordinary aliases work.
