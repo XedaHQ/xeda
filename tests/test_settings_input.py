@@ -856,3 +856,12 @@ def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():
 def test_a_root_that_is_no_path_is_refused_not_replaced_by_the_working_directory(given):
     with pytest.raises(DesignValidationError, match="root"):
         Design(name="d", rtl={"sources": [], "top": "t"}, root=given)
+
+
+@pytest.mark.parametrize(
+    "value, ok", [((0.4, 0.2), True), ((1, 2), True), (("0.4", 0.2), False), ((0.4, True), False)]
+)
+def test_each_item_of_a_tuple_of_fixed_length_is_strict(value, ok):
+    from xeda.dataclass import scalar_problems
+
+    assert (not scalar_problems(tuple[float, float], value)) is ok

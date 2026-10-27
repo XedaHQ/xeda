@@ -1485,11 +1485,15 @@ def scalar_problems(annotation: Any, value: Any, *, in_union: bool = False) -> L
         return [f"`{_shown(value)}` is none of {', '.join(repr(m) for m in members)}"]
     if origin in (list, set, frozenset, tuple):
         arguments = get_args(annotation)
-        if origin is tuple and not (len(arguments) == 2 and arguments[1] is Ellipsis):
-            return []
         if not isinstance(value, (list, tuple, set, frozenset)) or not arguments:
             return []
         problems = []
+        if origin is tuple and not (len(arguments) == 2 and arguments[1] is Ellipsis):
+            # A tuple of fixed length checks each item against the annotation at its place; a
+            # wrong length is for the validation of the field to report.
+            for item_annotation, item in zip(arguments, value):
+                problems += scalar_problems(item_annotation, item)
+            return list(dict.fromkeys(problems))
         for item in value:
             problems += scalar_problems(arguments[0], item)
         return list(dict.fromkeys(problems))
