@@ -8,6 +8,8 @@ that `utils.settings_to_dict` marked as such (`dataclass.SettingText`) is read t
 
 from __future__ import annotations
 
+import math
+import re
 import types
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal, Union, get_args, get_origin
@@ -43,6 +45,12 @@ class SettingTextError(ValueError):
 
     def __reduce__(self):  # an exception crosses a process boundary by being pickled
         return (type(self), (self.problems,))
+
+
+#: The text of a whole number: digits, with an optional minus sign.
+_WHOLE_NUMBER = re.compile(r"-?[0-9]+")
+#: The text of a number: a whole number or a decimal fraction, with an optional exponent.
+_NUMBER = re.compile(r"-?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][-+]?[0-9]+)?")
 
 
 def _problem(address: str, message: str, kind: str = "invalid_value") -> SettingTextError:
@@ -125,17 +133,13 @@ def _parse(annotation: Any, text: str, address: str, *, in_union: bool) -> Any:
             return text.lower() == "true"
         raise _problem(address, boolean_text_message(text), "boolean_text")
     if annotation is int:
-        try:
-            return int(text)
-        except ValueError:
-            raise _problem(
-                address, f"`{text}` is not a whole number: write digits, such as `4`"
-            ) from None
+        if _WHOLE_NUMBER.fullmatch(text) is None:
+            raise _problem(address, f"`{text}` is not a whole number: write digits, such as `4`")
+        return int(text)
     if annotation is float:
-        try:
-            return float(text)
-        except ValueError:
-            raise _problem(address, f"`{text}` is not a number: write one, such as `4.5`") from None
+        if _NUMBER.fullmatch(text) is None or not math.isfinite(float(text)):
+            raise _problem(address, f"`{text}` is not a number: write one, such as `4.5`")
+        return float(text)
     if origin is Literal:
         return _parse_literal(get_args(annotation), text, address, in_union)
     if _is_sequence(annotation):
@@ -185,9 +189,16 @@ def _parse_union(annotation: Any, text: str, address: str) -> Any:
     refusals: list[str] = []
     for branch in reading:
         try:
-            return _parse(branch, text, address, in_union=True)
+            value = _parse(branch, text, address, in_union=True)
         except SettingTextError as error:
             refusals.extend(message for _, message, _ in error.problems)
+            continue
+        # Beside a text branch, text becomes a number only when the number reads back as the
+        # same text: `10` is 10, but `010`, `1e3` and `+5` stay text, so no value changes.
+        if not taking_any_text or not isinstance(value, (int, float)) or isinstance(value, bool):
+            return value
+        if (repr(value) if isinstance(value, float) else str(value)) == text:
+            return value
     if taking_any_text:
         return str(text)
     raise SettingTextError(

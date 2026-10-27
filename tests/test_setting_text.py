@@ -371,3 +371,44 @@ def test_the_text_of_the_exploration_settings_is_read_as_their_types():
         Dse("fmax_optimizer", optimizer_settings=optimizer, **settings_to_dict(["timeout=soon"]))
     assert settings_codes(error.value) == ["invalid_value"]
     assert error.value.errors[0][0] == "timeout"
+
+
+@pytest.mark.parametrize("text", ["1_0", "+5", "٣", " 4", "4 "])
+def test_whole_number_text_is_digits_with_an_optional_minus(text):
+    (problem,) = refusal(int, text)
+    assert problem[2] == "invalid_value"
+
+
+@pytest.mark.parametrize("text", ["nan", "inf", "-inf", "1_0.5", "NaN"])
+def test_number_text_is_finite_and_plain(text):
+    (problem,) = refusal(float, text)
+    assert problem[2] == "invalid_value"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("10", 10),
+        ("-10", -10),
+        ("1.5", 1.5),
+        ("010", "010"),
+        ("1e3", "1e3"),
+        ("+5", "+5"),
+        ("1.50", "1.50"),
+        ("0", 0),
+        ("-0", "-0"),
+        ("nan", "nan"),
+    ],
+)
+def test_text_beside_numbers_becomes_a_number_only_when_it_reads_back_the_same(text, expected):
+    result = parsed(Union[str, int, float, bool], text)
+    assert result == expected and type(result) is type(expected)
+
+
+@pytest.mark.parametrize(("text", "expected"), [("010", "010"), ("10", 10), ("1e3", "1e3")])
+def test_a_property_value_keeps_its_text_unless_it_is_a_plain_number(text, expected):
+    layer = merge_layers(
+        [f"set_synth_properties.A={text}"], settings_cls=settings_of("vivado_synth")
+    )
+    value = layer["set_synth_properties"]["A"]
+    assert value == expected and type(value) is type(expected)
