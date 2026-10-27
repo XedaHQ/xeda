@@ -34,7 +34,8 @@ def test_an_empty_remote_host_is_a_usage_error(tmp_path, monkeypatch, json_outpu
     assert result.exit_code == 2, result.output
     if json_output:
         document = json.loads(result.stdout)
-        assert document["success"] is False
+        assert document["outcome"] is None
+        assert document["error"]["code"] == "usage_error"
         assert "`--remote` needs a host" in document["error"]["message"]
     else:
         assert "`--remote` needs a host" in result.output
