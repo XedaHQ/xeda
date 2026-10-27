@@ -26,7 +26,7 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
-from ... import log_context
+from ... import log_context, proc_utils
 from ..chains import FlowRequest, parse_request
 from ..default_runner import (
     FlowLauncher,
@@ -212,6 +212,17 @@ class Executioner:
         self.candidate_changes: dict[str, Any] = {}
 
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
+        # The candidates of an exploration run side by side, so their tool output goes to the log
+        # of each run and never to the terminal, whatever the caller chose.
+        token = proc_utils.TOOL_OUTPUT.set("log")
+        try:
+            return self._launch_candidate(args)
+        finally:
+            proc_utils.TOOL_OUTPUT.reset(token)
+
+    def _launch_candidate(
+        self, args: Tuple[int, Dict[str, Any]]
+    ) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
             delta = merge_layers(

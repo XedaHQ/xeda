@@ -24,7 +24,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda import Design
+from xeda import Design, proc_utils
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
@@ -197,6 +197,28 @@ def test_an_exploration_worker_launches_the_nodes_planning_names(tmp_path, where
 
     assert outcome is not None and index == 7
     assert _launched(runner) == planned
+
+
+def test_an_exploration_worker_keeps_tool_output_in_the_logs(tmp_path, monkeypatch):
+    """Candidates run side by side, so a worker launches its flow with tool output `log`, even
+    when the caller (the command line) shows tool output on the terminal."""
+    design = _design(tmp_path, "requested")
+    runner = DefaultRunner(tmp_path / "worker", display_results=False)
+    seen = []
+    launch = runner.launch_flow
+
+    def recording(*args, **kwargs):
+        seen.append(proc_utils.TOOL_OUTPUT.get())
+        return launch(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "launch_flow", recording)
+    token = proc_utils.TOOL_OUTPUT.set("terminal")
+    try:
+        outcome, _ = Executioner(runner, design, _Place)((0, {}))
+        assert proc_utils.TOOL_OUTPUT.get() == "terminal", "the worker restores the caller's"
+    finally:
+        proc_utils.TOOL_OUTPUT.reset(token)
+    assert outcome is not None and seen and set(seen) == {"log"}  # the producer's launch too
 
 
 @pytest.mark.parametrize("door", DOORS)
