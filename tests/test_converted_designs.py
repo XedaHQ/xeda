@@ -803,7 +803,9 @@ def test_the_converter_of_a_design_is_launched_as_a_producer(tmp_path, monkeypat
     launch(tmp_path, classes)  # the first launch judges nothing: no trace yet
     launch(tmp_path, classes)
     converter, reader = classes
-    assert refreshes == {converter.name: False, reader.name: True}
+    # the fresh reader is held shared, so it too is checked without a refresh (it would take the
+    # node exclusively to refresh one, `tests/test_graph_locks.py`); the converter never refreshes
+    assert refreshes == {converter.name: False, reader.name: False}
 
     seen: list[tuple[str | None, bool]] = []
     launch_flow = DefaultRunner.launch_flow
