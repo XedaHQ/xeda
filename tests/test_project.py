@@ -214,6 +214,21 @@ def test_a_design_without_the_default_target_is_refused(tmp_path):
     assert p.design("plain", target=None).target is None
 
 
+def test_a_source_that_only_the_target_generates_loads_with_the_target(tmp_path):
+    """`top.v` does not exist; the target's generator writes it. Selecting the target (by name or
+    as the default) loads the design, and the design alone is the one that lacks the file."""
+    design = {
+        "name": "g",
+        "rtl": {"sources": ["top.v"]},
+        "targets": {"build": {"rtl": {"generator": {"shell": "true"}}}},
+    }
+    for keys in ({}, {"default_target": "build"}):
+        p = Project.load(write_project(tmp_path, {"designs": [design], **keys}))
+        assert p.design("g", target="build").rtl.sources[0].generated
+    assert p.design("g").rtl.sources[0].generated
+    assert p.design("g").target == "build"
+
+
 def test_a_target_that_the_design_does_not_have_is_refused(tmp_path):
     from xeda.flow_runner.error_codes import public_error
 

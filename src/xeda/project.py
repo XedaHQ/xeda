@@ -165,26 +165,32 @@ class Project:
         default target is no target of the design and no target was given; `unknown_target`)."""
         entry = self._entry(name)
         layer = (str(self.path), self.flows)
-        if entry.file is not None:
-            design = Design._load_file(entry.file, project_layer=layer)
-        else:
-            assert entry.table is not None
-            design = Design._built(self.root, thaw(entry.table), project_layer=layer)
         wanted = self.default_target if target is UNSET else target
-        if wanted is None:
-            return design
-        assert isinstance(wanted, str)
-        if target is UNSET and wanted not in design.targets:
-            raise DesignError(
-                f'The default target {wanted!r} of the project file "{self.path}" is not a '
-                f"target of the design {design.name!r}"
-                + (f" (its targets are: {', '.join(design.targets)})" if design.targets else "")
-                + ". Select a target, or select no target.",
-                code="target_required",
-                field="targets",
-                path=self.path,
-            )
-        return design.with_target(wanted)
+        assert wanted is None or isinstance(wanted, str)
+
+        def build(chosen: str | None) -> Design:
+            if entry.file is not None:
+                return Design._load_file(entry.file, target=chosen, project_layer=layer)
+            assert entry.table is not None
+            return Design._built(self.root, thaw(entry.table), target=chosen, project_layer=layer)
+
+        # The design is built once, with its target: a source that only the target's generator
+        # writes is no missing file of the target.
+        try:
+            return build(wanted)
+        except DesignValidationError as e:
+            if target is not UNSET or not any(error[3] == "unknown_target" for error in e.errors):
+                raise
+        design = build(None)
+        raise DesignError(
+            f'The default target {wanted!r} of the project file "{self.path}" is not a '
+            f"target of the design {design.name!r}"
+            + (f" (its targets are: {', '.join(design.targets)})" if design.targets else "")
+            + ". Select a target, or select no target.",
+            code="target_required",
+            field="targets",
+            path=self.path,
+        )
 
     def _entry(self, name: str | Literal[Unset.UNSET]) -> _Entry:
         if not self._entries:
