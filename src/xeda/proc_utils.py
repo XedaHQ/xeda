@@ -993,13 +993,19 @@ def run_process(
     program = str(executable)
     if cwd is not None and not os.path.isabs(program) and os.sep in program:
         program = os.path.normpath(os.path.join(os.fspath(cwd), program))
+    if env is not None:
+        env = {k: str(v) for k, v in env.items() if v is not None}
+    env = {**(os.environ if env is None else env), "PWD": _pwd(cwd)}
+    # The child looks a bare name up on its own PATH. When that finds another file than the PATH of
+    # this process does, note the file the child runs.
+    if os.sep not in program and not program.startswith(DOCKER_IMAGE_PREFIX):
+        child = shutil.which(program, path=env.get("PATH"))
+        if child and child != shutil.which(program):
+            program = child
     note_program(program)
     if args is None:
         args = []
     args = [str(a) for a in args]
-    if env is not None:
-        env = {k: str(v) for k, v in env.items() if v is not None}
-    env = {**(os.environ if env is None else env), "PWD": _pwd(cwd)}
     command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command and TOOL_OUTPUT.get() == "terminal":

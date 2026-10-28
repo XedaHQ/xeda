@@ -42,6 +42,22 @@ def test_a_relative_program_is_recorded_where_the_process_starts(tmp_path):
     assert names.before[str(program)] is not None
 
 
+def test_the_program_that_the_child_path_finds_is_recorded(tmp_path, monkeypatch):
+    """A bare name is looked up on the PATH of the child. When that is another installation than
+    the one on the PATH of this process, the file of the child is recorded."""
+    parent_bin, child_bin = tmp_path / "parent", tmp_path / "child"
+    for directory in (parent_bin, child_bin):
+        directory.mkdir()
+        program = directory / "twin-tool"
+        program.write_text("#!/bin/sh\nexit 0\n")
+        program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{parent_bin}{os.pathsep}{os.environ['PATH']}")
+    with recording_programs() as names:
+        run_process("twin-tool", [], cwd=tmp_path)
+        run_process("twin-tool", [], cwd=tmp_path, env={"PATH": str(child_bin)})
+    assert names == ["twin-tool", str(child_bin / "twin-tool")]
+
+
 def test_nothing_is_recorded_outside_a_recording():
     note_program("anything")  # no recording active: silently ignored
     with recording_programs() as names:
