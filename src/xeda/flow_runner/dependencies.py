@@ -36,6 +36,7 @@ import secrets
 from collections.abc import Callable, Iterator, Mapping
 from contextvars import ContextVar
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -374,19 +375,29 @@ def using_pinned_commits(commits: Mapping[str, str]) -> Iterator[None]:
 RunRoot = Path | Callable[[], Path] | None
 
 
-# Each entry names one design file on the active path, with its design name for errors.
-DependencyChain = tuple[tuple[str, str], ...]
+# Each entry is one design on the active path: its identity (`_identity`) and its name.
+DependencyChain = tuple[tuple[tuple[str, tuple[Any, ...]], str], ...]
 
 
-def _extend_chain(path: str, name: str, chain: DependencyChain, field: str) -> DependencyChain:
-    identity = os.path.realpath(path)
-    if any(previous == identity for previous, _ in chain):
-        repeated = next(label for previous, label in chain if previous == identity)
-        names = [label for _, label in chain] + [repeated]
-        raise DesignError(
-            "dependency cycle: " + " -> ".join(names), code="dependency_cycle", field=field
-        )
-    return (*chain, (identity, name))
+def _identity(design: Design) -> tuple[str, tuple[Any, ...]]:
+    """Return what decides the dependencies below `design`: its design file and the entries of
+    its `dependencies`.
+
+    The file alone is not enough: a target can add dependencies, so the design of a file with its
+    target and the same file loaded as a dependency, which takes no target, are two designs. When
+    both parts repeat on the active path, so does everything below, which is a cycle."""
+    return os.path.realpath(design.generation_label), tuple(design.dependencies)
+
+
+def _extend_chain(design: Design, chain: DependencyChain, field: str) -> DependencyChain:
+    identity = _identity(design)
+    for previous, label in chain:
+        if previous == identity:
+            names = [name for _, name in chain] + [label]
+            raise DesignError(
+                "dependency cycle: " + " -> ".join(names), code="dependency_cycle", field=field
+            )
+    return (*chain, (identity, design.name))
 
 
 def declared_designs(
@@ -400,7 +411,7 @@ def declared_designs(
 
     The root's design file participates too. A shared dependency on another branch is allowed.
     Remote checks leave missing files to the merge when `missing_ok` is true."""
-    active = _extend_chain(design.generation_label, design.name, chain, field)
+    active = _extend_chain(design, chain, field)
     yield design
     for position, ref in enumerate(design.dependencies):
         if isinstance(ref, GitReference):
@@ -428,7 +439,7 @@ def _merge(
     Each entry has a slot in `slots`, its index. The entries of the design that planning
     started from take the slots `0..n-1` at their positions (`first` is `None`). The entries of
     a dependency come after, in the order they are met (`first` is `len(slots)` then)."""
-    active = _extend_chain(design.generation_label, design.name, chain, field)
+    active = _extend_chain(design, chain, field)
     merged: list[MergedDependency] = []
     for position, ref in enumerate(design.dependencies):
         field = f"dependencies[{position}]"
@@ -441,11 +452,6 @@ def _merge(
             path = "-".join(str(number) for number in (*where, position))
             commit = (
                 ref.commit or pins.get(path) or resolve_reference(ref, run_root=root, field=field)
-            )
-            # Check the design file's identity before fetching a repeated Git dependency.
-            expected = dependency_storage(root, dependency_key(ref.repo_url, commit))
-            _extend_chain(
-                str(expected / CHECKOUT / ref.design_file), ref.design_file, active, field
             )
             files = fetch(ref, commit, run_root=root, field=field)
             loaded = _git_design(ref, files, field)

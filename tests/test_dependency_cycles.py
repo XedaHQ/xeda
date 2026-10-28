@@ -71,3 +71,16 @@ def test_a_local_cycle_is_refused_before_an_earlier_git_dependency_is_fetched(
     monkeypatch.setattr(dependencies, "fetch", fetched)
     with pytest.raises(DesignError, match="dependency cycle: a -> b -> a"):
         _check(design, tmp_path, "launch")
+
+
+@pytest.mark.parametrize("entry", ["launch", "remote"])
+def test_a_target_that_adds_a_dependency_on_a_design_that_depends_on_its_file_is_no_cycle(
+    tmp_path, entry
+):
+    """`a` with its target depends on `b`, and `b` depends on `a` loaded as a dependency, which
+    takes no target and so does not depend on `b`. The file of `a` is on the path twice, but the
+    two designs differ."""
+    _designs(tmp_path, {"a": [], "b": ["a"]})
+    path = tmp_path / "a.yaml"
+    path.write_text(path.read_text() + "targets:\n  test:\n    dependencies: [b.yaml]\n")
+    _check(Design.from_file(path, target="test"), tmp_path, entry)

@@ -251,18 +251,18 @@ def test_a_cycle_in_a_git_dependency_is_refused_without_fetching_it_twice(
     path.write_text(yaml.safe_dump(document))
     commit = remote.commit("cyclic dependency")
     _git("push", "--quiet", "origin", "main", cwd=remote.work)
-    original = xeda.flow_runner.dependencies.fetch
-    fetched = []
+    original = xeda.flow_runner.dependencies._clone
+    cloned = []
 
-    def once(ref, commit, **kwargs):
-        assert not fetched, "a cycle is refused before fetching the repeated dependency"
-        fetched.append(commit)
-        return original(ref, commit, **kwargs)
+    def once(ref, commit, *args, **kwargs):
+        assert not cloned, "a cycle is refused before the repeated dependency is cloned again"
+        cloned.append(commit)
+        return original(ref, commit, *args, **kwargs)
 
-    monkeypatch.setattr(xeda.flow_runner.dependencies, "fetch", once)
+    monkeypatch.setattr(xeda.flow_runner.dependencies, "_clone", once)
     with pytest.raises(DesignError, match="dependency cycle: d -> dep -> dep"):
         _plan(tmp_path, _design_file(tmp_path, _pinned(remote, commit)))
-    assert fetched == [commit]
+    assert cloned == [commit]
 
 
 def test_an_invalid_spec_fetches_nothing(tmp_path, remote, git_log):
