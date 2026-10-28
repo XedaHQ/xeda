@@ -810,7 +810,8 @@ def layered_project_with_paths(tmp_path: Path) -> Path:
             "flows": {
                 "nextpnr": {"custom_boards_file": "boards.yaml", "seed": 3},
                 "vivado_synth": {"xdc_files": ["top.xdc", "$DESIGN_ROOT/own.xdc", "/abs/a.xdc"]},
-                "yosys": {"memory": {"libmap": ["lib/m.map"]}},
+                "yosys": {"memory": {"libmap": ["lib/m.map"]}, "abc_script": "scripts/map.abc"},
+                "yosys_fpga": {"abc_script": "+strash;map"},
             },
         },
     )
@@ -839,6 +840,9 @@ def test_every_kind_of_path_setting_of_the_project_is_resolved_and_the_rest_is_l
     ]
     sections = dict(runner._request("yosys", "fifo", xedaproject=str(path)).origins)
     assert sections[str(path)]["yosys"]["memory"]["libmap"] == [f"{root}/lib/m.map"]
+    assert sections[str(path)]["yosys"]["abc_script"] == f"{root}/scripts/map.abc"
+    sections = dict(runner._request("yosys_fpga", "fifo", xedaproject=str(path)).origins)
+    assert sections[str(path)]["yosys_fpga"]["abc_script"] == "+strash;map"  # an inline script
 
 
 def test_the_paths_of_the_design_stay_relative_to_the_design_root(tmp_path):

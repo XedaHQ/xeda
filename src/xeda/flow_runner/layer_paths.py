@@ -25,6 +25,10 @@ __all__ = ["anchored_sections"]
 #: The key of the schema extra that marks a setting the flow writes (`dataclass.WORKING`).
 WRITES_KEY = next(iter(WORKING))
 
+#: The key of the schema extra of a text setting that is a file, or the content itself written
+#: inline after the prefix that the key gives (`abc_script`).
+INLINE_PREFIX_KEY = "x-xeda-inline-prefix"
+
 
 def _members(annotation: Any) -> tuple[Any, ...]:
     """Return the types that `annotation` allows: the members of a union, or the type itself."""
@@ -81,6 +85,9 @@ def _anchored_table(model: type[BaseModel], table: Mapping[str, Any], base: Path
         if info is None or (isinstance(extra, Mapping) and WRITES_KEY in extra):
             # A file the flow writes is a name in the run directory, wherever it was written.
             result[key] = value
+        elif isinstance(extra, Mapping) and INLINE_PREFIX_KEY in extra and isinstance(value, str):
+            inline = value.startswith(str(extra[INLINE_PREFIX_KEY]))
+            result[key] = str(base / value) if not inline and _is_relative(value) else value
         else:
             result[key] = _anchor(info.annotation, value, base)
     return result

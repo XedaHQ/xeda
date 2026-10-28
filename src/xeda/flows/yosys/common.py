@@ -813,6 +813,7 @@ class YosysSynthesisBase(YosysBase):
             "`abc.mapper: abc_new` in `yosys`, the script works on a GIA and must end in a mapped "
             "one (`&nf`), and it replaces the scripts of wrapped operators. Advanced: a "
             "wrong script silently produces a poor or invalid netlist.",
+            json_schema_extra={"x-xeda-inline-prefix": "+"},
         )
 
         post_synth_rename: List[str] = Field(
