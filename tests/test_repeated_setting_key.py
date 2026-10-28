@@ -165,3 +165,15 @@ def test_one_setting_in_two_nodes_is_not_a_repeat():
     assert sections["nextpnr"] == {"seed": "1", "verbose": "2"}
     assert sections["yosys_fpga"] == {"verbose": "2"}
     assert own == {}
+
+
+def test_the_clock_shorthand_and_a_qualified_clock_are_one_setting(design_file):
+    """`clock.period` is `clocks.main_clock.period`, qualified or not."""
+    error = _refused(
+        design_file, f"fpga.part={ECP5}", "clock.period=5ns", "flows.yosys_fpga.clock.period=6ns"
+    )
+    assert settings_codes(error)[0] == "conflicting_keys"
+    assert (
+        f"`-s clock.period=5ns` and `-s flows.yosys_fpga.clock.period=6ns` {TWO_VALUES}"
+        in _messages(error)[0]
+    )

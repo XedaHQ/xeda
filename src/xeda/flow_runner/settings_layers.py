@@ -577,7 +577,11 @@ def _given_leaves(
         text = piece[0] if isinstance(piece, list) and isinstance(piece[0], str) else None
         for node, content in ((requested, table), *sections.items()):
             prefix = "" if content is table else f"flows.{node}."
-            for path, (written, value) in _leaves(content, settings_of(node)).items():
+            node_settings = settings_of(node)
+            if node_settings is not None and content is table:
+                # `clock` is `clocks.main_clock`, as the sections of the other spelling are.
+                content = _canonicalize_clock_input(dict(content), node_settings)[0]
+            for path, (written, value) in _leaves(content, node_settings).items():
                 shown = text if text is not None else f"{prefix}{written}={value}"
                 given = text.split("=", 1)[1] if text is not None else value
                 leaves.setdefault((node, path), []).append((shown, f"{prefix}{written}", given))
