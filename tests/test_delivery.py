@@ -322,7 +322,13 @@ def later_clock(monkeypatch):
 
     def later(destination):
         reading = original(destination)
-        return None if reading is None else replace(reading, ns=reading.ns + RACY_NS + 1)
+        if reading is None:
+            return None
+        # past the racy window of the destination's own times too: a coarse or loaded clock
+        # can read no later than the file it is to vouch for
+        status = os.lstat(destination)
+        settled = max(status.st_mtime_ns, status.st_ctime_ns) + RACY_NS + 1
+        return replace(reading, ns=max(reading.ns + RACY_NS + 1, settled))
 
     monkeypatch.setattr(deliver, "_destination_clock", later)
 
