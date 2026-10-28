@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from xeda.design import Design
@@ -33,3 +35,27 @@ def with_updates(
     result = design.model_copy(update=update)
     result.invalidate_cached_properties()
     return result
+
+
+def design_from_dump(dump: Mapping[str, Any]) -> Design:
+    """Return the design that a dump of a design holds (`model_dump()`, or the `design` of a
+    `settings.json`): it keeps the recorded root and drops the target and the provenance."""
+    document = dict(dump)
+    root = document.pop("root")
+    for key in ("target", "targets", "updates"):
+        document.pop(key, None)
+    return Design(root=root, **document)
+
+
+def design_of(data: Mapping[str, Any], root: Any = None) -> Design:
+    """Return the design that a design file with this content would hold, by the same path as a
+    loaded file takes: keys that a design does not have are validation errors, not `TypeError`s.
+    The root is the directory of the tests unless one is given."""
+    return Design._built(Path(__file__).resolve().parent if root is None else root, dict(data))
+
+
+def design_of_target(target: str, root: Any, **declared: Any) -> Design:
+    """Return a design that records `target` as its selected target without a `targets` table
+    to select it from (a design of a document made on another machine). Nothing checks the
+    name."""
+    return Design._built(root, declared, recorded_target=target)

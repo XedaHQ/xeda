@@ -85,7 +85,7 @@ def _design(tmp_path: Path) -> Design:
     )
     return Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
 
@@ -666,7 +666,7 @@ def test_a_systemverilog_source_still_reads_as_read_verilog_sv_under_the_mode(
     )
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.sv"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(tmp_path / "run", display_results=False).run(
@@ -712,7 +712,7 @@ def test_the_reader_follows_the_sources_type_not_its_suffix(
     (root / name).write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"file": name, "type": declared}],
             "top": "top",
@@ -959,7 +959,7 @@ def test_a_systemverilog_design_under_the_mode_is_refused_before_any_tool_runs(t
     )
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.sv"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)

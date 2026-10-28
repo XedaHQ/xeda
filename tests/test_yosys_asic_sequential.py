@@ -85,7 +85,7 @@ def _enable_design(root: Path) -> Design:
     (root / "en.v").write_text(ENABLES)
     return Design(
         name="en",
-        design_root=root,
+        root=root,
         rtl={"sources": ["en.v"], "top": "en", "clocks": [{"port": "clk"}]},
     )
 
@@ -540,9 +540,9 @@ def test_the_new_map_files_resolve_against_the_design_root(tmp_path):
 
     store = tiny_store(tmp_path)
     design = _design(tmp_path / "design")
-    (design.design_root / "dffs.v").write_text(DFF_MAP)
+    (design.root / "dffs.v").write_text(DFF_MAP)
     settings = Yosys.Settings.from_input(
-        tiny_settings(store, sequential={"dff_map": "dffs.v"}), design_root=design.design_root
+        tiny_settings(store, sequential={"dff_map": "dffs.v"}), design_root=design.root
     )
     run = tmp_path / "run"
     run.mkdir()
@@ -550,7 +550,7 @@ def test_the_new_map_files_resolve_against_the_design_root(tmp_path):
     flow.init()
     flow.prepare_inputs()
     values = flow.asic_values()
-    assert values.dff_map == design.design_root / "dffs.v"
+    assert values.dff_map == design.root / "dffs.v"
     assert values.dff_map_cells == ("$_DFF_P_",)
     assert values.legalize_any == module.LEGALIZE_ANY_FLIP_FLOP
 

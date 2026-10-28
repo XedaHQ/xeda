@@ -178,7 +178,7 @@ def design(tmp_path):
     root = tmp_path / "d"
     root.mkdir()
     (root / "top.sv").write_text("module top; endmodule\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["top.sv"], "top": "top"})
+    return Design(name="d", root=root, rtl={"sources": ["top.sv"], "top": "top"})
 
 
 def _runner(tmp_path: Path, **options: Any) -> DefaultRunner:
@@ -471,9 +471,9 @@ def test_a_list_output_and_a_bsc_design_output_have_names_and_digests(tmp_path, 
     ]
 
     fake_bsc, _rival, _to_vhdl = converter_flows()
-    root = design.root_path
+    root = design.root
     (root / "A.bsv").write_text("package A; endpackage\n")
-    mixed = Design(name="d", design_root=root, rtl={"sources": ["A.bsv", "top.sv"], "top": "mkA"})
+    mixed = Design(name="d", root=root, rtl={"sources": ["A.bsv", "top.sv"], "top": "mkA"})
     converter = _runner(tmp_path).launch_flow(fake_bsc, mixed, {})
     assert converter.succeeded
     output = _document(converter)["outputs"]["design"]
@@ -535,10 +535,10 @@ def _strings(value: Any):
 
 
 def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
-    (design.root_path / "given.dat").write_text("given\n")
+    (design.root / "given.dat").write_text("given\n")
     with_data = Design(
         name="d",
-        design_root=design.root_path,
+        root=design.root,
         rtl={"sources": [{"file": "given.dat", "type": "Data"}], "top": "t"},
     )
     flow = _runner(tmp_path).launch_flow(_Reader, with_data, {})
@@ -555,7 +555,7 @@ def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
             {
                 "path": "given.dat",
                 "generated": False,
-                "digest": content_digest(design.root_path / "given.dat"),
+                "digest": content_digest(design.root / "given.dat"),
                 "dependency": None,
             }
         ],
@@ -843,7 +843,7 @@ JOIN_BINDINGS = {"__join": {"inputs": {"more": ["__right.out", "__left.out", "__
 def _join_design(tmp_path: Path) -> Design:
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=JOIN_BINDINGS)
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"}, flows=JOIN_BINDINGS)
 
 
 def _join_record(tmp_path: Path) -> RunRecord:

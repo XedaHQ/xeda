@@ -538,8 +538,8 @@ def _resolved_patterns(pattern: Path, wildcard: bool) -> list[Path]:
 class ReadInputs:
     """Every file that the flows of a launch read.
 
-    These are the files of the design, the design file and project file that the launch was
-    given, the file that each read setting of any of its flows names, and every entry under a
+    These are the files of the design, the design file, the project file and the private settings
+    files that the launch was given, the file that each read setting of any of its flows names, and every entry under a
     directory that a read setting names, as the trace lists it
     (`trace_inputs.register_read_settings`). The class holds them by file identity (`st_dev`,
     `st_ino`) and by resolved path. It also holds those directories themselves, each with the

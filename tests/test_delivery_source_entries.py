@@ -67,7 +67,7 @@ def _tree(root: Path) -> None:
 def _design(root: Path, **parts) -> Design:
     _tree(root)
     rtl = {"sources": ["top.v"], "top": "top", **parts.pop("rtl", {})}
-    return Design(name="d", design_root=root, rtl=rtl, **parts)
+    return Design(name="d", root=root, rtl=rtl, **parts)
 
 
 def _generator(*sources: str) -> dict:
@@ -162,7 +162,7 @@ def test_a_delivery_that_a_source_entry_would_read_is_refused_before_any_tool(
     if where == "generator":
         parts["rtl"]["sources"] = ["gen/top.v"]
     design = _design(tmp_path / "design", **parts)
-    target = design.root_path / destination
+    target = design.root / destination
     assert not target.exists()
     with pytest.raises(DeliveryError) as error:
         _launch(tmp_path, deliverer, design, target)
@@ -172,22 +172,42 @@ def test_a_delivery_that_a_source_entry_would_read_is_refused_before_any_tool(
     assert not (tmp_path / "xeda_run" / ".generated").exists(), "no generator ran"
 
 
+@pytest.mark.parametrize("change", ["parameters", "target", "nothing"])
+def test_a_delivery_is_still_refused_after_the_design_is_updated(tmp_path, deliverer, change):
+    """`with_updates` and `with_target` keep the entries that named the sources, so the rule still
+    sees `src/*.v` and not the one file that matched it."""
+    design = _design(
+        tmp_path / "design",
+        rtl={"sources": ["src/*.v"]},
+        targets={"t": {"rtl": {"defines": {"A": 1}}}},
+    )
+    changed = {
+        "parameters": lambda: design.with_updates({"rtl.parameters.W": 2}),
+        "target": lambda: design.with_target("t"),
+        "nothing": lambda: design.with_updates({}),
+    }[change]()
+    assert changed.source_entries() == design.source_entries()
+    with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
+        _launch(tmp_path, deliverer, changed, design.root / "src" / "new.v")
+    assert not RUNS
+
+
 def test_the_refusal_names_the_part_of_the_entry(tmp_path, deliverer):
     design = _design(tmp_path / "design", tb={"sources": ["tb/*.vhd"]})
     with pytest.raises(DeliveryError, match=r"`tb/\*.vhd` entry of `tb.sources`"):
-        _launch(tmp_path, deliverer, design, design.root_path / "tb" / "new.vhd")
+        _launch(tmp_path, deliverer, design, design.root / "tb" / "new.vhd")
 
 
 def test_a_star_does_not_cross_a_directory(tmp_path, deliverer):
     design = _design(tmp_path / "design", rtl={"sources": ["src/*.v"]})
-    target = design.root_path / "src" / "gen" / "new.v"
+    target = design.root / "src" / "gen" / "new.v"
     assert _launch(tmp_path, deliverer, design, target).succeeded
     assert target.read_text() == "net\n"
 
 
 def test_a_file_that_no_entry_reads_is_delivered(tmp_path, deliverer):
     design = _design(tmp_path / "design", rtl={"sources": ["src/*.v"]})
-    target = design.root_path / "src" / ".hidden.v"
+    target = design.root / "src" / ".hidden.v"
     assert _launch(tmp_path, deliverer, design, target).succeeded
     assert target.read_text() == "net\n"
 
@@ -209,12 +229,10 @@ def test_outputs_to_of_a_launch_is_judged_by_the_same_rule(tmp_path, deliverer):
     (tmp_path / "design" / "outputs").mkdir(parents=True)
     (tmp_path / "design" / "outputs" / "seed.v").write_text("// seed\n")
     design = _design(tmp_path / "design", rtl={"sources": ["outputs/*.v"]})
-    runner = DefaultRunner(
-        tmp_path / "xeda_run", display_results=False, outputs_to=design.root_path
-    )
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, outputs_to=design.root)
     with pytest.raises(DeliveryError, match=r"`outputs/\*.v` entry of `rtl.sources`"):
         runner.launch_flow(deliverer, design, {"netlist": "outputs/d.v"})
-    assert not (design.root_path / "outputs" / "d.v").exists()
+    assert not (design.root / "outputs" / "d.v").exists()
 
 
 # ---------------------------------------------------------------- the entry is no identity
@@ -229,8 +247,8 @@ def test_the_entry_of_a_source_is_private_and_no_part_of_its_identity(tmp_path):
 
     root = tmp_path / "design"
     _tree(root)
-    by_name = Design(name="d", design_root=root, rtl={"sources": ["src/a.v"], "top": "a"})
-    by_pattern = Design(name="d", design_root=root, rtl={"sources": ["src/*.v"], "top": "a"})
+    by_name = Design(name="d", root=root, rtl={"sources": ["src/a.v"], "top": "a"})
+    by_pattern = Design(name="d", root=root, rtl={"sources": ["src/*.v"], "top": "a"})
     (named,), (matched,) = by_name.rtl.sources, by_pattern.rtl.sources
     assert named == matched and hash(named) == hash(matched)
     assert named.as_json_value() == matched.as_json_value()
@@ -255,9 +273,7 @@ def test_a_pattern_whose_matches_are_all_listed_already_stays_an_entry(tmp_path,
     root = tmp_path / "design"
     (root / "src").mkdir(parents=True)
     (root / "src" / "seed.v").write_text("module seed; endmodule\n")
-    design = Design(
-        name="d", design_root=root, rtl={"sources": ["src/seed.v", "src/*.v"], "top": "seed"}
-    )
+    design = Design(name="d", root=root, rtl={"sources": ["src/seed.v", "src/*.v"], "top": "seed"})
     assert [e.text for e in design.source_entries()] == ["src/seed.v", "src/*.v"]
     target = root / "src" / "new.v"
     with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
@@ -273,7 +289,7 @@ def test_an_entry_of_a_dependency_stays_when_the_design_lists_the_file_first(tmp
     (root / "top.v").write_text("module top; endmodule\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v", "dep/lib/a.v"], "top": "top"},
         dependencies=["dep/dep.yaml"],
     )
@@ -285,8 +301,8 @@ def test_an_entry_of_a_dependency_stays_when_the_design_lists_the_file_first(tmp
 def test_a_file_listed_twice_stays_one_source_and_the_entries_are_no_identity(tmp_path):
     root = tmp_path / "design"
     _tree(root)
-    once = Design(name="d", design_root=root, rtl={"sources": ["src/a.v"], "top": "a"})
-    twice = Design(name="d", design_root=root, rtl={"sources": ["src/a.v", "src/*.v"], "top": "a"})
+    once = Design(name="d", root=root, rtl={"sources": ["src/a.v"], "top": "a"})
+    twice = Design(name="d", root=root, rtl={"sources": ["src/a.v", "src/*.v"], "top": "a"})
     assert once.rtl.sources == twice.rtl.sources and len(twice.rtl.sources) == 1
     assert once.rtl.sources[0].as_json_value() == twice.rtl.sources[0].as_json_value()
     assert len(twice.source_entries()) == 2
@@ -304,7 +320,7 @@ def test_a_delivery_through_a_directory_link_is_judged_where_the_entry_reads(tmp
     (root / "lib").mkdir(parents=True)
     (root / "lib" / "seed.v").write_text("module seed; endmodule\n")
     (root / "src").symlink_to(root / "lib", target_is_directory=True)
-    design = Design(name="d", design_root=root, rtl={"sources": ["src/*.v"], "top": "seed"})
+    design = Design(name="d", root=root, rtl={"sources": ["src/*.v"], "top": "seed"})
     for target in (root / "lib" / "new.v", root / "src" / "new.v"):
         with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
             _launch(tmp_path, deliverer, design, target)
@@ -320,7 +336,7 @@ def test_a_delivery_into_a_linked_directory_that_a_plain_entry_names_is_refused(
     (root / "tools").symlink_to(root / "scripts", target_is_directory=True)
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["gen/top.v"], "top": "top", "generator": _generator("tools")},
     )
     with pytest.raises(DeliveryError, match="entry of `rtl.generator.sources`"):
@@ -333,7 +349,7 @@ def test_a_wildcard_directory_that_is_a_link_is_read_through_the_link(tmp_path, 
     (root / "real" / "x.v").write_text("module x; endmodule\n")
     (root / "pkgs").mkdir()
     (root / "pkgs" / "one").symlink_to(root / "real", target_is_directory=True)
-    design = Design(name="d", design_root=root, rtl={"sources": ["pkgs/*/*.v"], "top": "x"})
+    design = Design(name="d", root=root, rtl={"sources": ["pkgs/*/*.v"], "top": "x"})
     with pytest.raises(DeliveryError, match=r"`pkgs/\*/\*.v` entry"):
         _launch(tmp_path, deliverer, design, root / "real" / "new.v")
 
@@ -343,6 +359,6 @@ def test_a_link_does_not_make_a_star_cross_a_directory(tmp_path, deliverer):
     (root / "lib" / "deeper").mkdir(parents=True)
     (root / "lib" / "seed.v").write_text("module seed; endmodule\n")
     (root / "src").symlink_to(root / "lib", target_is_directory=True)
-    design = Design(name="d", design_root=root, rtl={"sources": ["src/*.v"], "top": "seed"})
+    design = Design(name="d", root=root, rtl={"sources": ["src/*.v"], "top": "seed"})
     target = root / "lib" / "deeper" / "new.v"
     assert _launch(tmp_path, deliverer, design, target).succeeded

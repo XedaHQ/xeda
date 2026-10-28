@@ -125,7 +125,7 @@ def _store(tmp_path: Path, name: str = "store") -> Path:
 
 def _design(root: Path, **sections) -> Design:
     root.mkdir(parents=True, exist_ok=True)
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=sections)
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"}, flows=sections)
 
 
 def _runner(tmp_path: Path) -> DefaultRunner:

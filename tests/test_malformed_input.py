@@ -42,6 +42,7 @@ VALIDATION_ERRORS = (ValidationError, FlowSettingsError, DesignValidationError, 
 MALFORMED = [*PROBES, object(), {"a": {"b": 1}}, [{}]]
 
 RTL = {"sources": [], "top": "t"}
+ROOT = Path(__file__).resolve().parent
 
 FLOWS = flow_classes()
 
@@ -75,7 +76,7 @@ def test_malformed_design_sections_are_validation_errors(section):
     fields = ["sources", "top", "parameters", "defines", "clocks", "cocotb"]
 
     def build(field, bad):
-        payload = {"name": "d", "rtl": dict(RTL)}
+        payload = {"name": "d", "root": ROOT, "rtl": dict(RTL)}
         payload.setdefault(section, {})[field] = bad
         Design(**payload)
 
@@ -87,7 +88,10 @@ def test_malformed_design_sections_are_validation_errors(section):
 def test_malformed_top_level_design_keys_are_validation_errors():
     fields = ["name", "flows", "dependencies", "authors", "language", "rtl", "tb"]
 
-    leaks = _leaks(lambda field, bad: Design(**{"name": "d", "rtl": dict(RTL), field: bad}), fields)
+    leaks = _leaks(
+        lambda field, bad: Design(**{"name": "d", "root": ROOT, "rtl": dict(RTL), field: bad}),
+        fields,
+    )
 
     assert not leaks, "\n  ".join(leaks)
 
@@ -111,7 +115,7 @@ def test_a_parameter_list_entry_that_is_not_an_object_is_a_design_error(entry):
     with pytest.raises(
         DesignValidationError, match="parameters must be a dictionary or a list of objects"
     ):
-        Design(name="d", rtl={**RTL, "parameters": [entry]})
+        Design(name="d", root=ROOT, rtl={**RTL, "parameters": [entry]})
 
 
 def test_a_missing_verilog_lib_names_the_file(tmp_path):
@@ -129,12 +133,12 @@ def test_set_attribute_must_be_a_mapping(bad):
 
 def test_a_design_root_that_is_not_a_directory_is_a_design_error(tmp_path):
     with pytest.raises(DesignValidationError, match="directory does not exist"):
-        Design(design_root=tmp_path / "missing", name="d", rtl=dict(RTL))
+        Design(root=tmp_path / "missing", name="d", rtl=dict(RTL))
 
 
 def test_a_design_root_that_is_not_a_path_is_a_design_error():
     with pytest.raises(DesignValidationError, match="not a path"):
-        Design(design_root=123, name="d", rtl=dict(RTL))  # type: ignore[arg-type]
+        Design(root=123, name="d", rtl=dict(RTL))  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -158,7 +162,7 @@ def test_repeated_eat_all_option_accumulates():
 
 def test_the_examples_still_load():
     """The sweep above must not have been satisfied by rejecting everything."""
-    design = Design.from_file(Path(__file__).parent.parent / "examples/vhdl/sqrt/sqrt.yaml")
+    design = Design.load(Path(__file__).parent.parent / "examples/vhdl/sqrt/sqrt.yaml")
 
     assert design.rtl.sources
 
@@ -228,8 +232,8 @@ def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
     assert origin == "project file"
     design = _write_design(directory)
     project = directory / PROJECT_FILE
-    project.write_text(json.dumps({"flows": flows}))
-    return runner.plan("verilator", design, xedaproject=str(project))
+    project.write_text(json.dumps({"designs": [{"file": design.name}], "flows": flows}))
+    return runner.plan("verilator", "top", xedaproject=str(project))
 
 
 @pytest.mark.parametrize("shape", ["table", "section"])
@@ -291,12 +295,10 @@ def test_a_flows_key_that_is_no_flow_name_is_refused_naming_it(tmp_path, door, k
         if door == "plan":
             runner.plan("verilator", design_file, flow_settings={"flows": {key: {}}})
         elif door == "run_flow":
-            runner.run_flow(
-                "verilator", Design.from_file(design_file), {}, all_flows_settings={key: {}}
-            )
+            runner.run_flow("verilator", Design.load(design_file), {}, all_flows_settings={key: {}})
         else:
             runner.launch_flow(
-                "verilator", Design.from_file(design_file), {}, all_flows_settings={key: {}}
+                "verilator", Design.load(design_file), {}, all_flows_settings={key: {}}
             )
 
 
@@ -444,7 +446,7 @@ def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_2(
 
 # ---------------------------------------------------------------------------------------------
 # A key given as a value and as a table, from every origin that expands dotted keys: `-s
-# timing=true timing.x=1`, `--design-overrides tb=3 tb.top=x`, a design file with `tb: 3` beside
+# timing=true timing.x=1`, `--design-updates tb=3 tb.top=x`, a design file with `tb: 3` beside
 # `tb.top`, a `flows` table with `verilator: 3` beside `verilator.timing`. A reported error naming
 # both keys in either order -- never a traceback, never a table silently lost.
 # ---------------------------------------------------------------------------------------------
@@ -487,7 +489,7 @@ def _plan_with_keys(
     if origin == "command line":
         return runner.plan("verilator", _write_design(directory), flow_settings=texts)
     if origin == "design overrides":
-        return runner.plan("verilator", _write_design(directory), design_overrides=texts)
+        return runner.plan("verilator", _write_design(directory), design_updates=texts)
     if origin == "API":
         return runner.plan("verilator", _write_design(directory), flow_settings=dict(items))
     if origin == "design file":
@@ -507,8 +509,10 @@ def _plan_with_keys(
     if origin == "flows table of a project":
         design = _write_design(directory)
         project = directory / PROJECT_FILE
-        project.write_text(json.dumps({"flows": dict(flow_items)}))
-        return runner.plan("verilator", design, xedaproject=str(project))
+        project.write_text(
+            json.dumps({"designs": [{"file": design.name}], "flows": dict(flow_items)})
+        )
+        return runner.plan("verilator", "top", xedaproject=str(project))
     if origin == "project design entry":
         _write_design(directory)
         entry = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top"}, **dict(items)}

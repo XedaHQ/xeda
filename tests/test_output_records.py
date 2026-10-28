@@ -28,7 +28,7 @@ def design(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"
     root.mkdir()
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"})
 
 
 def _launch(tmp_path: Path, design: Design, settings: dict, **launcher):

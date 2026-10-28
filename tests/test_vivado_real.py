@@ -72,7 +72,7 @@ def test_vivado_synth_reads_every_file_by_its_own_name(work_dir) -> None:
     xdc = _write(root / "constr" / "io x.xdc", IO_XDC)
     design = Design(
         name="odd",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["rtl/inv [x] $v.v", "rtl/top [x] $v.vhd"],
             "top": "top",
@@ -104,7 +104,7 @@ def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc
     )
     design = Design(
         name="bit",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     settings = {
@@ -139,7 +139,7 @@ def test_vivado_alt_synth_reads_the_xdc_files_it_is_given(work_dir) -> None:
     xdc = _write(root / "io.xdc", IO_XDC)
     design = Design(
         name="alt",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
@@ -160,7 +160,7 @@ def test_vivado_project_creates_the_project_without_a_display(work_dir) -> None:
     _write(root / "io.xdc", IO_XDC)
     design = Design(
         name="proj",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inv.v", "top.vhd", "io.xdc"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
@@ -206,7 +206,7 @@ end;
     design = Design(
         name="sim",
         language={"vhdl": {"standard": "2008"}},
-        design_root=root,
+        root=root,
         rtl={"sources": ["inv.v"], "top": "inv"},
         tb={"sources": ["tb [x] $v.vhd"], "top": "tb"},
     )
@@ -255,7 +255,7 @@ def test_xsim_native_sv_evidence(work_dir, body, settings, passes, ending, error
     )
     design = Design(
         name="native",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inv.v"], "top": "inv"},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
@@ -298,7 +298,7 @@ def test_xsim_native_vhdl_evidence(work_dir, body, passes, ending, errors, warni
     )
     design = Design(
         name="native",
-        design_root=root,
+        root=root,
         rtl={"sources": ["tb.vhd"], "top": "tb"},
         tb={"top": "tb"},
         language={"vhdl": {"standard": "2008"}},
@@ -325,7 +325,7 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
     )
     design = Design(
         name="power",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
@@ -381,7 +381,7 @@ def test_xsim_native_timeout_stops_the_container(work_dir):
         root / "tb.sv", "`timescale 1ns/1ps\nmodule tb; reg clk=0; always #1 clk=~clk; endmodule\n"
     )
     design = Design(
-        name="timeout", design_root=root, rtl={"sources": ["tb.sv"], "top": "tb"}, tb={"top": "tb"}
+        name="timeout", root=root, rtl={"sources": ["tb.sv"], "top": "tb"}, tb={"top": "tb"}
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
         VivadoSim, design, {"dockerized": True, "timeout": 90.0}
@@ -424,7 +424,7 @@ def _impl_design(root: Path, name: str, netlist: str | None = None) -> Design:
         sources.insert(0, {"file": netlist, "type": "Edif"})  # type: ignore[arg-type]
     return Design(
         name=name,
-        design_root=root,
+        root=root,
         rtl={"sources": sources, "top": name, "clocks": [{"port": "clk"}]},
     )
 
@@ -637,7 +637,7 @@ def test_vivado_synth_sets_a_run_property_given_with_dots(work_dir) -> None:
     _write(root / "rtl" / "top.vhd", TOP_VHD)
     design = Design(
         name="props",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/inv.v", "rtl/top.vhd"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(

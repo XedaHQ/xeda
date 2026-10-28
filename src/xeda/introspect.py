@@ -1049,7 +1049,7 @@ def _open_property_sets(node: Any) -> None:
 
     The models set `extra = forbid`, so pydantic emits a closed property set. A design file is
     not closed in that sense: it may use dotted-key shorthand (`language.vhdl.standard`,
-    `fpga.part`) that `Design.from_file` expands before the model sees it. The closed set would
+    `fpga.part`) that `Design.load` expands before the model sees it. The closed set would
     reject files that load without error. The loader still rejects unknown keys once it has
     expanded the file.
     """

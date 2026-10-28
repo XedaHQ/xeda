@@ -6,6 +6,8 @@ on the CLI and under the wrong error class in `--json` output. The fix lives in 
 and applies to every validator, so these tests are grouped by hazard rather than by module.
 """
 
+from pathlib import Path
+
 import pytest
 
 from xeda.dataclass import ValidationError, XedaBaseModel, field_validator
@@ -16,6 +18,7 @@ from xeda.flows.yosys.yosys_fpga import YosysFpga
 from xeda.units import Frequency, Time
 
 BAD_VALUES = [123, 4.5, True, object()]
+ROOT = Path(__file__).resolve().parent
 
 
 # ---------------------------------------------------------------------------------------------
@@ -28,12 +31,12 @@ BAD_VALUES = [123, 4.5, True, object()]
 def test_scalar_sources_is_a_validation_error(bad):
     """`rtl.sources = 123` is a validation error, not `TypeError: 'int' object is not iterable`."""
     with pytest.raises(DesignValidationError):
-        Design(name="d", rtl={"sources": bad, "top": "t"})
+        Design(name="d", root=ROOT, rtl={"sources": bad, "top": "t"})
 
 
 def test_scalar_sources_message_names_the_field_and_the_type():
     with pytest.raises(DesignValidationError, match=r"'sources' must be a list"):
-        Design(name="d", rtl={"sources": 123, "top": "t"})
+        Design(name="d", root=ROOT, rtl={"sources": 123, "top": "t"})
 
 
 @pytest.mark.parametrize(

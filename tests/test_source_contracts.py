@@ -204,7 +204,7 @@ def _every_type(
         files[member] = path
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"file": str(p), "type": m.name} for m, p in files.items()],
             "top": "top",
@@ -259,7 +259,7 @@ def test_a_converter_passes_a_language_it_cannot_read_through(member, part, tmp_
     rtl = {"sources": ["top.bsv"], "top": "top"}
     tb = {"sources": [], "top": "tb"}
     (rtl if part == "rtl" else tb)["sources"].append({"file": str(other), "type": member.name})
-    design = Design(name="d", design_root=root, rtl=rtl, tb=tb)
+    design = Design(name="d", root=root, rtl=rtl, tb=tb)
     registered_flows["bsc"][1].check_design_supported(design)
 
 
@@ -278,7 +278,7 @@ def test_a_language_the_flow_cannot_read_is_refused_at_launch(
     rtl = {"sources": [f"top.{_suffix(read)}"], "top": "top"}
     tb = {"sources": [], "top": "tb"}
     (rtl if part == "rtl" else tb)["sources"].append({"file": str(source), "type": member.name})
-    design = Design(name="d", design_root=root, rtl=rtl, tb=tb)
+    design = Design(name="d", root=root, rtl=rtl, tb=tb)
     monkeypatch.setenv("PATH", "")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(
@@ -309,7 +309,7 @@ def _edif_only(root: Path) -> Design:
     """A design whose only source is a netlist that no flow reads."""
     root.mkdir(exist_ok=True)
     (root / "top.edf").write_text("(edif top)\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["top.edf"], "top": "top"})
+    return Design(name="d", root=root, rtl={"sources": ["top.edf"], "top": "top"})
 
 
 def test_every_flow_either_declares_what_it_reads_or_reads_only_its_inputs():
@@ -345,7 +345,7 @@ def test_the_refusal_names_what_the_design_lists_and_what_the_flow_reads(tmp_pat
         f"rtl.sources has {tmp_path / 'top.edf'} (Edif); "
         "yosys_fpga reads SVHeader, SystemVerilog, Verilog, VerilogHeader, Vhdl"
     )
-    empty = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    empty = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "top"})
     with pytest.raises(FlowSettingsException) as raised:
         registered_flows["vivado_project"][1].check_design_supported(empty)
     # `vivado_project` reads the testbench too, so the message names both parts
@@ -376,7 +376,7 @@ def test_a_design_with_one_source_of_a_type_the_flow_reads_is_not_refused(
             bsv.write_text("package Top; endpackage\n")
             sources.append({"file": str(bsv), "type": SourceType.Bluespec.name})
         rtl = {"sources": sources, "top": "top"}
-        flow_class.check_design_supported(Design(name="d", design_root=tmp_path, rtl=rtl))
+        flow_class.check_design_supported(Design(name="d", root=tmp_path, rtl=rtl))
     if "tb" in flow_class.design_parts:
         rtl_sources = []
         if flow_class.name == "bsc":
@@ -385,7 +385,7 @@ def test_a_design_with_one_source_of_a_type_the_flow_reads_is_not_refused(
             rtl_sources.append({"file": str(bsv), "type": SourceType.Bluespec.name})
         design = Design(
             name="d",
-            design_root=tmp_path,
+            root=tmp_path,
             rtl={"sources": rtl_sources, "top": "top"},
             tb={"sources": [{"file": str(path), "type": member.name}], "top": "tb"},
         )
@@ -514,7 +514,7 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
     (root / "tb.v").write_text("module tb; endmodule\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.edf"], "top": "top", "clocks": ["clk"]},
         tb={"sources": ["tb.v"], "top": "tb", "uut": "dut"},
     )
@@ -544,7 +544,7 @@ def test_a_source_of_a_later_stage_stands_in_for_the_flow_that_would_read_none(
 ):
     monkeypatch.chdir(tmp_path)
     (tmp_path / source["file"]).write_text("{}\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [source], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [source], "top": "top"})
     planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
         flow, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
     )
@@ -558,9 +558,7 @@ def test_quartus_assigns_each_source_it_reads_by_the_assignment_quartus_has(tmp_
     names = ["top.v", "defs.vh", "pins.xdc", "rom.mem", "hook.tcl"]
     for name in names:
         (root / name).write_text("# a source\n")
-    design = Design(
-        name="d", design_root=root, rtl={"sources": names, "top": "top", "clocks": ["clk"]}
-    )
+    design = Design(name="d", root=root, rtl={"sources": names, "top": "top", "clocks": ["clk"]})
     calls = _calls("quartus", design, _settings(root, "quartus"), tmp_path, monkeypatch)
     assert ["set_global_assignment", "-name", "VERILOG_FILE", str(root / "top.v")] in calls
     assert ["set_global_assignment", "-name", "SEARCH_PATH", str(root)] in calls
@@ -585,7 +583,7 @@ def test_ise_preserves_each_header_search_directory_as_a_list_element(
         headers.append({"file": str(header), "type": "VerilogHeader"})
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v", *headers], "top": "top", "clocks": ["clk"]},
     )
     calls = _calls("ise_synth", design, _settings(root, "ise_synth"), tmp_path, monkeypatch)
@@ -699,7 +697,7 @@ def test_vivado_project_filters_testbench_sources_in_design_order(tmp_path, monk
     entries = [{"file": str(p), "type": m.name} for m, p in reversed(list(files.items()))]
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [], "top": "top", "clocks": ["clk"]},
         tb={"sources": entries, "top": "tb"},
     )
@@ -751,7 +749,7 @@ def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_pa
     path.write_text("a language source\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"file": str(path), "type": member.name}],
             "top": "top",
@@ -1355,14 +1353,14 @@ EXAMPLE_FILES = sorted(
 def _example_requests(path: Path):
     """Each design `path` holds, with every flow its sections or its project's name and the
     project's section for that flow."""
-    from xeda.xedaproject import XedaProject
+    from xeda.project import Project
 
     if path.stem == "xedaproject":
-        project = XedaProject.from_file(path)
-        designs = [project.get_design(i) for i in range(len(project.designs))]
+        project = Project.load(path)
+        designs = [project.design(name) for name in project.designs]
         shared = project.flows or {}
     else:
-        designs, shared = [Design.from_file(path)], {}
+        designs, shared = [Design.load(path)], {}
     for design in designs:
         assert design is not None
         for flow in sorted(set(design.flows or {}) | set(shared)):

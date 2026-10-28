@@ -269,7 +269,7 @@ gen = Generator(executable=sys.executable)
 here = Path.cwd()
 gen.run_cmd(
     [sys.executable, "-c", "print('GENERATOR OUTPUT')"],
-    design_root=here,
+    root=here,
     storage=here,
     environ=os.environ,
 )
@@ -303,7 +303,7 @@ proc_utils.TOOL_OUTPUT.set("terminal")
 root = Path.cwd()
 design = Design(
     name="raw",
-    design_root=root,
+    root=root,
     rtl={
         "sources": ["out.v"],
         "generator": [sys.executable, "-c", "print('RAW GENERATOR OUTPUT')"],
@@ -332,11 +332,12 @@ def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
 REMOTE_SCRIPT = """
 import sys
 from xeda.remote import client
+from xeda.types import UNSET
 
 def fake_run_remote(chain, **arguments):
     assert chain == "vivado_synth" and arguments["destination_text"] == "host"
-    assert arguments["target"] is None and arguments["xedaproject"] is None
-    assert arguments["design_overrides"] == () and arguments["design_allow_extra"] is False
+    assert arguments["target"] is UNSET and arguments["xedaproject"] is None
+    assert arguments["design_updates"] == () and arguments["design_allow_extra"] is False
     assert arguments["fetch_all"] is False and arguments["dry_run"] is False
     passed = %(passed)s
     document = {

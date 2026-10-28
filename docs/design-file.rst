@@ -41,7 +41,7 @@ list item. TOML and JSON designs and projects are also accepted.
 
 A dotted key stands for nested tables: ``tb.top: x`` is the same as ``tb: {top: x}``. Dotted keys
 work in a design file, in a design entry and in the ``flows`` table of a project file, in a target
-and in design overrides. A key cannot be both a value and a table. ``tb: 3`` together with
+and in design updates. A key cannot be both a value and a table. ``tb: 3`` together with
 ``tb.top: x`` is an error that names both keys.
 
 Write one table in one spelling inside a mapping. ``clock.port: clk`` and a ``clock:`` block together are an error. So are
@@ -57,6 +57,12 @@ same. :ref:`The settings reference <opaque-keys>` lists these settings.
 
 Top level
 =========
+
+The design root is the directory of the design file. Every relative path in the file resolves
+against it, wherever you run Xeda. A design file has no key for the root: Xeda refuses
+``design_root`` there and in a design entry of a project file. The root of a design entry is the
+directory of the project file. A design with another root is a ``file`` entry, and its root is the
+directory of that file.
 
 .. list-table::
    :header-rows: 1
@@ -97,11 +103,6 @@ Top level
    * - ``license``, ``version``, ``url``
      - no
      - Metadata. No flow uses it.
-   * - ``design_root``
-     - no
-     - The directory that relative paths resolve against. It defaults to the directory of the
-       design file, which is almost always what you want. A relative ``design_root`` in a design
-       file is relative to the directory of that file.
    * - ``targets``
      - no
      - Overlays for individual boards. See :ref:`targets`.
@@ -1012,8 +1013,8 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
     xeda run nextpnr knight.yaml --target ulx3s    # the design with the target ulx3s
 
 * A target takes ``rtl``, ``tb``, ``flows`` and every other key of a design file. In a target
-  they mean exactly what they mean at the top of the file. ``name``, ``targets`` and
-  ``design_root`` belong to the design alone. An unknown key is an error, as it is in the design.
+  they mean exactly what they mean at the top of the file. ``name`` and ``targets``
+  belong to the design alone. An unknown key is an error, as it is in the design.
 * Mappings merge key by key, at every depth (``defines``, ``parameters`` and each
   ``flows.<flow>`` section). The ``sources`` of ``rtl`` and ``tb`` are appended after the
   design's, in order. Any other list replaces the design's. Xeda merges each ``flows.<flow>``
@@ -1032,7 +1033,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   target as well (at ``targets.<name>.rtl.clocks``). Xeda checks a target that is not selected
   only for the form of its values. A removed key (``clock_port``, or a key of ``rtl`` written at
   the top level) is an error in the design, in a target (selected or not) and in
-  ``--design-overrides``. The error names the key to write.
+  ``--design-updates``. The error names the key to write.
 * A value that is no table, and no short form of one, where a table is expected is an error,
   whichever target you select. Examples are ``tb: 3`` and ``keep: 3`` in ``rtl.attributes``,
   whose entries are tables. A table that a target writes over the value does not hide the error.
@@ -1043,10 +1044,11 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   values", so where the design and the target write the same key, the value of the target wins,
   key by key. The ``flows.nextpnr.board`` of a target replaces the ``flows.nextpnr.board`` of the
   design without an error, and a ``seed`` that the target does not write stays the design's. A
-  setting can come from these places, lowest first: the defaults of the flow, the project file,
-  the design file, the target, the command line (``-s``) and the API. So ``-s seed=9`` and an API
+  setting can come from these places, lowest first: the defaults of the flow, your user file, the
+  project file, the design file, the target, the project-local file, the command line (``-s``) and
+  the API. So ``-s seed=9`` and an API
   override still win over a target. The loader records the name of the selected target, and a
-  design override cannot set or change it. Two flows of one run that disagree about a setting
+  design update cannot set or change it. Two flows of one run that disagree about a setting
   they share, such as ``yosys_fpga`` and ``nextpnr`` that name different boards, are a different
   case, and that is an error.
 * A path in a target resolves against the design root, like the paths of the design.
@@ -1054,13 +1056,13 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   the number of targets. A lone target is not selected automatically. ``--target NAME`` selects
   that target. An unknown name is an error, and the error lists the targets. ``--target`` on a
   design without ``targets`` is an error. From Python, write
-  ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an overlay on the
+  ``Design.load(path, target="ulx3s")``. ``--design-updates`` are an overlay on the
   selected design, like a target, and merge by the same rules: a short form means
-  its table, and an override does not hide a mistake in the design. One rule differs. Only a
+  its table, and an update does not hide a mistake in the design. One rule differs. Only a
   target adds its ``sources`` to the design's, because its job is to add the files of a board. A
-  ``sources`` override (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of
-  the selected target included, as an override of any other list does. The designs of a project
-  take overrides in the same way.
+  ``sources`` update (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of
+  the selected target included, as an update of any other list does. The designs of a project
+  take updates in the same way.
 * A target name starts with a letter and holds only letters, digits, ``_`` and ``-``. It is not
   the name of a flow. There is one spelling, ``targets.<name>``. A design file has no
   ``target`` key.
@@ -1086,6 +1088,41 @@ Two limits apply:
   ``flows.<flow>`` of the target. A clock constraint goes there too, as ``flows.<flow>.clock``.
 * A target cannot inherit from another target.
 
+Designs in Python
+=================
+
+``Design.load`` reads a design file. ``Design(...)`` builds the same design from keyword arguments,
+one for each key of the file (``name``, ``rtl``, ``tb``, ``flows``, ``targets``, ``language``,
+``dependencies``, ``description``, ``authors``, ``license``, ``version`` and ``url``). It needs a
+``root``, the directory that a relative path resolves against. A source pattern expands when the
+design is built, and a file added later is not part of it. A Python ``None`` is a YAML ``null``.
+
+.. code-block:: python
+
+    from xeda import Design
+
+    design = Design.load("sqrt.yaml", target="ecp5")
+    same = Design(
+        name="sqrt",
+        root="examples/vhdl/sqrt",
+        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt"},
+        tb={"top": "sqrt_tb"},
+    )
+
+A design never changes. These calls return a new design:
+
+* ``design.with_updates({"tb.parameters.G_IN_WIDTH": 16})`` merges a table over the design, by the
+  rules of ``--design-updates``. The ``target`` cannot be updated. ``design.updates`` lists the
+  arguments of the calls, in order. They are no part of the equality of designs.
+* ``design.with_target("artix7")`` selects another target (``None`` selects none) and applies the
+  updates again, after the target.
+* ``design.to_dict()`` gives the design in the shape of a design file, with the target and the
+  updates merged in. It has no ``root``, ``target``, ``targets`` or ``updates``.
+  ``Design(root=design.root, **design.to_dict())`` has the same configuration and no target.
+
+``design.root`` is the absolute root, ``design.target`` the selected target (or ``None``) and
+``design.targets`` the names of the targets that the design defines.
+
 Environment variables in paths
 ==============================
 
@@ -1106,10 +1143,102 @@ Several designs in one project
 ==============================
 
 A ``xedaproject.yaml`` can hold several designs, plus top-level ``flows`` settings that Xeda merges
-into each design. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted. Automatic
-discovery needs exactly one of these names in the directory. Select a design with
-``--design-name``. When the project has several designs and you give no name, Xeda asks you to
-choose one.
+into each design that it selects. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted.
+Automatic discovery needs exactly one of these names in the directory.
 
-A project file has the keys ``designs`` and ``flows``. Any other key at its root is an error that
-names the accepted keys.
+A project file has these keys. Any other key at its root is an error that names the accepted keys.
+
+``designs``
+  The designs, as a list. An entry is a table in the form of a design file, with a ``name``. An entry
+  ``{file: <path>}`` names a design file instead, relative to the project file, and holds no other
+  key. Each name is used once.
+``flows``
+  The settings that the designs of the project share.
+``run_root``
+  Where the runs of the project go, relative to the project file. Without this key, the run root
+  is ``xeda_run`` beside the project file. ``xeda run`` uses the run root of the project it
+  selects, whichever design it runs, unless you give ``--run-root`` or ``XEDA_RUN_ROOT``.
+``default_target``
+  The target that Xeda selects for a design of the project when you give neither ``--target`` nor
+  ``--no-target``. A design that has no such target is an error: select a target, or pass
+  ``--no-target``.
+
+A design of the project is reached by its name: ``--design-name NAME``. When you give no design
+at all, Xeda selects the design of a project that has only one; a project with several designs is an
+error that lists them. A positional ``DESIGN`` never reaches a project design. Give ``DESIGN`` or
+``--design-name``, not both.
+
+The ``DESIGN`` argument is always the path of a design file, with or without a suffix. If no such
+file exists and the project has a design of that name, Xeda says so and names ``--design-name``.
+A design file that you give by path follows three rules:
+
+1. If the project lists that file in a ``file`` entry, Xeda refuses it with the error
+   ``use_design_name`` and names the option to use: ``--design-name <name>``. This holds however
+   you name the file: by a relative path, by an absolute path, or by a symbolic link that leads to
+   it. One design then never has two identities.
+2. A file that the project does not list gets no layer from the project: not the ``flows`` of the
+   project file, and no settings file of the project. A layer that belongs to the user still
+   applies to it.
+3. The project, whether you give it with ``--xedaproject`` or Xeda finds it, still supplies the run
+   root. The order is ``--run-root``, ``XEDA_RUN_ROOT``, the run root of the project, and then
+   ``./xeda_run`` when no project is used.
+
+``--target NAME`` selects one target and ``--no-target`` selects none.
+
+.. _private-files:
+
+Private settings files
+======================
+
+Two files hold settings that you do not check in. Xeda reads them in ``xeda run`` and
+``xeda dse``, and nothing else reads them.
+
+* The user file is ``${XDG_CONFIG_HOME:-~/.config}/xeda/config.yaml``. Its settings are defaults
+  for every run of yours. Xeda ignores an empty or relative ``XDG_CONFIG_HOME``.
+* The project-local file is ``xedaproject.local.yaml`` beside the project file (the name is the
+  name of the project file without its suffix, and ``.local.yaml``). Its settings override the
+  checked-in files for one checkout. Keep it out of version control. Xeda looks for it beside the
+  project file only, never in a parent directory, and never for a design file that you give as the
+  ``DESIGN`` argument.
+
+Both files have the same keys. Any other key is an error that names the file, and a ``designs`` key
+is an error: a private file never declares a design.
+
+.. code-block:: yaml
+
+    flows:
+      vivado_synth:
+        nthreads: 8
+      openroad:
+        pdk_root: /data/pdks
+    env:
+      XILINXD_LICENSE_FILE: 2100@license.example.org
+    run_root: /scratch/xeda_run
+
+``flows``
+  The settings by flow name, as in a project file. An entry for a flow that is not in the run is
+  ignored, but a name that is no flow is an error that names the file. A relative path in this table is relative to the directory of the file.
+``env``
+  Environment variables, as text. A name in both files takes the value of the project-local file.
+  Xeda reads this table and keeps it with the other private settings.
+``run_root``
+  Where the runs go, relative to the directory of the file. The project-local file wins over the
+  user file.
+
+The run root of a command is, from the highest source to the lowest: ``--run-root``,
+``XEDA_RUN_ROOT``, the ``run_root`` of the project-local file, that of the user file, that of the
+project file, and ``./xeda_run``. The place where you keep your runs is a fact of your machine, so
+your choice wins over the one that the project file checks in. This order holds for a design file
+that you give by path too, although that file gets no ``flows`` from the project file and none from
+the project-local file. It gets the ``flows`` of your user file.
+
+``--config PATH`` reads the file ``PATH`` in place of the user file. A ``PATH`` that does not exist
+is an error (``invalid_local_settings``). The user file and the project-local file may be missing:
+then they add no settings. ``--no-config`` reads neither the user file nor the project-local file. The two
+options exclude each other. Neither one changes which project file Xeda reads. A file that exists
+and is invalid is an error (``invalid_local_settings``). In Python, ``xeda.local_settings()`` reads
+the files as the command line does, and ``run()`` and ``plan()`` take the result as
+``local_settings``. The library reads no private file by itself.
+
+With ``--remote``, Xeda merges the layers on your machine and sends the result. The host reads none
+of your private files.

@@ -61,7 +61,7 @@ def _verilog_design(tmp_path: Path, **fields) -> Design:
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
     (root / "top.v").write_text("module top(); endmodule\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["top.v"], "top": "top"}, **fields)
+    return Design(name="d", root=root, rtl={"sources": ["top.v"], "top": "top"}, **fields)
 
 
 def _vhdl_design(tmp_path: Path, **fields) -> Design:
@@ -69,7 +69,7 @@ def _vhdl_design(tmp_path: Path, **fields) -> Design:
     root = tmp_path / "vhdl"
     root.mkdir(exist_ok=True)
     (root / "top.vhd").write_text("entity top is end entity;\n")
-    return Design(name="d", design_root=root, rtl={"sources": ["top.vhd"], "top": "top"}, **fields)
+    return Design(name="d", root=root, rtl={"sources": ["top.vhd"], "top": "top"}, **fields)
 
 
 def _bluespec_design(tmp_path: Path, **fields) -> Design:
@@ -77,9 +77,7 @@ def _bluespec_design(tmp_path: Path, **fields) -> Design:
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
     (root / "Top.bsv").write_text("package Top; endpackage\n")
-    return Design(
-        name="d", design_root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"}, **fields
-    )
+    return Design(name="d", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"}, **fields)
 
 
 # ------------------------------------------------------------------------ the declaration
@@ -386,12 +384,17 @@ def test_a_converter_edge_follows_the_conversion_of_each_converter() -> None:
     assert [edge.producer for edge in converter_edges(GhdlSim)] == [to_vhdl]
 
 
-def test_a_flow_of_the_run_may_be_set_on_the_command_line_with_its_converter() -> None:
-    """`-s flows.bsc.<setting>` names a flow of a run of `yosys`, as it does in the chain."""
-    assert "bsc" in transitive_dependencies(Yosys)
-    assert "bsc" in transitive_dependencies(Nextpnr)
-    assert "bsc" in transitive_dependencies(Verilator)
-    assert "bsc" not in transitive_dependencies(BscSim)
+def test_a_flow_of_the_run_may_be_set_on_the_command_line_with_its_converter(tmp_path) -> None:
+    """`-s flows.bsc.<setting>` names a flow of a run of `yosys` on a design with Bluespec sources,
+    as it does in the chain, and no flow of a run on a design without any."""
+    bluespec = _bluespec_design(tmp_path)
+    assert "bsc" in transitive_dependencies(Yosys, bluespec)
+    assert "bsc" in transitive_dependencies(Nextpnr, bluespec)
+    assert "bsc" in transitive_dependencies(Verilator, bluespec)
+    assert "bsc" not in transitive_dependencies(BscSim, bluespec)
+    verilog = _verilog_design(tmp_path)
+    for consumer in (Yosys, Nextpnr, Verilator):
+        assert "bsc" not in transitive_dependencies(consumer, verilog)
 
 
 # ------------------------------------------------------------------------ chains
@@ -654,7 +657,7 @@ def _bluespec_vhdl_design(tmp_path: Path, **fields) -> Design:
     (root / "pad.vhd").write_text("entity pad is end entity;\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["Top.bsv", "pad.vhd"], "top": "mkTop"},
         **fields,
     )

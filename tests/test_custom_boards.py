@@ -18,7 +18,7 @@ from .test_nextpnr import write_nextpnr_config
 def _plan(tmp_path: Path, settings: dict, sections: dict | None = None):
     """The plan of `fpga_pack` and its producer `nextpnr`, which share the board and its database."""
     (tmp_path / "top.v").write_text("module t; endmodule\n")  # `yosys_fpga` reads a source
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "t"})
     return DefaultRunner(tmp_path / "run").resolve(FpgaPack, design, settings, sections or {})
 
 
@@ -200,7 +200,7 @@ def test_unreadable_bundled_database_is_named(monkeypatch):
 
 def nextpnr_args(tmp_path: Path, settings: Nextpnr.Settings, monkeypatch) -> list[str]:
     """Run nextpnr with its tool stubbed; return its arguments, checking its LPF exists."""
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     flow = Nextpnr(settings, design, tmp_path / "nextpnr")
     netlist = tmp_path / "yosys" / "netlist.json"
     netlist.parent.mkdir()
@@ -239,7 +239,7 @@ def test_nextpnr_records_the_board_lpf_it_reads_as_an_implicit_input(tmp_path, m
     """No setting names a board's pin constraints: the flow registers the file it read, so a
     trace notices an edit to it."""
     board_file(tmp_path)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     settings = Nextpnr.Settings.from_input(
         {"board": "MY_BOARD", "custom_boards_file": "board files/boards.toml"},
         design_root=tmp_path,
@@ -355,7 +355,7 @@ def test_nextpnr_uses_the_lpf_beside_a_database_in_either_format(tmp_path, monke
     """The pins are the file beside the database: merged into the run's constraints, and
     recorded as an input, so an edit to it is noticed."""
     write_database(tmp_path / "board files", filename)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     settings = Nextpnr.Settings.from_input(
         {"board": "MY_BOARD", "custom_boards_file": f"board files/{filename}"},
         design_root=tmp_path,

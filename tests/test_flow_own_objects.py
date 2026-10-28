@@ -19,7 +19,7 @@ SETTINGS = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"peri
 
 
 def _design() -> Design:
-    return Design.from_file(RESOURCES / "design0" / "design0.toml")
+    return Design.load(RESOURCES / "design0" / "design0.toml")
 
 
 def test_a_flow_built_from_objects_keeps_its_own_copies(tmp_path) -> None:
@@ -52,7 +52,7 @@ def test_a_flow_built_from_mappings_leaves_the_mappings_as_they_were(tmp_path) -
     }
     design = {
         "name": "d",
-        "design_root": tmp_path,
+        "root": tmp_path,
         "rtl": {"sources": ["a.v"], "top": "a", "clocks": ["clk"]},
     }
     asked = copy.deepcopy((settings, design))

@@ -25,12 +25,12 @@ RUNS: list[str] = []
 @pytest.fixture
 def design(tmp_path):
     (tmp_path / "a.v").write_text("module a; endmodule\n")
-    return Design(name="toy", rtl={"sources": ["a.v"], "top": "a"}, design_root=tmp_path)
+    return Design(name="toy", rtl={"sources": ["a.v"], "top": "a"}, root=tmp_path)
 
 
 def _flow(cls, design, tmp_path, **settings):
     return cls(
-        cls.Settings.from_input(settings, design_root=design.root_path, runner_cwd=tmp_path),
+        cls.Settings.from_input(settings, design_root=design.root, runner_cwd=tmp_path),
         design,
         run_path=tmp_path / "run",
     )
@@ -113,7 +113,7 @@ def test_cocotb_seeds_python_s_random_with_a_fixed_default(tmp_path):
         name="toy",
         rtl={"sources": ["a.v"], "top": "a"},
         tb={"sources": ["tb.py"], "top": "tb", "cocotb": True},
-        design_root=tmp_path,
+        root=tmp_path,
     )
     (tmp_path / "run").mkdir()
     flow = _flow(Verilator, design, tmp_path)  # the cocotb support of a flow works in its run path
@@ -139,7 +139,7 @@ def test_a_cocotb_testbench_asking_for_a_fresh_seed_always_runs(tmp_path):
         name="toy",
         rtl={"sources": ["a.v"], "top": "a"},
         tb={"sources": ["tb.py"], "top": "tb", "cocotb": True},
-        design_root=tmp_path,
+        root=tmp_path,
     )
     assert _flow(Verilator, design, tmp_path).always_runs() is None
     fresh = _flow(Verilator, design, tmp_path, cocotb={"random_seed": "random"})

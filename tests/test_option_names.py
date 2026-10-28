@@ -147,8 +147,9 @@ LAUNCHER_NAME_EXCEPTIONS = {
     "--scrub": {"scrub_old_runs"},
     "--cwd": {"run_path", "dump_settings_json"},
 }
-#: options with which `xeda run` launches nothing locally
-NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--keep-running", "--dry-run"}
+#: options with which `xeda run` launches nothing locally, and `--design-name`, which cannot be
+#: given with the `DESIGN` argument that every case here has (it selects no launcher setting)
+NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--keep-running", "--dry-run", "--design-name"}
 #: the environment variables each command reads; `XEDA_RUN_DIR` only to refuse it
 DECLARED_ENVVARS = {
     "run": {
@@ -187,6 +188,14 @@ def _non_default(option: click.Option, tmp_path: Path) -> list:
     if option.is_flag:
         return [option.secondary_opts[0] if option.default is True else option.opts[0]]
     if isinstance(option.type, click.Path):
+        if option.name == "xedaproject":  # the command line reads the project file it names
+            project = tmp_path / "project.yaml"
+            project.write_text("flows: {}\n")
+            return [option.opts[0], str(project)]
+        if option.name == "config":  # the command line reads the file it names, which must exist
+            config = tmp_path / "config.yaml"
+            config.write_text("flows: {}\n")
+            return [option.opts[0], str(config)]
         if option.type.exists:
             return [option.opts[0], str(SQRT)]
         return [option.opts[0], str(tmp_path / option.name)]

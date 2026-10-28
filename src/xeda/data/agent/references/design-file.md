@@ -46,7 +46,10 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `flows` | Per-flow settings. |
 | `targets` | One overlay per board. |
 | `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. Planning reads them; see below. |
-| `design_root` | Base for relative paths. Defaults to the design file's directory. |
+
+Relative paths resolve against the design file's directory (the design root). `design_root` is refused in a design file and in a design entry of a project file (`removed_key`); a design with another root is a `file` entry of the project. In Python: `Design.load(path, target=None)` or `Design(name=..., root=..., rtl={...})`.
+A design is immutable: `d.with_updates({"tb.parameters.W": 8})` and `d.with_target("t")` return new
+designs; `d.to_dict()` is the effective design in the shape of a file.
 
 ## `rtl`: the design
 
@@ -308,7 +311,7 @@ A project file's section means the same, below the design's. A chain on the comm
 ## `targets`: one design, several boards
 
 A target is an overlay on the design. It takes the design's own keys (`rtl`, `tb`, `flows`,
-the flat form), not `name`, `targets`, `target` or `design_root`. `--target NAME` on `xeda run` and `xeda dse` selects it.
+the flat form), not `name`, `targets` or `target`. `--target NAME` on `xeda run` and `xeda dse` selects it.
 
 ```yaml
 name: knight
@@ -335,16 +338,17 @@ targets:
 
 - A target is optional. Without `--target`, Xeda uses the design itself, whatever the number of
   targets. An unknown name is an error that lists the targets. `--target` on a design without
-  targets is an error. API: `Design.from_file(path, target=...)`.
+  targets is an error. API: `Design.load(path, target=...)`.
 - Where design and target both write a key, the target wins with no error (its
   `flows.nextpnr.board` replaces the design's); other keys stay. Mappings merge at every depth,
   `sources` append, any other list replaces. A null or empty `flows` table or section adds
-  nothing. Layers, lowest first: flow defaults, project, design, target, `-s`, API.
+  nothing. Layers, lowest first: flow defaults, user file, host profile, project, design, target,
+  project-local file, `-s`, API.
 - A short form means its table in every merge (`clock: CLK` is `clock.port: CLK`; `fpga: <part>`
   is `fpga.part: <part>`). A target's `clock` refines the design's first clock, its `clocks`
   replaces all, `clock: null` means none. A value
   that is no table where one is expected (`tb: 3`) is an error.
-- `--design-overrides KEY=VALUE...` merge by the same rules, except that only a target appends
+- `--design-updates KEY=VALUE...` merge by the same rules, except that only a target appends
   `sources`: an override's `rtl.sources` or `tb.sources` replaces the whole list.
 - A target name matches `[A-Za-z][A-Za-z0-9_-]*` and is not a flow's name or hashed run
   directory name; two names that differ only in case are refused. A design file has no `target`
@@ -401,12 +405,27 @@ flows:
     clock.period: 5 ns
 ```
 
-- Top-level keys: `designs` and `flows`. Any other key fails with
-  `ProjectFileError: ... unknown key(s) ...; a project has 'designs', 'flows'`. The singular
-  `design` and `flow` were removed.
-- Each design entry and each flow section follows the rules of a design file, dotted keys
-  included. A dotted key cannot reach into `designs` from the project's root.
+- Top-level keys: `designs`, `flows`, `run_root` (relative to the project file; default
+  `xeda_run` beside it; the CLI uses the selected project's run root unless `--run-root`,
+  `XEDA_RUN_ROOT` or a `run_root` of the project-local or user file is set, else `./xeda_run` when
+  no project is used) and `default_target`. Any other key fails with
+  `ProjectError: ... unknown key(s) ...; a project has 'designs', 'flows', 'run_root',
+  'default_target'`. The singular `design` and `flow` were removed (`removed_alias`).
+- `designs` is a list (a single table is `invalid_project`). An entry is a table with a `name` (each name once; its root is the project's directory), or `{file: hw/fifo.yaml}`, which
+  holds nothing else and takes the name of that design file. Each table entry and each flow
+  section follows the rules of a design file, dotted keys included. A dotted key cannot reach
+  into `designs` from the project's root.
 - Xeda finds the file as `--xedaproject FILE`, else the one `xedaproject.yaml`, `.yml` or `.toml`
-  in the start directory. Two of these names in one directory is a `ProjectFileError`.
-- With more than one design, name one: `xeda run vivado_synth --design-name sqrt`. Without a
-  name, the error is `DesignNotSpecified`.
+  in the start directory. Two of these names in one directory is a `ProjectError`
+  (`several_project_files`).
+- A project design is reached by its name, `--design-name sqrt`; with no design given, a project
+  with one design is selected (`design_name_required` if there are several). `DESIGN` is always a file
+  path; a name there that is a design of the project is refused (`use_design_name`). A design file
+  given by path: (1) a `file` entry lists it, by a relative path, an absolute path or a symbolic
+  link: refused, `use_design_name`, "use --design-name <name>"; (2) the project does not list it:
+  it gets no layer from the project (not its `flows`, no settings file of the project), and the
+  user's layers still apply; (3) the project, given or found, still supplies the run root
+  (`--run-root`, `XEDA_RUN_ROOT`, the project's, then `./xeda_run` with no project). Both `DESIGN` and `--design-name` together
+  are a usage error.
+- `--target T` selects a target, `--no-target` selects none, and neither selects the project's
+  `default_target` for a design of the project (`target_required` if the design lacks it).

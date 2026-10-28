@@ -193,7 +193,7 @@ def test_a_dependency_supplies_sources_and_metadata_at_planning(tmp_path, remote
 
 
 def test_loading_reads_no_dependency_and_writes_nothing(tmp_path, remote, git_log):
-    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    design = Design.load(_design_file(tmp_path, _pinned(remote)))
     assert git_log() == [] and not (tmp_path / "xeda_run").exists()
     assert [s.path.name for s in design.rtl.sources] == ["top.v"]
     assert design.rtl.top is None and len(design.dependencies) == 1
@@ -346,7 +346,7 @@ def test_a_moved_branch_makes_the_node_stale(tmp_path, remote, toy):
         tmp_path, {"uri": f"git+{remote.url}?branch=main#dep.yaml", "rtl": {"pos": -1}}
     )
     runner = _runner(tmp_path)
-    design = Design.from_file(design_file)
+    design = Design.load(design_file)
     first = runner.launch_flow(toy, design, {})
     assert first.succeeded and not first.reused
     again = _runner(tmp_path).launch_flow(toy, design, {})
@@ -383,7 +383,7 @@ def toy():
 
 
 def test_the_record_lists_the_dependency_and_its_commit(tmp_path, remote, toy):
-    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    design = Design.load(_design_file(tmp_path, _pinned(remote)))
     runner = _runner(tmp_path)
     flow = runner.launch_flow(toy, design, {})
     assert flow.succeeded
@@ -419,7 +419,7 @@ def test_a_parameter_that_is_a_path_in_a_checkout_counts_without_the_commit(tmp_
         checkout = tmp_path / "xeda_run" / ".dependencies" / commit[:16]
         design = Design(
             name="d",
-            design_root=tmp_path,
+            root=tmp_path,
             rtl={"sources": ["top.v"], "parameters": {"ROM": str(checkout / "rom.mem")}},
         )
         record = DependencyRecord("https://h/u/l.git", None, commit, "dep.yaml", checkout)
@@ -436,14 +436,14 @@ def test_a_parameter_that_is_a_path_in_a_checkout_counts_without_the_commit(tmp_
 def test_an_abbreviated_commit_is_refused_at_load(tmp_path, commit):
     dependency = f"git+https://example.com/u/lib.git?commit={commit}#lib.yaml"
     with pytest.raises(DesignValidationError, match="full commit hash"):
-        Design.from_file(_design_file(tmp_path, dependency))
+        Design.load(_design_file(tmp_path, dependency))
 
 
 @pytest.mark.parametrize("key", ["clone_dir", "local_cache"])
 def test_a_removed_clone_key_names_its_replacement(tmp_path, key):
     dependency = {"uri": "git+https://example.com/u/lib.git#lib.yaml", key: "somewhere"}
     with pytest.raises(DesignValidationError) as refused:
-        Design.from_file(_design_file(tmp_path, dependency))
+        Design.load(_design_file(tmp_path, dependency))
     assert refused.value.errors[0][3] == "removed_key"
     assert (
         f"`{key}` was removed: use a local dependency that names the design file in a checkout"
@@ -624,7 +624,7 @@ def test_no_message_shows_a_git_url_as_it_is(module):
 )
 def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, dependency):
     with pytest.raises(DesignValidationError) as refused:
-        Design.from_file(_dependency_design(tmp_path, dependency))
+        Design.load(_dependency_design(tmp_path, dependency))
     message = str(refused.value)
     assert "git+https://***@example.com/org/lib.git#design.yaml" in message
     assert SECRET not in message
@@ -688,7 +688,7 @@ def test_the_debug_dump_masks_the_references_an_api_caller_gives(tmp_path, caplo
     with caplog.at_level(logging.DEBUG):
         Design(
             name="d",
-            design_root=tmp_path,
+            root=tmp_path,
             rtl={"sources": ["top.v"], "top": "top"},
             dependencies=[reference],
         )
@@ -737,7 +737,7 @@ def test_a_remote_package_carries_the_references_and_no_fetched_file(tmp_path, r
 
     from xeda.remote.packaging import package_inputs
 
-    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    design = Design.load(_design_file(tmp_path, _pinned(remote)))
     package = package_inputs(
         design,
         {},
@@ -776,7 +776,7 @@ def test_a_launch_holds_the_lease_of_the_dependency_storage_while_a_flow_runs(
         run(self)
 
     monkeypatch.setattr(toy, "run", run_and_try_to_write)
-    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    design = Design.load(_design_file(tmp_path, _pinned(remote)))
     assert _runner(tmp_path).launch_flow(toy, design, {}).succeeded
     assert refused == [True]
     # the lease ends with the launch
@@ -842,7 +842,7 @@ def _dir(path: Path) -> Path:
 
 
 def test_the_record_lists_every_entry_at_its_index(tmp_path, remote, toy):
-    design = Design.from_file(_mixed(tmp_path, remote, "git first"))
+    design = Design.load(_mixed(tmp_path, remote, "git first"))
     flow = _runner(tmp_path).launch_flow(toy, design, {})
     assert flow.succeeded
     record = read_record(flow.run_path, run_root=tmp_path / "xeda_run")
@@ -876,7 +876,7 @@ def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
     checkout = tmp_path / "xeda_run" / ".dependencies" / "k"
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.v"], "parameters": {"ROM": str(checkout / "rom.mem")}},
     )
     local = DependencyRecord(None, None, None, "lib/lib.yaml", None)
@@ -941,7 +941,7 @@ def test_the_commits_of_a_remote_package_are_no_part_of_a_design(tmp_path):
         )
     )
     with pytest.raises(DesignValidationError, match="dependency_commits"):
-        Design.from_file(tmp_path / "d.yaml")
+        Design.load(tmp_path / "d.yaml")
 
 
 def test_a_file_of_the_repository_named_like_the_record_is_kept(tmp_path, remote):
@@ -985,9 +985,9 @@ def test_a_refusal_from_the_settings_alone_starts_no_git_process(tmp_path, remot
         elif entry == "run":
             runner.run("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
         elif entry == "resolve":
-            runner.resolve(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
+            runner.resolve(Verilator, Design.load(design_file), TWO_WAVEFORMS)
         else:
-            runner.launch_flow(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
+            runner.launch_flow(Verilator, Design.load(design_file), TWO_WAVEFORMS)
     assert len(git_log()) == started and not (tmp_path / "xeda_run" / ".dependencies").exists()
 
 

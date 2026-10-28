@@ -215,7 +215,7 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
         if flow in REAL_SIMULATORS:
             REAL_SIMULATORS[flow]()
             design_file = next(word for word in words[2:] if word.endswith(".yaml"))
-            if Design.from_file(ROOT / design_file).tb.cocotb:
+            if Design.load(ROOT / design_file).tb.cocotb:
                 tool_utils.require_cocotb()
         elif "--dry-run" not in words:
             words.append("--dry-run")

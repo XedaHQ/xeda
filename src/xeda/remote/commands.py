@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 import click
 
 if TYPE_CHECKING:
+    from .profile import HostProfile
     from .provision import Probe, Provisioned
     from .ssh import SshSession
 
@@ -55,6 +56,17 @@ def _fail(error_type: str, message: str, json_flag: bool) -> NoReturn:
     else:
         click.echo(message, err=True)
     sys.exit(1)
+
+
+def _profile_of(host: str, json_flag: bool) -> HostProfile:
+    """Return the profile of `host` from the profile file of this user, or report the failure."""
+    from .profile import host_profile, read_host_profiles, remotes_file
+
+    try:
+        return host_profile(host, read_host_profiles(remotes_file()))
+    except Exception as error:  # pylint: disable=broad-except
+        log.debug("The host profiles could not be read", exc_info=True)
+        _fail(type(error).__name__, str(error), json_flag)
 
 
 def _set_up(ctx: click.Context, json_flag: bool) -> None:
@@ -123,13 +135,12 @@ def _agent_document(
     return document
 
 
-def _connect_and_run(host: str, work: Any) -> Any:
+def _connect_and_run(host: str, profile: HostProfile, work: Any) -> Any:
     """Check the profile, connect to `host`, make the environment (the steps show in the log) and
     call `work(session, probe, provisioned)`. Return its value."""
     from .client import _is_windows, _provision
     from .environment import code_snapshot, dependency_spec
     from .errors import RemoteError
-    from .profile import load_host_profile
     from .ssh import SshSession, resolve_destination
 
     if _is_windows():
@@ -137,7 +148,6 @@ def _connect_and_run(host: str, work: Any) -> Any:
             "`xeda remote` does not work on native Windows. Use WSL, or run xeda on a Linux or "
             "macOS machine."
         )
-    profile = load_host_profile(host)
     destination = resolve_destination(host)
     snapshot = code_snapshot()
     spec = dependency_spec(())
@@ -149,8 +159,9 @@ def _connect_and_run(host: str, work: Any) -> Any:
 
 def _run(json_flag: bool, host: str, work: Any) -> Any:
     """Run `work` on the host, and report a failure as `_fail` does."""
+    profile = _profile_of(host, json_flag)
     try:
-        return _connect_and_run(host, work)
+        return _connect_and_run(host, profile, work)
     except KeyboardInterrupt:
         _fail(
             "RemoteCanceled",
@@ -458,7 +469,9 @@ def remote_attach(
     from ..cli_utils import emit_structured
     from .attach import attach_launch
 
-    outcome = attach_launch(host, launch_id, run_root=run_root)
+    outcome = attach_launch(
+        host, launch_id, run_root=run_root, profile=_profile_of(host, json_flag)
+    )
     if outcome.error is not None:
         log.critical("%s", outcome.document["error"]["message"])
     elif not outcome.success:
@@ -488,8 +501,9 @@ def remote_cancel(
     _set_up(ctx, json_flag)
     from .attach import cancel_launch
 
+    profile = _profile_of(host, json_flag)
     try:
-        document = cancel_launch(host, launch_id, run_root=run_root)
+        document = cancel_launch(host, launch_id, run_root=run_root, profile=profile)
     except KeyboardInterrupt:
         _fail(
             "RemoteCanceled",

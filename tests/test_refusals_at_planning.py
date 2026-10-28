@@ -73,7 +73,7 @@ def _design(root: Path, kind: str = "verilog", **sections: Any) -> Design:
     (root / "imported.c").write_text("int imported(void) { return 0; }\n")
     (root / "main.cpp").write_text("int main() { return 0; }\n")
     (root / "tb_top.py").write_text("")
-    data: dict[str, Any] = {"name": "d", "design_root": root}
+    data: dict[str, Any] = {"name": "d", "root": root}
     if kind == "bsv":
         data["rtl"] = {"sources": ["Probe.bsv"], "top": "mkProbe"}
     elif kind == "vhdl":

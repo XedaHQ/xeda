@@ -5,13 +5,18 @@ from pathlib import Path
 import pytest
 
 from xeda.remote.errors import RemoteConfigError
-from xeda.remote.profile import HostProfile, load_host_profile, remotes_file
+from xeda.remote.profile import HostProfile, host_profile, read_host_profiles, remotes_file
 
 
 def write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def load_host_profile(destination: str) -> HostProfile:
+    """The profile of `destination` in the profile file of the user."""
+    return host_profile(destination, read_host_profiles(remotes_file()))
 
 
 def config_home(tmp_path: Path, monkeypatch) -> Path:
@@ -225,3 +230,28 @@ def test_every_entry_is_checked_on_each_load(tmp_path, monkeypatch):
     )
     with pytest.raises(RemoteConfigError, match="other"):
         load_host_profile("venona")
+
+
+def test_read_host_profiles_returns_plain_data_by_host(tmp_path):
+    path = write(
+        tmp_path / "remotes.yaml",
+        "hosts:\n  venona:\n    root: ~/x\n    flows: {vivado_synth: {nthreads: 8}}\n",
+    )
+    hosts = read_host_profiles(path)
+    assert list(hosts) == ["venona"]
+    assert type(hosts["venona"]) is dict
+    assert hosts["venona"]["root"] == "~/x"
+    assert hosts["venona"]["flows"] == {"vivado_synth": {"nthreads": 8}}
+    assert host_profile("venona", hosts).root == "~/x"
+    assert host_profile("other", hosts) == HostProfile()
+    assert host_profile("other", None) == HostProfile()
+
+
+def test_read_host_profiles_of_a_missing_file_holds_no_host(tmp_path):
+    assert read_host_profiles(tmp_path / "nope.yaml") == {}
+
+
+def test_read_host_profiles_checks_the_whole_file(tmp_path):
+    path = write(tmp_path / "remotes.yaml", "hosts:\n  a: {root: /ok}\n  b: {root: 'bad root'}\n")
+    with pytest.raises(RemoteConfigError, match="host 'b'"):
+        read_host_profiles(path)

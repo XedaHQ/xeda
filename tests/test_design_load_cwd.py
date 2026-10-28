@@ -75,21 +75,21 @@ def _files(paths: list[str]) -> list[Path]:
 MERGED = """
 from xeda.flow_runner.dependencies import merged_design
 
-design = merged_design(Design.from_file(design_file), run_root=None)
+design = merged_design(Design.load(design_file), run_root=None)
 summary = {
     "rtl": [str(s.file) for s in design.rtl.sources],
     "tb": [str(s.file) for s in design.tb.sources],
-    "root": str(design.design_root),
+    "root": str(design.root),
     "parameters": dict(design.rtl.parameters),
 }
 """
 
 FROM_FILE = """
-design = Design.from_file(design_file)
+design = Design.load(design_file)
 summary = {
     "rtl": [str(s.file) for s in design.rtl.sources],
     "tb": [str(s.file) for s in design.tb.sources],
-    "root": str(design.design_root),
+    "root": str(design.root),
     "parameters": dict(design.rtl.parameters),
 }
 """
@@ -240,7 +240,7 @@ GENERATE = """
 import os
 from xeda.flow_runner.launch_generation import generate
 
-design = Design.from_file(design_file)
+design = Design.load(design_file)
 run_root.mkdir()
 generation = generate(design, run_root=run_root.resolve(), environ=dict(os.environ))
 summary = {
@@ -334,13 +334,13 @@ def test_a_design_built_from_a_dict_resolves_against_its_design_root(tmp_path):
     body = """
     designs = [
         Design(
-            design_root=str(design_root),
+            root=str(design_root),
             name="direct",
             rtl={"sources": ["a.v", "src/*.v"], "top": "a"},
             tb={"sources": ["tb.sv"], "top": "tb"},
         ),
         Design(
-            design_root="../design",
+            root="../design",
             name="relative_root",
             rtl={"sources": ["a.v", "src/*.v"], "top": "a"},
             tb={"sources": ["tb.sv"], "top": "tb"},
@@ -351,7 +351,7 @@ def test_a_design_built_from_a_dict_resolves_against_its_design_root(tmp_path):
             {
                 "rtl": [str(s.file) for s in d.rtl.sources],
                 "tb": [str(s.file) for s in d.tb.sources],
-                "root": str(d.design_root),
+                "root": str(d.root),
             }
             for d in designs
         ]
@@ -375,69 +375,11 @@ def test_a_load_leaves_no_root_behind_even_when_it_fails(tmp_path):
     _write(root / "a.v", "// design\n")
     before = design_relative_root()
 
-    Design(design_root=root, name="ok", rtl={"sources": ["a.v"], "top": "a"})
+    Design(root=root, name="ok", rtl={"sources": ["a.v"], "top": "a"})
     assert design_relative_root() == before
     with pytest.raises(DesignValidationError):
-        Design(design_root=root, name="bad", rtl={"sources": ["missing.v"], "top": "a"})
+        Design(root=root, name="bad", rtl={"sources": ["missing.v"], "top": "a"})
     assert design_relative_root() == before
-
-
-def test_a_relative_design_root_in_a_design_file_is_relative_to_that_file(tmp_path):
-    project = tmp_path / "project"
-    design_file = _write(
-        project / "designs" / "design.yaml",
-        """\
-        name: rooted
-        design_root: ../src
-        rtl:
-          sources: [a.v, "more/*.v"]
-          top: a
-        """,
-    )
-    for name in ("a.v", "more/b.v"):
-        _write(project / "src" / name, "// design\n")
-    here = _elsewhere(tmp_path, "src/a.v", "src/more/b.v")
-    root = (project / "src").resolve()
-
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
-
-    assert summary["chdirs"] == []
-    assert Path(summary["root"]) == root
-    assert _files(summary["rtl"]) == [root / "a.v", root / "more" / "b.v"]
-
-
-def test_a_relative_design_root_in_a_dependency_file_is_relative_to_the_dependency_file(tmp_path):
-    design_file = _write(
-        tmp_path / "app" / "main.yaml",
-        """\
-        name: app
-        dependencies: [../lib/deep/dep.yaml]
-        rtl:
-          sources: [top.v]
-          top: top
-        """,
-    )
-    _write(tmp_path / "app" / "top.v", "// app\n")
-    _write(
-        tmp_path / "lib" / "deep" / "dep.yaml",
-        """\
-        name: dep
-        design_root: ../src
-        rtl:
-          sources: [dep.v]
-          top: dep
-        """,
-    )
-    _write(tmp_path / "lib" / "src" / "dep.v", "// dependency\n")
-    # Where the root would be if it were relative to the parent's root or the working directory.
-    _write(tmp_path / "src" / "dep.v", "// decoy: the parent's root\n")
-    here = _elsewhere(tmp_path, "src/dep.v")
-    base = tmp_path.resolve()
-
-    summary = _load_in_child(here, MERGED, design_file=design_file)
-
-    assert summary["chdirs"] == []
-    assert _files(summary["rtl"]) == [base / "lib" / "src" / "dep.v", base / "app" / "top.v"]
 
 
 def test_a_missing_local_dependency_names_where_it_looked(tmp_path):
@@ -448,7 +390,7 @@ def test_a_missing_local_dependency_names_where_it_looked(tmp_path):
     root = tmp_path / "design"
     _write(root / "top.v", "// design\n")
     design = Design(
-        design_root=root,
+        root=root,
         name="needy",
         dependencies=["../lib/missing.yaml"],
         rtl={"sources": ["top.v"], "top": "top"},

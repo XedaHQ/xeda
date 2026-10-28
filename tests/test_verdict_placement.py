@@ -248,7 +248,7 @@ _DESIGN_FIELDS: Dict[str, Any] = {"sources": [], "top": "dummy", "clocks": [{"po
 
 
 def build(tmp_path: Path, flow_class: type, **settings: Any) -> Any:
-    design = Design(name="dummy", rtl=_DESIGN_FIELDS)  # type: ignore[arg-type]
+    design = Design(name="dummy", root=tmp_path, rtl=_DESIGN_FIELDS)  # type: ignore[arg-type]
     run_path = tmp_path / "run"
     run_path.mkdir()
     values = {**minimal_settings(flow_class), **settings}  # type: ignore[arg-type]

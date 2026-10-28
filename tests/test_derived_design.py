@@ -81,7 +81,7 @@ def _design(root: Path, vhdl: bool = True, **fields) -> Design:
     }
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl=rtl,
         tb={"sources": ["tb/Tb.bsv"], "top": "mkTb"},
         **fields,
@@ -156,9 +156,9 @@ def test_the_planned_design_puts_the_generated_source_first_and_carries_the_rest
     assert planned.rtl.defines == {"STEP": "2"}
     assert planned.rtl.clocks == design.rtl.clocks
     assert planned.tb.model_dump(mode="json") == design.tb.model_dump(mode="json")
-    assert (planned.name, planned.design_root, planned.language) == (
+    assert (planned.name, planned.root, planned.language) == (
         design.name,
-        design.design_root,
+        design.root,
         design.language,
     )
 
@@ -386,9 +386,7 @@ def test_a_source_on_another_drive_has_no_path_from_the_design_root(tmp_path, mo
     outside = tmp_path / "elsewhere" / "ext.v"
     outside.parent.mkdir()
     outside.write_text("module ext(); endmodule\n")
-    design = Design(
-        name="d", design_root=root, rtl={"sources": ["Top.bsv", str(outside)], "top": "mkTop"}
-    )
+    design = Design(name="d", root=root, rtl={"sources": ["Top.bsv", str(outside)], "top": "mkTop"})
     assert design.rtl_fingerprint["sources"][1]["path"] == outside.as_posix()
     flow = _launched(tmp_path, design)
     assert flow.results["outputs"]["design"]["sources"][-1] == {
@@ -442,7 +440,7 @@ def test_the_hand_over_refuses_a_design_that_lists_its_sources_in_another_order(
     flow = _launched(tmp_path, design)
     reordered = Design(
         name="d",
-        design_root=design.design_root,
+        root=design.root,
         rtl={
             **design.rtl.model_dump(mode="json"),
             "sources": [SOURCES[i] for i in (1, 0, 2, 3, 4)],
@@ -458,7 +456,7 @@ def test_the_hand_over_refuses_a_design_that_dropped_a_source(tmp_path) -> None:
     flow = _launched(tmp_path, design)
     shorter = Design(
         name="d",
-        design_root=design.design_root,
+        root=design.root,
         rtl={**design.rtl.model_dump(mode="json"), "sources": SOURCES[:4]},
         tb={"sources": ["tb/Tb.bsv"], "top": "mkTb"},
     )
@@ -471,7 +469,7 @@ def test_the_hand_over_refuses_a_source_of_another_type_at_the_same_place(tmp_pa
     flow = _launched(tmp_path, design)
     retyped = Design(
         name="d",
-        design_root=design.design_root,
+        root=design.root,
         rtl={
             **design.rtl.model_dump(mode="json"),
             "sources": [*SOURCES[:3], {"file": "rtl/ext.v", "type": "SystemVerilog"}, SOURCES[4]],
@@ -490,7 +488,7 @@ def test_the_input_design_of_a_record_is_provenance_and_nothing_compares_it(tmp_
     otherwise refuse its own record forever."""
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
-    other = with_updates(design, rtl={"defines": {**design.rtl.defines, "STEP": "3"}})
+    other = design.with_updates({"rtl": {"defines": {"STEP": "3"}}})
     assert flow.results["outputs"]["design"]["input_design"] == design.parts_hash({"rtl", "tb"})
     derived, _entries = handed_design(flow, "design", other)
     assert derived.rtl.defines == {"STEP": "3"}
@@ -627,7 +625,7 @@ def test_bsc_passes_a_design_without_other_languages_through_alone(tmp_path, cap
     _write(root, {"lib/Accum.bsv": ADDER_PKG, "rtl/Top.bsv": TOP_PKG})
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["lib/Accum.bsv", "rtl/Top.bsv"], "top": "mkTop"},
     )
     flow = _bsc(design, tmp_path, positive_reset=False)
@@ -642,7 +640,7 @@ def test_bsc_takes_a_design_with_vhdl_beside_bluespec(tmp_path) -> None:
     Bsc.check_design_supported(design, Bsc.Settings())
     only_vhdl = Design(
         name="v",
-        design_root=design.design_root,
+        root=design.root,
         rtl={"sources": ["pass.vhd"], "top": "pass"},
     )
     with pytest.raises(FlowSettingsException, match="reads none of the design's sources"):

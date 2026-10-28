@@ -93,7 +93,7 @@ def _design(tmp_path: Path, *testbench: str, rtl: str = "systemverilog", **tb) -
         sources.append(name)
     return Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [rtl_name], "top": "dut"},
         tb={**({"sources": sources} if sources else {}), **tb},
     )

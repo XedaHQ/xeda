@@ -66,7 +66,7 @@ def _synth(tmp_path: Path, monkeypatch, design: Optional[Design] = None, **setti
     use_fake_tools(monkeypatch)
     flow = DefaultRunner(tmp_path / "run").run_flow(
         VivadoSynth,
-        design or Design.from_file(SQRT),
+        design or Design.load(SQRT),
         {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}, **settings},
     )
     assert isinstance(flow, VivadoSynth) and flow.succeeded
@@ -92,7 +92,7 @@ def _sqrt_with_an_hdl_testbench(root: Path) -> Design:
     )
     return Design(
         name="sqrt",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [str(SQRT.parent / "sqrt.vhdl")],
             "top": "sqrt",
@@ -322,7 +322,7 @@ def test_a_bitstream_given_as_a_location_is_registered_in_the_run_directory_and_
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "write_bitstream")
     failed = DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
         VivadoSynth,
-        Design.from_file(SQRT),
+        Design.load(SQRT),
         {
             "fpga": {"part": PART},
             "clocks": {"main_clock": {"period": "5.5 ns"}},
@@ -437,7 +437,7 @@ def test_postsynth_sim_refuses_a_testbench_source_it_cannot_read(tmp_path, monke
     (root / "gen.bsv").write_text("package Gen; endpackage\n")
     design = Design(
         name="sqrt",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [str(SQRT.parent / "sqrt.vhdl")],
             "top": "sqrt",
@@ -525,7 +525,7 @@ def _run(flow_class, tmp_path: Path, monkeypatch, **settings):
     use_fake_tools(monkeypatch)
     flow = DefaultRunner(tmp_path / "run").run_flow(
         flow_class,
-        Design.from_file(SQRT),
+        Design.load(SQRT),
         {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}, **settings},
     )
     assert isinstance(flow, flow_class) and flow.succeeded

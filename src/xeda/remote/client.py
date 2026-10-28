@@ -56,13 +56,14 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import generator_of, names_a_design_file
+from ..design import generator_of
 from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.settings_layers import command_line_table
 from ..flow_runner.run_lock import run_dir_lock
+from ..local_settings import LocalSettings
 from ..outcomes import (
     Disposition,
     NodeResult,
@@ -76,7 +77,7 @@ from ..outcomes import (
 from ..proc_utils import TOOL_OUTPUT, tool_output_stream
 from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
-from ..xedaproject import resolve_project_file
+from ..types import Unset
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
 from .errors import (
@@ -120,7 +121,7 @@ from .packaging import (
     refuse_unsendable_declared,
     refuse_unsendable_generator,
 )
-from .profile import HostProfile, load_host_profile
+from .profile import HostProfile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
 from .ssh import Destination, SshSession, resolve_destination
 
@@ -528,7 +529,8 @@ class _Run:
     chain: str
     flow: str
     design: Any
-    target: Optional[str]
+    #: The target as the user gave it; the plan replaces it with the target it selected.
+    target: Optional[str] | Unset
     host: str
     debug: bool
     launcher: Optional[DefaultRunner] = None
@@ -611,7 +613,7 @@ def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
     # The copies of generated sources go to a place in the local design tree, which the host does
     # not reach: the host would write them where the same path leads on the host.
     for _owner, unit in launch_generation.generating_units(prepared.design):
-        generator = generator_of(unit.rtl, root=unit.root_path)
+        generator = generator_of(unit.rtl, root=unit.root)
         if generator is not None and generator.outputs_to is not None:
             raise DeliveryError(
                 f"`rtl.generator.outputs_to` of {unit.name} names a location "
@@ -634,9 +636,8 @@ def _plan(
     run_root: Path,
     flow_settings: Any,
     xedaproject: Any,
-    design_overrides: Any,
+    design_updates: Any,
     design_allow_extra: bool,
-    select_design_in_project: Any,
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
@@ -644,9 +645,10 @@ def _plan(
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
     ssh_options: Sequence[str],
+    profile: HostProfile,
+    local_settings: LocalSettings | None,
 ) -> _Prepared:
     """Step 1: the checks that need no connection."""
-    profile = load_host_profile(destination_text)
     destination = resolve_destination(destination_text, ssh_options)
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -662,12 +664,12 @@ def _plan(
         design=run.design,
         xedaproject=xedaproject,
         flow_settings=flow_settings,
-        select_design_in_project=select_design_in_project,
-        design_overrides=design_overrides,
+        design_updates=design_updates,
         design_allow_extra=design_allow_extra,
         target=run.target,
         host_flows=profile.flows,
         host=destination_text,
+        local_settings=local_settings,
         # Refused before a Git dependency is fetched: it needs nothing that one supplies.
         before_fetch=refuse_unsendable_declared,
     )
@@ -689,7 +691,6 @@ def _plan(
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
-            xedaproject=xedaproject,
         )
     return _Prepared(
         profile, destination, launcher, prepared, node.flow_class, plan.requested, deliveries
@@ -710,7 +711,6 @@ def _check_outputs_to(
     outputs_to: Path,
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
-    xedaproject: Any,
 ) -> Deliveries:
     """Check `--outputs-to` as a local launch does, before anything is connected or shipped. The
     deliveries protect every file that this side can name as an input."""
@@ -719,14 +719,8 @@ def _check_outputs_to(
     local_root = _local_run_root(launcher._run_root)  # pylint: disable=protected-access
     assert run.mirror_root is not None
     mirror_dir = _mirror_of(run.mirror_root, local_root, Path(node.run_path))
-    design = run.design
-    given = (
-        Path(design) if isinstance(design, (str, Path)) and names_a_design_file(design) else None
-    )
-    project = resolve_project_file(xedaproject)
-    launch_inputs = [
-        path.resolve() for path in (given, project) if path is not None and path.is_file()
-    ]
+    # The files that the request was given, as the launcher noted them (`prepare_request`).
+    launch_inputs = list(launcher._launch_inputs)  # pylint: disable=protected-access
     deliveries = Deliveries(
         mirror_dir,
         local_root,
@@ -1048,7 +1042,7 @@ def _record_launch(
             requested=prepared.requested,
             design_name=prepared.prepared.design.name,
             design=str(design) if isinstance(design, (str, Path)) else None,
-            target=run.target,
+            target=run.target if isinstance(run.target, str) else None,
             request=run.request,
             local_root=str(local_root),
             settings=run.settings,
@@ -1114,7 +1108,8 @@ def _spec_fields(run: _Run) -> Dict[str, Any]:
     return spec_document(
         flow=run.chain,
         **design_info(run.design, run.design_name or (launcher.design_name if launcher else None)),
-        target=run.target or (launcher.target if launcher is not None else None),
+        target=(run.target if isinstance(run.target, str) else None)
+        or (launcher.target if launcher is not None else None),
         settings=run.settings,
     )
 
@@ -1272,10 +1267,9 @@ def run_remote(
     run_root: Path,
     flow_settings: Any,
     xedaproject: Any,
-    design_overrides: Any,
+    design_updates: Any,
     design_allow_extra: bool,
-    target: Optional[str],
-    select_design_in_project: Any,
+    target: Optional[str] | Unset,
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
@@ -1289,10 +1283,14 @@ def run_remote(
     detailed_logs: bool,
     ssh_options: Sequence[str] = (),
     keep_running: bool = False,
+    profile: HostProfile | None = None,
+    local_settings: LocalSettings | None = None,
 ) -> RemoteOutcome:
     """Run the request `chain` on the host `destination_text` and return its outcome.
 
-    The arguments are those of the command `xeda run`. The outcome holds the document that
+    The arguments are those of the command `xeda run`. `profile` is the profile of the host (the
+    default profile without it) and `local_settings` the private settings of this user: this
+    function reads no file. The outcome holds the document that
     `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
     the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
@@ -1317,9 +1315,8 @@ def run_remote(
             run_root=run_root,
             flow_settings=flow_settings,
             xedaproject=xedaproject,
-            design_overrides=design_overrides,
+            design_updates=design_updates,
             design_allow_extra=design_allow_extra,
-            select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,
@@ -1333,6 +1330,8 @@ def run_remote(
             detailed_logs=detailed_logs,
             ssh_options=ssh_options,
             keep_running=keep_running,
+            profile=profile or HostProfile(),
+            local_settings=local_settings,
         )
     except Exception as error:  # pylint: disable=broad-except
         return _failed(run, error)
@@ -1469,9 +1468,8 @@ def _run(
     run_root: Path,
     flow_settings: Any,
     xedaproject: Any,
-    design_overrides: Any,
+    design_updates: Any,
     design_allow_extra: bool,
-    select_design_in_project: Any,
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
@@ -1484,6 +1482,8 @@ def _run(
     log_level: int,
     detailed_logs: bool,
     ssh_options: Sequence[str],
+    profile: HostProfile,
+    local_settings: LocalSettings | None,
     keep_running: bool = False,
 ) -> RemoteOutcome:
     if _is_windows():
@@ -1500,9 +1500,8 @@ def _run(
             run_root=run_root,
             flow_settings=flow_settings,
             xedaproject=xedaproject,
-            design_overrides=design_overrides,
+            design_updates=design_updates,
             design_allow_extra=design_allow_extra,
-            select_design_in_project=select_design_in_project,
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,
@@ -1510,6 +1509,8 @@ def _run(
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
             ssh_options=ssh_options,
+            profile=profile,
+            local_settings=local_settings,
         )
     except KeyboardInterrupt:
         raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None
@@ -1589,7 +1590,7 @@ def _run(
                                 remote_run_root=remote_run_root,
                                 inputs_dir=inputs_dir,
                                 package=package,
-                                design_root=design.root_path,
+                                design_root=design.root,
                                 fetch_all=fetch_all,
                                 delivers=outputs_to is not None,
                             )
@@ -1604,7 +1605,7 @@ def _run(
                     inputs_dir=inputs_dir,
                     files={name: str(path) for name, path in package.files.items()},
                     generated=package.generated,
-                    design_root=design.root_path,
+                    design_root=design.root,
                 )
                 if not dry_run:
                     run.localize = lambda: _localized(

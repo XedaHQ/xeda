@@ -3,14 +3,17 @@
 The settings of a flow are assembled from these layers, lowest precedence first:
 
 1. the defaults of the flow (supplied by validation, not here)
-2. with `--remote`, the `flows` table of the host profile (`FlowLauncher.prepare_request` only)
-3. the `flows.<flow>` section of the project file
-4. the `flows.<flow>` section of the design file
-5. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
+2. the `flows` table of the user file (`LocalSettings.user`)
+3. with `--remote`, the `flows` table of the host profile (`FlowLauncher.prepare_request` only)
+4. the `flows.<flow>` section of the project file
+5. the `flows.<flow>` section of the design file
+6. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
    the author of the design saying "for this build, these values", so what it writes wins over
    the design. The loader merges it into the design before anything else sees the design, so it
-   is part of the origin of the design, and below the command line and the API
-6. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
+   is part of the origin of the design
+7. the `flows` table of the project-local file (`LocalSettings.local`), which overrides the
+   checked-in files of one checkout
+8. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
    overrides given through the API (`flow_overrides`)
 
 The layers are merged deeply. A nested section such as `clocks.main_clock` combines key by key, so
@@ -23,7 +26,7 @@ Every way to launch a flow takes the same layers. `run`, `plan` and the remote r
 files and hand them to `FlowLauncher.resolve` as origins. A launch that is given a built design
 instead (`run_flow`, `launch_flow`) hands none, and `resolve` takes layers 4 and 5 from the
 design itself. Only `run`, `plan` and the remote runner read a project file. Only `prepare_request` takes
-layer 2.
+layer 3. The launcher reads no private file: a caller hands it a `LocalSettings` (layers 2 and 7).
 """
 
 import difflib
@@ -51,6 +54,7 @@ from ..dataclass import (
     opaque_key_paths,
     table_entries,
 )
+from ..design import Design
 from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
@@ -68,12 +72,16 @@ __all__ = [
     "API_ORIGIN",
     "COMMAND_LINE_ORIGIN",
     "HOST_PROFILE_ORIGIN",
+    "PROJECT_LOCAL_ORIGIN",
     "REMOVED_FLOWS",
     "SUPPLIED_SECTIONS_ORIGIN",
+    "USER_CONFIG_ORIGIN",
     "FlowNotFoundError",
     "FlowRemovedError",
     "check_flow_name",
     "host_profile_origin",
+    "project_local_origin",
+    "user_config_origin",
     "carry_diagnostics",
     "settings_in_context",
     "suggest_dependency_node",
@@ -100,9 +108,25 @@ HOST_PROFILE_ORIGIN = "the host profile"
 SUPPLIED_SECTIONS_ORIGIN = "the supplied flow sections"
 
 
+#: How messages name the `flows` table of the user file and that of the project-local file.
+#: `user_config_origin` and `project_local_origin` add the path of the file.
+USER_CONFIG_ORIGIN = "the user config"
+PROJECT_LOCAL_ORIGIN = "the project-local file"
+
+
 def host_profile_origin(host: str | None) -> str:
     """Return the label of the host profile of `host`, as messages name that layer."""
     return f"{HOST_PROFILE_ORIGIN} of {host}" if host else HOST_PROFILE_ORIGIN
+
+
+def user_config_origin(file: Path | None) -> str:
+    """Return the label of the user file `file`, or of settings that no file gave."""
+    return f"{USER_CONFIG_ORIGIN} {file}" if file else USER_CONFIG_ORIGIN
+
+
+def project_local_origin(file: Path | None) -> str:
+    """Return the label of the project-local file `file`, or of settings that no file gave."""
+    return f"{PROJECT_LOCAL_ORIGIN} {file}" if file else PROJECT_LOCAL_ORIGIN
 
 
 class FlowNotFoundError(PublicFlowNotFoundError):
@@ -525,6 +549,71 @@ def _sets_value(value: Any) -> bool:
     return value is not None and not (isinstance(value, Mapping) and not value)
 
 
+def _given_leaves(
+    layer: Mapping[str, Any] | Sequence[Any],
+    requested: str,
+    flow_class_for: Callable[[str], Any | None] | None,
+) -> dict[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]]:
+    """Return what a command-line layer gives, by the leaf it sets.
+
+    A leaf is the canonical path of a setting in the node that the item addresses: `-s key` and
+    `-s flows.<requested>.key` are one leaf of the requested node. Each leaf maps to the items
+    that set it, in the order given, as `(item as written, key as written, value)`. The value of
+    an item that is text is the text after the first `=`, so two values are equal when their
+    text is. An item is read alone, so a repeat is not lost to the replacement of
+    `utils.set_hierarchy`."""
+    pieces = [[item] for item in layer] if isinstance(layer, (list, tuple)) else [layer]
+    leaves: dict[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]] = {}
+
+    def settings_of(name: str) -> type[XedaBaseModel] | None:
+        found = flow_class_for(name) if flow_class_for is not None else None
+        return found.Settings if found is not None else None
+
+    for piece in pieces:
+        table = settings_to_dict(piece)  # type: ignore[arg-type]
+        sections = merge_flow_sections(
+            table.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
+        )
+        text = piece[0] if isinstance(piece, list) and isinstance(piece[0], str) else None
+        for node, content in ((requested, table), *sections.items()):
+            prefix = "" if content is table else f"flows.{node}."
+            node_settings = settings_of(node)
+            if node_settings is not None and content is table:
+                # `clock` is `clocks.main_clock`, as the sections of the other spelling are.
+                content = _canonicalize_clock_input(dict(content), node_settings)[0]
+            for path, (written, value) in _leaves(content, node_settings).items():
+                shown = text if text is not None else f"{prefix}{written}={value}"
+                given = text.split("=", 1)[1] if text is not None else value
+                leaves.setdefault((node, path), []).append((shown, f"{prefix}{written}", given))
+    return leaves
+
+
+def _repeated_leaves(
+    leaves: Mapping[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]],
+) -> list[tuple[str | None, str | None, str | None, str | None]]:
+    """Return a problem for each pair of items that set one leaf to different values.
+
+    An item that repeats the value of an earlier item is the same item. The pairs follow the order
+    in which the values were given."""
+    problems: list[tuple[str | None, str | None, str | None, str | None]] = []
+    for items in leaves.values():
+        distinct: list[tuple[str, str, Any]] = []
+        for item in items:
+            if all(item[2] != other[2] for other in distinct):
+                distinct.append(item)
+        for index, (shown, written, _value) in enumerate(distinct):
+            for other, _written, _other_value in distinct[index + 1 :]:
+                problems.append(
+                    (
+                        written.removeprefix("flows."),
+                        f"`-s {shown}` and `-s {other}` set one setting to two values; give one",
+                        None,
+                        "conflicting_keys",
+                    )
+                )
+    return problems
+
+
 def split_flow_sections(
     layer: Mapping[str, Any],
     requested: str,
@@ -532,9 +621,12 @@ def split_flow_sections(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Split a command-line layer into `flows.<node>.*` sections and the requested flow's own.
 
-    `-s key` and `-s flows.<requested>.key` name one leaf (one setting). The same value twice is accepted. Two different values are an error that names
-    both spellings. The two spellings are one origin for the rule of `utils.set_hierarchy` as
-    well: a key is a value or a table, so a value in one spelling and a key inside it in the
+    This function owns the rule of one value for one setting on the command line. `-s key` and
+    `-s flows.<requested>.key` name one leaf (one setting), and so does every other spelling of a
+    leaf of a node. Two items that set one leaf to different values are an error that names them
+    as written, and one error holds every such pair. An item that repeats an earlier one, value
+    included, is that item. The two spellings are one origin for the rule of `utils.set_hierarchy`
+    as well: a key is a value or a table, so a value in one spelling and a key inside it in the
     other (`A` and `A.B`) are an error that names both."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(
@@ -560,18 +652,13 @@ def split_flow_sections(
                 ],
                 settings_cls if settings_cls is not None else requested,
             )
+    problems = _repeated_leaves(_given_leaves(layer, requested, flow_class_for))
     requested_leaves = _leaves(sections.get(requested, {}), settings_cls)
-    problems: list[tuple[str | None, str | None, str | None, str | None]] = []
     for path, (written, value) in _leaves(own, settings_cls).items():
         spelled = f"`-s {written}={value}`"
         for other_path, (other, other_value) in requested_leaves.items():
             qualified = f"`-s flows.{requested}.{other}={other_value}`"
-            if other_path == path:
-                if other_value != value:
-                    message = f"{spelled} and {qualified} set one setting to two values; give one"
-                else:
-                    continue
-            elif _is_inside(path, other_path) and _sets_value(value):
+            if _is_inside(path, other_path) and _sets_value(value):
                 message = f"{spelled} sets a value, and {qualified} sets a key inside it; give one"
             elif _is_inside(other_path, path) and _sets_value(other_value):
                 message = f"{qualified} sets a value, and {spelled} sets a key inside it; give one"
@@ -606,15 +693,16 @@ def command_line_table(requested: str, items: Iterable[str]) -> dict[str, Any]:
 def check_run_flows(
     sections: Mapping[str, Any],
     flow_cls: type[Flow],
+    design: Design,
     run_flows: Collection[str] | None = None,
 ) -> None:
     """Refuse a `flows.<name>` section of the command line that names a flow outside this run.
 
-    The sections may name only the flows of this run: the requested flow and its transitive
-    declared producers, or `run_flows` when the resolver knows the graph (an explicit binding
-    can reach a flow outside the default one). Any other name is an error with the close matches
-    among them."""
-    run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls))})
+    The sections may name only the flows of this run: the requested flow and the flows below it
+    in a run on `design` (`transitive_dependencies`), or `run_flows` when the resolver knows the
+    graph (an explicit binding can reach a flow outside the default one). Any other name is an
+    error with the close matches among them."""
+    run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls, design))})
     unknown = [name for name in sections if name not in run_flows]
     if unknown:
         raise FlowSettingsError(
@@ -638,6 +726,7 @@ def check_run_flows(
 def command_line_sections(
     layer: Mapping[str, Any],
     flow_cls: type[Flow],
+    design: Design,
     flow_class_for: Callable[[str], Any | None] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """Return `(sections, own)` of the command line for a run of `flow_cls`.
@@ -645,7 +734,7 @@ def command_line_sections(
     That is `split_flow_sections`, then `check_run_flows`. Local and remote runs both take the
     command line through this function."""
     sections, own = split_flow_sections(layer, flow_cls.name, flow_class_for)
-    check_run_flows(sections, flow_cls)
+    check_run_flows(sections, flow_cls, design)
     return sections, own
 
 
@@ -655,22 +744,32 @@ def registered_flow(name: str) -> type[Flow] | None:
     return None if found is None else found[1]
 
 
-def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
-    """Return the flows of the declared default producers, transitively, in one traversal.
+def transitive_dependencies(flow_cls: type[Flow], design: Design) -> dict[str, type[Flow]]:
+    """Return the flows that a run of `flow_cls` on `design` may plan below `flow_cls`.
 
-    A converter flow that can feed the `design` input of a flow is a producer of it too
-    (`chains.converter_edges`), so `-s flows.bsc.<setting>` names a flow of a run of `yosys`."""
-    from .chains import converter_edges
+    These are the declared default producers, transitively, and the converters of the `design`
+    input that the design needs: a converter is in the set only if `design` has a source that it
+    converts (`chains.converting_edges`). So `-s flows.bsc.<setting>` names a flow of a run of
+    `yosys` on a design with Bluespec sources, and no flow of a run on a design without any. The
+    sources of a dependency that is not merged yet are unknown: until then, every converter that
+    could feed a flow is in the set, and planning checks again with the merged design."""
+    from .chains import converter_edges, converting_edges
 
+    sources_unknown = bool(design.dependencies) and not design.resolved_dependencies
     found: dict[str, type[Flow]] = {}
     visited = {flow_cls.name}
 
     def visit(cls: type[Flow]) -> None:
+        edges = (
+            converter_edges(cls)
+            if sources_unknown
+            else [edge for edge, _converted in converting_edges(cls, design)]
+        )
         dependencies = [
             registered_flow(declaration.producer)
             for declaration in declared_inputs(cls).values()
             if declaration.producer is not None
-        ] + [edge.producer for edge in converter_edges(cls)]
+        ] + [edge.producer for edge in edges]
         for dependency in dependencies:
             if dependency is not None and dependency.name not in visited:
                 visited.add(dependency.name)
@@ -764,9 +863,12 @@ def settings_in_context(
     return given.model_copy(deep=True)
 
 
-def suggest_dependency_node(flow_cls: type[Flow], error: FlowSettingsError) -> None:
-    """Suggest `-s flows.<node>.key` when an unknown root setting belongs to a producer."""
-    dependencies = transitive_dependencies(flow_cls)
+def suggest_dependency_node(flow_cls: type[Flow], design: Design, error: FlowSettingsError) -> None:
+    """Suggest `-s flows.<node>.key` when an unknown root setting belongs to a producer.
+
+    The producers are the flows below `flow_cls` in a run on `design` (`transitive_dependencies`).
+    """
+    dependencies = transitive_dependencies(flow_cls, design)
     suggested = []
     for location, message, context, kind in error.errors:
         # A hint for a name in another case already names the setting this flow has.

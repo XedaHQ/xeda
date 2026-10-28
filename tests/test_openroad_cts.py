@@ -53,12 +53,12 @@ def cts_flow(
     `settings` are nested settings (a group is a dictionary). `model` replaces fields of the
     platform model after `prepare_inputs()`."""
     store = tiny_store(tmp_path, "store")
-    design = Design.from_file(openroad_design(tmp_path / "design"))
+    design = Design.load(openroad_design(tmp_path / "design"))
     given = {**tiny_settings(store, residue=TINY_OPENROAD_RESIDUE), **(settings or {})}
     run_path = tmp_path / "work"
     run_path.mkdir(exist_ok=True)
     flow = OpenroadCts(
-        OpenroadCts.Settings.from_input(given, design_root=design.design_root, runner_cwd=tmp_path),
+        OpenroadCts.Settings.from_input(given, design_root=design.root, runner_cwd=tmp_path),
         design,
         run_path,
     )
@@ -1083,9 +1083,7 @@ def test_a_change_of_a_clock_tree_setting_runs_the_clock_tree_again_and_not_the_
 ):
     runner, design, settings, _ = launch(tmp_path, monkeypatch)
     given = dict(s.split("=", 1) for s in settings) | {"sink_clustering.mode": "off"}
-    _, states = runner.plan_with_freshness(
-        "openroad_cts", Design.from_file(design), flow_settings=given
-    )
+    _, states = runner.plan_with_freshness("openroad_cts", Design.load(design), flow_settings=given)
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state != "fresh"
 
@@ -1143,7 +1141,7 @@ def test_a_failed_cts_stage_leaves_a_failed_database_and_no_trace(tmp_path, monk
     # the next launch keeps the placement and runs the clock tree
     _, states = runner.plan_with_freshness(
         "openroad_cts",
-        Design.from_file(design),
+        Design.load(design),
         flow_settings=dict(s.split("=", 1) for s in settings),
     )
     assert states["openroad_place"].state == "fresh"
@@ -1172,7 +1170,7 @@ def test_the_placement_is_not_run_again_after_a_failed_clock_tree(tmp_path, monk
 
 def test_a_dry_run_judges_the_files_of_the_placement(tmp_path, monkeypatch):
     runner, design_file, settings, _ = launch(tmp_path, monkeypatch)
-    design = Design.from_file(design_file)
+    design = Design.load(design_file)
     given = dict(s.split("=", 1) for s in settings)
     _, states = runner.plan_with_freshness("openroad_cts", design, flow_settings=given)
     assert {name: state.state for name, state in states.items()} == {

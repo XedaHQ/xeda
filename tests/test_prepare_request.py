@@ -31,7 +31,7 @@ def start_in_tmp_path(tmp_path, monkeypatch):
 
 
 def _design(root, **flow) -> Design:
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=flow)
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"}, flows=flow)
 
 
 def _runner(tmp_path) -> DefaultRunner:
@@ -39,10 +39,17 @@ def _runner(tmp_path) -> DefaultRunner:
 
 
 def _project(tmp_path, flows) -> str:
+    """A project with the design `plain` and the design `own`, whose own `__maker` section says
+    `design`."""
     # not in the current directory, where a project file is found by itself
     path = tmp_path / "project" / "xedaproject.yaml"
     path.parent.mkdir(exist_ok=True)
-    path.write_text(yaml.safe_dump({"flows": flows}))
+    rtl = {"sources": [], "top": "t"}
+    designs = [
+        {"name": "plain", "rtl": rtl},
+        {"name": "own", "rtl": rtl, "flows": {"__maker": {"text": "design\n"}}},
+    ]
+    path.write_text(yaml.safe_dump({"designs": designs, "flows": flows}))
     return str(path)
 
 
@@ -60,23 +67,15 @@ def test_host_layer_is_the_lowest(tmp_path):
     assert _text(only_host) == "host\n"
     assert only_host.sections["__maker"]["text"] == "host\n"
 
-    with_project = runner.prepare_request(
-        _Taker, _design(tmp_path), project, host_flows=host, host=HOST
-    )
+    with_project = runner.prepare_request(_Taker, "plain", project, host_flows=host, host=HOST)
     assert _text(with_project) == "project\n"
 
-    with_design = runner.prepare_request(
-        _Taker,
-        _design(tmp_path, __maker={"text": "design\n"}),
-        project,
-        host_flows=host,
-        host=HOST,
-    )
+    with_design = runner.prepare_request(_Taker, "own", project, host_flows=host, host=HOST)
     assert _text(with_design) == "design\n"
 
     on_command_line = runner.prepare_request(
         _Taker,
-        _design(tmp_path, __maker={"text": "design\n"}),
+        "own",
         project,
         ["flows.__maker.text=cli"],
         host_flows=host,
@@ -90,7 +89,7 @@ def test_host_layer_merges_key_by_key_with_the_layers_above(tmp_path):
     project = _project(tmp_path, {"__maker": {"text": "project\n"}})
 
     prepared = _runner(tmp_path).prepare_request(
-        _Taker, _design(tmp_path), project, host_flows=host, host=HOST
+        _Taker, "plain", project, host_flows=host, host=HOST
     )
 
     assert prepared.plan.node("__maker").settings.nthreads == 8
@@ -149,7 +148,7 @@ def test_prepare_request_runs_no_flow_and_refuses_what_run_refuses(tmp_path):
     refused = _runner(tmp_path / "refused")
     flow, settings = "vivado_synth", {"fpga": {"part": "xc7a12tcsg325-1"}}
     (tmp_path / "a.sc").write_text("")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.sc"], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["a.sc"], "top": "t"})
     with pytest.raises(FlowSettingsException) as from_run:
         refused.run(flow, design, flow_settings=settings)
     with pytest.raises(FlowSettingsException) as from_prepare:

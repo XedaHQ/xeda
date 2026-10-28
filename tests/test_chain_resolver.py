@@ -45,9 +45,7 @@ def _design(tmp_path, sources=(), flows=None):
     for name, kind in sources:
         (root / name).write_text(BLINK if kind is SourceType.Verilog else "{}\n")
         entries.append({"file": name, "type": kind.name})
-    return Design(
-        name="d", design_root=root, rtl={"sources": entries, "top": "blink"}, flows=flows or {}
-    )
+    return Design(name="d", root=root, rtl={"sources": entries, "top": "blink"}, flows=flows or {})
 
 
 def _runner(tmp_path, **kwargs):
@@ -121,11 +119,14 @@ def test_a_chain_a_file_binding_and_an_api_binding_plan_the_same_graph(tmp_path)
     )
     project = tmp_path / "project.yaml"
     project.write_text(
-        yaml.safe_dump({"flows": {"__taker": {"inputs": {"made": "InputMaker"}}}}).replace(
-            "InputMaker", "__input_maker"
+        yaml.safe_dump(
+            {
+                "designs": [{"name": "d", "rtl": {"sources": [], "top": "blink"}}],
+                "flows": {"__taker": {"inputs": {"made": "__input_maker"}}},
+            }
         )
     )
-    from_project = runner.plan(_Taker, _design(tmp_path), xedaproject=str(project))
+    from_project = runner.plan(_Taker, "d", xedaproject=str(project))
     api = runner.plan(
         _Taker, _design(tmp_path), flow_overrides={"inputs.made": "__input_maker.made"}
     )

@@ -33,7 +33,7 @@ def _store(path: Path, extra_files: int = 0) -> Path:
 
 
 def _design(tmp_path: Path) -> Design:
-    return Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    return Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
 
 
 def test_is_locator_tells_the_marked_fields():

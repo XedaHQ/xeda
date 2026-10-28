@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import sys
@@ -23,6 +24,7 @@ from .cli_types import (
 from .flow_catalog import flow_names
 from .pdk_cli import add_pdk_commands
 from .remote.commands import add_remote_commands
+from .types import UNSET, Unset
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
 # but keep execution and help-rendering dependencies out of a completion process.
@@ -43,11 +45,14 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         print_results,
         print_run_tables,
         resolve_format,
-        select_design_in_project,
     )
     from .console import console
     from .deliver import Conflict
-    from .design import DESIGN_NAME, target_name_problem
+    from .design import DESIGN_NAME, DesignFileParseError, target_name_problem
+    from .errors import ProjectError
+    from .local_settings import LocalSettings, local_settings
+    from .project import Project
+    from .xedaproject import resolve_project_file
     from .flow_runner import (
         DefaultRunner,
         add_file_logger,
@@ -605,6 +610,107 @@ Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
 
 
+def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
+    """Return what `--target` and `--no-target` select: a target, no target (`None`), or `UNSET`
+    when neither was given, so that the project's `default_target` applies."""
+    if target is not None and no_target:
+        raise click.UsageError("`--target` and `--no-target` exclude each other.")
+    return None if no_target else UNSET if target is None else target
+
+
+def _selected_project(xedaproject: Any, design: Any) -> Project | None:
+    """Return the project of this command, or None: the file of `--xedaproject`, else the one
+    project file in the current directory. Only the command line looks there; the library reads
+    the project file it is given and nothing else.
+
+    `design` is the `DESIGN` argument. It is always a design file, with or without a suffix. A
+    design file that the project lists is refused, and so is a name that is no file but is the
+    name of a design of the project: select a project design with `--design-name`, so that one
+    design never has two identities."""
+    path = resolve_project_file(xedaproject)
+    project = None if path is None else Project.load(path)
+    if design is not None and project is not None:
+        referenced = project.referenced_name(design)
+        if referenced is None and not Path(design).exists() and str(design) in project.designs:
+            referenced = str(design)
+        if referenced is not None:
+            raise ProjectError(
+                f'"{design}" is the design {referenced!r} of the project file "{project.path}", '
+                f"not a design file. Select a design of a project with --design-name {referenced}.",
+                code="use_design_name",
+                path=project.path,
+            )
+    if design is not None and not Path(design).exists():
+        raise DesignFileParseError(design, "no such file")
+    return project
+
+
+def _project_for_launcher(project: Project | None) -> str | None:
+    """Return the project file that the launcher is given. A design that the project holds comes
+    from it. A design file given on its own gets no project layer, and the project is still a
+    file of the launch: it supplies the run root, and no delivery may replace it."""
+    return None if project is None else str(project.path)
+
+
+def _config_options(func):
+    """Add `--config` and `--no-config`, which select the private settings files."""
+    func = click.option(
+        "--no-config",
+        "no_config",
+        is_flag=True,
+        default=False,
+        help="Read neither the user config file nor the project-local file. The host profiles "
+        "of `remotes.yaml` are still read.",
+    )(func)
+    return click.option(
+        "--config",
+        "config",
+        type=click.Path(dir_okay=False, resolve_path=True, path_type=Path),
+        default=None,
+        help="Read this file in place of the user config file, "
+        "$XDG_CONFIG_HOME/xeda/config.yaml (~/.config/xeda/config.yaml). The file must exist.",
+    )(func)
+
+
+def _refuse_both_config_options(config: Path | None, no_config: bool) -> None:
+    if config is not None and no_config:
+        raise click.UsageError(
+            "`--config` and `--no-config` exclude each other.", ctx=click.get_current_context()
+        )
+
+
+def _cli_local_settings(
+    project: Project | None, design: Any, config: Path | None, no_config: bool
+) -> LocalSettings:
+    """Return the private settings of this command: the user file (or the file of `--config`,
+    or none with `--no-config`) and, with a project, the project-local file.
+
+    A design file given on the command line gets the user file, and no layer from the project or
+    from the project-local file. The project-local `run_root` still counts for the run root,
+    since the run root is a fact of the machine and not a setting of the design."""
+    settings = local_settings(project, config=None if no_config else config or UNSET)
+    if design is not None:
+        settings = dataclasses.replace(settings, local={})
+    return settings
+
+
+def _cli_run_root(run_root: Path, local: LocalSettings) -> Path:
+    """Return the run root of this command, highest first: `--run-root`, `XEDA_RUN_ROOT`, the
+    `run_root` of the project-local file, that of the user file, that of the project (its
+    `run_root` key, else `xeda_run` beside the project file), then `./xeda_run` when no project is
+    used.
+
+    A run root is a fact of the machine, not a setting of the design. A choice on the command
+    line or in the environment wins, and so does the choice of this user for this machine over the
+    suggestion that the project file checks in. `local.run_root` holds the last three that the
+    files give, whichever design the command runs."""
+    source = click.get_current_context().get_parameter_source("run_root")
+    chosen = source not in (None, ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
+    if chosen or local.run_root is None:
+        return run_root
+    return local.run_root
+
+
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
     not machine-readable."""
@@ -718,17 +824,13 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 @click.argument(
     "design_file",
     metavar="DESIGN",
-    type=click.Path(
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        exists=True,
-        path_type=Path,
-    ),
+    # A missing file is reported by `_selected_project`, which tells a name of a project design.
+    type=click.Path(file_okay=True, dir_okay=False, readable=True, path_type=Path),
     default=None,
     required=False,
 )
 @_run_root_options
+@_config_options
 @click.option(
     "--rebuild-all",
     is_flag=True,
@@ -806,17 +908,27 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--target",
     metavar="NAME",
     help="Select one of the design's `targets` (`targets.NAME` in the design file). Without "
-    "this option, Xeda uses the design itself, with no target. For each key a target sets, its "
+    "this option, a design of a project (--design-name) uses the `default_target` of the "
+    "project, and any other design uses no target. For each key a target sets, its "
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
 )
 @click.option(
-    "--design-overrides",
+    "--no-target",
+    is_flag=True,
+    default=False,
+    help="Select no target: use the design itself, even when the project has a "
+    "`default_target`.",
+)
+@_removed_options("--design-updates", "--design-overrides", took_value=True)
+@click.option(
+    "--design-updates",
     metavar="KEY=VALUE...",
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override attributes of the design.""",
+    help="""Update the design: merge the KEY=VALUE items over it, after the target is selected.
+    KEY is a design key in dot notation, for example rtl.top or tb.parameters.W.""",
 )
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
@@ -941,11 +1053,14 @@ def run(
     flow_settings: Union[None, str, Iterable[str]] = None,
     clean: bool = False,
     run_root: Optional[Path] = None,
+    config: Optional[Path] = None,
+    no_config: bool = False,
     xedaproject: Optional[str] = None,
     # design: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
-    design_overrides: Iterable[str] = tuple(),
+    no_target: bool = False,
+    design_updates: Iterable[str] = tuple(),
     log_level: Optional[int] = None,
     detailed_logs: bool = False,
     post_cleanup: bool = False,
@@ -963,6 +1078,7 @@ def run(
     assert ctx
     # FLOW is the canonical request text. The results, the settings and the exit status are
     # those of its last flow.
+    _refuse_both_config_options(config, no_config)
     request = parse_request(flow)
     chain, flow = flow, request.requested.name
     if json_flag:
@@ -979,14 +1095,11 @@ def run(
     else:
         flow_settings = []
 
-    # The positional DESIGN argument, then --design-name.
-    design = design_file or design_name
-    if not design:
-        raise click.UsageError(
-            "No design specified. Pass a design file as the DESIGN argument, or name one with "
-            "--design-name.",
-            ctx=ctx,
-        )
+    # The positional DESIGN argument is a design file, and --design-name names a design of the
+    # project. Neither selects the only design of the project (`project.design()`).
+    if design_file and design_name:
+        raise click.UsageError("give DESIGN or --design-name, not both", ctx=ctx)
+    design = Path(design_file) if design_file else design_name
 
     if remote == "":
         # An empty `XEDA_REMOTE` is the same as an unset one. An empty `--remote` is a mistake:
@@ -997,89 +1110,7 @@ def run(
                 ctx=ctx,
             )
         remote = None
-    if fetch_all and not remote:
-        raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
-    if keep_running and not remote:
-        raise click.UsageError("`--keep-running` needs --remote", ctx=ctx)
-    if keep_running and dry_run:
-        raise click.UsageError(
-            "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
-        )
-    if remote:
-        for name, given in (
-            ("--post-cleanup", post_cleanup),
-            ("--post-cleanup-purge", post_cleanup_purge),
-        ):
-            if given:
-                raise click.UsageError(
-                    f"`{name}` removes run directories after delivery; with --remote, the run "
-                    "directories are on the remote: use `xeda remote clean`",
-                    ctx=ctx,
-                )
-        if scrub:
-            raise click.UsageError(
-                "`--scrub` asks you to confirm the removal of run directories, and a remote "
-                "launch cannot ask: run without --remote, or free the space on the host with "
-                "`xeda remote clean`",
-                ctx=ctx,
-            )
-        from .remote import client as remote_client
-
-        outcome = remote_client.run_remote(
-            chain,
-            design=design,
-            destination_text=remote,
-            run_root=run_root,
-            flow_settings=flow_settings,
-            xedaproject=xedaproject,
-            design_overrides=design_overrides,
-            design_allow_extra=False,
-            target=target,
-            select_design_in_project=select_design_in_project,
-            hashed_run_dirs=hashed_run_dirs,
-            clean=clean,
-            rebuild_all=rebuild_all,
-            scrub=scrub,
-            dry_run=dry_run,
-            fetch_all=fetch_all,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-            confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
-            log_level=log_level,
-            detailed_logs=detailed_logs,
-            keep_running=keep_running,
-        )
-        document = outcome.document
-        if outcome.error is not None:
-            log.critical("%s", _error_message(outcome.error))
-            if json_flag:
-                emit_structured(document, "json")
-            if not json_flag and not isinstance(outcome.error, XedaException):
-                raise outcome.error
-            sys.exit(outcome.exit_status)
-        if dry_run:
-            if json_flag:
-                emit_structured(document, "json")
-            else:
-                _print_remote_plan(document)
-            if not outcome.success:
-                error = document.get("error") or {}
-                if error.get("message"):
-                    log.critical("%s", error["message"])
-                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
-            sys.exit(outcome.exit_status)
-        if outcome.record is not None and not json_flag:
-            print_results(
-                results_of(outcome.record),
-                title=f"Results of flow:{flow} design:{document['spec']['design']}",
-                skip_if_false={"artifacts", "reports"},
-            )
-        if not outcome.success:
-            log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
-        if json_flag:
-            emit_structured(document, "json")
-        sys.exit(outcome.exit_status)
-
+    selected_target = _selected_target(target, no_target)
     launcher: Optional[DefaultRunner] = None
     table = command_line_table(flow, flow_settings)
 
@@ -1151,6 +1182,106 @@ def run(
             raise error
         sys.exit(2 if refused else 1)
 
+    # The command line finds the project file (`--xedaproject`, else the one in the current
+    # directory), and the launcher gets that path. The library discovers nothing.
+    try:
+        project = _selected_project(xedaproject, design_file)
+        local = _cli_local_settings(project, design_file, config, no_config)
+    except Exception as e:
+        not_started(e)
+    if not design and project is None:
+        raise click.UsageError(
+            "No design specified. Pass a design file as the DESIGN argument, or name one with "
+            "--design-name.",
+            ctx=ctx,
+        )
+    project_for_launcher = _project_for_launcher(project)
+    run_root = _cli_run_root(run_root, local)
+    if fetch_all and not remote:
+        raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
+    if keep_running and not remote:
+        raise click.UsageError("`--keep-running` needs --remote", ctx=ctx)
+    if keep_running and dry_run:
+        raise click.UsageError(
+            "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
+        )
+    if remote:
+        for name, given in (
+            ("--post-cleanup", post_cleanup),
+            ("--post-cleanup-purge", post_cleanup_purge),
+        ):
+            if given:
+                raise click.UsageError(
+                    f"`{name}` removes run directories after delivery; with --remote, the run "
+                    "directories are on the remote: use `xeda remote clean`",
+                    ctx=ctx,
+                )
+        if scrub:
+            raise click.UsageError(
+                "`--scrub` asks you to confirm the removal of run directories, and a remote "
+                "launch cannot ask: run without --remote, or free the space on the host with "
+                "`xeda remote clean`",
+                ctx=ctx,
+            )
+        from .remote import client as remote_client
+        from .remote.profile import host_profile
+
+        outcome = remote_client.run_remote(
+            chain,
+            design=design,
+            destination_text=remote,
+            run_root=run_root,
+            flow_settings=flow_settings,
+            xedaproject=project_for_launcher,
+            design_updates=design_updates,
+            design_allow_extra=False,
+            target=selected_target,
+            hashed_run_dirs=hashed_run_dirs,
+            clean=clean,
+            rebuild_all=rebuild_all,
+            scrub=scrub,
+            dry_run=dry_run,
+            fetch_all=fetch_all,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
+            log_level=log_level,
+            detailed_logs=detailed_logs,
+            keep_running=keep_running,
+            profile=host_profile(remote, local.host_profiles),
+            local_settings=local,
+        )
+        document = outcome.document
+        if outcome.error is not None:
+            log.critical("%s", _error_message(outcome.error))
+            if json_flag:
+                emit_structured(document, "json")
+            if not json_flag and not isinstance(outcome.error, XedaException):
+                raise outcome.error
+            sys.exit(outcome.exit_status)
+        if dry_run:
+            if json_flag:
+                emit_structured(document, "json")
+            else:
+                _print_remote_plan(document)
+            if not outcome.success:
+                error = document.get("error") or {}
+                if error.get("message"):
+                    log.critical("%s", error["message"])
+                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
+            sys.exit(outcome.exit_status)
+        if outcome.record is not None and not json_flag:
+            print_results(
+                results_of(outcome.record),
+                title=f"Results of flow:{flow} design:{document['spec']['design']}",
+                skip_if_false={"artifacts", "reports"},
+            )
+        if not outcome.success:
+            log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
+        if json_flag:
+            emit_structured(document, "json")
+        sys.exit(outcome.exit_status)
+
     if dry_run:
         try:
             launcher = DefaultRunner(
@@ -1162,12 +1293,12 @@ def run(
             )
             plan, freshness = launcher.plan_with_freshness(
                 chain,
-                xedaproject=xedaproject,
+                xedaproject=project_for_launcher,
                 design=design,
                 flow_settings=flow_settings,
-                select_design_in_project=select_design_in_project,
-                design_overrides=design_overrides,
-                target=target,
+                design_updates=design_updates,
+                target=selected_target,
+                local_settings=local,
             )
         except KeyboardInterrupt:
             canceled_before_start()
@@ -1208,12 +1339,12 @@ def run(
         launcher.scrub_done = _print_scrub_result
         resolved, plan = launcher.resolve_run(
             chain,
-            xedaproject=xedaproject,
+            xedaproject=project_for_launcher,
             design=design or design_name,
             flow_settings=flow_settings,
-            select_design_in_project=select_design_in_project,
-            design_overrides=design_overrides,
-            target=target,
+            design_updates=design_updates,
+            target=selected_target,
+            local_settings=local,
         )
     except KeyboardInterrupt:
         canceled_before_start()
@@ -1333,6 +1464,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     """,
 )
 @_run_root_options
+@_config_options
 @click.option(
     "--xedaproject",
     envvar="XEDA_XEDAPROJECT",
@@ -1357,9 +1489,17 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "--target",
     metavar="NAME",
     help="Select one of the design's `targets` (`targets.NAME` in the design file). Without "
-    "this option, Xeda uses the design itself, with no target. For each key a target sets, its "
+    "this option, a design of a project (--design-name) uses the `default_target` of the "
+    "project, and any other design uses no target. For each key a target sets, its "
     "value wins over the design's and the project's. The order, lowest first, is defaults < "
     "project < design < target < -s < API.",
+)
+@click.option(
+    "--no-target",
+    is_flag=True,
+    default=False,
+    help="Select no target: use the design itself, even when the project has a "
+    "`default_target`.",
 )
 @_removed_options("the positional DESIGN argument", "--design", "--design-file", took_value=True)
 @click.option(
@@ -1445,9 +1585,12 @@ def dse(
     init_freq_low: float,
     init_freq_high: float,
     run_root: Path,
+    config: Optional[Path] = None,
+    no_config: bool = False,
     xedaproject: Optional[str] = None,
     design_name: Optional[str] = None,
     target: str | None = None,
+    no_target: bool = False,
     log_level: Optional[int] = None,
     detailed_logs: bool = True,
     json_flag: bool = False,
@@ -1457,7 +1600,11 @@ def dse(
         # From here on, stdout belongs to the JSON document.
         machine_readable_mode()
 
+    if design and design_name:
+        raise click.UsageError("give DESIGN or --design-name, not both")
+    _refuse_both_config_options(config, no_config)
     dse: Dse | None = None
+    selected_target = _selected_target(target, no_target)
 
     def dse_failure(error_type: str, message: str, exc: Optional[BaseException] = None) -> None:
         log.critical("%s", message)
@@ -1519,10 +1666,12 @@ def dse(
     }
 
     try:
+        project = _selected_project(xedaproject, design)
+        local = _cli_local_settings(project, design, config, no_config)
         dse = Dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
-            run_root=run_root,
+            run_root=_cli_run_root(run_root, local),
             **dse_settings_dict,
         )
         # The tables go to stderr with --json (`machine_readable_mode`).
@@ -1531,11 +1680,11 @@ def dse(
         )
         best = dse.run(
             flow,
-            xedaproject=xedaproject,
+            xedaproject=_project_for_launcher(project),
             design=design or design_name,
             flow_settings=list(flow_settings),
-            select_design_in_project=select_design_in_project,
-            target=target,
+            target=selected_target,
+            local_settings=local,
         )
     except SystemExit:
         raise

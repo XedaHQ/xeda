@@ -405,15 +405,17 @@ def _spec_of(document: Mapping[str, Any]) -> Spec:
     if target is not None and not isinstance(target, str):
         raise ValueError(f"the spec has no valid `target`: {target!r}")
     name = _field(document, "design", str, "the spec")
+    # The document holds no root: a design of a file has the directory of that file, any other
+    # design the root of the file system.
     try:
-        design = Design(
-            name=name,
-            target=target,
-            design_root=Path(design_file).parent if design_file else None,
+        design = Design._built(
+            Path(design_file).parent if design_file else Path(os.sep),
+            {"name": name, "rtl": {"sources": []}},
+            recorded_target=target,
+            source_file=None if design_file is None else Path(design_file),
         )
     except AnyDesignValidationException as error:
         raise ValueError(f"the spec has no valid `design` name: {name!r}: {error}") from None
-    design._source_file = None if design_file is None else Path(design_file)
     return Spec(
         _field(document, "flow", str, "the spec"),
         design,

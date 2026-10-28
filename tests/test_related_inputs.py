@@ -546,7 +546,7 @@ def groups(tmp_path):
 
     from xeda import Design
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def plan_(*settings):
@@ -678,7 +678,7 @@ def relations(tmp_path):
 
     from xeda import Design
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def plan_(flow, *settings):

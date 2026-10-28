@@ -38,7 +38,7 @@ def _plan(tmp_path: Path, flow_cls, settings=None, sections=None, sources=(), **
     for source in sources:
         (root / source["file"]).write_text("x\n")
     design = Design(
-        name="d", design_root=root, rtl={"sources": list(sources), "top": "t", "clocks": ["clk"]}
+        name="d", root=root, rtl={"sources": list(sources), "top": "t", "clocks": ["clk"]}
     )
     return resolve(
         flow_cls,
@@ -202,10 +202,11 @@ def test_a_missing_required_setting_names_the_requested_flow_first(tmp_path):
         _plan(tmp_path, _Place)
 
 
-def test_a_declared_producer_is_a_flow_the_command_line_may_address():
-    assert set(transitive_dependencies(_Taker)) == {"__maker"}
-    assert set(transitive_dependencies(_Place)) == {"__synth"}
-    assert _Maker.name in transitive_dependencies(_Taker)
+def test_a_declared_producer_is_a_flow_the_command_line_may_address(tmp_path):
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    assert set(transitive_dependencies(_Taker, design)) == {"__maker"}
+    assert set(transitive_dependencies(_Place, design)) == {"__synth"}
+    assert _Maker.name in transitive_dependencies(_Taker, design)
 
 
 @pytest.fixture(autouse=True)
@@ -370,7 +371,7 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
 
     root = tmp_path / "d"
     root.mkdir()
-    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=root, rtl={"sources": [], "top": "t"})
     sections = {"__place": {"fpga": {"part": PART}}, "__synth": {"lib_paths": [("work", "lib")]}}
     given = _Place.Settings.from_input(
         compose_flow_settings(_Place, [sections]), design_root=root, runner_cwd=tmp_path
@@ -757,7 +758,8 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
         def run(self):
             pass
 
-    assert list(transitive_dependencies(_CycleA)) == ["__cycle_b"]
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    assert list(transitive_dependencies(_CycleA, design)) == ["__cycle_b"]
     with pytest.raises(FlowSettingsException, match="__cycle_a -> __cycle_b -> __cycle_a"):
         _plan(tmp_path, _CycleA)
 
@@ -944,7 +946,7 @@ def test_direct_entry_points_share_context_and_validation(tmp_path, monkeypatch,
     root = tmp_path / "d"
     root.mkdir()
     # the same design as the plan's (`_plan`): its configuration is part of the identity
-    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
+    design = Design(name="d", root=root, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     values = {"nthreads": 2, "lib_paths": [("work", "$DESIGN_ROOT/lib")], "text": "entry point\n"}
     given = (
         _Maker.Settings.from_input(values, design_root=root, runner_cwd=tmp_path)
@@ -1033,7 +1035,7 @@ def _asic_plan(tmp_path, taker, **kwargs):
     root = tmp_path / "d"
     root.mkdir(parents=True, exist_ok=True)
     (root / "t.v").write_text("module t; endmodule\n")
-    design = Design(name="d", design_root=root, rtl={"sources": ["t.v"], "top": "t"})
+    design = Design(name="d", root=root, rtl={"sources": ["t.v"], "top": "t"})
     return resolve(
         taker,
         design,

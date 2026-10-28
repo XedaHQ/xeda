@@ -265,7 +265,7 @@ def _design(tmp_path: Path) -> Design:
     root = tmp_path / "design"
     root.mkdir(exist_ok=True)
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
-    return Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    return Design(name="top", root=root, rtl={"sources": ["top.v"], "top": "top"})
 
 
 def _tools_started(tmp_path: Path) -> int:
@@ -341,7 +341,7 @@ def test_ghdl_synth_writes_its_conventional_name_when_unset(tmp_path):
         "entity inv is port(a: in std_logic; y: out std_logic); end;\n"
         "architecture rtl of inv is begin y <= not a; end;\n"
     )
-    design = Design(name="inv", design_root=root, rtl={"sources": ["inv.vhd"], "top": "inv"})
+    design = Design(name="inv", root=root, rtl={"sources": ["inv.vhd"], "top": "inv"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.run("ghdl_synth", design)
     assert first is not None and first.succeeded

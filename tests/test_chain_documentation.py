@@ -27,6 +27,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner, get_flow_class
+from xeda.project import Project
 from xeda.frozen import thaw
 from xeda.flow_runner.bindings import split_bindings
 from xeda.flow_runner.chains import complete_request, parse_request
@@ -189,8 +190,8 @@ def test_the_openroad_fixture_is_the_example_that_the_real_tool_tests_run(tmp_pa
 
     example_file = ROOT / "examples/bluespec/gcd/gcd.yaml"
     for target in (None, "ecp5", "artix7"):
-        documented = Design.from_file(root / "openroad-gcd.yaml", target=target)
-        example = Design.from_file(example_file, target=target)
+        documented = Design.load(root / "openroad-gcd.yaml", target=target)
+        example = Design.load(example_file, target=target)
         assert resolved_contract(documented) == resolved_contract(example), target
 
 
@@ -199,7 +200,7 @@ def test_the_openroad_fixture_loads_with_each_target_and_plans_its_commands(tmp_
     """The design file of the section loads without a target and with each of its targets, and the
     commands of the section plan: `bsc` first, then the flows that read the converted design."""
     root = _stage(tmp_path, "openroad-gcd.yaml")
-    design = Design.from_file(root / "openroad-gcd.yaml", target=target)
+    design = Design.load(root / "openroad-gcd.yaml", target=target)
     assert design.target == target
     request = {None: "openroad", "ecp5": "yosys_fpga+nextpnr", "artix7": "yosys_fpga"}[target]
     document = _planned(
@@ -212,14 +213,14 @@ def test_the_openroad_fixture_loads_with_each_target_and_plans_its_commands(tmp_
 
 @pytest.mark.parametrize("document, name", FIXTURES)
 def test_a_documented_fixture_loads_and_agrees_with_the_published_schema(tmp_path, document, name):
-    """Design fixtures load with `Design.from_file`, validate against `design_schema()`, and
+    """Design fixtures load with `Design.load`, validate against `design_schema()`, and
     every flow section is valid for its flow once `inputs` is split out as the launcher does;
     project fixtures (no `rtl`) are flow sections alone."""
     root = _stage(tmp_path, name)
     data = yaml.safe_load((root / name).read_text())
     sections = data.get("flows") or {}
     if "rtl" in data:
-        design = Design.from_file(root / name)
+        design = Design.load(root / name)
         jsonschema.validate(data, design_schema())
         assert design.name == data["name"]
         sections = thaw(design.flows) or {}
@@ -459,13 +460,16 @@ def test_a_binding_that_says_what_the_defaults_say_changes_nothing(tmp_path):
 def test_a_chain_replaces_the_bindings_a_design_and_a_named_project_saved(tmp_path):
     root = _stage(tmp_path, "bound_demo.yaml", "project.yaml")
     design, project = root / "bound_demo.yaml", root / "project.yaml"
-    both = ["--xedaproject", project]
+    # the project selects the design: it applies to no design file given on its own
+    project.write_text("designs: [{file: bound_demo.yaml}]\n" + project.read_text())
+    name = Project.load(project).designs[0]
+    both = ["--design-name", name, "--xedaproject", project]
     # alone, the design's binding is the one in force (a project's ranks below it)
-    saved = _planned("nextpnr", design, *both)
+    saved = _planned("nextpnr", *both)
     netlist = _input(saved, "nextpnr", "netlist")
     assert netlist["binding_origin"] == "file" and str(design) in netlist["binding_location"]
     # a chain replaces both, and the plan lists what it replaced: the project's, then the design's
-    chain = _planned("yosys_fpga+nextpnr", design, *both)
+    chain = _planned("yosys_fpga+nextpnr", *both)
     netlist = _input(chain, "nextpnr", "netlist")
     assert netlist["binding_origin"] == "chain"
     assert "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in netlist["binding_location"]
@@ -504,7 +508,7 @@ def test_a_chain_and_a_command_line_binding_of_one_input_collide(tmp_path, kind)
 @pytest.mark.parametrize("style", ["dotted", "mapping"])
 def test_a_chain_and_an_api_binding_of_one_input_collide(tmp_path, kind, style):
     root = _stage(tmp_path, "prebuilt_demo.yaml")
-    design = Design.from_file(root / "prebuilt_demo.yaml")
+    design = Design.load(root / "prebuilt_demo.yaml")
     reference = DIFFERENT[kind]
     overrides = (
         {"inputs.netlist": reference} if style == "dotted" else {"inputs": {"netlist": reference}}

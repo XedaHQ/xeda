@@ -178,7 +178,7 @@ def _source_file(design: Design, index: int) -> str:
     source = design.rtl.sources[index]
     if source.generated:
         return str(source.output_name)  # its name in the output of its producer, no path
-    return root_relative_text(design.root_path, source.file)
+    return root_relative_text(design.root, source.file)
 
 
 def _design_record(flow: Flow, name: str, value: Any, problems: list[str]) -> dict[str, Any] | None:

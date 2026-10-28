@@ -245,7 +245,7 @@ def _design(root: Path) -> Design:
     root.mkdir(exist_ok=True)
     if not (root / "blink.v").exists():
         (root / "blink.v").write_text(BLINK)
-    return Design(name="blink", design_root=root, rtl={"sources": ["blink.v"], "top": "blink"})
+    return Design(name="blink", root=root, rtl={"sources": ["blink.v"], "top": "blink"})
 
 
 def _launch(tmp_path: Path, monkeypatch):

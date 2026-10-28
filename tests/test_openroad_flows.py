@@ -674,9 +674,7 @@ def test_a_second_launch_is_fresh_and_a_dry_run_agrees(tmp_path, monkeypatch, ch
         again = runner.run("openroad", design, flow_settings=settings)
         assert again is not None and again.succeeded and again.reused
         given = dict(text.split("=", 1) for text in settings)
-        _, states = runner.plan_with_freshness(
-            "openroad", Design.from_file(design), flow_settings=given
-        )
+        _, states = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
         assert {name: state.state for name, state in states.items()} == dict.fromkeys(
             NAMES, "fresh"
         )
@@ -848,7 +846,7 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
     def judged() -> dict[str, str]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
         _, states = runner.plan_with_freshness(
-            "openroad", Design.from_file(design), project, flow_settings=given
+            "openroad", Design.load(design), project, flow_settings=given
         )
         return {name: state.state for name, state in states.items()}
 

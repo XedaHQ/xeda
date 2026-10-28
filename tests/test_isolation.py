@@ -848,7 +848,7 @@ def _launch(
         standard = settings.pop("__language", "2008")
         design = Design(
             name="sqrt",  # every flow's, so the canaries named after it (`sqrt.xpr`) apply to all
-            design_root=world.work,
+            root=world.work,
             rtl=rtl,
             tb=tb,
             language={"vhdl": {"standard": standard}},
@@ -1551,7 +1551,7 @@ def _yosys_on_bluespec(tmp_path: Path, monkeypatch, patch=None):
     document["flows"] = {}  # no platform: yosys synthesizes for no library
     del document["targets"]
     (work / "gcd.yaml").write_text(yaml.safe_dump(document, sort_keys=False))
-    design = Design.from_file(work / "gcd.yaml")
+    design = Design.load(work / "gcd.yaml")
     root = tmp_path / "run"
     if patch is not None:
         patch(monkeypatch)
@@ -1671,7 +1671,7 @@ def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, mo
     world = _world(tmp_path)
     ensure_run_root(world.root)
     rtl, tb = GCD_DESIGN
-    design = Design(name="gcd", design_root=world.work, rtl=rtl, tb=tb)
+    design = Design(name="gcd", root=world.work, rtl=rtl, tb=tb)
     monkeypatch.chdir(world.work)
     _freeze(world.parent, keep=world.root)
     try:
@@ -1721,7 +1721,7 @@ def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path)
     )
     before = _state(world.parent, [world.root])
     with watching(world) as violations:
-        design = Design.from_file(design_file)
+        design = Design.load(design_file)
         generate(design, run_root=world.root, environ=dict(os.environ))
         generate(design, run_root=world.root, environ=dict(os.environ))
     assert [src.path for src in design.rtl.sources] == [Path("gen/top.v")]
@@ -2874,7 +2874,7 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
                     (run_dir / name).symlink_to(target)
             self.artifacts.update(deliver)
 
-    design = Design(name="links", design_root=tmp_path, rtl={"sources": [str(SQRT / "sqrt.vhdl")]})
+    design = Design(name="links", root=tmp_path, rtl={"sources": [str(SQRT / "sqrt.vhdl")]})
     root = tmp_path / "xeda_run"
     try:
         flow = DefaultRunner(root, display_results=False).launch_flow(LinkLeaver, design, {})
@@ -2928,3 +2928,76 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
     finally:
         for name in (LinkLeaver.name, LinkLeaver.__name__):
             registered_flows.pop(name, None)
+
+
+# ---------------------------------------------------------------- the private settings files
+
+#: The private files that the audit hook watches, once a test sets it: the list collects the
+#: files opened.
+_PRIVATE_OPENS: Optional[list] = None
+_PRIVATE_ROOT: Optional[Path] = None
+
+
+def _audit_private_files(event: str, args: tuple) -> None:
+    if _PRIVATE_OPENS is None or event != "open" or not isinstance(args[0], (str, os.PathLike)):
+        return
+    path = Path(os.fsdecode(args[0]))
+    if _PRIVATE_ROOT is not None and path.is_relative_to(_PRIVATE_ROOT):
+        if path.name == "config.yaml" or path.name.endswith(".local.yaml"):
+            _PRIVATE_OPENS.append(path)
+
+
+sys.addaudithook(_audit_private_files)
+
+
+def test_only_local_settings_and_the_command_line_open_the_private_settings_files(
+    tmp_path, monkeypatch
+):
+    """A planning or a launch opens neither `config.yaml` nor `*.local.yaml`: the library is
+    handed what they hold. `local_settings()` and the command line read them."""
+    global _PRIVATE_OPENS, _PRIVATE_ROOT
+    from xeda.local_settings import local_settings
+    from xeda.project import Project
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "cfg" / "xeda").mkdir(parents=True)
+    (tmp_path / "cfg" / "xeda" / "config.yaml").write_text("run_root: user_runs\n")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "knight.v").write_text("module knight(); endmodule\n")
+    project_file = repo / "xedaproject.yaml"
+    project_file.write_text(
+        yaml.safe_dump(
+            {"designs": [{"name": "d", "rtl": {"sources": ["knight.v"], "top": "knight"}}]}
+        )
+    )
+    (repo / "xedaproject.local.yaml").write_text("run_root: local_runs\n")
+    settings = ["fpga.part=xc7a100tcsg324-1"]
+    _PRIVATE_ROOT, _PRIVATE_OPENS = tmp_path, []
+    try:
+        project = Project.load(project_file)
+        design = project.design("d")
+        plan = DefaultRunner(tmp_path / "run").plan("vivado_synth", design, flow_settings=settings)
+        assert plan.requested == "vivado_synth"
+        assert _PRIVATE_OPENS == [], "the library read a private file"
+        local_settings(project)
+        assert {path.name for path in _PRIVATE_OPENS} == {"config.yaml", "xedaproject.local.yaml"}
+        _PRIVATE_OPENS.clear()
+        result = CliRunner().invoke(
+            cli,
+            ["run", "vivado_synth", "--xedaproject", str(project_file), "--design-name", "d",
+             "--dry-run", "-s", settings[0], "--json"],
+        )  # fmt: skip
+        assert result.exit_code == 0, result.output
+        assert {path.name for path in _PRIVATE_OPENS} == {"config.yaml", "xedaproject.local.yaml"}
+        _PRIVATE_OPENS.clear()
+        result = CliRunner().invoke(
+            cli,
+            ["run", "vivado_synth", "--xedaproject", str(project_file), "--design-name", "d",
+             "--dry-run", "--no-config", "-s", settings[0], "--json"],
+        )  # fmt: skip
+        assert result.exit_code == 0, result.output
+        assert _PRIVATE_OPENS == [], "--no-config read a private file"
+    finally:
+        _PRIVATE_OPENS = _PRIVATE_ROOT = None

@@ -102,7 +102,7 @@ def test_the_documented_design_file_gives_the_values_the_text_says(tmp_path: Pat
     assert text.startswith("# clock-units.yaml\n")
     (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
     (tmp_path / "clock-units.yaml").write_text(text + "\n")
-    flows = thaw(Design.from_file(tmp_path / "clock-units.yaml").flows)
+    flows = thaw(Design.load(tmp_path / "clock-units.yaml").flows)
     yosys = Yosys.Settings.from_input(flows["yosys"], design_root=tmp_path)
     assert yosys.clocks["main_clock"].period == Time("2.5 ns")
     assert yosys.abc.delay_target == Time("500 ps")

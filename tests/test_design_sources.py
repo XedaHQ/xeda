@@ -9,6 +9,7 @@ import pytest
 
 from xeda import Design
 from xeda.design import DesignValidationError, Generator, loading_in_design_root
+from .design_edits import design_from_dump
 
 ROOT_SPELLINGS = ["a.vhd", "$DESIGN_ROOT/a.vhd", "${DESIGN_ROOT}/a.vhd", "$DESIGN_DIR/a.vhd"]
 
@@ -34,7 +35,7 @@ def test_every_spelling_of_the_design_root_names_the_same_file(root, source):
     """`$DESIGN_ROOT` in a source was never expanded: the design root is a field of `Design`,
     not of the nested `rtl` settings whose validator looked for it, so the path kept a literal
     `$DESIGN_ROOT` component and only failed once something read the file."""
-    design = Design(name="d", design_root=root, rtl={"sources": [source], "top": "a"})
+    design = Design(name="d", root=root, rtl={"sources": [source], "top": "a"})
     assert [s.file for s in design.rtl.sources] == [root / "a.vhd"]
     assert design.rtl_hash  # reads the file
 
@@ -51,7 +52,7 @@ def test_every_spelling_of_the_design_root_names_the_same_file(root, source):
 def test_a_glob_under_the_design_root_matches_its_files(root, pattern):
     """Variables are expanded before globbing, or the glob looks for a `$DESIGN_ROOT` directory
     and silently matches no sources at all."""
-    design = Design(name="d", design_root=root, rtl={"sources": [pattern], "top": "b"})
+    design = Design(name="d", root=root, rtl={"sources": [pattern], "top": "b"})
     assert [s.file for s in design.rtl.sources] == [root / "sub" / "b.vhd"]
 
 
@@ -60,7 +61,7 @@ def test_testbench_sources_resolve_the_same_way(root, source):
     """Testbench sources resolve the same way."""
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["sub/b.vhd"], "top": "b"},
         tb={"sources": [source], "top": "a"},
     )
@@ -72,7 +73,7 @@ def test_a_design_file_resolves_the_design_root_from_its_own_location(root):
     (root / "d.toml").write_text(
         'name = "d"\n[rtl]\nsources = ["$DESIGN_ROOT/a.vhd", "$DESIGN_DIR/sub/*.vhd"]\ntop = "a"\n'
     )
-    design = Design.from_file(root / "d.toml")
+    design = Design.load(root / "d.toml")
     assert [s.file for s in design.rtl.sources] == [root / "a.vhd", root / "sub" / "b.vhd"]
 
 
@@ -90,7 +91,7 @@ def test_a_source_table_resolves_the_design_root_too(root, key, prefix):
     """A source table resolves the design root too."""
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [{key: f"{prefix}a.vhd", "type": "Vhdl"}], "top": "a"},
     )
     assert [s.file for s in design.rtl.sources] == [root / "a.vhd"]
@@ -116,14 +117,14 @@ def test_a_missing_source_file_is_a_validation_error_naming_it(root, section, so
     sections = {"rtl": {"sources": ["a.vhd"], "top": "a"}}
     sections[section] = {"sources": [source], "top": "t"}
     with pytest.raises(DesignValidationError, match=f"{section}.sources") as e:
-        Design(name="d", design_root=root, **sections)
+        Design(name="d", root=root, **sections)
     assert "does not exist" in str(e.value) and "missing" in str(e.value)
 
 
 def test_a_source_given_as_a_path_is_not_checked(root):
     """For a file a generator creates later."""
     design = Design(
-        name="d", design_root=root, rtl={"sources": ["a.vhd", {"path": "gen/top.v"}], "top": "a"}
+        name="d", root=root, rtl={"sources": ["a.vhd", {"path": "gen/top.v"}], "top": "a"}
     )
     assert design.rtl.sources[1].file == root / "gen" / "top.v"
 
@@ -134,7 +135,7 @@ def test_a_missing_parameter_file_is_a_validation_error(root):
     with pytest.raises(DesignValidationError, match="does not exist"):
         Design(
             name="d",
-            design_root=root,
+            root=root,
             rtl={"sources": ["a.vhd"], "top": "a", "parameters": {"INIT": {"file": "init.mem"}}},
         )
 
@@ -145,7 +146,7 @@ def test_a_parameter_file_resolves_like_a_source(root, spelling):
     (root / "init.mem").write_text("00\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["a.vhd"], "top": "a", "parameters": {"INIT": {"file": spelling}}},
     )
     assert design.rtl.parameters["INIT"] == str(root / "init.mem")
@@ -157,7 +158,7 @@ def test_a_missing_generator_source_is_a_validation_error(root):
     with pytest.raises(DesignValidationError, match="generator source file does not exist"):
         Design(
             name="d",
-            design_root=root,
+            root=root,
             rtl={
                 "sources": ["a.vhd"],
                 "top": "a",
@@ -201,13 +202,13 @@ def test_a_glob_expands_in_a_stable_order(root):
     for name in names:
         (many / name).write_text(f"-- {name}\n")
 
-    design = Design(name="d", design_root=root, rtl={"sources": ["many/*.vhd"], "top": "a"})
+    design = Design(name="d", root=root, rtl={"sources": ["many/*.vhd"], "top": "a"})
 
     assert [s.file.name for s in design.rtl.sources] == sorted(names)
     # ... and a glob is worth exactly the sorted list of files written out by hand:
     spelled_out = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [f"many/{name}" for name in sorted(names)], "top": "a"},
     )
     assert design.rtl_hash == spelled_out.rtl_hash
@@ -221,7 +222,7 @@ def test_a_glob_that_matches_nothing_is_an_error(root, pattern):
     """A mistyped pattern is an error naming it, not a load that contributes no sources and
     leaves a tool missing its top-level unit."""
     with pytest.raises(DesignValidationError, match="no file matches the source pattern") as e:
-        Design(name="d", design_root=root, rtl={"sources": [pattern], "top": "b"})
+        Design(name="d", root=root, rtl={"sources": [pattern], "top": "b"})
     assert pattern in str(e.value)
 
 
@@ -241,7 +242,7 @@ def test_pwd_is_not_expanded_in_a_source(root):
     same file wherever xeda was started. The variable survives unexpanded into the error rather
     than quietly resolving against whichever directory that was."""
     with pytest.raises(DesignValidationError, match=r"\$PWD"):
-        Design(name="d", design_root=root, rtl={"sources": ["$PWD/a.vhd"], "top": "a"})
+        Design(name="d", root=root, rtl={"sources": ["$PWD/a.vhd"], "top": "a"})
 
 
 # ---------------------------------------------------------------------------------------------
@@ -260,9 +261,7 @@ def generated(tmp_path):
 
 def _generated_design(root: Path, sources, generator=None) -> Design:
     recipe = generator or {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]}
-    return Design(
-        name="d", design_root=root, rtl={"sources": sources, "top": "out_", "generator": recipe}
-    )
+    return Design(name="d", root=root, rtl={"sources": sources, "top": "out_", "generator": recipe})
 
 
 @pytest.mark.parametrize(
@@ -341,7 +340,7 @@ def test_a_generator_sees_the_design_root_and_its_storage_whatever_the_environme
 
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [{"path": "out.vhd"}], "top": "out_", "generator": generator},
     )
     recipe = generator_of(design.rtl, root=root)
@@ -360,7 +359,7 @@ def test_the_arguments_of_a_generator_expand_the_two_variables_and_no_other(root
 
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"path": "out.vhd"}],
             "top": "out_",
@@ -387,7 +386,7 @@ def test_an_unwritten_source_says_why_the_design_cannot_be_hashed(root):
     """Nothing promised to write this one, so it survives loading -- but a design with no
     content has no identity, and the error has to say that rather than report an errno."""
     design = Design(
-        name="d", design_root=root, rtl={"sources": ["a.vhd", {"path": "never.vhd"}], "top": "a"}
+        name="d", root=root, rtl={"sources": ["a.vhd", {"path": "never.vhd"}], "top": "a"}
     )
 
     with pytest.raises(FileNotFoundError, match="cannot be identified"):
@@ -414,7 +413,7 @@ def test_the_design_root_is_a_place_not_a_pattern(tmp_path, root_name, pattern):
     (tmp_path / "proj1" / "rtl").mkdir(parents=True)
     (tmp_path / "proj1" / "rtl" / "someone_elses.vhd").write_text("-- not mine\n")
 
-    design = Design(name="d", design_root=root, rtl={"sources": [pattern], "top": "t"})
+    design = Design(name="d", root=root, rtl={"sources": [pattern], "top": "t"})
     assert [src.file.name for src in design.rtl.sources] == ["mine.vhd"]
     assert design.rtl.sources[0].file.parent.parent == root.resolve()
 
@@ -429,7 +428,7 @@ def test_only_a_star_makes_a_source_a_pattern(tmp_path, name, decoys):
     existed -- silently -- and was rejected when none did."""
     for file in (name, *decoys):
         (tmp_path / file).write_text(f"// {file}\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [name], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [name], "top": "t"})
     assert [src.file.name for src in design.rtl.sources] == [name]
     with loading_in_design_root(tmp_path):  # as `Design` builds its generator
         assert Generator(command="true", sources=[name]).sources == [tmp_path / name]
@@ -439,7 +438,7 @@ def test_brackets_in_a_star_pattern_are_literal(tmp_path):
     """In a pattern, only `*` matches: the brackets of `foo[1]_*.v` are the file names' own."""
     for file in ("foo[1]_a.v", "foo[1]_b.v", "foo1_a.v"):
         (tmp_path / file).write_text(f"// {file}\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["foo[1]_*.v"], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["foo[1]_*.v"], "top": "t"})
     assert [src.file.name for src in design.rtl.sources] == ["foo[1]_a.v", "foo[1]_b.v"]
 
 
@@ -450,12 +449,12 @@ def test_a_source_is_a_file(tmp_path):
     (tmp_path / "rtl" / "old.vhd").mkdir(parents=True)  # a directory with a source's name
     (tmp_path / "rtl" / "top.vhd").write_text("-- top\n")
 
-    globbed = Design(name="d", design_root=tmp_path, rtl={"sources": ["rtl/*.vhd"], "top": "t"})
+    globbed = Design(name="d", root=tmp_path, rtl={"sources": ["rtl/*.vhd"], "top": "t"})
     assert [src.file.name for src in globbed.rtl.sources] == ["top.vhd"]
 
     for named in ("rtl", "rtl/old.vhd"):
         with pytest.raises(DesignValidationError, match="directory") as raised:
-            Design(name="d", design_root=tmp_path, rtl={"sources": [named], "top": "t"})
+            Design(name="d", root=tmp_path, rtl={"sources": [named], "top": "t"})
         assert named.split("/")[-1] in str(raised.value)
 
 
@@ -466,9 +465,12 @@ def test_a_source_not_yet_written_can_be_validated_again(tmp_path):
     (tmp_path / "top.vhd").write_text("-- top\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.vhd", {"path": "gen/later.v"}, {"path": "gen/later.v"}], "top": "t"},
     )
     assert [src.file.name for src in design.rtl.sources] == ["top.vhd", "later.v"]
 
-    assert Design(**design.model_dump()).rtl.sources[1].file == tmp_path.resolve() / "gen/later.v"
+    assert (
+        design_from_dump(design.model_dump()).rtl.sources[1].file
+        == tmp_path.resolve() / "gen/later.v"
+    )

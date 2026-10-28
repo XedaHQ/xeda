@@ -33,7 +33,6 @@ from rich.markup import escape
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-from simple_term_menu import TerminalMenu
 
 from . import proc_utils
 from .artifacts import iter_artifact_paths
@@ -48,7 +47,6 @@ from .cli_types import (
     output_format_option as output_format_option,
 )
 from .console import console, console_target, redirect_console, restore_console
-from .design import Design
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
@@ -56,7 +54,6 @@ from .introspect import settings_info, type_str
 from .outcomes import Result
 from .units import is_number_text, is_quantity_unit
 from .utils import json_encodable, with_json_keys
-from .xedaproject import XedaProject
 
 __all__ = [
     "ChainChoice",
@@ -712,24 +709,3 @@ def discover_flow_class(flow: str) -> Type[Flow]:
             flow,
         )
         sys.exit(1)
-
-
-def select_design_in_project(
-    xeda_project: XedaProject, design_name: str | None = None, target: str | None = None
-) -> Optional[Design]:
-    if console.is_interactive:
-        terminal_menu = TerminalMenu(xeda_project.design_names, title="Please select a design: ")
-        idx = terminal_menu.show()
-        if idx is None or not isinstance(idx, int) or idx < 0:
-            log.critical("Invalid design choice!")
-            return None
-        return xeda_project.get_design(idx, target)
-    else:
-        design_name = click.prompt(
-            "Please enter design name: ",
-            type=click.Choice(xeda_project.design_names),
-        )
-        if not design_name or design_name not in xeda_project.design_names:
-            log.critical("Invalid design name!")
-            return None
-        return xeda_project.get_design(design_name, target)

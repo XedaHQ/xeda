@@ -24,7 +24,7 @@ def design_at(root: Path, vhdl=False) -> Design:
         (root / "tb.vhd").write_text("entity tb is end; architecture sim of tb is begin end;\n")
     return Design(
         name="sim",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": "top"},
         tb={"sources": ["tb.vhd" if vhdl else "tb.sv"], "top": "tb", "uut": "dut"},
     )
@@ -384,7 +384,7 @@ def test_vivado_sim_reads_what_bsc_converted_in_the_chain_bsc_vivado_sim(tmp_pat
     (root / "tb.sv").write_text("module tb; mkCounter dut(); endmodule\n")
     design = Design(
         name="sim",
-        design_root=root,
+        root=root,
         rtl={"sources": ["Counter.bsv"], "top": "mkCounter", "clocks": [{"port": "CLK"}]},
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )

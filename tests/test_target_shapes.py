@@ -30,7 +30,7 @@ from xeda.frozen import thaw
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows import GhdlSim, VivadoSynth, Yosys
 from xeda.utils import json_encodable, settings_to_dict
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 from .settings_samples import PROBES
 from .test_targets import BASE, RESOURCES, flows_as_read
@@ -62,7 +62,7 @@ def selected_and_flat(tmp_path: Path, design: dict, target: dict, flat: dict) ->
     """The design with the target selected, and the design written flat by hand."""
     path = write_design(tmp_path, {**overlay(BASE, design), "targets": {"t": target}})
     flat_path = write_design(tmp_path, overlay(BASE, flat), "flat.json")
-    return Design.from_file(path, target="t"), Design.from_file(flat_path)
+    return Design.load(path, target="t"), Design.load(flat_path)
 
 
 def rtl(**values: Any) -> dict:
@@ -148,7 +148,7 @@ def test_the_schema_accepts_every_form_the_loader_accepts(tmp_path, design, targ
     from .test_design_schema import validator
 
     data = {**overlay(BASE, design), "targets": {"t": target}}
-    Design.from_file(write_design(tmp_path, data), target="t")
+    Design.load(write_design(tmp_path, data), target="t")
     assert [e.message for e in validator().iter_errors(data)] == []
 
 
@@ -157,9 +157,7 @@ def test_a_target_in_another_form_gives_the_design_written_flat_by_hand(
     tmp_path, design, target, flat
 ):
     selected, expected = selected_and_flat(tmp_path, design, target, flat)
-    assert selected.model_dump(mode="json", exclude={"target"}) == expected.model_dump(
-        mode="json", exclude={"target"}
-    )
+    assert selected.to_dict() == expected.to_dict()
     assert selected.rtl_hash == expected.rtl_hash and selected.tb_hash == expected.tb_hash
 
 
@@ -169,7 +167,7 @@ def test_a_target_in_another_form_gives_the_design_written_flat_by_hand(
 def composed(flow_class, design: Design, *layers: Any) -> dict:
     """The settings of `flow_class` that the design's `flows` section (then `layers`) give."""
     given = compose_flow_settings(flow_class, [thaw(design.flows)], *layers)
-    settings = flow_class.Settings.from_input(given, design_root=design.root_path)
+    settings = flow_class.Settings.from_input(given, design_root=design.root)
     return settings.model_dump(mode="json")
 
 
@@ -206,7 +204,7 @@ def test_a_malformed_lower_layer_is_reported_whatever_the_layer_above_writes(tmp
     """Between origins, not only in one design: the design writes no table where a table is
     expected, and `-s` writes one."""
     higher = {"fpga": {"part": PART}, "synth": {"strategy": "x"}, "impl": {"strategy": "y"}}[key]
-    design = Design.from_file(
+    design = Design.load(
         write_design(
             tmp_path, {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART}, key: probe}}}
         )
@@ -219,7 +217,7 @@ def test_a_null_clocks_below_is_reported_whatever_the_layer_above_writes(tmp_pat
     """`clocks` takes a table, and `null` is no form of one: it is reported at `clocks`, not
     replaced by the table of a layer above."""
     section = {"fpga": {"part": PART}, "clocks": None}
-    design = Design.from_file(write_design(tmp_path, {**BASE, "flows": {"vivado_synth": section}}))
+    design = Design.load(write_design(tmp_path, {**BASE, "flows": {"vivado_synth": section}}))
     with pytest.raises(FlowSettingsError, match="clocks"):
         composed(VivadoSynth, design, {"clocks": {"main": {"period": "10 ns"}}})
 
@@ -252,21 +250,21 @@ def test_clock_port_was_removed_wherever_it_is_written(tmp_path, value, where, a
         data = {**BASE, "targets": {"good": rtl(defines={"A": 1}), "bad": bad}}
     target = "good" if where == "unselected target" else "bad" if "target" in where else None
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, data), target=target)
+        Design.load(write_design(tmp_path, data), target=target)
     assert f"{at}:" in str(raised.value), raised.value
     assert "`clock_port` was removed: use `rtl.clocks`" in str(raised.value), raised.value
 
 
 @pytest.mark.parametrize("overrides", [{"clock_port": "CLK"}, {"rtl": {"clock_port": "CLK"}}])
-def test_clock_port_was_removed_in_the_design_overrides(tmp_path, overrides):
+def test_clock_port_was_removed_in_the_design_updates(tmp_path, overrides):
     with pytest.raises(DesignValidationError, match="`clock_port` was removed"):
-        Design.from_file(write_design(tmp_path, BASE), overrides=overrides)
+        Design.load(write_design(tmp_path, BASE)).with_updates(overrides)
 
 
 @pytest.mark.parametrize("clocks", [[False], [0], [[]], [{"port": "A"}, False], 3, False])
 def test_a_clock_in_clocks_that_is_no_clock_is_refused_at_clocks(tmp_path, clocks):
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clocks=clocks))))
+        Design.load(write_design(tmp_path, overlay(BASE, rtl(clocks=clocks))))
     assert "rtl.clocks" in str(raised.value), raised.value
 
 
@@ -282,7 +280,7 @@ def test_a_clock_in_clocks_that_is_no_clock_is_refused_at_clocks(tmp_path, clock
 )
 def test_an_empty_table_is_no_clock(tmp_path, fragment):
     """An empty table says nothing, as `null` and `""` do (the loader has always read it so)."""
-    design = Design.from_file(write_design(tmp_path, overlay(BASE, fragment)))
+    design = Design.load(write_design(tmp_path, overlay(BASE, fragment)))
     assert design.rtl.clocks == ()
 
 
@@ -294,7 +292,7 @@ def test_a_target_clock_that_is_no_clock_is_reported_at_the_key_written_in_the_t
     target is selected."""
     data = {**BASE, "targets": {"good": rtl(defines={"A": 1}), "bad": rtl(clocks=[False])}}
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, data), target="bad" if selected else "good")
+        Design.load(write_design(tmp_path, data), target="bad" if selected else "good")
     assert "targets.bad.rtl.clocks:" in str(raised.value), raised.value
 
 
@@ -303,7 +301,7 @@ def test_a_target_attribute_named_like_a_clock_gets_the_generic_message(tmp_path
     """The wording of a clock's error is chosen by where the key is, not by its last word."""
     data = {**BASE, "targets": {"bad": rtl(attributes={name: 3})}}
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, data), target="bad")
+        Design.load(write_design(tmp_path, data), target="bad")
     message = str(raised.value)
     assert f"targets.bad.rtl.attributes.{name}:" in message, message
     assert "takes a table or a short form of one" in message, message
@@ -312,20 +310,20 @@ def test_a_target_attribute_named_like_a_clock_gets_the_generic_message(tmp_path
 def test_a_target_s_parameters_given_as_generics_are_reported_as_written(tmp_path):
     data = {**BASE, "targets": {"good": {}, "bad": rtl(generics=None)}}
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, data), target="good")
+        Design.load(write_design(tmp_path, data), target="good")
     assert "targets.bad.rtl.generics:" in str(raised.value), raised.value
 
 
 @pytest.mark.parametrize("none", [None, ""])
 def test_an_absent_clock_is_no_clock(tmp_path, none):
-    design = Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clocks=none))))
+    design = Design.load(write_design(tmp_path, overlay(BASE, rtl(clocks=none))))
     assert design.rtl.clocks == ()
 
 
 @pytest.mark.parametrize("standard", [True, False])
 def test_a_bool_is_no_language_standard(tmp_path, standard):
     with pytest.raises(DesignValidationError, match="vhdl"):
-        Design.from_file(write_design(tmp_path, overlay(BASE, {"language": {"vhdl": standard}})))
+        Design.load(write_design(tmp_path, overlay(BASE, {"language": {"vhdl": standard}})))
 
 
 # ------------------------------------------------------------------------------ a malformed value
@@ -374,9 +372,11 @@ def written_at(path: tuple, value: Any) -> dict:
     return fragment
 
 
-def error_of_design(tmp_path: Path, data: dict, **kwargs: Any) -> str | None:
+def error_of_design(
+    tmp_path: Path, data: dict, overrides: dict | None = None, **kwargs: Any
+) -> str | None:
     try:
-        Design.from_file(write_design(tmp_path, data), **kwargs)
+        Design.load(write_design(tmp_path, data), **kwargs).with_updates(overrides or {})
     except DesignValidationError as e:
         return str(e)
     return None
@@ -461,7 +461,7 @@ def test_a_target_s_own_mistake_is_reported_where_it_is_written_selected_or_not(
     data = {**BASE, "targets": {"good": {"rtl": {"defines": {"A": 1}}}, "bad": {key: value}}}
     path = write_design(tmp_path, data)
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(path, target="good")
+        Design.load(path, target="good")
     assert where in str(raised.value) and "takes a table" in str(raised.value), raised.value
 
 
@@ -472,8 +472,10 @@ FLOW_MAPPING_KEYS = [
 ]
 
 
-def flow_error(tmp_path: Path, flow_class, data: dict, **kwargs: Any) -> str | None:
-    design = Design.from_file(write_design(tmp_path, data), **kwargs)
+def flow_error(
+    tmp_path: Path, flow_class, data: dict, overrides: dict | None = None, **kwargs: Any
+) -> str | None:
+    design = Design.load(write_design(tmp_path, data), **kwargs).with_updates(overrides or {})
     try:
         composed(flow_class, design)
     except FlowSettingsError as e:
@@ -529,7 +531,7 @@ def test_a_malformed_entry_of_a_flow_dictionary_is_reported_whatever_table_a_tar
 
 # ------------------------------------------------------------------------------ design overrides
 #
-# `--design-overrides` (`overrides=` of `Design.from_file`) is an overlay on the design, as a target
+# `--design-updates` (`Design.with_updates`) is an overlay on the design, as a target
 # is, and is merged by the same rule: a shorthand is read as its table, and a mistake of the
 # design is not hidden by an override table. The one difference is `sources`: only a target adds
 # its sources to the design's, so an override's replace them.
@@ -556,7 +558,7 @@ OVERRIDES = [
 
 @pytest.mark.parametrize("with_target", [False, True], ids=["no target", "a target"])
 @pytest.mark.parametrize("design, overrides, flat", cases(OVERRIDES))
-def test_design_overrides_give_the_design_written_flat_by_hand(
+def test_design_updates_give_the_design_written_flat_by_hand(
     tmp_path, design, overrides, flat, with_target
 ):
     targets = {"targets": {"t": {"rtl": {"defines": {"A": 1}}}}} if with_target else {}
@@ -566,11 +568,9 @@ def test_design_overrides_give_the_design_written_flat_by_hand(
         overlay(overlay(BASE, flat), {"rtl": {"defines": {"A": 1}}} if with_target else {}),
         "flat.json",
     )
-    selected = Design.from_file(path, target="t" if with_target else None, overrides=overrides)
-    expected = Design.from_file(flat_path)
-    assert selected.model_dump(mode="json", exclude={"target"}) == expected.model_dump(
-        mode="json", exclude={"target"}
-    )
+    selected = Design.load(path, target="t" if with_target else None).with_updates(overrides)
+    expected = Design.load(flat_path)
+    assert selected.to_dict() == expected.to_dict()
     assert selected.rtl_hash == expected.rtl_hash
 
 
@@ -591,13 +591,13 @@ def test_design_overrides_give_the_design_written_flat_by_hand(
     ],
     ids=["parameters", "vhdl", "cocotb"],
 )
-def test_design_overrides_given_as_text_are_tables_too(tmp_path, design, overrides, flat):
-    """`--design-overrides KEY=VALUE` reaches the loader as `settings_to_dict` makes it."""
-    selected = Design.from_file(
-        write_design(tmp_path, overlay(BASE, design)), overrides=settings_to_dict(overrides)
+def test_design_updates_given_as_text_are_tables_too(tmp_path, design, overrides, flat):
+    """`--design-updates KEY=VALUE` reaches the loader as `settings_to_dict` makes it."""
+    selected = Design.load(write_design(tmp_path, overlay(BASE, design))).with_updates(
+        settings_to_dict(overrides)
     )
-    expected = Design.from_file(write_design(tmp_path, overlay(BASE, flat), "flat.json"))
-    assert selected.model_dump(mode="json") == expected.model_dump(mode="json")
+    expected = Design.load(write_design(tmp_path, overlay(BASE, flat), "flat.json"))
+    assert selected.to_dict() == expected.to_dict()
 
 
 # fmt: off
@@ -615,11 +615,10 @@ def test_a_flow_override_in_another_form_gives_the_section_written_flat_by_hand(
     tmp_path, flow_class, design, overrides, flat
 ):
     name = flow_class.name
-    selected = Design.from_file(
-        write_design(tmp_path, overlay(BASE, {"flows": {name: design}})),
-        overrides={"flows": {name: overrides}},
-    )
-    expected = Design.from_file(
+    selected = Design.load(
+        write_design(tmp_path, overlay(BASE, {"flows": {name: design}}))
+    ).with_updates({"flows": {name: overrides}})
+    expected = Design.load(
         write_design(tmp_path, overlay(BASE, {"flows": {name: flat}}), "flat.json")
     )
     assert composed(flow_class, selected) == composed(flow_class, expected)
@@ -662,8 +661,8 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_an_override_writes_
 
 def test_a_flows_table_that_is_no_table_is_a_design_error_with_overrides(tmp_path):
     with pytest.raises(DesignValidationError, match="flows"):
-        Design.from_file(
-            write_design(tmp_path, {**BASE, "flows": 3}), overrides={"rtl": {"top": "knight"}}
+        Design.load(write_design(tmp_path, {**BASE, "flows": 3})).with_updates(
+            {"rtl": {"top": "knight"}}
         )
 
 
@@ -691,12 +690,12 @@ def test_a_null_or_empty_flows_table_or_section_leaves_the_design_s_section(
             "nextpnr": {"seed": 3},
         },
     }
-    kept = Design.from_file(write_design(tmp_path, design))
+    kept = Design.load(write_design(tmp_path, design))
     if merged == "a target":
         data = {**design, "targets": {"t": {"rtl": {"defines": {"A": 1}}, **fragment}}}
-        selected = Design.from_file(write_design(tmp_path, data, "target.json"), target="t")
+        selected = Design.load(write_design(tmp_path, data, "target.json"), target="t")
     else:
-        selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
+        selected = Design.load(write_design(tmp_path, design)).with_updates(fragment)
     assert kept.flows["vivado_synth"]["fpga"] == {"part": PART}
     assert flows_as_read(selected) == flows_as_read(kept)
 
@@ -713,9 +712,9 @@ def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_pa
     fragment = {"flows": {"vivado_synth": None, "nextpnr": {"board": "ulx3s_85f"}}}
     if merged == "a target":
         data = {**design, "targets": {"t": fragment}}
-        selected = Design.from_file(write_design(tmp_path, data), target="t")
+        selected = Design.load(write_design(tmp_path, data), target="t")
     else:
-        selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
+        selected = Design.load(write_design(tmp_path, design)).with_updates(fragment)
     assert selected.flows["vivado_synth"] == {
         "fpga": {"part": PART},
         "clocks": {"main_clock": {"period": "10 ns"}},
@@ -745,13 +744,11 @@ def test_the_same_overrides_give_the_same_design_through_a_project_and_a_design_
     """Overrides are applied once, when the design is selected, by one rule: a project's entry
     and a design file are the same design."""
     data = overlay(BASE, design)
-    from_file = Design.from_file(write_design(tmp_path, data), overrides=overrides)
-    project = XedaProject.from_file(write_project(tmp_path, data), design_overrides=overrides)
-    from_project = project.get_design(from_file.name)
-    assert from_project is not None, project.design_names
-    assert from_project.model_dump(mode="json") == from_file.model_dump(mode="json")
-    assert project.design_names == [from_file.name]
-    assert project.designs == [data], "the entries stay as written"
+    from_file = Design.load(write_design(tmp_path, data)).with_updates(overrides)
+    project = Project.load(write_project(tmp_path, data))
+    from_project = project.design(data["name"]).with_updates(overrides)
+    assert from_project.to_dict() == from_file.to_dict()
+    assert project.designs == (data["name"],)
 
 
 @pytest.mark.parametrize("merged", ["plain", "a target", "overrides"])
@@ -766,17 +763,13 @@ def test_remove_extra_removes_the_named_key(tmp_path, merged):
     overrides = {"rtl": {"top": "knight"}} if merged == "overrides" else None
     path = write_design(tmp_path, data)
     target = "t" if merged == "a target" else None
-    kept = Design.from_file(path, target=target, overrides=overrides)
+    kept = Design.load(path, target=target).with_updates(overrides or {})
     assert kept.target == target and kept.flows and kept.authors
-    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=["flows"])
+    removed = Design._load_file(
+        path, target=target, updates=[overrides] if overrides else [], remove_extra=["flows"]
+    )
     assert removed.flows == {} and removed.authors == kept.authors
-    removed = Design.from_file(path, target=target, overrides=overrides, remove_extra=["authors"])
+    removed = Design._load_file(
+        path, target=target, updates=[overrides] if overrides else [], remove_extra=["authors"]
+    )
     assert removed.authors == () and removed.flows == kept.flows
-
-
-def test_design_remove_extra_of_a_project_removes_the_named_key(tmp_path):
-    data = {**BASE, "flows": {"vivado_synth": {"fpga": {"part": PART}}}}
-    path = write_project(tmp_path, data)
-    project = XedaProject.from_file(path, design_remove_extra=["flows"])
-    assert ["flows" in entry for entry in project.designs] == [False]
-    assert project.get_design(0).flows == {}  # type: ignore[union-attr]

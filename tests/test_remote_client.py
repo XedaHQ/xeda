@@ -859,7 +859,7 @@ def test_the_records_of_the_mirror_name_the_paths_of_this_side(tmp_path, remote_
     assert _last(document)["record"] == saved
     # the design of the settings is the local one: its sources are the files that were sent
     settings = json.loads((directory / "settings.json").read_text())
-    assert settings["design"]["design_root"] == str(design.parent)
+    assert settings["design"]["root"] == str(design.parent)
     sources = [item["file"] for item in settings["design"]["rtl"]["sources"]]
     assert sources == [str(design.parent / "top.v")]
     assert all(

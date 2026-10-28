@@ -76,7 +76,7 @@ def toy_flows():
 @pytest.fixture
 def design(request):
     """Provide a design for run directory policy tests."""
-    return Design.from_file(request.config.rootpath / EXAMPLE)
+    return Design.load(request.config.rootpath / EXAMPLE)
 
 
 LAUNCHER_OPTIONS = [

@@ -124,7 +124,7 @@ def route_flow(
         if layout:
             (store / "tiny" / GDS_FILE).write_bytes(b"gds\n")
             (store / "tiny" / KLAYOUT_TECH).write_text(KLAYOUT_TECH_TEXT)
-    design = Design.from_file(openroad_design(tmp_path / "design"))
+    design = Design.load(openroad_design(tmp_path / "design"))
     given = {**tiny_settings(store, residue=residue), **(settings or {})}
     run_path = tmp_path / "work"
     run_directory = None
@@ -134,7 +134,7 @@ def route_flow(
         run_directory = RunDirectory.claimed(run_path, run_root)
     run_path.mkdir(parents=True, exist_ok=True)
     flow = Openroad(
-        Openroad.Settings.from_input(given, design_root=design.design_root, runner_cwd=tmp_path),
+        Openroad.Settings.from_input(given, design_root=design.root, runner_cwd=tmp_path),
         design,
         run_path,
         run_directory=run_directory,

@@ -84,7 +84,7 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
 
     monkeypatch.chdir(tmp_path)
     design = _design_file(tmp_path / "d")
-    loaded = Design.from_file(design)
+    loaded = Design.load(design)
     run_root = tmp_path / "xeda_run"
     _forbid_execution(monkeypatch)
     runner = DefaultRunner(run_root, hashed_run_dirs=hashed)

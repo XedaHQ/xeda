@@ -290,7 +290,7 @@ SLANG_OWNED = [
 def _sv_design(root: Path) -> Design:
     root.mkdir(parents=True, exist_ok=True)
     (root / "m.sv").write_text("module m; endmodule\n")
-    return Design(name="m", design_root=root, rtl={"sources": ["m.sv"], "top": "m"})
+    return Design(name="m", root=root, rtl={"sources": ["m.sv"], "top": "m"})
 
 
 @pytest.mark.parametrize("flag", SLANG_OWNED)

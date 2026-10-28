@@ -376,7 +376,7 @@ def test_the_board_builds_a_bitstream_with_openxc7(tmp_path, tmp_path_factory, b
     worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
     design = Design(
         name=f"{board.id.lower()}_{worker}",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": "top"},
         flows={"fpga_pack": {"board": board.id}, "yosys_fpga": {"flatten": True}},
     )

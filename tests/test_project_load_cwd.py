@@ -11,17 +11,12 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
-
 PROJECT = """\
 designs:
   - name: plain
     rtl.sources: [src/top.v]
     rtl.top: top
-  - name: nested
-    design_root: sub
-    rtl.sources: [a.v]
-    rtl.top: a
+  - file: sub/nested.yaml
 flows:
   yosys:
     clocks.main_clock.period: 4 ns
@@ -34,21 +29,21 @@ CHILD = textwrap.dedent("""
     changes = []
     sys.addaudithook(lambda event, args: changes.append((event, [str(a) for a in args]))
                      if event == "os.chdir" else None)
-    from xeda.xedaproject import XedaProject
+    from xeda.project import Project
 
     project_file = Path(sys.argv[1])
     start = os.getcwd()
-    project = XedaProject.from_file(project_file)
+    project = Project.load(project_file)
     during_load = list(changes)
     reached = {"cwd_after_load": os.getcwd()}
-    reached["root_path"] = str(project.root_path)
-    reached["names"] = project.design_names
+    reached["root_path"] = str(project.root)
+    reached["names"] = list(project.designs)
     # Building a design is not the loader's part: only the load is asserted to change nothing.
     for name in ("plain", "nested"):
         try:
-            design = project.get_design(name)
+            design = project.design(name)
             reached[name] = {
-                "design_root": str(design.design_root),
+                "design_root": str(design.root),
                 "sources": [str(source.path) for source in design.rtl.sources],
             }
         except Exception as error:
@@ -77,6 +72,7 @@ def _project(tmp_path: Path) -> Path:
     (root / "sub").mkdir()
     (root / "src" / "top.v").write_text("module top; endmodule\n")
     (root / "sub" / "a.v").write_text("module a; endmodule\n")
+    (root / "sub" / "nested.yaml").write_text("name: nested\nrtl: {sources: [a.v], top: a}\n")
     (root / "xedaproject.yaml").write_text(PROJECT)
     return root / "xedaproject.yaml"
 
@@ -103,7 +99,7 @@ def test_the_sources_of_a_design_resolve_against_the_directory_of_the_project_fi
     assert [Path(p) for p in reached["plain"]["sources"]] == [root / "src" / "top.v"]
 
 
-def test_a_relative_design_root_of_an_entry_resolves_against_the_directory_of_the_project_file(
+def test_the_root_of_a_file_entry_is_the_directory_of_its_file_below_the_project_file(
     tmp_path,
 ):
     project_file = _project(tmp_path)
@@ -113,25 +109,25 @@ def test_a_relative_design_root_of_an_entry_resolves_against_the_directory_of_th
     assert [Path(p) for p in reached["nested"]["sources"]] == [root / "sub" / "a.v"]
 
 
-def test_a_relative_root_path_is_read_once_when_the_project_is_built(tmp_path):
-    """`XedaProject(root_path=...)` reads the working directory once, when it receives a relative
-    root: a design taken later from another directory still resolves against that root."""
+def test_a_relative_project_path_is_read_once_when_the_project_is_loaded(tmp_path):
+    """`Project.load` reads the working directory once, when it receives a relative path: a design
+    taken later from another directory still resolves against the directory of the file."""
     (tmp_path / "first" / "proj" / "src").mkdir(parents=True)
     (tmp_path / "first" / "proj" / "src" / "top.v").write_text("module top; endmodule\n")
+    (tmp_path / "first" / "proj" / "xedaproject.yaml").write_text(
+        "designs:\n  - name: d\n    rtl: {sources: [src/top.v], top: top}\n"
+    )
     (tmp_path / "second").mkdir()
     script = textwrap.dedent("""
         import json, os, sys
         from pathlib import Path
-        from xeda.xedaproject import XedaProject
+        from xeda.project import Project
 
         os.chdir(sys.argv[1])  # this child process only
-        project = XedaProject(
-            designs=[{"name": "d", "rtl": {"sources": ["src/top.v"], "top": "top"}}],
-            root_path=Path("proj"),
-        )
+        project = Project.load(Path("proj") / "xedaproject.yaml")
         os.chdir(sys.argv[2])
-        design = project.get_design("d")
-        print(json.dumps([str(project.root_path), str(design.design_root)]))
+        design = project.design("d")
+        print(json.dumps([str(project.root), str(design.root), str(project.path)]))
         """)
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path / "first"), str(tmp_path / "second")],
@@ -141,20 +137,6 @@ def test_a_relative_root_path_is_read_once_when_the_project_is_built(tmp_path):
         check=True,
     )
     root = str((tmp_path / "first" / "proj").resolve())
-    assert [str(Path(p).resolve()) for p in json.loads(result.stdout)] == [root, root]
-    assert Path(json.loads(result.stdout)[0]).is_absolute()
-
-
-@pytest.mark.parametrize("value", [123, False, 0, ""])
-def test_a_design_root_that_is_not_a_path_is_reported_as_a_design_error(tmp_path, value):
-    """A `design_root` of a project entry that is not a path is a design error that names the
-    key: not a bare `TypeError`, and not the project's directory in its place."""
-    from xeda.design import DesignValidationError
-    from xeda.xedaproject import XedaProject
-
-    project = XedaProject(
-        designs=[{"name": "d", "design_root": value, "rtl": {"sources": [], "top": "top"}}],
-        root_path=tmp_path,
-    )
-    with pytest.raises(DesignValidationError, match="design_root"):
-        project.get_design("d")
+    reached = json.loads(result.stdout)
+    assert [str(Path(p).resolve()) for p in reached[:2]] == [root, root]
+    assert all(Path(p).is_absolute() for p in reached)

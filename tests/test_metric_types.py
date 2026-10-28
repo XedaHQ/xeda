@@ -88,7 +88,7 @@ def test_yosys_fpga_writes_the_declared_types(tmp_path):
     }
     report = tmp_path / "utilization.json"
     report.write_text(json.dumps({"design": {"num_cells_by_type": cells}, "modules": {}}))
-    design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0" / "design0.toml")
     flow = YosysFpga(YosysFpga.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
     flow.init()
     flow.artifacts.utilization_report = report
@@ -166,6 +166,7 @@ Design Rules
 def test_dc_writes_the_declared_types(tmp_path):
     design = Design(
         name="top",
+        root=tmp_path,
         rtl={"sources": [], "top": "top", "clocks": ["clk"]},  # type: ignore[arg-type]
     )
     lib = tmp_path / "cells.db"
@@ -250,6 +251,7 @@ def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_pa
 def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
     design = Design(
         name="top",
+        root=tmp_path,
         rtl={"sources": [], "top": "top", "clocks": ["clk"]},  # type: ignore[arg-type]
     )
     settings = Quartus.Settings.from_input(

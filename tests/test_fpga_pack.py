@@ -56,7 +56,7 @@ def _design(tmp_path: Path, part: str = ECP5, extra=(), flows=None) -> Design:
         sources.append("pins.xdc")
     return Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": [*sources, *extra], "top": "top"},
         flows=flows or {},
     )
@@ -279,7 +279,7 @@ def test_a_typed_configuration_source_is_packed_without_building(
     tmp_path, toolchain, part, packer, kind
 ):
     design = _design(tmp_path)
-    routed = design.root_path / "routed.cfg"
+    routed = design.root / "routed.cfg"
     routed.write_text("a routed design\n")
     # a producer's own settings that no longer apply: it does not run, so they do not conflict
     design = _design(
@@ -299,7 +299,7 @@ def test_a_typed_configuration_source_is_packed_without_building(
 
 def test_a_configuration_of_another_family_does_not_stand_in(tmp_path, toolchain):
     design = _design(tmp_path)
-    (design.root_path / "other.fasm").write_text("TILE.FEATURE\n")
+    (design.root / "other.fasm").write_text("TILE.FEATURE\n")
     design = _design(tmp_path, extra=["other.fasm"])
     plan = _runner(tmp_path).plan(FpgaPack, design, flow_settings={"fpga": {"part": ECP5}})
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
@@ -308,7 +308,7 @@ def test_a_configuration_of_another_family_does_not_stand_in(tmp_path, toolchain
 def test_two_configurations_for_one_bitstream_are_an_error(tmp_path, toolchain):
     design = _design(tmp_path)
     for name in ("a.cfg", "b.cfg"):
-        (design.root_path / name).write_text("routed\n")
+        (design.root / name).write_text("routed\n")
     design = _design(tmp_path, extra=[{"file": n, "type": "EcpConfig"} for n in ("a.cfg", "b.cfg")])
     with pytest.raises(FlowSettingsException, match="one EcpConfig file.*a.cfg.*b.cfg"):
         _runner(tmp_path).plan(FpgaPack, design, flow_settings={"fpga": {"part": ECP5}})
@@ -450,7 +450,7 @@ def test_a_name_for_the_bitstream_stays_in_the_run_directory(tmp_path, toolchain
 
 def test_a_changed_configuration_source_is_packed_again(tmp_path, toolchain):
     design = _design(tmp_path)
-    routed = design.root_path / "routed.cfg"
+    routed = design.root / "routed.cfg"
     routed.write_text("a routed design\n")
 
     def launch():
@@ -498,7 +498,7 @@ def test_fpga_pack_ice40_end_to_end(tmp_path, monkeypatch):
     )
     design = Design(
         name="blink",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["blink.v"], "top": "blink", "clocks": [{"port": "clk"}]},
         flows={
             "nextpnr": {

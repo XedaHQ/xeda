@@ -187,7 +187,7 @@ def _compared(text: str, stripped: list[str]) -> str:
 @pytest.mark.parametrize("cls", FLOWS, ids=FLOW_IDS)
 def test_every_setting_of_a_section_reaches_the_remote(tmp_path, cls):
     design = _design(tmp_path)
-    root = design.root_path
+    root = design.root
     remote_root = tmp_path / "remote_inputs"
     skipped: list[tuple[str, ...]] = []
     inside = root / "inside.dat"
@@ -238,7 +238,7 @@ def test_every_setting_of_a_section_reaches_the_remote(tmp_path, cls):
 def test_a_removed_setting_is_still_refused_on_the_remote(tmp_path, cls):
     removed = cls.Settings.removed_setting_replacements()
     design = _design(tmp_path)
-    root = design.root_path
+    root = design.root
     for name in removed:
         section = {name: "x"}
         with pytest.raises(FlowSettingsError) as local:

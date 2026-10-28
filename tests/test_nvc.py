@@ -211,7 +211,7 @@ def test_nvc_finds_a_library_through_lib_paths(tmp_path, entry):
     )
     design = Design(
         name="library",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": [tmp_path / "tb.vhd"], "top": "tb"},
         tb={"top": "tb"},
         language={"vhdl": {"standard": "2008"}},
@@ -614,7 +614,7 @@ def test_nvc_analyzes_the_vhdl_sources_in_design_order(tmp_path, nvc_commands, o
     )
     design = Design(
         name="order",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["b.vhd", "a.vhd", "pins.xdc"], "top": "unit_a"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
         language={"vhdl": {"standard": "2008"}},

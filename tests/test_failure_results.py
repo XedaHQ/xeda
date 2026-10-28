@@ -89,7 +89,7 @@ def producer_registered():
 
 def _design(tmp_path):
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    return Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    return Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
 
 
 def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp_path):

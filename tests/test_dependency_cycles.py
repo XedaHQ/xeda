@@ -19,7 +19,7 @@ def _designs(tmp_path, graph):
             f"name: {name}\ndependencies: {[f'{child}.yaml' for child in children]!r}\n"
             f"rtl:\n  sources: [{name}.v]\n  top: {name}\n"
         )
-    return Design.from_file(tmp_path / "a.yaml")
+    return Design.load(tmp_path / "a.yaml")
 
 
 def _check(design, tmp_path, entry):
@@ -63,7 +63,7 @@ def test_a_local_cycle_is_refused_before_an_earlier_git_dependency_is_fetched(
             "    commit: " + "a" * 40 + "\n  - b.yaml",
         )
     )
-    design = Design.from_file(path)
+    design = Design.load(path)
 
     def fetched(*args, **kwargs):
         pytest.fail("a local cycle must be refused before a Git fetch")
@@ -83,4 +83,4 @@ def test_a_target_that_adds_a_dependency_on_a_design_that_depends_on_its_file_is
     _designs(tmp_path, {"a": [], "b": ["a"]})
     path = tmp_path / "a.yaml"
     path.write_text(path.read_text() + "targets:\n  test:\n    dependencies: [b.yaml]\n")
-    _check(Design.from_file(path, target="test"), tmp_path, entry)
+    _check(Design.load(path, target="test"), tmp_path, entry)

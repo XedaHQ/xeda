@@ -30,9 +30,7 @@ def test_a_changed_library_makes_the_chain_stale_and_a_dry_run_agrees(tmp_path, 
     given = dict(text.split("=", 1) for text in settings)
 
     def states_now() -> dict[str, str]:
-        _, found = runner.plan_with_freshness(
-            "openroad", Design.from_file(design), flow_settings=given
-        )
+        _, found = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
         return {name: state.state for name, state in found.items()}
 
     assert states_now() == dict.fromkeys(NAMES, "fresh")
@@ -78,9 +76,7 @@ def test_a_file_that_a_library_includes_is_an_input_of_the_chain(tmp_path, monke
     named = dict(text.split("=", 1) for text in settings)
 
     def states_now() -> dict[str, str]:
-        _, found = runner.plan_with_freshness(
-            "openroad", Design.from_file(design), flow_settings=named
-        )
+        _, found = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=named)
         return {name: state.state for name, state in found.items()}
 
     assert states_now() == dict.fromkeys(NAMES, "fresh")
@@ -126,7 +122,7 @@ def test_a_dry_run_after_an_included_file_is_deleted_judges_the_chain_unknown(
     units.unlink()
     _, found = runner.plan_with_freshness(
         "openroad",
-        Design.from_file(design),
+        Design.load(design),
         flow_settings=dict(text.split("=", 1) for text in settings),
     )
     assert found["openroad_place"].state == "unknown"

@@ -130,7 +130,7 @@ def _design(directory: Path, top: str, verilog: str) -> Design:
     worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
     return Design(
         name=f"{top}_{worker}",  # workers share the run root, never a run directory
-        design_root=directory,
+        root=directory,
         rtl={"sources": [f"{top}.v", f"{top}.xdc"], "top": top},
         # the upstream Makefile's `synth_xilinx -flatten -abc9 -arch xc7`
         flows={"yosys_fpga": {"fpga": {"part": PART}, "flatten": True}},

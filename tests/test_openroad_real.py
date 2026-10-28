@@ -408,7 +408,7 @@ def test_each_platform_floorplans_a_four_cell_netlist(name, tmp_path):
     netlist.write_text("module top(); endmodule\n")
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [{"file": "top_netlist.v", "type": "VerilogNetlist"}],
             "top": "top",

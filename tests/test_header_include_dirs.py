@@ -44,7 +44,7 @@ def test_vlogan_searches_every_header_directory(tmp_path, commands):
     _write(tmp_path / "tb.sv", '`include "tb_defs.svh"\nmodule tb; top uut(); endmodule\n')
     design = Design(
         name="incdirs",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["inc/defs.vh", "inc/more.vh", "rtl/top.v"], "top": "top"},
         tb={"sources": ["tb inc/tb_defs.svh", "tb.sv"], "top": "tb"},
     )
@@ -78,7 +78,7 @@ def test_verilator_searches_the_testbench_header_directories(tmp_path):
     )
     design = Design(
         name="headers",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["inc dir/defs.vh", "rtl/top.v"], "top": "top"},
         tb={"sources": ["tb inc/tb_defs.vh", "tb.v"], "top": "tb"},
     )

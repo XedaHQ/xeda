@@ -23,7 +23,7 @@ def bsv_design(work, body):
         + body
         + "\nendmodule endpackage\n"
     )
-    return Design(name="probe", design_root=work, rtl={"sources": [source], "top": "mkProbe"})
+    return Design(name="probe", root=work, rtl={"sources": [source], "top": "mkProbe"})
 
 
 def launch_bsc(work, body, **settings):

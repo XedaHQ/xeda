@@ -247,7 +247,7 @@ about 40 s on Bluesim and Verilator and 60 s on Icarus, most of it bsc elaborati
 The tests assume the default `HOLD` and an 8N1 `mkUart` at 12 Mbaud with 100 MHz. The buffer depths
 of A follow `TX_DEPTH` and `RX_DEPTH`, and the testbench queues of expected bytes and frames are
 sized from them: it passes with a transmit depth of 1, 2, 4 and 16 and a receive depth of 1, 4, 8
-and 16 (`--design-overrides tb.defines.TX_DEPTH=16`; the defines of the testbench reach the
+and 16 (`--design-updates tb.defines.TX_DEPTH=16`; the defines of the testbench reach the
 design too). `RX_DEPTH=2` does not build the testbench, because bsc finds a scheduling cycle
 between the bench's event counters and its consumer; depth 2 is covered by DUT B. `HOLD=4` stops
 the build with the error of `mkUartCore`.
@@ -259,7 +259,7 @@ so the test compiles without suppressing reset-domain warnings.
 xeda run bsc_sim examples/bluespec/uart/uart.yaml                          # Bluesim
 xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=verilator
 xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=iverilog
-xeda run bsc_sim examples/bluespec/uart/uart.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true   # must fail
+xeda run bsc_sim examples/bluespec/uart/uart.yaml --design-updates tb.defines.XEDA_INJECT_BUG=true   # must fail
 xeda run bsc examples/bluespec/uart/uart.yaml                              # Verilog of mkUart
 xeda run vivado_synth examples/bluespec/uart/uart.yaml                     # Vivado, out of context
 xeda run yosys_fpga examples/bluespec/uart/uart.yaml --target artix7       # yosys, xc7a100t

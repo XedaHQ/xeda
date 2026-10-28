@@ -32,7 +32,7 @@ def design(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"
     root.mkdir()
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"})
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"})
 
 
 def _runner(tmp_path: Path) -> DefaultRunner:
@@ -58,10 +58,10 @@ def test_a_second_launch_reuses_both_and_hands_over_the_reused_record(tmp_path, 
 
 
 def test_a_design_source_of_the_accepted_type_replaces_the_producer(tmp_path, design):
-    (design.root_path / "given.dat").write_text("given\n")
+    (design.root / "given.dat").write_text("given\n")
     with_source = Design(
         name="d",
-        design_root=design.root_path,
+        root=design.root,
         rtl={"sources": [{"file": "given.dat", "type": "Data"}], "top": "t"},
     )
     runner = _runner(tmp_path)
@@ -88,7 +88,7 @@ def test_the_launch_runs_exactly_its_plan(tmp_path, design):
 def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_path, design):
     with_section = Design(
         name="d",
-        design_root=design.root_path,
+        root=design.root,
         rtl={"sources": [], "top": "t"},
         flows={"__maker": {"text": "from its section\n"}},
     )

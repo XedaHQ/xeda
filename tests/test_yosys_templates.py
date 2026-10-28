@@ -49,7 +49,7 @@ ATTRS: dict[str, Any] = {"keep": {"top": "true"}, "ram_style": {"mem": "block"}}
 def _render(
     flow_cls, settings: dict[str, Any], tmp_path: Path, design: Design | None = None
 ) -> str:
-    design = design or Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = design or Design.load(RESOURCES_DIR / "design0/design0.toml")
     flow = flow_cls(flow_cls.Settings(**settings), design, tmp_path)
     flow.init()  # registers the `esc` template filter and the netlist artifacts
     flow.artifacts.utilization_report = "reports/utilization.json"
@@ -388,7 +388,7 @@ def test_ys_leaves_plugin_and_flag_args_unquoted(tmp_path: Path) -> None:
     each command: its built-in frontends strip, but plugins (`ghdl`, `read_slang`,
     `read_systemverilog`) do not, and `-I<dir>` is one token parsed as a flag.
     """
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     flow = YosysFpga(YosysFpga.Settings(**_fpga_settings()), design, tmp_path)
     flow.init()
     script = (
@@ -421,7 +421,7 @@ def test_tcl_template_keeps_legacy_escaping(tmp_path: Path, monkeypatch) -> None
 def test_the_settings_select_the_template_and_the_flag(tmp_path: Path) -> None:
     """A setting that needs a Tcl script selects the `.tcl` template and `-c`. Without one, every
     flow writes a `.ys` script, which yosys runs with `-s`."""
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+    design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     plain = Yosys(Yosys.Settings(**_asic_settings()), design, tmp_path)
     wrapped = Yosys(
         Yosys.Settings(**_asic_settings(arithmetic={"wrap_operators": True})), design, tmp_path
@@ -644,7 +644,7 @@ def test_a_source_name_with_pattern_characters_reaches_yosys_escaped(
     root = tmp_path / "d"
     root.mkdir()
     (root / "top[1].v").write_text("module top; endmodule\n")
-    design = Design(name="d", design_root=root, rtl={"sources": ["top[1].v"], "top": "top"})
+    design = Design(name="d", root=root, rtl={"sources": ["top[1].v"], "top": "top"})
     flow = Yosys(Yosys.Settings(), design, tmp_path)
     flow.init()
     script = (
@@ -689,7 +689,7 @@ def _vhdl_design(root: Path, *others: str) -> Design:
         (root / name).write_text("-- a source\n")
     return Design(
         name="inv",
-        design_root=root,
+        root=root,
         rtl={"sources": sources, "top": "inv", "clocks": [{"port": "clk"}], "parameters": {"W": 5}},
     )
 
@@ -719,7 +719,7 @@ def test_a_verilog_top_listed_after_a_vhdl_file_still_gets_chparam(flow_cls, tmp
         (root / name).write_text("// a source\n")
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": sources, "top": "top", "clocks": [{"port": "clk"}], "parameters": {"W": 5}},
     )
     assert "chparam -set W 5 top" in _render(flow_cls, _settings_for(flow_cls), tmp_path, design)
@@ -739,7 +739,7 @@ def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
         (root / name).write_text("// a source\n")
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": names, "top": "top", "clocks": [{"port": "clk"}]},
     )
     monkeypatch.setattr(flow_cls, "reads_sources", frozenset({SourceType.Verilog}))
@@ -758,7 +758,7 @@ def _mixed_design(tmp_path: Path) -> tuple[Design, Path]:
     (root / "last.v").write_text("module last(input a, output b); assign b = ~a; endmodule\n")
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["gate.v", "pkg.sv", "top.sv", "last.v"], "top": "top"},
     )
     out = tmp_path / "out"
@@ -813,7 +813,7 @@ def _parameterized_design(tmp_path: Path, sources: list[str], top: str) -> tuple
     return (
         Design(
             name=top,
-            design_root=design.design_root,
+            root=design.root,
             rtl={"sources": sources, "top": top, "parameters": SLANG_PARAMETERS},
         ),
         out,
@@ -857,8 +857,8 @@ def test_slang_reads_a_library_before_the_sources(tmp_path: Path, script_format:
     the Liberty files of a flow that reads them itself) comes first. With another reader,
     the libraries stay after the sources."""
     design, out = _mixed_design(tmp_path)
-    (design.design_root / "lib.v").write_text("module libcell(input a); endmodule\n")
-    settings = {"verilog_lib": [str(design.design_root / "lib.v")]}
+    (design.root / "lib.v").write_text("module libcell(input a); endmodule\n")
+    settings = {"verilog_lib": [str(design.root / "lib.v")]}
     lines = _render(Yosys, settings, out, design).splitlines()
     lib = [i for i, line in enumerate(lines) if "read_verilog -lib" in line]
     slang = [i for i, line in enumerate(lines) if "read_slang" in line]
@@ -875,13 +875,13 @@ def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path)
     double quote before anything runs. Another reader, or no SystemVerilog source, has no such
     limit."""
     design, out = _mixed_design(tmp_path)
-    (design.design_root / "inv.vhd").write_text("-- a source\n")
-    (design.design_root / "tb.sv").write_text("module tb; endmodule\n")
+    (design.root / "inv.vhd").write_text("-- a source\n")
+    (design.root / "tb.sv").write_text("module tb; endmodule\n")
 
     def checked(parameters: dict[str, Any], sources: list[str], **settings: Any) -> None:
         refused = Design(
             name="top",
-            design_root=design.design_root,
+            root=design.root,
             rtl={"sources": sources, "top": "top", "parameters": parameters},
         )
         Yosys.check_design_supported(refused, Yosys.Settings(**settings))
@@ -892,7 +892,7 @@ def test_a_string_parameter_with_whitespace_is_refused_for_slang(tmp_path: Path)
         YosysSim.check_design_supported(
             Design(
                 name="top",
-                design_root=design.design_root,
+                root=design.root,
                 rtl={"sources": ["gate.v"], "top": "gate", "parameters": {"S": "a b"}},
                 tb={"sources": ["tb.sv"], "top": "tb"},
             ),
@@ -919,7 +919,7 @@ def test_a_verilog_only_design_keeps_read_verilog(tmp_path: Path, script_format:
     design, out = _mixed_design(tmp_path)
     design = Design(
         name="top",
-        design_root=design.design_root,
+        root=design.root,
         rtl={"sources": ["gate.v", "last.v"], "top": "gate"},
     )
     script = _render(Yosys, {}, out, design)

@@ -182,7 +182,7 @@ def _accum_design(root: Path, **extra: Any) -> Design:
         "tb": {"sources": ["tb/Tb.bsv"], "top": "mkTb"},
     }
     fields.update(extra)
-    return Design(name="accum", design_root=root, **fields)
+    return Design(name="accum", root=root, **fields)
 
 
 def _flow(flow_class: type[Flow], design: Design, run_path: Path, **settings: Any) -> Any:
@@ -276,7 +276,7 @@ def test_link_flags(tmp_path):
     assert _pairs(bluesim, "-parallel-sim-link") == ["3"]
     assert _pairs(bluesim, "-Xc++") == ["-O3", "-O1"]
     assert _pairs(bluesim, "-l") == ["m"]
-    assert _pairs(bluesim, "-I") == [str(design.root_path / "inc")]  # an input: the design's
+    assert _pairs(bluesim, "-I") == [str(design.root / "inc")]  # an input: the design's
     flow.settings.simulator = "verilator"
     verilog = flow._link_flags(False)
     assert _pairs(verilog, "-vsim") == ["verilator"] and _pairs(verilog, "-Xv") == ["-O3"]
@@ -370,7 +370,7 @@ def test_combinations_bsc_refuses_are_rejected_before_running(
 def test_bsc_needs_a_top(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "")
     _write(tmp_path, {"Top.bsv": TOP_PKG})
-    design = Design(name="t", design_root=tmp_path, rtl={"sources": ["Top.bsv"]})
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["Top.bsv"]})
     with pytest.raises(FlowSettingsException, match=r"rtl\.top"):
         _run(Bsc, design, tmp_path / "run")
 
@@ -387,7 +387,7 @@ def test_bsc_sim_rejects_a_cocotb_testbench(tmp_path, monkeypatch):
     _write(tmp_path, {"Top.bsv": TOP_PKG, "test_top.py": "import cocotb\n"})
     design = Design(
         name="t",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["Top.bsv"], "top": "mkTop"},
         tb={"sources": ["test_top.py"], "cocotb": True},
     )
@@ -398,7 +398,7 @@ def test_bsc_sim_rejects_a_cocotb_testbench(tmp_path, monkeypatch):
 def test_a_bh_suffix_is_rejected_by_name(tmp_path):
     """bsc compiles BH only from `.bs`; xeda also calls `.bh` Bluespec, which bsc refuses."""
     _write(tmp_path, {"Blink.bh": BH_PKG})
-    design = Design(name="t", design_root=tmp_path, rtl={"sources": ["Blink.bh"], "top": "mkBlink"})
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["Blink.bh"], "top": "mkBlink"})
     flow = _flow(Bsc, design, tmp_path / "run")
     with pytest.raises(FlowSettingsException, match=r"rename: .*Blink\.bh"):
         flow._bsc_sources(tb=False)
@@ -408,7 +408,7 @@ def test_a_bh_suffix_is_rejected_by_name(tmp_path):
 def test_a_design_with_no_source_the_flow_reads_is_refused_when_planned(flow, tmp_path):
     """bsc reads Bluespec and Verilog; a netlist of another format is passed to no command."""
     _write(tmp_path, {"top.edf": "(edif top)\n"})
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.edf"], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.edf"], "top": "top"})
     with pytest.raises(FlowSettingsException, match=rf"{flow} reads none of the design's sources"):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -420,7 +420,7 @@ def _design_with_an_unread_source(tmp_path, part, unread):
     sources[part].append(unread)
     return Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": sources["rtl"], "top": "mkTop"},
         tb={"sources": sources["tb"], "top": "mkTb"},
     )
@@ -462,7 +462,7 @@ def test_a_bluespec_design_with_imported_verilog_and_foreign_code_is_planned(tmp
     _write(tmp_path, {name: "// a source\n" for name in names})
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": names, "top": "mkTop"},
         tb={"sources": ["Top.bsv"], "top": "mkTop"},
     )
@@ -478,7 +478,7 @@ def test_the_foreign_code_bsc_links_is_chosen_by_source_type_not_by_suffix(tmp_p
     _write(tmp_path, {name: "// a source\n" for name in names})
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": []},
         tb={
             "sources": [
@@ -551,7 +551,7 @@ def test_collect_verilog(tmp_path, caplog):
     )
     design = Design(
         name="t",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/ext.v", "rtl/Top.bsv"], "top": "mkTop"},
     )
     out = tmp_path / "run" / "gen_rtl"  # the flow's own, inside its run directory
@@ -596,7 +596,7 @@ def test_the_modules_a_design_verilog_source_instantiates_are_collected(tmp_path
     _write(root, {"rtl/Top.bsv": TOP_PKG, "rtl/wrap.v": wrap})
     design = Design(
         name="t",
-        design_root=root,
+        root=root,
         rtl={"sources": ["rtl/wrap.v", "rtl/Top.bsv"], "top": "mkTop"},
     )
     out = tmp_path / "run" / "gen_rtl"  # the flow's own, inside its run directory
@@ -623,7 +623,7 @@ def test_collect_verilog_reads_a_relative_search_path_in_the_run_directory(tmp_p
     to the run directory, where bsc runs, whatever the working directory of the process."""
     root = tmp_path / "d"
     _write(root, {"rtl/Top.bsv": TOP_PKG})
-    design = Design(name="t", design_root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
+    design = Design(name="t", root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
     run = tmp_path / "run"
     out = run / "gen_rtl"
     _write(out, {"mkTop.v": "module mkTop(); endmodule\n", "mkTop.use": "FIFO2\n"})
@@ -637,7 +637,7 @@ def test_collect_verilog_reads_a_relative_search_path_in_the_run_directory(tmp_p
 def test_collect_verilog_needs_the_top(tmp_path):
     root = tmp_path / "d"
     _write(root, {"rtl/Top.bsv": TOP_PKG})
-    design = Design(name="t", design_root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
+    design = Design(name="t", root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
     flow = _flow(Bsc, design, tmp_path / "run")
     (tmp_path / "out").mkdir()
     with pytest.raises(FlowSettingsException, match=r"last Bluespec source, Top\.bsv"):
@@ -683,7 +683,7 @@ def test_a_module_both_generated_and_a_design_source_is_an_error(tmp_path):
     root = tmp_path / "d"
     _write(root, {"rtl/Top.bsv": TOP_PKG, "rtl/mkSub.v": "module mkSub(); endmodule\n"})
     design = Design(
-        name="t", design_root=root, rtl={"sources": ["rtl/mkSub.v", "rtl/Top.bsv"], "top": "mkTop"}
+        name="t", root=root, rtl={"sources": ["rtl/mkSub.v", "rtl/Top.bsv"], "top": "mkTop"}
     )
     out = tmp_path / "run" / "gen_rtl"  # the flow's own, inside its run directory
     _write(out, {"mkTop.v": "", "mkTop.use": "mkSub\n", "mkSub.v": "", "mkSub.use": ""})
@@ -884,7 +884,7 @@ def test_verilog_search_paths_reach_the_verilog_link(simulator, tmp_path, capfd)
     _write(tmp_path, {"vlib/add3.v": OPS_V, "Ops.bsv": OPS_PKG})
     design = Design(
         name="ops",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": []},
         tb={"sources": ["Ops.bsv"], "top": "mkOpsTb"},
     )
@@ -902,9 +902,7 @@ def test_extra_flags_reach_the_verilog_search_path_xeda_reads(tmp_path):
     flow collects it from."""
     require_bsc()
     _write(tmp_path, {"vlib/add3.v": OPS_V, "Ops.bsv": OPS_PKG})
-    design = Design(
-        name="ops", design_root=tmp_path, rtl={"sources": ["Ops.bsv"], "top": "mkOpsTb"}
-    )
+    design = Design(name="ops", root=tmp_path, rtl={"sources": ["Ops.bsv"], "top": "mkOpsTb"})
     vlib = tmp_path / "vlib"
     flow = _run(Bsc, design, tmp_path / "run", extra_flags=["-vsearch", f"{vlib}:+"])
     assert flow is not None and flow.succeeded
@@ -1069,7 +1067,7 @@ def test_a_testbench_change_is_simulated(tmp_path, capfd):
 def test_bsc_compiles_bh(tmp_path):
     require_bsc()
     _write(tmp_path, {"Blink.bs": BH_PKG})
-    design = Design(name="t", design_root=tmp_path, rtl={"sources": ["Blink.bs"], "top": "mkBlink"})
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["Blink.bs"], "top": "mkBlink"})
     flow = _run(Bsc, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
     assert [Path(f).name for f in collected_verilog(flow)] == ["bsv_defines.v", "mkBlink.v"]
@@ -1081,7 +1079,7 @@ def test_a_compile_error_fails_the_run(tmp_path):
         tmp_path,
         {"Bad.bsv": "package Bad;\nmodule mkBad(Empty); nonsense; endmodule\nendpackage\n"},
     )
-    design = Design(name="t", design_root=tmp_path, rtl={"sources": ["Bad.bsv"], "top": "mkBad"})
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["Bad.bsv"], "top": "mkBad"})
     flow = _run(Bsc, design, tmp_path / "run")
     assert flow is not None and not flow.succeeded
 
@@ -1143,7 +1141,7 @@ def test_reset_name_and_polarity_reach_the_verilog_simulation(
     _write(tmp_path, {"ResetTb.bsv": RESET_TB})
     design = Design(
         name="t",
-        design_root=tmp_path,
+        root=tmp_path,
         tb={"sources": ["ResetTb.bsv"], "top": "mkResetTb"},
         rtl={"sources": []},
     )
@@ -1170,9 +1168,7 @@ def test_reset_name_and_polarity_reach_the_verilog_simulation(
 def test_max_cycles_ends_a_bluesim_run(tmp_path, capfd):
     require_bluesim()
     _write(tmp_path, {"Endless.bsv": ENDLESS_TB})
-    design = Design(
-        name="t", design_root=tmp_path, rtl={"sources": ["Endless.bsv"], "top": "mkEndless"}
-    )
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["Endless.bsv"], "top": "mkEndless"})
     flow = _run(BscSim, design, tmp_path / "run", max_cycles=100)
     assert flow is not None and flow.succeeded
     assert "RAN TO THE END" not in capfd.readouterr().out
@@ -1209,7 +1205,7 @@ def test_an_imported_c_function_is_linked_into_the_simulation(simulator, tmp_pat
     _write(tmp_path, {"Dpi.bsv": BDPI_TB, "mac.cpp": MAC_CPP})
     design = Design(
         name="dpi",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": []},
         tb={"sources": ["mac.cpp", "Dpi.bsv"], "top": "mkDpi"},
     )
@@ -1276,7 +1272,7 @@ def test_cpp_hands_the_design_macros_to_bh_sources(tmp_path):
     for defines, reset in (({"KNOB": True}, "4'd5"), ({}, "4'd0")):
         design = Design(
             name="knob",
-            design_root=tmp_path,
+            root=tmp_path,
             rtl={"sources": ["Knob.bs"], "top": "mkKnob", "defines": defines},
         )
         flow = _run(Bsc, design, tmp_path / f"run_{reset}", cpp=True)
@@ -1290,7 +1286,7 @@ def test_macros_that_cannot_reach_bh_sources_are_reported(tmp_path, caplog):
     _write(tmp_path, {"Blink.bs": BH_PKG})
     design = Design(
         name="blink",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["Blink.bs"], "top": "mkBlink", "defines": {"KNOB": True}},
     )
     with caplog.at_level(logging.WARNING):
@@ -1324,9 +1320,7 @@ def test_the_submodules_of_library_modules_are_collected(tmp_path):
     require_bsc()
     require_iverilog()
     _write(tmp_path, {"RstTop.bsv": RESET_GEN_PKG})
-    design = Design(
-        name="rst", design_root=tmp_path, rtl={"sources": ["RstTop.bsv"], "top": "mkRstTop"}
-    )
+    design = Design(name="rst", root=tmp_path, rtl={"sources": ["RstTop.bsv"], "top": "mkRstTop"})
     flow = _run(Bsc, design, tmp_path / "run")
     assert flow is not None and flow.succeeded
     assert {"MakeResetA", "SyncResetA"} <= set(flow.results["modules"])
@@ -1375,7 +1369,7 @@ def test_imported_verilog_in_a_file_named_otherwise_is_simulated(simulator, tmp_
     _write(tmp_path, {"ops.v": OPS_V, "Ops.bsv": OPS_PKG})
     design = Design(
         name="ops",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["ops.v"]},
         tb={"sources": ["Ops.bsv"], "top": "mkOpsTb"},
     )
@@ -1394,7 +1388,7 @@ def test_a_plain_c_function_is_linked_into_the_simulation(simulator, tmp_path, c
     _write(tmp_path, {"Dpi.bsv": BDPI_TB, "mac.c": MAC_CPP.replace('extern "C" ', "")})
     design = Design(
         name="dpi_c",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": []},
         tb={"sources": ["mac.c", "Dpi.bsv"], "top": "mkDpi"},
     )
@@ -1413,7 +1407,7 @@ def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch)
     _write(tmp_path, {"Dpi.bsv": BDPI_TB, "mac.cpp": MAC_CPP})
     design = Design(
         name="dpi",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": []},
         tb={"sources": ["mac.cpp", "Dpi.bsv"], "top": "mkDpi"},
     )
@@ -1431,7 +1425,7 @@ def test_bsc_sim_time_limit_stops_a_testbench_that_never_finishes(tmp_path):
     )
     design = Design(
         name="tb",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["Tb.bsv"], "top": "mkTb"},
         tb={"sources": ["Tb.bsv"], "top": "mkTb"},
     )

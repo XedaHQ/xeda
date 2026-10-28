@@ -167,7 +167,7 @@ class ToyGraph(Graph):
         (root / "a.v").write_text("module a; endmodule\n")
 
     def design(self) -> Design:
-        return Design(name="d", design_root=self.root, rtl={"sources": ["a.v"], "top": "a"})
+        return Design(name="d", root=self.root, rtl={"sources": ["a.v"], "top": "a"})
 
     def edit_source(self) -> None:
         (self.root / "a.v").write_text("module a; wire edited; endmodule\n")
@@ -193,7 +193,7 @@ class FpgaGraph(Graph):
         (root / "blink.v").write_text(BLINK)
 
     def design(self) -> Design:
-        return Design(name="d", design_root=self.root, rtl={"sources": ["blink.v"], "top": "blink"})
+        return Design(name="d", root=self.root, rtl={"sources": ["blink.v"], "top": "blink"})
 
     def edit_source(self) -> None:
         path = self.root / "blink.v"
@@ -576,7 +576,7 @@ def test_an_input_a_producer_supplies_is_supplied_to_the_hook_that_asks(
             )
 
         def locate_prepared_inputs(self):
-            return [] if self.inputs.produced is not None else [self.design.root_path / "fallback"]
+            return [] if self.inputs.produced is not None else [self.design.root / "fallback"]
 
         def prepare_inputs(self) -> None:
             self.implicit_inputs += self.locate_prepared_inputs()
@@ -793,7 +793,7 @@ def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, mon
     rtl, tb = DESIGNS.get("ghdl_sim", SQRT_DESIGN)
     design = Design(
         name="sqrt",
-        design_root=world.work,
+        root=world.work,
         rtl=rtl,
         tb=tb,
         language={"vhdl": {"standard": "2008"}},

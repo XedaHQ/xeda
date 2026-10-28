@@ -26,7 +26,7 @@ from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN, transitive_dep
 from xeda.flows import Openfpgaloader
 from xeda.introspect import boards_info
 
-from .project_files import PROJECT_FILE
+from .project_files import project_listing
 from .settings_samples import flow_classes
 
 PRODUCT_FLOWS = [cls for cls, _name in flow_classes()]
@@ -86,7 +86,7 @@ def _write_design(
     return path
 
 
-def _plan(tmp_path: Path, request: str, design: Path, **kwargs):
+def _plan(tmp_path: Path, request: str, design: Path | str, **kwargs):
     """Plan `request` as `xeda run --dry-run` does: nothing is created, not even the run root."""
     run_root = tmp_path / "run"
     try:
@@ -110,11 +110,15 @@ def _requests() -> list[tuple[str, list[str]]]:
     return [(request, _board_nodes(request)) for request in found]
 
 
+#: A design with no source: no converter is a producer of any flow of a request.
+NO_SOURCES = Design(name="d", root=Path(__file__).parent, rtl={"sources": [], "top": "t"})
+
+
 def _board_nodes(request: str) -> list[str]:
     """The board-aware flows of `request`'s graph: its own flows and the default producers of
     the first, the only one whose input the chain does not bind."""
     elements = parse_request(request).elements
-    flows = [*transitive_dependencies(elements[0].flow_class).values()]
+    flows = [*transitive_dependencies(elements[0].flow_class, NO_SOURCES).values()]
     flows += [element.flow_class for element in elements]
     return [cls.name for cls in flows if "board" in cls.Settings.model_fields]
 
@@ -159,10 +163,7 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
     if origin == "design":
         flows = {node: {"board": board}}
     elif origin == "project":
-        project = root / PROJECT_FILE
         root.mkdir()
-        project.write_text(yaml.safe_dump({"flows": {node: {"board": board}}}))
-        kwargs["xedaproject"] = str(project)
     elif origin == "target":
         targets = {"arty": {"flows": {node: {"board": board}}}}
         kwargs["target"] = "arty"
@@ -188,8 +189,12 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
         board, part = "MY_BOARD", custom_part
         flows = {node: {"board": board, "custom_boards_file": "boards.yaml"}}
     design = _write_design(root, flows, targets, bluespec=request_.startswith("bsc+"))
+    selected: Path | str = design
+    if origin == "project":
+        kwargs["xedaproject"] = project_listing(design, {node: {"board": board}})
+        selected = "blinky"
 
-    plan = _plan(tmp_path, request_, design, **kwargs)
+    plan = _plan(tmp_path, request_, selected, **kwargs)
 
     devices = {
         planned.name: planned.settings.fpga.part
@@ -364,7 +369,7 @@ def test_a_device_written_as_one_dotted_key_is_named_where_it_does_not_reach(
         if origin == "API":
             DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
                 Openfpgaloader,
-                Design.from_file(design),
+                Design.load(design),
                 {"write_flash": True},
                 all_flows_settings=dotted,
             )

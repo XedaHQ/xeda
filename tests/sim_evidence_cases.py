@@ -97,7 +97,7 @@ def launch_case(
     top = "mkTop" if case.backend else "tb"
     design = Design(
         name="oracle",
-        design_root=work,
+        root=work,
         rtl={"sources": [source], "top": top, "clocks": [{"port": "clk"}]},
         tb={"sources": [source], "top": top, "uut": "dut"},
         language={"vhdl": {"standard": "2008"}},

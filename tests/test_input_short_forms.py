@@ -19,10 +19,10 @@ pytestmark = pytest.mark.python_compat
 @pytest.mark.parametrize(
     "clock", ["CLK", {"port": "CLK"}, {"port": "CLK", "name": "sys"}, None, ""]
 )
-def test_design_clock_short_form_has_canonical_state_and_identity(clock):
+def test_design_clock_short_form_has_canonical_state_and_identity(tmp_path, clock):
     clocks = [] if clock in (None, "") else [clock]
-    short = Design(name="d", rtl={"sources": [], "clock": clock})
-    canonical = Design(name="d", rtl={"sources": [], "clocks": clocks})
+    short = Design(name="d", root=tmp_path, rtl={"sources": [], "clock": clock})
+    canonical = Design(name="d", root=tmp_path, rtl={"sources": [], "clocks": clocks})
     assert short.model_dump() == canonical.model_dump()
     assert short.rtl_hash == canonical.rtl_hash
     assert "clock" not in short.model_dump()["rtl"]
@@ -48,12 +48,12 @@ def test_flow_short_forms_have_canonical_settings_and_identity(tmp_path, clock, 
 
 
 @pytest.mark.parametrize("layered", [False, True])
-def test_design_refuses_both_clock_forms_in_one_layer(layered):
+def test_design_refuses_both_clock_forms_in_one_layer(tmp_path, layered):
     layer = {"rtl": {"clock": "CLK", "clocks": ["CLK"]}}
     if layered:
         layer = Design._merge_target({"rtl": {"clocks": ["base"]}}, layer, append=False)
     with pytest.raises(DesignValidationError, match="Specify only one"):
-        Design(name="d", **layer)
+        Design(name="d", root=tmp_path, **layer)
 
 
 @pytest.mark.parametrize("layered", [False, True])
@@ -80,9 +80,9 @@ def test_design_clock_overlay_refines_first_clock_and_keeps_other_clocks(tmp_pat
         document["targets"] = {"board": overlay}
     file = tmp_path / "d.json"
     file.write_text(json.dumps(document))
-    design = Design.from_file(
-        file, **({"target": "board"} if where == "target" else {"overrides": overlay})
-    )
+    design = Design.load(file, **({"target": "board"} if where == "target" else {}))
+    if where == "updates":
+        design = design.with_updates(overlay)
     assert list(design.rtl.clocks) == [
         {"port": "NEW", "name": "sys"},
         {"port": "AUX", "name": "AUX"},
@@ -152,13 +152,13 @@ def test_cli_short_forms_have_the_same_hash_and_run_directory(tmp_path):
 
 
 @pytest.mark.parametrize("clock", [None, ""])
-def test_higher_empty_design_clock_clears_the_canonical_list(clock):
+def test_higher_empty_design_clock_clears_the_canonical_list(tmp_path, clock):
     merged = Design._merge_target(
         {"rtl": {"sources": [], "clocks": ["CLK", "AUX"]}},
         {"rtl": {"clock": clock}},
         append=False,
     )
-    assert Design(name="d", **merged).rtl.clocks == ()
+    assert Design(name="d", root=tmp_path, **merged).rtl.clocks == ()
 
 
 def test_dotted_clock_inputs_in_a_design_file_normalize_to_canonical_state(tmp_path):
@@ -168,7 +168,7 @@ def test_dotted_clock_inputs_in_a_design_file_normalize_to_canonical_state(tmp_p
         "flows.vivado_synth.fpga: xc7a35tcpg236-1\n"
         "flows.vivado_synth.clock.period: 5 ns\n"
     )
-    design = Design.from_file(file)
+    design = Design.load(file)
     assert list(design.rtl.clocks) == [{"port": "CLK", "name": "CLK"}]
     settings = VivadoSynth.Settings.from_input(design.flows["vivado_synth"])
     assert settings.fpga.part == "xc7a35tcpg236-1"

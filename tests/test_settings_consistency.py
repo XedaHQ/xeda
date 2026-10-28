@@ -156,15 +156,13 @@ def test_design_construction_does_not_modify_nested_input(tmp_path):
     }
     before = copy.deepcopy(data)
 
-    Design(design_root=tmp_path, **data)
+    Design(root=tmp_path, **data)
 
     assert data == before
 
 
 def test_parameters_are_stored_once_and_nothing_assigns_them():
-    design = Design.from_file(
-        Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
-    )
+    design = Design.load(Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml")
     changed = with_updates(design, tb={"parameters": {"G_IN_WIDTH": 8}})
 
     assert changed.tb.parameters == {"G_IN_WIDTH": 8}

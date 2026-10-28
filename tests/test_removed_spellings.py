@@ -16,7 +16,7 @@ from pydantic import BaseModel
 import xeda.flows  # noqa: F401  (registers the built-in flows)
 from xeda.cli_types import ChainChoice, FlowChoice
 from xeda.flow_runner.settings_layers import RENAMED_FLOWS
-from xeda.xedaproject import REMOVED_PROJECT_KEYS
+from xeda.project import REMOVED_PROJECT_KEYS, Project
 from xeda.dataclass import SecondSpelling, XedaBaseModel, field_type
 from xeda.design import (
     Clock,
@@ -34,7 +34,7 @@ from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.error_codes import public_error, settings_codes
 from xeda.flow_runner.settings_layers import merge_flow_sections
-from xeda.xedaproject import ProjectFileError, XedaProject
+from xeda.errors import ProjectError
 
 #: The flows of Xeda. A test module may register a flow of its own, named with a leading `_`.
 FLOWS = sorted(
@@ -169,6 +169,13 @@ REMOVED_SPELLINGS = [
     ),
     # --- a key that is gone, with the key that replaces it
     ("design", "clock_port", {"clock_port": "clk"}, "removed_key", "`rtl.clocks`"),
+    (
+        "design",
+        "design_root",
+        {"design_root": "."},
+        "removed_key",
+        "the directory of the design file as the root (`root=` in Python)",
+    ),
     # --- the keys of a project file
     ("project", "design", {"design": {"name": "d"}}, "removed_alias", "`designs`"),
     ("project", "flow", {"flow": {}}, "removed_alias", "`flows`"),
@@ -203,6 +210,7 @@ SPELLINGS_OF_TODAY = {
     "design:defines",
     "design:generator",
     "design:clock_port",
+    "design:design_root",
     "project:design",
     "project:flow",
 }
@@ -315,7 +323,7 @@ def test_a_removed_design_key_names_its_successor(tmp_path, spelling, given, cod
     file.write_text(json.dumps(_design_document(given)))
 
     with pytest.raises(DesignValidationError) as refused:
-        Design.from_file(file)
+        Design.load(file)
 
     error = public_error(refused.value)
     assert error.code == code
@@ -329,7 +337,7 @@ def test_a_removed_key_in_a_target_is_refused_where_it_is_written(tmp_path, part
     file.write_text(json.dumps(document))
 
     with pytest.raises(DesignValidationError) as refused:
-        Design.from_file(file)
+        Design.load(file)
 
     location, message, _, kind = refused.value.errors[0]
     assert location == f"targets.board.{part}.generics"
@@ -342,17 +350,17 @@ def test_a_flat_key_in_a_target_is_refused_with_the_key_to_use(tmp_path):
     file.write_text(json.dumps(_design_document({"targets": {"board": {"sources": ["a.v"]}}})))
 
     with pytest.raises(DesignValidationError) as refused:
-        Design.from_file(file)
+        Design.load(file)
 
     assert "`sources` was removed: use `rtl.sources`" in refused.value.errors[0][1]
 
 
-def test_a_flat_key_in_the_design_overrides_is_refused_with_the_key_to_use(tmp_path):
+def test_a_flat_key_in_the_design_updates_is_refused_with_the_key_to_use(tmp_path):
     file = tmp_path / "d.xeda.json"
     file.write_text(json.dumps(_design_document({})))
 
     with pytest.raises(DesignValidationError) as refused:
-        Design.from_file(file, overrides={"top": "a"})
+        Design.load(file).with_updates({"top": "a"})
 
     assert "`top` was removed: use `rtl.top`" in refused.value.errors[0][1]
 
@@ -366,8 +374,8 @@ def test_a_removed_project_key_names_its_successor(tmp_path, spelling, given, co
     file = tmp_path / "xedaproject.json"
     file.write_text(json.dumps(given))
 
-    with pytest.raises(ProjectFileError, match=f"`{spelling}` was removed: use {successor}") as bad:
-        XedaProject.from_file(file)
+    with pytest.raises(ProjectError, match=f"`{spelling}` was removed: use {successor}") as bad:
+        Project.load(file)
 
     error = public_error(bad.value)
     assert (type(error).__name__, error.code) == ("ProjectError", code)
@@ -429,6 +437,7 @@ REMOVED_OPTIONS = [
     ("--flow-settings", ["dse", "vivado_synth"], "-s or --settings"),
     ("--design-file", ["run", "vivado_synth"], "the positional DESIGN argument"),
     ("--design", ["run", "vivado_synth"], "the positional DESIGN argument"),
+    ("--design-overrides", ["run", "vivado_synth", "d.yaml"], "--design-updates"),
     ("--design-file", ["dse", "vivado_synth"], "the positional DESIGN argument"),
     ("--design", ["dse", "vivado_synth"], "the positional DESIGN argument"),
     ("--help-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
@@ -473,6 +482,7 @@ REMOVED_VALUE_OPTIONS = [
     ("--flow-settings", ["run", "vivado_synth", "d.yaml"], "a=b", "-s or --settings"),
     ("--flow-settings", ["dse", "vivado_synth"], "a=b", "-s or --settings"),
     ("--design", ["run", "vivado_synth"], "d.yaml", "the positional DESIGN argument"),
+    ("--design-overrides", ["run", "vivado_synth", "d.yaml"], "rtl.top=x", "--design-updates"),
     ("--design-file", ["dse", "vivado_synth"], "d.yaml", "the positional DESIGN argument"),
     ("--init_freq_low", ["dse", "vivado_synth"], "100", "--init-freq-low"),
     ("--init_freq_high", ["dse", "vivado_synth"], "200", "--init-freq-high"),
@@ -612,7 +622,7 @@ def test_a_dotted_removed_project_key_is_refused_as_the_key_it_expands_to(
     file = tmp_path / "xedaproject.yaml"
     file.write_text(text)
 
-    with pytest.raises(ProjectFileError, match=f"`{key}` was removed: use {successor}") as bad:
-        XedaProject.from_file(file)
+    with pytest.raises(ProjectError, match=f"`{key}` was removed: use {successor}") as bad:
+        Project.load(file)
 
     assert public_error(bad.value).code == "removed_alias"

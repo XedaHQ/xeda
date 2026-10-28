@@ -610,7 +610,7 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
             techmap_files=["extra.v"],
             memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
         ),
-        design_root=design.design_root,
+        design_root=design.root,
     )
     before = settings.model_dump()
     flow = Yosys(settings, design, tmp_path / "run")
@@ -625,7 +625,7 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
     assert values.latch_map == pdk / "cells_latch.v"
     assert values.clockgate_map == pdk / "cells_clkgate.v"
     assert values.adder_map == pdk / "cells_adders.v"
-    assert values.techmap_files == (("pre_dff", design.design_root / "extra.v"),)
+    assert values.techmap_files == (("pre_dff", design.root / "extra.v"),)
     assert values.driver_cell == "BUF_X1" and values.load == 1.5
     assert values.tie_cells is not None and values.tie_cells.hi == ("TIEHI_SMALL", "Z")
     assert values.buffer_cell == ("BUF_X1", "A", "Z")
@@ -805,8 +805,8 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
     design = _design(tmp_path / "design")
     store = tiny_store(tmp_path)
     for name in ("latch.v", "cg.v", "fa.v", "extra.v", "mem.txt", "mem_map.v"):
-        (design.design_root / name).write_text("module _unused(); endmodule\n")
-    shutil.copy(TINY / "tiny.lib", design.design_root / "dff.lib")
+        (design.root / name).write_text("module _unused(); endmodule\n")
+    shutil.copy(TINY / "tiny.lib", design.root / "dff.lib")
     settings = Yosys.Settings.from_input(
         tiny_settings(
             store,
@@ -819,14 +819,14 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
             techmap_files=["extra.v"],
             memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
         ),
-        design_root=design.design_root,
+        design_root=design.root,
     )
     run = tmp_path / "run"
     run.mkdir()
     flow = Yosys(settings, design, run)
     flow.init()
     values = flow.asic_values()
-    root = design.design_root
+    root = design.root
     assert values.latch_map == root / "latch.v"
     assert values.clockgate_map == root / "cg.v"
     assert values.dff_liberty == root / "dff.lib"
@@ -842,7 +842,7 @@ def _given(store: Path, **extra: Any) -> dict[str, Any]:
 
 def test_editing_a_user_latch_map_makes_the_next_launch_stale(fake_yosys):
     design = _design(fake_yosys / "design")
-    latch = design.design_root / "my_latch.v"
+    latch = design.root / "my_latch.v"
     latch.write_text("module _unused(); endmodule\n")
     store = tiny_store(fake_yosys)
     given = _given(store, sequential={"latch_map_file": "my_latch.v"})
@@ -869,7 +869,7 @@ def test_the_other_group_files_are_inputs_too(fake_yosys):
     }
     store = tiny_store(fake_yosys)
     for name, given in files.items():
-        path = design.design_root / name
+        path = design.root / name
         path.write_text("module _unused(); endmodule\n")
         settings = _given(store, **given)
         assert _runner(fake_yosys).launch_flow(Yosys, design, settings).succeeded

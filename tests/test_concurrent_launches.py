@@ -109,7 +109,7 @@ class _Alone:
             if name in self.results:
                 continue
             runner = DefaultRunner(self.run_root, display_results=False)
-            flow = runner.run_flow(FLOWS[name], Design.from_file(self.design_file), {})
+            flow = runner.run_flow(FLOWS[name], Design.load(self.design_file), {})
             assert flow is not None and flow.succeeded
             self.results[name] = _summary(flow.results)
             self.files[name] = _files(flow.run_path)
@@ -188,7 +188,7 @@ def test_two_threads_launch_on_one_design_at_once(tmp_path, alone, pair):
     def launch(index: int) -> None:
         try:
             runner = DefaultRunner(run_root, display_results=False)
-            design = Design.from_file(design_file)
+            design = Design.load(design_file)
             barrier.wait()
             flow = runner.run_flow(FLOWS[pair[index]], design, {})
             assert flow is not None
@@ -233,7 +233,7 @@ from xeda.flows import GhdlSim, Nvc
 
 design_file, run_root, flow_name, sync, index, out = sys.argv[1:]
 flows = {"ghdl_sim": GhdlSim, "nvc": Nvc}
-design = Design.from_file(Path(design_file))
+design = Design.load(Path(design_file))
 runner = DefaultRunner(Path(run_root), display_results=False)
 (Path(sync) / f"ready-{index}").write_text("")
 deadline = time.monotonic() + 60

@@ -69,7 +69,7 @@ def place_flow(
     `settings` are nested settings (a group is a dictionary). `model` replaces fields of the
     platform model after `prepare_inputs()`. `sdc` are the SDC files of the design."""
     store = tiny_store(tmp_path, "store")
-    design = Design.from_file(openroad_design(tmp_path / "design"))
+    design = Design.load(openroad_design(tmp_path / "design"))
     given = {
         **tiny_settings(store, residue=TINY_OPENROAD_RESIDUE),
         "clocks": {"clk": {"period": "5 ns"}},
@@ -78,14 +78,12 @@ def place_flow(
     run_path = tmp_path / "work"
     run_path.mkdir(exist_ok=True)
     flow = OpenroadPlace(
-        OpenroadPlace.Settings.from_input(
-            given, design_root=design.design_root, runner_cwd=tmp_path
-        ),
+        OpenroadPlace.Settings.from_input(given, design_root=design.root, runner_cwd=tmp_path),
         design,
         run_path,
     )
     flow.init()
-    flow.inputs.netlist = design.design_root / "counter_netlist.v"
+    flow.inputs.netlist = design.root / "counter_netlist.v"
     if sdc is not None:
         flow.inputs.sdc = sdc
     flow.outputs.odb = run_path / "place.odb"
@@ -362,13 +360,13 @@ def test_the_floorplan_takes_everything_from_a_def_file(tmp_path, monkeypatch):
 def test_a_def_file_that_does_not_exist_is_refused_naming_the_path(tmp_path):
     (tmp_path / "design").mkdir()
     store = tiny_store(tmp_path, "store")
-    design = Design.from_file(openroad_design(tmp_path / "design"))
+    design = Design.load(openroad_design(tmp_path / "design"))
     settings = OpenroadPlace.Settings.from_input(
         {
             **tiny_settings(store, residue=TINY_OPENROAD_RESIDUE),
             "floorplan": {"sizing": "def", "def_file": "missing.def"},
         },
-        design_root=design.design_root,
+        design_root=design.root,
         runner_cwd=tmp_path,
     )
     flow = OpenroadPlace(settings, design, tmp_path / "work")
@@ -3934,7 +3932,7 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
 def test_a_second_launch_reuses_the_run(tmp_path, monkeypatch):
     runner, design, settings, first = launch(tmp_path, monkeypatch)
     again = runner.launch_flow(
-        OpenroadPlace, Design.from_file(design), dict(s.split("=", 1) for s in settings)
+        OpenroadPlace, Design.load(design), dict(s.split("=", 1) for s in settings)
     )
     assert again.succeeded and again.reused
     assert not first.reused
@@ -4003,7 +4001,7 @@ def test_the_results_are_described():
 
 def test_a_dry_run_judges_the_platform_files_and_the_netlist(tmp_path, monkeypatch):
     runner, design_file, settings, _ = launch(tmp_path, monkeypatch)
-    design = Design.from_file(design_file)
+    design = Design.load(design_file)
     given = dict(s.split("=", 1) for s in settings)
     store = Path(given["pdk_root"])
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
@@ -4014,7 +4012,7 @@ def test_a_dry_run_judges_the_platform_files_and_the_netlist(tmp_path, monkeypat
     assert states["openroad_place"].state == "stale"
     assert states["openroad_place"].reason == f"input changed: {library.resolve()}"
     library.write_text(library.read_text().replace("\n/* edited */\n", ""))
-    netlist = design.design_root / "counter_netlist.v"
+    netlist = design.root / "counter_netlist.v"
     netlist.write_text(netlist.read_text() + "// edited\n")
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
     assert states["openroad_place"].state == "stale"
@@ -4029,7 +4027,7 @@ def test_a_dry_run_shows_a_missing_store_as_unknown_with_the_message_of_the_laun
     empty = tmp_path / "empty"
     empty.mkdir()
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    design = Design.from_file(openroad_design(tmp_path / "design"))
+    design = Design.load(openroad_design(tmp_path / "design"))
     given = dict(
         s.split("=", 1) for s in openroad_settings(empty, **{"clocks.main_clock.period": "5 ns"})
     )

@@ -33,6 +33,7 @@ from xeda.deliver import (
 from xeda.digest import RACY_NS
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.local_settings import LocalSettings
 from xeda.run_root import ensure_run_root
 from xeda.utils import PATH_VARIABLES
 
@@ -61,7 +62,7 @@ _registration_before = registered_flows.copy()
 def test_declared_output_collision_is_refused_before_rebuilding(tmp_path, monkeypatch):
     from .io_flows import _Maker
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     root = tmp_path / "runs"
     first = DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {})
     assert first.succeeded and first.results["outputs"] and not first.results.get("artifacts")
@@ -195,9 +196,7 @@ def world(tmp_path, monkeypatch):
     DURING_RUN.clear()
     DURING_WRAPPER.clear()
     DURING_INIT.clear()
-    design = Design(
-        name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="d", root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"})
     # the wrapper's producer is found by name
     registered_flows.update(_REGISTERED)
     design_file = tmp_path / "design" / "d.yaml"
@@ -223,7 +222,7 @@ def test_each_form_of_a_location_is_delivered_where_it_names(world, variable):
     """Every form the messages name (`LOCATION_FORMS`) is a location: a deliverable given a path
     under one of `PATH_VARIABLES`, or an absolute path, is delivered there, and the run writes
     its conventional name."""
-    places = {"runner_cwd": world.user, "design_root": world.design.root_path}
+    places = {"runner_cwd": world.user, "design_root": world.design.root}
     if variable is None:
         given, destination = str(world.user.parent / "elsewhere" / "net.v"), None
     else:
@@ -660,7 +659,7 @@ def test_a_file_edited_while_the_question_is_open_is_not_replaced(world):
 
 @pytest.mark.parametrize("spelling", ["the source", "a hard link", "a symbolic link", "a case"])
 def test_an_input_is_never_a_destination_even_with_overwrite_outputs(world, spelling):
-    source = world.design.root_path / "top.v"
+    source = world.design.root / "top.v"
     destination = world.user / "net.v"
     if spelling == "the source":
         destination = source
@@ -1128,7 +1127,7 @@ def test_a_destination_swapped_during_the_copy_is_not_replaced(world, monkeypatc
             (out / "net.v").write_text("put there meanwhile\n")
         else:
             out.rename(world.user / "moved")
-            out.symlink_to(world.design.root_path, target_is_directory=True)
+            out.symlink_to(world.design.root, target_is_directory=True)
 
     monkeypatch.setattr(xeda.deliver, "copy_fd", copy_then_swap)
     with pytest.raises(DeliveryError, match="changed while the run went on"):
@@ -1136,8 +1135,8 @@ def test_a_destination_swapped_during_the_copy_is_not_replaced(world, monkeypatc
     if swap == "destination":
         assert (out / "net.v").read_text() == "put there meanwhile\n"
     else:
-        assert not (world.design.root_path / "net.v").exists()
-        assert (world.design.root_path / "top.v").read_text() == "module top; endmodule\n"
+        assert not (world.design.root / "net.v").exists()
+        assert (world.design.root / "top.v").read_text() == "module top; endmodule\n"
 
 
 def test_an_oserror_mid_delivery_still_records_and_reports_the_copies_already_made(
@@ -1862,7 +1861,7 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
             "sdf": {"max": "$PWD/nested.sdf"},
             "lib_paths": [["work", "$PWD/nested_lib"]],
         },
-        design_root=world.design.root_path,
+        design_root=world.design.root,
         runner_cwd=world.user,
     )
     sections = {
@@ -1884,7 +1883,7 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
     )
     named = [world.user / "nested.sdf", world.user / "section.xdc"]
     listed = [world.user / "nested_lib" / "a.v", world.user / "section_lib" / "b.v"]
-    for path in [*named, *listed, world.design.root_path / "top.v"]:
+    for path in [*named, *listed, world.design.root / "top.v"]:
         assert inputs.find(path) is not None, path
     # and every destination inside a directory they name, a file there or not
     assert inputs.directory_of(world.user / "nested_lib" / "new.v") == (
@@ -1910,7 +1909,7 @@ def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(wor
         (world.user / name).mkdir()
     settings = VivadoSynth.Settings.from_input(
         {"fpga": {"part": "xc7a12tcsg325-1"}, "lib_paths": [["work", "$PWD/new"]]},
-        design_root=world.design.root_path,
+        design_root=world.design.root,
         runner_cwd=world.user,
     )
     sections = {
@@ -2104,9 +2103,7 @@ def test_outputs_to_never_copies_the_file_that_a_link_out_of_the_run_directory_l
     monkeypatch.setitem(LINKED_OUT, "file", outside / "secret.txt")
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "top.v").write_text("module top; endmodule\n")
-    design = Design(
-        name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="d", root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"})
     got = tmp_path / "got"
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False, outputs_to=got).launch_flow(
         _Linker, design, {}
@@ -2132,9 +2129,7 @@ def test_a_file_in_the_way_of_an_artifact_that_leads_out_is_still_asked_about_be
     monkeypatch.setitem(LINKED_OUT, "file", outside / "secret.txt")
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "top.v").write_text("module top; endmodule\n")
-    design = Design(
-        name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="d", root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"})
     got = tmp_path / "got"
 
     def launch():
@@ -2150,3 +2145,24 @@ def test_a_file_in_the_way_of_an_artifact_that_leads_out_is_still_asked_about_be
             tmp_path / "xeda_run", display_results=False, outputs_to=got, rebuild_all=True
         ).launch_flow(_Linker, design, {})
     assert (got / "tool.log").read_text() == "the user's\n"
+
+
+@pytest.mark.parametrize("which", ["user_file", "local_file"])
+def test_a_loaded_private_settings_file_is_never_a_destination_even_with_overwrite_outputs(
+    world, tmp_path, which
+):
+    """The files that `local_settings()` loaded are inputs of the launch, as the design file and
+    the project file are: a deliverable named after one is refused before it replaces it."""
+    private = tmp_path / "private" / ("config.yaml" if which == "user_file" else "x.local.yaml")
+    private.parent.mkdir()
+    private.write_text("flows: {}\n")
+    settings = LocalSettings(**{which: private})
+    launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
+    with pytest.raises(DeliveryError, match="an input of the run"):
+        launcher.run(
+            _Deliverer,
+            world.design,
+            flow_settings={"netlist": str(private)},
+            local_settings=settings,
+        )
+    assert private.read_text() == "flows: {}\n" and RUNS == []

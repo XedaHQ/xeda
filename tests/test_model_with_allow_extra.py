@@ -12,6 +12,7 @@ Two regressions this guards, both invisible to the rest of the suite:
 
 import multiprocessing as mp
 import pickle
+from pathlib import Path
 
 import pytest
 
@@ -22,10 +23,11 @@ pytestmark = pytest.mark.python_compat
 
 
 RTL = {"sources": [], "top": "t"}
+ROOT = Path(__file__).resolve().parent
 
 
 def _make():
-    return model_with_allow_extra(Design)(name="d", rtl=RTL, unknown_key=42)
+    return model_with_allow_extra(Design)._built(ROOT, {"name": "d", "rtl": RTL, "unknown_key": 42})
 
 
 def test_extra_keys_are_accepted_by_the_derived_model():
@@ -37,7 +39,7 @@ def test_the_base_model_is_left_strict():
     model_with_allow_extra(Design)
     assert Design.model_config["extra"] == "forbid"
     with pytest.raises(DesignValidationError, match="unknown_key"):
-        Design(name="d", rtl=RTL, unknown_key=42)
+        Design._built(ROOT, {"name": "d", "rtl": RTL, "unknown_key": 42})
 
 
 def test_derived_class_is_cached():

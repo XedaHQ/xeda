@@ -39,7 +39,7 @@ def _design(root: Path) -> Design:
     (root / "top.v").write_text(COUNTER)
     return Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
 

@@ -183,7 +183,7 @@ def check_record(flow_class: type[Flow], record: RunRecord) -> None:
 def _design_for(flow_name: str, tmp_path: Path) -> Design:
     if flow_name == "vivado_sim":
         return _sqrt_with_a_vhdl_testbench(tmp_path / "design")
-    return Design.from_file(EXAMPLE)
+    return Design.load(EXAMPLE)
 
 
 #: Settings that switch the optional files of a flow on, for the fake runs.
@@ -239,7 +239,7 @@ def test_a_run_writes_only_documented_artifacts(part, placer, packer, tmp_path, 
     root = tmp_path / "design"
     root.mkdir()
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
-    design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="top", root=root, rtl={"sources": ["top.v"], "top": "top"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     flow = runner.run(
@@ -288,7 +288,7 @@ def test_the_log_of_a_failed_main_tool_is_the_log_that_the_error_names(tmp_path,
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "launch_runs")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
-    flow = runner.launch_flow("vivado_synth", Design.from_file(EXAMPLE), FULL["vivado_synth"])
+    flow = runner.launch_flow("vivado_synth", Design.load(EXAMPLE), FULL["vivado_synth"])
 
     assert not flow.succeeded
     record = flow.record
@@ -321,7 +321,7 @@ def _program_flow(runs: int, passes: bool) -> type[Flow]:
     "runs, log", [(1, "log"), (0, None)], ids=["the flow wrote a log", "the flow wrote none"]
 )
 def test_a_failure_without_a_process_names_the_log_when_the_flow_wrote_one(tmp_path, runs, log):
-    design = Design(name="toy", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="toy", root=tmp_path, rtl={"sources": [], "top": "t"})
     with preserved_flow_registry():
         flow_class = _program_flow(runs, passes=False)
         flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
@@ -409,7 +409,7 @@ def test_a_post_cleanup_run_keeps_every_artifact_so_the_logs_stay(tmp_path, monk
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup=True)
 
-    flow = runner.launch_flow("vivado_synth", Design.from_file(EXAMPLE), FULL["vivado_synth"])
+    flow = runner.launch_flow("vivado_synth", Design.load(EXAMPLE), FULL["vivado_synth"])
 
     assert flow.succeeded
     record = flow.record
@@ -424,7 +424,7 @@ def test_a_reused_run_keeps_the_artifacts_of_its_record(tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    design = Design.from_file(EXAMPLE)
+    design = Design.load(EXAMPLE)
 
     first = runner.launch_flow(
         "quartus",
@@ -451,7 +451,7 @@ def test_the_report_keys_of_the_vivado_flows_hold_the_step_and_the_whole_file_na
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
-    flow = runner.launch_flow("vivado_synth", Design.from_file(EXAMPLE), FULL["vivado_synth"])
+    flow = runner.launch_flow("vivado_synth", Design.load(EXAMPLE), FULL["vivado_synth"])
 
     reports = {
         key: name for key, name in flow.record.artifacts.items() if name.startswith("reports/")

@@ -101,7 +101,7 @@ def test_design_files_are_every_rtl_and_testbench_source(tmp_path):
         name="d",
         rtl={"sources": ["a.v"], "top": "a"},
         tb={"sources": ["tb.v"], "top": "tb"},
-        design_root=tmp_path,
+        root=tmp_path,
     )
     assert design_files(design) == [(tmp_path / "a.v").resolve(), (tmp_path / "tb.v").resolve()]
 
@@ -132,7 +132,7 @@ def test_implicit_input_files_are_what_depfiles_and_the_flow_name(tmp_path, hook
     board.write_text("LOCATE COMP clk SITE A1;\n")
     depfile = run_dir / "yosys.d"
     depfile.write_text(f"out.json: {inside} {outside}\n")
-    design = Design(name="d", rtl={"sources": ["a.v"], "top": "a"}, design_root=root)
+    design = Design(name="d", rtl={"sources": ["a.v"], "top": "a"}, root=root)
     settings = hooked.Settings.from_input({}, design_root=root, runner_cwd=tmp_path)
     flow = hooked(settings, design, run_path=run_dir)
     flow.depfiles = [depfile]
@@ -178,7 +178,7 @@ def test_a_file_valued_parameter_and_define_are_design_files(tmp_path):
             "parameters": {"ROM": {"file": "rom.mem"}, "W": 8, "NAME": "a.v"},
             "defines": {"INIT": str(tmp_path / "init.hex")},
         },
-        design_root=tmp_path,
+        root=tmp_path,
     )
     assert sorted(design_files(design)) == sorted(
         [(tmp_path / f).resolve() for f in ("a.v", "rom.mem", "init.hex")]

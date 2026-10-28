@@ -181,7 +181,7 @@ def test_bare_chain_and_saved_binding_plan_the_same_nodes_edges_and_identities(
     bound_path = write_design(tmp_path / "bound", flows=saved, tb=tb, targets=targets)
 
     def plan(request: Any, file: Path) -> Plan:
-        design = Design.from_file(file, target=target)
+        design = Design.load(file, target=target)
         return runner(tmp_path).plan(request, design)
 
     # the same design under two names has the same identities only if the name is the same
@@ -204,7 +204,7 @@ def test_bare_chain_and_saved_binding_plan_the_same_nodes_edges_and_identities(
 
 
 def test_the_plan_line_and_the_json_name_the_reason(tmp_path) -> None:
-    design = Design.from_file(write_design(tmp_path / "d", flows={"yosys": {}}))
+    design = Design.load(write_design(tmp_path / "d", flows={"yosys": {}}))
     plan = runner(tmp_path).plan("yosys", design)
     (item,) = plan.node("yosys").inputs
     assert item.describe() == (
@@ -221,17 +221,17 @@ def test_the_plan_line_and_the_json_name_the_reason(tmp_path) -> None:
 
 def test_a_design_the_flow_reads_is_planned_as_it_is(tmp_path) -> None:
     path = write_design(tmp_path / "d", sources=("top.v",))
-    plan = runner(tmp_path).plan("yosys", Design.from_file(path))
+    plan = runner(tmp_path).plan("yosys", Design.load(path))
     assert [n.name for n in plan.nodes] == ["yosys"] and plan.node("yosys").inputs == ()
 
 
 def test_only_the_languages_a_flow_cannot_read_are_converted(tmp_path) -> None:
     """VHDL and Verilog beside Bluespec: yosys reads them, bsc passes them through."""
     path = write_design(tmp_path / "d", sources=("Top.bsv", "pass.vhd", "ext.v"))
-    plan = runner(tmp_path).plan("yosys", Design.from_file(path))
+    plan = runner(tmp_path).plan("yosys", Design.load(path))
     assert [n.name for n in plan.nodes] == ["bsc", "yosys"]
     view = planned_design_of(
-        plan, plan.node("yosys"), Design.from_file(path), runner(tmp_path).run_path_of
+        plan, plan.node("yosys"), Design.load(path), runner(tmp_path).run_path_of
     )
     assert [(s.file.name, s.type.name) for s in view.rtl.sources] == [
         ("mkTop.v", "Verilog"),
@@ -242,7 +242,7 @@ def test_only_the_languages_a_flow_cannot_read_are_converted(tmp_path) -> None:
 
 def test_a_converter_reads_the_design_as_it_is(tmp_path) -> None:
     """One hop: bsc has a design output itself, so its `design` input is never converted."""
-    plan = runner(tmp_path).plan("bsc", Design.from_file(write_design(tmp_path / "d")))
+    plan = runner(tmp_path).plan("bsc", Design.load(write_design(tmp_path / "d")))
     assert [n.name for n in plan.nodes] == ["bsc"] and plan.node("bsc").inputs == ()
 
 
@@ -253,7 +253,7 @@ def test_a_converter_reads_the_design_as_it_is(tmp_path) -> None:
 def test_bsc_conversion_requires_bluespec_rtl_during_planning(
     flow_request, flows, tmp_path
 ) -> None:
-    design = Design.from_file(write_design(tmp_path / "d", sources=("top.v",), flows=flows))
+    design = Design.load(write_design(tmp_path / "d", sources=("top.v",), flows=flows))
 
     with pytest.raises(FlowSettingsException, match="bsc needs Bluespec RTL"):
         runner(tmp_path).plan(flow_request, design)
@@ -268,7 +268,7 @@ def test_a_bluespec_testbench_does_not_satisfy_bsc_rtl_conversion(tmp_path) -> N
         tb={"sources": ["Tb.bsv"], "top": "mkTb"},
     )
     (path.parent / "Tb.bsv").write_text(BSV)
-    design = Design.from_file(path)
+    design = Design.load(path)
 
     with pytest.raises(FlowSettingsException, match="bsc needs Bluespec RTL"):
         runner(tmp_path).plan("bsc+yosys", design)
@@ -278,7 +278,7 @@ def test_a_bluespec_testbench_does_not_satisfy_bsc_rtl_conversion(tmp_path) -> N
 
 def test_two_converters_that_fit_are_an_error_that_names_the_choices(tmp_path) -> None:
     fake, rival, to_vhdl = converter_flows()
-    design = Design.from_file(write_design(tmp_path / "d"))
+    design = Design.load(write_design(tmp_path / "d"))
     names = sorted(["bsc", fake.name, rival.name, to_vhdl.name])  # yosys reads VHDL too
     with pytest.raises(FlowSettingsException) as raised:
         runner(tmp_path).plan("yosys", design)
@@ -288,7 +288,7 @@ def test_two_converters_that_fit_are_an_error_that_names_the_choices(tmp_path) -
         f"(`flows.yosys.inputs.design: {names[0]}`)"
     )
     # either choice plans, and a binding names the converter for good
-    chosen = Design.from_file(
+    chosen = Design.load(
         write_design(tmp_path / "e", flows={"yosys": {"inputs": {"design": fake.name}}}, name="e")
     )
     assert [n.name for n in runner(tmp_path).plan("yosys", chosen).nodes] == [fake.name, "yosys"]
@@ -310,15 +310,13 @@ def test_a_converter_that_writes_what_the_flow_cannot_read_does_not_fit(tmp_path
 
 def test_a_converter_cannot_take_a_converter_for_its_own_design(tmp_path) -> None:
     fake, _rival, _to_vhdl = converter_flows()
-    design = Design.from_file(
-        write_design(tmp_path / "d", flows={"bsc": {"inputs": {"design": "bsc"}}})
-    )
+    design = Design.load(write_design(tmp_path / "d", flows={"bsc": {"inputs": {"design": "bsc"}}}))
     with pytest.raises(FlowSettingsException, match=r"`bsc\.design` cannot come from bsc itself"):
         runner(tmp_path).plan("bsc", design)
 
 
 def test_a_flow_that_reads_no_bluespec_and_has_no_converter_is_refused_as_before(tmp_path) -> None:
-    design = Design.from_file(write_design(tmp_path / "d"))
+    design = Design.load(write_design(tmp_path / "d"))
     with pytest.raises(FlowSettingsException, match="ghdl_sim cannot read the design's Bluespec"):
         runner(tmp_path).plan("ghdl_sim", design)
 
@@ -329,10 +327,10 @@ def test_a_bluespec_testbench_on_a_verilog_simulator_names_the_simulator_that_re
     path = write_design(tmp_path / "d", tb={"sources": ["Tb.bsv"], "top": "mkTb"})
     (tmp_path / "d" / "Tb.bsv").write_text(BSV)
     with pytest.raises(FlowSettingsException) as raised:
-        runner(tmp_path).plan("verilator", Design.from_file(path))
+        runner(tmp_path).plan("verilator", Design.load(path))
     assert str(raised.value).endswith("; simulate a Bluespec testbench with bsc_sim")
     # a rejected rtl source gets no such advice
-    ghdl = Design.from_file(write_design(tmp_path / "e", name="e"))
+    ghdl = Design.load(write_design(tmp_path / "e", name="e"))
     with pytest.raises(FlowSettingsException) as raised:
         runner(tmp_path).plan("ghdl_sim", ghdl)
     assert "simulate a" not in str(raised.value)
@@ -351,7 +349,7 @@ def _bluespec_sweep_design(root: Path, *, bluespec_testbench: bool = False) -> D
         tb = {"sources": ["Tb.bsv"], "top": "mkTb", "uut": "dut"}
     else:
         tb = {"sources": ["tb.v"], "top": "tb", "uut": "dut"}
-    return Design.from_file(write_design(root, sources=("Top.bsv", "pass.v", "pass.vhd"), tb=tb))
+    return Design.load(write_design(root, sources=("Top.bsv", "pass.v", "pass.vhd"), tb=tb))
 
 
 def _unreadable(flow_class: type[Flow], design: Design) -> set[SourceType]:
@@ -507,7 +505,7 @@ def launch(tmp_path: Path, classes: tuple[type[Flow], type[Flow]], **options: An
         sources=options.get("sources", ("Top.bsv", "ext.v")),
         flows={reader.name: {"inputs": {"design": converter.name}}},
     )
-    design = Design.from_file(path)
+    design = Design.load(path)
     the_runner = runner(tmp_path)
     flow = the_runner.run_flow(reader, design)
     return converter, reader, design, the_runner, flow
@@ -583,7 +581,7 @@ def test_the_design_hash_of_the_reader_does_not_depend_on_where_the_run_root_is(
     )
     flows = [
         DefaultRunner(tmp_path / run_root, display_results=False).run_flow(
-            reader, Design.from_file(path)
+            reader, Design.load(path)
         )
         for run_root in ("run", "deeper/elsewhere/run")
     ]
@@ -637,7 +635,7 @@ def test_a_dry_run_agrees_with_the_launch(tmp_path) -> None:
     }
     source = tmp_path / "d" / "Top.bsv"
     source.write_text(source.read_text() + "// comment\n")
-    judged = Design.from_file(tmp_path / "d" / "d.yaml")
+    judged = Design.load(tmp_path / "d" / "d.yaml")
     _plan, judged_states = the_runner.plan_with_freshness(reader, judged)
     assert judged_states[converter.name].state == "stale"
     assert judged_states[reader.name] == NodeFreshness("unknown", f"depends on {converter.name}")
@@ -733,7 +731,7 @@ def test_a_converter_that_fails_fails_the_flow_with_the_reason_it_was_needed(
     the_runner = runner(tmp_path)
     path = write_design(tmp_path / "d", flows={reader.name: {"inputs": {"design": converter.name}}})
     with pytest.raises(FlowDependencyFailure, match="the converter is out of order") as raised:
-        the_runner.run_flow(reader, Design.from_file(path))
+        the_runner.run_flow(reader, Design.load(path))
     assert raised.value.producer == converter.name
     assert "construct" in events and "init" not in events
     assert [f.name for f in the_runner.launched] == [converter.name, reader.name]
@@ -758,7 +756,7 @@ def test_a_failing_converter_leaves_a_real_flow_built_on_the_planned_design_unto
     path = write_design(tmp_path / "d", flows={"yosys": {"inputs": {"design": fake.name}}})
     the_runner = runner(tmp_path)
     with pytest.raises(FlowDependencyFailure, match="the converter is out of order"):
-        the_runner.run_flow("yosys", Design.from_file(path))
+        the_runner.run_flow("yosys", Design.load(path))
     consumer = the_runner.launched[-1]
     assert consumer.name == "yosys" and consumer.blocked_by == fake.name
     planned = [s.file for s in consumer.design.rtl.sources]
@@ -771,7 +769,7 @@ def test_a_missing_bsc_names_why_it_was_needed(tmp_path, monkeypatch) -> None:
     """Without bsc, `yosys` on a Bluespec design fails as a producer failure that says why bsc
     was launched."""
     monkeypatch.setenv("PATH", str(tmp_path / "nowhere"))
-    design = Design.from_file(write_design(tmp_path / "d", flows={"yosys": {}}))
+    design = Design.load(write_design(tmp_path / "d", flows={"yosys": {}}))
     the_runner = runner(tmp_path)
     with pytest.raises(FlowDependencyFailure) as raised:
         the_runner.run_flow("yosys", design)

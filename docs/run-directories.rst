@@ -10,9 +10,14 @@ Where it goes
 =============
 
 Every run directory lies in the run root. The default run root is ``./xeda_run``. Change it with
-``--run-root``, the ``XEDA_RUN_ROOT`` environment variable or the API's ``run_root``. The first time
-Xeda uses a run root, it creates the directory (or takes an existing empty one) and marks it with
-three files. The ``.xeda-run-root`` file is the marker. The ``.gitignore`` file holds ``*`` and the
+``--run-root``, the ``XEDA_RUN_ROOT`` environment variable or the API's ``run_root``. When you give
+neither the option nor the variable, ``xeda run`` uses the first ``run_root`` that it finds in the
+project-local file, the user file and the project file (see :ref:`private-files`), also when the
+design is a design file that the project does not list. The project file is the one that you give or
+that Xeda finds. It has a run root even without a ``run_root`` key: ``xeda_run`` beside the file.
+Without a project file, the run root is ``./xeda_run``. The first time Xeda uses a run root, it
+creates the directory (or takes an existing empty
+one) and marks it with three files. The ``.xeda-run-root`` file is the marker. The ``.gitignore`` file holds ``*`` and the
 ``CACHEDIR.TAG`` file is the standard cache-directory tag, so version control and backup tools leave
 the tree alone. Everything under a marked run root belongs to Xeda. Keep nothing of yours there (see
 `Xeda's space and yours`_).

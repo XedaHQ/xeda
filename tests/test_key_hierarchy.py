@@ -219,7 +219,7 @@ import json
 from pathlib import Path
 
 from xeda.design import Design
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 DESIGN = {
     "language": {"vhdl": {"standard": "2008"}},
@@ -251,7 +251,7 @@ OVERLAY_DOTTED = {"tb.top": "other", "flows.vivado_synth.clocks.main_clock.perio
 
 def _dump(design: Design, root: Path) -> dict:
     """The design as data, with the directory it was written in left out of every path."""
-    return json.loads(design.model_dump_json().replace(str(root), "ROOT"))
+    return json.loads(json.dumps(design.to_dict()).replace(str(root), "ROOT"))
 
 
 def _root(tmp_path: Path) -> Path:
@@ -263,18 +263,24 @@ def _root(tmp_path: Path) -> Path:
 def _design_file(tmp_path: Path, data: dict, target: str | None = None) -> Design:
     path = _root(tmp_path) / "d.json"
     path.write_text(json.dumps({"name": "d", **data}))
-    design = Design.from_file(path, target=target)
+    design = Design.load(path, target=target)
     assert design.target == target
     return design
 
 
 def _project(
-    tmp_path: Path, entry: dict, flows: dict | None = None, target: str | None = None, **options
+    tmp_path: Path,
+    entry: dict,
+    flows: dict | None = None,
+    target: str | None = None,
+    design_updates: dict | None = None,
 ) -> Design:
     path = _root(tmp_path) / "xedaproject.json"
     path.write_text(json.dumps({"designs": [{"name": "d", **entry}], "flows": flows or {}}))
-    design = XedaProject.from_file(path, **options).get_design(0, target)
-    assert design is not None and design.target == target
+    design = Project.load(path).design(target=target)
+    if design_updates:
+        design = design.with_updates(design_updates)
+    assert design.target == target
     return design
 
 
@@ -291,7 +297,7 @@ ORIGINS = {
     ),
     "design overrides of a design file": lambda tmp, dotted: _overridden_file(tmp, dotted),
     "design overrides of a project": lambda tmp, dotted: _project(
-        tmp, DESIGN, design_overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED
+        tmp, DESIGN, design_updates=OVERLAY_DOTTED if dotted else OVERLAY_NESTED
     ),
     "target in a project design entry": lambda tmp, dotted: _project(
         tmp,
@@ -304,7 +310,7 @@ ORIGINS = {
 def _overridden_file(tmp_path: Path, dotted: bool) -> Design:
     path = _root(tmp_path) / "d.json"
     path.write_text(json.dumps({"name": "d", **DESIGN}))
-    return Design.from_file(path, overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED)
+    return Design.load(path).with_updates(OVERLAY_DOTTED if dotted else OVERLAY_NESTED)
 
 
 @pytest.mark.parametrize("origin", ORIGINS)
@@ -323,7 +329,7 @@ def test_a_dotted_key_in_a_projects_flows_means_the_same(tmp_path):
     for name, table in (("nested", nested), ("dotted", dotted)):
         path = tmp_path / name / "xedaproject.json"
         path.write_text(json.dumps({"flows": table}))
-        flows[name] = XedaProject.from_file(path).flows
+        flows[name] = Project.load(path).flows
     assert flows["dotted"] == flows["nested"]
 
 
@@ -342,7 +348,7 @@ import textwrap
 
 from xeda.design import DesignValidationError
 from xeda.flow_runner import DefaultRunner
-from xeda.xedaproject import ProjectFileError
+from xeda.errors import ProjectError
 
 BOTH_WAYS = r"`{dotted}` and `{table}: \{{\.\.\.\}}` both set keys of `{table}`: write one of them"
 #: a table written both ways inside a flow section, the way the report in the field wrote it
@@ -368,9 +374,9 @@ def test_a_design_file_refuses_a_table_written_both_ways_at_the_key(tmp_path, do
     path = _yaml_design(tmp_path, block)
 
     with pytest.raises(DesignValidationError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
-        Design.from_file(path)
+        Design.load(path)
     try:
-        Design.from_file(path)
+        Design.load(path)
     except DesignValidationError as e:
         assert e.file == str(path.absolute())
         assert [location for location, *_ in e.errors] == ["tb"]
@@ -383,7 +389,7 @@ def test_a_design_file_refuses_it_inside_a_flow_section(tmp_path):
     with pytest.raises(
         DesignValidationError, match=BOTH_WAYS.format(dotted=table + r"\.part", table=table)
     ) as raised:
-        Design.from_file(path)
+        Design.load(path)
 
     assert [location for location, *_ in raised.value.errors] == [table]
 
@@ -396,8 +402,8 @@ def test_a_design_file_takes_the_normal_forms(tmp_path):
         tmp_path / "nested", "flows:\n  vivado_synth:\n    fpga:\n      part: p\n      speed: -1\n"
     )
 
-    assert Design.from_file(dotted).flows == Design.from_file(nested).flows
-    assert Design.from_file(dotted).flows["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
+    assert Design.load(dotted).flows == Design.load(nested).flows
+    assert Design.load(dotted).flows["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
 
 
 def test_a_target_refuses_it_at_the_target_whichever_is_selected(tmp_path):
@@ -410,15 +416,15 @@ def test_a_target_refuses_it_at_the_target_whichever_is_selected(tmp_path):
             DesignValidationError,
             match=BOTH_WAYS.format(dotted=r"targets\.a\.tb\.top", table=r"targets\.a\.tb"),
         ) as raised:
-            Design.from_file(path, target=target)
+            Design.load(path, target=target)
         assert [location for location, *_ in raised.value.errors] == ["targets.a.tb"]
 
 
-def test_design_overrides_refuse_it(tmp_path):
+def test_design_updates_refuse_it(tmp_path):
     path = _yaml_design(tmp_path)
 
     with pytest.raises(DesignValidationError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
-        Design.from_file(path, overrides={"tb.top": "tb", "tb": {"sources": []}})
+        Design.load(path).with_updates({"tb.top": "tb", "tb": {"sources": []}})
 
 
 @pytest.mark.parametrize("dotted_first", [True, False], ids=["dotted-first", "table-first"])
@@ -430,12 +436,12 @@ def test_a_project_file_refuses_it_naming_the_file(tmp_path, dotted_first):
 
     table = r"flows\.vivado_synth"
     both_ways = BOTH_WAYS.format(dotted=table + r"\.fpga\.part", table=table)
-    with pytest.raises(ValueError, match=rf"project file {re.escape(str(path))}: {both_ways}"):
-        XedaProject.from_file(path)
-    design = _yaml_design(tmp_path / "design")
-    with pytest.raises(ProjectFileError, match=rf"{re.escape(str(path))}.*{both_ways}"):
+    with pytest.raises(ProjectError, match=rf"{re.escape(str(path))}.*{both_ways}"):
+        Project.load(path)
+    # The launcher reads a project to select a design from it.
+    with pytest.raises(ProjectError, match=rf"{re.escape(str(path))}.*{both_ways}"):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-            "vivado_synth", design, xedaproject=str(path)
+            "vivado_synth", "d", xedaproject=str(path)
         )
 
 
@@ -447,8 +453,8 @@ def test_a_project_design_entry_refuses_it_at_the_key(tmp_path):
         "    tb.top: tb\n    tb:\n      sources: []\n"
     )
 
-    with pytest.raises(ValueError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
-        XedaProject.from_file(path).get_design(0)
+    with pytest.raises(ProjectError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
+        Project.load(path)
 
 
 @pytest.mark.parametrize("origin", ["flow settings", "flow overrides", "design overrides"])
@@ -461,7 +467,7 @@ def test_an_api_mapping_refuses_it(tmp_path, origin):
     keyword = {
         "flow settings": "flow_settings",
         "flow overrides": "flow_overrides",
-        "design overrides": "design_overrides",
+        "design overrides": "design_updates",
     }[origin]
 
     with pytest.raises(Exception, match=r"both set keys of `(fpga|tb)`: write one of them"):

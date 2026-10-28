@@ -148,7 +148,7 @@ xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target ulx
 xeda run openfpgaloader examples/bluespec/uart_link/apps/ascon.yaml --target stlv7325
 ```
 
-Ascon-128a uses the Ascon design with the `ASCON128A=true` compile define. For example, add `--design-overrides rtl.defines.ASCON128A=true` to the Ascon command. The openFPGALoader flow defaults to SRAM (`write_flash: false`). The STLV target uses the openXC7 chain and its 50 MHz core clock generated from the physical 200 MHz input.
+Ascon-128a uses the Ascon design with the `ASCON128A=true` compile define. For example, add `--design-updates rtl.defines.ASCON128A=true` to the Ascon command. The openFPGALoader flow defaults to SRAM (`write_flash: false`). The STLV target uses the openXC7 chain and its 50 MHz core clock generated from the physical 200 MHz input.
 
 If you use the raw loader as a fallback, name the probe explicitly when multiple boards of one cable type are connected. The board-specific JTAG IDs, serial numbers, and UART device paths are retained in the local hardware records. For example, explicit raw SRAM programming uses `openFPGALoader -b arty_a7_100t --ftdi-serial SERIAL --write-sram IMAGE.bit`. Set `SERIAL` to the connected board's JTAG serial. Do not omit the serial when both Artix probes are connected.
 

@@ -243,7 +243,7 @@ it:
 
 ```bash
 xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml \
-    --design-overrides tb.defines.XEDA_INJECT_BUG=true
+    --design-updates tb.defines.XEDA_INJECT_BUG=true
 ```
 
 The cocotb tests run on the Verilog that bsc makes, with Verilator. They are in `tb/lean_*.py` and
@@ -280,7 +280,7 @@ xeda run vivado_synth examples/bluespec/uart_link/uart_link.yaml
 
 The macros `LL_LOGW` and `LL_LOGP` set the window and the pages: `W = 2^LL_LOGW` pages of
 `2^LL_LOGP` bytes. `LL_LOGW` is at most 7, and `LL_LOGP` is at least 4. The link refuses other
-values at elaboration. Set them with `rtl.defines` or with `--design-overrides`. `CLK_HZ` and
+values at elaboration. Set them with `rtl.defines` or with `--design-updates`. `CLK_HZ` and
 `BAUD` set the PHY.
 
 | target | board | tools | clock | rate | UART bridge |

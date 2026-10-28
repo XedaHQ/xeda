@@ -126,7 +126,7 @@ def test_the_bench_compares_exact_bytes(tmp_path, capfd):
     flipped = f"{int(match.group(1), 16) ^ 1:02x}"
     mutated = tmp_path / "LeanLinkFrames.bsv"
     mutated.write_text(text[: match.start(1)] + flipped + text[match.end(1) :], encoding="utf-8")
-    design = Design.from_file(DESIGN)
+    design = Design.load(DESIGN)
     design = with_updates(
         design, tb={"sources": [Source(mutated), Source(EXAMPLE / "tb" / "TbLeanLink.bsv")]}
     )
@@ -147,8 +147,8 @@ def test_the_link_refuses_sizes_it_cannot_build(define, value, message, tmp_path
     """`mkLeanLink` stops at elaboration: pages below 16 bytes have no room for the header, and
     a window above 128 does not fit the sequence fields (bsc rejects its types)."""
     require_bsc()
-    design = Design.from_file(DESIGN)
-    design = with_updates(design, rtl={"defines": {**design.rtl.defines, define: value}})
+    design = Design.load(DESIGN)
+    design = design.with_updates({"rtl": {"defines": {define: value}}})
     flow = DefaultRunner(tmp_path, display_results=False).run_flow(Bsc, design)
     captured = capfd.readouterr()
     assert flow is not None and not flow.succeeded, run_report(flow, captured)
@@ -170,7 +170,7 @@ def _run_cosim(tmp_path, capfd, monkeypatch, target, names):
     require_verilator()
     require_cocotb()
     monkeypatch.setenv("LEAN_SEEDS", "4")  # the stress test: 4 seeds
-    design = Design.from_file(COSIM, target=target)
+    design = Design.load(COSIM, target=target)
     flow = DefaultRunner(tmp_path, display_results=False).run_flow(
         Verilator, design, {"cocotb": {"testcase": names}}
     )

@@ -127,7 +127,7 @@ def commands(monkeypatch) -> list[list[str]]:
 def test_yosys_is_quiet_only_when_nothing_asks_for_more(settings, quiet, tmp_path, commands):
     """Yosys is quiet only when nothing asks for more."""
     (tmp_path / "top.v").write_text("module top(input a, output y); assign y = ~a; endmodule\n")
-    design = Design(name="top", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="top", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (synth,) = [cmd for cmd in commands if "-s" in cmd or "-c" in cmd]
     assert Path(synth[0]).name == "yosys"

@@ -56,9 +56,7 @@ def _design(tmp_path: Path, part: str = ECP5, flows=None) -> Design:
     if part == A100T:
         (root / "pins.xdc").write_text(PINS)
         sources.append("pins.xdc")
-    return Design(
-        name="top", design_root=root, rtl={"sources": sources, "top": "top"}, flows=flows or {}
-    )
+    return Design(name="top", root=root, rtl={"sources": sources, "top": "top"}, flows=flows or {})
 
 
 def _runner(tmp_path: Path, **kwargs) -> DefaultRunner:
@@ -254,7 +252,7 @@ def test_a_custom_board_named_in_two_cases_along_a_chain_is_two_boards(tmp_path)
         "nextpnr": {"board": "foo"},
     }
     design = _design(tmp_path, flows=flows)
-    (design.root_path / "boards.toml").write_text(
+    (design.root / "boards.toml").write_text(
         f'[Foo]\nfpga.part = "{ECP5}"\n[foo]\nfpga.part = "{ECP5}"\n'
     )
     with pytest.raises(FlowSettingsError) as raised:

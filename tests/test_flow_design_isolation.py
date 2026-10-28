@@ -78,7 +78,7 @@ def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
     (tmp_path / "top.vhd").write_text("entity top is generic (W : natural := 1); end;\n")
     design = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.vhd"], "top": "top", "parameters": {"W": 5}},
     )
     before = design.rtl_hash
@@ -110,7 +110,7 @@ def test_lib_paths_resolve_for_each_flow_against_its_own_design_root(flow_class,
         root.mkdir()
         (root / "tb.vhd").write_text("entity tb is end;\n")
         design = Design(
-            name="d", design_root=root, rtl={"sources": ["tb.vhd"], "top": "tb"}, tb={"top": "tb"}
+            name="d", root=root, rtl={"sources": ["tb.vhd"], "top": "tb"}, tb={"top": "tb"}
         )
         flow = flow_class(shared, design, tmp_path / "run" / name)
         flow.init()

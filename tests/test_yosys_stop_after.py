@@ -113,7 +113,7 @@ def _plan(tmp_path: Path, flow: str, *settings: str):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     return runner.plan(
         dict((name, cls) for cls, name in flow_classes())[flow],
-        Design.from_file(_design(tmp_path)),
+        Design.load(_design(tmp_path)),
         flow_settings=[*FLOWS[flow]["needs"], "stop_after=rtl", *settings],
     )
 

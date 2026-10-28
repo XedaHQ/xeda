@@ -35,7 +35,7 @@ def isolate_registration():
 def _design(tmp_path, flows=None):
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
-    return Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flows=flows or {})
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"}, flows=flows or {})
 
 
 def _runner(tmp_path, **kwargs):
@@ -289,9 +289,7 @@ def _fpga_design(tmp_path: Path, flows) -> Design:
     root = tmp_path / "design"
     root.mkdir(exist_ok=True)
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
-    return Design(
-        name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"}, flows=flows
-    )
+    return Design(name="top", root=root, rtl={"sources": ["top.v"], "top": "top"}, flows=flows)
 
 
 def test_a_chain_delivers_only_after_the_whole_graph_succeeded(tmp_path, toolchain, monkeypatch):

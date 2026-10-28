@@ -68,7 +68,7 @@ def verilog_design(
         (root / "tb.v").write_text("module tb(); endmodule\n")
     return Design(
         name=name,
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": top, "clocks": ["clk"], **rtl},
         **({"tb": {"sources": ["tb.v"], "top": "tb", **tb}} if tb is not None else {}),
     )
@@ -80,7 +80,7 @@ def netlist_design(root: Path, top: str) -> Design:
     (root / "n.json").write_text("{}\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [{"file": "n.json", "type": "JsonNetlist"}], "top": top},
     )
 
@@ -123,7 +123,7 @@ def mixed_design(root: Path, *vhdl: str) -> Design:
             (root / name).write_text(f"-- {name}\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v", *vhdl, "c.xdc"], "top": "top"},
     )
 
@@ -133,7 +133,7 @@ def bluespec_design(root: Path) -> Design:
     (root / "Top.bsv").write_text("package Top;\nendpackage\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["Top.bsv"], "top": "mkTop", "clocks": [{"port": "CLK"}]},
     )
 
@@ -259,7 +259,7 @@ def test_one_design_in_two_directories_has_one_identity(tmp_path):
         (root / "rom.mem").write_text("00\n")
         return Design(
             name="d",
-            design_root=root,
+            root=root,
             rtl={
                 "sources": ["rtl/top.v"],
                 "top": "top",
@@ -351,7 +351,7 @@ def test_the_clocks_are_complete_and_in_order(tmp_path):
 
     def plan(order):
         design = Design(
-            name="d", design_root=root, rtl={"sources": ["top.v"], "top": "top", "clocks": order}
+            name="d", root=root, rtl={"sources": ["top.v"], "top": "top", "clocks": order}
         )
         return launcher.plan("yosys", design).node("yosys")
 
@@ -371,7 +371,7 @@ def test_a_clock_written_in_full_or_by_its_port_is_one_configuration(tmp_path):
     root = tmp_path / "d"
     full = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk", "name": "clk"}]},
     )
     spelled_out = launcher.plan("yosys", full).node("yosys")
@@ -403,9 +403,7 @@ def test_the_language_values_are_the_validated_ones_whatever_the_spelling(tmp_pa
     root = tmp_path / "d"
     plain = launcher.plan("yosys", verilog_design(root)).node("yosys")
     design = verilog_design(root)
-    design = Design(
-        name="d", design_root=root, rtl=design.rtl.model_dump(), language={"vhdl": vhdl}
-    )
+    design = Design(name="d", root=root, rtl=design.rtl.model_dump(), language={"vhdl": vhdl})
     node = launcher.plan("yosys", design).node("yosys")
 
     assert configuration_of(plain)["language"] == {
@@ -429,7 +427,7 @@ def test_a_source_is_its_path_from_the_design_root_and_its_type_in_order(tmp_pat
         (root / name).write_text("// source\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": [
                 "rtl/top.v",
@@ -524,8 +522,8 @@ def test_a_design_with_a_target_and_the_same_design_without_it_have_one_configur
     )
     launcher = runner(tmp_path)
 
-    targeted = launcher.plan("yosys", Design.from_file(with_target, target="fast")).node("yosys")
-    plain = launcher.plan("yosys", Design.from_file(flat)).node("yosys")
+    targeted = launcher.plan("yosys", Design.load(with_target, target="fast")).node("yosys")
+    plain = launcher.plan("yosys", Design.load(flat)).node("yosys")
 
     assert targeted.run_path.parent.name == "fast" and plain.run_path.parent.name == "d"
     assert configuration_of(targeted) == configuration_of(plain)
@@ -596,7 +594,7 @@ def two_netlists(root: Path, name: str, top: str = "top") -> Design:
     (root / name).write_text("{}\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [{"file": name, "type": "JsonNetlist"}], "top": top},
     )
 

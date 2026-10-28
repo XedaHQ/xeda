@@ -21,7 +21,7 @@ from xeda.cli import cli
 from xeda.design import Design
 from xeda.flow import SimFlow
 from xeda.flow_runner import get_flow_class
-from xeda.xedaproject import XedaProject
+from xeda.project import Project
 
 from . import tool_utils
 
@@ -62,13 +62,12 @@ def _designs() -> list[tuple[str, str | None, Design]]:
     for path in _design_files():
         relative = path.relative_to(EXAMPLES_DIR).as_posix()
         if path.stem == "xedaproject":
-            project = XedaProject.from_file(path)
-            for index in range(len(project.designs)):
-                design = project.get_design(index)
-                assert design is not None
+            project = Project.load(path)
+            for name in project.designs:
+                design = project.design(name)
                 found.append((relative, design.name, design))
         else:
-            found.append((relative, None, Design.from_file(path)))
+            found.append((relative, None, Design.load(path)))
     return found
 
 

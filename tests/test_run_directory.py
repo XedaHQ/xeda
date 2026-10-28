@@ -123,7 +123,7 @@ def test_a_flow_constructed_without_a_launcher_deletes_nothing(tmp_path):
 
     work = _tree(tmp_path / "work")
     try:
-        flow = ProbePurge({}, Design(name="d", design_root=work, rtl={"sources": []}), work)
+        flow = ProbePurge({}, Design(name="d", root=work, rtl={"sources": []}), work)
         flow.run()
     finally:
         for name in (ProbePurge.name, ProbePurge.__name__):
@@ -144,7 +144,7 @@ def test_a_flow_s_run_directory_is_decided_once(tmp_path):
             pass
 
     work = _tree(tmp_path / "work")
-    design = Design(name="d", design_root=work, rtl={"sources": []})
+    design = Design(name="d", root=work, rtl={"sources": []})
     try:
         flow = ProbeOwner({}, design, work)
         assert flow.run_directory.run_root is None
@@ -161,7 +161,7 @@ def test_every_launched_run_directory_is_xedas(tmp_path, monkeypatch):
     """A launched flow always runs in a directory the launcher chose under its run root."""
     work = _tree(tmp_path / "work")
     monkeypatch.chdir(work)
-    design = Design(name="d", design_root=work, rtl={"sources": []})
+    design = Design(name="d", root=work, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     flow = runner.run_flow(_Probe, design, {})
     assert flow.run_path == (tmp_path / "xeda_run" / "d" / _Probe.name).resolve()
@@ -176,7 +176,7 @@ def test_a_design_name_that_names_no_directory_is_refused(tmp_path, name):
     from xeda.design import DesignValidationError
 
     with pytest.raises((ValueError, DesignValidationError), match="design name"):
-        Design(name=name, design_root=tmp_path, rtl={"sources": []})
+        Design(name=name, root=tmp_path, rtl={"sources": []})
 
 
 def test_a_design_named_dot_dot_deletes_nothing_beside_the_run_root(tmp_path, monkeypatch):
@@ -199,7 +199,7 @@ def test_a_run_directory_led_out_of_the_run_root_is_refused(tmp_path, monkeypatc
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, clean=True)
     run_root = runner.run_root
     (run_root / "d").symlink_to(elsewhere, target_is_directory=True)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     with pytest.raises(RunDirectoryError, match="xeda_run/d is a symbolic link"):
         runner.run_flow(_Probe, design, {})
     assert _files(elsewhere) == before
@@ -250,7 +250,7 @@ def test_a_design_file_in_the_flow_s_own_run_directory_is_refused(tmp_path):
     own = runner.run_root / "d" / _Probe.name
     own.mkdir(parents=True)
     (own / "src.v").write_text("module d; endmodule\n")
-    design = Design(name="d", design_root=own, rtl={"sources": ["src.v"], "top": "d"})
+    design = Design(name="d", root=own, rtl={"sources": ["src.v"], "top": "d"})
     with pytest.raises(RunDirectoryError, match="own run directory"):
         runner.run_flow(_Probe, design, {})
     assert (own / "src.v").read_text() == "module d; endmodule\n"
@@ -262,7 +262,7 @@ def test_a_file_a_setting_reads_in_the_flow_s_own_run_directory_is_refused(tmp_p
     own = runner.run_root / "d" / _Reads.name
     own.mkdir(parents=True)
     (own / "c.xdc").write_text("period 5\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     with pytest.raises(RunDirectoryError, match="own run directory"):
         runner.run_flow(_Reads, design, {"constraints": str(own / "c.xdc")})
     assert (own / "c.xdc").read_text() == "period 5\n"
@@ -298,7 +298,7 @@ def test_a_generated_file_goes_through_writable(tmp_path):
     run_dir.mkdir(parents=True)
     for name in ("settings.json", "results.json"):
         (run_dir / name).symlink_to(tmp_path / "mine.txt")
-    runner.run_flow(_Probe, Design(name="d", design_root=tmp_path, rtl={"sources": []}), {})
+    runner.run_flow(_Probe, Design(name="d", root=tmp_path, rtl={"sources": []}), {})
     assert (tmp_path / "mine.txt").read_text() == "mine\n"
     assert not (run_dir / "settings.json").is_symlink()
 

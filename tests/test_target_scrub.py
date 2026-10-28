@@ -1180,7 +1180,7 @@ def maker_design(tmp_path: Path, target: str) -> Design:
     (design / "d.yaml").write_text(
         'name: d\nrtl: {sources: [], top: "t"}\ntargets: {a: {}, b: {}}\n'
     )
-    return Design.from_file(design / "d.yaml", target=target)
+    return Design.load(design / "d.yaml", target=target)
 
 
 def test_the_scrub_of_a_launch_stays_in_its_own_target(tmp_path, confirmations):

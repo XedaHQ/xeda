@@ -50,7 +50,7 @@ class Gcd:
 
     def judged(self) -> dict[str, str]:
         """What a dry run says about each node, as `state` or `state: reason`."""
-        _plan, states = self.runner.plan_with_freshness("yosys", Design.from_file(self.file))
+        _plan, states = self.runner.plan_with_freshness("yosys", Design.load(self.file))
         return {
             name: state.state + (f": {state.reason}" if state.state == "unknown" else "")
             for name, state in states.items()
@@ -59,7 +59,7 @@ class Gcd:
     def launch(self) -> dict[str, bool]:
         """Launch `yosys`; return, by flow, whether the run was reused."""
         self.runner = DefaultRunner(self.runner.run_root, display_results=False)
-        flow = self.runner.run_flow("yosys", Design.from_file(self.file))
+        flow = self.runner.run_flow("yosys", Design.load(self.file))
         assert flow is not None and flow.succeeded
         return {f.name: f.reused for f in self.runner.launched}
 
@@ -129,7 +129,7 @@ def test_outputs_to_delivers_what_yosys_wrote_and_nothing_of_its_converter(tmp_p
     gcd = Gcd(tmp_path)
     out = tmp_path / "out"
     runner = DefaultRunner(tmp_path / "run", display_results=False, outputs_to=out)
-    flow = runner.run_flow("yosys", Design.from_file(gcd.file))
+    flow = runner.run_flow("yosys", Design.load(gcd.file))
     assert flow is not None and flow.succeeded
     delivered = sorted(p.name for p in out.rglob("*") if p.is_file())
     assert "netlist.v" in delivered

@@ -32,7 +32,7 @@ def _design(root: Path, outputs_to) -> Design:
     (root / "gen.py").write_text("")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["gen/top.v"],
             "top": "top",
@@ -62,29 +62,29 @@ def test_a_home_directory_shorthand_is_refused(tmp_path):
 @pytest.mark.parametrize("form", ["$DESIGN_ROOT/gen", "${DESIGN_ROOT}/gen", "$DESIGN_DIR/gen"])
 def test_the_design_root_variables_expand_to_the_root_of_the_design(tmp_path, form):
     design = _design(tmp_path, form)
-    generator = generator_of(design.rtl, root=design.root_path)
-    assert generator is not None and generator.outputs_to == design.root_path / "gen"
+    generator = generator_of(design.rtl, root=design.root)
+    assert generator is not None and generator.outputs_to == design.root / "gen"
 
 
 def test_an_absolute_outputs_to_is_accepted(tmp_path):
     elsewhere = tmp_path / "elsewhere"
     design = _design(tmp_path / "design", str(elsewhere))
-    generator = generator_of(design.rtl, root=design.root_path)
+    generator = generator_of(design.rtl, root=design.root)
     assert generator is not None and generator.outputs_to == elsewhere
 
 
 def test_a_location_below_the_start_directory_is_accepted_and_stays_to_expand(tmp_path):
     """No start directory exists when a design loads: the launch expands `$PWD`."""
     design = _design(tmp_path, "$PWD/out")
-    generator = generator_of(design.rtl, root=design.root_path)
+    generator = generator_of(design.rtl, root=design.root)
     assert generator is not None and str(generator.outputs_to) == "$PWD/out"
 
 
 def test_an_outputs_to_is_idempotent_through_a_dump(tmp_path):
     design = _design(tmp_path, "$DESIGN_ROOT/gen")
-    generator = generator_of(design.rtl, root=design.root_path)
+    generator = generator_of(design.rtl, root=design.root)
     assert generator is not None
-    with loading_in_design_root(design.root_path):
+    with loading_in_design_root(design.root):
         again = type(generator)(**generator.model_dump())
     assert again.outputs_to == generator.outputs_to
 

@@ -26,7 +26,7 @@ def _design(root: Path, sources, generated_sources=None, **recipe) -> Design:
     if generated_sources is not None:
         generator["generated_sources"] = generated_sources
     return Design(
-        name="d", design_root=root, rtl={"sources": sources, "top": "top", "generator": generator}
+        name="d", root=root, rtl={"sources": sources, "top": "top", "generator": generator}
     )
 
 
@@ -122,9 +122,9 @@ def test_the_design_root_spelling_of_a_generated_name_is_the_name(tmp_path):
 
 def test_a_dump_of_the_design_loads_again_to_the_same_declarations(tmp_path):
     design = _design(tmp_path, ["top.v", "gen/*.v", {"path": "gen/odd", "type": "Data"}], ["gen"])
-    dumped = design.model_dump(mode="json")
+    dumped = design.to_dict()
     assert dumped["rtl"]["sources"][1:] == ["gen/*.v", {"path": "gen/odd", "type": "Data"}]
-    again = Design(design_root=tmp_path, **{k: v for k, v in dumped.items() if k != "design_root"})
+    again = Design(root=tmp_path, **dumped)
     assert _described(again) == _described(design)
     assert again.rtl.sources == design.rtl.sources
 
@@ -150,7 +150,7 @@ def test_a_flow_that_takes_other_types_hashes_a_design_with_a_declaration(tmp_pa
     (root / "a.vhd").write_text("entity a is end;\n")
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={
             "sources": ["a.vhd", "gen/top.v"],
             "top": "a",
@@ -211,7 +211,7 @@ def test_a_generator_starts_in_its_cwd_as_the_check_reads_it(tmp_path):
     """`build/../work` is `work`: the generator starts there, also when `build` does not exist
     (on the remote host, only `work` is made)."""
     design = _design(tmp_path, ["gen/top.v"], cwd="build/../work")
-    generator = generator_of(design.rtl, root=design.root_path)
+    generator = generator_of(design.rtl, root=design.root)
     assert generator is not None
     storage = tmp_path / "storage"
     assert generator.working_directory(tmp_path, storage) == tmp_path / "work"
@@ -230,7 +230,7 @@ def test_a_dependency_generator_cwd_is_judged_against_the_root_of_the_dependency
     (tmp_path / "app" / "top.v").write_text("module top; endmodule\n")
     design = Design(
         name="app",
-        design_root=tmp_path / "app",
+        root=tmp_path / "app",
         rtl={"sources": ["top.v"], "top": "top"},
         dependencies=["dep/dep.yaml"],
     )

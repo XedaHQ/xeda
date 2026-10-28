@@ -228,7 +228,7 @@ def test_the_flow_reads_the_shipped_map_with_the_defines_and_registers_it(tmp_pa
     (design_root / "top.v").write_text(CLOCK_GATE)
     design = Design(
         name="top",
-        design_root=design_root,
+        root=design_root,
         rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     user = user_file(tmp_path, "name: tiny\nextends: tiny\n")

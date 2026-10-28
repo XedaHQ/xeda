@@ -1,58 +1,30 @@
+"""Find the project file: `xedaproject.yaml`, `xedaproject.yml` or `xedaproject.toml`.
+
+`xeda.project.Project` reads the file."""
+
 from __future__ import annotations
 
-import difflib
-import json
-import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Type, Union
 
-import attrs
-
-from .dataclass import SecondSpelling, model_with_allow_extra, removed_message
-from .design import DESIGN_FILE_FORMATS, Design, DesignValidationError
-from .utils import (
-    ConflictingKeys,
-    XedaException,
-    expand_hierarchy,
-    flows_table_problems,
-    restore_exception,
-    tomllib,
-)
-from .yaml_loader import load_yaml
-
-log = logging.getLogger(__name__)
-
+from .errors import ProjectError
 
 PROJECT_FILE_NAMES = ("xedaproject.yaml", "xedaproject.yml", "xedaproject.toml")
-
-
-class ProjectFileError(XedaException):
-    """The error for a project file (`xedaproject.yaml`, `.yml` or `.toml`) that cannot be found,
-    opened, parsed or used.
-
-    `code` is the code of the `xeda.errors.ProjectError` that it becomes."""
-
-    def __init__(self, message: str, *, code: str = "invalid_project") -> None:
-        super().__init__(message)
-        self.code = code
-
-    def __reduce__(self) -> tuple[Any, ...]:  # an exception crosses a process boundary by pickling
-        return (restore_exception, (type(self), self.args, dict(self.__dict__)))
 
 
 def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
     """Return the sole conventional project file in `directory`, if present.
 
-    Raise `ProjectFileError` when `directory` holds more than one of `PROJECT_FILE_NAMES`.
+    Raise `ProjectError` (`several_project_files`) when `directory` holds more than one of
+    `PROJECT_FILE_NAMES`.
     """
     directory = Path(directory)
     found = [directory / name for name in PROJECT_FILE_NAMES if (directory / name).exists()]
     if len(found) > 1:
         names = ", ".join(path.name for path in found)
-        raise ProjectFileError(
+        raise ProjectError(
             f"Multiple project files found in {directory}: {names}; keep one project file",
             code="several_project_files",
+            path=directory,
         )
     return found[0] if found else None
 
@@ -64,213 +36,14 @@ def resolve_project_file(
 
     It is the file `given` (which must exist; `""` is no file given), else the sole conventional
     project file in `directory`, else `None`. A missing file `given` and an ambiguous directory
-    raise `ProjectFileError`."""
+    raise `ProjectError`."""
     if given:
         path = Path(given)
         if not path.exists():
-            raise ProjectFileError(
-                f'Cannot open project file "{given}": no such file', code="project_file_not_found"
+            raise ProjectError(
+                f'Cannot open project file "{given}": no such file',
+                code="project_file_not_found",
+                path=path,
             )
         return path
     return find_default_xedaproject(directory)
-
-
-#: The top-level keys of a project file: its designs and the settings of its flows.
-PROJECT_KEYS = ("designs", "flows")
-DESIGN_KEYS = ("designs",)
-#: The singular spellings that a project file refuses, with the key to use.
-REMOVED_PROJECT_KEYS = {
-    "design": SecondSpelling("`designs`"),
-    "flow": SecondSpelling("`flows`"),
-}
-
-
-@attrs.define
-class XedaProject:
-    # TODO: workspace options
-    workspace: Dict[str, Any] = {}
-    designs: List[Dict[str, Any]] = []
-    # Keep the raw dict: flows are discovered dynamically.
-    flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
-    design_cls: Type[Design] = Design
-    #: The directory of the project file. Every relative path in the project resolves against it:
-    #: a design entry's `design_root` defaults to it, and a relative one is relative to it. A
-    #: relative `root_path` is made absolute once, here, against the working directory.
-    root_path: Path = attrs.field(kw_only=True, converter=lambda p: Path(p).absolute())
-    # Applied to a design once, when it is selected (`Design.target_selected`), as for a design
-    # file. The entries of `designs` stay as written.
-    design_overrides: dict[str, Any] = {}
-
-    @classmethod
-    def from_file(
-        cls: Type[XedaProject],
-        file: Union[str, Path],
-        skip_designs: bool = False,
-        design_overrides: Union[Dict[str, Any], None] = None,
-        design_allow_extra: bool = False,
-        design_remove_extra: Union[List[str], None] = None,
-    ) -> XedaProject:
-        """Load a project file."""
-        if design_overrides is None:
-            design_overrides = {}
-        if design_remove_extra is None:
-            design_remove_extra = []
-        if not isinstance(file, Path):
-            file = Path(file)
-        # The suffix table of design files: case-sensitive, and `.yml` is YAML too.
-        fmt = DESIGN_FILE_FORMATS.get(file.suffix)
-        if fmt is None:
-            hint = (
-                f"suffixes are case-sensitive, did you mean {file.suffix.lower()!r}?"
-                if file.suffix.lower() in DESIGN_FILE_FORMATS
-                else "a project file is TOML, JSON or YAML "
-                f"({', '.join(repr(s) for s in DESIGN_FILE_FORMATS)})"
-            )
-            raise ValueError(f"project file {file}: file suffix {file.suffix!r}: {hint}")
-        if fmt == "yaml":
-            data = load_yaml(file)
-        else:
-            with open(file, "rb" if fmt == "toml" else "r") as f:
-                if fmt == "toml":
-                    data = tomllib.load(f)
-                else:
-                    data = json.load(f)
-        if not isinstance(data, dict) or not data:
-            raise ValueError(f"Invalid project file {file}: it must hold a nonempty mapping")
-        # The design entries are expanded where they are used, one by one, whether `design` is a
-        # table or a list of tables.
-        entries = {key: data.pop(key) for key in DESIGN_KEYS if key in data}
-        try:
-            data = expand_hierarchy(data)
-        except ConflictingKeys as e:
-            raise ValueError(f"project file {file}: {e}") from e
-        # After the expansion: `flow.yosys_fpga.flatten: true` is a `flow` key too.
-        for key, replacement in REMOVED_PROJECT_KEYS.items():
-            if key in data:
-                raise ProjectFileError(
-                    f"project file {file}: {removed_message(key, replacement, None)}",
-                    code="removed_alias",
-                )
-        if any(key in data for key in DESIGN_KEYS):
-            raise ValueError(
-                f"project file {file}: a dotted key cannot reach into the design entries: "
-                "write each one under `designs:`"
-            )
-        data.update(entries)
-        unknown = [key for key in data if key not in PROJECT_KEYS]
-        if unknown:
-            hints = [
-                f"{key!r}: did you mean {close[0]!r}?"
-                for key in unknown
-                if (close := difflib.get_close_matches(str(key), PROJECT_KEYS, n=1))
-            ]
-            raise ValueError(
-                f"project file {file}: unknown key(s) "
-                f"{', '.join(repr(key) for key in unknown)}; a project has "
-                f"{', '.join(repr(key) for key in PROJECT_KEYS)}"
-                + (f" ({'; '.join(hints)})" if hints else "")
-                + ". Write a setting of a flow as flows.<flow>.<setting>."
-            )
-        designs = None
-        if not skip_designs:
-            designs = data.get("designs")
-        if designs:
-            if not isinstance(designs, list):
-                designs = [designs]
-
-        flows = data.get("flows")
-        problems = flows_table_problems(flows)
-        if problems:
-            raise ValueError(
-                "Project " + "; ".join(f"`{path}` {problem}" for path, problem in problems)
-            )
-        flows = flows or {}
-
-        design_cls = Design
-        if designs is not None:
-            for i, d in enumerate(designs):
-                if not isinstance(d, dict):
-                    raise ValueError(
-                        f"Design entry {i} must be a mapping (table), got "
-                        f"{type(d).__name__}: {d!r}"
-                    )
-            # A design entry is a table of dotted keys, as in a design file. After expansion a key
-            # to remove has its field name.
-            expanded = []
-            for i, d in enumerate(designs):
-                try:
-                    expanded.append(design_cls.expanded(d))
-                except DesignValidationError as e:
-                    raise ValueError(
-                        f"project file {file}: design entry {i}"
-                        + (f" ({d['name']})" if "name" in d else "")
-                        + ": "
-                        + "; ".join(str(message) for _, message, *_ in e.errors)
-                    ) from e
-            designs = expanded
-            if design_allow_extra:
-                design_cls = model_with_allow_extra(design_cls)
-            else:
-                for d in designs:
-                    design_cls.remove_keys(d, design_remove_extra)
-        else:
-            designs = []
-
-        try:
-            return cls(
-                designs=designs,
-                flows=flows,
-                design_cls=design_cls,
-                root_path=file.parent.resolve(),
-                design_overrides=dict(design_overrides),
-            )
-        except Exception as e:
-            log.error("Error processing project file: %s", file.absolute())
-            raise e from None
-
-    @property
-    def design_names(self) -> List[str]:
-        """Return the names of the designs as loaded. An override of `name` renames each."""
-        renamed = "name" in self.design_overrides
-        return [
-            str(self.design_overrides["name"] if renamed else d.get("name"))
-            for d in self.designs
-            if renamed or "name" in d
-        ]
-
-    def design_index(self, name_or_idx: Union[str, int, None] = None) -> int | None:
-        """Return the position of the design with that name (the first, if several have it) or at
-        that position (the first by default); None if there is none."""
-        if name_or_idx is None:
-            name_or_idx = 0
-        if isinstance(name_or_idx, str):
-            if name_or_idx not in self.design_names:
-                return None
-            name_or_idx = self.design_names.index(name_or_idx)
-        if len(self.designs) <= name_or_idx:
-            return None
-        return name_or_idx
-
-    def get_design(
-        self, name_or_idx: Union[str, int, None] = None, target: str | None = None
-    ) -> Design | None:
-        """Return the project's design with that name or at that position (the first by default).
-
-        `target` is selected among its `targets` as `Design.from_file` selects one. Return None if
-        there is no such design."""
-        index = self.design_index(name_or_idx)
-        if index is None:
-            return None
-        data = self.design_cls.target_selected(self.designs[index], target, self.design_overrides)
-        # A relative `design_root` of an entry is relative to the project file's directory. An
-        # entry without one has that directory as its root; any value but a path is an error.
-        design_root = data.get("design_root")
-        if design_root is None:
-            data["design_root"] = self.root_path
-        elif isinstance(design_root, (str, os.PathLike)) and os.fspath(design_root):
-            data["design_root"] = self.root_path / design_root
-        else:
-            raise DesignValidationError(
-                [("design_root", f"not a path: {design_root!r}", "", "value_error")], data=data
-            )
-        return self.design_cls(**data)

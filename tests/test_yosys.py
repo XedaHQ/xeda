@@ -217,7 +217,7 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
     settings = _nested(settings)
     design = Design(
         name="spaced",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inc dir/defs.vh", "rtl dir/top.v"], "top": "top"},
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, settings)
@@ -250,9 +250,7 @@ def _synthesize_src_design(flow_cls, script_format, tmp_path, **settings):
         pytest.skip("this yosys has no TCL support")
     root = tmp_path / "src-attributes"
     _write(root / "top.v", SRC_ATTRIBUTE_DESIGN)
-    design = Design(
-        name="src-attributes", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="src-attributes", root=root, rtl={"sources": ["top.v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(flow_cls, design, settings)
     assert flow is not None and flow.succeeded
     return flow
@@ -328,7 +326,7 @@ def _synthesize_for_vivado(tmp_path, source=EDIF_DESIGN, **settings):
     require_yosys()
     root = tmp_path / "edif"
     _write(root / "top.v", source)
-    design = Design(name="edif", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="edif", root=root, rtl={"sources": ["top.v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(
         YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}, **settings}
     )
@@ -443,7 +441,7 @@ def test_yosys_fpga_default_nettype_none_frontend_matrix(flags, tmp_path):
     source = TESTS_DIR / "resources" / "yosys" / "ps7.v"
     design = Design(
         name="deferred-primitive",
-        design_root=source.parent,
+        root=source.parent,
         rtl={"sources": [source.name], "top": "ps7_axi_blinky"},
     )
     flow = DefaultRunner(tmp_path / "run").run_flow(
@@ -463,9 +461,7 @@ def test_yosys_fpga_default_nettype_none_rejects_undeclared_wire(tmp_path):
         "`default_nettype none\n"
         "module top(input I, output O); assign O = genuinely_undeclared; endmodule\n",
     )
-    design = Design(
-        name="undeclared-wire", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="undeclared-wire", root=root, rtl={"sources": ["top.v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(
         YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}}
     )
@@ -486,9 +482,7 @@ def test_yosys_fpga_xilinx_primitive_frontends(tmp_path):
         "  PS7 ps7();\n"
         "endmodule\n",
     )
-    design = Design(
-        name="xilinx-primitives", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="xilinx-primitives", root=root, rtl={"sources": ["top.v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(
         YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}}
     )
@@ -507,9 +501,7 @@ def test_yosys_fpga_gowin_primitives_are_known_at_hierarchy_check(family, tmp_pa
         "  DFF ff(.D(d), .CLK(clk), .Q(q));\n"
         "endmodule\n",
     )
-    design = Design(
-        name="gowin-primitives", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
-    )
+    design = Design(name="gowin-primitives", root=root, rtl={"sources": ["top.v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(
         YosysFpga, design, {"fpga": {"vendor": "gowin", "family": "gowin", "device": family}}
     )
@@ -535,7 +527,7 @@ def test_yosys_writes_its_json_with_whitebox_library_cells_in_the_design(
         "module top(input clk, input a, output reg q);\n"
         "  wire n;\n  leaf u(.a(a), .y(n));\n  always @(posedge clk) q <= n;\nendmodule\n",
     )
-    design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="top", root=root, rtl={"sources": ["top.v"], "top": "top"})
     settings = {
         "verilog_lib": [library],
         "flatten": False,
@@ -567,7 +559,7 @@ def test_yosys_fpga_xilinx_library_does_not_hide_unknown_modules(tmp_path):
     root = tmp_path / "unknown-xilinx-primitive"
     _write(root / "top.v", "module top; XEDA_UNKNOWN_PRIMITIVE missing(); endmodule\n")
     design = Design(
-        name="unknown-xilinx-primitive", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
+        name="unknown-xilinx-primitive", root=root, rtl={"sources": ["top.v"], "top": "top"}
     )
     flow = DefaultRunner(tmp_path / "run").run_flow(
         YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}}
@@ -642,7 +634,7 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
         "  bb u_bb(.a(a[0]), .y(y));\n"
         "endmodule\n",
     )
-    design = Design(name="d", design_root=root, rtl={"sources": ["rtl/top[1].v"], "top": "top"})
+    design = Design(name="d", root=root, rtl={"sources": ["rtl/top[1].v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(Yosys, design, settings)
     assert flow is not None and flow.succeeded
     assert "DFF_X" in (flow.run_path / "net[1].v").read_text()
@@ -660,9 +652,7 @@ def test_yosys_reads_vhdl_from_a_path_with_spaces(tmp_path):
         "architecture rtl of inv is begin y <= not a; end;\n",
     )
     (root / "vhdl libs").mkdir()
-    design = Design(
-        name="inv", design_root=root, rtl={"sources": ["vhdl dir/inv.vhd"], "top": "inv"}
-    )
+    design = Design(name="inv", root=root, rtl={"sources": ["vhdl dir/inv.vhd"], "top": "inv"})
     settings = {"ghdl": {"lib_paths": [(None, str(root / "vhdl libs"))]}}
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, settings)
     assert flow is not None and flow.succeeded
@@ -690,7 +680,7 @@ def test_yosys_reads_systemverilog_from_a_path_with_spaces(tmp_path):
     )
     design = Design(
         name="svtop",
-        design_root=root,
+        root=root,
         rtl={"sources": ["inc dir/defs.svh", "sv dir/top.sv"], "top": "top"},
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
@@ -718,7 +708,7 @@ def test_yosys_elaborates_a_package_that_another_systemverilog_file_declares(tmp
     )
     design = Design(
         name="pkgtop",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["pkg.sv", "inv.sv", "top.sv"], "top": "top"},
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
@@ -748,7 +738,7 @@ def test_yosys_reads_verilog_with_the_systemverilog_of_a_design_in_one_read_slan
     )
     design = Design(
         name="mixed",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["inc/defs.vh", "gate.v", "pkg.sv", "top.sv"], "top": "top"},
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
@@ -791,7 +781,7 @@ def test_yosys_sets_every_type_of_parameter_through_read_slang(tmp_path, script_
     sources = [top_file] if top_file == "top.sv" else [top_file, "other.sv"]
     design = Design(
         name="params",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={
             "sources": sources,
             "top": "top",
@@ -829,7 +819,7 @@ def test_a_tcl_script_gives_slang_a_string_parameter_with_whitespace(tmp_path, s
     _write(tmp_path / "top.sv", PARAMETERIZED_TOP)
     design = Design(
         name="params",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["top.sv"], "top": "top", "parameters": {"S": "a b$"}},
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(Yosys, design, {})
@@ -859,7 +849,7 @@ def test_yosys_resolves_an_instance_of_a_verilog_lib_module_for_slang(tmp_path, 
         "module top(input logic a, output logic y);\n  gate u_gate(.a(a), .y(y));\nendmodule\n",
     )
     design = Design(
-        name="withlib", design_root=tmp_path, rtl={"sources": ["gate.v", "top.sv"], "top": "top"}
+        name="withlib", root=tmp_path, rtl={"sources": ["gate.v", "top.sv"], "top": "top"}
     )
     flow = DefaultRunner(tmp_path / "xeda run").run_flow(
         Yosys, design, {"verilog_lib": ["libcell.v"]}
@@ -891,7 +881,7 @@ def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_
     )
     design = Design(
         name="inv",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["inv.vhd"], "top": "inv", "parameters": {"W": 5}},
     )
     before = (design.model_dump(mode="json"), design.rtl_fingerprint, design.rtl_hash)
@@ -921,7 +911,7 @@ def test_yosys_elaborates_a_vhdl_top_with_a_constraint_file_listed_after_it(tmp_
     _write(tmp_path / "top.sdc", "# constraints\n")
     design = Design(
         name="inv",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["inv.vhd", "top.sdc"], "top": "inv", "parameters": {"W": 5}},
     )
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, {})
@@ -941,7 +931,7 @@ def test_yosys_fpga_hands_ghdl_each_vhdl_file_once(tmp_path):
     `GhdlSynth.synth_args` for a one-shot elaboration, which carries every file again, so GHDL
     analyzed each twice (`ghdl ... sqrt.vhdl sqrt.vhdl -e sqrt`)."""
     require_yosys_ghdl_plugin()
-    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(tmp_path).run_flow(
         YosysFpga, design, {"fpga": {"part": "LFE5U-25F-6BG381C"}}
     )
@@ -965,7 +955,7 @@ def test_yosys_finds_a_header_listed_after_the_verilog_source(tmp_path):
     )
     design = Design(
         name="headers",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["rtl/top.v", "include/defs.vh"], "top": "top"},
     )
     flow = DefaultRunner(tmp_path / "runs").run_flow(Yosys, design, {})
@@ -977,7 +967,7 @@ def test_a_design_with_no_source_the_flow_reads_is_refused_when_planned(flow, tm
     """A netlist in a format yosys does not read is passed to no command: the script would
     read nothing, and `hierarchy` would fail inside the tool. Planning refuses it by name."""
     _write(tmp_path / "top.edf", "(edif top)\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.edf"], "top": "top"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.edf"], "top": "top"})
     with pytest.raises(FlowSettingsException, match=rf"{flow} reads none of the design's sources"):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -989,9 +979,7 @@ def test_a_language_the_flow_cannot_read_is_refused_by_name_when_planned(flow, t
     modules, and the synthesis would go on with what is left."""
     _write(tmp_path / "top.v", "module top; endmodule\n")
     _write(tmp_path / "Top.sc", "// not for yosys\n")
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["top.v", "Top.sc"], "top": "top"}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v", "Top.sc"], "top": "top"})
     with pytest.raises(
         FlowSettingsException,
         match=rf"{flow} cannot read the design's Chisel source\(s\) .*Top\.sc",
@@ -1005,9 +993,7 @@ def test_a_bluespec_source_among_verilog_ones_is_converted_when_planned(flow, tm
     """bsc converts the Bluespec source, and the Verilog one passes through it."""
     _write(tmp_path / "top.v", "module top; endmodule\n")
     _write(tmp_path / "Top.bsv", "// for bsc\n")
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["top.v", "Top.bsv"], "top": "top"}
-    )
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v", "Top.bsv"], "top": "top"})
     plan = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
     assert [node.name for node in plan.nodes] == ["bsc", flow]
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -1020,7 +1006,7 @@ def test_a_design_of_the_types_the_flow_reads_is_planned_whatever_else_it_lists(
     names = ["defs.vh", "pkg.svh", "a.v", "b.sv", "c.vhd", "top.sdc", "rom.mem"]
     for name in names:
         _write(tmp_path / name, "// a source\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": names, "top": "a"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": names, "top": "a"})
     planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
     assert [node.name for node in planned.nodes] == [flow]
 
@@ -1075,8 +1061,8 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     `sequential.latch_map_file` and `techmap_files`) names a file in the design root, and so does the
     `clockgate_map` of `yosys_fpga`. The settings of `yosys` keep the path as the user wrote it:
     `asic_values` gives the resolved path."""
-    design = Design.from_file(TESTS_DIR / "resources" / "design0" / "design0.toml")
-    root = design.design_root
+    design = Design.load(TESTS_DIR / "resources" / "design0" / "design0.toml")
+    root = design.root
     flow = Yosys(
         Yosys.Settings(
             liberty=["lib/cells.lib"],

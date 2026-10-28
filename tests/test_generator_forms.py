@@ -26,7 +26,7 @@ def _load(root: Path, generator: object) -> Design:
     root.mkdir(parents=True, exist_ok=True)
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": [{"path": "made.v"}], "top": "top", "generator": generator},
     )
 
@@ -67,7 +67,7 @@ def test_the_forms_in_a_design_file_are_the_tables(tmp_path):
             f"name: d\nrtl:\n  sources: [{{path: made.v}}]\n  top: top\n  generator: {text}\n"
         )
         (tmp_path / "made.v").write_text("module top; endmodule\n")
-        design = Design.from_file(file)
+        design = Design.load(file)
         assert dict(design.rtl.generator or {}) == expected
 
 
@@ -106,7 +106,7 @@ def test_the_model_of_a_shell_recipe_runs_the_text_in_a_shell(tmp_path):
         tmp_path / "design",
         "printf 'module top; endmodule\\n' > made.v && printf '%s' \"$DESIGN_ROOT\" > root.txt",
     )
-    root = design.root_path
+    root = design.root
     storage = _generate(design, tmp_path)
     assert (storage / "made.v").read_text() == "module top; endmodule\n"
     assert (storage / "root.txt").read_text() == str(root)
@@ -126,7 +126,7 @@ def test_a_shell_recipe_runs_and_is_identified_by_one_shell(tmp_path, monkeypatc
     other_sh.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     design = _load(tmp_path / "design", "printf 'module top; endmodule\\n' > made.v")
-    root = design.root_path
+    root = design.root
     storage = _generate(design, tmp_path)
     assert (storage / "made.v").read_text() == "module top; endmodule\n"
     assert not (bin_dir / "sh.ran").exists()
@@ -174,7 +174,7 @@ def test_a_dependency_does_not_switch_cocotb_on_for_a_testbench_that_refused_it(
     design = merged_design(
         Design(
             name="d",
-            design_root=root,
+            root=root,
             rtl={"sources": ["lib.v"], "top": "lib"},
             tb={
                 "sources": [{"file": "my_tests.py", "type": "Cocotb"}],
@@ -188,7 +188,7 @@ def test_a_dependency_does_not_switch_cocotb_on_for_a_testbench_that_refused_it(
     assert design.tb.cocotb is None and design.dependencies == ()
     alone = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["lib.v"], "top": "lib"},
         tb={"sources": [{"file": "my_tests.py", "type": "Cocotb"}], "top": "lib", "cocotb": False},
     )
@@ -201,7 +201,7 @@ def test_a_cocotb_source_from_a_dependency_does_not_switch_cocotb_on(tmp_path):
     design = merged_design(
         Design(
             name="d",
-            design_root=root,
+            root=root,
             rtl={"sources": ["lib.v"], "top": "lib"},
             dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
         ),

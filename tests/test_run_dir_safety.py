@@ -228,7 +228,7 @@ def test_a_run_root_holding_files_is_refused_whatever_they_say(tmp_path, monkeyp
     with pytest.raises(RunRootError) as refused:
         DefaultRunner(root, display_results=False).run(
             "vivado_synth",
-            design=Design.from_file(SQRT / "sqrt.yaml"),
+            design=Design.load(SQRT / "sqrt.yaml"),
             flow_settings=XILINX_SETTINGS,
         )
 
@@ -244,7 +244,7 @@ def test_an_earlier_xeda_runs_directory_is_adopted(tmp_path, monkeypatch, option
     goes ahead there, `clean` emptying the flow's run directory as before."""
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
-    design = Design.from_file(SQRT / "sqrt.yaml")
+    design = Design.load(SQRT / "sqrt.yaml")
     first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
     assert first is not None and first.succeeded
     root = tmp_path / "xeda_run"
@@ -372,7 +372,7 @@ def test_a_name_that_would_leave_the_run_root_is_refused(tmp_path, name):
     from xeda.design import DesignValidationError
 
     with pytest.raises((ValueError, DesignValidationError), match="design name"):
-        Design(name=name, design_root=tmp_path, rtl={"sources": []})
+        Design(name=name, root=tmp_path, rtl={"sources": []})
     with pytest.raises(RunDirectoryError) as refused:
         _launcher(tmp_path).get_flow_run_path(name, "vivado_synth")
 
@@ -414,7 +414,7 @@ def test_a_run_directory_linked_out_of_the_run_root_is_refused(tmp_path, monkeyp
     with pytest.raises(XedaException) as refused:
         launcher.run(
             "vivado_synth",
-            design=Design.from_file(SQRT / "sqrt.yaml"),
+            design=Design.load(SQRT / "sqrt.yaml"),
             flow_settings=XILINX_SETTINGS,
         )
 
@@ -459,7 +459,7 @@ def test_a_run_directory_that_is_a_link_to_another_directory_in_the_run_root_is_
     with pytest.raises(RunDirectoryError) as refused:
         launcher.run(
             "vivado_synth",
-            design=Design.from_file(SQRT / "sqrt.yaml"),
+            design=Design.load(SQRT / "sqrt.yaml"),
             flow_settings=XILINX_SETTINGS,
         )
     assert str(link) in str(refused.value)
@@ -478,7 +478,7 @@ def test_a_run_directory_that_is_a_link_to_a_run_directory_beside_it_is_used(tmp
     (root / "sqrt" / "vivado_synth").symlink_to(target, target_is_directory=True)
 
     flow = launcher.run(
-        "vivado_synth", design=Design.from_file(SQRT / "sqrt.yaml"), flow_settings=XILINX_SETTINGS
+        "vivado_synth", design=Design.load(SQRT / "sqrt.yaml"), flow_settings=XILINX_SETTINGS
     )
 
     assert flow is not None and flow.succeeded
@@ -490,7 +490,7 @@ def test_a_dependency_directory_linked_out_of_the_run_root_is_refused(tmp_path, 
     a link there to a directory elsewhere is refused before it is cleaned or written, and what
     the link leads to is untouched."""
     dep, top = toy_flows
-    design = Design.from_file(SQRT / "sqrt.yaml")
+    design = Design.load(SQRT / "sqrt.yaml")
     first = _launcher(tmp_path).launch_flow(top, design, {})
     dep_dir = first.run_path.parent / dep.name
     assert dep_dir.is_dir() and dep_dir != first.run_path
@@ -580,7 +580,7 @@ def test_scrub_leaves_a_link_to_another_directory_in_the_run_root_and_what_it_le
 def _vivado_synth(run_dir: Path) -> VivadoSynth:
     """A flow built directly -- no launcher -- to run in `run_dir`."""
     return VivadoSynth(
-        VivadoSynth.Settings(**XILINX_SETTINGS), Design.from_file(SQRT / "sqrt.yaml"), run_dir
+        VivadoSynth.Settings(**XILINX_SETTINGS), Design.load(SQRT / "sqrt.yaml"), run_dir
     )
 
 
@@ -609,7 +609,7 @@ def test_clean_empties_a_run_directory_xeda_made(tmp_path, monkeypatch):
     directories included -- before the next run; the run goes ahead and the run root stays
     marked."""
     use_fake_tools(monkeypatch)
-    design = Design.from_file(SQRT / "sqrt.yaml")
+    design = Design.load(SQRT / "sqrt.yaml")
     first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
     assert first is not None and first.succeeded
     run_dir = first.run_path
@@ -637,7 +637,7 @@ def test_every_run_directory_xeda_makes_lies_under_a_marked_run_root(tmp_path, t
     root = tmp_path / "xeda_run"
     assert not root.exists(), "the run root is made when first used"
 
-    flow = launcher.launch_flow(top, Design.from_file(SQRT / "sqrt.yaml"), {})
+    flow = launcher.launch_flow(top, Design.load(SQRT / "sqrt.yaml"), {})
 
     assert flow.succeeded
     for name in (RUN_ROOT_MARKER, ".gitignore", "CACHEDIR.TAG"):
@@ -667,7 +667,7 @@ def _outside(tmp_path: Path, name: str) -> Path:
 def _verilator_design(tmp_path: Path) -> Design:
     source = tmp_path / "top.v"
     source.write_text("module top; endmodule\n")
-    return Design(name="sqrt", rtl={"sources": [str(source)], "top": "top"}, design_root=tmp_path)
+    return Design(name="sqrt", rtl={"sources": [str(source)], "top": "top"}, root=tmp_path)
 
 
 @pytest.mark.parametrize("where", ["../x", "absolute"])
@@ -709,7 +709,7 @@ def test_a_bsc_work_directory_outside_the_run_directory_is_refused(
         name="sqrt",
         rtl={"sources": [str(source)], "top": "mkTop"},
         tb={"sources": [str(source)], "top": "mkTop"},
-        design_root=tmp_path,
+        root=tmp_path,
     )
 
     with pytest.raises(FlowSettingsError) as refused:
@@ -735,7 +735,7 @@ def test_a_diamond_impl_folder_outside_the_run_directory_is_refused(tmp_path, mo
     with pytest.raises(FlowSettingsError) as refused:
         launcher.launch_flow(
             DiamondSynth,
-            Design.from_file(SQRT / "sqrt.yaml"),
+            Design.load(SQRT / "sqrt.yaml"),
             settings | {"impl_folder": "../impl" if where == "../impl" else str(outside)},
         )
 
@@ -766,7 +766,7 @@ def test_a_diamond_impl_folder_is_deleted_exactly_as_checked(tmp_path, monkeypat
     try:
         launcher.launch_flow(
             DiamondSynth,
-            Design.from_file(SQRT / "sqrt.yaml"),
+            Design.load(SQRT / "sqrt.yaml"),
             settings | {"impl_folder": impl_folder},
         )
     except Exception:  # pylint: disable=broad-except
@@ -794,7 +794,7 @@ def test_a_work_directory_a_tool_left_as_a_link_is_removed_as_a_link(tmp_path, m
         name="sqrt",
         rtl={"sources": [str(source)], "top": "tb"},
         tb={"top": "tb"},
-        design_root=tmp_path,
+        root=tmp_path,
     )
 
     launcher.launch_flow(VivadoSim, design, {})
@@ -892,7 +892,7 @@ def test_generated_files_replace_a_link_rather_than_write_through_it(tmp_path, m
     `settings.json`, `results.json` -- is replaced by the new file; the file it pointed to, the
     user's, is untouched."""
     use_fake_tools(monkeypatch)
-    design = Design.from_file(SQRT / "sqrt.yaml")
+    design = Design.load(SQRT / "sqrt.yaml")
     first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
     assert first is not None and first.succeeded
     canaries = {}

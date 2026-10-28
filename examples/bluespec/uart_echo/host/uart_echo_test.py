@@ -55,7 +55,7 @@ Proving that the FPGA is in the loop (--transform): a plain echo cannot tell a d
 A design built with the macro ECHO_TRANSFORM returns f(b) = reverseBits(b) ^ 0xB1 for every byte b,
 and --transform makes this tool expect that. f(b) != b for every byte (see ECHO_KEY), so a wire
 loopback fails on the first byte and the report says so. Build the design with
-`--design-overrides rtl.defines.ECHO_TRANSFORM=1`:
+`--design-updates rtl.defines.ECHO_TRANSFORM=1`:
 
     python3 examples/bluespec/uart_echo/host/uart_echo_test.py \\
         --port /dev/cu.usbserial-<serial> --baud 3000000 --transform

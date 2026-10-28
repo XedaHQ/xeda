@@ -144,7 +144,7 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
     from xeda.design import Design
 
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
+        name="d", root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
     )
     runner = Dse(
         Watching,
@@ -180,10 +180,9 @@ def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
         run_root=tmp_path / "run",
         flow_settings=["no_such_setting=1"],  # refused at planning, before any connection
         xedaproject=None,
-        design_overrides=[],
+        design_updates=[],
         design_allow_extra=False,
         target=None,
-        select_design_in_project=None,
         hashed_run_dirs=False,
         clean=False,
         rebuild_all=False,

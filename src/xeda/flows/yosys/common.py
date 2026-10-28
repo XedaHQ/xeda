@@ -813,6 +813,7 @@ class YosysSynthesisBase(YosysBase):
             "`abc.mapper: abc_new` in `yosys`, the script works on a GIA and must end in a mapped "
             "one (`&nf`), and it replaces the scripts of wrapped operators. Advanced: a "
             "wrong script silently produces a poor or invalid netlist.",
+            json_schema_extra={"x-xeda-inline-prefix": "+"},
         )
 
         post_synth_rename: List[str] = Field(
@@ -964,9 +965,7 @@ class YosysSynthesisBase(YosysBase):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if ss.abc_script and not ss.abc_script.startswith("+"):
-            return self.process_path(
-                ss.abc_script, subs_vars=True, resolve_to=self.design.design_root
-            )
+            return self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.root)
         return None
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:

@@ -92,7 +92,7 @@ class Chain:
         )
 
     def load(self) -> Design:
-        return Design.from_file(self.design_file)
+        return Design.load(self.design_file)
 
     def merged(self) -> Design:
         """The design with its dependencies merged in, as planning merges them."""
@@ -238,7 +238,7 @@ def test_inspecting_a_design_without_a_generator_anywhere_finds_none(tmp_path):
     root = tmp_path / "d"
     root.mkdir()
     (root / "a.v").write_text("module a; endmodule\n")
-    design = Design(name="d", design_root=root, rtl={"sources": ["a.v"], "top": "a"})
+    design = Design(name="d", root=root, rtl={"sources": ["a.v"], "top": "a"})
     assert generating_units(design) == []
     assert inspect_generation(design, None).generator is False
     assert os.path.isdir(root)
@@ -271,7 +271,7 @@ def test_launches_that_merge_the_same_dependencies_in_other_orders_do_not_wait_f
         (root / f"{name}.yaml").write_text(
             f"name: {name}\ndependencies: [{listed}]\nrtl:\n  sources: [t.v]\n  top: {name}\n"
         )
-        designs.append(Design.from_file(root / f"{name}.yaml"))
+        designs.append(Design.load(root / f"{name}.yaml"))
     flow = reader_flow()
     results: list[Outcome] = []
 
@@ -339,7 +339,7 @@ def test_two_dependency_designs_in_one_directory_are_two_units(tmp_path):
     from xeda.spec import Spec
 
     log, design_file = two_designs_in_one_directory(tmp_path)
-    design = merged_design(Design.from_file(design_file), run_root=None)
+    design = merged_design(Design.load(design_file), run_root=None)
     assert [unit.name for _, unit in generating_units(design)] == ["a", "b"]
     assert len({owner for owner, _ in generating_units(design)}) == 2
     assert len({s.owner for s in design.rtl.sources if s.generated}) == 2

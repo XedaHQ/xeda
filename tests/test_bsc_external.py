@@ -249,7 +249,7 @@ _AXI4_VERILATOR_XFAIL = pytest.mark.xfail(
 def _axi4_fabric_design(repo: Path) -> Design:
     return Design(
         name="axi4_fabric",
-        design_root=repo,
+        root=repo,
         rtl={"sources": []},
         tb={"sources": [_AXI4_TB_FILE], "top": _AXI4_TOP},
     )
@@ -290,7 +290,7 @@ def test_sequence_rules_reproduces_golden_output(bsc_contrib_repo, tmp_path, cap
         (require_verilator if simulator == "verilator" else require_iverilog)()
     design = Design(
         name="sequence_rules_test",
-        design_root=bsc_contrib_repo,
+        root=bsc_contrib_repo,
         rtl={"sources": []},
         tb={
             "sources": ["testing/bsc.contrib/SequenceRules/SequenceRulesTest.bs"],
@@ -317,7 +317,7 @@ def test_cobs_reproduces_golden_output(bsc_contrib_repo, tmp_path, capfd):
     require_bluesim()
     design = Design(
         name="cobs_tests",
-        design_root=bsc_contrib_repo,
+        root=bsc_contrib_repo,
         rtl={"sources": []},
         tb={"sources": ["testing/bsc.contrib/COBS/COBSTests.bs"], "top": "sysCOBSTests"},
     )
@@ -360,7 +360,7 @@ def test_bluelight_ascon_generates_elaboratable_verilog(bluelight_repo, tmp_path
     require_iverilog()
     design = Design(
         name="bluelight_ascon",
-        design_root=bluelight_repo,
+        root=bluelight_repo,
         rtl={"sources": _BLUELIGHT_SOURCES, "top": "lwc", "defines": defines},
     )
     flow = _run(Bsc, design, tmp_path)
@@ -424,7 +424,7 @@ def test_piccolo_core_compiles_and_elaborates(piccolo_repo, tmp_path):
     require_iverilog()
     design = Design(
         name="piccolo_core",
-        design_root=piccolo_repo,
+        root=piccolo_repo,
         rtl={"sources": ["src_Core/Core/Core.bsv"], "top": "mkCore", "defines": _PICCOLO_DEFINES},
     )
     flow = _run(

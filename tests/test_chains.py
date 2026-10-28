@@ -279,7 +279,7 @@ def test_a_suggestion_resolves_with_a_valid_design(tmp_path):
     root = tmp_path / "design"
     root.mkdir()
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
-    design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    design = Design(name="top", root=root, rtl={"sources": ["top.v"], "top": "top"})
     suggestion, _qualified = _suggestions("yosys_fpga.netlist_edif+fpga_pack")
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
         parse_request(suggestion), design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}

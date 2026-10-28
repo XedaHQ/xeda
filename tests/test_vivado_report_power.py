@@ -40,7 +40,7 @@ FLOWS = [
 
 def _launch(flow_class, root: Path, **settings):
     flow = DefaultRunner(root, rebuild_all=True).run_flow(
-        flow_class, Design.from_file(SQRT), {**SETTINGS, **settings}
+        flow_class, Design.load(SQRT), {**SETTINGS, **settings}
     )
     assert flow is not None
     return flow

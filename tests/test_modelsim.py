@@ -31,7 +31,7 @@ def _design(root: Path, tb_top: Optional[str] = "tb") -> Design:
     (root / "uut.vhd").write_text("entity uut is end;\narchitecture a of uut is begin end;\n")
     (root / "tb.v").write_text("module tb; uut u(); endmodule\n")
     tb = {"sources": ["tb.v"], **({"top": tb_top} if tb_top else {})}
-    return Design(name="d", design_root=root, rtl={"sources": ["uut.vhd"], "top": "uut"}, tb=tb)
+    return Design(name="d", root=root, rtl={"sources": ["uut.vhd"], "top": "uut"}, tb=tb)
 
 
 def _run(tmp_path: Path, monkeypatch, settings=None, design=None, *, record_calls=True):
@@ -117,7 +117,7 @@ def test_a_design_without_a_testbench_has_no_simulation_top(tmp_path, monkeypatc
     root = tmp_path / "design"
     root.mkdir()
     (root / "uut.vhd").write_text("entity uut is end;\narchitecture a of uut is begin end;\n")
-    design = Design(name="d", design_root=root, rtl={"sources": ["uut.vhd"], "top": "uut"})
+    design = Design(name="d", root=root, rtl={"sources": ["uut.vhd"], "top": "uut"})
     with pytest.raises(DesignValidationError, match=r"tb\.top"):
         DefaultRunner(tmp_path / "run").run_flow(Modelsim, design, {})
 
@@ -491,7 +491,7 @@ def test_a_simulation_compiles_the_sources_it_reads_in_design_order(tmp_path, mo
     )
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["b.v", "a.vhd", "pins.xdc"], "top": "a"},
         tb={"sources": ["tb.sv"], "top": "tb"},
     )
@@ -521,7 +521,7 @@ def test_modelsim_refuses_a_chisel_source_when_planned(tmp_path, monkeypatch) ->
     )
     design = Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["uut.vhd", "gen.sc"], "top": "uut"},
         tb={"sources": ["tb.v"], "top": "tb"},
     )

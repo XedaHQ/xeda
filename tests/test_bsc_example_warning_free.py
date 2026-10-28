@@ -20,7 +20,7 @@ EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "bluespec"
 
 
 def _design(path: Path, target: str | None, overrides: dict[str, Any] | None = None) -> Design:
-    return Design.from_file(path, target=target, overrides=overrides)
+    return Design.load(path, target=target).with_updates(overrides or {})
 
 
 def _cases():

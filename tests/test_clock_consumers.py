@@ -9,16 +9,17 @@ from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS
 from .test_nextpnr import write_nextpnr_config
 
 
-def _design() -> Design:
+def _design(root) -> Design:
     return Design(
         name="dummy",
+        root=root,
         rtl={"sources": [], "top": "dummy", "clocks": [{"port": "clk_a"}]},
     )
 
 
 def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypatch):
     """The historical single-target nextpnr hint remains deterministic for multiple clocks."""
-    design = _design()
+    design = _design(tmp_path)
     settings = Nextpnr.Settings(
         fpga=FPGA(family="ecp5", capacity="25k"),
         clocks={
@@ -47,7 +48,7 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
 
 def test_yosys_abc9_hint_uses_first_unnamed_clock(tmp_path):
     """The abc9 delay hint must not disappear solely because a design has auxiliary clocks."""
-    design = _design()
+    design = _design(tmp_path)
     settings = YosysFpga.Settings(
         fpga=FPGA(family="ecp5"),
         clocks={

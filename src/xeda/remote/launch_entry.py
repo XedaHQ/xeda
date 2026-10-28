@@ -278,13 +278,13 @@ def _record_written(
 
 
 def load_packaged_design(path: Path) -> Any:
-    """Load the design document that the local xeda packaged (`Design.from_file(packaged=True)`).
+    """Load the design document that the local xeda packaged (`Design._load_file(packaged=True)`).
 
     The load runs no generator and reads no dependency: the launch does. A Git dependency of the
     design is fetched into the run root of this host when the launch plans."""
     from ..design import Design
 
-    return Design.from_file(path, packaged=True)
+    return Design._load_file(path, packaged=True)
 
 
 def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseException]]:

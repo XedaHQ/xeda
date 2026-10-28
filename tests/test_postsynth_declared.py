@@ -120,7 +120,9 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
                 stream.write(section)
         elif origin == "project":
             project = tmp_path / "project.yaml"
-            project.write_text(section)
+            project.write_text("designs: [{file: design.yaml}]\n" + section)
+            command[command.index(str(tmp_path / "design.yaml"))] = "--design-name"
+            command.insert(command.index("--design-name") + 1, "sim")
             command.extend(["--xedaproject", str(project)])
         else:
             command.extend(["-s", "flows.vivado_postsynth_sim.synth.write_checkpoint=true"])

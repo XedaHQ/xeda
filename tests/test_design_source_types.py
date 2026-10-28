@@ -64,7 +64,7 @@ def _design(root: Path, verilog: str = "module a; endmodule\n", lpf: str = "LOCA
     (root / "two.lpf").write_text("LOCATE b;\n")
     return Design(
         name="d",
-        design_root=root,
+        root=root,
         rtl={"sources": ["a.v", "one.lpf", "two.lpf"], "top": "a"},
     )
 
@@ -147,14 +147,14 @@ def test_a_hash_scoped_to_types_ignores_the_other_sources_and_keeps_the_rest(
     assert pins.parts_hash(RTL, PINS) != scoped
     other = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["a.v", "two.lpf", "one.lpf"], "top": "a"},
     )
     assert other.parts_hash(RTL, PINS) != _design(tmp_path).parts_hash(RTL, PINS)
     # the design's metadata is whole
     moved = Design(
         name="d",
-        design_root=tmp_path,
+        root=tmp_path,
         rtl={"sources": ["a.v", "one.lpf", "two.lpf"], "top": "other"},
     )
     assert moved.parts_hash(RTL, PINS) != _design(tmp_path).parts_hash(RTL, PINS)
@@ -188,7 +188,7 @@ def test_nextpnr_is_not_judged_on_the_verilog_its_producer_reads(
     design = _design(root)
     design = Design(
         name="blink",
-        design_root=root,
+        root=root,
         rtl={"sources": ["a.v", "one.lpf"], "top": "a"},
     )
     monkeypatch.chdir(tmp_path)
@@ -203,7 +203,7 @@ def test_nextpnr_is_not_judged_on_the_verilog_its_producer_reads(
     assert "a.v" not in recorded and "one.lpf" in recorded
 
     (root / "a.v").write_text("module a; wire edited; endmodule\n")
-    design = Design(name="blink", design_root=root, rtl={"sources": ["a.v", "one.lpf"], "top": "a"})
+    design = Design(name="blink", root=root, rtl={"sources": ["a.v", "one.lpf"], "top": "a"})
     second, runner = launch()
     assert second.design_hash == first.design_hash
     (yosys,) = producers_of(runner, second)
@@ -211,7 +211,7 @@ def test_nextpnr_is_not_judged_on_the_verilog_its_producer_reads(
     assert "a.v" not in (second.stale_reason or ""), second.stale_reason
 
     (root / "one.lpf").write_text("LOCATE edited;\n")
-    design = Design(name="blink", design_root=root, rtl={"sources": ["a.v", "one.lpf"], "top": "a"})
+    design = Design(name="blink", root=root, rtl={"sources": ["a.v", "one.lpf"], "top": "a"})
     third, _ = launch()
     assert third.design_hash != second.design_hash
     assert not third.reused
@@ -241,7 +241,7 @@ def test_a_nextpnr_hook_is_judged_on_every_source(
     def launch(**hook):
         design = Design(
             name="d",
-            design_root=root,
+            root=root,
             rtl={
                 "sources": ["a.v", {"file": "table.txt", "type": "Data"}],
                 "top": "a",

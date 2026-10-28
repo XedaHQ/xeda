@@ -71,7 +71,7 @@ def _synthesize(tmp_path: Path, source: str, fpga: dict[str, str], **settings: A
     (root / "top.sv").write_text(source)
     design = Design(
         name="top",
-        design_root=root,
+        root=root,
         rtl={"sources": ["top.sv"], "top": "top", "clocks": [{"port": "clock"}]},
     )
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(

@@ -365,7 +365,7 @@ def test_a_consumer_of_the_generic_netlist_is_handed_it_and_the_mapped_one_is_no
         (design_root / "top.v").write_text(RTL)
         design = Design(
             name="top",
-            design_root=design_root,
+            root=design_root,
             rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
         )
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)

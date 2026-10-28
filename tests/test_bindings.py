@@ -229,9 +229,6 @@ def test_same_cli_input_in_unqualified_and_qualified_forms_is_an_error_even_when
 
 def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(tmp_path):
     project = tmp_path / "xedaproject.yaml"
-    project.write_text(
-        yaml.safe_dump({"flows": {_Taker.name: {"inputs": {"made": "__maker"}, "quiet": False}}})
-    )
     design = tmp_path / "design.yaml"
     design.write_text(
         yaml.safe_dump(
@@ -242,9 +239,21 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
             }
         )
     )
+    project.write_text(
+        yaml.safe_dump(
+            {
+                "designs": [{"file": "design.yaml"}],
+                "flows": {_Taker.name: {"inputs": {"made": "__maker"}, "quiet": False}},
+            }
+        )
+    )
     runner = DefaultRunner(tmp_path / "runs")
     request = runner._request(
-        _Taker, design, str(project), {"inputs.made": "__maker"}, {"inputs.made": "__maker.made"}
+        _Taker,
+        "binding_design",
+        str(project),
+        {"inputs.made": "__maker"},
+        {"inputs.made": "__maker.made"},
     )
     assert "inputs" not in request.settings
     assert all("inputs" not in section for section in request.sections.values())
@@ -264,9 +273,18 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
 )
 def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
     bindings = {_ChainSimpleConsumer.name: {"inputs": {"netlist": reference}}}
-    design = Design(name="d", rtl={"sources": []}, flows=bindings if origin == "design" else {})
+    design = Design(
+        name="d", root=tmp_path, rtl={"sources": []}, flows=bindings if origin == "design" else {}
+    )
     project = tmp_path / "project.yaml"
-    project.write_text(yaml.safe_dump({"flows": bindings if origin == "project" else {}}))
+    project.write_text(
+        yaml.safe_dump(
+            {
+                "designs": [{"name": "d", "rtl": {"sources": []}}],
+                "flows": bindings if origin == "project" else {},
+            }
+        )
+    )
     runner = DefaultRunner(tmp_path / "runs")
     label = {"CLI": "command line", "design": "design d", "project": str(project), "API": "API"}[
         origin
@@ -275,7 +293,7 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
     def request():
         return runner._request(
             parse_request("__chain_simple_producer+__chain_simple_consumer"),
-            design,
+            "d" if origin == "project" else design,
             str(project),
             {"inputs.netlist": reference} if origin == "CLI" else {},
             {"inputs.netlist": reference} if origin == "API" else {},
@@ -304,7 +322,7 @@ def test_a_reached_binding_selects_the_edge_on_every_entry_path(tmp_path, entry)
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     source = tmp_path / "in.txt"
     source.write_text("bound\n")
-    design = Design(name="d", rtl={"sources": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
     sections = {
         _Taker.name: {"inputs": {"made": "__input_maker.made"}},
         "__input_maker": {"input_file": str(source)},
@@ -332,6 +350,7 @@ def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
     runner = DefaultRunner(tmp_path / "runs")
     design = Design(
         name="d",
+        root=tmp_path,
         rtl={"sources": []},
         flows={"unavailable_plugin": {"inputs": {"unknown": {"invalid": True}}}},
     )
@@ -367,7 +386,9 @@ def test_embedded_yaml_design_binding_names_its_project_file_and_design(tmp_path
 def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
     source = tmp_path / "data.txt"
     source.write_text("source data\n")
-    design = Design(name="d", rtl={"sources": [{"file": str(source), "type": "Data"}]})
+    design = Design(
+        name="d", root=tmp_path, rtl={"sources": [{"file": str(source), "type": "Data"}]}
+    )
     before = design.rtl_hash
     request = DefaultRunner(tmp_path / "runs")._request(
         _Taker, design, flow_settings={"inputs.made": "__maker.made"}

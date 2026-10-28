@@ -38,6 +38,7 @@ from pydantic import (
     PrivateAttr,
     SerializeAsAny,
     ValidationError,
+    computed_field,
 )
 from pydantic import field_validator as _pydantic_field_validator
 from pydantic import model_validator as _pydantic_model_validator
@@ -59,6 +60,7 @@ __all__ = [
     "Field",
     "FieldInfo",
     "PrivateAttr",
+    "computed_field",
     "NoReplacement",
     "PydanticUndefined",
     "SecondSpelling",

@@ -18,7 +18,7 @@ RESOURCES = Path(__file__).parent / "resources"
 
 
 def _design(root: Path) -> Design:
-    return Design(name="d", design_root=root, rtl={"sources": ["a.v"], "top": "a"})
+    return Design(name="d", root=root, rtl={"sources": ["a.v"], "top": "a"})
 
 
 def test_a_design_hash_follows_the_content_of_its_sources(tmp_path) -> None:
@@ -41,13 +41,13 @@ def test_a_launch_of_an_edited_design_records_the_hash_of_what_it_ran(
     monkeypatch.chdir(work)
     settings = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
     root = tmp_path / "run"
-    design = Design.from_file(work / "design0.toml")
+    design = Design.load(work / "design0.toml")
     first = DefaultRunner(root, display_results=False).launch_flow(VivadoSynth, design, settings)
     source = design.rtl.sources[0].file
     source.write_text(source.read_text() + "\n-- edited\n")
 
     second = DefaultRunner(root, display_results=False).launch_flow(VivadoSynth, design, settings)
-    fresh = Design.from_file(work / "design0.toml")
+    fresh = Design.load(work / "design0.toml")
     assert second.design_hash != first.design_hash
     assert second.design_hash == fresh.parts_hash(VivadoSynth.design_parts)
 

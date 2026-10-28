@@ -68,7 +68,7 @@ class InputPackage:
 
 def _unsendable(unit: Design, generator: Generator) -> str | None:
     """Return why the package cannot carry the generator of `unit`, or None."""
-    name = generator.describe(unit.name, unit.root_path)
+    name = generator.describe(unit.name, unit.root)
     if not generator.sources:
         return (
             f"{name} declares no `sources`, so `--remote` cannot know which files to send with "
@@ -77,7 +77,7 @@ def _unsendable(unit: Design, generator: Generator) -> str | None:
     outside = [path for path in generator.sources if unit.relative_to_root(path) is None]
     if outside:
         return (
-            f"{name} reads {outside[0]}, which lies outside the design root {unit.root_path}, "
+            f"{name} reads {outside[0]}, which lies outside the design root {unit.root}, "
             "and `--remote` sends only what lies below the design root: place it below the "
             "design root (a copy or a link inside it) and name it in `sources`"
         )
@@ -96,16 +96,16 @@ def refuse_unsendable_generator(design: Design) -> Generator | None:
     needs no connection and runs nothing, so a request makes it at planning. A local launch has no
     such limit."""
     for unit in (*design.generation_units, design):
-        generator = generator_of(unit.rtl, root=unit.root_path)
+        generator = generator_of(unit.rtl, root=unit.root)
         problem = None if generator is None else _unsendable(unit, generator)
         if problem is not None:
             raise DesignValidationError(
                 [("rtl -> generator", problem, "", "value_error")],
                 data=unit.model_dump(mode="json"),
-                design_root=unit.root_path,
+                root=unit.root,
                 design_name=unit.name,
             )
-    return generator_of(design.rtl, root=design.root_path)
+    return generator_of(design.rtl, root=design.root)
 
 
 def refuse_unsendable_declared(design: Design) -> None:
@@ -178,11 +178,8 @@ def package_inputs(
     # the design still has travel as references; the host fetches them.
     # The design a target yielded, with the name of the target. The remote plans the same run
     # directories as this side (`<design>/<target>/<flow>`), and a design file may not write
-    # `target`, but a packaged document may (`Design.from_file`).
-    new_design: Dict[str, Any] = {
-        **design.model_dump(mode="json", exclude={"target"}),
-        "design_root": None,
-    }
+    # `target`, but a packaged document may (`Design._load_file`).
+    new_design: Dict[str, Any] = design._document("json", plain_names=False)
     if design.target is not None:
         new_design["target"] = design.target
     design_file = f"{design.name}.xeda.json"
@@ -296,7 +293,7 @@ def package_inputs(
         is.
         """
         parameters: Dict[str, Any] = {}
-        roots = [("DESIGN_ROOT", design.root_path)] if design.design_root else []
+        roots = [("DESIGN_ROOT", design.root)]
         for name, value in dv.parameters.items():
             parameters[name] = thaw(value)
             if not (isinstance(value, str) and os.path.isabs(value)):
@@ -358,11 +355,11 @@ def package_inputs(
             if isinstance(ref, GitReference):
                 entries.append(entry)
                 continue
-            dependency = Design.from_file(unit.root_path / ref.uri)
+            dependency = Design.load(unit.root / ref.uri)
             file = dependency.generation_label
             if file not in dependency_documents:
                 root = dependency_bases.setdefault(
-                    dependency.root_path, Path("_dependencies") / str(len(dependency_bases))
+                    dependency.root, Path("_dependencies") / str(len(dependency_bases))
                 )
                 document_file = root / f"{Path(file).stem}.xeda.json"
                 while document_file in places:
@@ -396,9 +393,9 @@ def package_inputs(
                 # file of the package lies in it. It is the directory the recipe names, as the
                 # recipe spells it: a link is not resolved. The design refuses a `cwd` that
                 # leaves its root when it loads.
-                named = generator_cwd(generator.cwd, unit.root_path)
+                named = generator_cwd(generator.cwd, unit.root)
                 recipe["cwd"] = named.as_posix()
-                if named != Path(".") and (unit.root_path / named).is_dir():
+                if named != Path(".") and (unit.root / named).is_dir():
                     directories.add((base / named).as_posix())
         tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, unit, base)}
         tb["top"] = unit.tb.top
@@ -429,14 +426,14 @@ def package_inputs(
             return value
         path = Path(value)
         if not path.is_absolute():
-            choices = [design.root_path / path, Path.cwd() / path]
+            choices = [design.root / path, Path.cwd() / path]
             path = next((p for p in choices if p.exists()), choices[0])
         local = path.resolve()
         relative = design.relative_to_root(path)
         if relative is None:
             digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
             relative = Path("_setting_inputs") / digest / local.name
-        roots = location_roots(design.root_path, Path.cwd())
+        roots = location_roots(design.root, Path.cwd())
         identified(relative, "setting", str(location_free(value, roots)))
         if local.is_file():
             places.setdefault(relative, local)
@@ -472,7 +469,7 @@ def package_inputs(
             return packaged_path(value)
         path = Path(value)
         if not path.is_absolute():
-            choices = [design.root_path / path, Path.cwd() / path]
+            choices = [design.root / path, Path.cwd() / path]
             path = next((p for p in choices if p.exists()), choices[0])
         try:
             included = liberty_included_files(path) if path.is_file() else []
@@ -502,7 +499,7 @@ def package_inputs(
             if local.suffix.lower() == ".gz":
                 content = gzip.compress(content, mtime=0)  # the same bytes on every run
             places[place(local)] = content
-        roots = location_roots(design.root_path, Path.cwd())
+        roots = location_roots(design.root, Path.cwd())
         identified(place(path), "setting", str(location_free(value, roots)))
         return "$DESIGN_ROOT/" + place(path).as_posix()
 
@@ -556,9 +553,7 @@ def package_inputs(
             shipped_sections[name] = section
             continue
         try:
-            model = cls.Settings.from_input(
-                section, design_root=design.root_path, runner_cwd=Path.cwd()
-            )
+            model = cls.Settings.from_input(section, design_root=design.root, runner_cwd=Path.cwd())
         except FlowSettingsError:
             shipped_sections[name] = section
         else:

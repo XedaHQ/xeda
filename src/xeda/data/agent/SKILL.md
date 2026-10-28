@@ -138,8 +138,16 @@ flows:
 
 ## Settings
 
-Layers, lowest to highest: flow defaults, project `flows.<flow>`, design `flows.<flow>`, selected
-target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clock.freq=100MHz` refines a
+Layers, lowest to highest: flow defaults, user file `flows`, (`--remote`: host profile `flows`),
+project `flows.<flow>`, design `flows.<flow>`, selected target's `flows.<flow>`, project-local file
+`flows`, `-s`, API. The user file is `$XDG_CONFIG_HOME/xeda/config.yaml` (`~/.config/xeda/`); the
+project-local file is `xedaproject.local.yaml` beside the project file. Both are private (keep
+the second out of Git), have the keys `flows`, `env` and `run_root`, and are read by `xeda run` and
+`xeda dse` only. A `designs` key or any unknown key is `invalid_local_settings`; a flow name that is no flow is `flow_not_found`. `--config FILE` (must exist)
+replaces the user file; `--no-config` reads neither file. A design file given as `DESIGN` gets the
+user file and no layer from the project or the project-local file, and its run root follows the
+same order. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
+project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s clock.freq=100MHz` refines a
 nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
@@ -151,12 +159,16 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   Put the design before `-s`, or end the options with `--`.
 - A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
   producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
+  The flows of the run follow the design: the plan's nodes and the default producers that a source
+  or binding displaced. A converter (`bsc`) counts only if the design has a source it converts.
 - Sections for flows outside the run differ by layer. A file (design, target, project) may keep a
   `flows.<flow>` for any known flow (a removed flow is an error): it is ignored, with the INFO line
   `<flow> is not part of this run: its settings are unused` for a default producer that a source or
-  binding displaced and no line for other flows. `-s flows.<flow>.*` must name the requested flow, a
-  flow of the chain or bindings, or a default producer, else `unknown_flow`. A converter counts as a default producer (`bsc` for any flow that reads
-  Verilog), so `-s flows.bsc.<key>` passes a run of a SystemVerilog design, checked but unused.
+  binding displaced and no line for other flows. `-s flows.<flow>.*` must name a flow of the run,
+  else `unknown_flow`: `-s flows.bsc.<key>` on a design without Bluespec sources is refused.
+- One setting, one value per command line: two `-s` items that set one leaf to different values
+  (also `-s k=A` with `-s flows.<requested>.k=B`) fail with `conflicting_keys`, listing every pair.
+  An exact repeat is one item; compare text (`1` and `01` differ).
 - A setting of a settings group has a dotted name, such as `abc.strategy` or
   `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
   `expert`) says how often a user needs it; it affects the listing, never what Xeda
@@ -471,7 +483,7 @@ load for every host with `RemoteConfigError`). The `hosts` table is keyed by the
 - `python`: `managed` (default; `uv` installs the local Python version) or the absolute path of a
   Python of the host. Nothing checks that its version matches the local one.
 - `flows`: flow settings for this host, shaped like the `flows` section of a design file. It is the
-  lowest layer above the flow defaults. A locator setting (`pdk_root`) reaches the host from here
+  layer just above the user file. A locator setting (`pdk_root`) reaches the host from here
   only; a local value is never sent.
 
 A cocotb testbench names its Python packages in `tb.python_packages`. The host installs them at the
@@ -546,7 +558,8 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `error.code` | Do |
 | --- | --- |
 | `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
-| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
+| `invalid_local_settings` (a private file `config.yaml` or `*.local.yaml` is invalid) | The message names the file and the key. Fix the file, or pass `--no-config`. |
+| `invalid_design`, `design_file_not_found`, `unknown_target`, `target_required` (the project's `default_target` is no target of the design: pass `--target` or `--no-target`), `unknown_design`, `design_name_required`, `use_design_name` (a design file that the project lists: use `--design-name`), `several_project_files`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
@@ -580,7 +593,7 @@ second spelling is refused, and the error names the right one.
 from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
-design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
+design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
 flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.fmax)

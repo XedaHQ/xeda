@@ -665,7 +665,9 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
 ``removed_setting``, ``removed_alias`` (another spelling of a name that stays), ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
 ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
-``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
+``design_file_not_found``, ``unknown_target``, ``target_required``, ``unknown_design``,
+``design_name_required``, ``use_design_name``, ``several_project_files``, ``invalid_project``,
+``invalid_local_settings`` (a private settings file is invalid; the message names the file),
 ``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
 ``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
 ``dependency_cycle`` (the dependencies of a design lead back to a design on the same chain; the
@@ -998,7 +1000,7 @@ To run a flow:
 
     from xeda import Design, DefaultRunner
 
-    design = Design.from_file("examples/vhdl/sqrt/sqrt.yaml")
+    design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
     flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
     if flow and flow.record and flow.record.passed:

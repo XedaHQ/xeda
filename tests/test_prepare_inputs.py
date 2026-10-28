@@ -52,7 +52,7 @@ class _ChipdbTaker(_Taker):
 
 
 def _launch_cache(tmp_path, generation, *, name="d", settings=None):
-    design = Design(name=name, design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name=name, root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(generation[1].run_root, display_results=False)
     return runner.launch_flow(
         _ChipdbTaker,
@@ -176,7 +176,7 @@ def test_cache_planning_has_no_preparation_or_tools(tmp_path, generation, monkey
         pytest.fail("planning prepared the chip database")
 
     monkeypatch.setattr(xilinx, "prepare_chipdb", fail, raising=False)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     DefaultRunner(generation[1].run_root, display_results=False).plan(
         _ChipdbTaker, design, flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"}
     )
@@ -189,7 +189,7 @@ def test_nextpnr_prepares_chipdb_without_losing_typed_pin_inputs(tmp_path, gener
 
     pins = tmp_path / "pins.xdc"
     pins.write_text("set_property PACKAGE_PIN E3 [get_ports clk]\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [pins.name], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [pins.name], "top": "t"})
     flow = Nextpnr(
         Nextpnr.Settings(fpga={"part": "xc7a100tcsg324-1"}),
         design,
@@ -217,7 +217,7 @@ def test_nextpnr_accepts_validated_explicit_chipdb_without_generation(
     chipdb.write_bytes(_binary())
     pins = tmp_path / "pins.xdc"
     pins.write_text("# pins supplied\n")
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [pins.name], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [pins.name], "top": "t"})
     flow = Nextpnr(
         Nextpnr.Settings(
             fpga={"part": "xc7a100tcsg324-1"},
@@ -268,7 +268,7 @@ def test_program_merge_keeps_first_preparation_state(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_Taker, "prepare_inputs", prepare)
     monkeypatch.setattr(_Taker, "run", run)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     first = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(_Taker, design, {})
     trace = json.loads((first.run_path / "trace.json").read_text())
     assert list(trace["programs"]) == [str(tool)]
@@ -276,7 +276,7 @@ def test_program_merge_keeps_first_preparation_state(tmp_path, monkeypatch):
 
 
 def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypatch):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     seen = []
     original = default_runner.expectation
 
@@ -303,7 +303,7 @@ def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypa
 
 
 def test_preparation_failure_invalidates_success_and_releases_lease(tmp_path, monkeypatch):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.launch_flow(_Taker, design, {})
 
@@ -328,13 +328,13 @@ def test_planning_does_not_prepare_inputs(tmp_path, monkeypatch):
         pytest.fail("dry-run prepared inputs")
 
     monkeypatch.setattr(_Taker, "prepare_inputs", fail, raising=False)
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     DefaultRunner(tmp_path / "run", display_results=False).plan(_Taker, design)
     assert not (tmp_path / "run").exists()
 
 
 def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, monkeypatch):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     events = []
     from xeda.flow import Flow
 
@@ -385,7 +385,7 @@ def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, m
 
 def _dry(tmp_path, generation, settings=None):
     """What a launch of the chip database taker would do with each node, without doing it."""
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(generation[1].run_root, display_results=False)
     return runner.plan_with_freshness(
         _ChipdbTaker,
@@ -456,7 +456,7 @@ def test_a_corrupt_cache_entry_is_unknown_even_when_every_flow_is_forced_to_run(
     under `--rebuild-all` and `--clean` too."""
     first = _launch_cache(tmp_path, generation)
     (Path(first.results["chipdb"]).parent / "manifest.yaml").unlink()
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(generation[1].run_root, display_results=False, **forced)
     _, states = runner.plan_with_freshness(
         _ChipdbTaker,
@@ -502,7 +502,7 @@ def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypa
         "locate_chipdb",
         lambda layout, sel, rd, identity=None: located_with.append(identity) or tmp_path / "a.bin",
     )
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     settings = module.Nextpnr.Settings.from_input(
         {"fpga": {"part": "xc7a100tcsg324-1"}}, design_root=tmp_path, runner_cwd=tmp_path
     )

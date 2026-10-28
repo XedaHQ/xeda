@@ -127,7 +127,7 @@ def _launch(tmp_path: Path, text: str, *, scrub_old_runs: bool, confirm=None) ->
         display_results=False,
     )
     launcher.confirm_scrub = confirm
-    flow = launcher.launch_flow(_Maker, Design.from_file(design / "d.yaml"), {"text": text})
+    flow = launcher.launch_flow(_Maker, Design.load(design / "d.yaml"), {"text": text})
     assert flow.succeeded
     return flow.run_path
 

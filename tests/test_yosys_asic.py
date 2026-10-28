@@ -59,7 +59,7 @@ def _design(root: Path) -> Design:
     (root / "mac.v").write_text(MAC)
     return Design(
         name="mac",
-        design_root=root,
+        root=root,
         rtl={"sources": ["mac.v"], "top": "mac", "clocks": [{"port": "clk"}]},
     )
 
@@ -602,7 +602,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
 
 
 def test_init_and_prepare_inputs_write_nothing(tmp_path):
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     run = tmp_path / "run"
     run.mkdir()
     flow = Yosys(tiny_settings(tiny_store(tmp_path)), design, run)
@@ -619,7 +619,7 @@ def _flow_with_script_file(tmp_path: Path, cls=Yosys):
     script.write_text("strash; map\n")
     run = tmp_path / "run"
     run.mkdir()
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     return cls({"abc_script": str(script), "gates": ["AND"]}, design, run), script
 
 
@@ -1006,7 +1006,7 @@ def _counter_design(root: Path) -> Design:
     (root / "counter.v").write_text(COUNTER)
     return Design(
         name="counter",
-        design_root=root,
+        root=root,
         rtl={"sources": ["counter.v"], "top": "counter", "clocks": [{"port": "clk"}]},
     )
 

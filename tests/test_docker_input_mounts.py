@@ -140,7 +140,7 @@ def world(tmp_path, monkeypatch):
         CONSUMER_RUN.clear()
         design = Design(
             name="d",
-            design_root=tmp_path / "design",
+            root=tmp_path / "design",
             rtl={"sources": ["top.v"], "top": "top"},
         )
         yield tmp_path, design, commands
@@ -185,7 +185,7 @@ def test_two_inputs_in_one_directory_make_one_mount(world):
 def test_a_flow_with_no_input_mounts_only_the_design_and_its_run_directory(world):
     tmp_path, design, commands = world
     alone = _launch(tmp_path, design, _Alone)
-    root = design.design_root
+    root = design.root
     assert _volumes(commands) == [
         f"--volume={alone.run_path}:{alone.run_path}",
         f"--volume={root}:{root}:ro",
@@ -216,7 +216,7 @@ def test_a_file_the_flow_registered_is_mounted_by_its_directory(world):
 
 def test_a_directory_that_is_already_mounted_is_not_mounted_again(world):
     tmp_path, design, commands = world
-    in_design = design.design_root / "extra.bin"
+    in_design = design.root / "extra.bin"
     in_design.write_text("x\n")
     consumer_dir: List[Path] = []
 
@@ -231,7 +231,7 @@ def test_a_directory_that_is_already_mounted_is_not_mounted_again(world):
     _launch(tmp_path, design, _Consumer)
     mounted = [v.removeprefix("--volume=").split(":")[0] for v in _volumes(commands)]
     assert str(consumer_dir[0]) not in mounted, "a subdirectory of the run directory"
-    assert mounted.count(str(design.design_root)) == 1
+    assert mounted.count(str(design.root)) == 1
 
 
 def test_a_missing_directory_is_not_mounted(world):
@@ -333,13 +333,13 @@ def test_the_path_half_of_a_library_entry_is_mounted_and_its_name_is_not(world):
 
 def test_a_relative_setting_is_mounted_where_it_is_found(world):
     tmp_path, design, commands = world
-    (design.design_root / "rtl").mkdir()
-    (design.design_root / "rtl" / "extra.v").write_text("x\n")
+    (design.root / "rtl").mkdir()
+    (design.root / "rtl" / "extra.v").write_text("x\n")
     _launch(tmp_path, design, _Consumer, constraints="rtl/extra.v")
     mounted = [v.removeprefix("--volume=").split(":")[0] for v in _volumes(commands)]
     # the design root holds it already
-    assert mounted.count(str(design.design_root)) == 1
-    assert str(design.design_root / "rtl") not in mounted
+    assert mounted.count(str(design.root)) == 1
+    assert str(design.root / "rtl") not in mounted
 
 
 def test_a_working_or_deliverable_setting_is_not_mounted(world):

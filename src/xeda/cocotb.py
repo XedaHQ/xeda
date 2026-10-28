@@ -477,9 +477,9 @@ class Cocotb(CocotbSettings, Tool):
                 if len(design_module_split) > 1:
                     module_path = Path(os.sep.join(design_module_split[:-1]))
                     if not os.path.isabs(module_path):
-                        module_path = design.root_path / module_path
+                        module_path = design.root / module_path
                 else:
-                    module_path = design.root_path
+                    module_path = design.root
                 py_path.append(str(module_path))
             elif top_cocotb_source:
                 coco_module = top_cocotb_source.stem

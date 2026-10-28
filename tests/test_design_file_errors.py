@@ -114,7 +114,7 @@ def assert_one_critical_line(proc, *mentions: str, returncode: int = 2) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# Design.from_file: every load failure is a DesignFileParseError naming the file
+# Design.load: every load failure is a DesignFileParseError naming the file
 # ---------------------------------------------------------------------------------------------
 
 
@@ -124,7 +124,7 @@ def test_a_malformed_design_file_is_a_parse_error_at_its_position(tmp_path, name
     content, line, column = MALFORMED[name]
     path = write(tmp_path / name, content)
     with pytest.raises(DesignFileParseError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     error = raised.value
     assert isinstance(error, XedaException)
     assert error.file == str(path.absolute())
@@ -150,7 +150,7 @@ def test_a_file_that_is_not_a_design_is_a_parse_error_naming_it(tmp_path, name, 
     """A file that is not a design is a parse error naming it."""
     path = write(tmp_path / name, content)
     with pytest.raises(DesignFileParseError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     assert raised.value.file == str(path.absolute())
     message = str(raised.value)
     assert str(path.absolute()) in message
@@ -161,21 +161,21 @@ def test_a_file_that_is_not_a_design_is_a_parse_error_naming_it(tmp_path, name, 
 def test_an_unreadable_design_file_is_a_parse_error_naming_it(tmp_path):
     """An unreadable design file is a parse error naming it."""
     with pytest.raises(DesignFileParseError, match=re.escape("missing.toml")):
-        Design.from_file(tmp_path / "missing.toml")
+        Design.load(tmp_path / "missing.toml")
     (tmp_path / "dir.toml").mkdir()
     with pytest.raises(DesignFileParseError, match=re.escape("dir.toml")):
-        Design.from_file(tmp_path / "dir.toml")
+        Design.load(tmp_path / "dir.toml")
 
 
 def test_a_design_validation_error_names_the_file(tmp_path):
-    """`from_file` attaches the file to the error, and the error has to say it: without it the
+    """`load` attaches the file to the error, and the error has to say it: without it the
     CLI printed only "1 error validating design 'bad'", naming no file at all."""
     write(tmp_path / "sqrt.vhdl", (SQRT_DIR / "sqrt.vhdl").read_text())
     path = write(
         tmp_path / "badval.toml", 'name = "bad"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = 5\n'
     )
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(path)
+        Design.load(path)
     assert isinstance(raised.value, XedaException)
     assert raised.value.file == str(path.absolute())
     assert str(path.absolute()) in str(raised.value)
@@ -254,7 +254,7 @@ def test_a_design_name_the_project_lacks_is_reported_cleanly(tmp_path, json_flag
     if json_flag:
         assert_unstarted_document(proc, "unknown_design", "nosuch", "sqrt")
     else:
-        assert_one_critical_line(proc, "DesignNotFoundError", "nosuch", "sqrt")
+        assert_one_critical_line(proc, "ProjectError", "nosuch", "sqrt")
 
 
 @pytest.mark.parametrize("json_flag", [False, True], ids=["text", "json"])
@@ -265,7 +265,7 @@ def test_a_design_name_without_a_project_is_reported_as_such(tmp_path, json_flag
     if json_flag:
         assert_unstarted_document(proc, "project_file_not_found", PROJECT_FILE)
     else:
-        assert_one_critical_line(proc, "DesignNotFoundError", PROJECT_FILE)
+        assert_one_critical_line(proc, "ProjectError", PROJECT_FILE)
 
 
 @pytest.mark.parametrize(
@@ -285,11 +285,11 @@ def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, cont
 def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):
     """Library callers get the same typed errors the CLI reports."""
     from xeda.flow_runner import DefaultRunner
-    from xeda.flow_runner.default_runner import DesignNotFoundError
+    from xeda.errors import ProjectError
 
     project = _project(tmp_path)
     runner = DefaultRunner(tmp_path / "run")
-    with pytest.raises(DesignNotFoundError, match="nosuch") as raised:
+    with pytest.raises(ProjectError, match="nosuch") as raised:
         runner.run("ghdl_sim", "nosuch", xedaproject=str(project))
     assert isinstance(raised.value, XedaException)
     # a string with a design-file suffix is a design file, whatever its case -- and the loader

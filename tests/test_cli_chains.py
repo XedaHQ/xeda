@@ -252,12 +252,17 @@ def test_a_project_binding_of_the_requested_node_given_to_dse_fetches_no_git_dep
     tmp_path, monkeypatch
 ):
     fetched = _fetches(monkeypatch)
-    (tmp_path / "xedaproject.yaml").write_text(
-        yaml.safe_dump({"flows": {"__taker": {"inputs": {"made": _MADE}}}})
-    )
     design = _git_dependency_design(tmp_path)
+    (tmp_path / "xedaproject.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "designs": [{"file": design.name}],
+                "flows": {"__taker": {"inputs": {"made": _MADE}}},
+            }
+        )
+    )
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("__taker", design)
+        _dse_runner(tmp_path).run("__taker", "d", xedaproject=str(tmp_path / "xedaproject.yaml"))
     assert not fetched and not (tmp_path / "mirror").exists()
 
 
@@ -356,25 +361,40 @@ def test_other_commands_take_one_flow_and_say_chains_are_for_run(tmp_path, comma
 
 
 def test_an_explicit_yaml_project_binds_below_the_design_and_names_its_file(tmp_path):
+    design = _design(tmp_path)
     project = tmp_path / "project.yaml"
     project.write_text(
-        yaml.safe_dump({"flows": {"__taker": {"inputs": {"made": "__input_maker.made"}}}})
+        yaml.safe_dump(
+            {
+                "designs": [{"file": design.name}],
+                "flows": {"__taker": {"inputs": {"made": "__input_maker.made"}}},
+            }
+        )
     )
-    design = _design(tmp_path)
-    result, document = _json("run", "__taker", design, "--xedaproject", project, "--dry-run")
+    result, document = _json(
+        "run", "__taker", "--design-name", "demo", "--xedaproject", project, "--dry-run"
+    )
     assert result.exit_code == 0, result.output
     (made,) = document["plan"]["nodes"][-1]["inputs"]
     assert made["producer"] == "__input_maker" and made["binding_origin"] == "file"
     assert str(project) in made["binding_location"]
     # the design's own binding wins over the project's
     over = _design(tmp_path, {"__taker": {"inputs": {"made": "__maker"}}}, "over.yaml")
-    result, document = _json("run", "__taker", over, "--xedaproject", project, "--dry-run")
+    other = tmp_path / "other_project.yaml"
+    other.write_text(
+        yaml.safe_dump(
+            {
+                "designs": [{"file": over.name}],
+                "flows": {"__taker": {"inputs": {"made": "__input_maker.made"}}},
+            }
+        )
+    )
+    selected = ("--design-name", "demo", "--xedaproject", other, "--dry-run")
+    result, document = _json("run", "__taker", *selected)
     (made,) = document["plan"]["nodes"][-1]["inputs"]
     assert made["producer"] == "__maker" and str(over) in made["binding_location"]
     # and a chain over both, saying what it replaced
-    result, document = _json(
-        "run", "__input_maker+__taker", over, "--xedaproject", project, "--dry-run"
-    )
+    result, document = _json("run", "__input_maker+__taker", *selected)
     (made,) = document["plan"]["nodes"][-1]["inputs"]
     assert made["binding_origin"] == "chain" and len(made["overridden"]) == 2
 

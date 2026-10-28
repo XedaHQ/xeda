@@ -82,8 +82,8 @@ xeda run bsc_sim examples/bluespec/ascon/ascon.yaml -s simulator=iverilog
 ```
 
 The default build selects Ascon-128 AEAD. To select Ascon-128a, add
-`--design-overrides rtl.defines.ASCON128A=true` to any command. To change the unroll factor, add
-`--design-overrides rtl.defines.UNROLL_FACTOR=2`. The factor must divide the round counts of the
+`--design-updates rtl.defines.ASCON128A=true` to any command. To change the unroll factor, add
+`--design-updates rtl.defines.UNROLL_FACTOR=2`. The factor must divide the round counts of the
 selected build. If it does not, bsc stops with an error.
 
 ## Synthesize

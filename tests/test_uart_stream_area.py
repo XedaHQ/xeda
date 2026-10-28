@@ -77,7 +77,7 @@ def test_uart_stream_adapter_area(target, input_width, output_width, tmp_path, c
     """Keep both stream word widths and the full reset-aware adapter below 500 logic LUTs."""
     require_bsc()
     require_yosys()
-    design = Design.from_file(AREA, target=target)
+    design = Design.load(AREA, target=target)
     run_root = tmp_path / target
     flow = DefaultRunner(run_root, display_results=False).run_flow(YosysFpga, design)
     captured = capfd.readouterr()
@@ -119,7 +119,7 @@ def test_leanlink_core_area(target, tmp_path, capfd):
     """Measure standalone LeanLink with its packet and control interfaces observable."""
     require_bsc()
     require_yosys()
-    design = Design.from_file(AREA, target=target)
+    design = Design.load(AREA, target=target)
     run_root = tmp_path / target
     flow = DefaultRunner(run_root, display_results=False).run_flow(YosysFpga, design)
     captured = capfd.readouterr()
