@@ -20,6 +20,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -515,6 +516,10 @@ class Freshness:
     equivalent: tuple[str, ...] = ()
     verdict: str = "passed"
     error: Optional[Dict[str, Any]] = None
+    #: A check without `refresh` read a file by content and a check that may refresh would have
+    #: written a refreshed trace. The wall clock stands in for the file-system clock here: a
+    #: wrong answer costs one lock upgrade or one later hash, never a wrong verdict.
+    would_refresh: bool = False
 
 
 def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
@@ -575,6 +580,11 @@ def _changed_environment(trace: Trace, expected: Expectation) -> Optional[str]:
     else:
         what = "a value changed"
     return f"the inherited environment changed: {what}"
+
+
+def wall_clock_ns() -> int:
+    """Return the time of this machine, for a decision that must not write in a run directory."""
+    return time.time_ns()
 
 
 def check_trace(
@@ -757,7 +767,20 @@ def check_trace(
     if checked_ns is None or (
         refreshed == trace and not any(record.settled_before(checked_ns) for record in read)
     ):
-        return Freshness(True, "", None, trace.run_id, equivalent, trace.verdict, trace.error)
+        return Freshness(
+            True,
+            "",
+            None,
+            trace.run_id,
+            equivalent,
+            trace.verdict,
+            trace.error,
+            would_refresh=not refresh
+            and reads[0] > 0
+            and (
+                refreshed != trace or any(record.settled_before(wall_clock_ns()) for record in read)
+            ),
+        )
     # Every record now reflects the file as it was at `checked_ns` or later.
     refreshed.inputs_recorded_ns = checked_ns
     refreshed.outputs_recorded_ns = checked_ns

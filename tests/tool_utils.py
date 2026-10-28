@@ -1508,6 +1508,8 @@ def check_after_the_racy_window(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(digest, "RACY_NS", window)
     real = trace.filesystem_time_ns
     monkeypatch.setattr(trace, "filesystem_time_ns", lambda directory: real(directory) + 3 * window)
+    wall = trace.wall_clock_ns
+    monkeypatch.setattr(trace, "wall_clock_ns", lambda: wall() + 3 * window)
 
 
 def run_outputs_state(*run_dirs: Path) -> dict[Path, tuple[Any, ...]]:

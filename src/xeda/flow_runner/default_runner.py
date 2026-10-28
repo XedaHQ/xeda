@@ -1662,9 +1662,14 @@ class FlowLauncher:
                     # has settled since it was taken), the launch starts again with the node
                     # exclusive.
                     freshness = check_trace(
-                        run_path, expected, locate_program, refresh=not producer_launch
+                        run_path,
+                        expected,
+                        locate_program,
+                        refresh=not producer_launch and not shared,
                     )
-                    if shared and freshness.fresh and freshness.refreshed is not None:
+                    if shared and not producer_launch and freshness.would_refresh:
+                        # The trace wants a refresh, which reads the file-system clock in the run
+                        # directory.
                         raise launch_locks.NeedsExclusive([node.name])
                     if freshness.fresh and reuse_results(flow, self.run_root, freshness):
                         if freshness.refreshed is not None:

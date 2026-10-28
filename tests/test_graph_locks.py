@@ -847,6 +847,34 @@ def test_a_node_reused_under_a_shared_lock_is_neither_prepared_nor_refreshed(tmp
     assert held == [("free", "blocked")] * 2, "shared: readers may join, a writer may not"
 
 
+def test_a_shared_node_reads_no_clock_and_a_rewritten_file_is_refreshed_exclusively(
+    tmp_path, monkeypatch
+):
+    """The file-system clock marker changes the directory of the node: only a launch that holds
+    the node exclusively takes it."""
+    from xeda import digest
+    from xeda.flow_runner import trace
+
+    monkeypatch.setattr(digest, "RACY_NS", 0)
+    root = tmp_path / "xeda_run"
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).succeeded
+    results = root / "d" / "__taker" / "results.json"
+    stat = results.stat()
+    results.write_bytes(results.read_bytes())  # the same bytes in a newer file
+    os.utime(results, ns=(stat.st_atime_ns, stat.st_mtime_ns - 5_000_000_000))
+    real = trace.filesystem_time_ns
+    seen: list[str] = []
+
+    def clock(directory):
+        seen.append(_probe(root / "d" / "__taker", "shared"))
+        return real(directory)
+
+    monkeypatch.setattr(trace, "filesystem_time_ns", clock)
+    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).reused
+    assert seen and set(seen) == {"blocked"}, "the clock is read while the node is exclusive"
+
+
 # ------------------------------------------------------------------------------- cancellation
 
 
