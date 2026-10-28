@@ -869,3 +869,17 @@ def test_a_remote_launch_protects_the_private_files_it_loaded(tmp_path, private_
             confirm_overwrite=None,
         )
     assert user.resolve() in seen
+
+
+def test_a_design_file_beside_a_project_still_protects_the_project_local_file(
+    tmp_path, private_home
+):
+    """The design file gets no layer from the project-local file, but the file was read (its
+    `run_root` counts), so a deliverable may not replace it."""
+    from xeda.cli import _cli_local_settings
+
+    project = project_of(tmp_path)
+    local = write(local_file_of(project), {"run_root": "local", "flows": {"x": {"a": 1}}})
+    settings = _cli_local_settings(project, tmp_path / "d.yaml", None, False)
+    assert settings.local == {} and settings.run_root == (local.parent / "local").resolve()
+    assert settings.local_file == local

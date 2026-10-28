@@ -690,7 +690,7 @@ def _cli_local_settings(
     since the run root is a fact of the machine and not a setting of the design."""
     settings = local_settings(project, config=None if no_config else config or UNSET)
     if design is not None:
-        settings = dataclasses.replace(settings, local={}, local_file=None)
+        settings = dataclasses.replace(settings, local={})
     return settings
 
 
