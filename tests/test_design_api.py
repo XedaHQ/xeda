@@ -610,3 +610,74 @@ def test_with_target_replays_an_update_that_replaced_the_sources_as_they_were(tm
     # a later update that does not touch the sources keeps them too
     later = updated.with_updates({"rtl.top": "b"}).with_target("t")
     assert _sources_of(later) == ["src/a.sv"] and later.rtl.top == "b"
+
+
+def test_a_target_generator_takes_over_a_source_the_design_lists(tmp_path):
+    """The design lists `top.v`, a file; the target gives a generator that writes it. The selected
+    design reads the generator's output, not the file beside the design file."""
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": ["top.v"]},
+        targets={"gen": {"rtl": {"generator": {"shell": "true"}}}},
+    )
+    assert [s.generated for s in design.rtl.sources] == [False]
+    chosen = design.with_target("gen")
+    assert [s.generated for s in chosen.rtl.sources] == [True]
+
+
+def test_a_target_generator_keeps_a_base_file_table_written(tmp_path):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": [{"file": "top.v"}]},
+        targets={"gen": {"rtl": {"generator": {"shell": "true"}}}},
+    )
+    chosen = design.with_target("gen")
+    assert [s.generated for s in chosen.rtl.sources] == [False]
+    assert chosen.rtl.sources[0].path == tmp_path / "top.v"
+
+
+def test_a_target_generator_cannot_claim_a_base_file_table(tmp_path):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": [{"file": "top.v"}]},
+        targets={"gen": {"rtl": {"generator": {"shell": "true", "generated_sources": ["top.v"]}}}},
+    )
+    with pytest.raises(DesignValidationError, match=r"`top.v`.*must exist.*path"):
+        design.with_target("gen")
+
+
+def test_a_target_generator_classifies_written_patterns_once(tmp_path):
+    for name in ("top.v", "hand.v", "board.v"):
+        (tmp_path / name).write_text("module m; endmodule\n")
+    design = Design(
+        name="a",
+        root=tmp_path,
+        rtl={"sources": ["top*.v", "hand*.v"]},
+        targets={
+            "gen": {
+                "rtl": {
+                    "sources": ["board*.v", "extra.v"],
+                    "generator": {"shell": "true", "generated_sources": ["top*.v", "extra.v"]},
+                }
+            }
+        },
+    )
+    (tmp_path / "hand_new.v").write_text("module n; endmodule\n")
+    (tmp_path / "board.v").unlink()
+    for chosen in (
+        design.with_target("gen"),
+        design.with_updates({"rtl.top": "m"}).with_target("gen"),
+    ):
+        assert [s.generated for s in chosen.rtl.sources] == [True, False, False, True]
+        assert [s.output_name if s.generated else s.path.name for s in chosen.rtl.sources] == [
+            "top*.v",
+            "hand.v",
+            "board.v",
+            "extra.v",
+        ]

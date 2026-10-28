@@ -3200,6 +3200,8 @@ class Design(XedaBaseModel):
     #: The design as written, with its dotted keys expanded and its `targets` still in it: what
     #: `with_target` selects from.
     _declared: dict[str, Any] = PrivateAttr(default_factory=dict)
+    #: Complete RTL snapshots for targets that supply a generator, classified from written entries.
+    _target_rtl: dict[str, Any] = PrivateAttr(default_factory=dict)
     #: The names of the targets that the design defines.
     _targets: tuple[str, ...] = PrivateAttr(default=())
     #: The arguments of `with_updates`, in order.
@@ -3557,6 +3559,7 @@ class Design(XedaBaseModel):
         target: str | None = None,
         updates: Sequence[Mapping[str, Any]] = (),
         replay: Sequence[Mapping[str, Any]] | None = None,
+        target_rtl: dict[str, Any] | None = None,
         data: Mapping[str, Any] | None = None,
         remove: Sequence[str] = (),
         recorded_target: str | None = None,
@@ -3569,7 +3572,8 @@ class Design(XedaBaseModel):
         `target` selected and then each of `updates` applied. `replay` holds the updates as they
         were applied before (their sources expanded), and the update is applied as it is there.
         `data` is the data to validate when the caller has composed it already (`with_updates`,
-        which gives `replay` too). `recorded_target` is the name of the
+        which gives `replay` too). `target_rtl` keeps the RTL snapshots for target generators.
+        `recorded_target` is the name of the
         target of a design that was made from a target elsewhere (a packaged design): it is
         recorded and selects nothing."""
 
@@ -3603,8 +3607,11 @@ class Design(XedaBaseModel):
             names = declared.get("targets")
             if data is None:
                 cls.select_target(declared, None)  # the form of every target, as written
-                declared = cls._with_expanded_sources(declared, root_path)
+                if target_rtl is None:
+                    declared, target_rtl = cls._with_expanded_sources(declared, root_path)
                 data = cls.select_target(declared, target)
+                if target is not None and target in target_rtl:
+                    data["rtl"] = target_rtl[target]
                 steps = []
                 for index, update in enumerate(updates):
                     step = (
@@ -3631,6 +3638,7 @@ class Design(XedaBaseModel):
                 ) from e
         self._root = root_path
         self._declared = declared
+        self._target_rtl = target_rtl if target_rtl is not None else {}
         self._targets = tuple(names) if isinstance(names, Mapping) else ()
         self._updates = tuple(freeze(deepcopy(dict(update))) for update in updates)
         self._replay = tuple(updates if replay is None else replay)
@@ -3658,14 +3666,19 @@ class Design(XedaBaseModel):
         raise TypeError(_NO_ROOT.format(name="model_validate_strings"))
 
     @classmethod
-    def _with_expanded_sources(cls, declared: Mapping[str, Any], root: Path) -> dict[str, Any]:
+    def _with_expanded_sources(
+        cls, declared: Mapping[str, Any], root: Path
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Return `declared` with the sources of the design and of every target expanded, once.
 
         The result keeps them as `Source` objects with the entries that named them, so selecting
         a target later (`with_target`) expands nothing again: a file added or removed since is
         neither in the design nor missing from it. A target whose entries cannot be expanded now
-        stays as written, and is checked when it is selected."""
+        stays as written, and is checked when it is selected. A target that supplies a generator
+        gets a complete RTL snapshot classified from the original entries, including file tables,
+        against its merged recipe."""
         result = dict(declared)
+        target_rtl: dict[str, Any] = {}
         generator = _generator_written(result.get("rtl"))
         for part in ("rtl", "tb"):
             if part in result:
@@ -3686,6 +3699,11 @@ class Design(XedaBaseModel):
                         if isinstance(written, Mapping) and "generator" in written
                         else generator
                     )
+                    if isinstance(written, Mapping) and written.get("generator") is not None:
+                        rtl = cls._merge_target(
+                            {"rtl": declared.get("rtl", {})}, {"rtl": written}, append=True
+                        )["rtl"]
+                        target_rtl[name] = _expanded_sources(rtl, _generator_written(rtl), root)
                     for part in ("rtl", "tb"):
                         if part in overlay:
                             overlay[part] = _expanded_sources(
@@ -3693,7 +3711,7 @@ class Design(XedaBaseModel):
                             )
                 expanded[name] = overlay
             result["targets"] = expanded
-        return result
+        return result, target_rtl
 
     @classmethod
     def _built(
@@ -3794,6 +3812,7 @@ class Design(XedaBaseModel):
             data=data,
             updates=(*self._updates, updates),
             replay=(*self._replay, step),
+            target_rtl=self._target_rtl,
             source_file=self._source_file,
             project_layer=self._project_layer,
         )
@@ -3809,6 +3828,7 @@ class Design(XedaBaseModel):
             target=target,
             updates=self._updates,
             replay=self._replay,
+            target_rtl=self._target_rtl,
             source_file=self._source_file,
             project_layer=self._project_layer,
         )
