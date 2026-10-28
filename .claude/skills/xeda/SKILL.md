@@ -85,10 +85,10 @@ xeda run nextpnr blinky.yaml --dry-run --json
 ```
 
 A dry run runs no tool or generator. Planning resolves Git dependencies and fetches an uncached
-checkout into `<run root>/.dependencies/<key>/`; resolving a branch, tag or `HEAD` can also use
-the network. It changes nothing else in the run root: no run directory, trace or delivery. A
-node that reads generated sources is
-`unknown`, "the generator has not run". The plan refuses what a run would refuse at planning:
+checkout into `<run root>/.dependencies/<key>/`; on POSIX, it also leaves the lock file
+`<key>.lock` beside it. Resolving a branch, tag or `HEAD` can also use the network. It changes
+nothing else in the run root: no run directory, trace or delivery. A node that reads generated
+sources is `unknown`, "the generator has not run". The plan refuses what a run would refuse at planning:
 unknown or conflicting settings, a source type the flow cannot read, a missing required setting,
 or a chain that does not fit. With `--remote HOST`, the host makes the plan and judges freshness;
 the dry run may install Xeda on the host and sync the inputs, and it reports what it uploaded
