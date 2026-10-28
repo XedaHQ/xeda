@@ -523,7 +523,7 @@ def located_input_files(flow: Flow) -> Optional[list[Path]]:
     return None if located is None else _existing_files(located, flow.run_path)
 
 
-def installation_prefixes(programs: Sequence[str]) -> list[Path]:
+def installation_prefixes(programs: Sequence[str], path: Optional[str] = None) -> list[Path]:
     """Return the installation prefix of each host program among `programs`.
 
     The prefix is the directory above the `bin/` that the resolved executable lies in. A
@@ -533,7 +533,7 @@ def installation_prefixes(programs: Sequence[str]) -> list[Path]:
     for name in programs:
         if name.startswith(DOCKER_IMAGE_PREFIX):
             continue
-        where = locate_program(name)
+        where = locate_program(name, path=path)
         if where is None:
             continue
         parent = Path(where).parent
@@ -552,7 +552,9 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
     its `init()` registered, which are expected inputs already). Where a file lies decides
     whether it is an input or the run's own (`build_trace`). A file that a producer handed over
     is neither: the edge records it."""
-    prefixes = installation_prefixes(programs)
+    prefixes = installation_prefixes(
+        programs, path=flow.process_environment().get("PATH", os.defpath)
+    )
     named = [
         dep
         for depfile in flow.depfiles
@@ -827,7 +829,7 @@ def snapshot_inputs(
 
 
 def _programs(
-    names: Sequence[str], previous: Optional[Trace] = None
+    names: Sequence[str], previous: Optional[Trace] = None, search_path: Optional[str] = None
 ) -> Dict[str, Optional[ProgramRecord]]:
     """Return each program as it is after the run, with its file recorded.
 
@@ -846,7 +848,7 @@ def _programs(
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
-        where = locate_program(name)
+        where = locate_program(name, path=search_path)
         if where is None or name.startswith(DOCKER_IMAGE_PREFIX):
             programs[name] = None if where is None else ProgramRecord(path=where)
             continue
@@ -1090,7 +1092,9 @@ def build_trace(
         dependencies=[DependencyCommit(repository=r, commit=c) for r, c in expected.dependencies],
         environment_digest=expected.environment_digest,
         environment_names=list(expected.environment_names),
-        programs=_programs(programs, previous),
+        programs=_programs(
+            programs, previous, search_path=flow.process_environment().get("PATH", os.defpath)
+        ),
         dependency_runs=dict(expected.dependency_runs),
         setting_locations={key: list(value) for key, value in expected.setting_locations.items()},
         inputs_recorded_ns=snapshot.inputs_recorded_ns,

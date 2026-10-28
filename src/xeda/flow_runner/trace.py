@@ -448,14 +448,14 @@ def _image_id(reference: str) -> Optional[str]:
     return found.stdout.strip() or None
 
 
-def locate_program(name: str) -> Optional[str]:
+def locate_program(name: str, path: Optional[str] = None) -> Optional[str]:
     """Return where `name` is now, or None if it cannot be found.
 
-    A program is resolved through PATH (or taken as given, if absolute). A container image is
-    located by its ID."""
+    A program is resolved through `path` (the caller's PATH by default), or taken as given if
+    absolute. A container image is located by its ID."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
         return _image_id(name[len(DOCKER_IMAGE_PREFIX) :])
-    found = name if os.path.isabs(name) else shutil.which(name)
+    found = name if os.path.isabs(name) else shutil.which(name, path=path)
     if not found or not os.path.exists(found):
         return None
     return str(Path(found).resolve())

@@ -1664,7 +1664,9 @@ class FlowLauncher:
                     freshness = check_trace(
                         run_path,
                         expected,
-                        locate_program,
+                        lambda name: locate_program(
+                            name, path=flow.process_environment().get("PATH", os.defpath)
+                        ),
                         refresh=not producer_launch and not shared,
                     )
                     if shared and not producer_launch and freshness.would_refresh:

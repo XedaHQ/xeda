@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, ClassVar
@@ -278,6 +279,38 @@ def test_the_private_env_and_env_override_the_caller_in_that_order(tmp_path, mon
     ran = _launch(tmp_path, _probe_flow(), {"env": {"XEDA_C": "env"}}, local=local)
     seen = _seen(ran)
     assert (seen["XEDA_A"], seen["XEDA_B"], seen["XEDA_C"]) == ("caller", "private", "env")
+
+
+@pytest.mark.parametrize("inherit_env", [False, True])
+@pytest.mark.parametrize("source", ["private", "settings"])
+def test_sibling_discovery_uses_the_effective_path(tmp_path, monkeypatch, inherit_env, source):
+    parent, child = tmp_path / "parent", tmp_path / "child"
+    for directory in (parent, child):
+        directory.mkdir()
+        program = directory / "sibling-tool"
+        program.write_text("#!/bin/sh\nexit 0\n")
+        program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{parent}{os.pathsep}{os.environ['PATH']}")
+
+    class SiblingProbe(Flow):
+        """Checks the executable selected for sibling discovery."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        def run(self) -> None:
+            assert Tool("sibling-tool").executable_path() == (child / "sibling-tool").resolve()
+            Tool("sibling-tool").run()
+
+    settings = {"inherit_env": inherit_env}
+    local = LocalSettings(env={"PATH": str(child)}) if source == "private" else None
+    if source == "settings":
+        settings["env"] = {"PATH": str(child)}
+    ran = _launch(tmp_path, SiblingProbe, settings, local=local)
+    recorded = read_trace(ran.run_path)[0].programs
+    assert set(recorded) == {"sibling-tool"}
+    assert recorded["sibling-tool"].path == str((child / "sibling-tool").resolve())
+    _, states = _plan(tmp_path, SiblingProbe, settings, local=local)
+    assert states[SiblingProbe.name].state == "fresh"
 
 
 def test_the_clean_mode_passes_essentials_locators_and_env_only(tmp_path, monkeypatch):

@@ -58,6 +58,7 @@ A node is judged in the order the launch uses:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
@@ -120,14 +121,14 @@ class NeedsAProcess(Exception):
     """Judging the node needs something only a process can tell."""
 
 
-def dry_locate(name: str) -> str | None:
+def dry_locate(name: str, path: str | None = None) -> str | None:
     """Return where the program `name` is now (`trace.locate_program`).
 
     A container image is not looked up: `docker image inspect` is a process
     (`NeedsAProcess`)."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
         raise NeedsAProcess("its container image is checked when it runs")
-    return locate_program(name)
+    return locate_program(name, path=path)
 
 
 def _record(node: PlanNode, run_root: Path) -> RunRecord | None:
@@ -479,7 +480,11 @@ def judge_node(
     )
     try:
         freshness = check_trace(
-            node.run_path, expected, dry_locate, refresh=False, edge=waiting is None
+            node.run_path,
+            expected,
+            lambda name: dry_locate(name, path=flow.process_environment().get("PATH", os.defpath)),
+            refresh=False,
+            edge=waiting is None,
         )
     except NeedsAProcess as why:
         return NodeFreshness("unknown", str(why))

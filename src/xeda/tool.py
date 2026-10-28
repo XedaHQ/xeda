@@ -535,7 +535,9 @@ class Tool(XedaBaseModel):
         if executable != self.executable:
             return None
         flow = self._live_flow()
-        search_path = (flow.process_environment() if flow is not None else os.environ).get("PATH")
+        search_path = (flow.process_environment() if flow is not None else os.environ).get(
+            "PATH", os.defpath
+        )
         which = shutil.which(self.executable, path=search_path)
         if which is not None:
             return Path(which).resolve()
