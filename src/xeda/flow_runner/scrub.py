@@ -396,6 +396,13 @@ def _remove_confirmed(
     return done
 
 
+def _rooted_path(path: Path, given_root: Path, resolved_root: Path) -> Path:
+    """Replace only the lexical run-root prefix, preserving links below it for the checks."""
+    absolute = Path(os.path.abspath(path))
+    root = Path(os.path.abspath(given_root))
+    return resolved_root / absolute.relative_to(root) if absolute.is_relative_to(root) else absolute
+
+
 def scrub_runs(
     flow_name: str,
     dir: Path,
@@ -418,6 +425,9 @@ def scrub_runs(
     it. A link named like a run directory that is none is logged and left alone."""
     if run_root is None:
         run_root = dir.parent
+    root = run_root.resolve()
+    dir = _rooted_path(dir, run_root, root)
+    run_root = root
     scan = _run_directories_in(flow_name, dir, exclude, run_root)
     _log_skipped(scan.skipped)
     listed = _listed(flow_name, scan.candidates)
@@ -458,6 +468,9 @@ def scrub_design(
     looked at. So is a symbolic link at the design or the named target (`refuse_link_on_way`);
     the error names it. A link found at a target below the design is not followed: it is logged
     and returned as `skipped`."""
+    root = run_root.resolve()
+    design_dir = _rooted_path(design_dir, run_root, root)
+    run_root = root
     if target is not None:
         problem = target_name_problem(target)
         if problem is not None:
@@ -500,6 +513,7 @@ def scrub_generations(
     which a launch holds in the shared mode for as long as it reads the storage. So scrub waits
     for every launch that reads a storage before it removes that storage. A storage that is gone
     when its turn comes is reported as `gone`."""
+    run_root = run_root.resolve()
     base = run_root / GENERATION_DIRECTORY / design_name
     refuse_link_on_way(base, run_root)
     found = sorted(p for p in base.glob("*") if p.is_dir() and not p.is_symlink())

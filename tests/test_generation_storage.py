@@ -132,13 +132,42 @@ def test_the_generator_runs_in_the_storage_with_the_two_variables_set(tmp_path):
     assert Path(design_root) == world.root.resolve()
 
 
-def test_a_generator_with_a_cwd_runs_there(tmp_path):
-    world = World(tmp_path, generator={"cwd": "sub"})
+@pytest.mark.parametrize("cwd", ["sub", "$DESIGN_ROOT/sub", "${DESIGN_DIR}/sub"])
+def test_a_generator_with_a_cwd_runs_there(tmp_path, cwd):
+    world = World(tmp_path, generator={"cwd": cwd})
     (world.root / "sub").mkdir()
     # the script writes into XEDA_GENERATED, whatever its working directory is
     assert world.launch(reader_flow()).outcome is Outcome.PASSED
     cwd, design_root, _ = world.where
     assert Path(cwd) == Path(design_root) / "sub"
+
+
+@pytest.mark.parametrize("cwd", ["$DESIGN_ROOT/sub", "${DESIGN_DIR}/sub", "absolute"])
+def test_equivalent_generator_working_directories_have_one_key(tmp_path, cwd):
+    world = World(tmp_path, generator={"cwd": "sub"})
+    (world.root / "sub").mkdir()
+    key = generation_key(world.load())[0]
+    value = str(world.root / "sub") if cwd == "absolute" else cwd
+    world.design_file.write_text(world.design_file.read_text().replace("'sub'", repr(value)))
+    assert generation_key(world.load())[0] == key
+
+
+@pytest.mark.parametrize("cwd", ["$DESIGN_ROOT/../outside", "${DESIGN_DIR}/../outside"])
+def test_an_expanded_generator_working_directory_cannot_leave_the_design_root(tmp_path, cwd):
+    from xeda.design import DesignValidationError
+
+    world = World(tmp_path, generator={"cwd": cwd})
+    (tmp_path / "outside").mkdir()
+    with pytest.raises(DesignValidationError, match="below the design root"):
+        world.load()
+
+
+def test_a_generator_built_before_loading_keeps_variables_until_the_root_is_known(tmp_path):
+    from xeda.design import Generator
+
+    generator = Generator(cwd="$DESIGN_ROOT/../outside")
+    with pytest.raises(ValueError, match="below the design root"):
+        generator.lookup_directory(tmp_path / "design")
 
 
 def test_a_chisel_generator_runs_in_its_project_directory(tmp_path, monkeypatch):

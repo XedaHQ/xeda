@@ -25,6 +25,7 @@ from ..design import (
     Generator,
     GitReference,
     Source,
+    generator_cwd,
     generator_of,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
@@ -33,6 +34,7 @@ from ..flow.flow import map_keyed_path_leaves
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
+from ..flow_runner.dependencies import declared_designs
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
@@ -114,11 +116,8 @@ def refuse_unsendable_declared(design: Design) -> None:
     needs no value that such a dependency supplies. The generator of a Git dependency is judged
     after the fetch, on the merged design. A local dependency whose file is missing is left to the
     merge, which reports it."""
-    refuse_unsendable_generator(design)
-    for ref in design.dependencies:
-        path = design.root_path / ref.uri
-        if not isinstance(ref, GitReference) and path.is_file():
-            refuse_unsendable_declared(Design.from_file(path))
+    for unit in declared_designs(design, missing_ok=True):
+        refuse_unsendable_generator(unit)
 
 
 def package_inputs(
@@ -397,7 +396,8 @@ def package_inputs(
                 # file of the package lies in it. It is the directory the recipe names, as the
                 # recipe spells it: a link is not resolved. The design refuses a `cwd` that
                 # leaves its root when it loads.
-                named = Path(os.path.normpath(generator.cwd))
+                named = generator_cwd(generator.cwd, unit.root_path)
+                recipe["cwd"] = named.as_posix()
                 if named != Path(".") and (unit.root_path / named).is_dir():
                     directories.add((base / named).as_posix())
         tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, unit, base)}

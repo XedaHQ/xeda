@@ -1612,6 +1612,25 @@ POSIX_SHELL = "/bin/sh"
 GENERATOR_VARIABLES = frozenset({"DESIGN_ROOT", "XEDA_GENERATED"})
 
 
+def generator_cwd(value: str, design_root: Path | None) -> Path:
+    """Expand a generator's `cwd` and return its normalized path relative to the design root.
+
+    Keep links as written: this is the same lexical containment rule as the load check. Without
+    a design root, only a relative path that stays below it can be checked."""
+    expanded = _expand_design_path(value, design_root) if design_root is not None else Path(value)
+    normalized = Path(os.path.normpath(expanded))
+    if normalized.is_absolute() and design_root is not None:
+        root = Path(os.path.normpath(design_root))
+        if normalized.is_relative_to(root):
+            normalized = normalized.relative_to(root)
+    if normalized.is_absolute() or normalized.parts[:1] == ("..",):
+        raise ValueError(
+            f"`cwd` is {value!r}: give a directory below the design root, such as "
+            "`build` (a relative path that stays inside it)"
+        )
+    return normalized
+
+
 class Generator(XedaBaseModel):
     cwd: Optional[str] = None
     executable: Optional[str] = None
@@ -1698,16 +1717,13 @@ class Generator(XedaBaseModel):
     @classmethod
     def _cwd_is_below_the_design_root(cls, value):
         """The working directory of a generator is a directory below the design root of the
-        design that states it. It is judged by its text: an absolute path, or one that leaves the
-        root after normalization (`..`), is refused."""
-        if value is not None:
-            normalized = os.path.normpath(value)
-            if os.path.isabs(value) or normalized == ".." or normalized.startswith(".." + os.sep):
-                raise ValueError(
-                    f"`cwd` is {value!r}: give a directory below the design root, such as "
-                    "`build` (a relative path that stays inside it)"
-                )
-        return value
+        design that states it, after expanding design-root variables and normalizing `..`."""
+        if value is None:
+            return None
+        root = _loading_root.get()
+        relative = generator_cwd(value, root)
+        # Variables cannot be normalized until the root they stand for is known.
+        return value if root is None else str(relative)
 
     @field_validator("outputs_to", mode="before")
     @classmethod
@@ -1848,7 +1864,9 @@ class Generator(XedaBaseModel):
         way needs to exist.
 
         It does not depend on the storage, so the identity of a generation does not either."""
-        return design_root if self.cwd is None else design_root / os.path.normpath(self.cwd)
+        return (
+            design_root if self.cwd is None else design_root / generator_cwd(self.cwd, design_root)
+        )
 
     def working_directory(self, design_root: Path, storage: Path) -> Path:
         """Return the directory that the generator runs in.

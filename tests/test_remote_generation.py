@@ -398,6 +398,16 @@ def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_hos
     assert on_host == here, "the host computes the keys of this side"
 
 
+@pytest.mark.parametrize("cwd", ["work", "$DESIGN_ROOT/work", "${DESIGN_DIR}/work", "absolute"])
+def test_the_package_keeps_an_expanded_working_directory_relative_to_the_host_root(tmp_path, cwd):
+    value = str(tmp_path / "design" / "work") if cwd == "absolute" else cwd
+    world = _world(tmp_path, generator={"cwd": value})
+    (world.root / "work").mkdir()
+    document, package = _document(tmp_path, world.load())
+    assert document["rtl"]["generator"]["cwd"] == "work"
+    assert "work" in package.directories
+
+
 def test_an_empty_working_directory_of_a_generator_exists_on_the_host(tmp_path, remote_host):
     world = _world(tmp_path, generator={"cwd": "work"})
     (world.root / "work").mkdir()

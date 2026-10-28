@@ -239,6 +239,32 @@ def test_a_local_dependency_is_read_at_planning(tmp_path):
     assert not (tmp_path / "xeda_run").exists()
 
 
+@pytest.mark.parametrize("kind", ["local", "git"])
+def test_a_cycle_in_a_git_dependency_is_refused_without_fetching_it_twice(
+    tmp_path, remote, monkeypatch, kind
+):
+    path = remote.work / "dep.yaml"
+    document = yaml.safe_load(path.read_text())
+    document["dependencies"] = [
+        "dep.yaml" if kind == "local" else f"git+{remote.url}?branch=main#dep.yaml"
+    ]
+    path.write_text(yaml.safe_dump(document))
+    commit = remote.commit("cyclic dependency")
+    _git("push", "--quiet", "origin", "main", cwd=remote.work)
+    original = xeda.flow_runner.dependencies.fetch
+    fetched = []
+
+    def once(ref, commit, **kwargs):
+        assert not fetched, "a cycle is refused before fetching the repeated dependency"
+        fetched.append(commit)
+        return original(ref, commit, **kwargs)
+
+    monkeypatch.setattr(xeda.flow_runner.dependencies, "fetch", once)
+    with pytest.raises(DesignError, match="dependency cycle: d -> dep -> dep"):
+        _plan(tmp_path, _design_file(tmp_path, _pinned(remote, commit)))
+    assert fetched == [commit]
+
+
 def test_an_invalid_spec_fetches_nothing(tmp_path, remote, git_log):
     design_file = _design_file(tmp_path, _pinned(remote))
     with pytest.raises(Exception, match="no_such_setting"):

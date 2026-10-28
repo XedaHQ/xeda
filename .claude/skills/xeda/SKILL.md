@@ -84,12 +84,15 @@ again` or blocked; `reason` names it).
 xeda run nextpnr blinky.yaml --dry-run --json
 ```
 
-A dry run runs no tool and changes no run root, trace, lock or delivery. It refuses what a run
-would refuse at planning: unknown or conflicting settings, a source type the flow cannot read, a
-missing required setting, a chain that does not fit. It runs no generator (a node that reads generated
-sources is `unknown`, "the generator has not run") and refuses a design that needs a Git fetch. With `--remote HOST`, the host makes the plan
-and judges freshness; the dry run may install Xeda on the host and sync the inputs, and it reports
-what it uploaded (`uploaded`).
+A dry run runs no tool or generator. Planning resolves Git dependencies and fetches an uncached
+checkout into `<run root>/.dependencies/<key>/`; resolving a branch, tag or `HEAD` can also use
+the network. It changes nothing else in the run root: no run directory, trace or delivery. A
+node that reads generated sources is
+`unknown`, "the generator has not run". The plan refuses what a run would refuse at planning:
+unknown or conflicting settings, a source type the flow cannot read, a missing required setting,
+or a chain that does not fit. With `--remote HOST`, the host makes the plan and judges freshness;
+the dry run may install Xeda on the host and sync the inputs, and it reports what it uploaded
+(`uploaded`).
 
 ## Design file
 
@@ -543,7 +546,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `error.code` | Do |
 | --- | --- |
 | `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
-| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
+| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |

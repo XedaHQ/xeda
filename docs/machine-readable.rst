@@ -370,8 +370,14 @@ The record has these fields:
     entries by ``name``.
 ``started``, ``finished``, ``runtime``
     Two times in UTC (ISO 8601) and the duration in seconds.
-``dependencies``, ``inherited_variables``
-    Lists, empty for now.
+``dependencies``
+    The design's resolved dependencies, in order. Each entry has ``repository`` (the Git repository
+    URL without a user name or password, or ``null`` for a local dependency), ``reference`` (the
+    branch or tag as written, or ``null`` for a pinned commit, ``HEAD`` or a local dependency),
+    ``commit`` (the resolved Git commit, or ``null`` for a local dependency), and ``design_file``
+    (the dependency's design-file path).
+``inherited_variables``
+    A list of inherited variables; empty for now.
 
 The record names no file of the run by an absolute path. The run root and the run directory
 follow from where the file is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
@@ -662,6 +668,8 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
 ``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
 ``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
+``dependency_cycle`` (the dependencies of a design lead back to a design on the same chain; the
+message names the chain),
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
 ``generator_failed`` says that the generator of the design failed or could not be started or

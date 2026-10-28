@@ -70,6 +70,7 @@ def lock_file(run_path: Path, run_root: Path | None = None) -> Path:
     lock file to wherever the link leads."""
     run_path = Path(os.path.abspath(run_path))
     if run_root is not None:
+        run_root = Path(run_root).resolve()
         _check_inside(run_path, run_root)
         if run_path.is_symlink():
             run_path = Path(os.path.realpath(run_path))
@@ -113,6 +114,8 @@ def _acquire(file: TextIO, exclusive: bool, path: Path) -> None:
 
 @contextlib.contextmanager
 def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iterator[None]:
+    if run_root is not None:
+        run_root = Path(run_root).resolve()
     if sys.platform == "win32":
         yield
         return

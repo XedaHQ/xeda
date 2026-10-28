@@ -374,6 +374,45 @@ def using_pinned_commits(commits: Mapping[str, str]) -> Iterator[None]:
 RunRoot = Path | Callable[[], Path] | None
 
 
+# Each entry names one design file on the active path, with its design name for errors.
+DependencyChain = tuple[tuple[str, str], ...]
+
+
+def _extend_chain(path: str, name: str, chain: DependencyChain, field: str) -> DependencyChain:
+    identity = os.path.realpath(path)
+    if any(previous == identity for previous, _ in chain):
+        repeated = next(label for previous, label in chain if previous == identity)
+        names = [label for _, label in chain] + [repeated]
+        raise DesignError(
+            "dependency cycle: " + " -> ".join(names), code="dependency_cycle", field=field
+        )
+    return (*chain, (identity, name))
+
+
+def declared_designs(
+    design: Design,
+    *,
+    chain: DependencyChain = (),
+    field: str = "dependencies",
+    missing_ok: bool = False,
+) -> Iterator[Design]:
+    """Walk local dependencies before any Git fetch, refusing cycles on the active path.
+
+    The root's design file participates too. A shared dependency on another branch is allowed.
+    Remote checks leave missing files to the merge when `missing_ok` is true."""
+    active = _extend_chain(design.generation_label, design.name, chain, field)
+    yield design
+    for position, ref in enumerate(design.dependencies):
+        if isinstance(ref, GitReference):
+            continue
+        if missing_ok and not (design.root_path / ref.uri).is_file():
+            continue
+        field = f"dependencies[{position}]"
+        yield from declared_designs(
+            _local_design(design, ref, field), chain=active, field=field, missing_ok=missing_ok
+        )
+
+
 def _merge(
     design: Design,
     run_root: RunRoot,
@@ -381,12 +420,15 @@ def _merge(
     first: int | None,
     pins: Mapping[str, str],
     where: tuple[int, ...] = (),
+    chain: DependencyChain = (),
+    field: str = "dependencies",
 ) -> Design:
     """Merge the dependencies of `design`, in the order they are listed.
 
     Each entry has a slot in `slots`, its index. The entries of the design that planning
     started from take the slots `0..n-1` at their positions (`first` is `None`). The entries of
     a dependency come after, in the order they are met (`first` is `len(slots)` then)."""
+    active = _extend_chain(design.generation_label, design.name, chain, field)
     merged: list[MergedDependency] = []
     for position, ref in enumerate(design.dependencies):
         field = f"dependencies[{position}]"
@@ -400,8 +442,16 @@ def _merge(
             commit = (
                 ref.commit or pins.get(path) or resolve_reference(ref, run_root=root, field=field)
             )
+            # Check the design file's identity before fetching a repeated Git dependency.
+            expected = dependency_storage(root, dependency_key(ref.repo_url, commit))
+            _extend_chain(
+                str(expected / CHECKOUT / ref.design_file), ref.design_file, active, field
+            )
             files = fetch(ref, commit, run_root=root, field=field)
             loaded = _git_design(ref, files, field)
+            # Check newly available local branches before any nested Git fetch.
+            for _ in declared_designs(loaded, chain=active, field=field):
+                pass
             checkout = Path(os.path.realpath(files))
             slots[index] = DependencyRecord(
                 redacted_url(ref.repo_url),
@@ -418,7 +468,9 @@ def _merge(
             slots[index] = DependencyRecord(None, None, None, str(ref.uri), None)
             # its written files count by their path in its own root
             marked = (index, loaded.root_path)
-        loaded = _merge(loaded, run_root, slots, len(slots), pins, (*where, position))
+        loaded = _merge(
+            loaded, run_root, slots, len(slots), pins, (*where, position), active, field
+        )
         merged.append(MergedDependency(ref, loaded, *marked))
     resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
     return design.merged_with(merged, resolved)
@@ -444,4 +496,6 @@ def merged_design(design: Design, *, run_root: RunRoot) -> Design:
     change, and a design without dependencies is returned as it is."""
     if not design.dependencies:
         return design
+    for _ in declared_designs(design):
+        pass
     return _merge(design, run_root, [None] * len(design.dependencies), None, _pinned.get())
