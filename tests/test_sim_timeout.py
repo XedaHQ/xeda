@@ -145,6 +145,7 @@ def record_tool_runs(monkeypatch):
     return runs
 
 
+@pytest.mark.real_tool
 @pytest.mark.parametrize(
     "stop_time,flag",
     [
@@ -177,6 +178,7 @@ def test_ghdl_gets_the_stop_time_in_femtoseconds_and_the_timeout_in_seconds(
     )
 
 
+@pytest.mark.real_tool
 @pytest.mark.parametrize(
     "stop_time,flag",
     [
