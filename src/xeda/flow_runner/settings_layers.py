@@ -461,6 +461,14 @@ def read_command_line_text(
     `settings_error` false, a `SettingTextError` for a loader that reports it in its own way (the
     design)."""
     try:
+        single = values.get("clock")
+        if _has_clock_table(settings_cls) and isinstance(single, Mapping):
+            # `clock` is the single-clock spelling of `clocks`: read it as the main clock.
+            read = parse_text_leaves({"clocks": {"main_clock": single}}, settings_cls)
+            return {
+                **parse_text_leaves(values, settings_cls),
+                "clock": read["clocks"]["main_clock"],
+            }
         return parse_text_leaves(values, settings_cls)
     except SettingTextError as error:
         if not settings_error:

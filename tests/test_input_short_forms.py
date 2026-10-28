@@ -69,6 +69,14 @@ def test_flow_refuses_both_clock_forms_in_one_layer(layered):
         VivadoSynth.Settings.from_input({"fpga": {"part": "xc7a35t"}, **layer})
 
 
+def test_command_line_text_of_the_single_clock_is_read_by_the_clock_model():
+    merged = merge_layers(
+        ["clock.period=10ns", "clock.duty_cycle=0.4"], settings_cls=VivadoSynth.Settings
+    )
+    clock = merged["clocks"]["main_clock"]
+    assert clock["duty_cycle"] == 0.4 and str(clock["period"]) == "10ns"
+
+
 @pytest.mark.parametrize("where", ["target", "updates"])
 def test_design_clock_overlay_refines_first_clock_and_keeps_other_clocks(tmp_path, where):
     document = {
