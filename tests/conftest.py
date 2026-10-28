@@ -193,11 +193,18 @@ def _environment_is_left_as_found():
         pytest.fail(f"the test left these environment variables changed: {changed}")
 
 
-@pytest.fixture(scope="session")
-def _empty_user_config_home(tmp_path_factory) -> Path:
+@pytest.fixture(scope="session", autouse=True)
+def _empty_user_config_home(
+    tmp_path_factory, _importing_the_tests_leaves_the_environment_alone
+) -> Iterator[Path]:
     """An empty directory that stands for `$XDG_CONFIG_HOME`: it holds no `xeda/config.yaml` and
-    no `xeda/remotes.yaml`. One per worker; nothing writes into it."""
-    return tmp_path_factory.mktemp("empty_user_config")
+    no `xeda/remotes.yaml`. One per worker; nothing writes into it. It is set for the whole
+    session too, so a launch in a fixture of a module or of the session sees the environment that
+    a launch in a test sees (the digest of a node counts the inherited environment)."""
+    home = tmp_path_factory.mktemp("empty_user_config")
+    with pytest.MonkeyPatch.context() as session:
+        session.setenv("XDG_CONFIG_HOME", str(home))
+        yield home
 
 
 @pytest.fixture(autouse=True)
@@ -353,12 +360,19 @@ class ProgrammerGuard:
         ), f"openFPGALoader resolves to {resolved}, which is neither the fake nor the sentinel"
 
 
-@pytest.fixture(scope="session")
-def _programmer_sentinel(tmp_path_factory) -> ProgrammerGuard:
+@pytest.fixture(scope="session", autouse=True)
+def _programmer_sentinel(
+    tmp_path_factory, _importing_the_tests_leaves_the_environment_alone
+) -> Iterator[ProgrammerGuard]:
+    """The sentinel is first on `PATH` for the whole session too, so a launch in a fixture of a
+    module or of the session is guarded and sees the `PATH` that a launch in a test sees (the
+    digest of a node counts the inherited environment)."""
     guard = ProgrammerGuard(tmp_path_factory.mktemp("no-programmer"))
     guard.sentinel.write_text(SENTINEL)
     guard.sentinel.chmod(0o755)
-    return guard
+    with pytest.MonkeyPatch.context() as session:
+        session.setenv("PATH", str(guard.directory) + os.pathsep + os.environ.get("PATH", ""))
+        yield guard
 
 
 @pytest.fixture(autouse=True)
@@ -370,7 +384,9 @@ def programmer_guard(
     remote worker given this `PATH` inherits it, and the test fails if the sentinel was
     started or if its final `PATH` selects any other `openFPGALoader`."""
     guard = _programmer_sentinel
-    monkeypatch.setenv("PATH", str(guard.directory) + os.pathsep + os.environ.get("PATH", ""))
+    path = os.environ.get("PATH", "")
+    if path.split(os.pathsep)[0] != str(guard.directory):
+        monkeypatch.setenv("PATH", str(guard.directory) + os.pathsep + path)
     yield guard
     guard.check()
     assert not guard.reached(), "the test started openFPGALoader without the fake toolchain"
