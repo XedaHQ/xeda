@@ -315,6 +315,14 @@ def test_xeda_reads_the_admitted_view(tmp_path, monkeypatch):
     assert OLD in json.loads((inherited.run_path / "cocotb_env.json").read_text())["PYTHONPATH"]
 
 
+def test_cocotb_reads_the_python_of_the_env_setting(tmp_path, monkeypatch):
+    monkeypatch.setenv("PYGPI_PYTHON_BIN", OLD)
+    flow = _cocotb_flow(monkeypatch)
+    ran = _launch(tmp_path, flow, {"env": {"PYGPI_PYTHON_BIN": sys.executable}}, cocotb=True)
+    environ = json.loads((ran.run_path / "cocotb_env.json").read_text())
+    assert environ["PYGPI_PYTHON_BIN"] == sys.executable
+
+
 def test_a_caller_variable_and_a_private_variable_of_one_name_differ(tmp_path, monkeypatch):
     flow = _probe_flow()
     clean = {"inherit_env": False}

@@ -1622,8 +1622,10 @@ class Flow(metaclass=ABCMeta):
         #: The environment of the launch (`flow_runner.environment`). The launcher hands it over.
         self.environment: "EnvironmentSnapshot" = environment
         #: What Xeda reads of the environment for this flow, and what its processes inherit: the
-        #: view that `inherit_env` admits. A flow reads no other environment.
-        self.env_view: FrozenDict = self._admitted_environment(settings)
+        #: view that `inherit_env` admits, then `env`. A flow reads no other environment.
+        self.env_view: FrozenDict = FrozenDict(
+            {**self._admitted_environment(settings), **settings.env}
+        )
         settings.outputs_dir = self.process_path(settings.outputs_dir)
         settings.reports_dir = self.process_path(settings.reports_dir)
         settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)
