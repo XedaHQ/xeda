@@ -18,6 +18,7 @@ import pytest
 from xeda import Design
 from xeda import design as design_module
 from xeda.design import Rtl, Source, SourceType, cocotb_of, generator_of, language_of
+from xeda.flow_runner.configuration import design_configuration_hash
 from xeda.flows import GhdlSim
 from xeda.frozen import FrozenDict
 from xeda.introspect import json_safe
@@ -59,28 +60,9 @@ def _design(root: Path, **extra) -> Design:
 
 
 @pytest.fixture
-def design(tmp_path, monkeypatch) -> Design:
-    # the generator writes `made.v`, so the design loads once the file exists
-    (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "made.v").write_text("module made; endmodule\n")
-    monkeypatch.setattr("xeda.design.judging_generation", _skipping_generation)
+def design(tmp_path) -> Design:
+    # loading runs no generator: `made.v` is a declaration of its output
     return _design(tmp_path / "d")
-
-
-class _skipping_generation:
-    """Stand in for the judgment of a generator: it does not run."""
-
-    def __init__(self, *args, **kwargs):
-        self.reason = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def produced(self):
-        pass
 
 
 @pytest.mark.parametrize(
@@ -95,7 +77,7 @@ class _skipping_generation:
         lambda d: d.rtl.parameters["LIST"].append(3),
         lambda d: d.rtl.sources.append(d.rtl.sources[0]),
         lambda d: setattr(d.rtl.sources[0], "type", SourceType.Vhdl),
-        lambda d: setattr(d.rtl.sources[0], "generated_name", "x"),
+        lambda d: setattr(d.rtl.sources[0], "output_name", "x"),
         lambda d: setattr(d.rtl.sources[0], "file", Path("/x")),
         lambda d: d.rtl.attributes["keep"].__setitem__("top", "false"),
         lambda d: d.rtl.clocks.append({}),
@@ -181,13 +163,13 @@ def test_a_changed_design_is_a_copy(design):
     changed.invalidate_cached_properties()
     assert (changed.rtl.top, dict(changed.rtl.parameters)) == ("other", {})
     assert design.rtl.top == "top" and design.rtl.parameters["W"] == 8
-    assert changed.rtl_hash != design.rtl_hash
+    assert design_configuration_hash(changed) != design_configuration_hash(design)
 
 
 def test_a_design_copies_and_pickles(design):
     for other in (copy.deepcopy(design), pickle.loads(pickle.dumps(design))):
         assert other == design
-        assert other.rtl_hash == design.rtl_hash
+        assert design_configuration_hash(other) == design_configuration_hash(design)
         assert other.rtl.sources[0].type is design.rtl.sources[0].type
 
 
@@ -207,11 +189,14 @@ def test_the_design_loads_again_from_its_own_dump(design):
     again = Design(
         **{**design.model_dump(), "design_root": design.design_root},
     )
-    assert again.rtl_hash == design.rtl_hash and again.tb_hash == design.tb_hash
+    assert design_configuration_hash(again) == design_configuration_hash(design)
+    assert again.rtl.sources == design.rtl.sources
     assert again.rtl.clocks == design.rtl.clocks and again.language == design.language
 
 
 def test_a_dependency_is_merged_into_a_design_that_cannot_change(tmp_path):
+    from xeda.flow_runner.dependencies import merged_design
+
     root = tmp_path / "d"
     (root / "dep").mkdir(parents=True)
     for name in ("top.v", "dep/lib.v", "dep/lib_tb.v"):
@@ -220,12 +205,15 @@ def test_a_dependency_is_merged_into_a_design_that_cannot_change(tmp_path):
         "name: dep\nrtl:\n  sources: [lib.v, ../top.v]\n  top: lib\n  parameters: {W: 4}\n"
         "  clocks: [{port: dclk}]\ntb:\n  sources: [lib_tb.v]\n  top: lib_tb\n"
     )
-    design = Design(
+    declared = Design(
         name="d",
         design_root=root,
         rtl={"sources": ["top.v"]},
         dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
     )
+    design = merged_design(declared, run_root=None)
+    assert [source.file.name for source in declared.rtl.sources] == ["top.v"]
+    assert len(declared.dependencies) == 1, "the design as given keeps its references"
     assert [source.file.name for source in design.rtl.sources] == ["top.v", "lib.v"]
     assert (design.rtl.top, dict(design.rtl.parameters)) == ("lib", {"W": 4})
     assert [dict(clock) for clock in design.rtl.clocks] == [{"port": "dclk", "name": "dclk"}]
@@ -252,8 +240,8 @@ def test_a_converted_design_plans_and_runs_with_frozen_values(tmp_path):
 
 
 def test_a_generated_source_is_built_in_one_call():
-    source = Source({"path": "out/top.v"}, SourceType.Verilog, generated_name="top.v")
-    assert source.generated and source.generated_name == "top.v"
+    source = Source({"path": "out/top.v"}, SourceType.Verilog, generated=True, output_name="top.v")
+    assert source.generated and source.output_name == "top.v"
     assert source.type is SourceType.Verilog
     assert not Source({"path": "out/top.v"}).generated
 

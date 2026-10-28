@@ -25,7 +25,6 @@ import socket
 import stat
 import sys
 from collections.abc import Iterable, Mapping, Sequence
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -63,6 +62,9 @@ class LaunchRequest(XedaBaseModel):
     #: The identity text of every shipped path, by its path here and its role
     #: (`using_path_identities`).
     path_identities: Dict[str, Dict[str, str]]
+    #: The commit that the local xeda resolved each Git entry to, by the path of the entry
+    #: (`using_pinned_commits`). The launch fetches those commits.
+    dependency_commits: Dict[str, str] = {}
     hashed_run_dirs: bool
     clean: bool
     rebuild_all: bool
@@ -275,18 +277,14 @@ def _record_written(
     document["written"], document["unreadable"] = _written(snapshot, plan, launched)
 
 
-def load_packaged_design(launcher: Any, path: Path, *, rebuild: bool, dry_run: bool) -> Any:
+def load_packaged_design(path: Path) -> Any:
     """Load the design document that the local xeda packaged (`Design.from_file(packaged=True)`).
 
-    The document is loaded as the launcher loads a design file: where the run root keeps what a
-    load keeps in it, and with no side effect for a dry run."""
-    from ..design import Design, loading_in_run_root, refusing_load_side_effects
+    The load runs no generator and reads no dependency: the launch does. A Git dependency of the
+    design is fetched into the run root of this host when the launch plans."""
+    from ..design import Design
 
-    with (
-        loading_in_run_root(launcher.load_run_root, rebuild),
-        refusing_load_side_effects() if dry_run else nullcontext(),
-    ):
-        return Design.from_file(path, packaged=True)
+    return Design.from_file(path, packaged=True)
 
 
 def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseException]]:
@@ -302,6 +300,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     # module is imported (the agent imports `LaunchRequest` and nothing else).
     from ..cli import setup_logger
     from ..utils import using_path_identities
+    from ..flow_runner.dependencies import using_pinned_commits
     from ..flow_runner import DefaultRunner
     from ..flow_runner.chains import parse_request
     from ..flow_runner.error_codes import public_error, request_error_info
@@ -337,11 +336,12 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             display_results=False,
             debug=debug,
         )
-        loaded = load_packaged_design(
-            launcher, design, rebuild=request.rebuild_all or request.clean, dry_run=request.dry_run
-        )
+        loaded = load_packaged_design(design)
         arguments: Dict[str, Any] = dict(design=loaded)
-        with using_path_identities(request.path_identities):
+        with (
+            using_path_identities(request.path_identities),
+            using_pinned_commits(request.dependency_commits),
+        ):
             if request.dry_run:
                 plan, freshness = launcher.plan_with_freshness(request.chain, **arguments)
                 check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)

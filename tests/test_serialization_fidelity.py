@@ -598,15 +598,16 @@ def test_a_printed_mapping_has_the_keys_xeda_writes_to_a_file():
 def test_a_generator_keeps_its_own_fields_when_dumped(tmp_path):
     """`Rtl.generator` may hold a `ChiselGenerator`, and v2 dumps a nested model by its
     *annotated* type unless told otherwise (`SerializeAsAny`): its `main`, `project` and
-    `build_system` were silently dropped. A `Design` runs its generator and drops it while it is
-    built, so this is the one place that holds one."""
+    `build_system` were silently dropped."""
     from xeda.design import ChiselGenerator, Rtl
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     rtl = Rtl(
-        sources=[str(tmp_path / "top.v")],
+        sources=[str(tmp_path / "top.v"), "gen/out.v"],
         top="top",
-        generator=ChiselGenerator(main="Top", project="core", build_system="mill"),
+        generator=ChiselGenerator(
+            main="Top", project="core", build_system="mill", generated_sources=["gen/out.v"]
+        ),
     )
     dumped = rtl.model_dump(mode="json")["generator"]
     assert (dumped["main"], dumped["project"], dumped["build_system"]) == ("Top", "core", "mill")

@@ -605,15 +605,17 @@ Planning without running
 execute: the producers first, the directories, the hashes, the source or producer of each declared
 input, and the optional outputs that are switched on for consumers. Add ``--json`` for a document
 (see :doc:`machine-readable`). A dry run starts no tool and changes no run root, marker, lock or
-delivery. Planning fails for invalid settings, for a device or family that a flow does not
-support, for shared-setting conflicts, and for any configuration that the settings of a flow and
-the design rule out.
+delivery, except that it fetches the Git dependencies of the design (see
+:ref:`git-dependencies`). Planning fails for invalid settings, for a device or family that a flow
+does not support, for shared-setting conflicts, and for any configuration that the settings of a
+flow and the design rule out.
 
 Xeda first refuses a request that the declarations of the design already rule out, before a
-generator runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch
-is refused before those side effects. Materialize the sources first, or pass an already
-materialized ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
-what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
+generator runs (see :ref:`generators`). A plan never runs a generator: a node that reads generated
+sources is ``unknown`` until the storage of the generator is current. A plan fetches the Git
+dependencies of the design into the run root, after the checks that need no value of a dependency
+(see :ref:`git-dependencies`). It is the one case in which a plan writes (``plan_with_freshness`` of
+the library adds what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
 host makes the plan (see :doc:`remote`).
 
 The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the
@@ -733,6 +735,24 @@ only after the whole chain succeeded. A chain that ends at ``openfpgaloader`` ha
 deliver, so ``--outputs-to`` is refused before anything runs. The error names the setting that
 delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the
 graph and runs no tool.
+
+Deliveries
+----------
+
+Three things ask Xeda to copy a file to a place that you name: a deliverable setting that you give
+a location, ``--outputs-to`` for the outputs of the last flow, and ``outputs_to`` in the
+``generator`` of a design for the generated sources (see :doc:`design-file`). They are one
+mechanism. Xeda copies at the end of a launch that passed, and never after a failure. It replaces a
+copy that it made and that is unchanged. A file in the way that is not such a copy needs your
+answer, or ``--overwrite-outputs``. Xeda never copies onto an input of the launch, into a
+directory that a setting reads, into a run root, over a directory, or through a symbolic link, and
+no two deliveries of a launch go to one file. It also never copies to a place where an entry of the
+design's sources (``rtl.sources``, ``tb.sources`` or the ``sources`` of the generator) would read
+the file, because the file would become a source of the next run. The error names the entry. A link to a directory
+in the design tree does not hide it: Xeda compares the entry and the destination as written and with
+the links resolved. All
+this is checked before any tool runs, as far as the destinations are known then. A destination is
+no part of the identity of a run.
 
 Input sources and saved bindings
 --------------------------------

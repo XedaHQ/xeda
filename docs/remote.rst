@@ -79,7 +79,19 @@ These limits apply to every remote run:
 * A flow that programs a board (``openfpgaloader``) cannot run with ``--remote``, because the board
   is on your machine. Run the flows before it with ``--remote``. Then run the programmer locally
   with a binding to the fetched bitstream.
-* A design generator runs on your machine, and Xeda sends the generated sources.
+* A design generator runs on the host, into a storage under the run root of the host. Xeda sends
+  the recipe and the files and directories that it declares in its ``sources``. A generator that
+  declares none, or one whose input lies outside its design root, is refused (see
+  :ref:`generators`). The generator of a dependency travels the same way. Xeda refuses the
+  generator of the design and of a local dependency before it fetches a Git dependency. It refuses
+  the generator of a Git dependency after the fetch.
+* The dependencies of the design (see :ref:`git-dependencies`) keep their order. The host merges
+  them once, as Xeda does on your machine, so both plans have the same indexes and the same
+  hashes. Your machine plans first, so it needs access to the Git server: it resolves each Git
+  dependency and fetches it into its own run root. A Git dependency travels as its reference with
+  the commit that your machine resolved, and the host fetches exactly that commit into its own run
+  root. A branch that moves between the two plans changes nothing, and the record on both sides
+  names the branch as you wrote it. A local dependency travels as a design document and the files it declares.
 
 The first run
 =============

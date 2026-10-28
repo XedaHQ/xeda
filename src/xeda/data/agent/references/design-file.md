@@ -45,7 +45,7 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `language` | Language standards. |
 | `flows` | Per-flow settings. |
 | `targets` | One overlay per board. |
-| `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. |
+| `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. Planning reads them; see below. |
 | `design_root` | Base for relative paths. Defaults to the design file's directory. |
 
 ## `rtl`: the design
@@ -59,15 +59,34 @@ are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` 
 | `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
 | `clocks` | A list of clocks for several clocks. |
 | `attributes` | HDL attributes, `attribute -> (object -> value)`. |
-| `generator` | What writes the sources before the flow runs: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`. |
+| `generator` | What writes the sources, in the launch before the first flow: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`, `outputs_to`. |
 
-A generator runs again when its executable, its `sources` (a directory counts as every file in
-it) or its produced sources change. `generated_sources` names the files it writes when it writes
-only some; `always_runs` says its inputs cannot be judged. The record lives under
-`<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load.
-A generator may write Bluespec: `bsc` converts the generated files like hand-written ones. Each flow
-after `bsc` runs again only if one of its own inputs changed, such as the Verilog that `bsc` writes
-or a source that `bsc` passes through.
+A generator runs in the launch, never when a design loads, into a storage
+`<run root>/.generated/<design>/<key>/` (with the record `generation.yaml`); the design tree is never
+written. The key hashes the recipe (its `env` too), the design configuration without content, the
+names and digests of the generator's `sources` and its executable. The generator starts in the
+storage (a Chisel generator in the design root; `cwd` below the design root overrides), with
+`DESIGN_ROOT` and `XEDA_GENERATED` in its environment; the words after the executable expand both
+(`args: ["$DESIGN_ROOT/gen.py", "$XEDA_GENERATED/out"]`; a relative executable resolves against the
+design root or `cwd`; `cwd` is a directory below the design root, and an absolute one or one that
+leaves it is refused at load). It runs again when its executable, its `sources` (a directory counts as
+every file in it), a generated file or the digest of its inherited environment changes
+(`always_runs`, or no `sources`: every launch; `--rebuild-all` forces it). `generated_sources`
+names the entries of `rtl.sources` it writes when it writes only some (an entry is wholly generated
+or wholly written; a pattern matching both is refused); empty, every entry is generated. A generated
+entry is a name or pattern in its output, typed by its extension or by `type:`; one that matches no
+file fails the node that reads it (`missing_generated`). A failing generator is the launch error
+`generator_failed` (every node skipped). A plan runs nothing: a node that reads generated sources is
+`unknown` ("the generator has not run") until the storage is current. `--remote` sends the recipe and
+its declared `sources`; a generator without `sources`, or with an input outside its design root, or with `outputs_to`, is refused. `outputs_to` (a location: absolute, or below `$DESIGN_ROOT`, `$DESIGN_DIR` or `$PWD`; a relative path is refused) names a
+directory that gets a copy of each generated file under its name in the output (`gen/top.v` -> `<outputs_to>/gen/top.v`). It is a
+delivery like a deliverable setting given a location (at the end of a passed launch, key `generator`; a changed copy needs
+`--overwrite-outputs`; never onto an input, over a directory, through a link, or where an entry of `rtl.sources`, `tb.sources` or
+the generator's `sources` would read it), and no part of any identity. A dependency with a generator is
+generated too, first, into its own storage; the same names may not be declared twice. A generator may write Bluespec:
+`bsc` converts the generated files like hand-written ones. Each flow after `bsc` runs again only if
+one of its own inputs changed, such as the Verilog that `bsc` writes or a source that `bsc` passes
+through.
 
 ## `tb`: the testbench
 
@@ -182,8 +201,8 @@ that way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `GenericVerilogNetlist`,
 automatic HDL frontend; a flow or the design can still read it. An invalid `type` is an error
 that names the closest types; type names are case-tolerant, suffixes are not.
 
-A source table has `file` (must exist at load time) or `path` (not checked: for a file a
-generator writes), and `type`. Any other key is an error: a source has no `standard` or
+A source table has `file` (must exist at load time) or `path` (not checked), and `type`; a source a
+generator writes is a name in its output (see `generator`). Any other key is an error: a source has no `standard` or
 `variant`, and `language.vhdl.standard` sets the standard of the whole design.
 
 ```yaml
@@ -336,6 +355,15 @@ targets:
   target too.
 - `board`, `fpga` and `custom_boards_file` go under the target's `flows.<flow>`; at the target's
   top level they are refused, naming that.
+
+## `dependencies`: other designs
+
+A dependency adds its `rtl.sources` and `tb.sources` to the design's, and fills the `rtl.top`, `rtl.parameters`, `rtl.clocks` and `tb.top` that the design leaves out, but only with `rtl: {pos: -1}` in the reference (the default `pos: 0` adds sources only). Loading reads none of them. Planning (`xeda run`, `--dry-run` too, `xeda dse`) does.
+
+- Local: the path of a design file, relative to the design. It must exist when planning starts: a generator cannot write it (`design_file_not_found`).
+- Git: `git+<url>[?branch=<name>|commit=<hash>]#<design file>`, or a table with `repo_url`, `design_file`, `branch`, `commit`. `commit` is a full hash; an abbreviated one is refused. Planning fetches it into `<run root>/.dependencies/<key>/checkout/`, which is never changed or removed by Xeda (delete it by hand while no launch runs). `clone_dir` and `local_cache` were removed (`removed_key`).
+- A pinned `commit` already fetched needs no network. A branch, a tag or no reference is resolved by `git ls-remote` at every planning; a failure is `fetch_failed` (field `dependencies[<n>]`). Pin a commit to work offline. With `--remote` the client plans first, so it needs access to the Git server; the host then fetches the commit that the client resolved (the record keeps the branch as written).
+- The commit is no part of the identity, but another commit makes the run stale ("dependency <repository> now at <commit>"). `results.json` has `dependencies`, one per entry in the listed order (`repository`, `reference`, `commit`, `design_file`; a local entry has `design_file` only). Entries merge in the order listed, local and Git alike.
 
 ## Paths and environment variables
 

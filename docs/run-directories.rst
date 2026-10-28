@@ -487,21 +487,30 @@ string. On POSIX, one lock per identity keeps two launches from generating the d
 interrupted generation leaves only scratch files, which the next one removes. ``--clean``,
 post-cleanup and ``xeda scrub`` leave the cache alone.
 
-A design whose sources a generator writes (``rtl.generator``) keeps its record in the run root too,
-in ``.cache/generators/``. The content of what the generator reads identifies an entry: its
-``sources`` (which can be directories outside the design) and its selected direct executable. The
-entry holds the digest of every source that the last generation left. The generator therefore runs
-again only when one of its inputs changed. Indirect tools and the packages that the generator uses
-stay outside this identity. On POSIX, a lock on the existing design-root directory serializes the
-generations for the same tree, including the first one and generations with different identities. It
-creates no marker beside the design and does not make the run root early. Separate design roots that
-write to one external destination are not coordinated. Windows keeps its existing behavior of no
-interprocess lock.
+A design whose sources a generator writes (``rtl.generator``) keeps the output of the generator in
+the run root too, in ``.generated/<design>/<key>/``. The key names one configuration of the design:
+the recipe of the generator, the design without the content of its sources, what the generator
+reads (the content of its ``sources``, which can be directories outside the design) and its
+selected direct executable. The storage holds the files that the generator wrote and the record
+``generation.yaml``, with the digest of every generated source that the last generation left and the
+digest of the environment that the generator inherited. The generator therefore runs again only
+when one of its inputs changed. Indirect tools and the packages that the generator uses stay
+outside this identity. The tree of the design is never written.
 
-A generation happens while Xeda loads the design, before any flow or run directory exists. This is
-why the record lives in the run root and not beside the design. It is also why a design that is
-loaded with no run root generates every time. ``--rebuild-all`` and ``--clean`` regenerate, as they
-run every flow again. See :ref:`generators`.
+A generation happens in the launch, after every check that needs only the declarations of the
+design, and before the first flow runs. A launch holds the lock of the storage while it generates,
+and a shared lease of it until it has made its last delivery, so no other launch regenerates or
+removes a storage that a flow reads. The lock files lie beside the storages, as the lock files of
+the run directories lie beside them. ``--rebuild-all`` and ``--clean`` regenerate, as they run every
+flow again. ``--clean``, post-cleanup and ``xeda scrub`` leave the storage alone. See
+:ref:`generators`.
+
+A Git dependency of a design is kept in the run root too, in ``.dependencies/<key>/``. The files of
+one commit of one repository are in one storage, and a storage never changes after Xeda has
+written it. Planning fetches it (see ``Git dependencies`` in the design file reference). A launch
+holds a shared lease of each storage that it reads until it has made its last delivery. No
+command of Xeda removes dependency storage, ``xeda scrub`` included. Delete ``.dependencies/`` by
+hand while no launch runs.
 
 A run that its checks rejected
 ------------------------------
@@ -594,8 +603,9 @@ Each of these can make a stale result look up to date. ``--rebuild-all`` is the 
   build of Verilator) and Python packages that a simulator imports, such as cocotb. Xeda records
   only the programs that it starts itself.
 - Environment variables. A flow that reads one without declaring it as a setting can change behavior
-  in a way the trace cannot see. So can a design generator. The environment of a generator is not
-  part of its identity on purpose, so that one record can be reused from another shell.
+  in a way the trace cannot see. So can a design generator. The inherited environment of a generator is evidence, not
+  identity: a change makes the generator run again in the same storage, but the digest leaves out
+  the variables of a session, so that one storage can be reused from another shell.
 - Files that a tool finds on its own and does not report, such as a Vivado IP repository, tool data
   outside any setting, and anything that no setting names and no depfile lists.
 - What a symbolic link in a run directory points to, when that is a directory. Xeda records the link
@@ -803,14 +813,9 @@ A dockerized flow therefore reads the files of its producers and the files that 
 without a ``Docker.mounts`` entry. A directory is not mounted again when another mount holds it at
 the same path.
 
-Two more exceptions exist, and you configure both explicitly. Xeda does not decide them on its own:
-
-- The ``clone_dir`` or ``local_cache`` of a Git dependency. Without them, the clone goes to the
-  ``.dependencies`` directory of the run root.
-- A writable entry of ``Docker.mounts`` that you add yourself.
-
-In both cases Xeda writes there as you told it and guards nothing about what it finds. That
-directory is yours to manage.
+One more exception exists, and you configure it explicitly. Xeda does not decide it on its own: a
+writable entry of ``Docker.mounts`` that you add yourself. Xeda writes there as you told it and
+guards nothing about what it finds. That directory is yours to manage.
 
 Outputs where you name them
 ============================

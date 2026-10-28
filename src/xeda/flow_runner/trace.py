@@ -256,6 +256,13 @@ def ran_again_note(records: Sequence[DeclaredInputRecord], ran_again: Collection
     return "; ".join(parts)
 
 
+class DependencyCommit(XedaBaseModel):
+    """The commit of a Git dependency that a run was planned with: freshness evidence."""
+
+    repository: str
+    commit: str
+
+
 class Trace(XedaBaseModel):
     """What a completed run consumed and produced, and whether its checks passed it."""
 
@@ -278,6 +285,10 @@ class Trace(XedaBaseModel):
     #: A digest of the modules that define the flow outside the xeda package ("" if there are
     #: none).
     flow_code: str
+    #: The Git dependencies of the design and the commits they resolved to, in the order of their
+    #: index (`Design.resolved_dependencies`). The identity of a run does not hold a commit, so
+    #: another commit makes the run stale.
+    dependencies: List[DependencyCommit] = []
     programs: Dict[str, Optional[ProgramRecord]] = {}
     #: The `run_id` of the run of each producer that this run consumed, by the run directory of
     #: the producer relative to the run root (`xeda_run`), in POSIX form. This is provenance: it
@@ -472,6 +483,9 @@ class Expectation:
     #: The hash of the design configuration, to tell a change of the design from a change of
     #: settings.
     configuration_hash: str = ""
+    #: The repository and the commit of each Git dependency of the design now (as
+    #: `Trace.dependencies`).
+    dependencies: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -522,6 +536,18 @@ def _changed_settings(run_dir: Path, current: Any) -> str:
 def _location(names: Optional[List[str]]) -> str:
     """Return how a reason names where a setting points (`Trace.setting_locations`)."""
     return ", ".join(names) if names else "nothing that exists"
+
+
+def _moved_dependency(trace: Trace, expected: Expectation) -> Optional[str]:
+    """Say which Git dependency is at another commit than the one the run was planned with, or
+    None if every one is at the same commit."""
+    recorded = tuple((d.repository, d.commit) for d in trace.dependencies)
+    if recorded == expected.dependencies:
+        return None
+    for before, now in zip(recorded, expected.dependencies):
+        if before != now:
+            return f"dependency {now[0]} now at {now[1][:12]}"
+    return "the Git dependencies changed"
 
 
 def check_trace(
@@ -578,6 +604,9 @@ def check_trace(
         return Freshness(False, "Xeda's code changed")
     if trace.flow_code != expected.flow_code:
         return Freshness(False, f"the {expected.flow} flow's code changed")
+    moved = _moved_dependency(trace, expected)
+    if moved is not None:
+        return Freshness(False, moved)
     #: When the check began to read files: from then on, the records it takes vouch for them.
     #: None if the clock could not be read; then nothing is refreshed.
     clock: list[int | None] = []

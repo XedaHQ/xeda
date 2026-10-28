@@ -1,623 +1,575 @@
-"""Git dependencies are cloned into the run root, never into the start directory."""
+"""Git dependencies are fetched at planning, into storage in the run root.
+
+A local bare repository, made under `tmp_path`, serves as the remote through a `file://` URL.
+A `git` shim on `PATH` records every Git command that Xeda starts, so a test can say that a call
+started none.
+"""
 
 import ast
-import hashlib
-import itertools
 import json
 import logging
 import os
-import re
+import shutil
+import stat
 import subprocess
-from pathlib import Path, PureWindowsPath
-from types import SimpleNamespace
+import threading
+from pathlib import Path
+from typing import ClassVar
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
 import xeda.design
+import xeda.flow_runner.dependencies
 from xeda import Design
 from xeda.design import (
-    DEPENDENCY_CLONES,
     DesignReference,
     DesignValidationError,
     GitReference,
-    clone_location,
-    clone_name_parts,
-    loading_in_run_root,
     redacted_url,
 )
+from xeda.errors import DesignError
+from xeda.design import SourceType
+from xeda.flow import Flow, In, MetricSpec, registered_flows
 from xeda.flow_runner import DefaultRunner
-from xeda.run_dir import RunDirectory, RunDirectoryError
+from xeda.flow_runner.dependencies import (
+    DEPENDENCIES_DIRECTORY,
+    dependency_key,
+    dependency_storage,
+    fetch,
+    resolve_reference,
+)
+from xeda.records import read_record
 
+from .flow_registry import preserved_flow_registry
 from .tool_utils import require_git
 
-URI = "https://example.com/u/lib.git#lib.toml"
-#: The two directories, below a cache, the reference `URI` is cloned into.
-HOST, NAME = clone_name_parts("https://example.com/u/lib.git", None, None)
+SECRET = "s3cr3t-sentinel"
+XILINX = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}}
+
+
+#: The real Git, found before a test puts the shim on `PATH`: the commands of the test itself.
+REAL_GIT = shutil.which("git") or "git"
+
+
+def _git(*arguments: str, cwd: Path) -> str:
+    return subprocess.run(
+        [REAL_GIT, "-c", "user.name=t", "-c", "user.email=t@example.com", *arguments],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+class Remote:
+    """A repository `lib` with a design file `dep.yaml`, served by a bare repository."""
+
+    def __init__(self, root: Path, object_format: str = "sha1") -> None:
+        self.work = root / "work"
+        self.bare = root / "remote.git"
+        self.work.mkdir()
+        _git(
+            "init",
+            "--quiet",
+            "--initial-branch=main",
+            f"--object-format={object_format}",
+            cwd=self.work,
+        )
+        (self.work / "src").mkdir()
+        (self.work / "src" / "a.v").write_text("module a; endmodule\n")
+        (self.work / "dep.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "dep",
+                    "rtl": {
+                        "sources": ["src/a.v"],
+                        "top": "dep_top",
+                        "parameters": {"W": 8},
+                        "clocks": ["clk"],
+                    },
+                }
+            )
+        )
+        self.first = self.commit("first")
+        _git("clone", "--quiet", "--bare", str(self.work), str(self.bare), cwd=root)
+        _git("remote", "add", "origin", str(self.bare), cwd=self.work)
+
+    def commit(self, message: str) -> str:
+        _git("add", "-A", cwd=self.work)
+        _git("commit", "--quiet", "-m", message, cwd=self.work)
+        return _git("rev-parse", "HEAD", cwd=self.work)
+
+    def advance(self) -> str:
+        """Add a commit to the branch `main` of the bare repository, and return it."""
+        self.advances = getattr(self, "advances", 0) + 1
+        (self.work / "src" / "a.v").write_text(f"module a; wire x{self.advances}; endmodule\n")
+        commit = self.commit(f"advance {self.advances}")
+        _git("push", "--quiet", "origin", "main", cwd=self.work)
+        return commit
+
+    @property
+    def url(self) -> str:
+        return self.bare.as_uri()
+
+    def moved_away(self) -> Path:
+        """Move the bare repository away: the remote is unreachable."""
+        away = self.bare.with_name("gone")
+        self.bare.rename(away)
+        return away
 
 
 @pytest.fixture
-def clones(monkeypatch):
-    """Stand in for `git clone`: a repository holding a design `lib`; where each clone went."""
-    import git.repo
-
-    made = []
-
-    def clone_from(url, to_path, **kwargs):
-        to_path = Path(to_path)
-        to_path.mkdir(parents=True)
-        (to_path / "lib.v").write_text("module lib; endmodule\n")
-        (to_path / "lib.toml").write_text('name = "lib"\n[rtl]\nsources = ["lib.v"]\ntop = "lib"\n')
-        made.append(to_path)
-        return SimpleNamespace(git=SimpleNamespace(checkout=lambda *_: None))
-
-    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
-    return made
-
-
-def _design_file(root: Path) -> Path:
-    (root / "top.v").write_text("module top; endmodule\n")
-    (root / "d.toml").write_text(
-        f'name = "d"\ndependencies = ["git+{URI}"]\n[rtl]\nsources = ["top.v"]\ntop = "top"\n'
-    )
-    return root / "d.toml"
-
-
-def test_a_launcher_clones_into_its_run_root(tmp_path, monkeypatch, clones):
-    monkeypatch.chdir(tmp_path)
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with loading_in_run_root(runner.load_run_root):
-        design = Design.from_file(_design_file(tmp_path))
-    assert clones == [tmp_path / "xeda_run" / ".dependencies" / HOST / NAME]
-    assert not (tmp_path / ".xeda_dependencies").exists()
-    assert any(src.path.name == "lib.v" for src in design.rtl.sources)
-
-
-def test_a_design_without_git_dependencies_makes_no_run_root(tmp_path, monkeypatch, clones):
-    """The cache is a provider, called only to clone -- the lazy run root stays unmade."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "top.v").write_text("module top; endmodule\n")
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with loading_in_run_root(runner.load_run_root):
-        Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
-    assert clones == [] and not (tmp_path / "xeda_run").exists()
-
-
-def test_outside_a_launcher_a_git_dependency_needs_its_clone_directory(
-    tmp_path, monkeypatch, clones
-):
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(DesignValidationError, match="clone_dir"):
-        Design.from_file(_design_file(tmp_path))
-    assert clones == [] and not (tmp_path / ".xeda_dependencies").exists()
-
-
-CRAFTED = [
-    pytest.param("https://h/a/../../../x.git#lib.toml", id="dotdot-path"),
-    pytest.param("https://h/a/./x.git#lib.toml", id="dot-path"),
-    pytest.param("https://../../tmp/x.git#lib.toml", id="dotdot-host"),
-    pytest.param("https://h/..#lib.toml", id="only-dotdot"),
-    pytest.param("https://h/a\\..\\..\\x.git#lib.toml", id="backslash-path"),
-    pytest.param("https://h/#lib.toml", id="empty-path"),
-    pytest.param("https://h/C:/x.git#lib.toml", id="drive-path"),
-    pytest.param("https://h/u/lib.git?branch=/etc/x#lib.toml", id="rooted-branch"),
-    pytest.param("https://h/u/lib.git?branch=../../../x#lib.toml", id="dotdot-branch"),
-    pytest.param("https://h/u/lib.git?branch=a/../../x#lib.toml", id="dotdot-in-branch"),
-    pytest.param("https://h/u/lib.git?commit=../../x#lib.toml", id="dotdot-commit"),
-    pytest.param("https://h/u/lib.git?commit=a\\b#lib.toml", id="backslash-commit"),
-]
-
-
-@pytest.mark.parametrize("uri", CRAFTED)
-def test_a_crafted_git_url_is_refused_before_any_clone(tmp_path, monkeypatch, clones, uri):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "top.v").write_text("module top; endmodule\n")
-    (tmp_path / "d.toml").write_text(
-        f'name = "d"\ndependencies = [\'git+{uri}\']\n[rtl]\nsources = ["top.v"]\ntop = "top"\n'
-    )
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with loading_in_run_root(runner.load_run_root), pytest.raises(DesignValidationError):
-        Design.from_file(tmp_path / "d.toml")
-    assert clones == []
-    assert {p.name for p in tmp_path.iterdir()} <= {"d.toml", "top.v", "xeda_run"}
-    assert not (tmp_path / "xeda_run" / ".dependencies").exists()
-
-
-@pytest.mark.parametrize(
-    "fields",
-    [
-        {"repo_url": "https://h/a/../../x.git", "design_file": "lib.toml"},
-        {"repo_url": "https://../x.git", "design_file": "lib.toml"},
-        {"repo_url": "https://h/u/lib.git", "design_file": "lib.toml", "branch": "../x"},
-        {"repo_url": "https://h/u/lib.git", "design_file": "lib.toml", "commit": ".."},
-        {"repo_url": "https://h/u/li\0b.git", "design_file": "lib.toml"},
-    ],
-)
-def test_the_mapping_form_is_refused_the_same_way(fields):
-    with pytest.raises(ValidationError, match=r"\.\."):
-        GitReference(**fields)
-
-
-def test_a_branch_with_a_slash_is_still_cloned_inside_the_cache(tmp_path, clones):
-    """A branch is part of one name, `release/1.0` makes no directory of its own."""
-    ref = GitReference(
-        uri="https://h/u/lib.git?branch=release/1.0#lib.toml", local_cache=tmp_path / "cache"
-    )
-    assert ref.clone_dir.parent == tmp_path / "cache" / "h"
-    assert ref.clone_dir.name.startswith("u_lib.git_release_1.0_")
-
-
-@pytest.mark.parametrize("path", ["/.hidden/x.git", "/..hidden/x.git"])
-def test_a_path_that_starts_with_a_dot_is_a_name_not_a_refusal(path):
-    """A component that only starts with dots is a name: `..hidden` is not `..`."""
-    host, name = clone_name_parts(f"https://h{path}", None, None)
-    assert name.startswith("hidden_x.git_")
-
-
-def test_a_clone_directory_outside_the_cache_is_refused(tmp_path):
-    """Even a reference built without validation cannot clone outside its cache."""
-    ref = GitReference.model_construct(
-        uri="https://h/a/../../../x.git#lib.toml",
-        repo_url="https://h/a/../../../x.git",
-        design_file="lib.toml",
-        local_cache=tmp_path / "cache",
-        clone_dir=None,
-        commit=None,
-        branch=None,
-    )
-    with pytest.raises(ValueError, match="cache"):
-        ref.fetch_design()
-    assert not (tmp_path / "x.git").exists()
-
-
-def test_a_clone_that_yields_no_repository_is_an_error(tmp_path, monkeypatch):
-    import git.repo
-
-    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(lambda *a, **k: None))
-    ref = GitReference(uri=URI, clone_dir=tmp_path / "clone")
-    with pytest.raises(ValueError, match="repo is None"):
-        ref.fetch_design()
-
-
-@pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
-@pytest.mark.parametrize("leads", ["out of the run root", "elsewhere in the run root"])
-@pytest.mark.parametrize(
-    "link",
-    [".dependencies", f".dependencies/{HOST}", f".dependencies/{HOST}/{NAME}"],
-    ids=["cache", "host", "clone-directory"],
-)
-def test_a_clone_is_never_made_through_a_link_in_the_cache(
-    tmp_path, monkeypatch, clones, link, leads
-):
-    """The cache under the run root is named by the rule every cache there follows: no symbolic
-    link on the way, not even one that stays inside the run root."""
-    monkeypatch.chdir(tmp_path)
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    run_root = runner.load_run_root()
-    target = tmp_path / "outside" if leads == "out of the run root" else run_root / "elsewhere"
-    target.mkdir()
-    planted = run_root / link
-    planted.parent.mkdir(parents=True, exist_ok=True)
-    planted.symlink_to(target, target_is_directory=True)
-    with (
-        loading_in_run_root(runner.load_run_root),
-        pytest.raises(RunDirectoryError, match=re.escape(f"{planted} is a symbolic link")),
-    ):
-        Design.from_file(_design_file(tmp_path))
-    assert clones == [], "nothing is cloned"
-    assert list(target.iterdir()) == [], "nothing is written where the link leads"
-
-
-def test_a_clone_cache_under_the_run_root_is_named_by_the_unlinked_rule(tmp_path):
-    root = tmp_path.resolve()
-    owner = RunDirectory(root, root)
-    cache = root / DEPENDENCY_CLONES
-    assert clone_location(cache, "https://h/u/lib.git", None, "dev", owner=owner) == _location(
-        ("https://h/u/lib.git", "dev", None), cache
-    )
-    cache.mkdir()
-    (cache / "h").symlink_to(root)
-    with pytest.raises(RunDirectoryError, match="symbolic link where Xeda keeps a cache"):
-        clone_location(cache, "https://h/u/lib.git", None, None, owner=owner)
-
-
-def test_a_cache_the_user_names_is_theirs_to_direct(tmp_path, monkeypatch, clones):
-    """`local_cache` is the user's own directory: xeda clones and pulls there as told, through a
-    link if that is where the user's cache is, and keeps the names it makes inside it."""
-    real = tmp_path / "real"
-    real.mkdir()
-    cache = tmp_path / "cache"
-    cache.symlink_to(real, target_is_directory=True)
-    ref = GitReference(uri=URI, local_cache=cache)
-    assert ref.clone_dir == cache / HOST / NAME
-    ref.fetch_design()
-    assert clones == [cache / HOST / NAME]
-    assert (real / HOST / NAME / "lib.toml").is_file()
-
-
-def test_the_containment_check_of_a_user_cache_stands_on_its_own(tmp_path, monkeypatch):
-    """Whatever names the clone, a directory outside the cache the user named is refused."""
-    monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("h", "../../x.git"))
-    with pytest.raises(ValueError, match="outside the clone cache"):
-        clone_location(tmp_path / "cache", URI, None, None)
-
-
-@pytest.fixture
-def remote_lib(tmp_path, monkeypatch):
-    """The design `lib` in a bare repository on this machine, and a git that reads no other
-    configuration and reaches no network: `git@fake.invalid:org/lib.git` is rewritten to that
-    repository, and an ssh that is started anyway fails at once. The repository."""
+def git_log(tmp_path, monkeypatch):
+    """Record each Git command that Xeda starts, and keep the user's Git settings out."""
     require_git()
-    remotes = tmp_path / "remotes"
-    bare = remotes / "org" / "lib.git"
-    config = tmp_path / "gitconfig"
-    config.write_text(
-        "[user]\n\tname = Xeda Tests\n\temail = tests@example.invalid\n"
-        "[init]\n\tdefaultBranch = main\n"
-        "[commit]\n\tgpgsign = false\n"
-        f'[url "{remotes}/"]\n\tinsteadOf = git@fake.invalid:\n'
-    )
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    real = REAL_GIT
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    log = tmp_path / "git-commands.log"
+    program = shim / "git"
+    program.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nexec "{real}" "$@"\n')
+    program.chmod(program.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", f"{shim}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    monkeypatch.setenv("GIT_SSH_COMMAND", "false")
-    work = tmp_path / "lib_work"
-    work.mkdir()
-    (work / "lib.v").write_text("module lib; endmodule\n")
-    (work / "lib.yaml").write_text("name: lib\nrtl:\n  sources: [lib.v]\n  top: lib\n")
-    for command in (
-        ["init", "-q", str(work)],
-        ["-C", str(work), "add", "."],
-        ["-C", str(work), "commit", "-q", "-m", "lib"],
-        ["clone", "-q", "--bare", str(work), str(bare)],
-    ):
-        subprocess.run(["git", *command], check=True, capture_output=True)
-    return bare
+    return lambda: log.read_text().splitlines() if log.exists() else []
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        lambda bare: "git@fake.invalid:org/lib.git",
-        lambda bare: bare.as_uri(),
-        lambda bare: str(bare),
-    ],
-    ids=["scp-like", "file-without-host", "local-path"],
-)
-def test_a_clone_directory_the_user_names_is_used_as_given(tmp_path, monkeypatch, remote_lib, url):
-    """Nothing is named from the URL when `clone_dir` is given, so any URL Git takes will do:
-    one with no host (`file:///...`, a path) or none in URL form (`user@host:path`)."""
-    monkeypatch.chdir(tmp_path)
+@pytest.fixture
+def remote(tmp_path, git_log) -> Remote:
+    root = tmp_path / "remote"
+    root.mkdir()
+    return Remote(root)
+
+
+def _design_file(
+    root: Path, dependency: dict | str, *, extra: dict | None = None, name: str = "d.yaml"
+) -> Path:
+    """A design with one source of its own and the dependency, which supplies the rest."""
+    (root / "top.v").write_text("module top; endmodule\n")
+    spec = {
+        "name": "d",
+        "rtl": {"sources": ["top.v"], "clocks": ["clk"]},
+        "dependencies": [dependency],
+        **(extra or {}),
+    }
+    (root / name).write_text(yaml.safe_dump(spec))
+    return root / name
+
+
+def _pinned(remote: Remote, commit: str | None = None) -> dict:
+    return {"uri": f"git+{remote.url}?commit={commit or remote.first}#dep.yaml", "rtl": {"pos": -1}}
+
+
+def _runner(root: Path) -> DefaultRunner:
+    return DefaultRunner(root / "xeda_run", display_results=False)
+
+
+def _plan(root: Path, design_file: Path):
+    return _runner(root).plan("yosys_fpga", str(design_file), flow_settings=dict(XILINX))
+
+
+def _configuration(plan) -> dict:
+    from xeda.frozen import thaw
+
+    return thaw(plan.node(plan.requested).configuration)
+
+
+def _tree(root: Path) -> set[Path]:
+    return {p for p in root.rglob("*")} if root.exists() else set()
+
+
+# ------------------------------------------------------------------ what planning does
+
+
+def test_a_dependency_supplies_sources_and_metadata_at_planning(tmp_path, remote):
+    plan = _plan(tmp_path, _design_file(tmp_path, _pinned(remote)))
+    rtl = _configuration(plan)["rtl"]
+    assert rtl["top"] == "dep_top" and rtl["parameters"] == {"W": 8}
+    assert {"dependency": 0, "path": "src/a.v", "type": "Verilog"} in rtl["sources"]
+    assert {"path": "top.v", "type": "Verilog"} in rtl["sources"]
+
+
+def test_loading_reads_no_dependency_and_writes_nothing(tmp_path, remote, git_log):
+    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    assert git_log() == [] and not (tmp_path / "xeda_run").exists()
+    assert [s.path.name for s in design.rtl.sources] == ["top.v"]
+    assert design.rtl.top is None and len(design.dependencies) == 1
+
+
+def test_planning_writes_only_dependency_storage(tmp_path, remote):
+    design_file = _design_file(tmp_path, _pinned(remote))
+    before = _tree(tmp_path)
+    _plan(tmp_path, design_file)
+    root = tmp_path / "xeda_run"
+    storage_root = root / DEPENDENCIES_DIRECTORY
+    for path in _tree(tmp_path) - before - {tmp_path / "git-commands.log"}:
+        # the run root, its marker, and the dependency storage with its lock file
+        assert path in (root, storage_root) or path.parent == root or storage_root in path.parents
+    storage = root / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
+    assert (storage / "checkout" / "dep.yaml").is_file() and (storage / "dependency.yaml").is_file()
+    assert not (storage / "checkout" / ".git").exists()
+    assert [p.name for p in (root / DEPENDENCIES_DIRECTORY).iterdir() if "partial" in p.name] == []
+    record = yaml.safe_load((storage / "dependency.yaml").read_text())
+    assert record["commit"] == remote.first and record["repository"] == remote.url
+
+
+def test_a_design_without_a_git_dependency_plans_with_no_write(tmp_path):
     (tmp_path / "top.v").write_text("module top; endmodule\n")
-    clone = tmp_path / "clone"
-    dependency = {"repo_url": url(remote_lib), "design_file": "lib.yaml", "clone_dir": str(clone)}
-    spec = {"name": "d", "rtl": {"sources": ["top.v"], "top": "top"}, "dependencies": [dependency]}
-    (tmp_path / "d.yaml").write_text(yaml.safe_dump(spec))
-    design = Design.from_file(tmp_path / "d.yaml")
-    assert (clone / ".git").is_dir()
-    assert any(src.path.name == "lib.v" for src in design.rtl.sources)
+    (tmp_path / "d.yaml").write_text(
+        yaml.safe_dump({"name": "d", "rtl": {"sources": ["top.v"], "clocks": ["clk"]}})
+    )
+    _plan(tmp_path, tmp_path / "d.yaml")
     assert not (tmp_path / "xeda_run").exists()
 
 
-@pytest.mark.parametrize(
-    "repo_url", ["git@fake.invalid:org/lib.git", "file:///srv/git/lib.git", "/srv/git/lib.git"]
-)
-def test_a_url_with_no_host_needs_a_clone_directory(repo_url):
-    """Without `clone_dir` the host names the clone's directory, so a URL with none is refused."""
-    with pytest.raises(ValidationError, match="invalid URL"):
-        GitReference(repo_url=repo_url, design_file="lib.toml")
+def test_a_local_dependency_is_read_at_planning(tmp_path):
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "b.v").write_text("module b; endmodule\n")
+    (lib / "lib.yaml").write_text(
+        yaml.safe_dump({"name": "lib", "rtl": {"sources": ["b.v"], "top": "b"}})
+    )
+    dependency = {"uri": "lib/lib.yaml", "rtl": {"pos": -1}}
+    plan = _plan(tmp_path, _design_file(tmp_path, dependency))
+    rtl = _configuration(plan)["rtl"]
+    assert rtl["top"] == "b"
+    assert not (tmp_path / "xeda_run").exists()
 
 
-@pytest.mark.parametrize("cache", [".", "./", "", "a/.."])
-def test_a_user_cache_that_is_the_current_directory_holds_its_clones(
-    tmp_path, monkeypatch, clones, cache
+@pytest.mark.parametrize("kind", ["local", "git"])
+def test_a_cycle_in_a_git_dependency_is_refused_without_fetching_it_twice(
+    tmp_path, remote, monkeypatch, kind
 ):
-    """However it is spelled, a `local_cache` that is the current directory is a cache: its
-    clones lie inside it, though a relative path that normalizes to `.` has no common prefix."""
-    monkeypatch.chdir(tmp_path)
-    ref = GitReference(uri=URI, local_cache=cache)
-    assert os.path.abspath(ref.clone_dir) == str(tmp_path / HOST / NAME)
-    ref.fetch_design()
-    assert (tmp_path / HOST / NAME / "lib.toml").is_file()
+    path = remote.work / "dep.yaml"
+    document = yaml.safe_load(path.read_text())
+    document["dependencies"] = [
+        "dep.yaml" if kind == "local" else f"git+{remote.url}?branch=main#dep.yaml"
+    ]
+    path.write_text(yaml.safe_dump(document))
+    commit = remote.commit("cyclic dependency")
+    _git("push", "--quiet", "origin", "main", cwd=remote.work)
+    original = xeda.flow_runner.dependencies._clone
+    cloned = []
+
+    def once(ref, commit, *args, **kwargs):
+        assert not cloned, "a cycle is refused before the repeated dependency is cloned again"
+        cloned.append(commit)
+        return original(ref, commit, *args, **kwargs)
+
+    monkeypatch.setattr(xeda.flow_runner.dependencies, "_clone", once)
+    with pytest.raises(DesignError, match="dependency cycle: d -> dep -> dep"):
+        _plan(tmp_path, _design_file(tmp_path, _pinned(remote, commit)))
+    assert cloned == [commit]
 
 
-@pytest.mark.parametrize("field", ["branch", "commit"])
-def test_a_branch_or_commit_that_is_not_text_is_reported_at_its_field(field):
-    """The text of a branch or commit is checked where it names a directory; what is not text is
-    the field's own error, at the field."""
-    with pytest.raises(ValidationError) as caught:
-        GitReference(repo_url="https://h/u/lib.git", design_file="lib.toml", **{field: 5})
-    assert [error["loc"] for error in caught.value.errors()] == [(field,)]
-
-
-# --- what names a clone: one directory for each thing that is cloned, and no other ---------------
-
-#: Two references that select different clones: what is cloned differs, though the names that
-#: used to be made from them (`<path>_<branch>`, `<path>_commit=<commit>`) were the same.
-DIFFERENT_CLONES = [
-    pytest.param(
-        ("https://h/u/lib.git_a/b", None, None),
-        ("https://h/u/lib.git", "a/b", None),
-        id="a-path-that-ends-like-a-branch",
-    ),
-    pytest.param(
-        ("https://h/u/lib.git_commit=abc", None, None),
-        ("https://h/u/lib.git", None, "abc"),
-        id="a-path-that-ends-like-a-commit",
-    ),
-    pytest.param(
-        ("https://h/u/lib.git", None, "abc"),
-        ("https://h/u/lib.git", "dev", "abc"),
-        id="a-commit-with-and-without-a-branch",
-    ),
-    pytest.param(
-        ("https://h/u/lib.git", "a_b", None),
-        ("https://h/u/lib.git", "a/b", None),
-        id="branches-that-read-alike",
-    ),
-    pytest.param(
-        ("https://h/a_b.git", None, None),
-        ("https://h/a/b.git", None, None),
-        id="paths-that-read-alike",
-    ),
-    pytest.param(
-        ("https://h/u/lib.git", None, None),
-        ("http://h/u/lib.git", None, None),
-        id="schemes",
-    ),
-    pytest.param(
-        ("https://h:8443/u/lib.git", None, None),
-        ("https://h_8443/u/lib.git", None, None),
-        id="a-port-and-an-underscore",
-    ),
-    pytest.param(
-        ("https://h/U/Lib.git", None, None),
-        ("https://h/u/lib.git", None, None),
-        id="letter-case",
-    ),
-    pytest.param(
-        ("https://h/.x/r.git", None, None),
-        ("https://h/x/r.git", None, None),
-        id="a-leading-dot",
-    ),
-]
-
-
-def _location(identity, cache="/cache"):
-    url, branch, commit = identity
-    host, name = clone_name_parts(url, commit, branch)
-    return Path(cache) / host / name
-
-
-@pytest.mark.parametrize("one, other", DIFFERENT_CLONES)
-def test_references_that_select_different_clones_get_different_directories(one, other):
-    """Not even on a file system that ignores letter case."""
-    assert str(_location(one)).lower() != str(_location(other)).lower()
-
-
-def test_two_dependencies_that_select_different_clones_are_cloned_apart(
-    tmp_path, monkeypatch, clones
-):
-    """The second was handed the first's directory, and loaded the design found there."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "top.v").write_text("module top; endmodule\n")
-    dependencies = ["git+https://example.com/u/lib.git_a/b#lib.toml"]
-    dependencies += ["git+https://example.com/u/lib.git?branch=a/b#lib.toml"]
-    spec = {"name": "d", "rtl": {"sources": ["top.v"], "top": "top"}, "dependencies": dependencies}
-    (tmp_path / "d.yaml").write_text(yaml.safe_dump(spec))
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with loading_in_run_root(runner.load_run_root):
-        Design.from_file(tmp_path / "d.yaml")
-    assert len(clones) == len(set(clones)) == 2
-
-
-def test_the_same_reference_is_always_cloned_into_the_same_directory(tmp_path):
-    """Both spellings of a reference, a URL with a query and its mapping form, name one clone."""
-    cache = tmp_path / "cache"
-    spelled = GitReference(uri="https://h/u/lib.git?branch=a/b#lib.toml", local_cache=cache)
-    mapped = GitReference(
-        repo_url="https://h/u/lib.git", branch="a/b", design_file="lib.toml", local_cache=cache
-    )
-    assert (
-        spelled.clone_dir
-        == mapped.clone_dir
-        == _location(("https://h/u/lib.git", "a/b", None), cache)
-    )
-
-
-def test_a_clone_directory_is_named_by_the_digest_of_what_is_cloned():
-    """The name keeps its readable part and ends with a digest of the repository URL, the branch
-    and the commit: the whole identity, fixed here so that a clone is found again."""
-    url = "https://example.com/u/lib.git"
-    assert clone_name_parts(url, None, None) == ("example.com", "u_lib.git_f9390084107191f8")
-    assert clone_name_parts(url, None, "release/1.0") == (
-        "example.com",
-        "u_lib.git_release_1.0_5b03ad24bfaa5a7e",
-    )
-    digest = hashlib.sha256(json.dumps([url, "dev", "abc123"]).encode()).hexdigest()[:16]
-    assert clone_name_parts(url, "abc123", "dev") == (
-        "example.com",
-        f"u_lib.git_commit_abc123_{digest}",
-    )
-
-
-URLS = [
-    "https://h/u/lib.git",
-    "https://h/u/lib.git/",
-    "https://h/u_lib.git",
-    "https://h/u/lib.git_a/b",
-    "https://h/u/lib.git_commit=abc",
-    "https://h:8443/u/lib.git",
-    "https://h_8443/u/lib.git",
-    "https://user:pw@h/u/lib.git",
-    "http://h/u/lib.git",
-    "https://h/.x/r.git",
-    "https://h/x/r.git",
-    "https://h/U/Lib.git",
-    "https://[::1]:8443/u/lib.git",
-    "https://h/" + "long/" * 60 + "lib.git",
-]
-REFS = [None, "a", "a/b", "a_b", "commit=abc", "dev"]
-
-
-def test_every_clone_directory_is_one_directory_below_its_host_and_all_differ():
-    identities = list(itertools.product(URLS, REFS, REFS))
-    names = {}
-    for url, branch, commit in identities:
-        host, name = clone_name_parts(url, commit, branch)
-        assert Path(host).parts == (host,) and Path(name).parts == (name,), (url, branch, commit)
-        assert len(name) <= 120
-        names.setdefault((host.lower(), name.lower()), []).append((url, branch, commit))
-    assert [same for same in names.values() if len(same) > 1] == []
-    assert len(names) == len(identities)
-
-
-def test_a_clone_directory_stays_in_its_cache_whatever_the_file_system_calls_a_path():
-    """The names a Windows join also keeps below the cache: no drive, no root, no `..`."""
-    cache = PureWindowsPath("D:/cache")
-    for url, branch, commit in itertools.product(URLS, REFS, REFS):
-        host, name = clone_name_parts(url, commit, branch)
-        assert cache / host / name == PureWindowsPath("D:/cache", host, name)
-        assert (cache / host / name).is_relative_to(cache)
-
-
-#: Forms that name a place outside the cache where a drive or a root is part of a path, as it is
-#: on Windows: `PureWindowsPath("D:/cache") / "C:/x.git"` is `C:/x.git`.
-DRIVE_AND_ROOT_FORMS = [
-    pytest.param("https://h/C:/x.git", None, None, id="a-drive-as-a-path-component"),
-    pytest.param("https://h/a/C:x.git", None, None, id="a-drive-before-a-name"),
-    pytest.param("https://h/c:", None, None, id="a-drive-alone"),
-    pytest.param("https://h/u/lib.git", "C:/x", None, id="a-drive-in-a-branch"),
-    pytest.param("https://h/u/lib.git", None, "C:", id="a-drive-as-a-commit"),
-    pytest.param("https://h/u/lib.git", "/abs", None, id="a-branch-with-a-leading-slash"),
-    pytest.param("https://h/u/lib.git", None, "/abs", id="a-commit-with-a-leading-slash"),
-]
-
-
-@pytest.mark.parametrize("url, branch, commit", DRIVE_AND_ROOT_FORMS)
-def test_a_drive_or_a_root_in_a_name_is_refused_before_any_join(url, branch, commit):
-    with pytest.raises(ValueError, match="outside the clone cache"):
-        clone_name_parts(url, commit, branch)
-
-
-def test_a_name_with_nothing_readable_in_it_is_its_digest_below_a_host_directory():
-    """Folding can leave nothing of a host or a path (`@`), and a name is never empty."""
-    host, name = clone_name_parts("https://@/@@", None, None)
-    assert host == "host"
-    assert re.fullmatch(r"[0-9a-f]{16}", name)
-
-
-def test_a_host_and_its_port_are_one_token_and_not_a_drive():
-    assert clone_name_parts("https://h:8443/u/lib.git", None, None)[0] == "h_8443"
-    assert clone_name_parts("https://[::1]:8443/u/lib.git", None, None)[0] == "1_8443"
-
-
-@pytest.mark.parametrize("component", ["C:/x.git", "c:x.git", "C:"])
-def test_those_forms_are_the_ones_a_windows_join_follows_out_of_a_cache(component):
-    cache = PureWindowsPath("D:/cache")
-    assert not (cache / "h" / component).is_relative_to(cache)
-
-
-def test_a_clone_directory_outside_a_cache_under_the_run_root_is_refused_too(tmp_path, monkeypatch):
-    """`RunDirectory.unlinked` keeps a name inside the run root; the cache is a smaller place."""
-    root = tmp_path.resolve()
-    owner = RunDirectory(root, root)
-    monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("..", "elsewhere"))
-    with pytest.raises(ValueError, match="outside the clone cache"):
-        clone_location(root / DEPENDENCY_CLONES, URI, None, None, owner=owner)
-
-
-# ---------------------------------------------------------------- credentials in a URL
-
-SECRET = "s3cret-token"
-#: A URL with credentials in each of the ways they are written, and the same URL without them.
-CREDENTIALED = [
-    pytest.param(f"https://user:{SECRET}@example.com/u/lib.git", id="user-and-password"),
-    pytest.param(f"https://{SECRET}@example.com/u/lib.git", id="a-token-as-the-user"),
-    pytest.param(f"https://user:{SECRET}@example.com:8443/u/lib.git", id="with-a-port"),
-    pytest.param(f"https://us%40er:{SECRET}@example.com/u/lib.git", id="an-encoded-at-sign"),
-    pytest.param(f"https://user:p@{SECRET}@example.com/u/lib.git", id="a-raw-at-sign"),
-]
-
-
-def _without_credentials(url: str) -> str:
-    return url.replace(url[url.index("//") + 2 : url.rindex("@") + 1], "")
-
-
-@pytest.mark.parametrize("url", CREDENTIALED)
-def test_the_credentials_of_a_url_are_no_part_of_a_clone_directory_name(url):
-    """They would show in every path and log that names the clone."""
-    host, name = clone_name_parts(url, None, None)
-    plain_host, plain_name = clone_name_parts(_without_credentials(url), None, None)
-    assert SECRET not in host + name and "user" not in host + name
-    assert host == plain_host, "the host and its port, as for the URL without credentials"
-    # the readable part is the same too; only the digest of what is cloned tells them apart
-    assert name.rpartition("_")[0] == plain_name.rpartition("_")[0]
-    assert name != plain_name
-
-
-def test_urls_that_differ_only_in_their_credentials_are_cloned_apart():
-    one = clone_name_parts("https://one:pw@h/u/lib.git", None, None)
-    other = clone_name_parts("https://other:pw@h/u/lib.git", None, None)
-    assert one != other and one[0] == other[0]
-    assert clone_name_parts("https://h/u/lib.git", None, None) not in (one, other)
-
-
-def _credentialed_design(root: Path, url: str) -> Path:
-    (root / "top.v").write_text("module top; endmodule\n")
-    (root / "d.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "name": "d",
-                "rtl": {"sources": ["top.v"], "top": "top"},
-                "dependencies": [f"git+{url}#lib.toml"],
-            }
+def test_an_invalid_spec_fetches_nothing(tmp_path, remote, git_log):
+    design_file = _design_file(tmp_path, _pinned(remote))
+    with pytest.raises(Exception, match="no_such_setting"):
+        _runner(tmp_path).plan(
+            "yosys_fpga", str(design_file), flow_settings={**XILINX, "no_such_setting": 1}
         )
+    assert git_log() == [] and not (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).exists()
+
+
+def test_a_pinned_fetched_commit_plans_offline(tmp_path, remote, git_log):
+    design_file = _design_file(tmp_path, _pinned(remote))
+    _plan(tmp_path, design_file)
+    started = len(git_log())
+    remote.moved_away()
+    _plan(tmp_path, design_file)
+    assert len(git_log()) == started
+
+
+def test_a_branch_offline_is_fetch_failed(tmp_path, remote):
+    design_file = _design_file(
+        tmp_path, {"uri": f"git+{remote.url}?branch=main#dep.yaml", "rtl": {"pos": -1}}
     )
-    return root / "d.yaml"
+    _plan(tmp_path, design_file)
+    remote.moved_away()
+    with pytest.raises(DesignError) as failed:
+        _plan(tmp_path, design_file)
+    assert failed.value.code == "fetch_failed" and failed.value.field == "dependencies[0]"
+    assert "pin" in str(failed.value) and "main" in str(failed.value)
 
 
-@pytest.mark.parametrize("url", CREDENTIALED[:3])
-def test_a_clone_is_given_its_credentials_and_none_is_shown(
-    tmp_path, monkeypatch, clones, caplog, url
-):
-    """Git is handed the URL as written, since the clone needs it; no path, log line (down to
-    the debug dump of the design) or message holds the secret."""
-    import git.repo
-
-    handed = []
-    clone = git.repo.Repo.clone_from
-
-    def clone_from(url, to_path, **kwargs):
-        handed.append(url)
-        return clone(url, to_path, **kwargs)
-
-    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
-    monkeypatch.chdir(tmp_path)
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with caplog.at_level(logging.DEBUG), loading_in_run_root(runner.load_run_root):
-        Design.from_file(_credentialed_design(tmp_path, url))
-    assert handed == [url]
-    assert "Cloning git repository" in caplog.text and "Design data" in caplog.text
-    assert SECRET not in caplog.text
-    assert [p for p in (tmp_path / "xeda_run").rglob("*") if SECRET in str(p)] == []
-    assert [str(p) for p in clones if SECRET in str(p)] == []
+def test_a_failed_fetch_leaves_no_storage(tmp_path, remote):
+    missing = "0" * 40
+    design_file = _design_file(tmp_path, _pinned(remote, missing))
+    with pytest.raises(DesignError) as failed:
+        _plan(tmp_path, design_file)
+    assert failed.value.code == "fetch_failed"
+    assert list((tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).glob("[!.]*")) == [] or all(
+        p.suffix == ".lock" for p in (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).iterdir()
+    )
+    assert [
+        p for p in (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).iterdir() if p.is_dir()
+    ] == []
 
 
-def test_an_error_does_not_show_the_credentials_of_the_url_it_names(tmp_path, monkeypatch):
-    url = f"https://user:{SECRET}@example.com/u/lib.git"
-    ref = GitReference(repo_url=url, design_file="lib.toml")
-    with pytest.raises(ValueError, match="needs a directory") as no_directory:
-        ref.fetch_design()
-    monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("..", "elsewhere"))
-    with pytest.raises(ValueError, match="outside the clone cache") as outside:
-        clone_location(tmp_path, url, None, None)
-    with pytest.raises(ValueError, match="no repository path") as no_path:
-        clone_name_parts(f"https://user:{SECRET}@example.com/", None, None)
-    named = (url, url, f"https://user:{SECRET}@example.com/")
-    for error, given in zip((no_directory, outside, no_path), named):
-        # the message names the URL, with its credentials masked
-        assert SECRET not in str(error.value) and redacted_url(given) in str(error.value)
+def test_a_missing_design_file_in_the_repository_is_fetch_failed(tmp_path, remote):
+    dependency = {"uri": f"git+{remote.url}?commit={remote.first}#nothing.yaml"}
+    with pytest.raises(DesignError) as failed:
+        _plan(tmp_path, _design_file(tmp_path, dependency))
+    assert failed.value.code == "fetch_failed" and "nothing.yaml" in str(failed.value)
+
+
+def test_a_branch_is_resolved_to_its_tip_at_every_planning(tmp_path, remote):
+    tip = remote.first
+    reference = GitReference(uri=f"{remote.url}?branch=main#dep.yaml")
+    tmp_path.joinpath("xeda_run").mkdir()
+    assert resolve_reference(reference, run_root=tmp_path / "xeda_run") == tip
+    moved = remote.advance()
+    assert resolve_reference(reference, run_root=tmp_path / "xeda_run") == moved
+
+
+def test_head_and_a_tag_are_resolved_to_commits(tmp_path, remote):
+    run_root = tmp_path / "xeda_run"
+    run_root.mkdir()
+    _git("tag", "-a", "-m", "annotated", "v1", cwd=remote.work)
+    _git("push", "--quiet", "origin", "v1", cwd=remote.work)
+    for query in ("", "?branch=v1"):
+        reference = GitReference(uri=f"{remote.url}{query}#dep.yaml")
+        assert resolve_reference(reference, run_root=run_root) == remote.first
+
+
+def test_a_pinned_commit_is_resolved_with_no_process(tmp_path, remote, git_log):
+    reference = GitReference(uri=f"{remote.url}?commit={remote.first}#dep.yaml")
+    assert resolve_reference(reference, run_root=tmp_path) == remote.first
+    assert git_log() == []
+
+
+def test_a_moved_branch_makes_the_node_stale(tmp_path, remote, toy):
+    design_file = _design_file(
+        tmp_path, {"uri": f"git+{remote.url}?branch=main#dep.yaml", "rtl": {"pos": -1}}
+    )
+    runner = _runner(tmp_path)
+    design = Design.from_file(design_file)
+    first = runner.launch_flow(toy, design, {})
+    assert first.succeeded and not first.reused
+    again = _runner(tmp_path).launch_flow(toy, design, {})
+    assert again.reused
+    moved = remote.advance()
+    changed = _runner(tmp_path).launch_flow(toy, design, {})
+    assert not changed.reused
+    assert changed.stale_reason == f"dependency {redacted_url(remote.url)} now at {moved[:12]}"
+
+
+# --------------------------------------------------------------- what a record says
+
+
+@pytest.fixture
+def toy():
+    """A flow that copies the text of every source of the design to an output."""
+    with preserved_flow_registry():
+
+        class GitToy(Flow):
+            """Copies the text of the sources of the design."""
+
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+            class Inputs(Flow.Inputs):
+                sources: list[Path] = In(SourceType.Verilog, description="The Verilog sources.")
+
+            def run(self) -> None:
+                out = self.run_path / "copied.txt"
+                out.write_text("".join(path.read_text() for path in self.inputs.sources))
+                self.artifacts.copied = out
+
+        yield GitToy
+        registered_flows.pop(GitToy.name, None)
+
+
+def test_the_record_lists_the_dependency_and_its_commit(tmp_path, remote, toy):
+    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    runner = _runner(tmp_path)
+    flow = runner.launch_flow(toy, design, {})
+    assert flow.succeeded
+    record = read_record(flow.run_path, run_root=tmp_path / "xeda_run")
+    assert [dict(d) for d in record.dependencies] == [
+        {
+            "repository": remote.url,
+            "reference": None,
+            "commit": remote.first,
+            "design_file": "dep.yaml",
+        }
+    ]
+    sources = {s.path: s.dependency for item in record.inputs for s in item.sources}
+    assert sources == {"top.v": None, "src/a.v": 0}
+
+
+def test_the_identity_does_not_hold_the_commit(tmp_path, remote):
+    one = _plan(tmp_path, _design_file(tmp_path, _pinned(remote)))
+    # the same files at another commit: the same node, since the commit is freshness evidence
+    moved = remote.advance()
+    other = tmp_path / "other"
+    other.mkdir()
+    two = _plan(other, _design_file(other, _pinned(remote, moved)))
+    assert one.node(one.requested).flowrun_hash == two.node(two.requested).flowrun_hash
+
+
+def test_a_parameter_that_is_a_path_in_a_checkout_counts_without_the_commit(tmp_path):
+    from xeda.design import DependencyRecord
+
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    counted = []
+    for commit in ("a" * 40, "b" * 40):
+        checkout = tmp_path / "xeda_run" / ".dependencies" / commit[:16]
+        design = Design(
+            name="d",
+            design_root=tmp_path,
+            rtl={"sources": ["top.v"], "parameters": {"ROM": str(checkout / "rom.mem")}},
+        )
+        record = DependencyRecord("https://h/u/l.git", None, commit, "dep.yaml", checkout)
+        design = design.model_copy(update={"resolved_dependencies": (record,)})
+        design.invalidate_cached_properties()
+        counted.append(design.part_metadata("rtl")["parameters"])
+    assert counted[0] == counted[1] == {"ROM": "$DEPENDENCY_0/rom.mem"}
+
+
+# ----------------------------------------------------------------- what load refuses
+
+
+@pytest.mark.parametrize("commit", ["abc1234", "a" * 39, "g" * 40, "a" * 41])
+def test_an_abbreviated_commit_is_refused_at_load(tmp_path, commit):
+    dependency = f"git+https://example.com/u/lib.git?commit={commit}#lib.yaml"
+    with pytest.raises(DesignValidationError, match="full commit hash"):
+        Design.from_file(_design_file(tmp_path, dependency))
+
+
+@pytest.mark.parametrize("key", ["clone_dir", "local_cache"])
+def test_a_removed_clone_key_names_its_replacement(tmp_path, key):
+    dependency = {"uri": "git+https://example.com/u/lib.git#lib.yaml", key: "somewhere"}
+    with pytest.raises(DesignValidationError) as refused:
+        Design.from_file(_design_file(tmp_path, dependency))
+    assert refused.value.errors[0][3] == "removed_key"
+    assert (
+        f"`{key}` was removed: use a local dependency that names the design file in a checkout"
+        " you manage" in str(refused.value)
+    )
+
+
+def test_a_sha256_commit_is_a_full_hash():
+    reference = GitReference(uri=f"https://example.com/u/lib.git?commit={'A' * 64}#lib.yaml")
+    assert reference.commit == "a" * 64
+
+
+# -------------------------------------------------------------------- the credentials
+
+CREDENTIALED = [
+    f"git+https://user:{SECRET}@example.com/org/lib.git#design.yaml",
+    f"git+https://{SECRET}@example.com/org/lib.git#design.yaml",
+]
+
+
+def test_no_credential_reaches_a_message_a_log_or_a_path(tmp_path, caplog, git_log):
+    url = f"file://user:{SECRET}@/does/not/exist.git"
+    dependency = f"git+{url}?branch=main#dep.yaml"
+    design_file = _design_file(tmp_path, dependency)
+    with caplog.at_level(logging.DEBUG), pytest.raises(DesignError) as failed:
+        _plan(tmp_path, design_file)
+    assert failed.value.code == "fetch_failed"
+    assert SECRET not in str(failed.value) and SECRET not in caplog.text
+    assert SECRET not in "\n".join(git_log())
+    assert [p for p in tmp_path.rglob("*") if SECRET in str(p)] == []
+
+
+def test_a_fetch_through_a_credential_url_stores_none(tmp_path, remote, caplog):
+    credentialed = remote.url.replace("file://", f"file://user:{SECRET}@", 1)
+    storage_of = lambda u: dependency_storage(  # noqa: E731
+        tmp_path / "xeda_run", dependency_key(u, remote.first)
+    )
+    assert storage_of(credentialed) == storage_of(remote.url)
+    shown = redacted_url(credentialed)
+    assert SECRET not in shown and shown.startswith("file://***@")
+
+
+def test_the_key_names_the_repository_without_its_credentials():
+    assert dependency_key(f"https://user:{SECRET}@h/u/l.git", "a" * 40) == dependency_key(
+        "https://h/u/l.git", "a" * 40
+    )
+    assert dependency_key("https://h/u/l.git", "a" * 40) != dependency_key(
+        "https://h/u/l.git", "b" * 40
+    )
+    assert len(dependency_key("https://h/u/l.git", "a" * 40)) == 16
+
+
+# ----------------------------------------------------------------------- concurrency
+
+
+def test_two_launches_fetch_one_commit_once(tmp_path, remote, git_log):
+    run_root = tmp_path / "xeda_run"
+    run_root.mkdir()
+    reference = GitReference(uri=f"{remote.url}?commit={remote.first}#dep.yaml")
+    storages, errors = [], []
+    barrier = threading.Barrier(2)
+
+    def work() -> None:
+        try:
+            barrier.wait()
+            storages.append(fetch(reference, remote.first, run_root=run_root))
+        except BaseException as error:  # pylint: disable=broad-except
+            errors.append(error)
+
+    threads = [threading.Thread(target=work) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == [] and storages[0] == storages[1]
+    assert [line for line in git_log() if " init " in f" {line} "] == [
+        "-c core.hooksPath=/dev/null -c maintenance.auto=false -c gc.auto=0 init --quiet ."
+    ]
+
+
+# --------------------------------------------------------------- generators and scrubs
+
+
+def test_a_local_dependency_that_a_generator_writes_is_refused(tmp_path):
+    counter = tmp_path / "generator.log"
+    (tmp_path / "gen.py").write_text(f"open({str(counter)!r}, 'a').write('ran\\n')\n")
+    spec = {
+        "name": "d",
+        "rtl": {
+            "sources": ["gen/top.v"],
+            "generator": {
+                "executable": "python3",
+                "args": ["$DESIGN_ROOT/gen.py"],
+                "sources": ["gen.py"],
+            },
+        },
+        "dependencies": ["gen/dep.yaml"],
+    }
+    (tmp_path / "d.yaml").write_text(yaml.safe_dump(spec))
+    with pytest.raises(DesignError) as refused:
+        _plan(tmp_path, tmp_path / "d.yaml")
+    assert refused.value.code == "design_file_not_found"
+    assert "dep.yaml" in str(refused.value) and "gen.py" in str(refused.value)
+    assert not counter.exists()
+
+
+def test_no_scrub_removes_dependency_storage(tmp_path, remote):
+    from xeda.flow_runner.scrub import scrub_design
+
+    design_file = _design_file(tmp_path, _pinned(remote))
+    _plan(tmp_path, design_file)
+    storage = (
+        tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
+    )
+    root = tmp_path / "xeda_run"
+    scrub_design("yosys_fpga", root / "d", run_root=root, confirm=lambda *_: True)
+    assert (storage / "dependency.yaml").is_file()
+
+
+# -------------------------------------------------- a reference shows no credentials, ever
+
+TOKEN_URL = f"https://user:{SECRET}@example.com/org/lib.git#design.yaml"
+
+
+def _dependency_design(root: Path, dependency) -> Path:
+    return _design_file(root, dependency)
 
 
 def test_a_url_is_shown_without_its_credentials():
@@ -634,8 +586,7 @@ def test_a_url_is_shown_without_its_credentials():
         assert redacted_url(plain) == plain
 
 
-#: The names a Git URL, or a value taken from a reference's URI, goes by in `design.py`: the
-#: path `DesignReference.fetch_design` makes of it is one.
+#: The names a Git URL goes by in the modules that read dependencies.
 URL_NAMES = {"repo_url", "uri", "uri_str", "design_path"}
 
 
@@ -647,10 +598,11 @@ def _names_a_url(node: ast.AST) -> bool:
     )
 
 
-def test_no_message_in_design_py_shows_a_git_url_as_it_is():
+@pytest.mark.parametrize("module", [xeda.design, xeda.flow_runner.dependencies])
+def test_no_message_shows_a_git_url_as_it_is(module):
     """An f-string or a log call that formats a URL says so through `redacted_url`: the sweep that
-    keeps a message added later from showing credentials a clone directory name no longer does."""
-    source = Path(xeda.design.__file__)
+    keeps a message added later from showing credentials."""
+    source = Path(module.__file__)
     shown: list[str] = []
     for node in ast.walk(ast.parse(source.read_text())):
         values: list[ast.AST] = []
@@ -662,36 +614,15 @@ def test_no_message_in_design_py_shows_a_git_url_as_it_is():
             and isinstance(node.func.value, ast.Name)
             and node.func.value.id == "log"
         ):
-            values = list(node.args[1:])  # the arguments a message is formatted with
+            values = list(node.args[1:])
         shown += [f"line {value.lineno}" for value in values if _names_a_url(value)]
     assert shown == [], f"{source.name} shows a URL without `redacted_url`: {shown}"
-
-
-# ------------------------------------- a reference shows its URL without the credentials, always
-TOKEN_URL = f"https://user:{SECRET}@example.com/org/lib.git#design.yaml"
-
-
-def _dependency_design(root: Path, dependency) -> Path:
-    (root / "top.v").write_text("module top; endmodule\n")
-    (root / "d.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "name": "d",
-                "rtl": {"sources": ["top.v"], "top": "top"},
-                "dependencies": [dependency],
-            }
-        )
-    )
-    return root / "d.yaml"
 
 
 @pytest.mark.parametrize(
     "dependency", [TOKEN_URL, {"uri": TOKEN_URL}], ids=["a-string", "a-mapping"]
 )
-def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, monkeypatch, dependency):
-    """Without `git+` and `repo_url` a dependency is a local design file, and a URL is none. The
-    reference of the base class took it for a path that did not exist, and printed it."""
-    monkeypatch.chdir(tmp_path)
+def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, dependency):
     with pytest.raises(DesignValidationError) as refused:
         Design.from_file(_dependency_design(tmp_path, dependency))
     message = str(refused.value)
@@ -699,14 +630,11 @@ def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, monkeypa
     assert SECRET not in message
 
 
-def test_a_url_without_git_is_refused_on_the_command_line_without_the_credentials(
-    tmp_path, monkeypatch
-):
+def test_a_url_without_git_is_refused_on_the_command_line_without_the_credentials(tmp_path):
     from click.testing import CliRunner
 
     from xeda.cli import cli
 
-    monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(
         cli, ["run", "yosys", str(_dependency_design(tmp_path, TOKEN_URL)), "--json"]
     )
@@ -744,7 +672,7 @@ def test_a_reference_is_shown_without_the_credentials_of_its_url(make):
         repr({"dependencies": [reference]}),
     ):
         assert SECRET not in text and "https://***@example.com/org/lib.git" in text, text
-    # what the clone needs is still in it
+    # what a fetch needs is still in it
     assert SECRET in reference.uri and SECRET in reference.repo_url  # type: ignore[attr-defined]
 
 
@@ -752,12 +680,9 @@ def test_a_reference_that_is_a_path_is_shown_as_it_is():
     assert "lib/lib.toml" in repr(DesignReference(uri="lib/lib.toml"))
 
 
-def test_the_debug_dump_masks_the_references_an_api_caller_gives(
-    tmp_path, monkeypatch, clones, caplog
-):
-    monkeypatch.chdir(tmp_path)
+def test_the_debug_dump_masks_the_references_an_api_caller_gives(tmp_path, caplog):
     reference = GitReference(
-        uri=f"https://user:{SECRET}@example.com/u/lib.git#lib.toml", local_cache=tmp_path / "cache"
+        uri=f"https://user:{SECRET}@example.com/u/lib.git?commit={'a' * 40}#lib.toml"
     )
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     with caplog.at_level(logging.DEBUG):
@@ -767,28 +692,349 @@ def test_the_debug_dump_masks_the_references_an_api_caller_gives(
             rtl={"sources": ["top.v"], "top": "top"},
             dependencies=[reference],
         )
-    assert "Design data" in caplog.text and clones
+    assert "Design data" in caplog.text
     assert SECRET not in caplog.text
 
 
-def test_a_failed_clone_does_not_show_the_credentials(tmp_path, monkeypatch):
-    """GitPython hides the user name and the password in the command line it reports."""
-    import git.exc
-    import git.repo
+CRAFTED = [
+    "https://h/u/lib.git",
+    "no-scheme/u/lib.git#lib.toml",
+]
 
-    def clone_from(url, to_path, **kwargs):
-        raise git.exc.GitCommandError(
-            ["git", "clone", "-v", "--", url, str(to_path)], 128, "fatal: repository not found"
+
+@pytest.mark.parametrize("uri", CRAFTED)
+def test_a_url_that_names_no_design_file_or_no_host_is_refused(uri):
+    with pytest.raises(ValidationError):
+        GitReference(uri=uri)
+
+
+def test_the_command_line_reports_a_failed_fetch_as_a_spec_that_never_started(tmp_path, git_log):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    dependency = f"git+{(tmp_path / 'nowhere.git').as_uri()}?branch=main#dep.yaml"
+    design_file = _design_file(tmp_path, dependency)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "run",
+            "yosys_fpga",
+            str(design_file),
+            "--dry-run",
+            "--json",
+            "--run-root",
+            str(tmp_path / "xeda_run"),
+        ],
+    )
+    document = json.loads(result.stdout)
+    assert result.exit_code == 2
+    assert document["outcome"] is None and document["error"]["code"] == "fetch_failed"
+
+
+def test_a_remote_package_carries_the_references_and_no_fetched_file(tmp_path, remote):
+    from pathlib import PurePosixPath
+
+    from xeda.remote.packaging import package_inputs
+
+    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    package = package_inputs(
+        design,
+        {},
+        {"yosys_fpga"},
+        run_root=tmp_path / "run_root",
+        remote_inputs=PurePosixPath(tmp_path / "remote_inputs"),
+    )
+    document = json.loads(package.generated[package.design_file])
+    assert [d["repo_url"] for d in document["dependencies"]] == [remote.url]
+    assert [d["commit"] for d in document["dependencies"]] == [remote.first]
+    assert sorted(package.files) == ["top.v"]
+    assert not (tmp_path / "xeda_run").exists(), "this side fetched nothing"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="no storage locks")
+def test_a_launch_holds_the_lease_of_the_dependency_storage_while_a_flow_runs(
+    tmp_path, remote, toy, monkeypatch
+):
+    import fcntl
+
+    from xeda.flow_runner.run_lock import lock_file
+
+    storage = (
+        tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
+    )
+    refused: list[bool] = []
+    run = toy.run
+
+    def run_and_try_to_write(self) -> None:
+        with open(lock_file(storage), "a") as other:
+            try:
+                fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                refused.append(False)
+            except BlockingIOError:
+                refused.append(True)
+        run(self)
+
+    monkeypatch.setattr(toy, "run", run_and_try_to_write)
+    design = Design.from_file(_design_file(tmp_path, _pinned(remote)))
+    assert _runner(tmp_path).launch_flow(toy, design, {}).succeeded
+    assert refused == [True]
+    # the lease ends with the launch
+    with open(lock_file(storage), "a") as other:
+        fcntl.flock(other.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_an_unknown_branch_is_fetch_failed_without_the_offline_advice(tmp_path, remote):
+    run_root = tmp_path / "xeda_run"
+    run_root.mkdir()
+    reference = GitReference(uri=f"{remote.url}?branch=nothing#dep.yaml")
+    with pytest.raises(DesignError, match="no such branch or tag") as failed:
+        resolve_reference(reference, run_root=run_root, field="dependencies[2]")
+    assert failed.value.code == "fetch_failed" and failed.value.field == "dependencies[2]"
+    assert "pin" not in str(failed.value)
+
+
+# ---------------------------------------------- local and Git dependencies in one design
+
+
+def _mixed(root: Path, remote: Remote, order: str = "local first") -> Path:
+    """A design with a local dependency and a Git dependency, in the order given."""
+    lib = root / "lib"
+    lib.mkdir()
+    (lib / "b.v").write_text("module b; endmodule\n")
+    (lib / "lib.yaml").write_text(yaml.safe_dump({"name": "lib", "rtl": {"sources": ["b.v"]}}))
+    local = {"uri": "lib/lib.yaml"}
+    git = {"uri": f"git+{remote.url}?commit={remote.first}#dep.yaml"}
+    (root / "top.v").write_text("module top; endmodule\n")
+    spec = {
+        "name": "d",
+        "rtl": {"sources": ["top.v"], "clocks": ["clk"]},
+        "dependencies": [local, git] if order == "local first" else [git, local],
+    }
+    (root / "d.yaml").write_text(yaml.safe_dump(spec))
+    return root / "d.yaml"
+
+
+def _names(plan) -> list[str]:
+    return [Path(s["path"]).name for s in _configuration(plan)["rtl"]["sources"]]
+
+
+def test_an_index_is_the_position_in_the_dependencies_of_the_design(tmp_path, remote):
+    """The Git dependency is the second entry, so it is dependency 1 in the configuration. A file of
+    the local dependency is counted by its path in the root of that dependency."""
+    plan = _plan(tmp_path, _mixed(tmp_path, remote, "local first"))
+    sources = _configuration(plan)["rtl"]["sources"]
+    assert {"dependency": 1, "path": "src/a.v", "type": "Verilog"} in sources
+    assert {"dependency": 0, "path": "b.v", "type": "Verilog"} in sources
+
+
+def test_dependencies_merge_in_the_order_they_are_listed(tmp_path, remote):
+    """A source list with `pos: 0` puts the later dependency first, whichever kind it is."""
+    local_first = _plan(tmp_path / "one", _mixed(_dir(tmp_path / "one"), remote, "local first"))
+    git_first = _plan(tmp_path / "two", _mixed(_dir(tmp_path / "two"), remote, "git first"))
+    assert _names(local_first) == ["a.v", "b.v", "top.v"]
+    assert _names(git_first) == ["b.v", "a.v", "top.v"]
+
+
+def _dir(path: Path) -> Path:
+    path.mkdir()
+    return path
+
+
+def test_the_record_lists_every_entry_at_its_index(tmp_path, remote, toy):
+    design = Design.from_file(_mixed(tmp_path, remote, "git first"))
+    flow = _runner(tmp_path).launch_flow(toy, design, {})
+    assert flow.succeeded
+    record = read_record(flow.run_path, run_root=tmp_path / "xeda_run")
+    assert [dict(d) for d in record.dependencies] == [
+        {
+            "repository": remote.url,
+            "reference": None,
+            "commit": remote.first,
+            "design_file": "dep.yaml",
+        },
+        {"repository": None, "reference": None, "commit": None, "design_file": "lib/lib.yaml"},
+    ]
+    sources = {s.path: s.dependency for item in record.inputs for s in item.sources}
+    assert sources == {"top.v": None, "src/a.v": 0, "b.v": 1}
+
+
+def test_a_failed_fetch_names_the_entry_in_the_dependencies(tmp_path, remote):
+    design_file = _mixed(tmp_path, remote, "local first")
+    spec = yaml.safe_load(design_file.read_text())
+    spec["dependencies"][1]["uri"] = spec["dependencies"][1]["uri"].replace(remote.first, "0" * 40)
+    design_file.write_text(yaml.safe_dump(spec))
+    with pytest.raises(DesignError) as failed:
+        _plan(tmp_path, design_file)
+    assert failed.value.field == "dependencies[1]"
+
+
+def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
+    from xeda.design import DependencyRecord
+
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    checkout = tmp_path / "xeda_run" / ".dependencies" / "k"
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["top.v"], "parameters": {"ROM": str(checkout / "rom.mem")}},
+    )
+    local = DependencyRecord(None, None, None, "lib/lib.yaml", None)
+    git = DependencyRecord("https://h/u/l.git", None, "a" * 40, "dep.yaml", checkout)
+    design = design.model_copy(update={"resolved_dependencies": (local, git)})
+    design.invalidate_cached_properties()
+    assert design.part_metadata("rtl")["parameters"] == {"ROM": "$DEPENDENCY_1/rom.mem"}
+
+
+def test_a_request_that_is_wrong_in_itself_reads_no_dependency(tmp_path, remote, git_log):
+    """The settings are checked before any dependency is read: a missing local design file does
+    not hide the mistake in the settings, and nothing is fetched."""
+    design_file = _mixed(tmp_path, remote, "local first")
+    (tmp_path / "lib" / "lib.yaml").unlink()
+    with pytest.raises(Exception, match="no_such_setting"):
+        _runner(tmp_path).plan(
+            "yosys_fpga", str(design_file), flow_settings={**XILINX, "no_such_setting": 1}
         )
+    assert git_log() == []
 
-    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
-    monkeypatch.chdir(tmp_path)
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    url = f"https://user:{SECRET}@example.com/u/l.git"
-    with (
-        loading_in_run_root(runner.load_run_root),
-        pytest.raises(git.exc.GitCommandError) as failed,
-    ):
-        Design.from_file(_credentialed_design(tmp_path, url))
-    # GitPython masks the credentials in its own way; the rest of the URL is still named
-    assert SECRET not in str(failed.value) and url.partition("@")[2] in str(failed.value)
+
+def test_the_debug_log_of_a_request_shows_no_credential(tmp_path, caplog, git_log):
+    """With the debug setting of the launcher, a request logs the design it loaded. That design
+    still holds its dependencies as written, so the log passes them through `redacted_url`."""
+    dependency = f"git+file://user:{SECRET}@/does/not/exist.git?commit={'a' * 40}#dep.yaml"
+    design_file = _design_file(tmp_path, dependency)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, debug=True)
+    with caplog.at_level(logging.DEBUG), pytest.raises(DesignError):
+        runner.plan("yosys_fpga", str(design_file), flow_settings=dict(XILINX))
+    assert "design:" in caplog.text and "does/not/exist.git" in caplog.text
+    assert SECRET not in caplog.text
+
+
+def test_a_git_dependency_of_a_local_dependency_is_fetched(tmp_path, remote):
+    """main.yaml lists a local design, and that design lists the Git repository."""
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "lib.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "lib",
+                "rtl": {"sources": []},
+                "dependencies": [{"uri": f"git+{remote.url}?commit={remote.first}#dep.yaml"}],
+            }
+        )
+    )
+    plan = _plan(tmp_path, _design_file(tmp_path, {"uri": "lib/lib.yaml"}))
+    sources = _configuration(plan)["rtl"]["sources"]
+    # the local entry is dependency 0, and the entry it lists comes after the entries of the design
+    assert {"dependency": 1, "path": "src/a.v", "type": "Verilog"} in sources
+    assert (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).is_dir()
+
+
+def test_the_commits_of_a_remote_package_are_no_part_of_a_design(tmp_path):
+    """The pinned commits travel beside the design document, never in a `Design`: a design file
+    cannot pass them."""
+    assert "dependency_commits" not in Design.model_fields
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    (tmp_path / "d.yaml").write_text(
+        yaml.safe_dump(
+            {"name": "d", "rtl": {"sources": ["top.v"]}, "dependency_commits": {"abc": "a" * 40}}
+        )
+    )
+    with pytest.raises(DesignValidationError, match="dependency_commits"):
+        Design.from_file(tmp_path / "d.yaml")
+
+
+def test_a_file_of_the_repository_named_like_the_record_is_kept(tmp_path, remote):
+    """The record of a fetch lies beside the checkout, so a repository can hold a file of that
+    name at its root."""
+    (remote.work / "dependency.yaml").write_text("name: the repository's own file\n")
+    commit = remote.commit("a file named like the record")
+    _git("push", "--quiet", "origin", "main", cwd=remote.work)
+    plan = _plan(tmp_path, _design_file(tmp_path, _pinned(remote, commit)))
+    storage = tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, commit)
+    assert (
+        storage / "checkout" / "dependency.yaml"
+    ).read_text() == "name: the repository's own file\n"
+    assert yaml.safe_load((storage / "dependency.yaml").read_text())["commit"] == commit
+    assert {"dependency": 0, "path": "src/a.v", "type": "Verilog"} in _configuration(plan)["rtl"][
+        "sources"
+    ]
+
+
+# ---------------------------------------- what the settings alone refuse comes before any fetch
+
+#: Two waveform formats at once: Verilator refuses it from its settings, with no design.
+TWO_WAVEFORMS = {"vcd": True, "fst": True}
+
+
+def _a_design_with_a_git_dependency(tmp_path: Path, remote: Remote) -> Path:
+    (tmp_path / "tb.v").write_text("module tb; endmodule\n")
+    return _design_file(tmp_path, _pinned(remote), extra={"tb": {"sources": ["tb.v"], "top": "tb"}})
+
+
+@pytest.mark.parametrize("entry", ["plan", "run", "resolve", "launch_flow"])
+def test_a_refusal_from_the_settings_alone_starts_no_git_process(tmp_path, remote, git_log, entry):
+    from xeda.flows import Verilator
+
+    design_file = _a_design_with_a_git_dependency(tmp_path, remote)
+    runner = _runner(tmp_path)
+    started = len(git_log())
+    with pytest.raises(Exception, match="vcd|fst"):
+        if entry == "plan":
+            runner.plan("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
+        elif entry == "run":
+            runner.run("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
+        elif entry == "resolve":
+            runner.resolve(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
+        else:
+            runner.launch_flow(Verilator, Design.from_file(design_file), TWO_WAVEFORMS)
+    assert len(git_log()) == started and not (tmp_path / "xeda_run" / ".dependencies").exists()
+
+
+def test_a_source_that_moves_to_another_dependency_is_another_origin_of_an_input(tmp_path):
+    """The sole routed configuration of `fpga_pack` comes from a dependency. It is another node
+    when it comes from the other entry, though its path in its root is the same."""
+    for name in ("one", "two"):
+        lib = tmp_path / name
+        lib.mkdir()
+        (lib / "x.config").write_text("config\n")
+        (lib / f"{name}.yaml").write_text(
+            yaml.safe_dump(
+                {"name": name, "rtl": {"sources": [{"file": "x.config", "type": "EcpConfig"}]}}
+            )
+        )
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "o.v").write_text("module o; endmodule\n")
+    (tmp_path / "other" / "other.yaml").write_text(
+        yaml.safe_dump({"name": "other", "rtl": {"sources": ["o.v"]}})
+    )
+    identities = []
+    for order in (["one", "other"], ["other", "one"]):
+        root = tmp_path / "-".join(order)
+        root.mkdir()
+        (root / "d.yaml").write_text(
+            yaml.safe_dump({"name": "d", "dependencies": [f"../{n}/{n}.yaml" for n in order]})
+        )
+        plan = DefaultRunner(root / "xeda_run", display_results=False).plan(
+            "fpga_pack", str(root / "d.yaml"), flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        )
+        node = plan.node("fpga_pack")
+        assert [i.origin for i in node.inputs if i.name == "config"] == ["source"]
+        identities.append(node.flowrun_hash)
+    assert identities[0] != identities[1]
+
+
+def test_a_sha256_repository_is_fetched_at_its_64_digit_commit(tmp_path, git_log):
+    try:
+        remote = Remote(_dir(tmp_path / "sha256"), object_format="sha256")
+    except subprocess.CalledProcessError:
+        pytest.skip("this Git cannot make a SHA-256 repository")
+    assert len(remote.first) == 64
+    plan = _plan(tmp_path, _design_file(tmp_path, _pinned(remote)))
+    storage = (
+        tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
+    )
+    assert (storage / "checkout" / "dep.yaml").is_file()
+    assert {"dependency": 0, "path": "src/a.v", "type": "Verilog"} in _configuration(plan)["rtl"][
+        "sources"
+    ]

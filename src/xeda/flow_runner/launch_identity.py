@@ -157,17 +157,13 @@ def run_identity(
     design: Design,
     settings: Flow.Settings,
     node: PlanNode,
-) -> tuple[str, str, Path, str]:
-    """Return `(design_hash, flowrun_hash, run_path, settings_hash)`.
+) -> tuple[str, Path, str]:
+    """Return `(flowrun_hash, run_path, settings_hash)`.
 
     The hash of the run is the identity of its node (`bindings.node_identity`): its settings, its
     design configuration and the ordered origins of its inputs. The configuration is the one
-    the plan froze for the node (`PlanNode.configuration`, checked by the launcher). The design
-    hash counts the design by content, by the parts that the flow reads (`Flow.design_parts`)
-    and the types of source that it takes (`Flow.design_source_types`), so an edit to a
-    testbench or to a source that the flow does not read changes nothing of it. It is evidence
-    of freshness and no part of the identity."""
-    design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
+    the plan froze for the node (`PlanNode.configuration`, checked by the launcher). It holds no
+    content of the design, so it is known before the generator of the design has run."""
     settings_hash = flow_run_hash(flow_name, settings, design.name)
     flowrun_hash = node_identity(
         settings_hash, configuration_hash(node.configuration), node.origins
@@ -179,7 +175,7 @@ def run_identity(
         paths.run_path_of(design.name, node.name, flowrun_hash, target=design.target),
     )
     run_path = paths.get_flow_run_path(design.name, node.name, flowrun_hash, target=design.target)
-    return design_hash, flowrun_hash, run_path, settings_hash
+    return flowrun_hash, run_path, settings_hash
 
 
 def claim_run_dir(claims: set[Path], run_path: Path) -> None:

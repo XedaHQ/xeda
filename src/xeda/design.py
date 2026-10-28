@@ -15,11 +15,13 @@ import shutil
 import subprocess
 import tomllib
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
+from copy import copy as shallow_copy
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
+from fnmatch import fnmatchcase
 from glob import escape as glob_escape
 from glob import glob
 from os.path import isfile
@@ -32,6 +34,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    NamedTuple,
     NotRequired,
     Tuple,
     Type,
@@ -66,18 +69,20 @@ from .dataclass import (
 )
 from .digest import content_digest
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
-from .generation import judging_generation
 from .proc_utils import run_child
-from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
+from .run_dir import DIR_NAME_HASH_LEN, run_directory_name
 from .utils import (
     hierarchical_merge,
     ConflictingKeys,
+    LOCATION_FORMS,
     XedaException,
     expand_env_vars,
     expand_hierarchy,
+    expand_vars,
     flows_table_problems,
     location_free,
     path_identity,
+    path_variables,
     removesuffix,
     semantic_hash,
     settings_to_dict,
@@ -106,6 +111,11 @@ __all__ = [
     "DesignPart",
     "Source",
     "DesignValidationError",
+    "SourceEntry",
+    "glob_name_matches",
+    "pattern_reads",
+    "source_entry_matches",
+    "source_entry_pattern",
     "FileResource",
     "LanguageSettings",
     "Rtl",
@@ -193,11 +203,6 @@ class DesignValidationError(AnyDesignValidationException):
         self.design_name = design_name
         self.file = file
         self.design_in_msg = design_in_msg
-
-    @property
-    def only_missing_files(self) -> bool:
-        """Whether every error is a file the design names that is not there (`MissingFile`)."""
-        return bool(self.errors) and all(kind == MISSING_FILE_ERROR for *_, kind in self.errors)
 
     def __str__(self) -> str:
         """Format validation errors with their design name and field locations."""
@@ -338,8 +343,8 @@ def _read_design_file(path: Path) -> dict[str, Any]:
 
 
 #: The root of the design that is being loaded. A relative path in a design resolves against it
-#: (`design_relative_root`). `Design.__init__` sets it around the validation, the generators and
-#: the merge of the dependencies, so a load never changes the working directory of the process.
+#: (`design_relative_root`). `Design.__init__` sets it around the validation and the merge of the
+#: dependencies, so a load never changes the working directory of the process.
 #: A dependency is a design with a root of its own, and a thread has its own value.
 _loading_root: ContextVar[Optional[Path]] = ContextVar("loading_root", default=None)
 
@@ -433,52 +438,18 @@ def as_source_list(sources: Any) -> Any:
     return sources
 
 
-def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
-    """Return the files that an unvalidated `rtl.sources` names, to decide if a generator must run.
-
-    `process_generation` runs before the sources validator, so it sees whatever the design file
-    wrote: a path, a `$DESIGN_ROOT` spelling, a pattern or a table with `file` or `path`. This
-    function expands each spelling. It returns `None` for anything it cannot interpret. The
-    validator reports that a moment later, and until then the safe answer is to run the generator.
-    """
-    sources = as_source_list(sources)
-    if not isinstance(sources, (list, tuple, set)):
-        return None
-    paths: List[Path] = []
-    for src in sources:
-        if isinstance(src, FileResource):
-            paths.append(src.file)
-            continue
-        if isinstance(src, Mapping):
-            src = src.get("file") or src.get("path")
-        if not isinstance(src, (str, os.PathLike)):
-            return None
-        if isinstance(src, str) and _is_source_pattern(src):
-            # A pattern that matches nothing yet is a reason to run the generator.
-            for match in _globbed_source_files(src, root):
-                path = Path(match)
-                paths.append(path if path.is_absolute() else root / path)
-        else:
-            expanded = _expand_design_path(src, root)
-            paths.append(expanded if expanded.is_absolute() else root / expanded)
-    return paths
-
-
-def _describe_generator(generator: Any) -> str:
-    """Return the text that names a generator in an error, whichever input form it has."""
-    if isinstance(generator, Generator):
-        return generator.command_text()
-    if isinstance(generator, (list, tuple)):
-        return " ".join(str(part) for part in generator)
-    return str(generator)
-
-
 class FileResource:
     """A file of the design. It is immutable: no attribute changes after the constructor."""
 
     file: Path
     _specified_path: Path
     _checked: bool
+    #: The entries of a design file that named this file, each as written (a name or a pattern
+    #: such as `src/*.v`) with the directory it resolves against. A file that two entries name is
+    #: one source, and it keeps both. A generated source belongs to the output of a producer, so
+    #: it has none. The entries are private: they are no part of the equality, the hash, the JSON
+    #: value or any identity of a source, and `Design.source_entries` is the only reader.
+    _entries: tuple[tuple[str, Path], ...]
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise AttributeError(f"a {type(self).__name__} is read-only: cannot set `{name}`")
@@ -491,6 +462,8 @@ class FileResource:
         path: Union[str, os.PathLike, Dict[str, str]],
         _root_path: Optional[Path] = None,
         resolve=True,
+        *,
+        _entry: str | None = None,
     ) -> None:
         """Create a resource for a file of the design.
 
@@ -533,6 +506,8 @@ class FileResource:
         attributes["file"] = path.resolve() if resolve else path.absolute()
         #: True for a file that must exist (`file`), false for one that need not exist yet (`path`).
         attributes["_checked"] = bool(resolve)
+        # The entry that named the file: the pattern that matched it, else the path as written.
+        attributes["_entries"] = ((_entry if _entry is not None else str(specified_path), root),)
 
     @property
     def path(self) -> Path:
@@ -984,16 +959,44 @@ def root_relative_text(root: Path, path: Path) -> str:
 
 
 class Source(FileResource):
-    """A source file of a design. It is immutable."""
+    """A source file of a design. It is immutable.
+
+    A source is either written (a file of the design) or generated. A generated source belongs to
+    the output of a producer: the design's generator, or a converter flow. Its `output_name` is its
+    name in that output, relative to the output. It is the same for both producers.
+
+    A generated source is in one of two states:
+
+    - A declaration (`Source.declaration`) is what a design file lists for a generator. It is a
+      name or a pattern (`gen/*.v`) in the output of the generator, and the generator has not run
+      yet, or the design is not run. It names no file: `file` is None, and the source has no
+      content.
+    - A located source names a real file in the output: `file` is its absolute path, and
+      `output_name` its name in the output.
+    """
 
     type: SourceType
     _stated: dict[str, Any]
-    #: The place of a source that a converter flow generated, in the output of that flow. Only
-    #: the design a converter derives sets it (`xeda.flow.derived`). The identity of the design
-    #: counts the source by this name, never by its path (`Design._source_fingerprint`),
-    #: because the path into a run directory depends on where the run root is. It is no part
-    #: of the table of a source, and a design that is loaded from a file never has it.
-    generated_name: str | None
+    #: Whether the source belongs to the output of a producer (the generator of the design, or a
+    #: converter flow) and is no file that the design's author wrote.
+    generated: bool
+    #: The name (or, for a declaration, the pattern) of a generated source in the output of its
+    #: producer; None for a written source. The identity of the design counts a generated source
+    #: by this name, never by its path (`Design._source_fingerprint`), because the path into a
+    #: storage or a run directory depends on where the run root is. It is no part of the table of
+    #: a source in a design file.
+    output_name: str | None
+    #: The generator that writes a generated source, when it is not the generator of the design
+    #: that lists the source: the root of the dependency whose generator it is. A design that
+    #: merges a dependency lists the dependency's generated sources with the owner set, and the
+    #: execution copy names their files in the storage of that owner. None: the design's own.
+    owner: str | None
+    #: The index of the dependency (`DependencyRecord`) whose root holds a written source, and its
+    #: path relative to that root. Both are None for any other source. The identity of a run counts
+    #: such a source by these two, since the place of a Git checkout in the run root holds the
+    #: commit.
+    dependency: int | None
+    dependency_place: str | None
 
     def __init__(
         self,
@@ -1001,10 +1004,14 @@ class Source(FileResource):
         typ: Union[str, SourceType, None] = None,
         _root_path: Optional[Path] = None,
         *,
-        generated_name: str | None = None,
+        generated: bool = False,
+        output_name: str | None = None,
+        owner: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Build a design source while retaining its stated type."""
+        if generated != (output_name is not None):
+            raise ValueError("a generated source has an `output_name`, and no other source has")
         if isinstance(path, dict):
             problems = source_table_problems(path)
             if problems:
@@ -1030,15 +1037,107 @@ class Source(FileResource):
         # (`{file: legacy.v, type: SystemVerilog}`) would be lost if the dump left it out, and it
         # is part of the design's identity.
         attributes["_stated"] = {"type": str(self.type)} if typ is not None else {}
-        attributes["generated_name"] = generated_name
+        attributes["generated"] = generated
+        attributes["output_name"] = output_name
+        attributes["owner"] = owner
+        attributes["dependency"] = None
+        attributes["dependency_place"] = None
+        if generated:
+            attributes["_entries"] = ()
+
+    @classmethod
+    def declaration(
+        cls, name: str, typ: SourceType, *, stated: bool = False, owner: str | None = None
+    ) -> Source:
+        """Return the declaration of a generated source: a `name` or pattern in the output of the
+        design's generator.
+
+        `typ` is its type. `stated` says that the design gave the type, which a dump of the design
+        writes back; a type that the suffix implies is inferred again on reload."""
+        source = object.__new__(cls)
+        attributes = vars(source)
+        attributes["file"] = None
+        attributes["_specified_path"] = Path(name)
+        attributes["_checked"] = False
+        attributes["_entries"] = ()
+        attributes["type"] = typ
+        attributes["_stated"] = {"type": str(typ)} if stated else {}
+        attributes["generated"] = True
+        attributes["output_name"] = name
+        attributes["owner"] = owner
+        attributes["dependency"] = None
+        attributes["dependency_place"] = None
+        return source
+
+    def with_owner(self, owner: str | None) -> Source:
+        """Return this declaration with another owner (see `owner`)."""
+        assert self.file is None, "only a declaration changes owner"
+        return Source.declaration(
+            str(self.output_name), self.type, stated=bool(self._stated), owner=owner
+        )
+
+    def in_dependency(self, index: int, place: str) -> Source:
+        """Return this written source as a file of the Git dependency `index`, at `place` in its
+        checkout (see `dependency`)."""
+        assert not self.generated, "only a written source is a file of a checkout"
+        marked = object.__new__(type(self))
+        vars(marked).update(vars(self), dependency=index, dependency_place=place)
+        return marked
 
     @property
-    def generated(self) -> bool:
-        """Whether a converter flow generated the source (`generated_name`)."""
-        return self.generated_name is not None
+    def located(self) -> bool:
+        """Whether the source names a file. A declaration of a generated source does not."""
+        return self.file is not None
+
+    @property
+    def path(self) -> Path:
+        """The absolute file of a located source; the name or pattern of a declaration."""
+        if self.file is None:
+            assert self.output_name is not None
+            return Path(self.output_name)
+        return self.file
+
+    @property
+    def content_hash(self) -> str:
+        if self.file is None:
+            raise FileNotFoundError(
+                f"the generated source {self.output_name} names no file yet: the generator has "
+                "not run, so the design that uses it cannot be identified by content"
+            )
+        return super().content_hash
+
+    def __eq__(self, other: Any) -> bool:
+        # Added attributes do not change semantic equality. A declaration is its name and type.
+        if not isinstance(other, FileResource):
+            return False
+        if self.file is None or getattr(other, "file", None) is None:
+            return (
+                isinstance(other, Source)
+                and self.file is None
+                and other.file is None
+                and self.output_name == other.output_name
+                and self.owner == other.owner
+                and self.type is other.type
+            )
+        return super().__eq__(other)
+
+    def __hash__(self) -> int:
+        # Added attributes do not change semantic identity.
+        if self.file is None:
+            return hash(("declaration", self.output_name, self.owner))
+        return super().__hash__()
+
+    def __str__(self) -> str:
+        return str(self.output_name) if self.file is None else super().__str__()
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
-        """Serialize a source with only the metadata explicitly supplied."""
+        """Serialize a source with only the metadata explicitly supplied.
+
+        A declaration is written as its name, or as a table with its `path` and its stated type."""
+        if self.file is None:
+            if not self._stated:
+                return str(self.output_name)
+            return {"path": str(self.output_name), **self._stated}
         value = super().as_json_value()
         if not self._stated:
             return value
@@ -1046,15 +1145,9 @@ class Source(FileResource):
             value = {"file": value}
         return {**value, **self._stated}
 
-    def __eq__(self, other: Any) -> bool:  # pylint: disable=useless-super-delegation
-        # Added attributes do not change semantic equality.
-        return super().__eq__(other)
-
-    def __hash__(self) -> int:  # pylint: disable=useless-super-delegation
-        # Added attributes do not change semantic identity.
-        return super().__hash__()
-
     def __repr__(self) -> str:
+        if self.file is None:
+            return f"generated:{self.output_name} type:{self.type}"
         return f"file:{self.file} type:{self.type}"
 
     @classmethod
@@ -1150,18 +1243,256 @@ def _parameters_form(value: Any) -> Any:
     return _parameters_as_mapping(value) if isinstance(value, list) else None
 
 
-def _already_listed(sources: Iterable[Source], source: Source) -> bool:
-    """Whether `sources` lists the file of `source`."""
-    return any(listed.file.absolute() == source.file.absolute() for listed in sources)
+def already_listed(sources: Iterable[Source], source: Source) -> bool:
+    """Whether `sources` lists the file of `source` (or, for a declaration, the same declaration)."""
+    if source.file is None:
+        return any(listed == source for listed in sources)
+    return any(
+        listed.file is not None and listed.file.absolute() == source.file.absolute()
+        for listed in sources
+    )
+
+
+def _list_source(sources: list[Source], source: Source) -> None:
+    """Append `source` to `sources`, unless its file is listed already. The listed source then
+    keeps the entries of `source` as well, in a copy of its own: the listed source may belong to
+    another design (a dependency), and a source never changes."""
+    for index, listed in enumerate(sources):
+        if already_listed([listed], source):
+            extra = tuple(entry for entry in source._entries if entry not in listed._entries)
+            if extra:
+                merged = shallow_copy(listed)
+                vars(merged)["_entries"] = (*listed._entries, *extra)
+                sources[index] = merged
+            return
+    sources.append(source)
 
 
 def _distinct_sources(sources: Iterable[Source]) -> list[Source]:
-    """Return `sources` in order, with a file that is listed twice kept once, at its first place."""
+    """Return `sources` in order, with a file that is listed twice kept once, at its first place.
+    The source that is kept names every entry that listed the file."""
     kept: list[Source] = []
     for source in sources:
-        if not _already_listed(kept, source):
-            kept.append(source)
+        _list_source(kept, source)
     return kept
+
+
+# ---------------------------------------------------------------- who writes a source entry
+
+
+def _pattern_part(pattern: str, text: str) -> bool:
+    """Whether the name part `text` fits the name part `pattern`, where `*` is the only pattern
+    character and it never crosses a `/` (a part has none)."""
+    return (
+        re.fullmatch(".*".join(re.escape(piece) for piece in pattern.split("*")), text) is not None
+    )
+
+
+def glob_name_matches(pattern: str, name: str) -> bool:
+    """Whether the name `name` is one that the pattern part `pattern` names, as a source glob
+    decides it: a name that starts with a dot matches only a pattern part that starts with one."""
+    if name.startswith(".") and not pattern.startswith("."):
+        return False
+    return fnmatchcase(name, pattern)
+
+
+def source_entry_pattern(entry: str, root: Path) -> Path:
+    """Return the pattern that the source `entry` stands for: absolute and normalized, with the
+    variables expanded and escaped as the source globbing does (`_globbed_source_files`). A
+    relative entry lies below `root`. It reads no file."""
+    written = re.sub(r"[?\[]", r"[\g<0>]", entry)
+    expanded = _expand_design_path(written, root, escape=glob_escape)
+    return Path(os.path.normpath(expanded if expanded.is_absolute() else root / expanded))
+
+
+def pattern_reads(pattern: Path, wildcard: bool, candidate: Path) -> bool:
+    """Return whether the pattern of an entry (`source_entry_pattern`) reads the absolute path
+    `candidate`. `wildcard` says that the entry has a `*`.
+
+    The match is made part by part: a pattern and the path must have the same number of parts, and
+    `*` never crosses a `/`. An entry without a `*` also matches every path below it, which is how
+    a directory entry reads."""
+    parts, names = pattern.parts, Path(os.path.normpath(candidate)).parts
+    if len(names) < len(parts) or (len(names) > len(parts) and wildcard):
+        return False
+    return all(glob_name_matches(part, name) for part, name in zip(parts, names))
+
+
+def source_entry_matches(entry: str, root: Path, candidate: Path) -> bool:
+    """Return whether a design that lists the source `entry` would read the file `candidate`.
+
+    The entry is a name, a pattern in which `*` is the only pattern character, or a directory
+    (which stands for every file under it). It expands variables and escapes as the source
+    globbing does, and a relative entry lies below `root`. `candidate` is absolute. The match
+    is made as `pattern_reads` makes it. The function reads no file system, so it judges a
+    destination that does not exist yet, and the caller resolves the links in `root` and
+    `candidate` (`deliver.ReadInputs.source_entry_reading` does)."""
+    return pattern_reads(source_entry_pattern(entry, root), "*" in entry, candidate)
+
+
+class SourceEntry(NamedTuple):
+    """An entry of a design file that names source files, with where it was written.
+
+    `part` is the table that holds it (`rtl.sources`, `tb.sources` or `rtl.generator.sources`),
+    `text` the entry as written, and `root` the directory that it resolves against."""
+
+    part: str
+    text: str
+    root: Path
+
+    def matches(self, candidate: Path) -> bool:
+        """Whether the design reads `candidate` through this entry (`source_entry_matches`)."""
+        return source_entry_matches(self.text, self.root, candidate)
+
+
+def _entry_parts(entry: str, root: Path | None) -> tuple[str, ...]:
+    """Return the parts of a source entry, for comparing it with another one. It reads no file.
+
+    A variable that names the design root expands. An absolute entry below the root is relative
+    to it, so `$DESIGN_ROOT/gen/top.v` and `gen/top.v` are one entry."""
+    text = os.path.normpath(entry)
+    if root is not None:
+        text = os.path.normpath(str(_expand_design_path(entry, root)))
+        if os.path.isabs(text) and Path(text).is_relative_to(root):
+            text = os.path.relpath(text, root)
+    return Path(text).parts
+
+
+def _relation(entry: tuple[str, ...], owner: tuple[str, ...]) -> str:
+    """Return how the files of a source `entry` (a name, or a pattern) lie to the files of an
+    `owner` (a name, a pattern, or a directory, which stands for every file below it).
+
+    The answer is `within` (every file of the entry is the owner's), `apart` (no file is), or
+    `overlap` (some are). Both are texts: no file is read."""
+    if len(entry) < len(owner):
+        return "apart"
+    for mine, theirs in zip(entry, owner):
+        if not (mine == theirs or _pattern_part(mine, theirs) or _pattern_part(theirs, mine)):
+            return "apart"
+    if all(
+        mine == theirs or ("*" not in mine and _pattern_part(theirs, mine))
+        for mine, theirs in zip(entry, owner)
+    ):
+        return "within"
+    return "overlap"
+
+
+def _generated_name(entry: str, parts: tuple[str, ...]) -> str:
+    """Return the declaration name of a generated source entry (`parts`: `_entry_parts`).
+
+    The name is relative to the output of the generator, so it is no absolute path and does not
+    leave the output."""
+    if not parts or Path(*parts).is_absolute() or parts[0] == "..":
+        raise ValueError(
+            f"the generated source `{entry}` is a name in the output of the generator, such as "
+            "`gen/top.v`, and not a path to a place outside it. Without `generated_sources` "
+            "every entry of `rtl.sources` is the generator's: list the generated entries in it to "
+            "keep a hand-written one"
+        )
+    return "/".join(parts)
+
+
+def _declared_type(name: str, stated: Any) -> SourceType:
+    """Return the type of the generated source declaration `name`, which the entry may state."""
+    if isinstance(stated, SourceType):
+        return stated
+    if stated is not None:
+        return source_type_named(str(stated))
+    try:
+        return source_type_of(Path(name))
+    except ValueError:
+        raise ValueError(
+            f"the generated source `{name}` has no definite type, because it names files that "
+            f"do not exist yet and its suffix does not say what they are: give its type, in YAML "
+            f"`{{path: {name}, type: Verilog}}` (or the type of its files)"
+        ) from None
+
+
+def generated_declarations(
+    sources: Any, recipe: Mapping[str, Any] | None, root: Path | None
+) -> list[Any]:
+    """Return the entries `sources` of `rtl`, with those that the generator writes declared.
+
+    An entry is the generator's when `recipe.generated_sources` names it or a directory that
+    holds it, or when that list is empty (then every entry is). A generated entry becomes the
+    declaration of a generated source (`Source.declaration`): a name or a pattern in the output of
+    the generator, typed by its extension or by the `type` that it states. It is not expanded and
+    need not exist. Any other entry is left as it is, for the sources validator.
+
+    An entry is wholly the generator's or wholly written. One that would be both (a pattern that
+    matches a generated file and a written one) is a `ValueError`, and so is a
+    `generated_sources` entry that no entry of `sources` relates to. The function reads no file."""
+    if recipe is None or not isinstance(recipe.get("generated_sources", []), (list, tuple)):
+        return as_source_list(sources)
+    owners = [str(item) for item in recipe.get("generated_sources", ()) if isinstance(item, str)]
+    entries = as_source_list(sources)
+    if not isinstance(entries, (list, tuple)):
+        return entries
+    owner_parts = [_entry_parts(owner, root) for owner in owners]
+    related = [False] * len(owners)
+    seen_declaration = False
+    result: list[Any] = []
+    for entry in entries:
+        text: str | None = None
+        stated: Any = None
+        file_table = False  # a `file` must exist, so it is a written source
+        if isinstance(entry, (str, os.PathLike)):
+            text = os.fspath(entry)
+        elif isinstance(entry, Mapping) and not isinstance(entry, FileResource):
+            problems = source_table_problems(entry)
+            if problems:
+                raise ValueError("; ".join(problems))
+            if ("file" in entry) != ("path" in entry):
+                value = entry.get("file", entry.get("path"))
+                if isinstance(value, (str, os.PathLike)):
+                    text, stated = os.fspath(value), entry.get("type")
+                    file_table = "file" in entry
+        if text is None:
+            seen_declaration = seen_declaration or isinstance(entry, Source)
+            result.append(entry)
+            continue
+        parts = _entry_parts(text, root)
+        if file_table and not owners:
+            result.append(entry)
+            continue
+        if not owners:
+            generated = True
+        else:
+            relations = [_relation(parts, owner) for owner in owner_parts]
+            for index, relation in enumerate(relations):
+                related[index] = related[index] or relation != "apart"
+            if "within" in relations:
+                generated = True
+            elif "overlap" in relations:
+                owner = owners[relations.index("overlap")]
+                raise ValueError(
+                    f"`{text}` is partly generated: `generated_sources` lists `{owner}`, which "
+                    "holds some of its files but not all of them. List the generated files and "
+                    "the written files in separate entries"
+                )
+            else:
+                generated = False
+        if not generated:
+            result.append(entry)
+            continue
+        if file_table:
+            raise ValueError(
+                f"`{text}` is a `file`, which must exist when the design loads, and "
+                "`generated_sources` makes it the generator's: write it as `path` if the "
+                "generator writes it, or take it out of `generated_sources` if you wrote it"
+            )
+        name = _generated_name(text, parts)
+        declared = Source.declaration(name, _declared_type(name, stated), stated=stated is not None)
+        if declared not in result:
+            result.append(declared)
+    if not seen_declaration:
+        outside = [owner for owner, hit in zip(owners, related) if not hit]
+        if outside:
+            raise ValueError(
+                "`generated_sources` lists entries that are not among `rtl.sources`: "
+                + ", ".join(outside)
+            )
+    return result
 
 
 #: What `sources` accepts, shown by `xeda design-schema`.
@@ -1223,9 +1554,6 @@ class DesignPart(XedaBaseModel):
         value = as_source_list(value)
         sources: List[Source] = []
 
-        def source_already_exists(src: Source) -> bool:
-            return _already_listed(sources, src)
-
         if not isinstance(value, (list, tuple, set)):
             raise ValueError(
                 f"'sources' must be a list of source files, got {type(value).__name__}: {value!r}"
@@ -1235,8 +1563,9 @@ class DesignPart(XedaBaseModel):
                 src_type = None
                 if _is_source_pattern(src):
                     glob_sources = _expand_source_glob(src, design_relative_root())
-                    srcs = [ds(s, src_type) for s in glob_sources]
-                    sources.extend(s for s in srcs if not source_already_exists(s))
+                    srcs = [Source(s, typ=src_type, _entry=src) for s in glob_sources]
+                    for matched in srcs:
+                        _list_source(sources, matched)
                     continue  # skip the append at the bottom
                 src = src_with_type(src, src_type)
             if not isinstance(src, Source):
@@ -1252,8 +1581,7 @@ class DesignPart(XedaBaseModel):
                         f"source file does not exist: {e.filename} (give a source that a "
                         "generator writes later as a table, in YAML `{path: <file>}`)"
                     ) from e
-            if not source_already_exists(src):
-                sources.append(src)
+            _list_source(sources, src)
         return sources
 
 
@@ -1279,6 +1607,28 @@ class Clock(XedaBaseModel):
 #: The shell that runs the text of a `shell` generator. It is the shell that runs a command line
 #: on a POSIX system (`subprocess` with `shell=True` runs it too).
 POSIX_SHELL = "/bin/sh"
+
+#: The variables that Xeda sets in the environment of every generator.
+GENERATOR_VARIABLES = frozenset({"DESIGN_ROOT", "XEDA_GENERATED"})
+
+
+def generator_cwd(value: str, design_root: Path | None) -> Path:
+    """Expand a generator's `cwd` and return its normalized path relative to the design root.
+
+    Keep links as written: this is the same lexical containment rule as the load check. Without
+    a design root, only a relative path that stays below it can be checked."""
+    expanded = _expand_design_path(value, design_root) if design_root is not None else Path(value)
+    normalized = Path(os.path.normpath(expanded))
+    if normalized.is_absolute() and design_root is not None:
+        root = Path(os.path.normpath(design_root))
+        if normalized.is_relative_to(root):
+            normalized = normalized.relative_to(root)
+    if normalized.is_absolute() or normalized.parts[:1] == ("..",):
+        raise ValueError(
+            f"`cwd` is {value!r}: give a directory below the design root, such as "
+            "`build` (a relative path that stays inside it)"
+        )
+    return normalized
 
 
 class Generator(XedaBaseModel):
@@ -1312,17 +1662,27 @@ class Generator(XedaBaseModel):
     single_item_fields: ClassVar[tuple[str, ...]] = ("sources",)
     always_runs: bool = Field(
         default=False,
-        description="Run this generator on every design load: what it reads cannot be judged "
-        "(it is not files, or they cannot be listed), so Xeda keeps no record of it. A "
-        "generator that declares no `sources` runs on every load anyway.",
+        description="Run this generator on every launch: what it reads cannot be judged (it is "
+        "not files, or they cannot be listed), so Xeda keeps no record that could show its "
+        "output to be current. A generator that declares no `sources` runs on every launch "
+        "anyway.",
     )
     generated_sources: List[str] = Field(
         default_factory=list,
-        description="The sources this generator produces, as a design's `sources` name them, "
-        "when it produces only some of `rtl.sources` (or a directory holding some): what is "
-        "judged against the record of its last generation. Each entry has to be one of "
-        "`rtl.sources` or hold one. Empty, every one of `rtl.sources` is judged, so editing a "
-        "source the generator does not write runs it again.",
+        description="The entries of `rtl.sources` that this generator produces, when it produces "
+        "only some of them. An entry names one of them, or a directory that holds some. Empty, "
+        "every entry of `rtl.sources` is the generator's. An entry of `rtl.sources` is wholly "
+        "the generator's or wholly written by hand: a pattern that would match both is an "
+        "error. A generator's entry is a name (or a pattern) in the output of the generator.",
+    )
+    outputs_to: Optional[Path] = Field(
+        None,
+        description="A directory that receives a copy of the generated sources, each under its "
+        "name in the output of the generator (`gen/top.v` goes to `<outputs_to>/gen/top.v`). "
+        "Give a location: an absolute path, or a path below `$DESIGN_ROOT`, `$DESIGN_DIR` or "
+        "`$PWD`. The copy is made at the end of a launch that passed, as every delivery is "
+        "(`--overwrite-outputs` replaces a changed copy). The flows never read the copy, and it "
+        "is no part of any identity.",
     )
 
     removed_inputs: ClassVar[Dict[str, str]] = {"use": SecondSpelling("`class`")}
@@ -1352,6 +1712,54 @@ class Generator(XedaBaseModel):
                 "`shell` and `args` exclude each other: write the arguments in `shell`"
             )
         return self
+
+    @field_validator("cwd")
+    @classmethod
+    def _cwd_is_below_the_design_root(cls, value):
+        """The working directory of a generator is a directory below the design root of the
+        design that states it, after expanding design-root variables and normalizing `..`."""
+        if value is None:
+            return None
+        root = _loading_root.get()
+        relative = generator_cwd(value, root)
+        # Variables cannot be normalized until the root they stand for is known.
+        return value if root is None else str(relative)
+
+    @field_validator("outputs_to", mode="before")
+    @classmethod
+    def _outputs_to_is_a_location(cls, value):
+        """A location for the copies: absolute once the path variables expand.
+
+        `$DESIGN_ROOT` and `$DESIGN_DIR` expand to the root of the design that is being loaded.
+        `$PWD` stays as written, because loading has no start directory; the launch expands it
+        (`delivery_directory`). Any other variable expands from the environment. A relative
+        value is refused with the form to write instead."""
+        if value is None:
+            return None
+        if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
+            raise ValueError("`outputs_to` is a directory: give a location")
+        text = os.fspath(value)
+        root = _loading_root.get()
+        expanded = _expand_design_path(text, root if root is not None else Path(os.sep))
+        if not expanded.is_absolute() and not re.match(r"\$\{?PWD\b", text):
+            hint = (
+                f"write `$DESIGN_ROOT/{text}` to deliver below the design root, or give another "
+                f"location ({LOCATION_FORMS})"
+            )
+            raise ValueError(f"`outputs_to` is {text!r}, which is not a location: {hint}")
+        return text if root is None else str(expanded)
+
+    @field_validator("env")
+    @classmethod
+    def _env_leaves_the_names_xeda_sets(cls, value):
+        """Xeda sets `DESIGN_ROOT` and `XEDA_GENERATED` for every generator: `env` may not."""
+        if value is not None:
+            clash = sorted(set(value) & GENERATOR_VARIABLES)
+            if clash:
+                raise ValueError(
+                    f"`env` sets {', '.join(clash)}, which Xeda sets for the generator itself"
+                )
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -1433,41 +1841,93 @@ class Generator(XedaBaseModel):
             raise ValueError(f"generator source file does not exist: {', '.join(missing)}")
         return sources
 
-    def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
+    #: Whether the working directory of a generator without `cwd` is the design root. Otherwise
+    #: it is the storage that holds the output of the generator.
+    runs_in_design_root: ClassVar[bool] = False
+
+    def delivery_directory(self, design_root: Path, start_directory: Path) -> Path | None:
+        """Return the directory that receives the copies of the generated sources (`outputs_to`)
+        with every path variable expanded, or None when the recipe names none.
+
+        `start_directory` is the directory that `$PWD` stands for."""
+        if self.outputs_to is None:
+            return None
+        return expand_env_vars(
+            str(self.outputs_to),
+            path_variables({"design_root": design_root, "runner_cwd": start_directory}),
+        )
+
+    def lookup_directory(self, design_root: Path) -> Path:
+        """Return the directory that a relative executable and a relative `PATH` entry resolve
+        against: `cwd` below the design root, else the design root. `cwd` counts as the load
+        check reads it, normalized (`build/../work` is `work`), so no other directory on its
+        way needs to exist.
+
+        It does not depend on the storage, so the identity of a generation does not either."""
+        return (
+            design_root if self.cwd is None else design_root / generator_cwd(self.cwd, design_root)
+        )
+
+    def working_directory(self, design_root: Path, storage: Path) -> Path:
+        """Return the directory that the generator runs in.
+
+        That is `cwd` below the design root, else the storage that holds its output. A generator
+        that needs its project (Chisel) runs in the design root unless `cwd` says otherwise."""
+        if self.cwd is not None:
+            return self.lookup_directory(design_root)
+        return design_root if self.runs_in_design_root else storage
+
+    def _words(
+        self, words: Sequence[str], design_root: Path | None, storage: Path | None
+    ) -> List[str]:
+        """Return the arguments `words`, with `$DESIGN_ROOT` and `$XEDA_GENERATED` expanded.
+
+        No other variable expands, and with no `storage` nothing does: the identity of a
+        generation takes the words as the recipe writes them."""
+        if design_root is None or storage is None:
+            return list(words)
+        values = {"DESIGN_ROOT": str(design_root), "XEDA_GENERATED": str(storage)}
+        return [expand_vars(word, values) for word in words]
+
+    def execution_command(
+        self, design_root: Path | None = None, storage: Path | None = None
+    ) -> List[str]:
         """Return the argv that this generator runs, for execution and the freshness identity.
 
         A `shell` generator runs as `/bin/sh -c <text>`, the shell that runs a command line on a
-        POSIX system. The freshness identity names that same shell, not an `sh` on `PATH`."""
+        POSIX system. The freshness identity names that same shell, not an `sh` on `PATH`. The
+        arguments expand `$DESIGN_ROOT` and `$XEDA_GENERATED` when `design_root` and `storage` are
+        given (the shell of a `shell` generator expands them from its environment)."""
         if self.shell:
             return [POSIX_SHELL, "-c", self.shell]
         if self.command:
-            return self.command.split()
+            first, *rest = self.command.split()
+            return [first, *self._words(rest, design_root, storage)]
         elif not self.executable:
             raise ValueError("executable is not set")
         else:
-            return [self.executable, *self.args]
-
-    def working_directory(self, design_root: Optional[Path] = None) -> Path:
-        """Return the absolute directory that the generator runs in.
-
-        A relative `cwd` is relative to the design root, which is `design_root`, else the root of
-        the design that is being loaded (`design_relative_root`)."""
-        root = Path(design_root or design_relative_root()).resolve()
-        return root if self.cwd is None else root / self.cwd
+            return [self.executable, *self._words(self.args, design_root, storage)]
 
     def execution_executable_path(
-        self, design_root: Optional[Path] = None, command: Optional[Sequence[str]] = None
+        self,
+        design_root: Path,
+        command: Optional[Sequence[str]] = None,
+        environ: Optional[Mapping[str, str]] = None,
     ) -> Path:
-        """Resolve the direct executable as the child process will, without running it."""
+        """Resolve the direct executable as the child process will, without running it.
+
+        A relative executable, and a relative entry of `PATH`, resolve against the directory
+        `lookup_directory` names. `PATH` is that of the recipe's `env` when it has one, else the
+        `PATH` of `environ`, the environment that the generator inherits."""
         selected_command = (
             list(command) if command is not None else self.execution_command(design_root)
         )
         if not selected_command:
             raise ValueError("generator command is empty")
         executable = selected_command[0]
-        cwd = self.working_directory(design_root).resolve()
+        base = self.lookup_directory(design_root).resolve()
         env = self.env
-        path = env.get("PATH") if env is not None else os.environ.get("PATH")
+        path = env.get("PATH") if env is not None else (environ or {}).get("PATH")
         if path is None:
             path = os.defpath
         if (
@@ -1477,35 +1937,58 @@ class Generator(XedaBaseModel):
         ):
             candidate = Path(executable)
             if not candidate.is_absolute():
-                candidate = cwd / candidate
+                candidate = base / candidate
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 # Preserve a selected symlink alias in argv[0]. Identity reads still follow
                 # the link and hash the target's contents.
                 return candidate
         else:
             search_path = os.pathsep.join(
-                str((cwd / entry).resolve()) if not Path(entry).is_absolute() else entry
+                str((base / entry).resolve()) if not Path(entry).is_absolute() else entry
                 for entry in path.split(os.pathsep)
             )
             found = shutil.which(executable, path=search_path)
             if found:
                 return Path(found).absolute()
         raise ValueError(
-            f"cannot identify generator executable `{executable}` from cwd `{cwd}` and PATH"
+            f"cannot identify generator executable `{executable}` from `{base}` and PATH"
         )
 
-    def run(self):
-        self.run_cmd(self.execution_command())
+    def process_environment(
+        self, design_root: Path, storage: Path, environ: Mapping[str, str]
+    ) -> Dict[str, str]:
+        """Return the environment of the generator process.
 
-    def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
+        That is `env` when the recipe has one (the generator inherits nothing then), else
+        `environ`. Xeda sets `DESIGN_ROOT` and `XEDA_GENERATED` in both cases."""
+        base = dict(self.env) if self.env is not None else dict(environ)
+        base["DESIGN_ROOT"] = str(design_root)
+        base["XEDA_GENERATED"] = str(storage)
+        return base
+
+    def run(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
+        """Run the generator in its working directory, with its environment."""
+        command = self.execution_command(design_root, storage)
+        self.run_cmd(command, design_root=design_root, storage=storage, environ=environ)
+
+    def run_cmd(
+        self,
+        cmd,
+        *,
+        design_root: Path,
+        storage: Path,
+        environ: Mapping[str, str],
+        check=None,
+        stdout=None,
+        stderr=None,
+    ):
         cmd = list(cmd)
-        root = design_relative_root()
         executable = None
         if cmd:
             # Resolve exactly the executable used by freshness identity. This also makes child
             # cwd and PATH selection consistent on Windows, where Popen ignores both for lookup.
             # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
-            executable = str(self.execution_executable_path(root, cmd))
+            executable = str(self.execution_executable_path(design_root, cmd, environ))
         log.info("Running command: '%s'", " ".join(cmd))
         # The output of the generator goes where tool output goes (`run_child`): it does not
         # corrupt a `--json` document and does not reach the standard streams of a library caller.
@@ -1513,12 +1996,12 @@ class Generator(XedaBaseModel):
         return run_child(
             cmd,
             source=cmd[0] if cmd else "generator",
-            cwd=self.working_directory(root),
+            cwd=self.working_directory(design_root, storage),
             executable=executable,
             check=self.check if check is None else check,
             stdout=stdout,
             stderr=stderr,
-            env=self.env,
+            env=self.process_environment(design_root, storage, environ),
         )
 
     @property
@@ -1552,6 +2035,8 @@ class Generator(XedaBaseModel):
 
 class ChiselGenerator(Generator):
     takes_shell: ClassVar[bool] = False
+    #: mill and bloop find their build files in their working directory.
+    runs_in_design_root: ClassVar[bool] = True
 
     main: Optional[str] = None
     project: Optional[str] = None
@@ -1563,23 +2048,26 @@ class ChiselGenerator(Generator):
             return self.name
         return super().command_text(design_root)
 
-    def run(self):
+    def run(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
         if self.build_system == "mill":
-            return self.run_mill()
+            self.run_mill(design_root, storage, environ)
         elif self.build_system == "bloop":
-            return self.run_bloop()
+            self.run_bloop(design_root, storage, environ)
         else:
             raise Exception(f"Unsupported build system: {self.build_system}")
 
-    def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
-        cwd = self.working_directory(design_root)
+    def execution_command(
+        self, design_root: Path | None = None, storage: Path | None = None
+    ) -> List[str]:
+        args = self._words(self.args, design_root, storage)
         if self.build_system == "mill":
-            mill_exec = "./mill" if (cwd / "mill").exists() else "mill"
+            lookup = None if design_root is None else self.lookup_directory(design_root)
+            mill_exec = "./mill" if lookup is not None and (lookup / "mill").exists() else "mill"
             cmd = [mill_exec]
             if not self.project:
                 raise ValueError("`project` must be specified for Chisel generator")
             cmd += [f"{self.project}.runMain", self.main] if self.main else [f"{self.project}.run"]
-            return [*cmd, *self.args]
+            return [*cmd, *args]
         if self.build_system == "bloop":
             if not self.project:
                 # `run_bloop` discovers the project by invoking `bloop projects`; the executable
@@ -1589,17 +2077,28 @@ class ChiselGenerator(Generator):
             cmd = ["bloop", "run", self.project]
             if self.main:
                 cmd += ["--main", self.main]
-            if self.args:
-                cmd += ["--", *self.args]
+            if args:
+                cmd += ["--", *args]
             return cmd
         raise ValueError(f"Unsupported build system: {self.build_system}")
 
-    def run_mill(self):
-        return self.run_cmd(self.execution_command())
+    def run_mill(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
+        self.run_cmd(
+            self.execution_command(design_root, storage),
+            design_root=design_root,
+            storage=storage,
+            environ=environ,
+        )
 
-    def run_bloop(self):
+    def run_bloop(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
         if self.project is None:
-            p = self.run_cmd(["bloop", "projects"], stdout=subprocess.PIPE)
+            p = self.run_cmd(
+                ["bloop", "projects"],
+                design_root=design_root,
+                storage=storage,
+                environ=environ,
+                stdout=subprocess.PIPE,
+            )
             projects_str = p.stdout.decode()
             projects = projects_str.split()
             if projects:
@@ -1610,7 +2109,12 @@ class ChiselGenerator(Generator):
                 raise ValueError("No projects found!")
         if not self.project:
             raise ValueError("`project` must be specified for Chisel generator")
-        return self.run_cmd(self.execution_command())
+        self.run_cmd(
+            self.execution_command(design_root, storage),
+            design_root=design_root,
+            storage=storage,
+            environ=environ,
+        )
 
 
 #: The classes of generator that a recipe names with `class`. Without `class`, a recipe is a
@@ -1806,6 +2310,32 @@ class Rtl(DesignPart):
                     )
                 values["clocks"] = cls.clock_tables(spelling, value)
         return values
+
+    @model_validator(mode="before")
+    @classmethod
+    def _declare_generated_sources(cls, values):
+        """Turn the entries of `sources` that the generator writes into declarations.
+
+        The generator has not run, so such an entry names no file (`generated_declarations`). It is
+        done here, where `sources` and `generator` are both in hand, and not in the validator of
+        `sources`, which sees one field. A source that is a `Source` already stays as it is, so
+        validating a design again changes nothing."""
+        if (
+            not isinstance(values, Mapping)
+            or not values.get("generator")
+            or "sources" not in values
+        ):
+            return values
+        try:
+            recipe = _generator_recipe(values["generator"])
+        except (ValueError, TypeError):
+            return values  # the field of the generator reports it
+        if recipe is None:
+            return values
+        return {
+            **values,
+            "sources": generated_declarations(values["sources"], recipe, _loading_root.get()),
+        }
 
     @field_validator("clocks", mode="before")
     @classmethod
@@ -2103,154 +2633,12 @@ class TbDep(XedaBaseModel):
     pos: int = 0
 
 
-#: Where a Git dependency without a `clone_dir` is cloned, under the run root.
-DEPENDENCY_CLONES = ".dependencies"
-
-
-@dataclass(frozen=True)
-class LoadContext:
-    """What a launcher lends to the designs it loads: access to the run root, and what the launch
-    asked for.
-
-    `run_root(True)` creates and marks the run root. `run_root(False)` returns the run root if it
-    is already there, and `None` if not. A load asks for a run root to create only to keep
-    something there, never to look for one. So a load that keeps nothing creates nothing, and a
-    pure plan never asks.
-
-    A load keeps two things in the run root: the directory that a Git dependency without a
-    `clone_dir` is cloned into (`DEPENDENCY_CLONES`) and the record of the last generation of a
-    generator (`generation.CACHE_DIRECTORY`). Both outlive a design that fails after them,
-    because the work they record was done."""
-
-    run_root: Callable[[bool], Optional[Path]]
-    #: `--rebuild-all` (which `--clean` implies). A generator runs whatever its record says.
-    rebuild_all: bool = False
-
-
-#: How a design load reaches the run root. The launcher sets it around the loading of its designs
-#: (`loading_in_run_root`), and it is unset elsewhere.
-load_context: ContextVar[Optional[LoadContext]] = ContextVar("load_context", default=None)
-
-_planning_load: ContextVar[bool] = ContextVar("planning_load", default=False)
-
-
-@contextmanager
-def refusing_load_side_effects() -> Iterator[None]:
-    """Refuse generation and Git fetching while loading a design for a pure plan."""
-    token = _planning_load.set(True)
-    try:
-        yield
-    finally:
-        _planning_load.reset(token)
-
-
-@dataclass
-class DeferredLoad:
-    """What a design load left undone (see `deferring_load_side_effects`).
-
-    It lists the generators that the load did not run and the Git dependencies that it did not
-    fetch, each described, and says whether the loaded design still equals the design that a full
-    load gives (`complete`)."""
-
-    deferred: List[str] = field(default_factory=list)
-    #: False once the load left out something that only the deferred work can tell: the sources,
-    #: top module and testbench of a Git dependency, or a source pattern whose files have no
-    #: type before the generator writes them.
-    complete: bool = True
-
-    def defer(self, what: str, complete: bool = True) -> None:
-        self.deferred.append(what)
-        self.complete = self.complete and complete
-
-    def failure_may_depend_on_deferred_output(self, error: BaseException) -> bool:
-        """Return whether a load that failed with `error` may succeed once the deferred work ran.
-
-        That holds when something was deferred and every error is a file that the design names
-        and that does not exist (`MissingFile`), which the deferred work may write. Any other
-        error (a malformed source, a wrong value) is also an error of the full load, and the full
-        load would run the generator first."""
-        return (
-            bool(self.deferred)
-            and isinstance(error, DesignValidationError)
-            and error.only_missing_files
-        )
-
-
-_deferred_load: ContextVar[Optional[DeferredLoad]] = ContextVar("deferred_load", default=None)
-
-
-@contextmanager
-def deferring_load_side_effects() -> Iterator[DeferredLoad]:
-    """Load designs without running a generator or fetching a Git dependency, and report what
-    was left undone.
-
-    A load with nothing to defer is a full load. A load with a deferred generator gives the
-    declared design: the sources that the generator writes are listed as the design declares
-    them, with their types, whether or not they exist yet (as `path` entries). So whatever needs
-    only the design's declarations can be judged before the generator runs. Nothing is run,
-    fetched, created or written. The generator's tree is locked as for any load, except in a
-    plan."""
-    record = DeferredLoad()
-    token = _deferred_load.set(record)
-    try:
-        yield record
-    finally:
-        _deferred_load.reset(token)
-
-
-def _declared_sources(sources: Any, record: DeferredLoad) -> Any:
-    """Return `rtl.sources` as the design declares them, for a load that defers their generator.
-
-    Every file is a `path` entry, which need not exist yet, with its type. A pattern stands for
-    the files that exist once the generator has run, so it is left out and the load is
-    incomplete."""
-    sources = as_source_list(sources)
-    if not isinstance(sources, (list, tuple)):
-        return sources  # the sources validator reports it
-    declared: List[Any] = []
-    for src in sources:
-        if isinstance(src, (str, os.PathLike)):
-            if isinstance(src, str) and _is_source_pattern(src):
-                # The files it stands for (their number, and a duplicate of a file listed
-                # beside it) are known once the generator has written them.
-                record.complete = False
-                continue
-            declared.append({"path": str(src)})
-        elif isinstance(src, Mapping) and "file" in src and "path" not in src:
-            declared.append({"path": src["file"], **{k: v for k, v in src.items() if k != "file"}})
-        else:
-            declared.append(src)
-    return declared
-
-
-@contextmanager
-def loading_in_run_root(
-    provider: Callable[[bool], Optional[Path]], rebuild_all: bool = False
-) -> Iterator[None]:
-    """Let the designs loaded meanwhile keep what a load keeps in a run root (a Git dependency's
-    clone, a generator's record) in the run root that `provider` names.
-
-    A load asks `provider` only when something is kept there, and only then may the run root be
-    created. With `rebuild_all`, a generator runs whatever its record says, as every flow of the
-    launch does."""
-    token = load_context.set(LoadContext(provider, rebuild_all))
-    try:
-        yield
-    finally:
-        load_context.reset(token)
-
-
 class DesignReference(XedaBaseModel):
     model_config = ConfigDict(frozen=True)
 
     uri: str
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
-    #: The directory where a Git dependency is cloned (`<local_cache>/<host>/<name>`, see
-    #: `clone_name_parts`) when it names no `clone_dir`. When unset, a launcher clones into its
-    #: run root (`loading_in_run_root`). A directory that the user configures here is the user's
-    #: to direct: Xeda clones and pulls there.
-    local_cache: Optional[Path] = None
 
     @field_validator("uri")
     @classmethod
@@ -2306,23 +2694,6 @@ class DesignReference(XedaBaseModel):
             return GitReference(**data)  # type: ignore
         return DesignReference(**data)  # type: ignore
 
-    def fetch_design(self) -> Design:
-        # The path is relative to the root of the design that lists this dependency.
-        design_path = design_relative_root() / self.uri
-        if not design_path.exists():
-            raise MissingFile(f"file {redacted_url(str(design_path))} does not exist!")
-        return Design.from_file(design_path)
-
-
-#: The number of hexadecimal digits of the digest of what is cloned, which end the name of its
-#: directory.
-CLONE_DIGEST_LENGTH = 16
-#: The most characters that a readable part of a clone directory's name keeps. A readable part is
-#: a host, or a repository path with its branch or commit.
-CLONE_NAME_LIMIT = 80
-#: A drive (`C:`) at the start of a path component. On Windows, it replaces the path before it.
-_DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
-
 
 #: The user name and password of a URL's authority (`scheme://user:password@host`), up to its
 #: last `@`.
@@ -2367,107 +2738,8 @@ def _shown_dependencies(data: Mapping[str, Any]) -> Mapping[str, Any]:
     return {**data, "dependencies": [shown(entry) for entry in dependencies]}
 
 
-def _clone_name_text(what: str, text: str, *, drive: bool = True) -> str:
-    """Refuse text that names a place outside the directory it is joined onto: a `.` or `..`
-    component, a drive such as `C:` at the start of a component, a leading `/`, a backslash or
-    a NUL. A path that is absolute, or drive-qualified, replaces the one it is joined onto.
-    `drive=False` leaves out the drive: a host and its port (`h:8443`) are one component."""
-    if not isinstance(text, str):
-        raise ValueError(f"the Git {what} must be a string, not {text!r}")
-    parts = text.split("/")
-    if (
-        text.startswith("/")
-        or "\\" in text
-        or "\0" in text
-        or any(part in (".", "..") or (drive and _DRIVE_PREFIX.match(part)) for part in parts)
-    ):
-        raise ValueError(
-            f"the Git {what} {text!r} has a `.` or `..` component, a drive such as `C:`, a "
-            "leading `/`, a backslash or a NUL: it would name a directory outside the clone cache"
-        )
-    return text
-
-
-def _clone_token(text: str) -> str:
-    """Return `text` as one readable, filename-safe part of a directory name.
-
-    Each run of characters other than ASCII letters, digits, `.` and `-` becomes one `_`.
-    Nothing starts or ends with `.` or `_`, and no more than `CLONE_NAME_LIMIT` characters are
-    kept."""
-    folded = re.sub(r"[^A-Za-z0-9.-]+", "_", text).strip("._")
-    return folded[:CLONE_NAME_LIMIT].rstrip("._")
-
-
-def clone_name_parts(
-    repo_url: str, commit: Optional[str], branch: Optional[str]
-) -> tuple[str, str]:
-    """Return the names of the two directories that a Git reference is cloned into,
-    `<host>/<name>`.
-
-    `<name>` is the repository path and the commit (or else the branch), folded into one
-    readable token, then `_` and a digest of what is cloned: the repository URL, the branch and
-    the commit. Folding cannot keep two paths apart (`a/b` and `a_b` read alike), so the digest
-    does. Each reference gets its own directory, and the same reference always gets the same
-    one. The directory is one level below its host's, so no clone lies inside another.
-
-    `_clone_name_text` refuses a host, path, commit or branch that names a place outside the
-    cache, before it is folded. The path must not be empty. The host and its port (`h:8443`)
-    fold into one token, so a host that reads as a drive is not refused. The user name and the
-    password of a URL (`https://user:password@host/...`) are not part of a name, because a name
-    shows in paths and logs. The digest still covers the whole URL, so URLs that differ only in
-    those are cloned apart.
-    """
-    uri = urlparse(repo_url)
-    if not uri.netloc:
-        raise ValueError(f"invalid URL: {redacted_url(repo_url)}")
-    host = _clone_name_text("host", uri.netloc.rpartition("@")[2], drive=False)
-    path = _clone_name_text("repository path", uri.path.lstrip("/"))
-    if not path:
-        raise ValueError(f"the Git URL {redacted_url(repo_url)!r} names no repository path")
-    if commit:
-        reference = "commit=" + _clone_name_text("commit", commit)
-    elif branch:
-        reference = _clone_name_text("branch", branch)
-    else:
-        reference = ""
-    identity = json.dumps([repo_url, branch or None, commit or None])
-    digest = hashlib.sha256(identity.encode()).hexdigest()[:CLONE_DIGEST_LENGTH]
-    readable = _clone_token(f"{path}_{reference}")
-    name = f"{readable}_{digest}" if readable else digest
-    return _clone_token(host) or "host", name
-
-
-def clone_location(
-    cache: Union[str, Path],
-    repo_url: str,
-    commit: Optional[str],
-    branch: Optional[str],
-    *,
-    owner: Optional[RunDirectory] = None,
-) -> Path:
-    """Return where a Git reference is cloned: `<cache>/<host>/<name>` (`clone_name_parts`).
-
-    The location lies inside `cache`, and a name that would leave it is refused. A cache under a
-    run root is named through its `owner` (the run root as a `RunDirectory`) by
-    `RunDirectory.unlinked`, the one rule that every cache there follows: inside the run root and
-    reached through no symbolic link. A cache that the user named (`local_cache`) is the user's
-    to direct, so only the names are checked against it.
-    """
-    host, name = clone_name_parts(repo_url, commit, branch)
-    location = Path(cache) / host / name
-    root = design_relative_root()
-    base = os.path.abspath(root / cache)
-    inside = os.path.abspath(root / location)
-    try:
-        contained = inside != base and os.path.commonpath([base, inside]) == base
-    except ValueError:  # another drive, as on Windows
-        contained = False
-    if not contained:
-        raise ValueError(
-            f"{redacted_url(repo_url)} would be cloned to {location}, outside the clone cache "
-            f"{cache}"
-        )
-    return owner.unlinked(location) if owner is not None else location
+#: A full Git commit hash: 40 hexadecimal digits, or 64 in a SHA-256 repository.
+_FULL_COMMIT = re.compile(r"(?:[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})")
 
 
 class GitReference(DesignReference):
@@ -2483,20 +2755,23 @@ class GitReference(DesignReference):
     design_file: str
     commit: Optional[str] = None
     branch: Optional[str] = None
-    clone_dir: Optional[Path] = None
 
-    @field_validator("clone_dir", mode="before")
+    #: The keys that name where a clone goes. Xeda keeps every Git dependency in the run root.
+    removed_inputs: ClassVar[Dict[str, str]] = {
+        "clone_dir": "a local dependency that names the design file in a checkout you manage",
+        "local_cache": "a local dependency that names the design file in a checkout you manage",
+    }
+
+    @field_validator("commit")
     @classmethod
-    def validate_clone_dir(cls, value, info):
-        values = info.data if isinstance(info.data, dict) else {}
-        repo_url = values.get("repo_url")
-        if not value and repo_url:
-            local_cache = values.get("local_cache")
-            if local_cache:
-                return clone_location(
-                    local_cache, repo_url, values.get("commit"), values.get("branch")
-                )
-        return value
+    def _a_commit_is_complete(cls, value: Optional[str]) -> Optional[str]:
+        """Accept a full commit hash only: an abbreviated one names different commits over time."""
+        if value is not None and not _FULL_COMMIT.fullmatch(value):
+            raise ValueError(
+                f"the commit {value!r} is not a full commit hash: write the full commit hash "
+                "(40 hexadecimal digits, or 64 for a SHA-256 repository)"
+            )
+        return value.lower() if value is not None else None
 
     @model_validator(mode="before")
     @classmethod
@@ -2511,7 +2786,8 @@ class GitReference(DesignReference):
                 raise ValueError("a git dependency URI must be a string")
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             uri = urlparse(uri_str)
-            if not uri.scheme or not uri.netloc:
+            # A `file` URL has no host: `file:///srv/lib.git`.
+            if not uri.scheme or not (uri.netloc or (uri.scheme == "file" and uri.path)):
                 raise ValueError(f"invalid git URL: {redacted_url(uri_str)}")
             # The design file path is relative to the repository root.
             design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
@@ -2546,15 +2822,6 @@ class GitReference(DesignReference):
         }
         merged = {k: v for k, v in derived.items() if v is not None}
         result = {**derived, **merged, **values}
-        if isinstance(result.get("repo_url"), str) and not result.get("clone_dir"):
-            # Names are checked where they name a directory: a `clone_dir` is used as given,
-            # and then nothing is named from the URL, the branch or the commit. A branch or a
-            # commit that is not text is the field's own error, reported at the field.
-            named = [
-                value if isinstance(value, str) else None
-                for value in (result.get("commit"), result.get("branch"))
-            ]
-            clone_name_parts(result["repo_url"], *named)
         if not result.get("uri"):
             # The mapping form (`{repo_url: ..., design_file: ...}`) that
             # `DesignReference.from_data()` routes here carries no `uri`, but the base class
@@ -2573,67 +2840,71 @@ class GitReference(DesignReference):
             )
         return result
 
-    def fetch_design(self) -> Design:
-        import git
-        from git.repo import Repo
 
-        if _planning_load.get():
-            raise ValueError("Cannot plan a design that needs a Git dependency fetch")
-        clone_dir = self.clone_dir
-        if clone_dir is None:
-            cache = self.local_cache
-            owner = None
-            if cache is None:
-                context = load_context.get()
-                run_root = context.run_root(True) if context is not None else None
-                if run_root is not None:
-                    cache = run_root / DEPENDENCY_CLONES
-                    owner = RunDirectory(run_root, run_root)
-            if cache is None:
-                raise ValueError(
-                    f"{redacted_url(self.repo_url)} needs a directory to be cloned into: give "
-                    "its `clone_dir` (or `local_cache`), or load the design through xeda run / "
-                    "a launcher, which clones into its run root"
-                )
-            clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch, owner=owner)
-        # A relative `clone_dir` or `local_cache` is relative to the design root.
-        clone_dir = design_relative_root() / clone_dir
-        repo = None
-        if clone_dir.exists():
-            try:
-                repo = Repo(clone_dir)
-                if not repo.git_dir:
-                    raise ValueError(f"repo={repo} is missing 'git_dir'")
-                log.info("Updating existing git repository at %s", clone_dir)
-                repo.remotes.origin.fetch()
-                if not self.commit:
-                    repo.git.pull()
-            except git.InvalidGitRepositoryError:
-                log.error("Path %s is not a valid git repository.", clone_dir)
-        if repo is None:
-            log.info(
-                "Cloning git repository url:%s branch:%s commit:%s",
-                redacted_url(self.repo_url),
-                self.branch,
-                self.commit,
-            )
-            repo = Repo.clone_from(
-                self.repo_url,
-                clone_dir,
-                depth=1,
-                branch=self.branch,
-            )
-        if repo is None:
-            raise ValueError("repo is None!")
-        if self.commit:
-            log.info("Checking out commit: %s", self.commit)
-            repo.git.checkout(self.commit)
-        elif self.branch:
-            log.info("Checking out branch: %s", self.branch)
-            repo.git.checkout(self.branch)
+@dataclass(frozen=True)
+class DependencyRecord:
+    """A dependency of a design as planning resolved it, at the index of its entry in
+    `Design.dependencies`.
 
-        design_path = clone_dir / self.design_file
-        return Design.from_file(design_path)
+    A Git dependency has its repository, the reference as written, the commit that the reference
+    named, and where the checkout of that commit is. `repository` has no user name and no
+    password (`redacted_url`). `reference` is the branch or tag as written, and `None` for a
+    pinned commit or the `HEAD` of the repository. `design_file` is the path of the design file in
+    the repository, and `checkout` is the resolved directory of the checkout in the dependency
+    storage. A local dependency has only its `design_file`, as written, and no repository, no
+    commit and no checkout."""
+
+    repository: str | None
+    reference: str | None
+    commit: str | None
+    design_file: str
+    checkout: Path | None
+    #: The position of the entry in the tree of dependencies, as the indexes of the entries from the
+    #: design down, joined by `-` (`0`, `1-0`). It names the entry in the table of commits that
+    #: a remote host fetches (`flow_runner.dependencies.using_pinned_commits`).
+    path: str = ""
+    #: Whether the design gave the commit of a Git dependency itself (`commit`). Otherwise the
+    #: planning resolved a branch, a tag or the `HEAD` to it.
+    given: bool = False
+
+    @property
+    def storage(self) -> Path | None:
+        """The storage that holds the checkout of a Git dependency, or None. A launch leases it."""
+        return None if self.checkout is None else self.checkout.parent
+
+    def as_mapping(self) -> dict[str, str | None]:
+        """The record as a run record holds it (`RunRecord.dependencies`): no checkout."""
+        return {
+            "repository": self.repository,
+            "reference": self.reference,
+            "commit": self.commit,
+            "design_file": self.design_file,
+        }
+
+
+@dataclass(frozen=True)
+class MergedDependency:
+    """A dependency of a design, as `Design.merged_with` takes it: the reference, the design that
+    it names (with the dependencies of that design merged), the index of its entry, and its root
+    (the resolved checkout of a Git dependency, the design root of a local one)."""
+
+    reference: DesignReference
+    design: Design
+    index: int | None = None
+    checkout: Path | None = None
+
+    def placed(self, source: Source) -> Source:
+        """Return `source`, a source of the design of this dependency, as the merged design lists
+        it: a written file in the root of the dependency is counted by its place there."""
+        if (
+            self.index is None
+            or self.checkout is None
+            or source.generated
+            or source.dependency is not None
+            or not source.path.is_relative_to(self.checkout)
+        ):
+            return source
+        return source.in_dependency(self.index, source.path.relative_to(self.checkout).as_posix())
 
 
 DesignType = TypeVar("DesignType", bound="Design")
@@ -2764,8 +3035,6 @@ class _GitReferenceInput(TypedDict):
     uri: NotRequired[str]
     branch: NotRequired[Optional[str]]
     commit: NotRequired[Optional[str]]
-    clone_dir: NotRequired[Optional[Path]]
-    local_cache: NotRequired[Optional[Path]]
     rtl: NotRequired[RtlDep]
     tb: NotRequired[TbDep]
 
@@ -2815,6 +3084,39 @@ class Design(XedaBaseModel):
         "design's identity, and a design file does not write it.",
         json_schema_extra={"hidden_from_schema": True},
     )
+
+    # The designs, dependencies of this one, whose generators the launch runs, dependencies
+    # first. A dependency design is a unit with its own root, recipe and configuration. It is no
+    # part of a dump of the design: a document of a remote run holds its units apart.
+    # (Typed as `Any`, because a model that contains itself has no flat schema.)
+    generation_units: Tuple[Any, ...] = Field(
+        (), exclude=True, json_schema_extra={"hidden_from_schema": True}
+    )
+
+    # The Git dependencies that the sources of this design come from, in the order of their index
+    # (`Source.dependency`): set by planning, when it merges them. It is no part of a dump of the
+    # design.
+    resolved_dependencies: Tuple[Any, ...] = Field(
+        (), exclude=True, json_schema_extra={"hidden_from_schema": True}
+    )
+
+    @field_validator("resolved_dependencies")
+    @classmethod
+    def _resolved_are_records(cls, value):
+        for record in value:
+            if not isinstance(record, DependencyRecord):
+                raise ValueError(
+                    f"a resolved dependency is a DependencyRecord, not {type(record).__name__}"
+                )
+        return value
+
+    @field_validator("generation_units")
+    @classmethod
+    def _units_are_designs(cls, value):
+        for unit in value:
+            if not isinstance(unit, Design):
+                raise ValueError(f"a unit of generation is a Design, not {type(unit).__name__}")
+        return value
 
     #: A design whose `flows` is `null` has none.
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"flows": unspecified}
@@ -3104,124 +3406,9 @@ class Design(XedaBaseModel):
         return folded
 
     @classmethod
-    def process_generation(cls, data: Dict[str, Any]):
-        """Run declared generators and collect their produced sources."""
-        design_root = data.get("design_root")
-        design_root = Path(design_root) if design_root else design_relative_root()
-        design_root = design_root.resolve()
-        rtl = data.get("rtl", {})
-        assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
-        # The recipe stays in `rtl`: the design keeps what it declared.
-        # Every form of a recipe is a table; a malformed one is refused before anything runs.
-        recipe = _generator_recipe(rtl.get("generator"), design_root)
-        generator = generator_model(recipe, design_root)
-        deferring = _deferred_load.get()
-
-        def defer(what: str) -> None:
-            """Leave the generator for the load that follows the declared one."""
-            assert deferring is not None
-            deferring.defer(what)
-            rtl["sources"] = _declared_sources(rtl.get("sources", []), deferring)
-
-        if generator is not None:
-            if _planning_load.get():
-                generator_lease: AbstractContextManager[None] = nullcontext()
-            else:
-                from .flow_runner.run_lock import generator_design_lock
-
-                generator_lease = generator_design_lock(design_root)
-            with generator_lease:
-                # Tell the generator the design root as `$DESIGN_ROOT` names it in the design's
-                # own paths. This replaces whatever the shell exports, which is another
-                # directory's.
-                env = {**os.environ, "DESIGN_ROOT": str(design_root)}
-
-                # The model is new: the run adds the working directory and the environment to
-                # it, and the recipe in `rtl` stays as the design declared it. Judge it before
-                # the defaults below complete it: its identity is the configuration that the
-                # design states, never the environment of this shell.
-                def generated() -> Optional[List[Path]]:
-                    declared = generator.generated_sources or rtl.get("sources", [])
-                    return _source_paths_as_given(declared, design_root)
-
-                planning = _planning_load.get()
-                context = load_context.get()
-                design_name = data.get("name")
-                description = generator.describe(
-                    design_name if isinstance(design_name, str) else None, design_root
-                )
-                with judging_generation(
-                    generator,
-                    design_root,
-                    generated,
-                    description=description,
-                    run_root=context.run_root if context else None,
-                    planning=planning,
-                    read_only=deferring is not None,
-                    rebuild_all=bool(context and context.rebuild_all),
-                ) as generation:
-                    if generation.reason is None:
-                        log.info(
-                            "Not running %s: its generated sources are what its "
-                            "last generation left",
-                            description,
-                        )
-                    else:
-                        if deferring is not None:
-                            return defer(description)
-                        if planning:
-                            raise ValueError("Cannot plan a design that needs a generator")
-                        if generator.cwd is None:
-                            generator.cwd = str(design_root)
-                        if generator.env is None:
-                            generator.env = dict(env)
-                        else:
-                            # An `env` the design states is the generator's whole
-                            # environment, and a `DESIGN_ROOT` in it is the design's own word.
-                            generator.env.setdefault("DESIGN_ROOT", str(design_root))
-                        log.info("Running %s: %s", description, generation.reason)
-                        generator.run()
-                        generation.produced()
-                # Whatever the design declares as a source must exist now. Expand it again and do
-                # not reuse the result of the skip check above, because the generator is what a
-                # pattern was waiting for. A source written as `path` skips the check of the
-                # sources validator. Without this check, a generator that produced nothing would
-                # fail much later, with an errno from inside the design hash.
-                produced = _source_paths_as_given(rtl.get("sources", []), design_root)
-                missing = [str(src) for src in produced or [] if not src.exists()]
-                if missing:
-                    raise ValueError(
-                        f"generator ({_describe_generator(generator)}) did not produce "
-                        f"{'sources' if len(missing) > 1 else 'the source'} the design declares: "
-                        + ", ".join(missing)
-                    )
-                if generator.generated_sources and produced is not None:
-                    # Check here, where the tree is complete: a pattern of `rtl.sources` that the
-                    # generator is still to fill matches nothing before the generator has run.
-                    declared = [os.path.normpath(src) for src in produced]
-                    claimed = _source_paths_as_given(generator.generated_sources, design_root)
-                    # An entry is one of them, or a directory holding one (a build directory).
-                    outside = [
-                        str(src)
-                        for src in claimed or []
-                        if not any(
-                            name == os.path.normpath(src)
-                            or name.startswith(os.path.normpath(src) + os.sep)
-                            for name in declared
-                        )
-                    ]
-                    if outside:
-                        raise ValueError(
-                            f"generator ({_describe_generator(generator)}) declares "
-                            "`generated_sources` that are not among `rtl.sources`: "
-                            + ", ".join(outside)
-                        )
-
-    @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         data = cls.with_default_rtl(data)
         log.debug("Design data: %s", _shown_dependencies(data))
-        cls.process_generation(data)
         return data
 
     def __init__(
@@ -3269,20 +3456,6 @@ class Design(XedaBaseModel):
                 data = self.select_target(data)
             try:
                 data = Design.process_dict(data)
-            except ValidationError as e:  # the recipe of the generator
-                raise DesignValidationError(
-                    [
-                        (
-                            f"rtl -> generator -> {loc}" if loc else "rtl -> generator",
-                            msg,
-                            ctx,
-                            kind,
-                        )
-                        for loc, msg, ctx, kind in _design_errors(e.errors())
-                    ],
-                    data=data,
-                    design_root=design_root,
-                ) from e
             except (ValueError, TypeError, AssertionError) as e:
                 raise invalid(None, str(e)) from e
             try:
@@ -3292,55 +3465,63 @@ class Design(XedaBaseModel):
                     _design_errors(e.errors()), data=data, design_root=design_root
                 ) from e
 
-            if self.dependencies:
-                merged = self._merged_with_dependencies(invalid)
-                try:
-                    self._validate({**data, **merged}, merged=True)
-                except ValidationError as e:
-                    raise DesignValidationError(
-                        _design_errors(e.errors()), data=data, design_root=design_root
-                    ) from e
+    @property
+    def generation_label(self) -> str:
+        """Return the text that tells this design apart as a unit of generation and as the owner
+        of generated sources: its design file, or, for a design built in code, its root and name.
 
-    def _validate(self, data: dict[str, Any], *, merged: bool = False) -> None:
-        """Validate `data` into this design.
+        Two dependency designs in one directory have two labels, and one design file listed twice
+        has one."""
+        if self._source_file is not None:
+            return Path(os.path.normpath(self._source_file)).as_posix()
+        return f"{self.root_path.as_posix()}::{self.name}"
 
-        `merged` says that `data` is the design again, with its dependencies merged in: what the
-        first validation derived (the cocotb settings of a testbench) stays as it was."""
-        self.__pydantic_validator__.validate_python(
-            data, self_instance=self, context={"merged": merged}
-        )
+    def merged_with(
+        self,
+        merged: Sequence[MergedDependency],
+        resolved: Sequence[DependencyRecord] = (),
+    ) -> Design:
+        """Return this design with the designs of `merged`, its dependencies, merged in.
 
-    def _merged_with_dependencies(
-        self, invalid: Callable[..., DesignValidationError]
-    ) -> dict[str, Any]:
-        """Return the fields of the design as they are with the dependencies merged in.
+        The result lists the sources, top module, parameters and clocks of the dependencies, and
+        keeps the dependencies that have generators as units of generation. `resolved` lists the
+        dependencies, at their indexes (`Source.dependency`). The result has no `dependencies`: a
+        record that kept them as well would merge them again when it is read back (a
+        `settings.json`) and duplicate sources. The sources of the result are checked as a design's own are: a file
+        that the design and a dependency both list is listed once.
 
-        The design holds the sources, top module, parameters and clocks of its dependencies
-        itself afterwards, and no dependency. A record that kept the dependencies as well would
-        merge them again on every reload (a `settings.json`, the package of a remote run) and
-        duplicate sources. The result is the input of a second validation, so a file that the
-        design and a dependency both list is compiled once."""
-        deferring = _deferred_load.get()
+        This design is not changed. `DesignValidationError` says what is wrong."""
         sources = list(self.rtl.sources)
         top = self.rtl.top
         parameters = self.rtl.parameters
         clocks = self.rtl.clocks
         tb_sources = self.tb.sources
         tb_top = self.tb.top
-        for dep in self.dependencies:
-            if deferring is not None and isinstance(dep, GitReference):
-                # Its sources, top module and testbench are known only once it is fetched.
-                deferring.defer(f"Git dependency {redacted_url(dep.repo_url)}", complete=False)
-                continue
-            try:
-                dep_design = dep.fetch_design()
-            except ValueError as e:
-                kind = MISSING_FILE_ERROR if isinstance(e, MissingFile) else "value_error"
-                raise invalid("dependencies", str(e), kind) from e
+        units: dict[str, Design] = {unit.generation_label: unit for unit in self.generation_units}
+        for entry in merged:
+            dep_design, dep = entry.design, entry.reference
             log.info("adding dependency sources from %s", dep_design.name)
+            # The generator of a dependency writes the sources it declares, in a storage of its
+            # own. The merged design lists them with the dependency as their owner, and keeps the
+            # dependency (and the dependencies it merged) as a unit of generation, dependencies
+            # first.
+            owner = dep_design.generation_label
+            dep_sources = tuple(
+                (
+                    src.with_owner(owner)
+                    if src.generated and not src.located and src.owner is None
+                    else entry.placed(src)
+                )
+                for src in dep_design.rtl.sources
+            )
+            for unit in (
+                *dep_design.generation_units,
+                *([dep_design] if dep_design.rtl.generator is not None else []),
+            ):
+                units.setdefault(unit.generation_label, unit)
             pos = dep.rtl.pos
             if pos == -1:  # -1 means append 'after' the last element
-                sources.extend(dep_design.rtl.sources)
+                sources.extend(dep_sources)
                 if not top and dep_design.rtl.top:
                     top = dep_design.rtl.top
                 if not parameters and dep_design.rtl.parameters:
@@ -3350,17 +3531,55 @@ class Design(XedaBaseModel):
             else:
                 if pos < 0:
                     pos += 1  # afterwards: pos=-2 means the position 'before' the last element
-                sources[pos:pos] = dep_design.rtl.sources
+                sources[pos:pos] = dep_sources
             sources = _distinct_sources(sources)
             if not tb_sources and dep_design.tb.sources:
-                tb_sources = dep_design.tb.sources
+                tb_sources = tuple(entry.placed(src) for src in dep_design.tb.sources)
             if not tb_top and dep_design.tb.top:
                 tb_top = dep_design.tb.top
+        invalid = DesignValidationError
+        owners: dict[str, str | None] = {}
+        for src in sources:
+            if src.generated and not src.located:
+                name = str(src.output_name)
+                if owners.setdefault(name, src.owner) != src.owner:
+                    raise invalid(
+                        [
+                            (
+                                "dependencies",
+                                f"two generators declare the generated source `{name}`: the "
+                                "design and its dependencies must name the outputs of their "
+                                "generators apart",
+                                "",
+                                "value_error",
+                            )
+                        ],
+                        design_root=self.root_path,
+                        design_name=self.name,
+                    )
         rtl = {name: getattr(self.rtl, name) for name in Rtl.model_fields}
         rtl.update(sources=sources, top=top, parameters=parameters, clocks=clocks)
         tb = {name: getattr(self.tb, name) for name in Testbench.model_fields}
         tb.update(sources=tb_sources, top=tb_top)
-        return {"rtl": rtl, "tb": tb, "dependencies": ()}
+        try:
+            with loading_in_design_root(self.root_path):
+                checked_rtl = Rtl.model_validate(rtl)
+                checked_tb = Testbench.model_validate(tb, context={"merged": True})
+        except ValidationError as e:
+            raise DesignValidationError(
+                _design_errors(e.errors()), design_root=self.root_path, design_name=self.name
+            ) from e
+        result = self.model_copy(
+            update={
+                "rtl": checked_rtl,
+                "tb": checked_tb,
+                "dependencies": (),
+                "generation_units": tuple(units.values()),
+                "resolved_dependencies": tuple(resolved),
+            }
+        )
+        result.invalidate_cached_properties()
+        return result
 
     def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
         """Return the directory of every Verilog or SystemVerilog header that the design lists.
@@ -3568,7 +3787,11 @@ class Design(XedaBaseModel):
         """Return `src` as this design names it.
 
         The path is relative to the design root when `src` is under it, and otherwise the path
-        that the design file wrote."""
+        that the design file wrote. A generated source is named by its name in the output of its
+        producer, because its file lies in a storage or a run directory whose place depends on
+        the run root."""
+        if isinstance(src, Source) and src.generated:
+            return Path(str(src.output_name))
         if src.file and self.design_root:
             try:
                 return src.file.absolute().relative_to(self.root_path.absolute())
@@ -3595,12 +3818,20 @@ class Design(XedaBaseModel):
         This is naming only. Nothing here may be read back as design state.
         """
         name = self._folded_source_name(src)
-        this = src.file.resolve()
+
+        def place(source: FileResource) -> str:
+            # A generated source is told apart by its name in the output of its producer: its
+            # file lies where the run root puts it.
+            if isinstance(source, Source) and source.generated:
+                return f"generated:{source.output_name}"
+            return str(source.file.resolve())
+
+        this = place(src)
         if any(
-            other.file.resolve() != this and self._folded_source_name(other) == name
+            place(other) != this and self._folded_source_name(other) == name
             for other in (*self.rtl.sources, *self.tb.sources)
         ):
-            name += "_" + hashlib.sha256(str(this).encode()).hexdigest()[:8]
+            name += "_" + hashlib.sha256(this.encode()).hexdigest()[:8]
         return name + suffix
 
     def _folded_source_name(self, src: FileResource) -> str:
@@ -3610,6 +3841,30 @@ class Design(XedaBaseModel):
             for part in self.source_path_as_named(src).with_suffix("").parts
         )
         return "_".join(part for part in parts if part)
+
+    def source_entries(self) -> tuple[SourceEntry, ...]:
+        """Return the entries of this design that name files it reads, as the files of the design
+        wrote them: the written entries of `rtl.sources` and `tb.sources`, the entries of the
+        dependencies merged into them, and the `sources` of every generator (the design's own and
+        those of its dependencies). A generated source is no entry: it names a file in the output
+        of its generator, never a file of the tree.
+
+        The entries are kept as written (a pattern is not expanded), because a file that does not
+        exist yet is what a pattern names for the files of the future. The method reads no file."""
+        found: dict[tuple[str, str, Path], None] = {}
+        for part in _DESIGN_PART_ORDER:
+            for source in getattr(self, part).sources:
+                for text, entry_root in source._entries:
+                    found[(f"{part}.sources", text, entry_root)] = None
+        for unit in (*self.generation_units, self):
+            recipe = unit.rtl.generator
+            if recipe is None:
+                continue
+            listed = as_source_list(recipe.get("sources", ()))
+            for entry in listed if isinstance(listed, (list, tuple)) else ():
+                if isinstance(entry, (str, os.PathLike)):
+                    found[("rtl.generator.sources", os.fspath(entry), unit.root_path)] = None
+        return tuple(SourceEntry(*key) for key in found)
 
     def part_metadata(self, part: str) -> Dict[str, Any]:
         """Return the metadata of a design part (`rtl` or `tb`): everything but its sources.
@@ -3636,6 +3891,24 @@ class Design(XedaBaseModel):
             }
         raise ValueError(f"{part!r} is not a part of a design (its parts are rtl and tb)")
 
+    def _part_fingerprint(
+        self, part: str, source_types: Collection[SourceType] | None = None
+    ) -> Dict[str, Any]:
+        """Return the fingerprint of a part (`rtl` or `tb`), with the sources of `source_types`
+        only if they are given (all of them otherwise).
+
+        A source outside `source_types` is not read, so a generated source that has no file yet
+        is no obstacle to the fingerprint of a flow that does not take its type."""
+        sources = [
+            self._source_fingerprint(src)
+            for src in getattr(self, part).sources
+            if source_types is None or src.type in source_types
+        ]
+        fingerprint = {"sources": sources, **self.part_metadata(part)}
+        if part == "rtl":
+            fingerprint["language"] = thaw(self.language)
+        return fingerprint
+
     @property
     def rtl_fingerprint(self) -> Dict[str, Any]:
         """Location-independent inputs that can change RTL compilation or synthesis.
@@ -3645,19 +3918,12 @@ class Design(XedaBaseModel):
         (`_source_fingerprint`), as does a parameter whose value is a path
         (`_parameters_fingerprint`). Moving the whole design does not change its identity.
         """
-        return {
-            "sources": [self._source_fingerprint(src) for src in self.rtl.sources],
-            **self.part_metadata("rtl"),
-            "language": thaw(self.language),
-        }
+        return self._part_fingerprint("rtl")
 
     @property
     def tb_fingerprint(self) -> Dict[str, Any]:
         """The location-independent testbench inputs that identify a run."""
-        return {
-            "sources": [self._source_fingerprint(src) for src in self.tb.sources],
-            **self.part_metadata("tb"),
-        }
+        return self._part_fingerprint("tb")
 
     def _parameters_fingerprint(self, dv: DesignPart) -> Dict[str, Any]:
         """Return the parameter values as the tool sees them.
@@ -3670,7 +3936,14 @@ class Design(XedaBaseModel):
         A remote launch moves some of the paths. Then the host counts the value as the client
         does (`path_identity`, role `parameter`).
         """
-        roots = [("DESIGN_ROOT", self.root_path)] if self.design_root else []
+        # A path in the checkout of a Git dependency counts relative to it, first: the checkout
+        # may lie below the design root (a run root there), and holds the commit in its name.
+        roots = [
+            (f"DEPENDENCY_{index}", record.checkout)
+            for index, record in enumerate(self.resolved_dependencies)
+            if record.checkout is not None
+        ]
+        roots += [("DESIGN_ROOT", self.root_path)] if self.design_root else []
 
         def counted(value: Any) -> Any:
             value = thaw(value)
@@ -3693,8 +3966,8 @@ class Design(XedaBaseModel):
 
     def _source_fingerprint(self, source: Source) -> Dict[str, Any]:
         """Return what identifies a source: its content, its type and its place: its path relative
-        to the design root, or for a file that a converter generated, its name in the output of
-        the converter (`Source.generated_name`).
+        to the design root, or for a generated file, its name in the output of its producer
+        (`Source.output_name`).
 
         A source's location may affect include resolution, commands in a sourced constraint or
         script, and tool lookup. Counting every declared source by path avoids reusing a cached
@@ -3708,11 +3981,21 @@ class Design(XedaBaseModel):
             "content": source.content_hash,
             "type": str(source.type) if source.type is not None else None,
         }
-        if source.generated_name is not None:
-            # A file a converter generated: where it sits in the output of the converter.
-            fingerprint["generated"] = source.generated_name
+        if source.generated:
+            # A generated file: where it sits in the output of its producer.
+            fingerprint["generated"] = source.output_name
         else:
-            fingerprint["path"] = self.source_place(source)
+            index = source.dependency
+            if index is not None and self.resolved_dependencies[index].checkout is not None:
+                # A file in a Git checkout: its place in the run root holds the commit, so the
+                # fingerprint counts its path in the checkout.
+                fingerprint["path"] = self.source_place(source)
+                fingerprint["dependency"] = index
+            else:
+                known = path_identity(source.file, "source")
+                fingerprint["path"] = (
+                    known if known is not None else root_relative_text(self.root_path, source.file)
+                )
         return fingerprint
 
     def source_place(self, source: Source) -> str:
@@ -3720,9 +4003,20 @@ class Design(XedaBaseModel):
         design root, as POSIX text (`root_relative_text`).
 
         A remote launch moves the sources outside the design root. Then the host counts the
-        place as the client does (`path_identity`, role `source`)."""
+        place as the client does (`path_identity`, role `source`). A generated source has no path
+        from the design root: its place is its name in the output of its producer (the name or
+        pattern that a design file declares). A file of a dependency has its path in the root of the
+        dependency (`Source.dependency_place`): the place of a Git checkout in the run root holds
+        the commit, which the identity of a run does not count."""
+        if source.generated:
+            assert source.output_name is not None
+            return source.output_name
         known = path_identity(source.file, "source")
-        return known if known is not None else root_relative_text(self.root_path, source.file)
+        if known is not None:
+            return known
+        if source.dependency_place is not None:
+            return source.dependency_place
+        return root_relative_text(self.root_path, source.file)
 
     @property
     def rtl_hash(self) -> str:
@@ -3761,13 +4055,7 @@ class Design(XedaBaseModel):
         def part_hash(part: str) -> str:
             if source_types is None:
                 return getattr(self, f"{part}_hash")
-            fingerprint = dict(getattr(self, f"{part}_fingerprint"))
-            fingerprint["sources"] = [
-                entry
-                for entry, source in zip(fingerprint["sources"], getattr(self, part).sources)
-                if source.type in source_types
-            ]
-            return semantic_hash(fingerprint)[:32]
+            return semantic_hash(self._part_fingerprint(part, source_types))[:32]
 
         return semantic_hash(
             {f"{part}_hash": part_hash(part) for part in _DESIGN_PART_ORDER if part in wanted}

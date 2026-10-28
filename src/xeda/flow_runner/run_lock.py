@@ -6,19 +6,31 @@ import contextlib
 import os
 import sys
 import threading
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
 from ..digest import FileRecord, record_file, unknown_record
 from ..listing import directory_files
-from ..run_dir import RunDirectoryError, refuse_link_on_way
+from ..run_dir import RunDirectory, RunDirectoryError, refuse_link_on_way
 
 if sys.platform != "win32":
     import fcntl
 
-__all__ = ["lock_file", "run_dir_lock", "run_dir_read_lock", "CompletedRun"]
+__all__ = [
+    "lock_file",
+    "run_dir_lock",
+    "run_dir_read_lock",
+    "storage_lock",
+    "wait_hook",
+    "CompletedRun",
+]
+
+#: A seam for tests. When it is set, Xeda calls it with the path of a lock file just before it
+#: blocks on that lock, that is, when another holder keeps the lock. A test waits on this call
+#: instead of sleeping.
+wait_hook: Callable[[Path], None] | None = None
 
 
 @dataclass
@@ -34,23 +46,11 @@ class _Hold:
 _held: dict[tuple[int, int, Path], _Hold] = {}
 
 
-@dataclass
-class _DirectoryHold:
-    descriptor: int
-    depth: int = 1
-
-
-_directory_held: dict[tuple[int, int, int, int], _DirectoryHold] = {}
-
-
 def _after_fork() -> None:
     # Closing the inherited copy releases no lock of the parent. LOCK_UN would release it for both.
     for hold in _held.values():
         hold.file.close()
     _held.clear()
-    for directory_hold in _directory_held.values():
-        os.close(directory_hold.descriptor)
-    _directory_held.clear()
 
 
 if sys.platform != "win32":
@@ -70,6 +70,7 @@ def lock_file(run_path: Path, run_root: Path | None = None) -> Path:
     lock file to wherever the link leads."""
     run_path = Path(os.path.abspath(run_path))
     if run_root is not None:
+        run_root = Path(run_root).resolve()
         _check_inside(run_path, run_root)
         if run_path.is_symlink():
             run_path = Path(os.path.realpath(run_path))
@@ -99,8 +100,22 @@ def _check_inside(run_path: Path, run_root: Path) -> None:
             )
 
 
+def _acquire(file: TextIO, exclusive: bool, path: Path) -> None:
+    """Take the OS lock on `file`. With a `wait_hook`, tell it when another holder keeps the lock."""
+    mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+    if wait_hook is not None:
+        try:
+            fcntl.flock(file.fileno(), mode | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            wait_hook(path)
+    fcntl.flock(file.fileno(), mode)
+
+
 @contextlib.contextmanager
 def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iterator[None]:
+    if run_root is not None:
+        run_root = Path(run_root).resolve()
     if sys.platform == "win32":
         yield
         return
@@ -119,8 +134,13 @@ def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iter
             hold.readers -= int(not exclusive)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+    if run_root is not None:
+        # The lock file is Xeda's own: a link at its name would send the lock to another inode.
+        RunDirectory(run_root, run_root).unlinked(path)
+    # Opened without following a link, so none can replace the file between the check and here.
+    descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666)
+    with os.fdopen(descriptor, "a") as f:
+        _acquire(f, exclusive, path)
         try:
             if lock_file(run_path, run_root) != path:
                 raise RunDirectoryError(f"{run_path} changed while acquiring its lock")
@@ -150,75 +170,21 @@ def run_dir_read_lock(
     return _lock(run_path, exclusive=False, run_root=run_root)
 
 
-@contextlib.contextmanager
-def generator_design_lock(design_root: Path) -> Iterator[None]:
-    """Serialize generator loads for one existing design-root directory, without a lock file.
+def storage_lock(
+    storage: Path, *, exclusive: bool, run_root: Path
+) -> contextlib.AbstractContextManager[None]:
+    """Hold the lock of a storage directory under the run root, shared (a reader) or exclusive.
 
-    A lock keyed by the content of a record cannot protect the first generation (there is no
-    record yet), or two different input identities whose generators write the same design tree.
-    POSIX `flock` also works on a read-only directory descriptor, so the existing inode of the
-    tree can serve as a lease, without creating the run root or writing beside the design.
-    Reentering in one thread is safe. Separate threads and processes contend on the descriptor
-    locks as expected.
+    A storage is a directory that a launch writes once and many launches read: the output of a
+    design generator. Its lock file lies beside it, as the lock file of a run directory does. A
+    writer holds the exclusive lock while it writes. Every reader holds the shared lock for as
+    long as it reads a file of the storage, so nothing replaces or removes the storage meanwhile.
+    The lock is reentrant in one thread, as a run-directory lock is, but a shared lock cannot
+    become an exclusive one: release the first, then ask for the second.
 
-    Windows has no `fcntl.flock` backend here, matching the existing policy of the run-directory
-    lock.
-    """
-    if sys.platform == "win32":
-        yield
-        return
-    root = design_root.resolve()
-    descriptor: int | None = None
-    try:
-        descriptor = os.open(root, os.O_RDONLY)
-        opened = os.fstat(descriptor)
-    except OSError as error:
-        if descriptor is not None:
-            os.close(descriptor)
-        raise RunDirectoryError(f"Cannot lock generator design root {root}: {error}") from error
-    assert descriptor is not None
-    key = (os.getpid(), threading.get_ident(), opened.st_dev, opened.st_ino)
-    hold = _directory_held.get(key)
-    if hold is not None:
-        os.close(descriptor)
-        hold.depth += 1
-        try:
-            yield
-        finally:
-            hold.depth -= 1
-        return
-    locked = False
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        locked = True
-        current = os.stat(root)
-    except OSError as error:
-        try:
-            if locked:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
-        raise RunDirectoryError(f"Cannot lock generator design root {root}: {error}") from error
-    except BaseException:
-        try:
-            if locked:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
-        raise
-    if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
-        raise RunDirectoryError(f"Generator design root {root} changed while locking it")
-    _directory_held[key] = _DirectoryHold(descriptor)
-    try:
-        yield
-    finally:
-        del _directory_held[key]
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
+    A storage that does not lie inside `run_root`, or that is reached through a link out of it,
+    is a `RunDirectoryError` before anything is created."""
+    return _lock(storage, exclusive=exclusive, run_root=run_root)
 
 
 @dataclass(frozen=True)

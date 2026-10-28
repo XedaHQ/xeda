@@ -478,7 +478,7 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
 
         @classmethod
         def check_design_supported(cls, design, settings=None):
-            events.append(("check", [s.file.name for s in design.rtl.sources]))
+            events.append(("check", [s.path.name for s in design.rtl.sources]))
             super().check_design_supported(design, settings)
 
         @classmethod

@@ -13,7 +13,10 @@ output goes, and what it is called there, never changes what the tools do or wha
 A delivery never goes onto an input, which is any file that a flow of the launch reads
 (`ReadInputs`, by file identity and resolved path). It never goes into a directory that a read
 setting names (every file there is an input of the run, and so is a file delivered there), into a
-run root, or over a directory. It never deletes anything and never writes through a symbolic
+run root, or over a directory. It never goes where an entry of the design's sources would read
+it (`ReadInputs.source_entry_reading`): a file delivered to a place that an entry of `rtl.sources`,
+`tb.sources` or the generator's `sources` names would become an input of the next run, even when
+the file does not exist yet. It never deletes anything and never writes through a symbolic
 link: it writes a temporary file in the directory of the destination and renames it into place.
 
 Two deliveries of one launch never go to one destination, and none goes inside another
@@ -53,6 +56,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import stat
 import tempfile
 from collections import Counter
@@ -63,6 +67,7 @@ from typing import Any, Dict, Optional
 
 from .artifacts import iter_artifact_paths
 from .dataclass import DELIVERABLE_ROLE, written_role
+from .design import SourceEntry, pattern_reads, source_entry_pattern, glob_name_matches
 from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
 from .errors import RecordError
@@ -77,6 +82,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "DELIVERY_FORMAT",
     "DELIVERY_RECORD_SUFFIX",
+    "GENERATOR",
     "OUTPUTS_TO",
     "RESERVED_NAMES",
     "Conflict",
@@ -102,6 +108,8 @@ DELIVERY_RECORD_SUFFIX = ".delivered.json"
 DELIVERY_FORMAT = 1
 #: The key under which a delivery that `--outputs-to` asked for is reported.
 OUTPUTS_TO = "--outputs-to"
+#: The key under which a copy of a generated source (`rtl.generator.outputs_to`) is reported.
+GENERATOR = "generator"
 #: The names that Xeda keeps for itself in a run directory. An output never takes one.
 RESERVED_NAMES = frozenset({"settings.json", "results.json", "trace.json", "trace.json.tmp"})
 
@@ -138,12 +146,14 @@ class OutputExistsError(DeliveryError):
 class Delivery:
     """An output of a run, `name` in its run directory, to copy to `destination`.
 
-    The setting or option `key` asked for the copy.
+    The setting or option `key` asked for the copy. `root` is the directory that holds `name`
+    when it is not the run directory: the generation storage, for a generated source.
     """
 
     key: str
     name: PurePath
     destination: Path
+    root: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -319,6 +329,8 @@ def _written_as(owner: str, delivery: Delivery) -> str:
     """
     if delivery.key == OUTPUTS_TO:
         return f"`{OUTPUTS_TO}` ({delivery.name})"
+    if delivery.key == GENERATOR:
+        return f"`rtl.generator.outputs_to` ({delivery.name})"
     return f"`flows.{owner}.{delivery.key}`" if owner else f"`{delivery.key}`"
 
 
@@ -479,6 +491,50 @@ def _reached_files(source: Path) -> set[tuple[int, int]]:
     return {i for i in (_identity(source, follow=False), _identity(source)) if i is not None}
 
 
+_UNESCAPED_STAR = re.compile(r"(?<!\[)\*(?!\])")
+
+
+def _inside_a_run_root(path: Path) -> bool:
+    return any(is_run_root(directory) for directory in (path, *path.parents))
+
+
+def _resolved_patterns(pattern: Path, wildcard: bool) -> list[Path]:
+    """Return the patterns that read what `pattern` reads, with the links on the way resolved.
+
+    The directories of the pattern come first: a part with a `*` stands for each existing
+    directory that it matches (a link to a directory included), and every directory is replaced by
+    the directory it is (`os.path.realpath`). The last part stays a pattern. An entry without a
+    `*` is resolved whole, because it may be a link to a directory. A directory inside a run root
+    is never entered: a link in the design tree that leads there reads nothing of the design.
+    This reads the design tree, and only its directories."""
+    parts = pattern.parts
+    if not wildcard:
+        whole = Path(os.path.realpath(pattern))
+        return [] if whole == pattern else [whole]
+    directories = [Path(parts[0])]
+    for part in parts[1:-1]:
+        found: list[Path] = []
+        for base in directories:
+            if not _UNESCAPED_STAR.search(part):
+                found.append(base / part)
+                continue
+            try:
+                names = sorted(os.listdir(base))
+            except OSError:
+                continue
+            for name in names:
+                child = base / name
+                if (
+                    glob_name_matches(part, name)
+                    and child.is_dir()
+                    and not _inside_a_run_root(Path(os.path.realpath(child)))
+                ):
+                    found.append(child)
+        directories = found
+    resolved = [Path(os.path.realpath(directory)) / parts[-1] for directory in directories]
+    return [form for form in resolved if form != pattern]
+
+
 class ReadInputs:
     """Every file that the flows of a launch read.
 
@@ -502,6 +558,10 @@ class ReadInputs:
         #: Each directory read (resolved), with the key of the setting that names the directory
         #: it was listed under, and that directory.
         self._directories: dict[Path, tuple[str, Path]] = {}
+        #: The entries of the design that name source files (`add_source_entries`).
+        self._entries: list[SourceEntry] = []
+        #: The patterns that read each entry (`_entry_forms`).
+        self._forms: dict[SourceEntry, list[Path]] = {}
         self.add(paths)
 
     def add(self, paths: Iterable[Path]) -> None:
@@ -532,6 +592,44 @@ class ReadInputs:
                 self._directories.setdefault(Path(os.path.realpath(path)), (key, named))
             else:
                 self._add_file(path, None if st is None else (st.st_dev, st.st_ino))
+
+    def add_source_entries(self, entries: Iterable[SourceEntry]) -> None:
+        """Register the entries of a design that name source files (`Design.source_entries`).
+
+        A file that does not exist yet is an input of the run when an entry names it, so no
+        delivery goes there (`source_entry_reading`)."""
+        self._entries.extend(entries)
+
+    def _entry_forms(self, entry: SourceEntry) -> list[Path]:
+        """Return the patterns through which the design reads `entry`: as written, and with the
+        existing directories on its way resolved (`_resolved_patterns`). The launch reads the
+        design tree once for each entry."""
+        if entry not in self._forms:
+            written = source_entry_pattern(entry.text, entry.root)
+            resolved = _resolved_patterns(written, "*" in entry.text)
+            self._forms[entry] = list(dict.fromkeys([written, *resolved]))
+        return self._forms[entry]
+
+    def source_entry_reading(
+        self, destination: Path, given: Optional[Path] = None
+    ) -> Optional[SourceEntry]:
+        """Return the first registered entry through which the design would read `destination`,
+        or None.
+
+        `destination` is located (its parent resolved), and `given` is the destination as it was
+        named. A link in the design tree can make `src/*.v` read `lib/new.v`, so each entry is
+        compared in both forms with both names of the destination. The comparison keeps the part
+        boundaries of the pattern."""
+        names = list(dict.fromkeys(path for path in (destination, given) if path is not None))
+        for entry in self._entries:
+            wildcard = "*" in entry.text
+            if any(
+                pattern_reads(form, wildcard, name)
+                for form in self._entry_forms(entry)
+                for name in names
+            ):
+                return entry
+        return None
 
     def find(self, destination: Path) -> Optional[Path]:
         """Return the input that `destination` is, or None.
@@ -680,7 +778,8 @@ def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
     A tool may leave a symbolic link in its run directory, at the source or on the way to it.
     What a link leads to outside the run directory is not an output of the run, so Xeda never
     delivers it, a file or a directory alike. For `--outputs-to`, which delivers the artifacts
-    in bulk, the caller skips such a source. A delivery that a setting names raises a
+    in bulk (and for the generated sources of `rtl.generator.outputs_to`), the caller skips such
+    a source. A delivery that a setting names raises a
     `DeliveryError`, because the user asked for that output at that location. A link that leads
     to a file or a directory inside the run directory delivers what it leads to. A link that
     leads nowhere, or into a cycle, has nothing to deliver and raises a `DeliveryError` too.
@@ -693,7 +792,7 @@ def _outside(delivery: Delivery, source: Path, run_dir: Path) -> Optional[Path]:
             output_problem=True,
         )
     target = leads_out(source, run_dir)
-    if target is None or delivery.key == OUTPUTS_TO:
+    if target is None or delivery.key in (OUTPUTS_TO, GENERATOR):
         return target
     raise _refused_outside(delivery, str(source), str(target))
 
@@ -808,6 +907,11 @@ class Deliveries:
         self.run_path = Path(run_path)
         self.run_root = Path(os.path.realpath(run_root))
         self.named = list(named)
+        #: The copies of generated sources that this node delivers (`rtl.generator.outputs_to`).
+        #: The launch sets them: before the generator runs they hold the destinations that the
+        #: declared names give, and afterward the files that the generation matched
+        #: (`Delivery.root`).
+        self.generated: list[Delivery] = []
         #: Every file that the flows of the launch read, shared by the launch (`ReadInputs`).
         self.inputs = inputs
         #: The name of the flow whose deliveries these are. It says how a setting was asked for.
@@ -876,11 +980,19 @@ class Deliveries:
                 f"which is {found}, an input of the run: an output never replaces an input; "
                 "name another path"
             )
+        entry = self.inputs.source_entry_reading(
+            destination, Path(os.path.abspath(delivery.destination))
+        )
+        if entry is not None:
+            return (
+                f"which the `{entry.text}` entry of `{entry.part}` reads: a file delivered there "
+                "would be a source of the next run; name another path"
+            )
         if (
             destination.is_dir()
             and not destination.is_symlink()
             and str(destination) not in self.record["directories"]
-            and delivery in self.named
+            and (delivery in self.named or delivery.key == GENERATOR)
         ):
             return "a directory: name the file the output is copied to"
         return None
@@ -1051,7 +1163,7 @@ class Deliveries:
         `--outputs-to` expects to deliver, from the artifacts of the last run.
         """
         refusals: list[str] = []
-        for delivery in [*self.named, *predicted]:
+        for delivery in [*self.named, *self.generated, *predicted]:
             destination = _located(delivery.destination)
             refusal = self._refusal(destination, delivery)
             if refusal is not None:
@@ -1077,7 +1189,7 @@ class Deliveries:
         self.refuse(predicted)
         conflicts: list[Conflict] = []
         states: dict[Path, _State] = {}
-        for delivery in [*self.named, *predicted]:
+        for delivery in [*self.named, *self.generated, *predicted]:
             destination = _located(delivery.destination)
             why = self._why_not_ours(destination)
             if why is not None:
@@ -1108,9 +1220,11 @@ class Deliveries:
         """
         self.pending = []
         self.skipped = []
-        for delivery in [*self.named, *extra]:
-            source = Path(source_root) / delivery.name
-            known = (outside or {}).get(PurePath(delivery.name))
+        for delivery in [*self.named, *self.generated, *extra]:
+            root = Path(source_root) if delivery.root is None else delivery.root
+            source = root / delivery.name
+            # A source that the remote fetch skipped lies in the run directory, never in a storage.
+            known = (outside or {}).get(PurePath(delivery.name)) if delivery.root is None else None
             if known is not None:
                 if delivery.key != OUTPUTS_TO:
                     raise _refused_outside(delivery, *known)
@@ -1119,10 +1233,10 @@ class Deliveries:
             if not os.path.lexists(source):
                 raise DeliveryError(
                     f"`{delivery.key}` names {delivery.destination}, but the run wrote no "
-                    f"{delivery.name} in {source_root}",
+                    f"{delivery.name} in {root}",
                     output_problem=True,
                 )
-            target = _outside(delivery, source, Path(source_root))
+            target = _outside(delivery, source, root)
             if target is not None:
                 self._skip(delivery, str(source), str(target))
                 continue
@@ -1139,12 +1253,14 @@ class Deliveries:
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
 
     def _skip(self, delivery: Delivery, source: str, target: str) -> None:
-        """Skip a delivery of `--outputs-to` whose source leads out of the run directory."""
+        """Skip a delivery of `--outputs-to`, or of a generator, whose source leads out of the run
+        directory or of the generation storage."""
         log.warning(
-            "%s leads to %s, outside the run directory, through a symbolic link that the tool "
-            "left: not copied to %s",
+            "%s leads to %s, outside %s, through a symbolic link that the tool left: not copied "
+            "to %s",
             source,
             target,
+            "the run directory" if delivery.root is None else "the generation storage",
             delivery.destination,
         )
         self.skipped.append(Delivered(delivery.key, Path(source), delivery.destination, "skipped"))
@@ -1364,7 +1480,8 @@ class Deliveries:
             if content_digest(temporary) != sha:
                 raise DeliveryError(
                     f"{source} changed after its run -- did another launch run in "
-                    f"{self.run_path} meanwhile? -- so it is not delivered to {destination}",
+                    f"{delivery.root or self.run_path} meanwhile? -- so it is not delivered to "
+                    f"{destination}",
                     output_problem=True,
                 )
             os.replace(temporary, destination)

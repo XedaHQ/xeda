@@ -214,8 +214,8 @@ def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, v
     assert _state(tmp_path, exclude=[]) == before
 
 
-@pytest.mark.parametrize("kind", ["command", "arguments", "mapping", "project", "git", "local"])
-def test_side_effecting_loading_is_refused_before_it_runs(tmp_path, kind):
+@pytest.mark.parametrize("kind", ["command", "arguments", "mapping", "project", "local"])
+def test_a_generator_is_planned_without_effect(tmp_path, kind):
     root = tmp_path / "d"
     root.mkdir()
     (root / "blink.v").write_text(BLINK)
@@ -229,8 +229,6 @@ def test_side_effecting_loading_is_refused_before_it_runs(tmp_path, kind):
         rtl["generator"] = ["touch", "generated"]
     elif kind == "mapping":
         rtl["generator"] = {"executable": "touch", "args": ["generated"]}
-    else:
-        spec["dependencies"] = ["git+https://example.invalid/repo.git#d.toml"]
     design = root / "d.json"
     design.write_text(json.dumps(spec))
     args = [str(design)]
@@ -263,11 +261,9 @@ def test_side_effecting_loading_is_refused_before_it_runs(tmp_path, kind):
         cwd=tmp_path,
     )
     document = json_stdout(proc)
-    assert proc.returncode == 2, proc.stderr
-    assert document["outcome"] is None
-    assert document["error"]["code"] == "invalid_design"
-    expected = "Git dependency fetch" if kind == "git" else "generator"
-    assert expected in document["error"]["message"]
+    # A generator, also one of a dependency, runs in the launch, never in a plan.
+    assert proc.returncode == 0, proc.stderr
+    assert document["success"] is True
     assert not sentinel.exists()
     assert not (tmp_path / "xeda_run").exists()
     assert not (tmp_path / "out").exists()

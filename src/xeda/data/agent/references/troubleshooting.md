@@ -48,7 +48,7 @@
 
 | Message | Fix |
 | --- | --- |
-| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is `{path: "gen/top.v"}`. |
+| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is listed in `rtl.sources` as its name in the generator output (`gen/top.v`), and the design needs a `rtl.generator`. |
 | `rtl.<key>: Extra inputs are not permitted` | Unknown design key. |
 | `` `<key>` was removed: use `rtl.<key>` `` | A key of `rtl` (`sources`, `top`, `clocks`, ...) written at the root. The code is `removed_alias`. Put the key under `rtl:`. |
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
@@ -84,7 +84,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 | --- | --- |
 | `RunRootError: <dir> holds files and is not a run root xeda created (it has no .xeda-run-root)` | Name a new or empty directory with `--run-root`. If it holds only earlier Xeda runs, delete them or create `<dir>/.xeda-run-root`; everything in a marked run root is Xeda's. A directory named `xeda_run` in the start directory is adopted without the marker. |
 | `RunDirectoryError` | A run directory would lie outside the run root, or a write would go through a link Xeda does not control. Read the message. |
-| `DeliveryError` | A setting or `--outputs-to` named a location Xeda cannot deliver to: the run wrote no such file; the destination is an input of the launch, a directory, or inside a run root; or two outputs name one destination (the message names both settings). Only a deliverable setting (`"writes": "deliverable"`) given a location is copied out; a working setting stays a bare name in the run directory. |
+| `DeliveryError` | A setting, `--outputs-to` or the generator's `outputs_to` (key `generator`) named a location Xeda cannot deliver to: the run wrote no such file; the destination is an input of the launch, a directory, or inside a run root; an entry of `rtl.sources`, `tb.sources` or the generator's `sources` would read the file there (the message names the entry; links in the design tree count); or two outputs name one destination (the message names both). With `--remote`, `rtl.generator.outputs_to` is refused: drop it for the remote run, or run locally. Only a deliverable setting (`"writes": "deliverable"`) given a location is copied out; a working setting stays a bare name in the run directory. |
 | `OutputExistsError` | The destination holds a file that is not Xeda's own unchanged earlier delivery. Rerun with `--overwrite-outputs`. At a terminal you can answer the prompt; under `--json` only the flag works. |
 | `Invalid value for '--outputs-to': Directory '<x>' is a file.` | `--outputs-to` takes a directory. |
 
@@ -104,6 +104,13 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   negative hold slack in Vivado, negative slack in Quartus) is reported again on an unchanged
   launch (outcome `rejected`, disposition `reused`); `--rebuild-all` runs it again. A tool failure, such as a
   Vivado setup-slack miss or a `nextpnr` timing miss, runs again.
+- `missing_generated`: a source of `rtl.sources` that the generator should write matches no file in
+  the output of the generator. The message names the entry. Check what the generator writes into
+  `$XEDA_GENERATED`. A hand-written entry beside generated ones needs `generated_sources`: with it
+  empty, every entry is the generator's.
+- `generator_failed`: an error of the whole launch (`error.node` is null); every node is `skipped`.
+  The generator exited with an error, could not be started, or changes what it reads while it
+  runs. Its output is in the log.
 - `storage_error`: a file or directory error of the operating system, or a path that leaves the
   run directory, ended the node.
 - `missing_output`: a declared output is absent, unreadable, outside the run directory or not

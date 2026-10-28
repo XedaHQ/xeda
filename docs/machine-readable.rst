@@ -370,8 +370,14 @@ The record has these fields:
     entries by ``name``.
 ``started``, ``finished``, ``runtime``
     Two times in UTC (ISO 8601) and the duration in seconds.
-``dependencies``, ``inherited_variables``
-    Lists, empty for now.
+``dependencies``
+    The design's resolved dependencies, in order. Each entry has ``repository`` (the Git repository
+    URL without a user name or password, or ``null`` for a local dependency), ``reference`` (the
+    branch or tag as written, or ``null`` for a pinned commit, ``HEAD`` or a local dependency),
+    ``commit`` (the resolved Git commit, or ``null`` for a local dependency), and ``design_file``
+    (the dependency's design-file path).
+``inherited_variables``
+    A list of inherited variables; empty for now.
 
 The record names no file of the run by an absolute path. The run root and the run directory
 follow from where the file is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
@@ -496,10 +502,10 @@ name and meaning:
 ``run_dir``
     The run directory of the node.
 ``deliveries``
-    Every output that the node copied to a location that the settings or ``--outputs-to`` named,
-    once the whole launch finished (see "Outputs where you name them" in :doc:`run-directories`).
-    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``--outputs-to``)
-    that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
+    Every output that the node copied to a location that the settings, ``--outputs-to`` or the
+    ``outputs_to`` of the design's generator named, once the whole launch finished (see "Outputs where you name them" in :doc:`run-directories`).
+    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``--outputs-to``,
+    or ``generator`` for a copy of a generated source) that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
     when the launch did not pass, and for an artifact of ``--outputs-to`` that a symbolic link leads
     out of the run directory, which Xeda skips (see :doc:`run-directories`). The list is ``[]`` for
     a node with nothing to deliver. A node
@@ -630,6 +636,9 @@ the cause:
 ``missing_output``
     The flow passed its own checks, but an enabled declared output is absent, unreadable, outside
     the run directory or not written by this run.
+``missing_generated``
+    A source that the generator of the design should write, and that the flow reads, matches no file
+    in the output of the generator. The message names the entry of ``rtl.sources``.
 ``invalid_metric``
     A metric is not finite or not of its declared type. The other metrics stay.
 ``rejected``
@@ -645,9 +654,10 @@ the cause:
 ``internal_error``
     A bug of Xeda.
 
-The code of an error of the whole launch (``node`` is ``null``): ``delivery_failed`` (Xeda could
-not deliver an output that a setting or ``--outputs-to`` named), ``cleanup_failed`` (see below),
-``canceled``, and, for ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
+The code of an error of the whole launch (``node`` is ``null``): ``generator_failed``,
+``delivery_failed`` (Xeda could not deliver an output that a setting, ``--outputs-to`` or the
+``outputs_to`` of a generator named), ``cleanup_failed`` (see below), ``canceled``, and, for
+``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
 ``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
 
 The code of an error of a request that started no launch is the code of the setting, design,
@@ -657,9 +667,15 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
 ``design_file_not_found``, ``unknown_target``, ``unknown_design``, ``invalid_project``,
 ``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
+``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
+``dependency_cycle`` (the dependencies of a design lead back to a design on the same chain; the
+message names the chain),
 ``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
 
-With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome it had.
+``generator_failed`` says that the generator of the design failed or could not be started or
+judged. It comes before any node runs, so every node is ``skipped``, and Xeda leaves no output of
+the generator behind. With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome
+it had.
 ``cleanup_failed`` says that every requested flow passed, and then the clean-up after the run
 (``--post-cleanup`` or ``--post-cleanup-purge``) failed. The message names the run directory and the
 cause. A launch that has another cause already keeps it: a failed delivery comes before a failed
@@ -902,12 +918,11 @@ them. Invalid settings, conflicts between shared settings, missing required inpu
 targets and any other combination that these hooks refuse produce the usual run document, with
 the ``outcome`` ``null`` (no launch started) and an ``error``.
 
-Planning changes no run root, marker, lock, result or delivery. It refreshes no trace, starts no
-process and probes no tool. If the declarations of the design already rule out the request, Xeda
-refuses it first, before a generator runs (see :ref:`generators`). Loading that needs a generator or
-the fetch of a Git dependency is refused before those side effects. Materialize the sources first,
-or pass an already materialized ``Design`` to ``DefaultRunner.plan``. With ``--remote``, the host
-makes the plan (see :doc:`remote`).
+Planning changes no marker, lock, result or delivery, and it writes to the run root only the
+storage of the Git dependencies that it fetches (see :ref:`git-dependencies`). It refreshes no
+trace, starts no process and probes no tool. If the declarations of the design already rule out the request, Xeda
+refuses it first, before a generator runs (see :ref:`generators`). Planning never runs a generator.
+With ``--remote``, the host makes the plan (see :doc:`remote`).
 
 Planning a chain
 ----------------

@@ -189,6 +189,7 @@ def _produced(
 def run_design_producer(
     flow_class: type[Flow],
     design: Design,
+    execution: Design,
     node: PlanNode,
     plan: Plan,
     sections: dict[str, Any] | None,
@@ -203,8 +204,9 @@ def run_design_producer(
 
     The launcher calls this under the lock of the consumer and before the consumer exists: the
     derived design decides what the consumer is built with. There is nothing to do for a node
-    whose `design` input is unbound (None). `design` is the loaded design, which the converter
-    reads. The hand-over verifies the record of the converter under its read lease
+    whose `design` input is unbound (None). `design` is the loaded design, which the launch of the
+    converter gets, and `execution` is the same design with the files of its generated sources,
+    which the converter reads and the record of the converter refers to. The hand-over verifies the record of the converter under its read lease
     (`outputs.handed_design`), so the derived design is the same whether the converter ran now
     or an earlier run is reused."""
     selected = next((item for item in node.inputs if item.name == "design"), None)
@@ -236,7 +238,7 @@ def run_design_producer(
             f"{node.name}.{selected.name}: {producer.name}.{reference.output} "
             "has no compatible output under the selected settings"
         )
-    derived, entries = handed_design(producer, reference.output, design)
+    derived, entries = handed_design(producer, reference.output, execution)
     record = DeclaredInputRecord(
         name=selected.name,
         origin=selected.origin,
@@ -275,6 +277,7 @@ def run_producers(
     read_inputs: ReadInputs,
     entered: Callable[[Path], bool],
     design_handover: DesignHandOver | None = None,
+    located: Callable[[Path], list[Path]] = lambda path: [path],
 ) -> list[Flow]:
     """Launch the producers of the planned inputs and hand their files to `flow`.
 
@@ -293,7 +296,9 @@ def run_producers(
             continue
         producers: list[Flow] = []
         entries: list[tuple[OutputEntry, ...]] = []
-        paths = list(selected.sources)
+        # The sources of the plan are names where the generator writes them: `located` gives the
+        # files that a name stands for (`launch_generation.located_paths`).
+        paths = [file for source in selected.sources for file in located(source)]
         # The ordered references of the plan: each producer launched once per plan,
         # its files handed over by the frozen output key, concatenated in reference order.
         for reference in selected.references:

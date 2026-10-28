@@ -16,8 +16,6 @@ from typing import Any
 
 import pytest
 
-from .test_git_dependencies import remote_lib  # noqa: F401 (the fixture)
-
 HARNESS = """\
 import json, sys
 
@@ -72,6 +70,19 @@ def _load_in_child(here: Path, body: str, **names: Any) -> dict[str, Any]:
 def _files(paths: list[str]) -> list[Path]:
     return [Path(p) for p in paths]
 
+
+#: The design as planning merges its dependencies into it.
+MERGED = """
+from xeda.flow_runner.dependencies import merged_design
+
+design = merged_design(Design.from_file(design_file), run_root=None)
+summary = {
+    "rtl": [str(s.file) for s in design.rtl.sources],
+    "tb": [str(s.file) for s in design.tb.sources],
+    "root": str(design.design_root),
+    "parameters": dict(design.rtl.parameters),
+}
+"""
 
 FROM_FILE = """
 design = Design.from_file(design_file)
@@ -191,7 +202,7 @@ def test_dependencies_resolve_against_their_own_directories(tmp_path):
     here = _elsewhere(tmp_path, "top.v", "lib.v", "core.v")
     base = tmp_path.resolve()
 
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+    summary = _load_in_child(here, MERGED, design_file=design_file)
 
     assert summary["chdirs"] == []
     assert Path(summary["root"]) == base / "app"
@@ -207,25 +218,41 @@ MAKE_SOURCE = """\
 import os
 from pathlib import Path
 
-Path(os.environ["DESIGN_ROOT"], "ran_in.txt").write_text(os.getcwd())
-Path("out").mkdir(exist_ok=True)
-Path("out", "top.v").write_text("module top; endmodule\\n")
+out = Path(os.environ["XEDA_GENERATED"])
+(out / "ran_in.txt").write_text(os.getcwd())
+(out / "out").mkdir(exist_ok=True)
+(out / "out" / "top.v").write_text("module top; endmodule\\n")
 """
 
 #: How a design states a generator that writes `out/top.v` from its own directory.
 GENERATORS = {
-    "command": "generator: {command: '{python} make_src.py', sources: [make_src.py]}",
+    "command": "generator: {command: '{python} $DESIGN_ROOT/make_src.py', sources: [make_src.py]}",
     "executable": (
-        "generator: {executable: '{python}', args: [make_src.py], sources: ['make_src.py', "
-        "'specs/*.txt']}"
+        "generator: {executable: '{python}', args: ['$DESIGN_ROOT/make_src.py'], "
+        "sources: ['make_src.py', 'specs/*.txt']}"
     ),
-    "shell": "generator: \"'{python}' make_src.py\"",
-    "argv": "generator: ['{python}', make_src.py]",
+    "shell": 'generator: "\'{python}\' \\"$DESIGN_ROOT/make_src.py\\""',
+    "argv": "generator: ['{python}', '$DESIGN_ROOT/make_src.py']",
 }
+
+#: Loads the design and runs its generator into a storage under a new run root.
+GENERATE = """
+import os
+from xeda.flow_runner.launch_generation import generate
+
+design = Design.from_file(design_file)
+run_root.mkdir()
+generation = generate(design, run_root=run_root.resolve(), environ=dict(os.environ))
+summary = {
+    "declared": [str(s.path) for s in design.rtl.sources],
+    "storage": str(generation.storage),
+    "matches": {name: list(files) for name, files in generation.matches.items()},
+}
+"""
 
 
 @pytest.mark.parametrize("spelling", GENERATORS)
-def test_a_generator_runs_in_the_design_root(tmp_path, spelling):
+def test_a_generator_runs_in_its_storage_whatever_the_working_directory(tmp_path, spelling):
     root = tmp_path / "design"
     generator = GENERATORS[spelling].replace("{python}", sys.executable)
     design_file = _write(
@@ -243,13 +270,17 @@ def test_a_generator_runs_in_the_design_root(tmp_path, spelling):
     here = _elsewhere(tmp_path, "specs/zero.txt")
     root = root.resolve()
 
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+    summary = _load_in_child(
+        here, GENERATE, design_file=design_file, run_root=tmp_path / "xeda_run"
+    )
 
+    storage = Path(summary["storage"])
     assert summary["chdirs"] == []
-    assert _files(summary["rtl"]) == [root / "out" / "top.v"]
-    assert (root / "out" / "top.v").read_text() == "module top; endmodule\n"
-    assert Path((root / "ran_in.txt").read_text()).resolve() == root
-    assert not (here / "out").exists()
+    assert summary["declared"] == ["out/top.v"]
+    assert summary["matches"] == {"out/top.v": ["out/top.v"]}
+    assert (storage / "out" / "top.v").read_text() == "module top; endmodule\n"
+    assert Path((storage / "ran_in.txt").read_text()).resolve() == storage.resolve()
+    assert not (root / "out").exists() and not (here / "out").exists()
 
 
 def test_a_generator_with_a_relative_cwd_runs_below_the_design_root(tmp_path):
@@ -264,26 +295,34 @@ def test_a_generator_with_a_relative_cwd_runs_below_the_design_root(tmp_path):
           generator:
             executable: '{sys.executable}'
             args: [make.py]
+            sources: [tools/make.py]
             cwd: tools
         """,
     )
     _write(
         root / "tools" / "make.py",
         """\
+        import os
         from pathlib import Path
 
-        Path("../out").mkdir(exist_ok=True)
-        Path("../out/top.v").write_text("module top; endmodule\\n")
+        out = Path(os.environ["XEDA_GENERATED"])
+        (out / "out").mkdir(exist_ok=True)
+        (out / "out" / "top.v").write_text("module top; endmodule\\n")
+        (out / "ran_in.txt").write_text(os.getcwd())
         """,
     )
     here = _elsewhere(tmp_path, "tools/make.py")
     root = root.resolve()
 
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+    summary = _load_in_child(
+        here, GENERATE, design_file=design_file, run_root=tmp_path / "xeda_run"
+    )
 
+    storage = Path(summary["storage"])
     assert summary["chdirs"] == []
-    assert _files(summary["rtl"]) == [root / "out" / "top.v"]
-    assert not (here / "out").exists()
+    assert (storage / "out" / "top.v").is_file()
+    assert Path((storage / "ran_in.txt").read_text()).resolve() == root / "tools"
+    assert not (here / "out").exists() and not (root / "out").exists()
 
 
 def test_a_design_built_from_a_dict_resolves_against_its_design_root(tmp_path):
@@ -395,83 +434,28 @@ def test_a_relative_design_root_in_a_dependency_file_is_relative_to_the_dependen
     here = _elsewhere(tmp_path, "src/dep.v")
     base = tmp_path.resolve()
 
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
+    summary = _load_in_child(here, MERGED, design_file=design_file)
 
     assert summary["chdirs"] == []
     assert _files(summary["rtl"]) == [base / "lib" / "src" / "dep.v", base / "app" / "top.v"]
 
 
 def test_a_missing_local_dependency_names_where_it_looked(tmp_path):
-    from xeda.design import Design, DesignValidationError
+    from xeda.design import Design
+    from xeda.errors import DesignError
+    from xeda.flow_runner.dependencies import merged_design
 
     root = tmp_path / "design"
     _write(root / "top.v", "// design\n")
+    design = Design(
+        design_root=root,
+        name="needy",
+        dependencies=["../lib/missing.yaml"],
+        rtl={"sources": ["top.v"], "top": "top"},
+    )
 
-    with pytest.raises(DesignValidationError) as raised:
-        Design(
-            design_root=root,
-            name="needy",
-            dependencies=["../lib/missing.yaml"],
-            rtl={"sources": ["top.v"], "top": "top"},
-        )
+    with pytest.raises(DesignError) as raised:
+        merged_design(design, run_root=None)
 
+    assert raised.value.code == "design_file_not_found" and raised.value.field == "dependencies[0]"
     assert str(root.resolve() / ".." / "lib" / "missing.yaml") in str(raised.value)
-
-
-@pytest.mark.usefixtures("remote_lib")
-def test_a_git_dependency_clones_relative_to_the_design_root(tmp_path):
-    root = tmp_path / "design"
-    _write(root / "top.v", "// design\n")
-    design_file = _write(
-        root / "design.yaml",
-        """\
-        name: cloning
-        rtl:
-          sources: [top.v]
-          top: top
-        dependencies:
-          - repo_url: git@fake.invalid:org/lib.git
-            design_file: lib.yaml
-            clone_dir: clones/lib
-        """,
-    )
-    here = _elsewhere(tmp_path, "top.v")
-
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
-
-    assert summary["chdirs"] == []
-    assert (root / "clones" / "lib" / ".git").is_dir()
-    assert not (here / "clones").exists()
-    assert [Path(p).name for p in summary["rtl"]] == ["lib.v", "top.v"]
-    assert _files(summary["rtl"])[0] == (root / "clones" / "lib" / "lib.v").resolve()
-
-
-@pytest.mark.usefixtures("remote_lib")
-def test_a_git_cache_clones_relative_to_the_design_root(tmp_path, monkeypatch):
-    # The cache path names the host of the URL, so the URL is in the `https` form.
-    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
-    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{tmp_path / 'remotes'}/.insteadOf")
-    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://fake.invalid/")
-    root = tmp_path / "design"
-    _write(root / "top.v", "// design\n")
-    design_file = _write(
-        root / "design.yaml",
-        """\
-        name: caching
-        rtl:
-          sources: [top.v]
-          top: top
-        dependencies:
-          - uri: git+https://fake.invalid/org/lib.git#lib.yaml
-            local_cache: cache
-        """,
-    )
-    here = _elsewhere(tmp_path, "top.v")
-
-    summary = _load_in_child(here, FROM_FILE, design_file=design_file)
-
-    assert summary["chdirs"] == []
-    clones = list((root / "cache").glob("*/*/.git"))
-    assert len(clones) == 1
-    assert not (here / "cache").exists()
-    assert [Path(p).name for p in summary["rtl"]] == ["lib.v", "top.v"]

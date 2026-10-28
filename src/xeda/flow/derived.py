@@ -16,8 +16,7 @@ converted, every other source passes through, and everything else is carried.
   one helper to construct the design from their source entries; the planned source list can differ
   from the recorded one.
 
-The functions are pure. They never validate the design again, so the generator of a design does
-not run twice.
+The functions are pure. They never validate the design again.
 """
 
 from __future__ import annotations
@@ -85,8 +84,8 @@ class Generated:
 
     `name` is the place of the file in the output of the converter (the path within its run
     directory, in POSIX form). The identity of the derived design counts the file by this name,
-    never by a path from the design root into the run directory (`generated_name` of a
-    `Source`). A flow leaves it out: the record of the run sets it."""
+    never by a path from the design root into the run directory (`Source.output_name`). A flow
+    leaves it out: the record of the run sets it."""
 
     path: Path
     type: SourceType
@@ -143,7 +142,10 @@ def _derived(design: Design, sources: DerivedSources, *, checked: bool) -> Desig
                 Source(
                     {("file" if checked else "path"): str(entry.path)},
                     entry.type,
-                    generated_name=entry.name,
+                    generated=True,
+                    # The planned design has no record yet: its one generated file is named as
+                    # it will be written.
+                    output_name=entry.name if entry.name is not None else entry.path.name,
                 )
             )
     rtl = design.rtl.model_copy(

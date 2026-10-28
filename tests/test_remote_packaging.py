@@ -15,7 +15,10 @@ from xeda.remote.manifest import apply_sync, build_manifest, plan_sync, write_ta
 from xeda.remote.packaging import InputPackage, package_inputs
 
 from .io_flows import _ReadsInstalled, _ReadsInstalledNested  # noqa: F401  (registers the flows)
+from .test_git_dependencies import git_log, remote
 from .tiny_platform import TINY_OPENROAD_RESIDUE
+
+FIXTURES = (git_log, remote)
 
 pytestmark = pytest.mark.python_compat
 
@@ -303,20 +306,19 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
 
     remote_dir = tmp_path / "remote_inputs"
     package = package_inputs(
-        prepared.design,
+        prepared.declared,
         prepared.sections,
         {node.name for node in prepared.plan.nodes},
         run_root=local_root,
         remote_inputs=PurePosixPath(remote_dir),
         bindings=prepared.plan.bindings,
         request=prepared.plan.request,
+        resolved=prepared.design.resolved_dependencies,
     )
     _sync(package, remote_dir)
     remote_root = tmp_path / "remote" / "xeda_run"
     remote = DefaultRunner(remote_root, display_results=False, hashed_run_dirs=hashed)
-    loaded = load_packaged_design(
-        remote, remote_dir / package.design_file, rebuild=False, dry_run=True
-    )
+    loaded = load_packaged_design(remote_dir / package.design_file)
     with using_path_identities(package.path_identities):
         remote_plan = remote.plan(flow, design=loaded)
     return package, remote_plan, remote_root, remote_dir
@@ -1009,3 +1011,39 @@ def test_a_testbench_with_cocotb_has_the_same_identity_on_the_remote(tmp_path):
     assert configuration["rtl"]["defines"] == {"DUMP": "/not/a/path/here", "FAST": 1}
     assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
     assert thaw(remote_plan.node("verilator").configuration) == configuration
+
+
+# ---------------------------------------------- local and Git dependencies of one design
+
+
+@pytest.mark.parametrize("order", ["local first", "git first"])
+def test_the_host_merges_local_and_git_dependencies_as_the_client_does(
+    tmp_path, remote, git_log, order
+):
+    """The package carries the entries in the order they are listed: a local one as the design
+    document and the files it declares, a Git one as its reference. The host merges once, so its
+    indexes, its source order and its identities are the client's."""
+    from xeda.flow_runner import DefaultRunner
+
+    from .test_git_dependencies import XILINX, _mixed
+
+    local_root = tmp_path / "local" / "xeda_run"
+    (tmp_path / "design").mkdir()
+    design_file = _mixed(tmp_path / "design", remote, order)
+    runner = DefaultRunner(local_root, display_results=False)
+    prepared = runner.prepare_request("yosys_fpga", design=design_file, flow_settings=dict(XILINX))
+    started = len(git_log())
+
+    package, remote_plan, remote_root, remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys_fpga", False
+    )
+
+    assert len(git_log()) > started, "the host fetched the Git dependency itself"
+    requested = prepared.plan.requested
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    assert remote_plan.node(requested).configuration == prepared.plan.node(requested).configuration
+    shipped = _shipped(package)
+    assert [bool(entry.get("repo_url")) for entry in shipped["dependencies"]] == [
+        order == "git first",
+        order == "local first",
+    ]

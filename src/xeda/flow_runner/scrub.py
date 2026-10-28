@@ -23,8 +23,9 @@ from ..run_dir import (
     run_directory_name,
     run_directory_problem,
 )
+from ..generation import GENERATION_DIRECTORY
 from ..utils import unique
-from .run_lock import run_dir_lock
+from .run_lock import run_dir_lock, storage_lock
 
 log = logging.getLogger(__name__)
 
@@ -395,6 +396,13 @@ def _remove_confirmed(
     return done
 
 
+def _rooted_path(path: Path, given_root: Path, resolved_root: Path) -> Path:
+    """Replace only the lexical run-root prefix, preserving links below it for the checks."""
+    absolute = Path(os.path.abspath(path))
+    root = Path(os.path.abspath(given_root))
+    return resolved_root / absolute.relative_to(root) if absolute.is_relative_to(root) else absolute
+
+
 def scrub_runs(
     flow_name: str,
     dir: Path,
@@ -417,6 +425,9 @@ def scrub_runs(
     it. A link named like a run directory that is none is logged and left alone."""
     if run_root is None:
         run_root = dir.parent
+    root = run_root.resolve()
+    dir = _rooted_path(dir, run_root, root)
+    run_root = root
     scan = _run_directories_in(flow_name, dir, exclude, run_root)
     _log_skipped(scan.skipped)
     listed = _listed(flow_name, scan.candidates)
@@ -457,6 +468,9 @@ def scrub_design(
     looked at. So is a symbolic link at the design or the named target (`refuse_link_on_way`);
     the error names it. A link found at a target below the design is not followed: it is logged
     and returned as `skipped`."""
+    root = run_root.resolve()
+    design_dir = _rooted_path(design_dir, run_root, root)
+    run_root = root
     if target is not None:
         problem = target_name_problem(target)
         if problem is not None:
@@ -483,3 +497,61 @@ def scrub_design(
         [s.link for s in skipped],
         {s.link: s.problem for s in skipped},
     )
+
+
+def scrub_generations(
+    design_name: str,
+    *,
+    run_root: Path,
+    confirm: Optional[ScrubConfirmation] = None,
+) -> ScrubResult:
+    """Find the generation storages of a design under `run_root`, and remove them.
+
+    A storage (`<run root>/.generated/<design>/<key>`) holds the output of the generator of the
+    design for one configuration. One confirmation covers all of them; without `confirm`, nothing
+    is removed, because the library never asks. Each storage is removed under its exclusive lock,
+    which a launch holds in the shared mode for as long as it reads the storage. So scrub waits
+    for every launch that reads a storage before it removes that storage. A storage that is gone
+    when its turn comes is reported as `gone`."""
+    run_root = run_root.resolve()
+    base = run_root / GENERATION_DIRECTORY / design_name
+    refuse_link_on_way(base, run_root)
+    found = sorted(p for p in base.glob("*") if p.is_dir() and not p.is_symlink())
+    if not found:
+        return ScrubResult([base], [], [], [], [])
+    if confirm is None:
+        log.warning(
+            "Not removing %d generation storage(s) of %s: nothing confirmed the removal, and only "
+            "the command line asks the user.",
+            len(found),
+            design_name,
+        )
+        return ScrubResult([base], [], [], [], [])
+    if not confirm([ScrubCandidate(path, ()) for path in found]):
+        return ScrubResult([base], [], [], [], [])
+    removed: list[Path] = []
+    gone: list[Path] = []
+    places = {storage: os.path.realpath(storage) for storage in found}
+    for storage in found:
+        with storage_lock(storage, exclusive=True, run_root=run_root):
+            if _is_gone(storage):
+                gone.append(storage)
+                continue
+            # Judged again under the lock, as the user confirmed what was listed: a storage that
+            # became a link, or whose place is another one now, is not removed.
+            try:
+                RunDirectory(run_root, run_root).unlinked(storage)
+            except RunDirectoryError as error:
+                raise RunDirectoryError(
+                    f"{storage} is a link now: it was not removed. {error}"
+                ) from error
+            if os.path.realpath(storage) != places[storage]:
+                raise RunDirectoryError(
+                    f"{storage} leads to another place than the one that scrub listed: "
+                    "it was not removed."
+                )
+            owner = RunDirectory.claimed(storage, run_root)
+            owner.clear()
+            owner.delete()
+        removed.append(storage)
+    return ScrubResult([base], removed, [], gone, [])

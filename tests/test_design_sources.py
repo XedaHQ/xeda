@@ -8,13 +8,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import (
-    DesignValidationError,
-    Generator,
-    loading_in_design_root,
-    loading_in_run_root,
-)
-from xeda.run_root import ensure_run_root
+from xeda.design import DesignValidationError, Generator, loading_in_design_root
 
 ROOT_SPELLINGS = ["a.vhd", "$DESIGN_ROOT/a.vhd", "${DESIGN_ROOT}/a.vhd", "$DESIGN_DIR/a.vhd"]
 
@@ -256,31 +250,19 @@ def test_pwd_is_not_expanded_in_a_source(root):
 
 
 @pytest.fixture
-def generated(tmp_path, monkeypatch):
-    """A design root whose `out.vhd` is written by `gen.py`, which records every run so a test
-    can tell whether the generator was skipped, and a run root beside it for the record of a
-    generation (`xeda.generation`)."""
+def generated(tmp_path):
+    """A design root with a generator script, whose output `out.vhd` is declared and not there."""
     design_root = tmp_path / "design"
     design_root.mkdir()
-    (design_root / "gen.py").write_text(
-        "import pathlib\n"
-        "pathlib.Path('out.vhd').write_text('entity out_ is end;\\n')\n"
-        "pathlib.Path('RAN').touch()\n"
-    )
-    (design_root / "out.vhd").write_text("entity out_ is end;\n")
-    monkeypatch.chdir(tmp_path)
+    (design_root / "gen.py").write_text("pass\n")
     return design_root.resolve()
 
 
-@pytest.fixture
-def in_a_run_root(tmp_path, generated):
-    """Load designs as a launcher does, with the run root a generation is recorded in."""
-
-    def provider(create: bool):
-        return ensure_run_root(tmp_path / "xeda_run", start=generated, create=create)
-
-    with loading_in_run_root(provider):
-        yield
+def _generated_design(root: Path, sources, generator=None) -> Design:
+    recipe = generator or {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]}
+    return Design(
+        name="d", design_root=root, rtl={"sources": sources, "top": "out_", "generator": recipe}
+    )
 
 
 @pytest.mark.parametrize(
@@ -289,73 +271,31 @@ def in_a_run_root(tmp_path, generated):
         ["out.vhd"],
         ["$DESIGN_ROOT/out.vhd"],
         ["$DESIGN_DIR/out.vhd"],
-        [{"file": "out.vhd"}],
-        ["*.vhd"],
-        ["o*.vhd"],
+        [{"path": "out.vhd"}],
         "out.vhd",  # the scalar shorthand
     ],
-    ids=[
-        "relative",
-        "design_root",
-        "design_dir",
-        "table",
-        "glob_star",
-        "glob_prefix",
-        "scalar",
-    ],
+    ids=["relative", "design_root", "design_dir", "path_table", "scalar"],
 )
-def test_a_generator_is_skipped_by_what_its_sources_name_not_how_they_are_written(
-    generated, in_a_run_root, sources
-):
-    """The sources a generation is judged against are the *interpreted* `rtl.sources` entries,
-    read before the validator that interprets them by `_source_paths_as_given`. Every spelling
-    but a plain relative path used to look absent -- so the generator re-ran on every single
-    load -- and a `{ file = ... }` table reached `Path(dict)` as an opaque TypeError. Here the
-    second load of an unchanged design must generate nothing, however its sources are spelled."""
+def test_a_generated_source_is_the_same_declaration_however_it_is_spelled(generated, sources):
+    """The generator has not run when the design loads, so its output is a declaration: the name
+    that the design gives, relative to the output of the generator. Every spelling of one name is
+    one declaration, and the design has one storage key for them all."""
+    from xeda.flow_runner.launch_generation import generation_key
 
-    def load() -> Design:
-        return Design(
-            name="d",
-            design_root=generated,
-            rtl={
-                "sources": sources,
-                "top": "out_",
-                "generator": {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]},
-            },
-        )
-
-    load()
-    assert (generated / "RAN").exists(), "nothing records this generation yet, so it must run"
-    (generated / "RAN").unlink()
-    design = load()
-
-    assert not (generated / "RAN").exists(), "the generator re-ran although nothing changed"
-    assert [s.file for s in design.rtl.sources] == [generated / "out.vhd"]
+    design = _generated_design(generated, sources)
+    assert [(s.output_name, s.type.name, s.located) for s in design.rtl.sources] == [
+        ("out.vhd", "Vhdl", False)
+    ]
+    reference = _generated_design(generated, ["out.vhd"])
+    assert design.rtl.sources == reference.rtl.sources
+    assert generation_key(design)[0] == generation_key(reference)[0]
 
 
-@pytest.mark.parametrize("source", ["$DESIGN_ROOT/out.vhd", "o*.vhd"])
-def test_a_generator_runs_when_its_output_is_missing(generated, in_a_run_root, source):
-    """A generator runs when its output is missing -- however that output is spelled, and even
-    with the record of a generation that left it there."""
-
-    def load() -> None:
-        Design(
-            name="d",
-            design_root=generated,
-            rtl={
-                "sources": [source],
-                "top": "out_",
-                "generator": {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]},
-            },
-        )
-
-    load()  # records this generation, so a second load would generate nothing
-    (generated / "RAN").unlink()
-    (generated / "out.vhd").unlink()
-
-    load()
-
-    assert (generated / "RAN").exists(), "the generator did not run for a missing output"
+@pytest.mark.parametrize("pattern", ["*.vhd", "o*.vhd"])
+def test_a_generated_pattern_is_not_expanded_by_the_design(generated, pattern):
+    (generated / "out.vhd").write_text("entity out_ is end;\n")  # a file the pattern could match
+    design = _generated_design(generated, [pattern])
+    assert [s.output_name for s in design.rtl.sources] == [pattern]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -382,67 +322,6 @@ def test_expanding_a_path_accumulates_no_state():
 
 
 @pytest.mark.parametrize(
-    "source",
-    [["out.vhd"], [{"path": "out.vhd"}], ["*.vhd"]],
-    ids=["checked", "unchecked", "glob"],
-)
-def test_a_generated_source_counts_the_same_however_it_is_declared(generated, source):
-    """The generator runs before the sources are validated, so its output is there either way.
-
-    `{ path = ... }` only defers the *check*; it is not a different source, and a design must
-    not get a different identity for having used it.
-    """
-    (generated / "out.vhd").unlink()
-
-    design = Design(
-        name="d",
-        design_root=generated,
-        rtl={
-            "sources": source,
-            "top": "out_",
-            "generator": {"command": f"{sys.executable} gen.py", "sources": ["gen.py"]},
-        },
-    )
-
-    assert (generated / "RAN").exists()
-    assert (
-        design.rtl_hash
-        == Design(
-            name="d", design_root=generated, rtl={"sources": ["out.vhd"], "top": "out_"}
-        ).rtl_hash
-    )
-
-
-@pytest.mark.parametrize(
-    "generator",
-    [
-        {"command": "true", "sources": ["gen.py"]},
-        "true",
-        ["true"],
-    ],
-    ids=["table", "shell_string", "argv"],
-)
-def test_a_generator_that_produces_nothing_is_reported_against_the_generator(root, generator):
-    """The design says what the generator is for; not producing it is the generator's failure.
-
-    A source written `{ path = ... }` skips the check the sources validator does, so this used
-    to surface much later and much worse: a bare `FileNotFoundError` from inside the design
-    hash, naming a path and nothing else.
-    """
-    (root / "gen.py").write_text("pass\n")
-
-    with pytest.raises(DesignValidationError, match="did not produce") as raised:
-        Design(
-            name="d",
-            design_root=root,
-            rtl={"sources": [{"path": "out.vhd"}], "top": "o", "generator": generator},
-        )
-
-    assert "true" in str(raised.value), "the error names the generator that fell short"
-    assert "out.vhd" in str(raised.value), "and the source it was supposed to write"
-
-
-@pytest.mark.parametrize(
     "generator",
     [
         f"{sys.executable} gen.py",
@@ -452,41 +331,56 @@ def test_a_generator_that_produces_nothing_is_reported_against_the_generator(roo
     ],
     ids=["shell_string", "argv", "table", "table_with_env"],
 )
-def test_a_generator_sees_the_design_root_as_design_root(root, generator):
+def test_a_generator_sees_the_design_root_and_its_storage_whatever_the_environment_says(
+    root, generator, tmp_path
+):
     """`$DESIGN_ROOT` names the design root in a design's paths, whatever the environment says,
-    and a generator is told the same. Two of its three forms deferred to a `DESIGN_ROOT` the
-    shell happened to export -- another project's, say -- and the argv form set none at all."""
-    (root / "gen.py").write_text(
-        "import os, pathlib\n"
-        "pathlib.Path('seen.txt').write_text(os.environ.get('DESIGN_ROOT', '<unset>'))\n"
-        "pathlib.Path('out.vhd').write_text('entity out_ is end;\\n')\n"
-    )
+    and a generator is told the same, with the storage in `XEDA_GENERATED`. Every form of the
+    recipe gets both."""
+    from xeda.design import generator_of
 
-    Design(
+    design = Design(
         name="d",
         design_root=root,
         rtl={"sources": [{"path": "out.vhd"}], "top": "out_", "generator": generator},
     )
-
-    assert (root / "seen.txt").read_text() == str(root)
-
-
-def test_a_generator_env_that_states_design_root_is_kept(root):
-    """The design's own word outranks the default: only an *inherited* value is replaced."""
-    (root / "gen.py").write_text(
-        "import os, pathlib\n"
-        "pathlib.Path('seen.txt').write_text(os.environ['DESIGN_ROOT'])\n"
-        "pathlib.Path('out.vhd').write_text('entity out_ is end;\\n')\n"
+    recipe = generator_of(design.rtl, root=root)
+    assert recipe is not None
+    storage = tmp_path / "storage"
+    environment = recipe.process_environment(
+        root, storage, {"DESIGN_ROOT": "/another/project", "KEPT": "1"}
     )
-    generator = {"command": f"{sys.executable} gen.py", "env": {"DESIGN_ROOT": "/stated"}}
+    assert environment["DESIGN_ROOT"] == str(root)
+    assert environment["XEDA_GENERATED"] == str(storage)
+    assert ("KEPT" in environment) == (recipe.env is None), "an `env` is the whole environment"
 
-    Design(
+
+def test_the_arguments_of_a_generator_expand_the_two_variables_and_no_other(root, tmp_path):
+    from xeda.design import generator_of
+
+    design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": [{"path": "out.vhd"}], "top": "out_", "generator": generator},
+        rtl={
+            "sources": [{"path": "out.vhd"}],
+            "top": "out_",
+            "generator": {
+                "executable": "tool",
+                "args": ["$DESIGN_ROOT/gen.py", "--out=${XEDA_GENERATED}/x", "$HOME", "$OTHER"],
+            },
+        },
     )
-
-    assert (root / "seen.txt").read_text() == "/stated"
+    recipe = generator_of(design.rtl, root=root)
+    assert recipe is not None
+    storage = tmp_path / "storage"
+    assert recipe.execution_command(root, storage) == [
+        "tool",
+        f"{root}/gen.py",
+        f"--out={storage}/x",
+        "$HOME",
+        "$OTHER",
+    ]
+    assert recipe.execution_command(root)[1] == "$DESIGN_ROOT/gen.py", "as written, for the key"
 
 
 def test_an_unwritten_source_says_why_the_design_cannot_be_hashed(root):

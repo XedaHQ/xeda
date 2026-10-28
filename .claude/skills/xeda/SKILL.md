@@ -84,12 +84,15 @@ again` or blocked; `reason` names it).
 xeda run nextpnr blinky.yaml --dry-run --json
 ```
 
-A dry run runs no tool and changes no run root, trace, lock or delivery. It refuses what a run
-would refuse at planning: unknown or conflicting settings, a source type the flow cannot read, a
-missing required setting, a chain that does not fit. It refuses a design that needs a generator
-run or a Git fetch; materialize that design first. With `--remote HOST`, the host makes the plan
-and judges freshness; the dry run may install Xeda on the host and sync the inputs, and it reports
-what it uploaded (`uploaded`).
+A dry run runs no tool or generator. Planning resolves Git dependencies and fetches an uncached
+checkout into `<run root>/.dependencies/<key>/`; on POSIX, it also leaves the lock file
+`<key>.lock` beside it. Resolving a branch, tag or `HEAD` can also use the network. It changes
+nothing else in the run root: no run directory, trace or delivery. A node that reads generated
+sources is `unknown`, "the generator has not run". The plan refuses what a run would refuse at planning:
+unknown or conflicting settings, a source type the flow cannot read, a missing required setting,
+or a chain that does not fit. With `--remote HOST`, the host makes the plan and judges freshness;
+the dry run may install Xeda on the host and sync the inputs, and it reports what it uploaded
+(`uploaded`).
 
 ## Design file
 
@@ -115,7 +118,8 @@ flows:
 - Relative paths resolve against the design file's directory.
 - `rtl.sources` order is compilation order: VHDL packages come before their users.
 - Every source has a type. A suffix gives it; `.json`, `.bin`, `.cfg`, `.config`, `.dcp` need
-  `{file: "top.json", type: JsonNetlist}`. A source a generator writes is `{path: "gen/top.v"}`.
+  `{file: "top.json", type: JsonNetlist}`. A source a generator writes is a name in its output, `gen/top.v` or `gen/*.v`; a pattern with no
+  definite type needs `{path: "gen/*", type: Verilog}`.
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
 - Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
@@ -414,6 +418,9 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 - A delivery never replaces a directory, a design source or a file the run reads. Two outputs for
   one destination are refused before any tool runs. An existing file is replaced without asking
   only if it is Xeda's own unchanged earlier delivery; otherwise pass `--overwrite-outputs`.
+- `rtl.generator.outputs_to` (a location) is a delivery of the same kind: the generated sources are copied
+  there under their names in the generator's output, key `generator`. A delivery is also refused where an
+  entry of `rtl.sources`, `tb.sources` or the generator's `sources` would read the file.
 - `--post-cleanup-purge` moves the output instead of copying it, when it can.
 
 ## Remote runs
@@ -480,7 +487,8 @@ Behavior:
   that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
   `--scrub` (a remote launch cannot ask for the confirmation),
-  a deliverable setting that names a location (use `--outputs-to`), a chain with a programmer
+  a deliverable setting that names a location (use `--outputs-to`), `rtl.generator.outputs_to` (drop it for the
+  remote run, or run locally to get the copies), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a
   binding to the fetched file), `--fetch-all` or `--keep-running` without `--remote`, and
   `--keep-running` with `--dry-run`.
@@ -538,13 +546,15 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `error.code` | Do |
 | --- | --- |
 | `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
-| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
+| `invalid_design`, `design_file_not_found`, `unknown_target`, `unknown_design`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
 | `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s dockerized=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
+| `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. Check the generator, or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
+| `generator_failed` (`error.node` is null, every node `skipped`) | The generator failed or could not be judged. The message names it and its exit status; its output is in the log. |
 | `missing_report`, `missing_output`, `invalid_metric` | A report the flow reads or a declared output was not written by this run, or a metric is not a finite value of its type. |
 | `rejected` | The checks judged the results negative. The metrics are in the record; change the design or settings. |
 | `producer_failed` (on a `blocked` node) | A producer did not pass. The top-level `error` is the producer's own; read its `record`. A blocked flow does not run and keeps its earlier `results.json`. |

@@ -27,7 +27,8 @@ from xeda.cli import cli
 from xeda.console import console
 from xeda.flow import Flow
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
+from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock, storage_lock
+from xeda.flow_runner.scrub import scrub_design, scrub_generations
 from xeda.run_dir import RunDirectory, RunDirectoryError, link_on_way
 from xeda.run_root import ensure_run_root
 
@@ -139,6 +140,56 @@ class World:
 
 
 CASES = ["design-inside", "design-outside", "target-inside", "target-outside"]
+
+
+def _unresolved_root(tmp_path, spelling):
+    real = tmp_path / "real" / "runs"
+    real.mkdir(parents=True)
+    if spelling == "link":
+        alias = tmp_path / "alias"
+        alias.symlink_to(real.parent, target_is_directory=True)
+        return alias / "runs", real
+    if spelling == "relative":
+        return Path(os.path.relpath(real)), real
+    return real.parent / ".." / "real" / "runs", real
+
+
+@pytest.mark.parametrize("spelling", ["link", "relative", "dotdot"])
+@pytest.mark.parametrize("mode", ["writer", "reader", "storage"])
+def test_library_locks_accept_an_unresolved_run_root(tmp_path, spelling, mode):
+    root, real = _unresolved_root(tmp_path, spelling)
+    path = root / "d" / "flow"
+    lock = (
+        storage_lock(path, exclusive=True, run_root=root)
+        if mode == "storage"
+        else (run_dir_lock if mode == "writer" else run_dir_read_lock)(path, root)
+    )
+    with lock:
+        assert lock_file(path, root) == real / "d" / "flow.lock"
+        assert (real / "d" / "flow.lock").is_file()
+
+
+@pytest.mark.parametrize("spelling", ["link", "relative", "dotdot"])
+def test_library_generation_scrub_accepts_an_unresolved_run_root(tmp_path, spelling):
+    root, real = _unresolved_root(tmp_path, spelling)
+    storage = real / ".generated" / "d" / "k1"
+    storage.mkdir(parents=True)
+    (storage / "top.v").write_text("module top; endmodule\n")
+    result = scrub_generations("d", run_root=root, confirm=lambda candidates: True)
+    assert result.removed == [storage]
+    assert not storage.exists()
+
+
+@pytest.mark.parametrize("spelling", ["link", "relative", "dotdot"])
+def test_library_design_scrub_accepts_an_unresolved_run_root(tmp_path, spelling):
+    root, real = _unresolved_root(tmp_path, spelling)
+    run = real / "d" / SCRUBBED
+    run.mkdir(parents=True)
+    for name in ("settings.json", "results.json", "trace.json"):
+        (run / name).write_text("{}")
+    result = scrub_design(SCRUBBED, root / "d", run_root=root, confirm=lambda candidates: True)
+    assert result.removed == [run]
+    assert not run.exists()
 
 
 def names_the_link(world: World, text: str) -> None:

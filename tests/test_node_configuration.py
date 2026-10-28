@@ -29,13 +29,12 @@ from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.resolver import PlanNode
 from xeda.frozen import thaw
-from xeda.generation import CACHE_DIRECTORY
 from xeda.utils import location_free
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker
-from .test_generator_staleness import World
+from .generation_world import World
 
 PART = "LFE5U-25F-6BG381C"
 
@@ -808,29 +807,24 @@ def test_a_run_record_carries_the_configuration_of_its_node(tmp_path):
 # ------------------------------------------------------------------------------- a generator
 
 
-def test_a_generated_source_is_listed_by_its_place_and_type_and_not_by_its_bytes(tmp_path):
-    """The generator runs when the design is loaded, so the files it wrote are known at planning.
-    The configuration lists them by their place under the design root and their type. Another
-    generation under the same names is the same node."""
-    world = World(tmp_path)
+def test_a_generated_source_is_listed_by_its_declaration_and_not_by_its_bytes(tmp_path):
+    """The generator runs in the launch, so a plan knows no file it wrote. The configuration lists
+    a generated source by the name or pattern that the design declares, and its type. Another
+    generation under the same declaration is the same node."""
+    world = World(tmp_path, sources=["gen/*.v"])
     launcher = DefaultRunner(world.run_root, display_results=False, hashed_run_dirs=True)
 
-    first_design = world.load()
-    first_bytes = world.generated.read_bytes()
-    first = launcher.plan("yosys", first_design).node("yosys")
-    assert world.runs == 1
-
+    first = launcher.plan("yosys", world.load()).node("yosys")
     (world.root / "spec.txt").write_text("two, and different\n")
-    second_design = world.load()
-    assert world.runs == 2 and world.generated.read_bytes() != first_bytes
-    second = launcher.plan("yosys", second_design).node("yosys")
+    second = launcher.plan("yosys", world.load()).node("yosys")
+    assert world.runs == 0, "a plan runs no generator"
 
-    expected = [{"path": "gen/top.v", "type": "Verilog"}]
+    expected = [{"path": "gen/*.v", "type": "Verilog"}]
     assert configuration_of(first)["rtl"]["sources"] == expected
     assert configuration_of(second) == configuration_of(first)
     assert second.flowrun_hash == first.flowrun_hash
     assert second.run_path == first.run_path
     assert "generator" not in json.dumps(configuration_of(first))
-    assert str(world.run_root / CACHE_DIRECTORY) not in json.dumps(configuration_of(first))
+    assert ".generated" not in json.dumps(configuration_of(first))
     assert sys.executable not in json.dumps(configuration_of(first))
     assert_identity_formula([first, second])

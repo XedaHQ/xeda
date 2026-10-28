@@ -56,8 +56,8 @@ from ..deliver import (
     recorded_artifacts,
     split_deliveries,
 )
-from ..design import names_a_design_file
-from ..flow_runner import DefaultRunner
+from ..design import generator_of, names_a_design_file
+from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
@@ -114,7 +114,12 @@ from .frames import (
 from .launch_entry import LaunchRequest
 from .launch_record import LaunchRecord, write_record
 from .manifest import Entry, build_manifest, write_tar
-from .packaging import InputPackage, package_inputs
+from .packaging import (
+    InputPackage,
+    package_inputs,
+    refuse_unsendable_declared,
+    refuse_unsendable_generator,
+)
 from .profile import HostProfile, load_host_profile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
 from .ssh import Destination, SshSession, resolve_destination
@@ -603,6 +608,16 @@ def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
                 "--outputs-to DIR",
                 before_run=True,
             )
+    # The copies of generated sources go to a place in the local design tree, which the host does
+    # not reach: the host would write them where the same path leads on the host.
+    for _owner, unit in launch_generation.generating_units(prepared.design):
+        generator = generator_of(unit.rtl, root=unit.root_path)
+        if generator is not None and generator.outputs_to is not None:
+            raise DeliveryError(
+                f"`rtl.generator.outputs_to` of {unit.name} names a location "
+                f"({generator.outputs_to}): with --remote, the host would deliver there, on the "
+                "host. Remove it for a remote run, and run the generator here to get the copies"
+            )
     # The output names, checked as a local launch checks them.
     split_deliveries(plan.node(plan.requested).settings, design_name)
 
@@ -625,7 +640,6 @@ def _plan(
     hashed_run_dirs: bool,
     clean: bool,
     rebuild_all: bool,
-    dry_run: bool,
     outputs_to: Optional[Path],
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
@@ -654,13 +668,15 @@ def _plan(
         target=run.target,
         host_flows=profile.flows,
         host=destination_text,
-        planning=dry_run,
+        # Refused before a Git dependency is fetched: it needs nothing that one supplies.
+        before_fetch=refuse_unsendable_declared,
     )
     run.target = prepared.target
     run.design_name = prepared.design.name
     run.local_root = local_root
     run.nodes = [(n.name, n.flow_class.name, Path(n.run_path)) for n in prepared.plan.nodes]
     _refuse_programmers(prepared, destination_text)
+    refuse_unsendable_generator(prepared.design)
     plan = prepared.plan
     node = plan.node(plan.requested)
     _check_deliverables(prepared, prepared.design.name)
@@ -1490,7 +1506,6 @@ def _run(
             hashed_run_dirs=hashed_run_dirs,
             clean=clean,
             rebuild_all=rebuild_all,
-            dry_run=dry_run,
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
@@ -1520,8 +1535,11 @@ def _run(
             workspace = PurePosixPath(facts.root) / LAYOUT / "ws" / key
             inputs_dir = workspace / "inputs" / design.name
             remote_run_root = workspace / "xeda_run"
+            # The host plans too, and merges the dependencies at the same point: the package holds
+            # the design as it was given, a Git dependency as its reference (the host fetches it
+            # into its own run root) and a local dependency as a design document with its files.
             package = package_inputs(
-                design,
+                prepared.prepared.declared,
                 prepared.prepared.sections,
                 {node.name for node in plan.nodes},
                 run_root=local_root,
@@ -1529,6 +1547,7 @@ def _run(
                 host_flows=profile.flows,
                 bindings=plan.bindings,
                 request=plan.request,
+                resolved=prepared.prepared.design.resolved_dependencies,
             )
             launch = LaunchRequest(
                 chain=run.chain,
@@ -1536,6 +1555,7 @@ def _run(
                 inputs_dir=str(inputs_dir),
                 run_root=str(remote_run_root),
                 path_identities=package.path_identities,
+                dependency_commits=package.dependency_commits,
                 hashed_run_dirs=hashed_run_dirs,
                 clean=clean,
                 rebuild_all=rebuild_all,

@@ -21,6 +21,12 @@ launch has claimed, and is not initialized.
 
 A node is judged in the order the launch uses:
 
+0. The generator. A node that reads sources which the generator of the design writes is judged
+   only when the storage of the generator is current (`launch_generation.inspect_generation`, a
+   read of its record). The node reads the design with the files of the storage in place of
+   the generated sources. When the storage is absent or stale, a launch would run the generator
+   first, so the node is `unknown` with the reason "the generator has not run", unless `--clean`
+   or `--rebuild-all` makes it `stale`.
 1. The design it reads. A flow whose `design` input comes from a converter reads the design that
    the converter derives. If the converter is `fresh`, the dry run derives that design from its
    record, after it verified the record read-only (`outputs.verified_design`): the files, the
@@ -54,7 +60,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Literal
 
 from ..deliver import split_deliveries
@@ -71,7 +77,7 @@ from ..flow.io import declared_inputs, declared_outputs
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..records import RunRecord, read_record
 from ..run_dir import RunDirectory, RunDirectoryError
-from . import launch_input
+from . import launch_generation, launch_input
 from .outputs import recorded_entries, recorded_outputs, verified_design
 from .launch_report import adoptable_document
 from .resolver import Plan, PlanNode, planned_design_of
@@ -188,6 +194,7 @@ def _wire_inputs(
     plan: Plan,
     node: PlanNode,
     handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
+    generation: launch_generation.Generations | None = None,
 ) -> None:
     """Set the declared inputs of the flow to what the plan wires.
 
@@ -198,7 +205,12 @@ def _wire_inputs(
     for selected in node.inputs:
         if declared_inputs(node.flow_class)[selected.name].is_design:
             continue  # the flow reads the design as `self.design`; the input stays unset
-        paths = list(selected.sources)
+        # a generated source of the plan is a name: the files are those it matched in the storage
+        paths = [
+            file
+            for source in selected.sources
+            for file in launch_generation.located_paths(generation, source)
+        ]
         for ref in selected.references:
             found = handed.get((ref.node, ref.output))
             paths += (
@@ -216,6 +228,7 @@ def _records(
     node: PlanNode,
     settings: Flow.Settings,
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]],
+    generation: launch_generation.Generations | None = None,
 ) -> tuple[DeclaredInputRecord, ...]:
     """Return the input records of the node as a launch would build them.
 
@@ -234,6 +247,11 @@ def _records(
             for ref in selected.references
         )
         handed = [entry.path for ref in references for entry in ref.entries]
+        sources = [
+            file
+            for source in selected.sources
+            for file in launch_generation.located_paths(generation, source)
+        ]
         first = plan.node(selected.references[0].node) if selected.references else None
         records.append(
             DeclaredInputRecord(
@@ -243,7 +261,7 @@ def _records(
                 output=selected.output,
                 producer_hash=first.flowrun_hash if first else None,
                 producer_path=str(first.run_path) if first else None,
-                paths=(*map(str, selected.sources), *handed),
+                paths=(*map(str, sources), *handed),
                 references=references,
                 binding_origin=selected.binding_origin,
                 binding_location=selected.binding_location,
@@ -302,6 +320,8 @@ def judge_node(
     design: Design,
     states: dict[str, NodeFreshness],
     *,
+    declared: Design | None = None,
+    generation: launch_generation.Inspection | None = None,
     run_root: Path,
     runner_cwd: Path,
     rebuild_all: bool,
@@ -311,6 +331,39 @@ def judge_node(
     digests: CodeDigests,
 ) -> NodeFreshness:
     flow_class = node.flow_class
+    if (
+        declared is not None
+        and generation is not None
+        and generation.generator
+        and generation.generation is None
+        and launch_generation.reads_generated(declared, flow_class, node.settings)
+    ):
+        # The sources that the node reads do not exist yet. The settings are judged on the
+        # declared design, as the launch judges them before it generates.
+        try:
+            launch_input.input_settings(
+                flow_class, node.settings, declared, runner_cwd, debug=debug
+            )
+            split_deliveries(node.settings, declared.name)
+        except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
+            return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
+        if clean:
+            return NodeFreshness("stale", EVERY_FLOW_RUNS_CLEAN)
+        if rebuild_all:
+            return NodeFreshness("stale", EVERY_FLOW_RUNS_REBUILD_ALL)
+        return NodeFreshness("unknown", launch_generation.NOT_RUN)
+    if declared is not None and generation is not None and generation.generation is not None:
+        missing = launch_generation.missing_declarations(
+            declared, generation.generation, flow_class, node.settings
+        )
+        if missing:
+            # The storage is current, and what it holds lacks a source that the node reads: a
+            # launch runs the node, and it fails.
+            return NodeFreshness(
+                "stale",
+                f"the generated source `{missing[0]}` matches no file in the output of the "
+                "generator",
+            )
     # The design the node reads: the one its converter derived when that is `fresh`, else the one
     # it is planned to derive (`_derived_design`).
     view, converter, design_entries, lacks = _derived_design(
@@ -370,7 +423,8 @@ def judge_node(
                 lacks = lacks or NodeFreshness("unknown", found)
             else:
                 entries[(ref.node, ref.output)] = found
-    _wire_inputs(flow, plan, node, entries)
+    stored = generation.generation if generation is not None else None
+    _wire_inputs(flow, plan, node, entries, stored)
     # A launch hands over the outputs before it prepares anything or asks the flow anything. One
     # it cannot hand over stops the launch.
     if lacks is not None:
@@ -414,7 +468,7 @@ def judge_node(
         input_settings=settings,
         run_root=run_root,
         registered=registered,
-        declared=_records(plan, node, settings, entries),
+        declared=_records(plan, node, settings, entries, stored),
         dependency_run_ids={},
         digests=digests,
     )
@@ -449,18 +503,32 @@ def judge_plan(
     clean: bool = False,
     debug: bool = False,
     run_path: Callable[..., Path],
+    environ: Mapping[str, str] | None = None,
 ) -> dict[str, NodeFreshness]:
     """Return what a launch of `plan` would do with each node, by node name, producers first.
 
-    `run_path` is the `run_path_of` of the launcher (`resolver.planned_design_of`)."""
+    `run_path` is the `run_path_of` of the launcher (`resolver.planned_design_of`). `design` is the
+    design as the caller gave it. The generator of the design does not run: a read-only look at
+    its storage (`launch_generation.inspect_generation`, under `run_root`) decides what the nodes
+    that read generated sources are. `environ` is the environment the generator inherits (the
+    environment of this process by default)."""
     states: dict[str, NodeFreshness] = {}
+    inspection = launch_generation.inspect_generation(
+        design,
+        run_root if run_root.is_dir() else None,
+        environ=environ,
+        rebuild_all=rebuild_all or clean,
+    )
+    reading = launch_generation.execution_design(design, inspection.generation)
     digests = CodeDigests()  # this judgment's: the next one reads the files again
     for node in plan.nodes:
         states[node.name] = judge_node(
             plan,
             node,
-            design,
+            reading,
             states,
+            declared=design,
+            generation=inspection,
             run_root=run_root,
             runner_cwd=runner_cwd,
             rebuild_all=rebuild_all,

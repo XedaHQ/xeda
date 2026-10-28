@@ -389,24 +389,25 @@ def input_origins(
     The origin of an input that sources of the design supply is `("source", entries)`, where the
     entries are the `(path, type)` of each file it takes, in order. The path is the place from
     the design root (`Design.source_place`) and the entry holds no content, so two netlists are
-    two origins, and the same netlist in two checkouts is one. The origin of an input that
+    two origins, and the same netlist in two checkouts is one. A file of a dependency is
+    `(path, type, index)`: the index of its entry in `dependencies` tells the origins apart that
+    differ only in the dependency. The origin of an input that
     producers supply is its ordered `(producer identity, output key)` references, and none for an
     absent input. `inputs` are the `ResolvedInput`s of a plan node. `identity_of` gives the
     identity of the plan node that a reference names, so producers are identified before their
     consumers. The order of the references and of the files counts. Where a binding was written
     (chain, file, command line, API) does not.
     """
-    listed = {source.file: source for source in design.rtl.sources}
+    listed = {source.path: source for source in design.rtl.sources}
+
+    def entry(source: Any) -> tuple[Any, ...]:
+        place, kind = design.source_place(source), source.type.name
+        # A file of a dependency also says which entry of `dependencies` it comes from.
+        return (place, kind) if source.dependency is None else (place, kind, source.dependency)
 
     def origin(resolved: Any) -> Any:
         if resolved.origin == "source":
-            return (
-                "source",
-                tuple(
-                    (design.source_place(listed[path]), listed[path].type.name)
-                    for path in resolved.sources
-                ),
-            )
+            return ("source", tuple(entry(listed[path]) for path in resolved.sources))
         return tuple((identity_of(ref.node), ref.output) for ref in resolved.references)
 
     return tuple((resolved.name, origin(resolved)) for resolved in inputs)

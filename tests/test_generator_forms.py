@@ -17,7 +17,9 @@ import pytest
 
 from xeda import Design
 from xeda.design import POSIX_SHELL, DesignValidationError, Rtl, generator_of
-from xeda.utils import NonZeroExitCode
+from xeda.flow_runner.dependencies import merged_design
+from xeda.flow_runner.launch_generation import generate
+from xeda.generation import GenerationError
 
 
 def _load(root: Path, generator: object) -> Design:
@@ -90,14 +92,25 @@ def test_a_chisel_generator_takes_no_shell():
         Rtl(sources=(), generator={"class": "chisel", "shell": "true"})
 
 
+def _generate(design: Design, tmp_path: Path) -> Path:
+    """Run the generator of `design` into a storage under a new run root, and return the storage."""
+    run_root = tmp_path / "xeda_run"
+    run_root.mkdir(exist_ok=True)
+    generation = generate(design, run_root=run_root, environ=dict(os.environ))
+    assert generation is not None
+    return generation.storage
+
+
 def test_the_model_of_a_shell_recipe_runs_the_text_in_a_shell(tmp_path):
     design = _load(
-        tmp_path,
+        tmp_path / "design",
         "printf 'module top; endmodule\\n' > made.v && printf '%s' \"$DESIGN_ROOT\" > root.txt",
     )
     root = design.root_path
-    assert (root / "made.v").read_text() == "module top; endmodule\n"
-    assert (root / "root.txt").read_text() == str(root)
+    storage = _generate(design, tmp_path)
+    assert (storage / "made.v").read_text() == "module top; endmodule\n"
+    assert (storage / "root.txt").read_text() == str(root)
+    assert not (root / "made.v").exists(), "the design tree is not written"
     generator = generator_of(design.rtl, root=root)
     assert generator is not None and generator.shell is not None
     assert generator.describe() == f"the generator ({generator.shell})"
@@ -114,25 +127,31 @@ def test_a_shell_recipe_runs_and_is_identified_by_one_shell(tmp_path, monkeypatc
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     design = _load(tmp_path / "design", "printf 'module top; endmodule\\n' > made.v")
     root = design.root_path
-    assert (root / "made.v").read_text() == "module top; endmodule\n"
+    storage = _generate(design, tmp_path)
+    assert (storage / "made.v").read_text() == "module top; endmodule\n"
     assert not (bin_dir / "sh.ran").exists()
     generator = generator_of(design.rtl, root=root)
     assert generator is not None
     assert generator.execution_command(root)[:2] == [POSIX_SHELL, "-c"]
-    assert generator.execution_executable_path(root) == Path(POSIX_SHELL)
+    assert generator.execution_executable_path(root, environ=os.environ) == Path(POSIX_SHELL)
 
 
 def test_an_argument_list_runs_without_a_shell(tmp_path):
     code = "import pathlib, sys; pathlib.Path('made.v').write_text(sys.argv[1])"
-    design = _load(tmp_path, [sys.executable, "-c", code, "module a; endmodule && echo x > no.txt"])
-    root = design.root_path
-    assert (root / "made.v").read_text() == "module a; endmodule && echo x > no.txt"
-    assert not (root / "no.txt").exists()
+    design = _load(
+        tmp_path / "design", [sys.executable, "-c", code, "module a; endmodule && echo x > no.txt"]
+    )
+    storage = _generate(design, tmp_path)
+    assert (storage / "made.v").read_text() == "module a; endmodule && echo x > no.txt"
+    assert not (storage / "no.txt").exists()
 
 
-def test_a_failing_shell_recipe_fails_the_load(tmp_path):
-    with pytest.raises(NonZeroExitCode):
-        _load(tmp_path, "exit 3")
+def test_a_failing_shell_recipe_fails_the_generation(tmp_path):
+    design = _load(tmp_path / "design", "exit 3")
+    with pytest.raises(GenerationError, match="exit"):
+        _generate(design, tmp_path)
+    left = [p for p in (tmp_path / "xeda_run" / ".generated").glob("*/*") if p.is_dir()]
+    assert left == [], "no storage is left"
 
 
 # ------------------------------------------------------------------ a dependency and cocotb
@@ -152,12 +171,19 @@ def test_a_dependency_does_not_switch_cocotb_on_for_a_testbench_that_refused_it(
     root = tmp_path / "d"
     _dependency(root, tb=False)
     (root / "my_tests.py").write_text("# tests\n")
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": ["lib.v"], "top": "lib"},
-        tb={"sources": [{"file": "my_tests.py", "type": "Cocotb"}], "top": "lib", "cocotb": False},
-        dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": ["lib.v"], "top": "lib"},
+            tb={
+                "sources": [{"file": "my_tests.py", "type": "Cocotb"}],
+                "top": "lib",
+                "cocotb": False,
+            },
+            dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+        ),
+        run_root=None,
     )
     assert design.tb.cocotb is None and design.dependencies == ()
     alone = Design(
@@ -172,11 +198,14 @@ def test_a_dependency_does_not_switch_cocotb_on_for_a_testbench_that_refused_it(
 def test_a_cocotb_source_from_a_dependency_does_not_switch_cocotb_on(tmp_path):
     root = tmp_path / "d"
     _dependency(root, tb=True)
-    design = Design(
-        name="d",
-        design_root=root,
-        rtl={"sources": ["lib.v"], "top": "lib"},
-        dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+    design = merged_design(
+        Design(
+            name="d",
+            design_root=root,
+            rtl={"sources": ["lib.v"], "top": "lib"},
+            dependencies=[{"uri": "dep/dep.yaml", "rtl": {"pos": -1}}],
+        ),
+        run_root=None,
     )
     assert [source.file.name for source in design.tb.sources] == ["cocotb_tests.py"]
     assert design.tb.cocotb is None

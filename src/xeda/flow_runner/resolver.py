@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel, expand_forms
-from ..design import DESIGN_PARTS, LANGUAGE_TYPES, Design
+from ..design import LANGUAGE_TYPES, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.derived import DesignConversion, planned_design
@@ -56,7 +56,12 @@ from .chains import (
     fitting_outputs,
     request_text,
 )
-from .configuration import configuration_hash, conversion_descriptor, node_configuration
+from .configuration import (
+    configuration_hash,
+    conversion_descriptor,
+    design_configuration_hash,
+    node_configuration,
+)
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -170,6 +175,8 @@ def _freeze(value: Any) -> Any:
 class PlanContext:
     """The captured request, including delivery destinations that run hashes leave out."""
 
+    #: The hash of the configuration of the design (`configuration.design_configuration_hash`):
+    #: it holds no content, so a source edit after the plan is no difference.
     design_hash: str
     design_root: Path
     runner_cwd: Path
@@ -711,6 +718,68 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
     return ordinary
 
 
+def _needs_no_neighbor(flow_cls: type[Flow], given: Mapping[str, Any] | Flow.Settings) -> bool:
+    """Whether `given` holds every shared setting that `flow_cls` declares, so that no flow of the
+    graph can add to them (`SHARED_SETTINGS`)."""
+    for name in SHARED_SETTINGS:
+        if name in flow_cls.Settings.model_fields:
+            value = given.get(name) if isinstance(given, Mapping) else getattr(given, name, None)
+            if value is None or value == {} or value == []:
+                return False
+    return True
+
+
+def check_settings_without_design(
+    flow_request: FlowRequest,
+    settings: Mapping[str, Any] | Flow.Settings,
+    sections: Mapping[str, Any],
+    *,
+    design_root: Path,
+    runner_cwd: Path,
+) -> None:
+    """Check the settings of every flow that a request may use, before planning reads the design.
+
+    These are the checks that a design cannot change. For each flow that the request may use, a
+    setting that no flow has and a value of the wrong type. They run on the settings without
+    their shared leaves (`SHARED_SETTINGS`), which agree along the edges of the graph that
+    planning resolves. For the flows of the chain, if no neighbor can add a shared setting, they
+    also run what the settings alone refuse: a path that a flow writes and cannot, and
+    `Flow.check_settings_supported`. So a request that is wrong in itself is refused before
+    planning fetches a Git dependency. Resolution repeats the checks."""
+    requested = flow_request.requested
+    chain = {element.flow_class.name for element in flow_request.elements}
+    flows: dict[str, type[Flow]] = {}
+    for element in flow_request.elements:
+        flows[element.flow_class.name] = element.flow_class
+        flows.update(transitive_dependencies(element.flow_class))
+    for name, flow_cls in flows.items():
+        if flow_cls is requested:
+            given = settings
+        else:
+            given = compose_flow_settings(flow_cls, [sections])
+        try:
+            if not isinstance(given, Flow.Settings):
+                settings_in_context(
+                    flow_cls, _nonshared_input(flow_cls, given), design_root, runner_cwd
+                )
+            if name in chain and _needs_no_neighbor(flow_cls, given):
+                model = settings_in_context(flow_cls, given, design_root, runner_cwd)
+                problems = written_path_problems(model)
+                if problems:
+                    raise FlowSettingsError(
+                        [(key, message, None, "value_error") for key, message in problems],
+                        flow_cls.Settings,
+                    )
+                try:
+                    flow_cls.check_settings_supported(model)
+                except FlowSettingsError as error:
+                    error.refuses_support = True
+                    raise
+        except FlowSettingsError as error:
+            suggest_dependency_node(requested, error)
+            raise
+
+
 def _shared_locations(
     raw: _Located, cls: type[Flow], context: dict[str, Any]
 ) -> dict[tuple[str, ...], _Leaf]:
@@ -987,7 +1056,6 @@ def resolve(
     debug: bool = False,
     flow_request: FlowRequest | None = None,
     binding_layers: Sequence[BindingLayer] = (),
-    identify_design: bool = True,
 ) -> Plan:
     """Resolve the graph, agree settings, union the demands on each producer, and freeze the plan.
 
@@ -997,9 +1065,8 @@ def resolve(
     The graph comes from explicit bindings first, then sources, then default producers. The
     plan is validated before it is frozen.
 
-    Without `identify_design`, the plan judges a declared design, whose generated sources may
-    not exist yet (`design.deferring_load_side_effects`). It is not identified by content, and
-    its empty `design_hash` is one that no launch accepts (`FlowLauncher._validate_plan`)."""
+    The plan holds the hash of the configuration of the design (no content), so it exists for a
+    design whose generated sources have not been generated."""
     context = dict(design_root=design.root_path, runner_cwd=runner_cwd)
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
@@ -1558,7 +1625,7 @@ def resolve(
         flow_cls.name,
         tuple(nodes),
         PlanContext(
-            design.parts_hash(DESIGN_PARTS) if identify_design else "",
+            design_configuration_hash(design),
             design.root_path,
             runner_cwd,
             run_root,

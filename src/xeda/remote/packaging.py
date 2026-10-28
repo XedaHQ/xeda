@@ -16,13 +16,25 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
 from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of, written_role
-from ..design import Design, Source, DesignPart, FileResource
+from ..design import (
+    Design,
+    DesignPart,
+    DependencyRecord,
+    DesignValidationError,
+    FileResource,
+    Generator,
+    GitReference,
+    Source,
+    generator_cwd,
+    generator_of,
+)
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
 from ..flow.flow import map_keyed_path_leaves
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
+from ..flow_runner.dependencies import declared_designs
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
@@ -47,6 +59,65 @@ class InputPackage:
     #: The directories of the inputs that hold no file, relative to the inputs directory. The
     #: remote makes them, since a manifest lists files only.
     directories: list[str] = field(default_factory=list)
+    #: The commit that this side resolved each Git entry to that gave no `commit` of its own, by
+    #: the path of the entry in the tree of dependencies (`DependencyRecord.path`): the host
+    #: fetches those commits (`using_pinned_commits`), also for the Git dependencies of a Git
+    #: dependency, which the design document does not list.
+    dependency_commits: dict[str, str] = field(default_factory=dict)
+
+
+def _unsendable(unit: Design, generator: Generator) -> str | None:
+    """Return why the package cannot carry the generator of `unit`, or None."""
+    name = generator.describe(unit.name, unit.root_path)
+    if not generator.sources:
+        return (
+            f"{name} declares no `sources`, so `--remote` cannot know which files to send with "
+            "it: declare its `sources` (the files and directories it reads) in `rtl.generator`"
+        )
+    outside = [path for path in generator.sources if unit.relative_to_root(path) is None]
+    if outside:
+        return (
+            f"{name} reads {outside[0]}, which lies outside the design root {unit.root_path}, "
+            "and `--remote` sends only what lies below the design root: place it below the "
+            "design root (a copy or a link inside it) and name it in `sources`"
+        )
+    return None
+
+
+def refuse_unsendable_generator(design: Design) -> Generator | None:
+    """Return the generator of `design`, or None if it has none. Refuse a generator that the
+    package cannot carry, also one of a dependency: one that declares no `sources`, or one with a
+    declared input outside the root of its design.
+
+    The host runs the generators, and only the files and directories that a recipe declares
+    travel with it, each at its place below the root of its design. A generator that declares none
+    would run on the host without what it reads, and its output would be wrong or fail far from
+    the cause. The refusal names the generator and says what to do (`DesignValidationError`). It
+    needs no connection and runs nothing, so a request makes it at planning. A local launch has no
+    such limit."""
+    for unit in (*design.generation_units, design):
+        generator = generator_of(unit.rtl, root=unit.root_path)
+        problem = None if generator is None else _unsendable(unit, generator)
+        if problem is not None:
+            raise DesignValidationError(
+                [("rtl -> generator", problem, "", "value_error")],
+                data=unit.model_dump(mode="json"),
+                design_root=unit.root_path,
+                design_name=unit.name,
+            )
+    return generator_of(design.rtl, root=design.root_path)
+
+
+def refuse_unsendable_declared(design: Design) -> None:
+    """Refuse a generator that the package cannot carry (`refuse_unsendable_generator`), in the
+    design and in its local dependencies, with no Git dependency read.
+
+    A request makes this check at planning before any Git dependency is resolved or fetched: it
+    needs no value that such a dependency supplies. The generator of a Git dependency is judged
+    after the fetch, on the merged design. A local dependency whose file is missing is left to the
+    merge, which reports it."""
+    for unit in declared_designs(design, missing_ok=True):
+        refuse_unsendable_generator(unit)
 
 
 def package_inputs(
@@ -59,6 +130,7 @@ def package_inputs(
     host_flows: Mapping[str, Mapping[str, Any]] | None = None,
     bindings: Sequence[BindingLayer] = (),
     request: FlowRequest | None = None,
+    resolved: Sequence[DependencyRecord] = (),
 ) -> InputPackage:
     """Return the files and the design document that the remote needs for this request.
 
@@ -78,12 +150,32 @@ def package_inputs(
     the bindings out of every origin. `bindings` are the binding layers of the local plan
     (`Plan.bindings`). Their winning bindings travel as the `inputs` of the section of their
     flow, so the remote plans the same edges. A binding that the chain `request` makes does not
-    travel, because the remote gets the chain."""
+    travel, because the remote gets the chain.
+
+    The host runs the whole launch, so it runs the generator of the design too. The recipe of the
+    generator travels with the files and directories it declares in `sources`, and nothing else
+    of what it reads: a generator that declares none cannot be sent, and the request is refused
+    (`DesignValidationError`) before anything is read or sent. The sources that the generator
+    writes travel as the declarations the design makes of them.
+
+    `design` is the design as the caller gave it, with its dependencies not merged. The host
+    merges them once, as this side does, so the package lists them in the order they are listed.
+    A Git dependency travels as its reference, and the host fetches it. A local dependency is a
+    file on this side only: it travels as a design document of its own, with the files and the
+    generator recipe it declares, below `_dependencies/<n>` of the inputs. The host reads that
+    document where it would read the local file.
+
+    `resolved` are the dependencies as this side resolved them (`Design.resolved_dependencies` of
+    the planned design). The package holds, beside the design document, the commit that this side
+    resolved each Git entry to that gave no `commit` of its own (`InputPackage.dependency_commits`),
+    also for the entries of a Git dependency, which the document does not list. The host fetches
+    those commits, so a branch that moves between the two plans changes nothing. The branch of an
+    entry stays as written (the provenance)."""
     host_flows = host_flows or {}
     path_identities: dict[str, dict[str, str]] = {}
-    # `mode="json"`: the fields kept as they are (`dependencies` and its `local_cache` /
-    # `clone_dir`) hold `Path`s, which a python-mode dump leaves as objects for the encoder
-    # to stringify by luck rather than by rule.
+    # `mode="json"`: a field kept as it is may hold a `Path`, which a python-mode dump leaves as an
+    # object for the encoder to stringify by luck rather than by rule. The Git dependencies that
+    # the design still has travel as references; the host fetches them.
     # The design a target yielded, with the name of the target. The remote plans the same run
     # directories as this side (`<design>/<target>/<flow>`), and a design file may not write
     # `target`, but a packaged document may (`Design.from_file`).
@@ -93,16 +185,13 @@ def package_inputs(
     }
     if design.target is not None:
         new_design["target"] = design.target
-    rtl: Dict[str, Any] = {}
-    tb: Dict[str, Any] = {}
-    remote_sources_path = Path(design.name) / "sources"
     design_file = f"{design.name}.xeda.json"
     # Every place below the inputs directory, and what goes there: a local file, or content made
     # here. One table for both kinds of place (flat among the sources, or where a file lies under
     # the design root), so neither can be handed a place the other already holds. The design
     # document takes its place first.
     places: Dict[Path, Path | bytes] = {Path(design_file): b""}
-    flat_places: Dict[Path, Path] = {}
+    flat_places: Dict[tuple[Path, Path], Path] = {}
     directories: set[str] = set()  # the directories of directory settings
 
     def identified(remote: str | Path, role: str, text: str) -> None:
@@ -121,17 +210,18 @@ def package_inputs(
                 f"({role}) of the request, and the remote host counts it once: name it one way"
             )
 
-    def archived(resource: FileResource) -> Path:
-        """Return where `resource` lands among the packaged sources.
+    def archived(resource: FileResource, unit: Design, base: Path) -> Path:
+        """Return where `resource` lands among the packaged sources of `unit`, below `base`.
 
         The first time a resource is seen, add it. Two files may share a name under
         different directories, and this part of the inputs is flat, so a repeated name is
         made unique by content. The same file listed twice still travels once.
         """
         local = resource.file.resolve()
-        place = flat_places.get(local)
+        place = flat_places.get((base, local))
         if place is not None:
             return place
+        remote_sources_path = base / unit.name / "sources"
         place = remote_sources_path / local.name
         if place in places:
             digest = resource.content_hash[:8]
@@ -141,7 +231,7 @@ def package_inputs(
                 place = remote_sources_path / f"{local.stem}_{digest}_{suffix}{local.suffix}"
                 suffix += 1
         places[place] = local
-        flat_places[local] = place
+        flat_places[(base, local)] = place
         return place
 
     def archived_in_place(local: Path, relative: Path) -> bool:
@@ -151,87 +241,188 @@ def package_inputs(
         another file."""
         return places.setdefault(relative, local.resolve()) == local.resolve()
 
-    def packaged_sources(sources: Iterable[Source]) -> list[Dict[str, Any]]:
-        """Return the sources as the remote has to see them.
+    def inside(place: Path, base: Path) -> str:
+        """Return `place` (below the inputs of the host) as the document at `base` names it:
+        relative to the root of that document."""
+        return Path(os.path.relpath(place, base)).as_posix()
 
-        A source under the design root keeps its own place relative to the root, as it has
+    def packaged_sources(
+        sources: Iterable[Source], unit: Design, base: Path
+    ) -> list[Dict[str, Any]]:
+        """Return the sources of `unit` as the remote has to see them, in the document at `base`.
+
+        A source under the root of the unit keeps its own place relative to the root, as it has
         here. A Verilog `include` finds the header beside the including file first, so a
         flattened layout could build another design, and it would hash as another
         (`Design._source_fingerprint`). A source outside the root has no place there, and
-        travels among the flat sources."""
+        travels among the flat sources. This side counts every source by its place from the root
+        of the requested design."""
         packaged: list[Dict[str, Any]] = []
         for src in sources:
-            relative = design.relative_to_root(src.file)
-            if relative is not None and archived_in_place(src.file, relative):
-                place = relative
+            if src.generated and not src.located:
+                # The generator of the host writes it: no file travels, the declaration does.
+                packaged.append({"path": src.output_name, "type": str(src.type)})
+                continue
+            relative = unit.relative_to_root(src.file)
+            if relative is not None and archived_in_place(src.file, base / relative):
+                # The host counts it as this side does: by its place in the root of the unit.
+                place = base / relative
             else:
-                place = archived(src)
+                # A source outside the root of its unit has a place of its own, below the root of
+                # the request, and the host counts it by the text this side counts for it.
+                place = archived(src, design, Path("."))
                 identified(place, "source", design.source_place(src))
-            spec: Dict[str, Any] = {"file": place.as_posix()}
-            spec["type"] = str(src.type)
-            packaged.append(spec)
+            packaged.append({"file": inside(place, base), "type": str(src.type)})
         return packaged
 
-    def packaged_parameters(dv: DesignPart) -> Dict[str, Any]:
-        """Return the parameters as the remote has to see them.
+    def packaged_parameters(dv: DesignPart, unit: Design, base: Path) -> Dict[str, Any]:
+        """Return the parameters of `dv`, a part of `unit`, as the remote has to see them.
 
         A parameter is text to the tool, but text that names a path on this machine names
         nothing on the remote. So a path is re-rooted from its value alone:
 
-        - Under the design root, it keeps its place relative to the root. An existing file
+        - Under the root of the unit, it keeps its place relative to the root. An existing file
           is packaged at that same place. A path with no file yet (an output) is only a
           place for the remote to write. Counted relative to the root on both sides, the
           remote hashes the design exactly as this side did.
         - Elsewhere, an existing file is packaged among the sources and repointed there.
 
         Either way it travels as a table (`{file: ...}`, `{path: ...}`), which the remote
-        resolves against its own design root and not against whatever directory it runs in.
+        resolves against its own root of the unit and not against whatever directory it runs in.
         Anything else is a value, and travels as it is (an absolute directory, for example).
 
-        For every absolute path, the host gets the text that this side counts for it
-        (`Design.part_metadata`), keyed by the path as the host sees it: the new place, or the
-        value itself when it travels as it is.
+        For every absolute path, the host gets the text that this side counts for it, keyed by
+        the path as the host sees it: the new place, or the value itself when it travels as it
+        is.
         """
         parameters: Dict[str, Any] = {}
-        counted = design.part_metadata("rtl" if dv is design.rtl else "tb")["parameters"]
+        roots = [("DESIGN_ROOT", design.root_path)] if design.design_root else []
         for name, value in dv.parameters.items():
             parameters[name] = thaw(value)
             if not (isinstance(value, str) and os.path.isabs(value)):
                 continue
             path = Path(value)
-            relative = design.relative_to_root(path)
+            relative = unit.relative_to_root(path)
             seen: str | Path = value
             if relative is not None and not path.exists():
                 parameters[name] = {"path": relative.as_posix()}
-                seen = relative
-            elif relative is not None and path.is_file() and archived_in_place(path, relative):
+                seen = base / relative
+            elif (
+                relative is not None and path.is_file() and archived_in_place(path, base / relative)
+            ):
                 parameters[name] = {"file": relative.as_posix()}
-                seen = relative
+                seen = base / relative
             elif path.is_file():
-                seen = archived(FileResource(path))
-                parameters[name] = {"file": seen.as_posix()}
-            identified(seen, "parameter", counted[name])
+                seen = archived(FileResource(path), unit, base)
+                parameters[name] = {"file": inside(seen, base)}
+            identified(seen, "parameter", str(location_free(value, roots)))
         return parameters
 
-    rtl["sources"] = packaged_sources(design.rtl.sources)
-    rtl["defines"] = thaw(design.rtl.defines)
-    rtl["attributes"] = thaw(design.rtl.attributes)
-    rtl["parameters"] = packaged_parameters(design.rtl)
-    rtl["top"] = design.rtl.top
-    rtl["clocks"] = [dict(clk) for clk in design.rtl.clocks]
-    tb["sources"] = packaged_sources(design.tb.sources)
-    tb["top"] = design.tb.top
-    tb["cocotb"] = thaw(design.tb.cocotb)
-    if design.tb.uut:
-        tb["uut"] = design.tb.uut
-    if design.tb.parameters:
-        tb["parameters"] = packaged_parameters(design.tb)
-    if design.tb.defines:
-        tb["defines"] = thaw(design.tb.defines)
-    if design.tb.python_packages:
-        tb["python_packages"] = list(design.tb.python_packages)
-    new_design["rtl"] = rtl
-    new_design["tb"] = tb
+    def packaged_generator_input(local: Path, unit: Design, base: Path) -> str:
+        """Package a file or a directory that the generator of `unit` reads, below `base` in the
+        inputs of the host, and return its name for the recipe: relative to the root of the unit
+        where it lies under it, else in a place of its own.
+
+        A directory counts as every file in it, and its empty directories travel too."""
+        relative = unit.relative_to_root(local)
+        assert relative is not None, "an input outside the design root is refused at planning"
+        if local.is_dir():
+            directories.add((base / relative).as_posix())
+            for entry in directory_files(local, [run_root], VCS_METADATA, follow_links=True):
+                place = base / relative / entry.relative_to(local)
+                if entry.is_dir():
+                    directories.add(place.as_posix())
+                elif entry.is_file():
+                    places.setdefault(place, entry)
+        elif local.is_file():
+            places.setdefault(base / relative, local)
+        return relative.as_posix()
+
+    dependency_bases: Dict[Path, Path] = {}
+    dependency_documents: Dict[str, str] = {}
+
+    def packaged_dependencies(unit: Design, base: Path) -> list[Any]:
+        """Return the `dependencies` of `unit` as the remote has to see them, in the order they
+        are listed, so that the host merges them at the same point, in the same order, with the
+        same indexes as this side.
+
+        A Git dependency travels as its reference: the host fetches it into its own run root. A
+        local dependency is a design file on this side only, so it travels as a design document of
+        its own, with the files it declares, and its entry names that document. Its root is
+        `_dependencies/<n>` in the inputs of the host: dependency designs in one directory share
+        one root there, so a file that lies in the roots of several of them is one file on the
+        host, listed once, as it is on this side."""
+        entries: list[Any] = []
+        dumped = unit.model_dump(mode="json")["dependencies"]
+        for ref, entry in zip(unit.dependencies, dumped):
+            if isinstance(ref, GitReference):
+                entries.append(entry)
+                continue
+            dependency = Design.from_file(unit.root_path / ref.uri)
+            file = dependency.generation_label
+            if file not in dependency_documents:
+                root = dependency_bases.setdefault(
+                    dependency.root_path, Path("_dependencies") / str(len(dependency_bases))
+                )
+                document_file = root / f"{Path(file).stem}.xeda.json"
+                while document_file in places:
+                    document_file = document_file.with_name(document_file.stem + "_2.json")
+                places[document_file] = b""
+                dependency_documents[file] = document_file.as_posix()
+                document = packaged_document(dependency, root)
+                places[document_file] = json.dumps(document, default=json_encodable).encode("utf-8")
+            entries.append({**entry, "uri": inside(Path(dependency_documents[file]), base)})
+        return entries
+
+    def packaged_document(unit: Design, base: Path) -> Dict[str, Any]:
+        """Return what the merge of `unit` as a dependency reads: its sources, top, parameters,
+        clocks, testbench and generator, and its own dependencies. Its files are packaged below
+        `base`, which is its root on the host."""
+        generator = refuse_unsendable_generator(unit)
+        rtl: Dict[str, Any] = {"sources": packaged_sources(unit.rtl.sources, unit, base)}
+        rtl["defines"] = thaw(unit.rtl.defines)
+        rtl["attributes"] = thaw(unit.rtl.attributes)
+        rtl["parameters"] = packaged_parameters(unit.rtl, unit, base)
+        rtl["top"] = unit.rtl.top
+        rtl["clocks"] = [dict(clk) for clk in unit.rtl.clocks]
+        if generator is not None:
+            recipe = thaw(unit.rtl.generator)
+            recipe["sources"] = [
+                packaged_generator_input(path, unit, base) for path in generator.sources
+            ]
+            rtl["generator"] = recipe
+            if generator.cwd is not None:
+                # The generator starts there, so the directory exists on the host even when no
+                # file of the package lies in it. It is the directory the recipe names, as the
+                # recipe spells it: a link is not resolved. The design refuses a `cwd` that
+                # leaves its root when it loads.
+                named = generator_cwd(generator.cwd, unit.root_path)
+                recipe["cwd"] = named.as_posix()
+                if named != Path(".") and (unit.root_path / named).is_dir():
+                    directories.add((base / named).as_posix())
+        tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, unit, base)}
+        tb["top"] = unit.tb.top
+        tb["cocotb"] = thaw(unit.tb.cocotb)
+        if unit.tb.uut:
+            tb["uut"] = unit.tb.uut
+        if unit.tb.parameters:
+            tb["parameters"] = packaged_parameters(unit.tb, unit, base)
+        if unit.tb.defines:
+            tb["defines"] = thaw(unit.tb.defines)
+        if unit.tb.python_packages:
+            tb["python_packages"] = list(unit.tb.python_packages)
+        return {
+            "name": unit.name,
+            "rtl": rtl,
+            "tb": tb,
+            "language": thaw(unit.language),
+            "dependencies": packaged_dependencies(unit, base),
+        }
+
+    new_design.update(packaged_document(design, Path(".")))
+    commits = {
+        d.path: d.commit for d in resolved if d.repository is not None and d.commit and not d.given
+    }
 
     def packaged_path(value: Any) -> Any:
         if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
@@ -404,4 +595,4 @@ def package_inputs(
     # the innermost ones: making a directory makes the ones it lies in
     inner = {parent for place in candidates for parent in place.parents}
     empty = sorted(place.as_posix() for place in candidates - inner)
-    return InputPackage(design_file, files, generated, path_identities, empty)
+    return InputPackage(design_file, files, generated, path_identities, empty, commits)

@@ -12,9 +12,9 @@ import time
 import types
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractContextManager, ExitStack, nullcontext
+from contextlib import AbstractContextManager, ExitStack
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from pprint import PrettyPrinter
@@ -50,14 +50,7 @@ from ..deliver import (
     refuse_shared_destinations,
     split_deliveries,
 )
-from ..design import (
-    DESIGN_PARTS,
-    Design,
-    deferring_load_side_effects,
-    loading_in_run_root,
-    names_a_design_file,
-    refusing_load_side_effects,
-)
+from ..design import Design, names_a_design_file, _shown_dependencies
 from ..flow import (
     Flow,
     FlowDependencyFailure,
@@ -92,10 +85,17 @@ from .bindings import (
     require_no_bindings,
     split_bindings,
 )
-from . import launch_identity, launch_input, launch_producers, launch_report, launch_run
+from . import (
+    launch_generation,
+    launch_identity,
+    launch_input,
+    launch_producers,
+    launch_report,
+    launch_run,
+)
 from .chains import ChainElement, FlowRequest, parse_request
 from .code_digest import CodeDigests
-from .configuration import configuration_hash
+from .configuration import configuration_hash, design_configuration_hash
 from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -107,10 +107,12 @@ from .launch_report import (
 from .launch_result import LaunchCollector
 from .launch_run import refuse_inputs_inside
 from .outputs import declared_output_files
+from . import dependencies
 from .resolver import (
     Plan,
     PlanNode,
     check_launchable,
+    check_settings_without_design,
     planned_configuration,
     planned_design_of,
     resolve as resolve_plan,
@@ -122,7 +124,7 @@ from .plan_freshness import (
     judge_plan,
 )
 from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
-from .run_lock import CompletedRun, run_dir_lock
+from .run_lock import CompletedRun, run_dir_lock, storage_lock
 from .settings_layers import (
     API_ORIGIN,
     COMMAND_LINE_ORIGIN,
@@ -273,6 +275,7 @@ class _Request:
     """Captured request layers. Workers transport these contributions, not model defaults."""
 
     flow_class: type[Flow]
+    #: The design of the plan and the launch: its dependencies merged in (`dependencies`).
     design: Design
     settings: dict[str, Any]
     sections: dict[str, Any]
@@ -281,6 +284,9 @@ class _Request:
     api_overrides: dict[str, Any]
     flow_request: FlowRequest
     binding_layers: tuple[BindingLayer, ...]
+    #: The design as the caller gave it, before planning merged its dependencies. A remote
+    #: request packages it with the Git dependencies as references.
+    declared: Design
 
 
 @dataclass(frozen=True)
@@ -295,6 +301,8 @@ class PreparedRequest:
     plan: Plan
     flow_request: FlowRequest
     target: str | None
+    #: The design as the caller gave it (`_Request.declared`).
+    declared: Design
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -412,6 +420,17 @@ def with_node_context(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
+@dataclass
+class _LaunchGeneration:
+    """The design of a launch, as the caller gave it and as the flows get it."""
+
+    declared: Design
+    generation: launch_generation.Generations | None
+    #: The declared design, with the files that its generator wrote in place of its generated
+    #: sources (`launch_generation.execution_design`).
+    execution: Design
+
+
 class FlowLauncher:
     """Launch flows together with their producers, in the manner of make: see `launch_flow`."""
 
@@ -493,6 +512,9 @@ class FlowLauncher:
         #: The deliveries of the current launch's producers, checked when it started, by node:
         #: each producer checks again, at its turn, with its own.
         self._deliveries_ahead: dict[NodeKey, Deliveries] = {}
+        #: The files that `--outputs-to` expects to deliver from the last run of the requested
+        #: flow, as `(flow, delivery, destination)`, kept from the check ahead.
+        self._predicted_copies: list[tuple[str, Delivery, Path]] = []
         #: Asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts.
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -515,6 +537,12 @@ class FlowLauncher:
         #: documents to report; None until a request has loaded one.
         self.target: str | None = None
         self.design_name: str | None = None
+        #: The generation of the current launch: the design as the caller gave it, what its
+        #: generator wrote, and the design that the flows get (`launch_generation`). Set by the
+        #: requested flow, after every declarative check, and read by its producers.
+        self._generation: _LaunchGeneration | None = None
+        #: What the current launch holds until it ends: the shared lease of its storage.
+        self._leases = ExitStack()
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
         #: What the current launch reports as it goes on (`launch_result.launch_result` reads it).
@@ -529,18 +557,6 @@ class FlowLauncher:
             assert root is not None  # created when absent
             self._run_root, self._run_root_ready = root, True
         return self._run_root
-
-    def load_run_root(self, create: bool = True) -> Optional[Path]:
-        """Return the run root in which a design load keeps its own things.
-
-        See `design.loading_in_run_root`. With `create`, the run root is made and marked, as
-        `run_root` does. Without it (a pure plan, a lookup that must create nothing), only a run
-        root that is already marked is returned, else None."""
-        if create:
-            return self.run_root
-        if self._run_root_ready:
-            return self._run_root
-        return ensure_run_root(self._run_root, start=self._start, create=False)
 
     @property
     def launch_id(self) -> str | None:
@@ -605,7 +621,6 @@ class FlowLauncher:
         api_overrides: Mapping[str, Mapping[str, Any]] | None = None,
         flow_request: FlowRequest | None = None,
         binding_layers: Sequence[BindingLayer] = (),
-        identify_design: bool = True,
     ) -> Plan:
         """Resolve one request without constructing a flow, probing tools or writing files.
 
@@ -615,7 +630,14 @@ class FlowLauncher:
         `launch_flow`, a direct call) composes none. Then the `flows` sections of the design
         itself are its file origin, the sections it was handed come after them, and the
         settings after those. So planning a design and launching it from the same arguments
-        resolve the same plan."""
+        resolve the same plan.
+
+        A design that still has dependencies to merge gets them merged first, after the checks
+        that the settings alone allow."""
+        self._refuse_before_merging(
+            flow_class, design, flow_settings, all_flows_settings, flow_request
+        )
+        design = self._merged(design)
         recorded_settings = as_recorded(flow_settings or {})
         recorded_sections = as_recorded(all_flows_settings or {})
         direct = not origins
@@ -668,19 +690,17 @@ class FlowLauncher:
             debug=self.settings.debug,
             flow_request=flow_request,
             binding_layers=layers,
-            identify_design=identify_design,
         )
-        if identify_design:
-            # The resolver validates final agreed settings. The original request may contain
-            # partial shared values that become valid only along a declared edge.
-            self._plans[id(plan)] = (
-                plan,
-                recorded_settings,
-                recorded_sections,
-            )
+        # The resolver validates final agreed settings. The original request may contain
+        # partial shared values that become valid only along a declared edge.
+        self._plans[id(plan)] = (
+            plan,
+            recorded_settings,
+            recorded_sections,
+        )
         return plan
 
-    def _resolve_request(self, request: _Request, identify_design: bool = True) -> Plan:
+    def _resolve_request(self, request: _Request) -> Plan:
         return self.resolve(
             request.flow_class,
             request.design,
@@ -691,7 +711,6 @@ class FlowLauncher:
             api_overrides=request.api_overrides,
             flow_request=request.flow_request,
             binding_layers=request.binding_layers,
-            identify_design=identify_design,
         )
 
     def _validate_plan(
@@ -706,8 +725,9 @@ class FlowLauncher:
         """Validate a plan that this launcher made. Plans from elsewhere are not supported."""
         captured = self._plans.get(id(plan))
         context = plan.context
-        # The whole design: the plan is of this request, not of one node's identity.
-        design_hash = design.parts_hash(DESIGN_PARTS)
+        # The whole design, without content: the plan is of this request, not of one node's
+        # identity. The declared design is given here, whatever the generator has written.
+        design_hash = design_configuration_hash(design)
         if (
             captured is None
             or captured[0] is not plan
@@ -801,12 +821,19 @@ class FlowLauncher:
            (design root, start directory) and apply the `debug` setting of the launcher. The
            result is the input of the run, never modified afterwards. A missing required
            setting, or a design that the flow cannot run, fails the launch here.
-        2. Identity (`launch_identity.run_identity`). Compute the hash of the design and the
-           `flowrun_hash` of the node. Decide the run directory, `<design>[/<target>]/<flow>`
+        2. Identity (`launch_identity.run_identity`). Compute the `flowrun_hash` of the node,
+           which holds no content of the design. Decide the run directory, `<design>[/<target>]/<flow>`
            (with `hashed_run_dirs`, `<flow>_<flowrun_hash>`). The flow must be able to work in
            it (`Flow.check_run_directory`, judged on the path before anything is created).
            Lock the run directory from here until the trace of the run is written
            (`run_lock`). With `clean`, empty the directory now (or back it up, with `backups`).
+        2a. Generation (`launch_generation`). The requested flow, once every declarative check
+           has passed and before it takes the lock of any run directory, runs the generator of the
+           design into its storage under the run root, unless the storage is current. It then
+           holds the shared lease of the storage until the last delivery. From here the flows get
+           the execution copy of the design, whose generated sources name their files in the
+           storage, and the hash of the design is that of the copy. A failure is the error of the
+           whole launch (`generator_failed`).
         3. Design. A flow whose `design` input comes from a converter (bsc turns Bluespec into
            Verilog) gets that converter launched first (`launch_producers.run_design_producer`),
            under the lock of this flow and before the flow exists. The record of the converter is
@@ -863,12 +890,21 @@ class FlowLauncher:
         failure, delivers nothing, not even the outputs of a producer that succeeded
         (`_finish_launch`).
         """
+        if plan is None:
+            self._refuse_before_merging(
+                get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class,
+                design,
+                flow_settings,
+                all_flows_settings,
+            )
+        design = self._merged(design)
         top_level = self._launch_depth == 0
         if top_level:
             self._claims = set()
             self._launched_before = len(self.launched)
             self._confirmed_replacements = ConfirmedReplacements()
             self._deliveries_ahead = {}
+            self._predicted_copies = []
             self._planned_completed = {}
             self._completed_runs = {}
             # Every file that the flows of this launch read: the requested flow registers the
@@ -877,6 +913,7 @@ class FlowLauncher:
             self._code_digests = CodeDigests()  # read the code once per launch, never longer
             self._delivered_files = DeliveredFiles()
             self._pending_deliveries = []
+            self._generation = None
             self.collector = LaunchCollector()
         self._launch_depth += 1
         attempts = self.collector.depth()
@@ -900,14 +937,20 @@ class FlowLauncher:
             if top_level:
                 # A launch that failed delivers nothing. The failures of its clean-ups are
                 # logged, and the error of the launch propagates.
-                self._finish_launch(deliver=False)
+                try:
+                    self._finish_launch(deliver=False)
+                finally:
+                    self._release_generation()
             raise
         self._launch_depth -= 1
         if top_level:
             # Only a requested flow that succeeded, or was found up to date, delivers. One whose
             # results report failure returns here, and delivers nothing, not even what its
             # producers noted.
-            error = self._finish_launch(deliver=flow.succeeded)
+            try:
+                error = self._finish_launch(deliver=flow.succeeded)
+            finally:
+                self._release_generation()
             if error is not None:
                 self.collector.finish_raised = error
                 raise error
@@ -918,6 +961,47 @@ class FlowLauncher:
             ):
                 warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
         return flow
+
+    def _enter_generation(self, design: Design) -> None:
+        """Generate the sources of `design` and hold their storage until the launch ends.
+
+        This is the generation stage of the requested flow, after every declarative check and
+        before its first producer. It runs the generator unless the storage of its configuration
+        is current, under the exclusive lock of the storage, and then keeps the shared lease of
+        the storage, so nothing regenerates or removes it while a flow reads it. A design
+        without a generator has nothing to generate. A failure is a `GenerationError`, an error of
+        the whole launch.
+
+        The launch holds the shared lease of the storage of each Git dependency that the design
+        merged, from here on, so no fetch replaces its files while a tool reads them."""
+        for record in design.resolved_dependencies:
+            if record.storage is not None:
+                self._leases.enter_context(
+                    storage_lock(record.storage, exclusive=False, run_root=self.run_root)
+                )
+        generation = self._leases.enter_context(
+            launch_generation.generated(
+                design,
+                run_root=self.run_root,
+                rebuild_all=self.settings.rebuild_all or self.settings.clean,
+                environ=dict(os.environ),
+            )
+        )
+        execution = launch_generation.execution_design(design, generation)
+        self._generation = _LaunchGeneration(design, generation, execution)
+        if execution is not design:
+            self._read_inputs.add(design_files(execution))
+
+    def _release_generation(self) -> None:
+        """Release the lease of the storage, once the launch has delivered everything."""
+        self._generation = None
+        self._leases.close()
+        self._leases = ExitStack()
+
+    def _execution_of(self, design: Design) -> Design:
+        """Return the design that the flows of this launch get for the declared `design`."""
+        current = self._generation
+        return current.execution if current is not None and current.declared is design else design
 
     def _finish_launch(self, deliver: bool) -> Optional[Exception]:
         """Finish a top-level launch, and return the first failure, if any.
@@ -930,6 +1014,7 @@ class FlowLauncher:
         logged and the next goes on."""
         self._claims = set()
         self._deliveries_ahead = {}
+        self._predicted_copies = []
         deliveries, self._pending_deliveries = self._pending_deliveries, []
         # A flow whose run directory the clean-ups below delete gives its files away by rename. A
         # flow found up to date has no clean-up pending, so it is copied from and keeps its files.
@@ -987,6 +1072,7 @@ class FlowLauncher:
         design: Design,
         deliveries: Sequence[Delivery],
         run_path: Path,
+        start_directory: Path,
     ) -> None:
         """Make now the checks that every flow of the plan makes of its deliveries at its turn.
 
@@ -1010,7 +1096,12 @@ class FlowLauncher:
         again with it at its turn. That finds the record that this check anchored, so the
         destination is read once in the launch, and the check asks again only about a file that
         changed meanwhile. At its turn, under its lock, the flow reads the delivery record again
-        if another launch wrote it meanwhile."""
+        if another launch wrote it meanwhile.
+
+        The copies of generated sources (`rtl.generator.outputs_to`) belong to the first flow
+        that reads them. The destinations that the declared names give are checked now, before
+        the generator runs. The names that a pattern matches are known once it has run
+        (`_place_generated_deliveries`)."""
         # What no answer could allow comes first, for every flow of the plan: a file that a flow
         # reads and that lies in its own run directory, which Xeda empties and rewrites. A flow
         # checks it again at its turn, for a file made since.
@@ -1022,6 +1113,10 @@ class FlowLauncher:
             )
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries, requested.name)
+        generated = self._generated_by_node(
+            plan, launch_generation.planned_deliveries(design, start_directory), design
+        )
+        own.generated = generated.get(requested.node_key, [])
         own.check_outputs_to(outputs_to)
         predicted = (
             outputs_to_deliveries(recorded_artifacts(run_path, self.run_root), run_path, outputs_to)
@@ -1029,6 +1124,8 @@ class FlowLauncher:
             else []
         )
         own.refuse(predicted)
+        #: Kept for the check after the generator ran (`_place_generated_deliveries`).
+        self._predicted_copies = [(requested.name, d, d.destination) for d in predicted]
         ahead: dict[NodeKey, Deliveries] = {}
         copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
         for planned in plan.nodes:
@@ -1036,11 +1133,15 @@ class FlowLauncher:
                 known = [*deliveries, *predicted]
             else:
                 known = split_deliveries(planned.settings, design.name)
-                if known:
+                if known or planned.node_key in generated:
                     ahead[planned.node_key] = self._deliveries_of(
                         planned.run_path, known, planned.name
                     )
-            copies += [(planned.name, d, d.destination) for d in known]
+                    ahead[planned.node_key].generated = generated.get(planned.node_key, [])
+            copies += [
+                (planned.name, d, d.destination)
+                for d in [*known, *generated.get(planned.node_key, [])]
+            ]
         for producer in ahead.values():
             producer.refuse()
         refuse_shared_destinations(copies, before_run=True)
@@ -1049,6 +1150,68 @@ class FlowLauncher:
         own.check(predicted)
         ahead[requested.node_key] = own
         self._deliveries_ahead = ahead
+
+    @staticmethod
+    def _generated_by_node(
+        plan: Plan, by_owner: Mapping[str | None, Sequence[Delivery]], design: Design
+    ) -> dict[NodeKey, list[Delivery]]:
+        """Group the copies of generated sources (by the owner of their generator) by the node
+        that delivers them: the first node of the plan that reads sources of that generator."""
+        readers = launch_generation.reading_nodes(plan.nodes, design)
+        grouped: dict[NodeKey, list[Delivery]] = {}
+        for owner, copies in by_owner.items():
+            reader = readers.get(owner)
+            if reader is not None and copies:
+                grouped.setdefault(reader.node_key, []).extend(copies)
+        return grouped
+
+    def _place_generated_deliveries(
+        self, plan: Plan, design: Design, start_directory: Path
+    ) -> None:
+        """Give each node its copies of the generated sources, now that the generator has run, and
+        check them as the other deliveries are checked.
+
+        The copies are the files that the declarations matched in the storage. They replace the
+        destinations that the declared names gave (`_check_deliveries_ahead`), and add those of
+        the patterns. Nothing of the plan has run yet, so a refusal or a question still comes
+        before any tool of a flow."""
+        generation = self._generation.generation if self._generation else None
+        if generation is None:
+            return
+        by_node = self._generated_by_node(
+            plan,
+            launch_generation.generated_deliveries(design, generation, start_directory),
+            design,
+        )
+        touched: list[Deliveries] = []
+        for node in plan.nodes:
+            copies = by_node.get(node.node_key)
+            ahead = self._deliveries_ahead.get(node.node_key)
+            if copies is None and (ahead is None or not ahead.generated):
+                continue
+            if ahead is None:
+                ahead = self._deliveries_ahead[node.node_key] = self._deliveries_of(
+                    node.run_path, [], node.name
+                )
+            ahead.generated = copies or []
+            touched.append(ahead)
+        if not touched:
+            return
+        refuse_shared_destinations(
+            [
+                *(
+                    (other.owner, copy, copy.destination)
+                    for other in self._deliveries_ahead.values()
+                    for copy in [*other.named, *other.generated]
+                ),
+                *self._predicted_copies,
+            ],
+            before_run=True,
+        )
+        for ahead in touched:
+            ahead.refuse()
+        for ahead in touched:
+            ahead.check()
 
     def _deliveries_of(self, run_path: Path, named: Sequence[Delivery], owner: str) -> Deliveries:
         """Return the deliveries `named` of the flow `owner` that runs in `run_path`.
@@ -1158,7 +1321,7 @@ class FlowLauncher:
         deliveries = split_deliveries(input_settings, design.name)
         # From here the launch acts on the node, and the node reports its end whatever raises.
         self.collector.attempt_begun(node)
-        design_hash, flowrun_hash, run_path, settings_hash = launch_identity.run_identity(
+        flowrun_hash, run_path, settings_hash = launch_identity.run_identity(
             self, flow_class, flow_name, design, input_settings, node
         )
         # What the flows read is an input that no delivery of the launch may replace, or land
@@ -1168,14 +1331,26 @@ class FlowLauncher:
         # the deliveries of every flow, before any flow is entered: a refusal never comes after
         # the tool of an earlier flow ran.
         self._read_inputs.add(design_files(design))
+        self._read_inputs.add_source_entries(design.source_entries())
         if plan_node is None:
             for planned in plan.nodes:
                 register_read_settings(
                     self._read_inputs, planned.settings, planned.run_path, self.run_root
                 )
-            self._check_deliveries_ahead(plan, node, design, deliveries, run_path)
+            self._check_deliveries_ahead(plan, node, design, deliveries, run_path, runner_cwd)
         refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
+        )
+        if plan_node is None:
+            # Every declarative check has passed. The generator of the design runs now, before
+            # the first producer and before any lock of a run directory (a lock of the storage
+            # is taken first by every launch, so two launches cannot wait for each other).
+            self._enter_generation(design)
+            self._place_generated_deliveries(plan, design, runner_cwd)
+        # What the flows read: the design with the files of its generated sources in place.
+        execution = self._execution_of(design)
+        design_hash = execution.parts_hash(
+            flow_class.design_parts, flow_class.design_scope(input_settings)
         )
         policy = self._run_dir_policy()
         self._claim_run_dir(run_path)
@@ -1225,11 +1400,20 @@ class FlowLauncher:
             assert plan is not None and node is not None
             handover: launch_producers.DesignHandOver | None = None
             design_failure: Exception | None = None
-            derived = design
+            derived = execution
             try:
+                # A generated source that the node reads and the generator did not write fails
+                # the node.
+                launch_generation.refuse_missing(
+                    design,
+                    self._generation.generation if self._generation else None,
+                    flow_class,
+                    input_settings,
+                )
                 handover = launch_producers.run_design_producer(
                     flow_class,
                     design,
+                    execution,
                     node,
                     plan,
                     all_flows_settings,
@@ -1254,7 +1438,7 @@ class FlowLauncher:
                     )
             except Exception as e:  # noqa: BLE001 - recorded below, as any producer failure
                 design_failure = e
-                derived = planned_view
+                derived = planned_design_of(plan, node, execution, self.run_path_of)
                 design_hash = ""
             log.debug("Instantiating flow from %s", flow_class)
             # A copy of each, which the flow completes for itself. The design, like the
@@ -1272,6 +1456,11 @@ class FlowLauncher:
             try:
                 flow.design_hash = design_hash
                 flow.configuration = node.configuration
+                flow.generation_keys = (
+                    dict(self._generation.generation.keys)
+                    if self._generation is not None and self._generation.generation is not None
+                    else {}
+                )
                 flow.flow_hash = flowrun_hash
                 flow.settings_hash = settings_hash
                 flow.started = datetime.now(timezone.utc)
@@ -1298,6 +1487,9 @@ class FlowLauncher:
                         read_inputs=self._read_inputs,
                         entered=self._entered,
                         design_handover=handover,
+                        located=lambda path: launch_generation.located_paths(
+                            self._generation.generation if self._generation else None, path
+                        ),
                     )
                     flow.producer_run_ids = {
                         str(producer.run_path): str(producer.run_id) for producer in producers
@@ -1779,16 +1971,15 @@ class FlowLauncher:
 
         Such a launcher is `Dse`. What it refuses here needs no
         design: a chain, and an input binding of the requested node given on the command line,
-        through the API or in the project file (`LOCAL_REQUESTS_ONLY`). Loading a design may
-        clone a Git dependency into the run root, so a refusal that came after it would leave
-        the clone behind.
+        through the API or in the project file (`LOCAL_REQUESTS_ONLY`). Planning fetches the
+        Git dependencies of a design into the run root, so a refusal that came after it would
+        leave the fetch behind.
 
         What does need the loaded design is refused later, with the same error: a binding of the
         requested node saved in the design file, and a binding of any other node (whether the
         request reaches that node depends on its resolved graph, so an unrelated saved binding is
         no refusal). Every request reaches the requested node itself. `plan` and `run_flow` do
-        not call this: `plan` refuses side-effecting loading outright
-        (`refusing_load_side_effects`) and `run_flow` takes a design that is already built."""
+        not call this: `run_flow` takes a design that is already built."""
         if isinstance(flow, FlowRequest):
             if len(flow.elements) > 1:
                 raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
@@ -1956,9 +2147,9 @@ class FlowLauncher:
     ) -> Plan:
         """Plan what `run()` would execute.
 
-        Refuse side-effecting design loading, and refuse what `run()` would refuse before
-        anything runs: a run directory that a flow refuses, and `--outputs-to` for a
-        programmer."""
+        Fetch the Git dependencies of the design into the run root, and refuse what `run()`
+        would refuse before anything runs: a run directory that a flow refuses, and
+        `--outputs-to` for a programmer."""
         return self._plan(
             flow,
             design,
@@ -1986,19 +2177,23 @@ class FlowLauncher:
         *,
         host_flows: Mapping[str, Mapping[str, Any]] | None = None,
         host: str | None = None,
-        planning: bool = False,
+        before_fetch: Callable[[Design], None] | None = None,
     ) -> PreparedRequest:
         """Load, resolve and check a request as `run()` does before it launches, and launch nothing.
 
         The checks are those of `run()`: what the design declarations show, the plan of a launcher
         that takes no chain or binding, and what a launch refuses of the plan (a run directory
-        that a flow refuses, `--outputs-to` for a programmer). With `planning`, loading also
-        refuses to start a generator or to fetch, as `plan()` does.
+        that a flow refuses, `--outputs-to` for a programmer). Like `plan()`, it fetches the Git
+        dependencies of the design into the run root (`dependencies.merged_design`).
 
         `host_flows` is the `flows` table of a host profile (flow name to settings), and `host`
         names that profile in messages ("the host profile of <host>"). The table is the lowest
         layer of the settings of every flow, below the `flows` section of the project file. Only
-        this method takes it."""
+        this method takes it.
+
+        `before_fetch` is a check of the design as the caller gave it. It runs after the checks of
+        the settings and before any dependency is read, so before a Git dependency is resolved or
+        fetched. A remote request refuses here what needs no value of a dependency."""
         if not self.accepts_bindings:
             self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject)
         request, plan = self._judged_request(
@@ -2012,13 +2207,18 @@ class FlowLauncher:
             design_allow_extra,
             [],
             target=target,
-            planning=planning,
+            before_fetch=before_fetch,
             host_layer=(host_profile_origin(host), host_flows) if host_flows is not None else None,
         )
         self._refuse_unaccepted_plan(request, plan)
         self._refuse_planned(plan, run_directories_here=host_flows is None)
         return PreparedRequest(
-            request.design, request.sections, plan, request.flow_request, request.design.target
+            request.design,
+            request.sections,
+            plan,
+            request.flow_request,
+            request.design.target,
+            request.declared,
         )
 
     @log_context.with_launch_context
@@ -2038,8 +2238,8 @@ class FlowLauncher:
         """Return `plan()` and what `run()` would do with each node.
 
         The state of a node is `fresh` (reused), `stale` (run, for the reason it logs) or
-        `unknown` (it cannot be told without running a producer or looking up something that
-        only a process can). This is read-only: nothing is created, locked, refreshed or started
+        `unknown` (it cannot be told without running a producer, running the generator of the
+        design, or looking up something that only a process can). This is read-only: nothing is created, locked, refreshed or started
         (`plan_freshness`). `--rebuild-all` and `--clean` make every node stale."""
         request, plan = self._plan(
             flow,
@@ -2089,7 +2289,6 @@ class FlowLauncher:
             design_allow_extra,
             design_remove_fields,
             target=target,
-            planning=True,
         )
         self._refuse_planned(plan)
         return request, plan
@@ -2132,27 +2331,25 @@ class FlowLauncher:
         design_remove_fields: list[str],
         *,
         target: str | None,
-        planning: bool = False,
+        before_fetch: Callable[[Design], None] | None = None,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> tuple[_Request, Plan]:
-        """Load and resolve a request, refusing first what needs only the design declarations.
+        """Load and resolve a request.
 
-        A load that would run a generator or fetch a Git dependency is done twice. The first
-        load does neither (`design.deferring_load_side_effects`) and gives the declared design.
-        That design is resolved and refused as the launch would refuse it (`_refuse_planned`,
-        `_refuse_unaccepted_plan`): a source in a language that a flow cannot read, a missing
-        testbench top, a wrong setting, a run directory that a flow refuses. All of this comes
-        before the generator starts. The second load is the full load. A plan still refuses to
-        start a generator or to fetch. A load with nothing to defer is loaded once. A declared
-        design may lack what only the deferred work can tell (the sources, top and testbench of
-        a Git dependency; a source pattern whose suffix gives no type), or it may not load
-        before its generator runs (another file that the generator writes). Then it is not
-        judged early, and the full load and its plan judge it."""
+        The design loads without running its generator and without reading its dependencies: it
+        lists the sources that the generator writes as the design declares them, typed, whether
+        or not they exist yet. Planning does the rest in this order. First come the checks that
+        read nothing that a dependency supplies (the request, the settings of the flow, the
+        design file). Then the Git dependencies are fetched into the run root and merged in
+        (`dependencies.merged_design`), the one case in which planning writes. Then come the
+        checks that read the merged design (a source in a language that a flow cannot read, a
+        missing testbench top, a run directory that a flow refuses), the identities and the
+        resolved plan. All of it comes before the generator runs."""
         if design_overrides is not None and not isinstance(design_overrides, dict):
-            design_overrides = list(design_overrides)  # read by both loads
+            design_overrides = list(design_overrides)
         if select_design_in_project is not None:
             select_design_in_project = _choosing_once(select_design_in_project)
-        arguments = (
+        request = self._request(
             flow,
             design,
             xedaproject,
@@ -2162,39 +2359,67 @@ class FlowLauncher:
             design_overrides,
             design_allow_extra,
             design_remove_fields,
+            target=target,
+            host_layer=host_layer,
         )
-        declared: _Request | None = None
-        with deferring_load_side_effects() as deferred:
-            try:
-                declared = self._request(
-                    *arguments, target=target, _planning=planning, host_layer=host_layer
-                )
-            except Exception as error:
-                # `_request` names the design once it has loaded it. What fails after that is
-                # the request's own refusal, which the full load makes too: it reads the
-                # design's name, target and `flows` sections, which no deferred work changes.
-                # Before that, only a design whose every error is a missing file may be one the
-                # deferred work cures: any other error is the full load's too, and it would run
-                # the generator to find it.
-                if (
-                    not deferred.failure_may_depend_on_deferred_output(error)
-                    or self.design_name is not None
-                ):
-                    raise
-                log.debug(
-                    "The design does not load before %s: judged after it", *deferred.deferred[:1]
-                )
-        if not deferred.deferred:
-            assert declared is not None
-            return declared, self._resolve_request(declared)
-        if declared is not None and deferred.complete:
-            plan = self._resolve_request(declared, identify_design=False)
-            self._refuse_unaccepted_plan(declared, plan)
-            self._refuse_planned(plan, run_directories_here=host_layer is None)
-        request = self._request(
-            *arguments, target=target, _planning=planning, host_layer=host_layer
-        )
+        if request.design.dependencies:
+            check_settings_without_design(
+                request.flow_request,
+                request.settings,
+                request.sections,
+                design_root=request.design.root_path,
+                runner_cwd=self._start,
+            )
+        if before_fetch is not None:
+            before_fetch(request.design)
+        request = self._with_dependencies(request)
         return request, self._resolve_request(request)
+
+    def _refuse_before_merging(
+        self,
+        flow_class: type[Flow],
+        design: Design,
+        flow_settings: Mapping[str, Any] | Flow.Settings | None,
+        sections: Mapping[str, Any] | None,
+        flow_request: FlowRequest | None = None,
+    ) -> None:
+        """Refuse what the settings alone refuse, before a dependency of `design` is read.
+
+        It is for a caller that hands the launcher a design and the settings on top of the
+        `flows` of the design (`resolve`, `launch_flow`): a request composes its settings itself
+        and checks them in `_judged_request`."""
+        if not design.dependencies:
+            return
+        own, _ = split_bindings(thaw(design.flows), location=f"the design {design.name}")
+        given, _ = split_bindings(sections or {}, location=SUPPLIED_SECTIONS_ORIGIN)
+        requested: Mapping[str, Any] | Flow.Settings = (
+            flow_settings
+            if isinstance(flow_settings, Flow.Settings)
+            else compose_flow_settings(flow_class, [own, given], flow_settings or {})
+        )
+        check_settings_without_design(
+            flow_request or FlowRequest((ChainElement(flow_class),)),
+            requested,
+            merge_flow_sections(own, given, flow_class_for=_get_flow_class_if_known),
+            design_root=design.root_path,
+            runner_cwd=self._start,
+        )
+
+    def _merged(self, design: Design) -> Design:
+        """Return `design` with its dependencies merged in (`dependencies.merged_design`).
+
+        A design without a dependency is returned as it is. The run root is made and marked when
+        the first Git dependency, at any depth, needs it, so planning any other design writes
+        nothing."""
+        if not design.dependencies:
+            return design
+        return dependencies.merged_design(design, run_root=lambda: self.run_root)
+
+    def _with_dependencies(self, request: _Request) -> _Request:
+        """Return `request` with the dependencies of its design merged in. The design of the
+        plan and the launch is the merged one, and `declared` stays as the caller gave it."""
+        merged = self._merged(request.design)
+        return request if merged is request.design else replace(request, design=merged)
 
     def _request(
         self,
@@ -2209,7 +2434,6 @@ class FlowLauncher:
         design_remove_fields: list[str] = [],
         *,
         target: str | None = None,
-        _planning: bool = False,
         host_layer: tuple[str, Mapping[str, Any]] | None = None,
     ) -> _Request:
         """Load the design and the layers of settings of a request, and return the request.
@@ -2219,9 +2443,8 @@ class FlowLauncher:
         # Nothing is loaded yet: a request that fails before its design loads reports none.
         self.target = None
         self.design_name = None
-        # The request is read from the flow alone, before anything is loaded: a design with a
-        # Git dependency is cloned into the run root as it loads, and the command line parses
-        # the request first too.
+        # The request is read from the flow alone, before anything is loaded, as the command line
+        # parses it first too.
         if isinstance(flow, FlowRequest):
             flow_request = flow
             flow_class = flow.requested
@@ -2257,59 +2480,49 @@ class FlowLauncher:
                 # with it, rather than a project reporting a design of that name missing.
                 design_not_in_project = True
                 design = Path(design)
-        # A Git dependency without a directory of its own is cloned into the run root, and the
-        # record of a generator is kept there. Both ask for the run root only then, so a design
-        # that fails to load leaves no run root behind. `--rebuild-all` and `--clean`
-        # regenerate too.
-        with (
-            loading_in_run_root(
-                self.load_run_root, self.settings.rebuild_all or self.settings.clean
-            ),
-            refusing_load_side_effects() if _planning else nullcontext(),
-        ):
-            if Path(xedaproject).exists():
-                try:
-                    xeda_project = XedaProject.from_file(
-                        xedaproject,
-                        skip_designs=design_not_in_project,
-                        design_overrides=design_overrides,
-                        design_allow_extra=design_allow_extra,
-                        design_remove_extra=design_remove_fields,
-                    )
-                except (OSError, ValueError, yaml.YAMLError) as e:
-                    # Unreadable, not TOML/JSON/YAML (the decode errors are `ValueError`s), or not
-                    # a project's contents.
-                    raise ProjectFileError(
-                        f'Cannot load project file "{Path(xedaproject).absolute()}": {e}'
-                    ) from e
-                flows_settings = xeda_project.flows
-            if design and design_not_in_project:
-                if isinstance(design, (str, Path)):
-                    # An invalid design file raises, as a design from a project does: the caller
-                    # reports it (`xeda run --json` names the error instead of "did not complete").
-                    design = Design.from_file(
-                        design,
-                        overrides=design_overrides,
-                        allow_extra=design_allow_extra,
-                        remove_extra=design_remove_fields,
-                        target=target,
-                    )
-
-                elif isinstance(design, dict):
-                    design = Design.target_selected(design, target, design_overrides)
-                    if "design_root" not in design:
-                        design["design_root"] = Path.cwd()
-                    design = Design(**design)
-                elif target is not None:
-                    raise ValueError(
-                        f"target {target!r} was asked for, but the design is already built: "
-                        "select the target where the design is loaded (`Design.from_file(..., "
-                        "target=...)`)"
-                    )
-            else:
-                design = self._design_from_project(
-                    xeda_project, xedaproject, design, select_design_in_project, target
+        if Path(xedaproject).exists():
+            try:
+                xeda_project = XedaProject.from_file(
+                    xedaproject,
+                    skip_designs=design_not_in_project,
+                    design_overrides=design_overrides,
+                    design_allow_extra=design_allow_extra,
+                    design_remove_extra=design_remove_fields,
                 )
+            except (OSError, ValueError, yaml.YAMLError) as e:
+                # Unreadable, not TOML/JSON/YAML (the decode errors are `ValueError`s), or not
+                # a project's contents.
+                raise ProjectFileError(
+                    f'Cannot load project file "{Path(xedaproject).absolute()}": {e}'
+                ) from e
+            flows_settings = xeda_project.flows
+        if design and design_not_in_project:
+            if isinstance(design, (str, Path)):
+                # An invalid design file raises, as a design from a project does: the caller
+                # reports it (`xeda run --json` names the error instead of "did not complete").
+                design = Design.from_file(
+                    design,
+                    overrides=design_overrides,
+                    allow_extra=design_allow_extra,
+                    remove_extra=design_remove_fields,
+                    target=target,
+                )
+
+            elif isinstance(design, dict):
+                design = Design.target_selected(design, target, design_overrides)
+                if "design_root" not in design:
+                    design["design_root"] = Path.cwd()
+                design = Design(**design)
+            elif target is not None:
+                raise ValueError(
+                    f"target {target!r} was asked for, but the design is already built: "
+                    "select the target where the design is loaded (`Design.from_file(..., "
+                    "target=...)`)"
+                )
+        else:
+            design = self._design_from_project(
+                xeda_project, xedaproject, design, select_design_in_project, target
+            )
         # Recover supplied contributions without treating model-created nested defaults as
         # explicit producer settings. Actual nested edits still count.
         from .resolver import _explicit
@@ -2402,7 +2615,9 @@ class FlowLauncher:
                 api_sections[flow_class.name],
             )
         if self.settings.debug:
-            log.info("design: %s" % PrettyPrinter().pformat(design.model_dump()))
+            log.info(
+                "design: %s" % PrettyPrinter().pformat(_shown_dependencies(design.model_dump()))
+            )
         # The files that this launch was given: never the destination of an output.
         self._launch_inputs = [
             path.resolve()
@@ -2426,6 +2641,7 @@ class FlowLauncher:
             deepcopy(api_sections),
             flow_request,
             binding_layers,
+            design,
         )
 
 
