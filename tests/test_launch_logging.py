@@ -157,13 +157,10 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
     runner.run_flow(
         "vivado_alt_synth",
         design,
-        flow_settings=node_settings(
-            "vivado_alt_synth",
-            {
-                "fpga": {"part": "xc7a12tcsg325-1"},
-                "clocks": {"main_clock": {"period": "5 ns"}},
-            },
-        ),
+        flow_settings={
+            "fpga": {"part": "xc7a12tcsg325-1"},
+            "clocks": {"main_clock": {"period": "5 ns"}},
+        },
     )
     assert seen == [False]
     assert logging.getLogger("xeda").level == logging.NOTSET

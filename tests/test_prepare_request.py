@@ -78,7 +78,7 @@ def test_host_layer_is_the_lowest(tmp_path):
         TTaker,
         "own",
         project,
-        ["flows.t_maker.text=cli"],
+        ["t_maker.text=cli"],
         host_flows=host,
         host=HOST,
     )

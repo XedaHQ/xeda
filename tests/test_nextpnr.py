@@ -738,9 +738,8 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
             runner.plan(
                 Nextpnr,
                 design,
-                flow_settings=node_settings(
-                    Nextpnr, [f"fpga.part={ICE40_PART}", "yosys.flatten=true"]
-                ),
+                # `yosys` alone is also a flow name, so the item names its node
+                flow_settings=[f"nextpnr.fpga.part={ICE40_PART}", "nextpnr.yosys.flatten=true"],
             )
         elif origin == "api":
             runner.run_flow(
