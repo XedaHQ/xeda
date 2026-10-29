@@ -46,7 +46,7 @@ from xeda.workspace import Workspace
 from .cancel_flows import cut_design, cut_flows
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
-from .generation_world import World, input_reader_flow
+from .generation_world import World, input_reader_flow, reader_flow
 from .io_flows import TMaker, TTaker  # noqa: F401  (flows that the tests run by name)
 from .test_dependency_generation import Chain
 
@@ -584,6 +584,83 @@ def test_a_converter_source_is_named_by_its_node_and_read_from_its_run_directory
     (converter.run_dir / "A.v").write_text("module changed(); endmodule\n")
     with record.open() as run:
         assert run.generated_sources == {} and run.missing_generated == (f"{fake.name}:A.v",)
+
+
+def test_a_flow_that_reads_its_design_records_the_sources_it_read(tmp_path):
+    reader = reader_flow()
+    world = World(
+        tmp_path, sources=["gen/top.v", "extra.v"], generator={"generated_sources": ["gen/top.v"]}
+    )
+    (world.root / "extra.v").write_text("module extra; endmodule\n")
+    workspace = Workspace(world.run_root)
+    result = workspace.run(Spec(reader.name, world.load()))
+    assert result.passed, result.error
+    record = result.record
+    (row,) = record.inputs
+    assert (row.name, row.origin, row.producer, row.producer_run_dir) == (
+        "design",
+        "source",
+        None,
+        None,
+    )
+    (storage,) = world.storages()
+    generated, written = row.sources
+    assert (generated.path, generated.generated, generated.producer) == ("gen/top.v", True, None)
+    assert generated.generation == storage.name and generated.digest
+    assert (written.path, written.generated, written.producer) == ("extra.v", False, None)
+    assert written.generation is None and written.digest and written.dependency is None
+    with record.open() as run:
+        assert run.generated_sources == {"gen/top.v": storage / "gen" / "top.v"}
+        assert run.missing_generated == ()
+    (storage / "gen" / "top.v").write_text("// changed\n")
+    with record.open() as run:
+        assert run.generated_sources == {} and run.missing_generated == ("gen/top.v",)
+
+
+def test_a_converter_row_lists_the_sources_that_pass_through(tmp_path):
+    fake, *_ = converter_flows()
+
+    class TConvConsumer(Flow):
+        """Reads the Verilog sources of its design, for the tests of records."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+        reads_sources = frozenset({SourceType.Verilog})
+
+        def run(self) -> None:
+            pass
+
+    world = World(
+        tmp_path,
+        sources=["A.bsv", "gen/top.v", "plain.v"],
+        generator={"generated_sources": ["gen/top.v"]},
+    )
+    (world.root / "A.bsv").write_text("package A; endpackage\n")
+    (world.root / "plain.v").write_text("module plain; endmodule\n")
+    result = Workspace(world.run_root).run(Spec(f"{fake.name}+{TConvConsumer.name}", world.load()))
+    assert result.passed, result.error
+    record = result.record
+    converter = result.nodes[fake.name].record
+    (row,) = record.inputs
+    assert (row.name, row.producer, row.output) == ("design", fake.name, "design")
+    (storage,) = world.storages()
+    assert [(s.path, s.generated, s.producer) for s in row.sources] == [
+        ("A.v", True, fake.name),
+        ("gen/top.v", True, None),
+        ("plain.v", False, None),
+    ]
+    made, passed, written = row.sources
+    assert made.digest == converter.outputs["design"].digests[0] and made.generation is None
+    assert passed.generation == storage.name and written.generation is None
+    with record.open() as run:
+        assert run.generated_sources == {
+            f"{fake.name}:A.v": converter.run_dir / "A.v",
+            "gen/top.v": storage / "gen" / "top.v",
+        }
+        assert run.missing_generated == ()
+    (storage / "gen" / "top.v").write_text("// changed\n")
+    with record.open() as run:
+        assert set(run.generated_sources) == {f"{fake.name}:A.v"}
+        assert run.missing_generated == ("gen/top.v",)
 
 
 # ---------------------------------------------------------------------- what a record holds

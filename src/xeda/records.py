@@ -1221,16 +1221,47 @@ def _input_source(flow: Flow, path: str) -> InputSource:
     )
 
 
+def _design_sources(flow: Flow, converted: Any = None) -> tuple[InputSource, ...]:
+    """Return the sources that `flow` read of its design, for the row of its `design` input.
+
+    `converted` is the `BoundProducer` of the converter that filled the input, or None. A source
+    in the output of the converter is named by its place there and by the converter. Every other
+    source is as `_input_source` records it: a source that passed through the converter keeps its
+    own provenance."""
+    from .flow.derived import generated_name
+
+    base = None if converted is None else Path(str(converted.producer_path))
+    made = (
+        {} if base is None else {generated_name(Path(e.path), base): e for e in converted.entries}
+    )
+    sources = []
+    for source in flow.sources_read(rtl="rtl" in flow.design_parts, tb="tb" in flow.design_parts):
+        assert source.file is not None, f"the source {source} names no file"
+        try:
+            name = None if base is None else generated_name(source.file, base)
+        except ValueError:
+            name = None  # not a file of the converter
+        if name in made:
+            sources.append(
+                InputSource(
+                    path=name, generated=True, digest=made[name].sha, producer=converted.producer
+                )
+            )
+        else:
+            sources.append(_input_source(flow, str(source.file)))
+    return tuple(sources)
+
+
 def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
     """Return where each declared input of `flow` came from, as one row for each binding.
 
     An input that producers provide has one row for each producer reference, in binding order,
     so an input of cardinality `many` that is bound to several producers repeats its name. Any
     other input has one row. The resolver gives an input either design sources or producer
-    references, never both. A row without a producer holds the design sources that it reads. The
-    row of a `design` input that a converter fills holds the sources that the converter
-    generated."""
-    from .flow.derived import generated_name
+    references, never both. A row without a producer holds the design sources that it reads.
+    The row of the `design` input holds the sources that the flow read of its design, which a
+    converter may have generated (`_design_sources`). It comes first, and a flow without a
+    `design` input has none."""
     from .flow.io import declared_inputs
 
     declarations = declared_inputs(type(flow))
@@ -1239,17 +1270,6 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
         if declared.references:
             for reference in declared.references:
                 producer_path = reference.producer_path
-                # A converter hands over the sources it generated: the run read them.
-                made = declarations[declared.name].is_design and producer_path is not None
-                sources = tuple(
-                    InputSource(
-                        path=generated_name(Path(entry.path), Path(str(producer_path))),
-                        generated=True,
-                        digest=entry.sha,
-                        producer=reference.producer,
-                    )
-                    for entry in (reference.entries if made else ())
-                )
                 inputs.append(
                     InputRecord(
                         name=declared.name,
@@ -1266,7 +1286,11 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                             if producer_path is None
                             else run_root / _run_dir_text(Path(producer_path), run_root)
                         ),
-                        sources=sources,
+                        sources=(
+                            _design_sources(flow, reference)
+                            if declarations[declared.name].is_design and producer_path is not None
+                            else ()
+                        ),
                     )
                 )
             continue
@@ -1282,6 +1306,11 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                 sources=sources,
             )
         )
+    for name, declaration in declarations.items():
+        if declaration.is_design and all(row.name != name for row in inputs):
+            inputs.insert(
+                0, InputRecord(name, "source", None, None, None, None, _design_sources(flow))
+            )
     return inputs
 
 

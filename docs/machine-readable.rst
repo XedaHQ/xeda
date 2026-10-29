@@ -372,8 +372,10 @@ The record has these fields:
     ``{path, generated, digest, dependency, producer, generation}``. For a generated source,
     ``path`` is its name in the output of its producer, and ``producer`` tells which one wrote it:
     ``null`` for the generator of the design itself, the name of the design for the generator of a
-    dependency, and the name of the node for a converter (the ``design`` input of a flow that a
-    converter feeds lists the sources that the converter generated). ``generation`` is the key of
+    dependency, and the name of the node for a converter. The ``design`` input of a flow that reads
+    its design sources lists the sources that the flow read: the written ones, the ones that a
+    generator wrote, and, when a converter feeds the flow, the ones that the converter generated
+    (its row names the converter). ``generation`` is the key of
     the generation storage that holds a source of a generator, and ``null`` for any other source. An input of cardinality ``many`` that is bound to
     several producer outputs has one entry for each binding. These entries have the same ``name``,
     in the order of the bindings. Each entry has its own ``producer``, ``output``, ``producer_run_id`` and
