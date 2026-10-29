@@ -18,6 +18,7 @@ from xeda.flows import VivadoSynth
 from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 SETTINGS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
@@ -156,10 +157,13 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
     runner.run_flow(
         "vivado_alt_synth",
         design,
-        flow_settings={
-            "fpga": {"part": "xc7a12tcsg325-1"},
-            "clocks": {"main_clock": {"period": "5 ns"}},
-        },
+        flow_settings=node_settings(
+            "vivado_alt_synth",
+            {
+                "fpga": {"part": "xc7a12tcsg325-1"},
+                "clocks": {"main_clock": {"period": "5 ns"}},
+            },
+        ),
     )
     assert seen == [False]
     assert logging.getLogger("xeda").level == logging.NOTSET
@@ -178,7 +182,9 @@ def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
         design=design,
         destination_text="somewhere",
         run_root=tmp_path / "run",
-        flow_settings=["no_such_setting=1"],  # refused at planning, before any connection
+        flow_settings=node_settings(
+            "nextpnr", ["no_such_setting=1"]
+        ),  # refused at planning, before any connection
         xedaproject=None,
         design_updates=[],
         design_allow_extra=False,

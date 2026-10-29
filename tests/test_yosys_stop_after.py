@@ -25,6 +25,7 @@ from .scoping import scoped
 from .openroad_utils import openroad_settings, register_openroad_flows
 from .settings_samples import flow_classes
 from .tiny_platform import tiny_store
+from .scoping import node_settings
 
 ECP5 = "LFE5U-25F-6BG381C"
 
@@ -120,7 +121,10 @@ def _plan(tmp_path: Path, flow: str, *settings: str):
     return runner.plan(
         dict((name, cls) for cls, name in flow_classes())[flow],
         Design.load(_design(tmp_path)),
-        flow_settings=[*FLOWS[flow]["needs"], "stop_after=rtl", *settings],
+        flow_settings=node_settings(
+            dict((name, cls) for cls, name in flow_classes())[flow],
+            [*FLOWS[flow]["needs"], "stop_after=rtl", *settings],
+        ),
     )
 
 

@@ -35,6 +35,7 @@ from .settings_samples import flow_classes, minimal_settings
 from .sim_evidence_cases import CASES, SimCase, launch_case
 from .test_ghdl import _evidence_design
 from .tool_utils import fake_calls, require_ghdl, require_nvc_evidence
+from .scoping import node_settings
 
 SIM_FLOWS = [(cls, name) for cls, name in flow_classes() if issubclass(cls, SimFlow)]
 FIELDS = [
@@ -201,8 +202,12 @@ def test_the_command_line_text_gives_the_run_a_boolean_waveform_would(tmp_path):
     the same identity."""
     design = _evidence_design(tmp_path, "std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    text = runner.plan("ghdl_sim", design, flow_settings=["vcd=true"]).node("ghdl_sim")
-    boolean = runner.plan("ghdl_sim", design, flow_settings={"vcd": True}).node("ghdl_sim")
+    text = runner.plan(
+        "ghdl_sim", design, flow_settings=node_settings("ghdl_sim", ["vcd=true"])
+    ).node("ghdl_sim")
+    boolean = runner.plan(
+        "ghdl_sim", design, flow_settings=node_settings("ghdl_sim", {"vcd": True})
+    ).node("ghdl_sim")
     assert text.settings.vcd == "dump.vcd"
     assert text.settings.model_dump() == boolean.settings.model_dump()
     assert text.flowrun_hash == boolean.flowrun_hash
@@ -378,9 +383,9 @@ def test_a_refused_waveform_is_refused_when_planned_and_starts_no_tool(tmp_path)
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowSettingsException, match=r"vcs cannot write a waveform from `vcd`.*vpd"):
-        runner.plan("vcs", design, flow_settings=["vcd=true"])
+        runner.plan("vcs", design, flow_settings=node_settings("vcs", ["vcd=true"]))
     with pytest.raises(FlowSettingsException, match=r"yosys_sim cannot write.*`vcd`.*vcd_writer"):
-        runner.plan("yosys_sim", design, flow_settings=["vcd=x.vcd"])
+        runner.plan("yosys_sim", design, flow_settings=node_settings("yosys_sim", ["vcd=x.vcd"]))
     assert not (tmp_path / "run").exists()
 
 
@@ -593,7 +598,9 @@ def test_ghdl_writes_the_waveform_the_command_line_asks_for(tmp_path, setting, w
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"{setting}=true"])
+    flow = runner.run_flow(
+        GhdlSim, design, flow_settings=node_settings(GhdlSim, [f"{setting}=true"])
+    )
     assert flow is not None and flow.succeeded
     assert (flow.run_path / written).stat().st_size > 0
     assert not list(flow.run_path.glob("true*"))
@@ -608,7 +615,9 @@ def test_ghdl_writes_a_compressed_vcd_for_the_vcdgz_setting(tmp_path, value, wri
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcdgz={value}"])
+    flow = runner.run_flow(
+        GhdlSim, design, flow_settings=node_settings(GhdlSim, [f"vcdgz={value}"])
+    )
     assert flow is not None and flow.succeeded
     data = (flow.run_path / written).read_bytes()
     assert data[:2] == b"\x1f\x8b"
@@ -620,7 +629,9 @@ def test_ghdl_delivers_a_compressed_vcd_to_a_location_as_a_copy(tmp_path):
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     target = tmp_path / "out" / "waves.vcd.gz"
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcdgz={target}"])
+    flow = runner.run_flow(
+        GhdlSim, design, flow_settings=node_settings(GhdlSim, [f"vcdgz={target}"])
+    )
     assert flow is not None and flow.succeeded
     assert (flow.run_path / "dump.vcd.gz").read_bytes()[:2] == b"\x1f\x8b"
     assert b"$var" in gzip.decompress(target.read_bytes())
@@ -630,11 +641,11 @@ def test_ghdl_vcd_is_plain_whatever_the_case_of_the_name(tmp_path):
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(GhdlSim, design, flow_settings=["vcd=w.VCD"])
+    flow = runner.run_flow(GhdlSim, design, flow_settings=node_settings(GhdlSim, ["vcd=w.VCD"]))
     assert flow is not None and flow.succeeded
     assert b"$var" in (flow.run_path / "w.VCD").read_bytes()
     with pytest.raises(FlowSettingsException, match="give the name to `vcdgz`"):
-        runner.plan("ghdl_sim", design, flow_settings=["vcd=w.vcd.gz"])
+        runner.plan("ghdl_sim", design, flow_settings=node_settings("ghdl_sim", ["vcd=w.vcd.gz"]))
 
 
 @pytest.mark.parametrize(
@@ -651,7 +662,7 @@ def test_nvc_writes_the_waveform_through_its_own_option(tmp_path, setting, value
     require_nvc_evidence()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(Nvc, design, flow_settings=[f"{setting}={value}"])
+    flow = runner.run_flow(Nvc, design, flow_settings=node_settings(Nvc, [f"{setting}={value}"]))
     assert flow is not None and flow.succeeded
     wave = flow.run_path / written
     assert wave.stat().st_size > 0
@@ -688,7 +699,9 @@ def test_nvc_filters_the_waveform_with_the_globs(tmp_path):
     flow = runner.run_flow(
         Nvc,
         design,
-        flow_settings=["vcd=f.vcd", "wave_include_glob=*:keep", "wave_exclude_glob=*:drop"],
+        flow_settings=node_settings(
+            Nvc, ["vcd=f.vcd", "wave_include_glob=*:keep", "wave_exclude_glob=*:drop"]
+        ),
     )
     assert flow is not None and flow.succeeded
     text = (flow.run_path / "f.vcd").read_text()
@@ -738,7 +751,9 @@ def test_saif_true_a_location_and_the_power_demand_are_one_run(tmp_path):
 
     def simulation(*extra: str):
         plan = runner.plan(
-            "vivado_power", tmp_path / "design.yaml", flow_settings=[*VIVADO_SETTINGS, *extra]
+            "vivado_power",
+            tmp_path / "design.yaml",
+            flow_settings=node_settings("vivado_power", [*VIVADO_SETTINGS, *extra]),
         )
         return plan.node("vivado_postsynth_sim")
 

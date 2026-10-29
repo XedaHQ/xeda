@@ -48,6 +48,7 @@ from xeda.run_root import RUN_ROOT_MARKER, RunRootError, ensure_run_root
 from xeda.utils import XedaException
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, producers_of, use_fake_tools
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -229,7 +230,7 @@ def test_a_run_root_holding_files_is_refused_whatever_they_say(tmp_path, monkeyp
         DefaultRunner(root, display_results=False).run(
             "vivado_synth",
             design=Design.load(SQRT / "sqrt.yaml"),
-            flow_settings=XILINX_SETTINGS,
+            flow_settings=node_settings("vivado_synth", XILINX_SETTINGS),
         )
 
     assert str(root) in str(refused.value) and RUN_ROOT_MARKER in str(refused.value)
@@ -245,7 +246,9 @@ def test_an_earlier_xeda_runs_directory_is_adopted(tmp_path, monkeypatch, option
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     design = Design.load(SQRT / "sqrt.yaml")
-    first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
+    first = _launcher(tmp_path).run(
+        "vivado_synth", design=design, flow_settings=node_settings("vivado_synth", XILINX_SETTINGS)
+    )
     assert first is not None and first.succeeded
     root = tmp_path / "xeda_run"
     for name in (RUN_ROOT_MARKER, ".gitignore", "CACHEDIR.TAG"):  # as 0.4.2 left it
@@ -253,7 +256,7 @@ def test_an_earlier_xeda_runs_directory_is_adopted(tmp_path, monkeypatch, option
     (first.run_path / "stale.txt").write_text("an earlier run's\n")
 
     flow = DefaultRunner(root, display_results=False, **option).run(
-        "vivado_synth", design=design, flow_settings=XILINX_SETTINGS
+        "vivado_synth", design=design, flow_settings=node_settings("vivado_synth", XILINX_SETTINGS)
     )
 
     assert flow is not None and flow.succeeded and flow.run_path == first.run_path
@@ -415,7 +418,7 @@ def test_a_run_directory_linked_out_of_the_run_root_is_refused(tmp_path, monkeyp
         launcher.run(
             "vivado_synth",
             design=Design.load(SQRT / "sqrt.yaml"),
-            flow_settings=XILINX_SETTINGS,
+            flow_settings=node_settings("vivado_synth", XILINX_SETTINGS),
         )
 
     assert type(refused.value).__name__ == "RunDirectoryError"
@@ -460,7 +463,7 @@ def test_a_run_directory_that_is_a_link_to_another_directory_in_the_run_root_is_
         launcher.run(
             "vivado_synth",
             design=Design.load(SQRT / "sqrt.yaml"),
-            flow_settings=XILINX_SETTINGS,
+            flow_settings=node_settings("vivado_synth", XILINX_SETTINGS),
         )
     assert str(link) in str(refused.value)
     assert _tree(root) == before
@@ -478,7 +481,9 @@ def test_a_run_directory_that_is_a_link_to_a_run_directory_beside_it_is_used(tmp
     (root / "sqrt" / "vivado_synth").symlink_to(target, target_is_directory=True)
 
     flow = launcher.run(
-        "vivado_synth", design=Design.load(SQRT / "sqrt.yaml"), flow_settings=XILINX_SETTINGS
+        "vivado_synth",
+        design=Design.load(SQRT / "sqrt.yaml"),
+        flow_settings=node_settings("vivado_synth", XILINX_SETTINGS),
     )
 
     assert flow is not None and flow.succeeded
@@ -610,7 +615,9 @@ def test_clean_empties_a_run_directory_xeda_made(tmp_path, monkeypatch):
     marked."""
     use_fake_tools(monkeypatch)
     design = Design.load(SQRT / "sqrt.yaml")
-    first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
+    first = _launcher(tmp_path).run(
+        "vivado_synth", design=design, flow_settings=node_settings("vivado_synth", XILINX_SETTINGS)
+    )
     assert first is not None and first.succeeded
     run_dir = first.run_path
     (run_dir / "reports").mkdir(exist_ok=True)
@@ -619,7 +626,7 @@ def test_clean_empties_a_run_directory_xeda_made(tmp_path, monkeypatch):
     assert (tmp_path / "xeda_run" / RUN_ROOT_MARKER).is_file()
 
     flow = _launcher(tmp_path, clean=True).run(
-        "vivado_synth", design=design, flow_settings=XILINX_SETTINGS
+        "vivado_synth", design=design, flow_settings=node_settings("vivado_synth", XILINX_SETTINGS)
     )
 
     assert flow is not None and flow.succeeded and not flow.reused
@@ -893,7 +900,9 @@ def test_generated_files_replace_a_link_rather_than_write_through_it(tmp_path, m
     user's, is untouched."""
     use_fake_tools(monkeypatch)
     design = Design.load(SQRT / "sqrt.yaml")
-    first = _launcher(tmp_path).run("vivado_synth", design=design, flow_settings=XILINX_SETTINGS)
+    first = _launcher(tmp_path).run(
+        "vivado_synth", design=design, flow_settings=node_settings("vivado_synth", XILINX_SETTINGS)
+    )
     assert first is not None and first.succeeded
     canaries = {}
     for name in GENERATED:
@@ -903,7 +912,7 @@ def test_generated_files_replace_a_link_rather_than_write_through_it(tmp_path, m
 
     # not cleaned first: the links must survive to the write, and be replaced there
     again = _launcher(tmp_path, rebuild_all=True).run(
-        "vivado_synth", design=design, flow_settings=XILINX_SETTINGS
+        "vivado_synth", design=design, flow_settings=node_settings("vivado_synth", XILINX_SETTINGS)
     )
 
     assert again is not None and again.succeeded

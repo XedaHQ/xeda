@@ -18,6 +18,7 @@ from xeda.flow_runner.trace_inputs import setting_path_leaves
 
 from .io_flows import TInstalledTaker, TReadsInstalled, TReadsInstalledNested, _Where
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -148,7 +149,12 @@ def test_a_remote_run_does_not_ship_a_locator(tmp_path, remote_host, place):
     design.write_text(
         yaml.safe_dump({"name": "d", "rtl": {"sources": [], "top": "t"}, "flows": sections})
     )
-    outcome = remote_request(tmp_path, design, flow_class.name, flow_settings=command_line)
+    outcome = remote_request(
+        tmp_path,
+        design,
+        flow_class.name,
+        flow_settings=node_settings(flow_class.name, command_line),
+    )
     assert outcome.error is None and outcome.success, outcome.document
 
     workspace = remote_host.workspace()

@@ -349,6 +349,7 @@ import textwrap
 from xeda.design import DesignValidationError
 from xeda.flow_runner import DefaultRunner
 from xeda.errors import ProjectError
+from .scoping import node_settings
 
 BOTH_WAYS = r"`{dotted}` and `{table}: \{{\.\.\.\}}` both set keys of `{table}`: write one of them"
 #: a table written both ways inside a flow section, the way the report in the field wrote it
@@ -482,7 +483,7 @@ def test_the_command_line_takes_dotted_items_and_an_api_table_as_two_origins(tmp
     plan = runner.plan(
         "vivado_synth",
         path,
-        flow_settings=["fpga.part=xc7a12tcsg325-1"],
+        flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a12tcsg325-1"]),
         flow_overrides={"fpga": {"speed": -1}},
     )
 

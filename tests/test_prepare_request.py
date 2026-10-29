@@ -19,6 +19,7 @@ from .test_dse_run import _DeclaredOptimizer
 from .io_flows import TMaker, TPlace, TTaker
 from .test_checks_before_generation import REFUSALS, XILINX, Generated
 from .test_checks_before_generation import _design as declared_design
+from .scoping import node_settings
 
 HOST = "venona"
 PART = "LFE5U-25F-6BG256C"
@@ -150,9 +151,9 @@ def test_prepare_request_runs_no_flow_and_refuses_what_run_refuses(tmp_path):
     (tmp_path / "a.sc").write_text("")
     design = Design(name="d", root=tmp_path, rtl={"sources": ["a.sc"], "top": "t"})
     with pytest.raises(FlowSettingsException) as from_run:
-        refused.run(flow, design, flow_settings=settings)
+        refused.run(flow, design, flow_settings=node_settings(flow, settings))
     with pytest.raises(FlowSettingsException) as from_prepare:
-        refused.prepare_request(flow, design, flow_settings=settings)
+        refused.prepare_request(flow, design, flow_settings=node_settings(flow, settings))
     assert str(from_prepare.value) == str(from_run.value)
 
 
@@ -161,7 +162,9 @@ def test_prepare_request_refuses_a_declared_design_before_its_generator_runs(tmp
     writes, extra, flow, settings, refusal = REFUSALS[case]
     generated = declared_design(tmp_path, writes, extra)
     with pytest.raises(FlowSettingsException, match=refusal):
-        _runner(tmp_path).prepare_request(flow, str(generated.file), flow_settings=settings)
+        _runner(tmp_path).prepare_request(
+            flow, str(generated.file), flow_settings=node_settings(flow, settings)
+        )
     assert generated.runs == 0
     assert not (generated.root / "gen").exists()
     assert not (tmp_path / "run").exists(), "nothing was set up"
@@ -171,7 +174,9 @@ def test_prepare_request_runs_no_generator(tmp_path):
     """Preparing a request is planning: the generator runs in the launch, not here."""
     generated = Generated(tmp_path, ["gen/top.v"])
     prepared = _runner(tmp_path).prepare_request(
-        "vivado_synth", str(generated.file), flow_settings=dict(XILINX)
+        "vivado_synth",
+        str(generated.file),
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
     )
     assert prepared.plan.requested == "vivado_synth"
     assert generated.runs == 0

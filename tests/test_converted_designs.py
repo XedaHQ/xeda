@@ -33,6 +33,7 @@ from xeda.flow_runner.resolver import Plan, planned_design_of
 from xeda.flow_runner.trace import Freshness
 from xeda.introspect import plan_info
 
+from .scoping import node_settings
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .launch_utils import empty_project
@@ -378,7 +379,10 @@ def test_a_bluespec_design_plans_a_conversion_with_its_reason_or_fails_with_a_re
     the_runner = runner(tmp_path)
     try:
         plan = the_runner.plan(
-            name, design, empty_project(tmp_path), flow_settings=minimal_settings(cls)
+            name,
+            design,
+            empty_project(tmp_path),
+            flow_settings=node_settings(name, minimal_settings(cls)),
         )
     except (FlowSettingsException, FlowSettingsError) as refusal:
         message = str(refusal)
@@ -423,7 +427,10 @@ def test_the_sweep_design_reaches_both_outcomes(tmp_path) -> None:
     for cls, name in flow_classes():
         try:
             runner(tmp_path).plan(
-                name, design, empty_project(tmp_path), flow_settings=minimal_settings(cls)
+                name,
+                design,
+                empty_project(tmp_path),
+                flow_settings=node_settings(name, minimal_settings(cls)),
             )
             planned.add(name)
         except (FlowSettingsException, FlowSettingsError):

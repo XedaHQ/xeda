@@ -27,6 +27,7 @@ from xeda.flows import YosysFpga
 
 from .design_edits import with_updates
 from . import tool_utils
+from .scoping import node_settings
 
 #: one FPGA per `synth_command` target, so the mode is checked on every pass it can run
 #: (Gowin has no part parser, so it is named by vendor/family/device)
@@ -98,7 +99,9 @@ def _launch(tmp_path: Path, part: "dict[str, str]", **settings) -> Path:
     flow = runner.run(
         YosysFpga,
         _design(tmp_path),
-        flow_settings={"fpga": part, "clocks": {"main_clock": {"period": "5 ns"}}, **settings},
+        flow_settings=node_settings(
+            YosysFpga, {"fpga": part, "clocks": {"main_clock": {"period": "5 ns"}}, **settings}
+        ),
     )
     assert flow is not None and flow.succeeded, "the fakes must complete, or nothing is rendered"
     return Path(flow.run_path)
@@ -350,13 +353,16 @@ def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
         runner.run(
             YosysFpga,
             _design(tmp_path),
-            flow_settings={
-                "fpga": PARTS["xilinx"],
-                "clocks": {"main_clock": {"period": "5 ns"}},
-                "synth_pass_only": True,
-                **PASS_ONLY_READER,
-                "verilog_lib": [str(library)],
-            },
+            flow_settings=node_settings(
+                YosysFpga,
+                {
+                    "fpga": PARTS["xilinx"],
+                    "clocks": {"main_clock": {"period": "5 ns"}},
+                    "synth_pass_only": True,
+                    **PASS_ONLY_READER,
+                    "verilog_lib": [str(library)],
+                },
+            ),
         )
 
 
@@ -545,9 +551,17 @@ def test_the_command_line_spelling_the_message_gives_is_the_empty_list(tmp_path,
         "synth_pass_only=true",
         "systemverilog=default",
     ]
-    runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, "read_verilog_flags="])
+    runner.plan(
+        YosysFpga,
+        _design(tmp_path),
+        flow_settings=node_settings(YosysFpga, [*base, "read_verilog_flags="]),
+    )
     with pytest.raises(FlowSettingsError, match="`read_verilog_flags=` for the empty list"):
-        runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, "read_verilog_flags=[]"])
+        runner.plan(
+            YosysFpga,
+            _design(tmp_path),
+            flow_settings=node_settings(YosysFpga, [*base, "read_verilog_flags=[]"]),
+        )
 
 
 def _settings(**settings: Any) -> "YosysFpga.Settings":
@@ -624,21 +638,28 @@ def test_the_mode_with_the_native_reader_written_out_is_accepted(tmp_path, toolc
     runner.plan(
         YosysFpga,
         _design(tmp_path),
-        flow_settings=[*base, "read_verilog_flags=", "systemverilog=default"],
+        flow_settings=node_settings(
+            YosysFpga, [*base, "read_verilog_flags=", "systemverilog=default"]
+        ),
     )
     runner.plan(
         YosysFpga,
         _design(tmp_path),
-        flow_settings=[
-            *base,
-            "read_verilog_flags=",
-            "systemverilog=default",
-            "read_systemverilog_flags=",
-        ],
+        flow_settings=node_settings(
+            YosysFpga,
+            [
+                *base,
+                "read_verilog_flags=",
+                "systemverilog=default",
+                "read_systemverilog_flags=",
+            ],
+        ),
     )
     for rest in (["read_verilog_flags="], ["read_verilog_flags=", "systemverilog=slang"]):
         with pytest.raises(FlowSettingsError, match="systemverilog"):
-            runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, *rest])
+            runner.plan(
+                YosysFpga, _design(tmp_path), flow_settings=node_settings(YosysFpga, [*base, *rest])
+            )
 
 
 @BY_FORMAT
@@ -674,13 +695,16 @@ def test_a_systemverilog_source_still_reads_as_read_verilog_sv_under_the_mode(
     flow = DefaultRunner(tmp_path / "run", display_results=False).run(
         YosysFpga,
         design,
-        flow_settings={
-            "fpga": PARTS["xilinx"],
-            "clocks": {"main_clock": {"period": "5 ns"}},
-            "synth_pass_only": True,
-            "systemverilog": "default",
-            **PASS_ONLY_READER,
-        },
+        flow_settings=node_settings(
+            YosysFpga,
+            {
+                "fpga": PARTS["xilinx"],
+                "clocks": {"main_clock": {"period": "5 ns"}},
+                "synth_pass_only": True,
+                "systemverilog": "default",
+                **PASS_ONLY_READER,
+            },
+        ),
     )
     assert flow is not None and flow.succeeded
     text = (Path(flow.run_path) / f"yosys_fpga_synth.{script_format}").read_text()
@@ -724,13 +748,16 @@ def test_the_reader_follows_the_sources_type_not_its_suffix(
     flow = DefaultRunner(tmp_path / "run", display_results=False).run(
         YosysFpga,
         design,
-        flow_settings={
-            "fpga": PARTS["xilinx"],
-            "clocks": {"main_clock": {"period": "5 ns"}},
-            "synth_pass_only": True,
-            "systemverilog": "default",
-            **PASS_ONLY_READER,
-        },
+        flow_settings=node_settings(
+            YosysFpga,
+            {
+                "fpga": PARTS["xilinx"],
+                "clocks": {"main_clock": {"period": "5 ns"}},
+                "synth_pass_only": True,
+                "systemverilog": "default",
+                **PASS_ONLY_READER,
+            },
+        ),
     )
     assert flow is not None and flow.succeeded
     text = (Path(flow.run_path) / f"yosys_fpga_synth.{script_format}").read_text()
@@ -799,13 +826,16 @@ def test_the_refusal_arrives_at_planning_before_any_tool_runs(tmp_path, toolchai
         runner.plan(
             YosysFpga,
             _design(tmp_path),
-            flow_settings={
-                "fpga": PARTS["xilinx"],
-                "clocks": {"main_clock": {"period": "5 ns"}},
-                "synth_pass_only": True,
-                **PASS_ONLY_READER,
-                "pre_synth_opt": True,
-            },
+            flow_settings=node_settings(
+                YosysFpga,
+                {
+                    "fpga": PARTS["xilinx"],
+                    "clocks": {"main_clock": {"period": "5 ns"}},
+                    "synth_pass_only": True,
+                    **PASS_ONLY_READER,
+                    "pre_synth_opt": True,
+                },
+            ),
         )
     assert "`synth_pass_only`" in str(raised.value)
     assert ": pre_synth_opt " in str(raised.value)
@@ -830,7 +860,7 @@ def test_a_design_whose_own_attributes_reach_setattr_is_refused_too(tmp_path, to
     )  # the settings alone carry no attribute
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowSettingsError) as raised:
-        runner.run(YosysFpga, design, flow_settings=settings)
+        runner.run(YosysFpga, design, flow_settings=node_settings(YosysFpga, settings))
     assert "`synth_pass_only`" in str(raised.value)
     assert ": set_attribute " in str(raised.value)
 
@@ -845,13 +875,16 @@ def test_a_nested_producer_section_reaches_the_mode_and_its_refusals(tmp_path, t
         runner.plan(
             Nextpnr,
             _design(tmp_path),
-            flow_settings=[
-                f"fpga.part={PARTS['ecp5']['part']}",
-                "clocks.main_clock.period=5ns",
-                "flows.yosys_fpga.synth_pass_only=true",
-                "flows.yosys_fpga.read_verilog_flags=",
-                "flows.yosys_fpga.prep=-flatten",
-            ],
+            flow_settings=node_settings(
+                Nextpnr,
+                [
+                    f"fpga.part={PARTS['ecp5']['part']}",
+                    "clocks.main_clock.period=5ns",
+                    "flows.yosys_fpga.synth_pass_only=true",
+                    "flows.yosys_fpga.read_verilog_flags=",
+                    "flows.yosys_fpga.prep=-flatten",
+                ],
+            ),
         )
     assert "`synth_pass_only`" in str(raised.value)
     assert ": prep " in str(raised.value)
@@ -937,12 +970,15 @@ def test_a_designs_parameters_still_reach_yosys_under_the_mode(tmp_path, toolcha
     flow = runner.run(
         YosysFpga,
         design,
-        flow_settings={
-            "fpga": PARTS["xilinx"],
-            "clocks": {"main_clock": {"period": "5 ns"}},
-            "synth_pass_only": True,
-            **PASS_ONLY_READER,
-        },
+        flow_settings=node_settings(
+            YosysFpga,
+            {
+                "fpga": PARTS["xilinx"],
+                "clocks": {"main_clock": {"period": "5 ns"}},
+                "synth_pass_only": True,
+                **PASS_ONLY_READER,
+            },
+        ),
     )
     assert flow is not None
     text = (Path(flow.run_path) / f"yosys_fpga_synth.{script_format}").read_text()
@@ -972,9 +1008,15 @@ def test_a_systemverilog_design_under_the_mode_is_refused_before_any_tool_runs(t
     }
     for extra in ({}, {"use_slang_plugin": False}):
         with pytest.raises(FlowSettingsError) as raised:
-            runner.plan(YosysFpga, design, flow_settings={**base, **extra})
+            runner.plan(
+                YosysFpga, design, flow_settings=node_settings(YosysFpga, {**base, **extra})
+            )
         assert ": systemverilog " in str(raised.value)
-    runner.plan(YosysFpga, design, flow_settings={**base, "systemverilog": "default"})
+    runner.plan(
+        YosysFpga,
+        design,
+        flow_settings=node_settings(YosysFpga, {**base, "systemverilog": "default"}),
+    )
     assert not list((tmp_path / "run").glob("**/*.ys"))
 
 

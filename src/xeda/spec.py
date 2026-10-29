@@ -84,6 +84,20 @@ def spec_sections(spec: Spec) -> tuple[dict[str, dict[str, Any]], BindingLayer]:
         )
     )
     sections = split_node_sections(thaw(spec.settings), requested.name, registered_flow, flows)
+    named = sections
+    sections, layer = split_bindings(sections, location=COMMAND_LINE_ORIGIN, kind="cli")
+    # A binding can reach a flow that no default producer or chain element names: the producer
+    # it names is a node as well. The resolver checks the node against its graph.
+    _, saved = split_bindings(thaw(spec.design.flows), location="the design file")
+    producers = {
+        flow_class
+        for entry in (*layer.entries, *saved.entries)
+        for text in (entry.value if isinstance(entry.value, (list, tuple)) else [entry.value])
+        if isinstance(text, str)
+        and (flow_class := registered_flow(text.partition(".")[0])) is not None
+    }
     nodes = {flow.name for flow in flows} | set(transitive_dependencies(requested, spec.design))
-    check_run_flows(sections, requested, spec.design, run_flows=nodes)
-    return split_bindings(sections, location=COMMAND_LINE_ORIGIN, kind="cli")
+    for producer in producers:
+        nodes |= {producer.name, *transitive_dependencies(producer, spec.design)}
+    check_run_flows(named, requested, spec.design, run_flows=nodes)
+    return sections, layer

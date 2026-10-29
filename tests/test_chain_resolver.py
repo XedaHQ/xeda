@@ -18,6 +18,7 @@ from xeda.flow_runner.trace import as_recorded
 from xeda.flows import Nextpnr
 from xeda.introspect import plan_info
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import (
     TChainAmbiguousConsumer,
@@ -130,7 +131,11 @@ def test_a_chain_a_file_binding_and_an_api_binding_plan_the_same_graph(tmp_path)
     api = runner.plan(
         TTaker, _design(tmp_path), flow_overrides={"inputs.made": "t_input_maker.made"}
     )
-    cli = runner.plan(TTaker, _design(tmp_path), flow_settings=["inputs.made=t_input_maker"])
+    cli = runner.plan(
+        TTaker,
+        _design(tmp_path),
+        flow_settings=node_settings(TTaker, ["inputs.made=t_input_maker"]),
+    )
     assert _graph(chain) == _graph(saved) == _graph(from_project) == _graph(api) == _graph(cli)
     origins = [_input(p, "t_taker", "made").binding_origin for p in (chain, saved, api, cli)]
     assert origins == ["chain", "file", "api", "cli"]
@@ -163,7 +168,9 @@ def test_a_chain_and_a_command_line_binding_of_one_input_are_an_error_even_when_
         _runner(tmp_path).plan(
             parse_request("t_input_maker+t_taker"),
             _design(tmp_path),
-            flow_settings=["inputs.made=t_input_maker.made"],
+            flow_settings=node_settings(
+                parse_request("t_input_maker+t_taker"), ["inputs.made=t_input_maker.made"]
+            ),
         )
 
 
@@ -297,7 +304,9 @@ def test_command_line_settings_reach_an_alternate_producer(tmp_path):
     plan = _runner(tmp_path).plan(
         TTaker,
         _design(tmp_path),
-        flow_settings=["inputs.made=t_input_maker", "flows.t_input_maker.text=given"],
+        flow_settings=node_settings(
+            TTaker, ["inputs.made=t_input_maker", "flows.t_input_maker.text=given"]
+        ),
     )
     assert plan.node("t_input_maker").settings.text == "given"
 
@@ -307,7 +316,9 @@ def test_command_line_settings_for_a_flow_outside_the_graph_name_its_nodes(tmp_p
         _runner(tmp_path).plan(
             TTaker,
             _design(tmp_path),
-            flow_settings=["inputs.made=t_input_maker", "flows.t_fork.label=x"],
+            flow_settings=node_settings(
+                TTaker, ["inputs.made=t_input_maker", "flows.t_fork.label=x"]
+            ),
         )
     message = str(raised.value)
     assert "names no node of this run (t_input_maker, t_maker, t_taker): t_fork" in message
@@ -318,7 +329,9 @@ def test_a_displaced_default_producer_is_still_addressable_and_unused(tmp_path):
     plan = _runner(tmp_path).plan(
         TTaker,
         _design(tmp_path),
-        flow_settings=["inputs.made=t_input_maker", "flows.t_maker.text=unused"],
+        flow_settings=node_settings(
+            TTaker, ["inputs.made=t_input_maker", "flows.t_maker.text=unused"]
+        ),
     )
     assert "t_maker" not in plan
 
@@ -344,17 +357,19 @@ NETLIST_AND_RTL = [("blink.v", SourceType.Verilog), ("net.json", SourceType.Json
 def test_a_netlist_source_skips_yosys_unless_a_binding_or_chain_selects_it(tmp_path):
     runner = _runner(tmp_path)
     settings = [f"fpga.part={PART}"]
-    bare = runner.plan(Nextpnr, _design(tmp_path, NETLIST_AND_RTL), flow_settings=settings)
+    bare = runner.plan(
+        Nextpnr, _design(tmp_path, NETLIST_AND_RTL), flow_settings=node_settings(Nextpnr, settings)
+    )
     assert [node.name for node in bare.nodes] == ["nextpnr"]
     saved = runner.plan(
         Nextpnr,
         _design(tmp_path, NETLIST_AND_RTL, {"nextpnr": {"inputs": {"netlist": "yosys_fpga"}}}),
-        flow_settings=settings,
+        flow_settings=node_settings(Nextpnr, settings),
     )
     chain = runner.plan(
         parse_request("yosys_fpga+nextpnr"),
         _design(tmp_path, NETLIST_AND_RTL),
-        flow_settings=settings,
+        flow_settings=node_settings(parse_request("yosys_fpga+nextpnr"), settings),
     )
     for plan in (saved, chain):
         assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr"]
@@ -432,7 +447,7 @@ def test_a_chain_over_an_invalid_saved_binding_succeeds(tmp_path):
         made = _input(plan, "t_taker", "made")
         assert made.producer == "t_input_maker" and len(made.overridden) == 1
         replaced = _runner(tmp_path).plan(
-            TTaker, design, flow_settings=["inputs.made=t_input_maker"]
+            TTaker, design, flow_settings=node_settings(TTaker, ["inputs.made=t_input_maker"])
         )
         assert _input(replaced, "t_taker", "made").producer == "t_input_maker"
         with pytest.raises(FlowSettingsException):

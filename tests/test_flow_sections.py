@@ -18,6 +18,7 @@ from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import suggest_dependency_node, transitive_dependencies
 from xeda.flows import Nextpnr, Yosys, YosysFpga
+from .scoping import node_settings
 
 PART = "xc7a100tfgg676-3"
 ECP5 = "LFE5U-25F-6BG381C"
@@ -87,7 +88,9 @@ def test_the_refusal_of_a_flow_outside_the_run_has_the_unknown_flow_kind(tmp_pat
             tmp_path,
             "yosys_fpga",
             _design(tmp_path, SourceType.Verilog),
-            flow_settings=[f"fpga.part={PART}", "flows.bsc.optimize=true"],
+            flow_settings=node_settings(
+                "yosys_fpga", [f"fpga.part={PART}", "flows.bsc.optimize=true"]
+            ),
         )
     assert [kind for _location, _message, _context, kind in raised.value.errors] == ["unknown_node"]
 
@@ -105,7 +108,7 @@ def test_a_converter_of_a_source_of_the_design_is_a_flow_of_the_run(tmp_path):
         tmp_path,
         "yosys_fpga",
         design,
-        flow_settings=[f"fpga.part={PART}", "flows.bsc.optimize=true"],
+        flow_settings=node_settings("yosys_fpga", [f"fpga.part={PART}", "flows.bsc.optimize=true"]),
     )
     assert [node.name for node in plan.nodes] == ["bsc", "yosys_fpga"]
     assert plan.node("bsc").settings.optimize is True
@@ -118,7 +121,7 @@ def test_a_converter_of_a_source_that_a_dependency_brings_is_a_flow_of_the_run(t
         "yosys_fpga",
         str(GCD),
         xedaproject="",
-        flow_settings=[f"fpga.part={PART}", "flows.bsc.optimize=true"],
+        flow_settings=node_settings("yosys_fpga", [f"fpga.part={PART}", "flows.bsc.optimize=true"]),
     )
     assert plan.node("bsc").settings.optimize is True
 
@@ -129,7 +132,9 @@ def test_a_displaced_default_producer_is_still_a_flow_of_the_run(tmp_path, caplo
         tmp_path,
         Nextpnr.name,
         _design(tmp_path, SourceType.JsonNetlist),
-        flow_settings=[f"fpga.part={ECP5}", "flows.yosys_fpga.flatten=true"],
+        flow_settings=node_settings(
+            Nextpnr.name, [f"fpga.part={ECP5}", "flows.yosys_fpga.flatten=true"]
+        ),
     )
     assert [node.name for node in plan.nodes] == ["nextpnr"]
     assert "yosys_fpga is not part of this run: its settings are unused" in caplog.text
@@ -140,7 +145,9 @@ def test_a_flow_that_a_chain_adds_is_a_flow_of_the_run(tmp_path):
         tmp_path,
         "yosys_fpga+vivado_impl",
         _design(tmp_path, SourceType.Verilog),
-        flow_settings=[f"fpga.part={PART}", "flows.vivado_impl.tcl_shell=false"],
+        flow_settings=node_settings(
+            "yosys_fpga+vivado_impl", [f"fpga.part={PART}", "flows.vivado_impl.tcl_shell=false"]
+        ),
     )
     assert plan.node("vivado_impl").settings.tcl_shell is False
 
@@ -149,7 +156,12 @@ def test_a_design_section_of_a_flow_outside_the_run_is_ignored(tmp_path, caplog)
     caplog.set_level(logging.INFO)
     design = _design(tmp_path, SourceType.Verilog)
     design = design.model_copy(update={"flows": {"bsc": {"optimize": True}}})
-    plan = _plan(tmp_path, "yosys_fpga", design, flow_settings=[f"fpga.part={PART}"])
+    plan = _plan(
+        tmp_path,
+        "yosys_fpga",
+        design,
+        flow_settings=node_settings("yosys_fpga", [f"fpga.part={PART}"]),
+    )
     assert [node.name for node in plan.nodes] == ["yosys_fpga"]
     assert "bsc" not in caplog.text
 
@@ -167,7 +179,12 @@ def test_an_unknown_setting_gets_no_hint_for_a_converter_the_design_does_not_nee
 def test_an_unknown_setting_gets_the_hint_for_a_converter_the_design_needs(tmp_path):
     design = _design(tmp_path, SourceType.Bluespec)
     with pytest.raises(FlowSettingsError, match=r"did you mean -s bsc\.optimize"):
-        _plan(tmp_path, "yosys_fpga", design, flow_settings=[f"fpga.part={PART}", "optimize=true"])
+        _plan(
+            tmp_path,
+            "yosys_fpga",
+            design,
+            flow_settings=node_settings("yosys_fpga", [f"fpga.part={PART}", "optimize=true"]),
+        )
 
 
 def test_the_hint_names_a_producer_of_the_flow_for_a_design_with_the_source(tmp_path):
@@ -203,5 +220,5 @@ def test_the_hint_for_a_converter_holds_for_a_source_that_a_dependency_brings(tm
             "yosys_fpga",
             str(GCD),
             xedaproject="",
-            flow_settings=[f"fpga.part={PART}", "optimize=true"],
+            flow_settings=node_settings("yosys_fpga", [f"fpga.part={PART}", "optimize=true"]),
         )

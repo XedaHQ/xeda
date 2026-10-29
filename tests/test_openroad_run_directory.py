@@ -17,6 +17,7 @@ from xeda.flow_runner import DefaultRunner
 from .openroad_utils import openroad_design, openroad_settings, probe_flows
 from .tiny_platform import tiny_store
 from .tool_utils import require_tclsh, use_fake_openroad
+from .scoping import node_settings
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics" / "openroad_place.json"
 
@@ -50,7 +51,7 @@ class Launch:
         return self.runner().run(
             self.probes.netlist,
             design or self.design,
-            flow_settings=openroad_settings(store),
+            flow_settings=node_settings(self.probes.netlist, openroad_settings(store)),
         )
 
     def outside_file(self, name: str) -> Path:
@@ -201,7 +202,9 @@ def test_the_threads_setting_gives_the_thread_count(launched, monkeypatch):
     flow = launched.runner().run(
         launched.probes.netlist,
         launched.design,
-        flow_settings=[*openroad_settings(store), "nthreads=3"],
+        flow_settings=node_settings(
+            launched.probes.netlist, [*openroad_settings(store), "nthreads=3"]
+        ),
     )
     assert flow is not None and flow.succeeded
     (command,) = [c for c in commands if "-no_init" in c]

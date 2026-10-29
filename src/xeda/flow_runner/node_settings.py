@@ -65,11 +65,15 @@ def _first_key(value: Any, default: str) -> str:
 
 
 def _problems(
-    table: Mapping[str, Any], flows: Sequence[type[Flow]], requested: str
+    table: Mapping[str, Any],
+    flows: Sequence[type[Flow]],
+    requested: str,
+    hints: Sequence[type[Flow]] = (),
 ) -> list[Finding]:
-    """Return what is wrong with the top-level keys of `table`, one finding for each key."""
+    """Return what is wrong with the top-level keys of `table`, one finding for each key. `hints`
+    are more flows than `flows` that a misspelled node may have meant."""
     problems: list[Finding] = []
-    nodes = sorted({flow.name for flow in flows})
+    nodes = sorted({flow.name for flow in (*flows, *hints)})
     for key, value in table.items():
         if key == "flows":
             # The old spelling of a node: `flows.<node>.<key>`.
@@ -144,15 +148,16 @@ def split_node_sections(
     names both. An item that repeats another is that item. Whether a node belongs to the run is for
     the caller to check (`check_run_flows`)."""
     requested_class = (flow_class_for or registered_flow)(requested)
-    if flows is None:
-        from .chains import default_graph
+    from .chains import default_graph
 
-        flows = default_graph(requested_class).flows() if requested_class is not None else ()
+    default_flows = default_graph(requested_class).flows() if requested_class is not None else ()
+    if flows is None:
+        flows = default_flows
     table = settings_to_dict(layer)  # type: ignore[arg-type]
     for key in table:
         if key != "flows":
             check_flow_name(key)  # a removed flow, or another spelling of a flow
-    problems = _problems(table, flows, requested)
+    problems = _problems(table, flows, requested, default_flows)
     if not problems:
         problems = _repeated_leaves(_given_leaves(layer, requested, flow_class_for, scoped=True))
     if problems:

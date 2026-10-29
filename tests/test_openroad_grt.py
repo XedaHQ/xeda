@@ -33,6 +33,7 @@ from .openroad_utils import (
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import failing_tool_commands, fake_calls, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
+from .scoping import node_settings
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "grt_defaults.tcl"
@@ -156,7 +157,9 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None, resid
     given |= text_items(texts)
     given |= typed or {}
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "openroad_grt", openroad_design(tmp_path / "design"), flow_settings=given
+        "openroad_grt",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad_grt", given),
     )
 
 
@@ -1240,7 +1243,7 @@ def launch(tmp_path, monkeypatch, request="openroad_grt", **given):
     _, settings = launch_settings(tmp_path, **given)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    flow = runner.run(request, design, flow_settings=settings)
+    flow = runner.run(request, design, flow_settings=node_settings(request, settings))
     assert flow is not None and flow.succeeded
     return runner, design, settings, flow
 
@@ -1344,7 +1347,9 @@ def test_a_second_launch_is_fresh(tmp_path, monkeypatch):
     runner, design, settings, first = launch(tmp_path, monkeypatch)
     log = Path(first.run_path) / "openroad_grt.log"
     written = log.stat().st_mtime_ns
-    again = runner.run("openroad_grt", design, flow_settings=settings)
+    again = runner.run(
+        "openroad_grt", design, flow_settings=node_settings("openroad_grt", settings)
+    )
     assert again is not None and again.succeeded and again.reused
     assert not first.reused
     assert log.stat().st_mtime_ns == written
@@ -1355,7 +1360,9 @@ def test_a_change_of_a_global_route_setting_runs_the_route_again_and_not_the_flo
 ):
     runner, design, settings, _ = launch(tmp_path, monkeypatch)
     given = text_items(settings) | {"router.seed": 5}
-    _, states = runner.plan_with_freshness("openroad_grt", Design.load(design), flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        "openroad_grt", Design.load(design), flow_settings=node_settings("openroad_grt", given)
+    )
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state == "fresh"
     assert states["openroad_grt"].state != "fresh"
@@ -1371,7 +1378,11 @@ def test_a_missing_metrics_file_fails_the_reading_of_the_results(tmp_path, monke
     monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(recorded))
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run("openroad_grt", openroad_design(tmp_path / "design"), flow_settings=settings)
+    flow = runner.run(
+        "openroad_grt",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad_grt", settings),
+    )
     assert flow is None or not flow.succeeded
     (run_dir,) = (tmp_path / "xeda_run").rglob("openroad_grt")
     assert not (run_dir / "trace.json").exists()
@@ -1400,7 +1411,11 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(
     monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(broken))
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run("openroad_grt", openroad_design(tmp_path / "design"), flow_settings=settings)
+    flow = runner.run(
+        "openroad_grt",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad_grt", settings),
+    )
     assert flow is None or not flow.succeeded
 
 
@@ -1411,7 +1426,9 @@ def test_a_failed_route_leaves_a_failed_database_and_no_trace(tmp_path, monkeypa
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
     with failing_tool_commands(monkeypatch, tmp_path, "global_route"):
-        failed = runner.run("openroad_grt", design, flow_settings=settings)
+        failed = runner.run(
+            "openroad_grt", design, flow_settings=node_settings("openroad_grt", settings)
+        )
     assert failed is None or not failed.succeeded
     (grt_dir,) = (tmp_path / "xeda_run").rglob("openroad_grt")
     cts_dir = grt_dir.parent / "openroad_cts"
@@ -1424,11 +1441,11 @@ def test_a_failed_route_leaves_a_failed_database_and_no_trace(tmp_path, monkeypa
     _, states = runner.plan_with_freshness(
         "openroad_grt",
         Design.load(design),
-        flow_settings=text_items(settings),
+        flow_settings=node_settings("openroad_grt", text_items(settings)),
     )
     assert states["openroad_cts"].state == "fresh"
     assert states["openroad_grt"].state != "fresh"
-    flow = runner.run("openroad_grt", design, flow_settings=settings)
+    flow = runner.run("openroad_grt", design, flow_settings=node_settings("openroad_grt", settings))
     assert flow is not None and flow.succeeded
     assert not (grt_dir / "openroad_grt-failed.odb").exists()
     assert (grt_dir / "trace.json").is_file() and (grt_dir / "grt.odb").is_file()
@@ -1441,7 +1458,11 @@ def test_the_failure_of_the_process_names_the_flow_the_script_and_the_error(tmp_
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with failing_tool_commands(monkeypatch, tmp_path, "global_route"):
-        runner.run("openroad_grt", openroad_design(tmp_path / "design"), flow_settings=settings)
+        runner.run(
+            "openroad_grt",
+            openroad_design(tmp_path / "design"),
+            flow_settings=node_settings("openroad_grt", settings),
+        )
     (grt_dir,) = (tmp_path / "xeda_run").rglob("openroad_grt")
     message = json.loads((grt_dir / "results.json").read_text())["error"]["message"]
     assert "openroad_grt" in message and "openroad_grt.tcl" in message

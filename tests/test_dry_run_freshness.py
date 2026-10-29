@@ -34,6 +34,7 @@ from xeda.flow_runner.run_lock import run_dir_lock
 from xeda.flow_runner.trace import locate_program
 from xeda.proc_utils import DOCKER_IMAGE_PREFIX
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .test_declared_fpga_flows import PART, tools  # noqa: F401  (the stand-in tools)
 from .test_isolation import _state
@@ -140,13 +141,17 @@ class Graph:
 
     def dry(self, **options):
         runner = self.launcher(**options)
-        return runner.plan_with_freshness(self.flow, self.design(), flow_settings=self.settings)
+        return runner.plan_with_freshness(
+            self.flow, self.design(), flow_settings=node_settings(self.flow, self.settings)
+        )
 
     def run(self, *, tolerate: tuple[type[Exception], ...] = (), **options) -> dict[str, Flow]:
         """Run the request. A failure of a type in `tolerate` ends the launch without an error."""
         runner = self.launcher(**options)
         try:
-            runner.run(self.flow, self.design(), flow_settings=self.settings)
+            runner.run(
+                self.flow, self.design(), flow_settings=node_settings(self.flow, self.settings)
+            )
         except tolerate:
             pass
         return {f.name: f for f in runner.launched}

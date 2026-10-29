@@ -33,6 +33,7 @@ from .remote_fixtures import (
 from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_store
 from .tool_utils import require_bsc, require_ghdl, require_yosys
 from .design_edits import design_from_dump
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -83,7 +84,7 @@ def _mirror(tmp_path: Path) -> Path:
 def _local_hash(design: Path, flow: str, settings, tmp_path: Path) -> str:
     """The identity of the requested node in a local plan."""
     plan = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
-        flow, design, flow_settings=settings
+        flow, design, flow_settings=node_settings(flow, settings)
     )
     return plan.node(flow).flowrun_hash
 
@@ -114,7 +115,7 @@ def test_a_remote_run_without_a_target_runs_the_design(tmp_path, remote_host):
             tmp_path,
             TARGETS / "knight.yaml",
             "vivado_synth",
-            flow_settings=["fpga.part=xc7a100tcsg324-1"],
+            flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a100tcsg324-1"]),
         )
     )
     assert document["spec"]["target"] is None
@@ -146,7 +147,12 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     local_trace.write_text("{}")
 
     document = _succeeded(
-        remote_request(tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS)
+        remote_request(
+            tmp_path,
+            design,
+            "vivado_synth",
+            flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
+        )
     )
     assert local_trace.read_text() == "{}", "a local run's directory is not the mirror"
     mirror = _run_dir(document)
@@ -195,7 +201,7 @@ def test_a_flow_without_declared_io_has_the_identity_it_was_sent(tmp_path, remot
     design = _sqrt_design(tmp_path / "design")
     (design.parent / "cells.db").write_text("")
     settings = ["target_libraries=cells.db", "clocks.main_clock.period=5ns"]
-    outcome = remote_request(tmp_path, design, "dc", flow_settings=settings)
+    outcome = remote_request(tmp_path, design, "dc", flow_settings=node_settings("dc", settings))
     # the fake `dc_shell` writes no timing report, so the run itself may report failure: what is
     # compared is the identity
     assert outcome.error is None, outcome.document
@@ -213,7 +219,10 @@ def test_a_vivado_composite_resolves_the_same_declared_graph(tmp_path, remote_ho
     remote_host.configure(env={"XEDA_FAKE_XSIM_STATE": "finish5"})
     document = _succeeded(
         remote_request(
-            tmp_path, root / "design.yaml", flow_name, flow_settings=list(VIVADO_SETTINGS)
+            tmp_path,
+            root / "design.yaml",
+            flow_name,
+            flow_settings=node_settings(flow_name, list(VIVADO_SETTINGS)),
         )
     )
     expected = _local_hash(root / "design.yaml", flow_name, VIVADO_SETTINGS, tmp_path)
@@ -236,7 +245,11 @@ def test_the_fpga_graph_runs_on_the_remote_and_mirrors_its_bitstream(tmp_path, r
     design = root / "top.yaml"
     design.write_text("name: top\nrtl:\n  sources: [top.v]\n  top: top\n")
     settings = ["fpga.part=LFE5U-25F-6BG381C"]
-    document = _succeeded(remote_request(tmp_path, design, "fpga_pack", flow_settings=settings))
+    document = _succeeded(
+        remote_request(
+            tmp_path, design, "fpga_pack", flow_settings=node_settings("fpga_pack", settings)
+        )
+    )
     assert _identity(document) == _local_hash(design, "fpga_pack", settings, tmp_path)
     assert [node["name"] for node in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
     recorded = _results(document)["outputs"]["bitstream"]
@@ -268,7 +281,9 @@ def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host):
         tmp_path,
         design,
         "vivado_alt_synth",
-        flow_settings=[*SQRT_SETTINGS, "write_netlist=true", "write_timing_netlist=true"],
+        flow_settings=node_settings(
+            "vivado_alt_synth", [*SQRT_SETTINGS, "write_netlist=true", "write_timing_netlist=true"]
+        ),
     )
     assert outcome.error is None and not outcome.success, outcome.document
     results = _results(outcome.document)
@@ -290,7 +305,7 @@ def test_a_failed_remote_run_does_not_fetch_an_output_it_never_wrote(tmp_path, r
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit"],
+        flow_settings=node_settings("vivado_synth", [*SQRT_SETTINGS, "bitstream=top.bit"]),
     )
     assert outcome.error is None and not outcome.success, outcome.document
     assert "bitstream" not in _results(outcome.document)["artifacts"]
@@ -308,7 +323,9 @@ def test_a_failed_remote_run_records_no_artifact_it_never_wrote(tmp_path, remote
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit", "write_netlist=true"],
+        flow_settings=node_settings(
+            "vivado_synth", [*SQRT_SETTINGS, "bitstream=top.bit", "write_netlist=true"]
+        ),
     )
     assert outcome.error is None and not outcome.success, outcome.document
     mirror = _run_dir(outcome.document)
@@ -390,7 +407,10 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     )
     document = _succeeded(
         remote_request(
-            tmp_path, design_root / "sqrt.yaml", "ghdl_synth", flow_settings=["verilog_output=vout"]
+            tmp_path,
+            design_root / "sqrt.yaml",
+            "ghdl_synth",
+            flow_settings=node_settings("ghdl_synth", ["verilog_output=vout"]),
         )
     )
     run_path = _run_dir(document)
@@ -437,7 +457,9 @@ def test_a_platform_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_
         "clocks.main_clock.period=2ns",
         "pdk_root=elsewhere",
     ]
-    document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
+    document = _succeeded(
+        remote_request(tmp_path, design, "yosys", flow_settings=node_settings("yosys", settings))
+    )
     results = _results(document)
     assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
     remote_dir = remote_host.workspace() / "xeda_run" / "mac" / "yosys"
@@ -465,7 +487,9 @@ def test_a_liberty_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_h
         f"liberty={library}",
         "clocks.main_clock.period=2ns",
     ]
-    document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
+    document = _succeeded(
+        remote_request(tmp_path, design, "yosys", flow_settings=node_settings("yosys", settings))
+    )
     results = _results(document)
     assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
     remote_dir = remote_host.workspace() / "xeda_run" / "mac" / "yosys"
@@ -512,7 +536,12 @@ def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host,
         "clocks.main_clock.period=2ns",
     ]
     document = _succeeded(
-        remote_request(tmp_path, design_file, "openroad_place", flow_settings=settings)
+        remote_request(
+            tmp_path,
+            design_file,
+            "openroad_place",
+            flow_settings=node_settings("openroad_place", settings),
+        )
     )
     assert _identity(document) == _local_hash(design_file, "openroad_place", settings, tmp_path)
     run_dir = remote_host.workspace() / "xeda_run" / "counter" / "openroad_place"
@@ -819,7 +848,9 @@ def test_a_command_line_binding_over_a_file_binding_reaches_the_remote_plan(tmp_
             tmp_path,
             design,
             TTaker.name,
-            flow_settings=["flows.t_taker.inputs.made=t_input_maker.made"],
+            flow_settings=node_settings(
+                TTaker.name, ["flows.t_taker.inputs.made=t_input_maker.made"]
+            ),
         )
     )
     assert _results(document)["read"] == "from the bound producer\n"

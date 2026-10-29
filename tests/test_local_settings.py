@@ -31,6 +31,7 @@ from xeda.types import UNSET
 from .io_flows import TReadsInstalled
 from .project_files import PROJECT_FILE
 from .test_project import PART, design_file, rtl, write_project
+from .scoping import node_settings
 
 
 @pytest.fixture(autouse=True)
@@ -283,7 +284,9 @@ def test_no_library_call_reads_a_private_file_unasked(tmp_path, private_home):
     write(local_file_of(project), "colour: 1\n")
     design = project.design("d")
     plan = DefaultRunner(tmp_path / "run").plan(
-        "vivado_synth", design, flow_settings=["fpga.part=xc7a100tcsg324-1"]
+        "vivado_synth",
+        design,
+        flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a100tcsg324-1"]),
     )
     assert plan.requested == "vivado_synth"
 
@@ -845,7 +848,7 @@ def test_a_remote_launch_protects_the_private_files_it_loaded(tmp_path, private_
     prepared = runner.prepare_request(
         "vivado_synth",
         project.design("d"),
-        flow_settings=["fpga.part=xc7a100tcsg324-1"],
+        flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a100tcsg324-1"]),
         local_settings=local_settings(project),
     )
     seen: list = []

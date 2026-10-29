@@ -23,6 +23,7 @@ from xeda.types import UNSET, Unset
 from xeda.xedaproject import PROJECT_FILE_NAMES, find_default_xedaproject, resolve_project_file
 
 from .project_files import PROJECT_FILE
+from .scoping import node_settings
 
 RESOURCES = Path(__file__).parent / "resources" / "targets"
 PART = ("-s", "vivado_synth.fpga.part=xc7a100tcsg324-1")
@@ -864,7 +865,10 @@ def test_the_paths_of_the_design_stay_relative_to_the_design_root(tmp_path):
 def test_a_remote_request_ships_the_resolved_paths_of_the_project(tmp_path):
     path = layered_project_with_paths(tmp_path)
     prepared = DefaultRunner(tmp_path / "run", display_results=False).prepare_request(
-        "nextpnr", "fifo", xedaproject=str(path), flow_settings=["fpga.part=LFE5U-25F-6BG256C"]
+        "nextpnr",
+        "fifo",
+        xedaproject=str(path),
+        flow_settings=node_settings("nextpnr", ["fpga.part=LFE5U-25F-6BG256C"]),
     )
     root = path.parent.resolve()
     assert prepared.sections["nextpnr"]["custom_boards_file"] == str(root / "boards.yaml")

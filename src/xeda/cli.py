@@ -68,7 +68,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.resolver import Plan
     from .flow_runner.scrub import ScrubCandidate, ScrubResult
     from .log_context import launch_id_of
-    from .flow_runner.settings_layers import NodeScoped, command_line_table
+    from .flow_runner.settings_layers import command_line_table
     from .introspect import (
         boards_info,
         design_info,
@@ -610,6 +610,15 @@ Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
 
 
+def _request_table(items: Iterable[str] | str | None) -> dict[str, Any]:
+    """Return the `-s` items as the settings table of a request document. Items that cannot be
+    read give an empty table: the launch reports them."""
+    try:
+        return command_line_table(list(items or ()))
+    except ValueError:
+        return {}
+
+
 def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
     """Return what `--target` and `--no-target` select: a target, no target (`None`), or `UNSET`
     when neither was given, so that the project's `default_target` applies."""
@@ -1091,7 +1100,6 @@ def run(
         log_level = logging.INFO
     setup_logger(log_level, detailed_logs)
     # Every `-s` item starts with the node that it addresses.
-    scoped_settings = NodeScoped(list(flow_settings or ()))
 
     # The positional DESIGN argument is a design file, and --design-name names a design of the
     # project. Neither selects the only design of the project (`project.design()`).
@@ -1110,7 +1118,6 @@ def run(
         remote = None
     selected_target = _selected_target(target, no_target)
     launcher: Optional[DefaultRunner] = None
-    table = command_line_table(scoped_settings)
 
     def request_spec() -> Dict[str, Any]:
         """The `spec` of a document of a launch that never got its `Spec`: the request text."""
@@ -1118,7 +1125,7 @@ def run(
             flow=chain,
             **design_info(design, launcher.design_name if launcher is not None else None),
             target=(launcher.target if launcher is not None else None) or target,
-            settings=table,
+            settings=_request_table(flow_settings),
         )
 
     def canceled_before_start() -> NoReturn:
@@ -1229,7 +1236,7 @@ def run(
             design=design,
             destination_text=remote,
             run_root=run_root,
-            flow_settings=scoped_settings,
+            flow_settings=list(flow_settings or ()),
             xedaproject=project_for_launcher,
             design_updates=design_updates,
             design_allow_extra=False,
@@ -1293,7 +1300,7 @@ def run(
                 chain,
                 xedaproject=project_for_launcher,
                 design=design,
-                flow_settings=scoped_settings,
+                flow_settings=list(flow_settings or ()),
                 design_updates=design_updates,
                 target=selected_target,
                 local_settings=local,
@@ -1339,7 +1346,7 @@ def run(
             chain,
             xedaproject=project_for_launcher,
             design=design or design_name,
-            flow_settings=scoped_settings,
+            flow_settings=list(flow_settings or ()),
             design_updates=design_updates,
             target=selected_target,
             local_settings=local,
@@ -1348,7 +1355,7 @@ def run(
         canceled_before_start()
     except Exception as e:
         not_started(e)
-    spec = Spec(chain, resolved.design, settings=table)
+    spec = Spec(chain, resolved.design, settings=_request_table(flow_settings))
     try:
         result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
     except KeyboardInterrupt as interrupt:
@@ -1680,7 +1687,7 @@ def dse(
             flow,
             xedaproject=_project_for_launcher(project),
             design=design or design_name,
-            flow_settings=NodeScoped(list(flow_settings)),
+            flow_settings=list(flow_settings),
             target=selected_target,
             local_settings=local,
         )

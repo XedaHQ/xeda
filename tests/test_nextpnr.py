@@ -20,6 +20,7 @@ from xeda.flow import FPGA, FlowDependencyFailure, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr, YosysFpga
 from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
+from .scoping import node_settings
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources" / "nextpnr"
@@ -669,7 +670,7 @@ def _yosys_launch_settings(tmp_path, monkeypatch, flow_cls, flows=None, cli=(), 
         DefaultRunner(tmp_path / "xeda_run").run(
             flow_cls,
             _blink(tmp_path, flows or {}),
-            flow_settings=[f"fpga.part={part or ICE40_PART}", *cli],
+            flow_settings=node_settings(flow_cls, [f"fpga.part={part or ICE40_PART}", *cli]),
         )
     settings = captured["settings"]
     assert isinstance(settings, YosysFpga.Settings)
@@ -731,11 +732,15 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
                 Nextpnr,
                 "blink",
                 xedaproject=str(project),
-                flow_settings=[f"fpga.part={ICE40_PART}"],
+                flow_settings=node_settings(Nextpnr, [f"fpga.part={ICE40_PART}"]),
             )
         elif origin == "cli":
             runner.plan(
-                Nextpnr, design, flow_settings=[f"fpga.part={ICE40_PART}", "yosys.flatten=true"]
+                Nextpnr,
+                design,
+                flow_settings=node_settings(
+                    Nextpnr, [f"fpga.part={ICE40_PART}", "yosys.flatten=true"]
+                ),
             )
         elif origin == "api":
             runner.run_flow(
@@ -745,10 +750,14 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
             runner.run(
                 Openfpgaloader,
                 design,
-                flow_settings=[f"fpga.part={ICE40_PART}", "flows.nextpnr.yosys.flatten=true"],
+                flow_settings=node_settings(
+                    Openfpgaloader, [f"fpga.part={ICE40_PART}", "flows.nextpnr.yosys.flatten=true"]
+                ),
             )
         else:
-            runner.plan(Nextpnr, design, flow_settings=[f"fpga.part={ICE40_PART}"])
+            runner.plan(
+                Nextpnr, design, flow_settings=node_settings(Nextpnr, [f"fpga.part={ICE40_PART}"])
+            )
     with pytest.raises(Exception, match="`yosys` was removed: use `flows.yosys_fpga.<key>`"):
         Nextpnr.Settings(yosys=YosysFpga.Settings())
 
@@ -791,11 +800,14 @@ def test_nextpnr_ice40_places_a_netlist_with_src_unless_told_otherwise(
     flow = runner.run(
         Nextpnr,
         _blink(tmp_path, flows),
-        flow_settings=[
-            "fpga.part=iCE40HX1K-TQ144",
-            "clocks.main_clock.period=20ns",
-            "pcf_allow_unconstrained=true",
-        ],
+        flow_settings=node_settings(
+            Nextpnr,
+            [
+                "fpga.part=iCE40HX1K-TQ144",
+                "clocks.main_clock.period=20ns",
+                "pcf_allow_unconstrained=true",
+            ],
+        ),
     )
     assert flow is not None and flow.succeeded
     (yosys,) = producers_of(runner, flow)

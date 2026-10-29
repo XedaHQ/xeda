@@ -18,6 +18,7 @@ from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.trace import TRACE_FORMAT
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import TChainConsumer, TJoin, TLeft, TTaker
 from .tool_utils import producers_of
@@ -93,7 +94,9 @@ def test_where_a_binding_is_written_is_no_part_of_the_identity(tmp_path):
     plans = [
         saved,
         runner.plan(parse_request("t_input_maker+t_taker"), design),
-        runner.plan(TTaker, design, flow_settings=["inputs.made=t_input_maker"]),
+        runner.plan(
+            TTaker, design, flow_settings=node_settings(TTaker, ["inputs.made=t_input_maker"])
+        ),
         runner.plan(TTaker, design, flow_overrides={"inputs.made": "t_input_maker.made"}),
     ]
     assert all(_ids(plan) == _ids(saved) for plan in plans)

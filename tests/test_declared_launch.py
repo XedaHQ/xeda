@@ -15,6 +15,7 @@ from xeda.flow import Flow, In
 from xeda.design import SourceType
 from xeda.flow_runner.trace import TRACE_FORMAT
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker, TTaker
 from .tool_utils import producers_of
@@ -354,7 +355,9 @@ def test_power_diamond_enters_synthesis_once_with_the_union_of_outputs(tmp_path,
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
     runner = _runner(tmp_path)
     launch = lambda: runner.run(
-        "vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS
+        "vivado_power",
+        tmp_path / "design.yaml",
+        flow_settings=node_settings("vivado_power", VIVADO_SETTINGS),
     )
     power = launch()
     assert power and power.succeeded

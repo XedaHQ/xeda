@@ -24,6 +24,7 @@ from .test_yosys_asic_tcl import _render
 from .test_yosys_asic_sequential import _real, _run_real
 from .tiny_platform import tiny_store
 from .tool_utils import use_fake_asic_tools
+from .scoping import node_settings
 
 FINISH_LEAVES = {
     "drop_formal": ("advanced", True),
@@ -465,10 +466,14 @@ def test_editing_a_map_at_any_position_makes_the_next_launch_stale(fake_yosys, w
     path.write_text("module _unused(); endmodule\n")
     given = _given(tiny_store(fake_yosys), techmap_files=[{"path": "m.v", "when": when}])
     assert _runner(fake_yosys).launch_flow(Yosys, design, given).succeeded
-    _, states = _runner(fake_yosys).plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = _runner(fake_yosys).plan_with_freshness(
+        Yosys, design, flow_settings=node_settings(Yosys, given)
+    )
     assert states["yosys"].state == "fresh"
     path.write_text("module _unused2(); endmodule\n")
-    _, states = _runner(fake_yosys).plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = _runner(fake_yosys).plan_with_freshness(
+        Yosys, design, flow_settings=node_settings(Yosys, given)
+    )
     assert states["yosys"].state == "stale"
 
 

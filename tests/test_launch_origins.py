@@ -35,6 +35,7 @@ from xeda.flow_runner.trace import as_recorded
 
 from .io_flows import TPlace, TTaker
 from .test_dse_run import _DeclaredOptimizer
+from .scoping import node_settings
 
 PART = "LFE5U-25F-6BG256C"
 OTHER_PART = "LFE5U-85F-6BG381C"
@@ -70,7 +71,7 @@ def _planned(root: Path, design) -> list[tuple[str, str]]:
 def _planned_with(root: Path, design, settings) -> list[tuple[str, str]]:
     """The nodes `plan` names when the command line gives `settings`."""
     plan = DefaultRunner(root / "planned_with", display_results=False).plan(
-        TPlace, design, flow_settings=settings
+        TPlace, design, flow_settings=node_settings(TPlace, settings)
     )
     return [(node.name, node.flowrun_hash) for node in plan.nodes]
 
@@ -360,7 +361,7 @@ DISAGREEING_ITEMS = [f"fpga.part={OTHER_PART}", f"flows.t_synth.fpga.part={PART}
 def test_a_conflict_in_flow_settings_names_the_command_line_and_flow_settings(tmp_path, given):
     """`run` and `plan` take the command line's `-s` items and an API caller's `flow_settings`
     as one layer, so the label says both."""
-    message = _plan_error(tmp_path, flow_settings=given)
+    message = _plan_error(tmp_path, flow_settings=node_settings(TPlace, given))
     assert f"in {COMMAND_LINE}" in message, message
     assert "in the command line (fpga.part)" not in message, message
 
@@ -401,7 +402,7 @@ def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings
 def test_a_binding_in_flow_settings_is_located_in_that_layer(tmp_path, given):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
-        TTaker, design, flow_settings=given
+        TTaker, design, flow_settings=node_settings(TTaker, given)
     )
     (made,) = (i for i in plan.node("t_taker").inputs if i.name == "made")
     assert made.binding_origin == "cli"

@@ -27,6 +27,7 @@ from xeda.units import Time
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TChainUndeclared, TMaker, TPlace, TReader, TTaker
+from .scoping import node_settings
 
 PART = "LFE5U-25F-6BG256C"
 OTHER = "LFE5U-85F-6BG381C"
@@ -956,7 +957,7 @@ def test_direct_entry_points_share_context_and_validation(tmp_path, monkeypatch,
     plan = _plan(tmp_path, TMaker, given)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flows = [
-        runner.run(TMaker, design=design, flow_settings=values),
+        runner.run(TMaker, design=design, flow_settings=node_settings(TMaker, values)),
         runner.run_flow(TMaker, design, given),
         runner.launch_flow(TMaker, design, given),
     ]

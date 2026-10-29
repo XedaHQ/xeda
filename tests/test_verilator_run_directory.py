@@ -26,6 +26,7 @@ from xeda.run_root import ensure_run_root
 
 from .settings_samples import flow_classes, minimal_settings
 from .tool_utils import require_verilator
+from .scoping import node_settings
 
 #: a run root whose path has whitespace make splits at
 SPACED_ROOTS = ["r r", "r\tr"]
@@ -99,7 +100,7 @@ def test_planning_refuses_a_run_root_with_whitespace_too(
     run_root = tmp_path / "r r"
     with pytest.raises(FlowSettingsException, match=message):
         DefaultRunner(run_root, display_results=False).plan(
-            flow_class, design(tmp_path), flow_settings=settings
+            flow_class, design(tmp_path), flow_settings=node_settings(flow_class, settings)
         )
     assert not run_root.exists()
 

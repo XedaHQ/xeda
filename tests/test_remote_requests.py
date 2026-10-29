@@ -24,6 +24,7 @@ from xeda.remote.errors import RemoteConnectionError
 from xeda.run_root import RunRootError, is_run_root
 
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -69,7 +70,10 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
     run is refused before connecting."""
     design = _nextpnr_design(tmp_path)
     outcome = remote_request(
-        tmp_path, design, "nextpnr", flow_settings=["flows.yosys_fpg.flatten=true"]
+        tmp_path,
+        design,
+        "nextpnr",
+        flow_settings=["yosys_fpg.flatten=true"],
     )
     assert isinstance(outcome.error, FlowSettingsError)
     assert re.search(r"yosys_fpg.*yosys_fpga", str(outcome.error))
@@ -77,7 +81,10 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
 
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = remote_request(
-        tmp_path, design, "nextpnr", flow_settings=["flows.yosys_fpga.flatten=true"]
+        tmp_path,
+        design,
+        "nextpnr",
+        flow_settings=node_settings("nextpnr", ["flows.yosys_fpga.flatten=true"]),
     )
     assert isinstance(outcome.error, RemoteConnectionError)
 
@@ -129,7 +136,7 @@ def test_a_remote_run_refuses_a_users_local_results_directory_before_connecting(
         _sqrt_design(tmp_path / "design"),
         "vivado_synth",
         run_root=mine,
-        flow_settings=SQRT_SETTINGS,
+        flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
     )
     assert isinstance(outcome.error, RunRootError) and str(mine) in str(outcome.error)
     assert not connected(remote_host)
@@ -146,7 +153,12 @@ def test_a_remote_run_marks_its_local_results_directory_and_reuses_it(tmp_path, 
     mirrors = []
     for attempt in (1, 2):
         document = _succeeded(
-            remote_request(tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS)
+            remote_request(
+                tmp_path,
+                design,
+                "vivado_synth",
+                flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
+            )
         )
         mirror = Path(document["nodes"][-1]["run_dir"])
         assert mirror == run_root / "@somewhere" / "sqrt" / "vivado_synth"
@@ -166,7 +178,11 @@ def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, 
     got = tmp_path / "got"
     first = _succeeded(
         remote_request(
-            tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS, outputs_to=got
+            tmp_path,
+            design,
+            "vivado_synth",
+            flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
+            outputs_to=got,
         )
     )
     deliveries = first["nodes"][-1]["deliveries"]
@@ -181,7 +197,7 @@ def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, 
         "vivado_synth",
         outputs_to=got,
         overwrite_outputs=True,
-        flow_settings=[*SQRT_SETTINGS, f"xdc_files={delivered}"],
+        flow_settings=node_settings("vivado_synth", [*SQRT_SETTINGS, f"xdc_files={delivered}"]),
     )
     assert isinstance(outcome.error, DeliveryError) and "an input of the run" in str(outcome.error)
     assert delivered.read_bytes() == kept
@@ -195,7 +211,11 @@ def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(tmp_path, 
     got = tmp_path / "got"
     first = _succeeded(
         remote_request(
-            tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS, outputs_to=got
+            tmp_path,
+            design,
+            "vivado_synth",
+            flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
+            outputs_to=got,
         )
     )
     assert first["nodes"][-1]["deliveries"]
@@ -208,7 +228,9 @@ def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(tmp_path, 
         "vivado_synth",
         outputs_to=got,
         overwrite_outputs=True,
-        flow_settings=[*SQRT_SETTINGS, {"lib_paths": [["work", str(got)]]}],
+        flow_settings=node_settings(
+            "vivado_synth", [*SQRT_SETTINGS, {"lib_paths": [["work", str(got)]]}]
+        ),
     )
     assert isinstance(outcome.error, DeliveryError)
     assert re.search(
@@ -236,7 +258,13 @@ def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_
         )
     overridden = [*SQRT_SETTINGS, {"lib_paths": [["work", str(new)]]}]
     result = _succeeded(
-        remote_request(tmp_path, design, "vivado_synth", flow_settings=overridden, outputs_to=old)
+        remote_request(
+            tmp_path,
+            design,
+            "vivado_synth",
+            flow_settings=node_settings("vivado_synth", overridden),
+            outputs_to=old,
+        )
     )
     deliveries = result["nodes"][-1]["deliveries"]
     assert deliveries
@@ -245,7 +273,7 @@ def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=overridden,
+        flow_settings=node_settings("vivado_synth", overridden),
         outputs_to=new / "got",
         overwrite_outputs=True,
     )
@@ -340,7 +368,7 @@ def test_the_mirror_is_written_and_delivered_under_its_run_directory_lock(
             tmp_path,
             design,
             "vivado_synth",
-            flow_settings=SQRT_SETTINGS,
+            flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
             outputs_to=tmp_path / "got",
         )
     )
@@ -364,7 +392,7 @@ def test_a_refused_delivery_leaves_the_mirror_whole_and_unlocked(
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=SQRT_SETTINGS,
+        flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
         outputs_to=tmp_path / "got",
     )
     assert isinstance(outcome.error, DeliveryError) and not outcome.success
@@ -403,7 +431,7 @@ def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_doc
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=SQRT_SETTINGS,
+        flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
         outputs_to=tmp_path / "got",
     )
     document = outcome.document

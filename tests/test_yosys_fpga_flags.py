@@ -32,6 +32,7 @@ from xeda.flows.yosys.common import (
 )
 
 from .tool_utils import _command_succeeds, require_yosys, require_yosys_config
+from .scoping import node_settings
 
 # `synth_ecp5` runs `synth_lattice -family ecp5`, so the two take the same options.
 LATTICE_0_63 = frozenset(
@@ -643,7 +644,7 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
     if flatten is not None:
         settings["flatten"] = flatten
     flow = DefaultRunner(tmp_path / "run", display_results=False).run(
-        YosysFpga, design, flow_settings=settings
+        YosysFpga, design, flow_settings=node_settings(YosysFpga, settings)
     )
     assert flow is not None and flow.succeeded
     run = Path(flow.run_path)

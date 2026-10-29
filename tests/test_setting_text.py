@@ -21,6 +21,7 @@ from xeda.flow_runner.settings_layers import merge_layers
 from xeda.setting_text import SettingTextError, parse_setting_text
 from xeda.units import Time
 from xeda.utils import settings_to_dict
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -329,7 +330,7 @@ def plan(tmp_path: Path, **keywords):
 
 
 def test_the_command_line_text_for_an_int_setting_is_an_int(tmp_path):
-    result = plan(tmp_path, flow_settings=["random_seed=7"])
+    result = plan(tmp_path, flow_settings=node_settings("verilator", ["random_seed=7"]))
     assert result.nodes[0].settings.random_seed == 7
 
 

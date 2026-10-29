@@ -245,7 +245,10 @@ def test_a_run_writes_only_documented_artifacts(part, placer, packer, tmp_path, 
     flow = runner.run(
         "fpga_pack",
         design,
-        flow_settings={"fpga": {"part": part}, "flows.nextpnr.placed_svg": "placed.svg"},
+        flow_settings={
+            "fpga_pack": {"fpga": {"part": part}},
+            "nextpnr": {"placed_svg": "placed.svg"},
+        },
     )
 
     assert flow is not None and flow.succeeded

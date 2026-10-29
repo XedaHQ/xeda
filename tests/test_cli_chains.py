@@ -12,6 +12,7 @@ from xeda.design import DesignFileParseError
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from . import io_flows  # noqa: F401 - registers the declared test flows
 
@@ -225,10 +226,10 @@ def test_a_chain_given_to_dse_fetches_no_git_dependency(tmp_path, monkeypatch):
 
 
 _MADE = "t_input_maker.made"
-#: how a binding of the requested node reaches a launcher: `-s`, `-s flows.<node>.`, the API
+#: how a binding of the requested node reaches a launcher: `-s <node>.`, a table of nodes, the API
 _BINDING_SPELLINGS = {
-    "bare -s": {"flow_settings": ["inputs.made=" + _MADE]},
-    "flow-qualified -s": {"flow_settings": ["flows.t_taker.inputs.made=" + _MADE]},
+    "dotted -s": {"flow_settings": ["t_taker.inputs.made=" + _MADE]},
+    "table of nodes": {"flow_settings": {"t_taker": {"inputs": {"made": _MADE}}}},
     "api": {"flow_overrides": {"inputs": {"made": _MADE}}},
 }
 
@@ -274,7 +275,7 @@ def test_a_saved_binding_of_another_node_is_not_refused_before_the_design_loads(
         _dse_runner(tmp_path).run(
             "t_taker",
             tmp_path / "missing.yaml",
-            flow_settings=["flows.t_input_maker.inputs.made=" + _MADE],
+            flow_settings=node_settings("t_taker", ["flows.t_input_maker.inputs.made=" + _MADE]),
         )
 
 

@@ -24,6 +24,7 @@ from .openroad_utils import (
 )
 from .tiny_platform import tiny_store
 from .setting_texts import text_items
+from .scoping import node_settings
 
 TEXT = [
     "wire_rc.signal_layer=m3",
@@ -106,7 +107,7 @@ def plan(tmp_path: Path, given):
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         "openroad",
         openroad_design(tmp_path / "design", rtl=True),
-        flow_settings=[*openroad_settings(store), *given],
+        flow_settings=node_settings("openroad", [*openroad_settings(store), *given]),
     )
 
 
@@ -127,10 +128,13 @@ def test_a_chain_planned_with_text_is_the_chain_planned_with_the_file_form(tmp_p
         by_file = DefaultRunner(tmp_path / "typed" / "run", display_results=False).plan(
             "openroad",
             openroad_design(tmp_path / "typed" / "design", rtl=True),
-            flow_settings={
-                **text_items(openroad_settings(store)),
-                **flat,
-            },
+            flow_settings=node_settings(
+                "openroad",
+                {
+                    **text_items(openroad_settings(store)),
+                    **flat,
+                },
+            ),
         )
     assert [n.flowrun_hash for n in by_text.nodes] == [n.flowrun_hash for n in by_file.nodes]
     for node in by_text.nodes:

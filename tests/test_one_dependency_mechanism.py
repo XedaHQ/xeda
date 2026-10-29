@@ -45,6 +45,7 @@ from xeda.flow_runner.chains import fitting_outputs
 from xeda.flows import VivadoSynth, Yosys
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
+from .scoping import node_settings
 
 FLOWS = flow_classes()
 DECLARED = [(cls, name) for cls, name in FLOWS if declared_inputs(cls) or declared_outputs(cls)]
@@ -822,7 +823,9 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
         language={"vhdl": {"standard": "2008"}},
     )
     settings = sweep_settings(flow_class, world)
-    again = DefaultRunner(world.root).plan(flow_class, design, flow_settings=settings)
+    again = DefaultRunner(world.root).plan(
+        flow_class, design, flow_settings=node_settings(flow_class, settings)
+    )
     assert again.node(flow_class.name).flowrun_hash == node.flowrun_hash
     assert node.run_path == world.root / "sqrt" / flow_class.name
     if declared_inputs(flow_class) or declared_outputs(flow_class):

@@ -48,6 +48,7 @@ from .tool_utils import (
     use_fake_asic_tools,
     use_fake_openroad,
 )
+from .scoping import node_settings
 
 CTS_PAIR = [("cts.odb", "OpenroadDbCts"), ("cts.sdc", "OpenroadSdcCts")]
 
@@ -65,7 +66,9 @@ def plan(tmp_path: Path, flow: str, *settings: str, typed: dict | None = None, *
     texts = [*openroad_settings(store), *settings]
     given = text_items(texts) | (typed or {})
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        flow, openroad_design(tmp_path / "design", **design), flow_settings=given
+        flow,
+        openroad_design(tmp_path / "design", **design),
+        flow_settings=node_settings(flow, given),
     )
 
 
@@ -435,7 +438,7 @@ def launch(tmp_path: Path, monkeypatch, *settings: str, request: str = "openroad
     given = chain_settings(tmp_path, *settings, **kwargs)
     design = openroad_design(tmp_path / "design")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run(request, design, flow_settings=given)
+    flow = runner.run(request, design, flow_settings=node_settings(request, given))
     return runner, design, given, flow
 
 
@@ -673,10 +676,12 @@ def test_a_second_launch_is_fresh_and_a_dry_run_agrees(tmp_path, monkeypatch, ch
         work = tmp_path / str(rcx)
         runner, design, settings, first = launch(work, monkeypatch, "fail_timing=false", rcx=rcx)
         assert first is not None and first.succeeded and not first.reused
-        again = runner.run("openroad", design, flow_settings=settings)
+        again = runner.run("openroad", design, flow_settings=node_settings("openroad", settings))
         assert again is not None and again.succeeded and again.reused
         given = text_items(settings)
-        _, states = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
+        _, states = runner.plan_with_freshness(
+            "openroad", Design.load(design), flow_settings=node_settings("openroad", given)
+        )
         assert {name: state.state for name, state in states.items()} == dict.fromkeys(
             NAMES, "fresh"
         )
@@ -698,7 +703,7 @@ def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
     written = (last / "openroad_final.log").stat().st_mtime_ns
     calls = (last / "fake_openroad.calls").read_text()
 
-    again = runner.run("openroad", design, flow_settings=settings)
+    again = runner.run("openroad", design, flow_settings=node_settings("openroad", settings))
     assert again is not None and again.outcome == "rejected" and again.rejected_again
     assert first.rejection in again.rejection
     assert (last / "openroad_final.log").stat().st_mtime_ns == written
@@ -841,14 +846,16 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
 
     def launch_chain() -> dict[str, bool]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        flow = runner.run("openroad", design, project, flow_settings=given)
+        flow = runner.run(
+            "openroad", design, project, flow_settings=node_settings("openroad", given)
+        )
         assert flow is not None and flow.succeeded
         return {f.name: f.reused for f in runner.launched}
 
     def judged() -> dict[str, str]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
         _, states = runner.plan_with_freshness(
-            "openroad", Design.load(design), project, flow_settings=given
+            "openroad", Design.load(design), project, flow_settings=node_settings("openroad", given)
         )
         return {name: state.state for name, state in states.items()}
 

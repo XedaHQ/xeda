@@ -29,6 +29,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import registered_input_files
 from xeda.platforms import PdkNotInstalled
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker, TTaker
 from .settings_samples import flow_classes
@@ -134,7 +135,9 @@ def _runner(tmp_path: Path) -> DefaultRunner:
 
 
 def _plan(tmp_path: Path, root: Path, settings=(), flow=TAsicTaker, **sections):
-    return _runner(tmp_path).plan(flow, _design(root, **sections), flow_settings=list(settings))
+    return _runner(tmp_path).plan(
+        flow, _design(root, **sections), flow_settings=node_settings(flow, list(settings))
+    )
 
 
 def _hashes(plan) -> dict[str, str]:
@@ -269,7 +272,7 @@ def test_a_flow_that_declares_a_platform_without_the_pin_is_refused_when_planned
             _runner(tmp_path).plan(
                 TPlatformWithoutPin,
                 _design(tmp_path / "d"),
-                flow_settings=["platform=nangate45"],
+                flow_settings=node_settings(TPlatformWithoutPin, ["platform=nangate45"]),
             )
 
 
@@ -396,7 +399,9 @@ def test_a_platform_file_alone_is_enough(tmp_path):
     plan = _plan(tmp_path, root, ["platform_file=tiny.yaml"])
     assert all(node.settings.platform is None for node in plan.nodes)
     states = _runner(tmp_path).plan_with_freshness(
-        TAsicTaker, _design(root), flow_settings=["platform_file=tiny.yaml"]
+        TAsicTaker,
+        _design(root),
+        flow_settings=node_settings(TAsicTaker, ["platform_file=tiny.yaml"]),
     )[1]
     assert set(states) == {"t_asic_maker", "t_asic_taker"}
 
@@ -458,7 +463,9 @@ def test_a_dry_run_says_that_a_missing_store_cannot_be_judged(tmp_path):
     states = _runner(tmp_path).plan_with_freshness(
         TAsicTaker,
         _design(root),
-        flow_settings=["platform_file=tiny.yaml", f"pdk_root={tmp_path / 'empty'}"],
+        flow_settings=node_settings(
+            TAsicTaker, ["platform_file=tiny.yaml", f"pdk_root={tmp_path / 'empty'}"]
+        ),
     )[1]
     state = states["t_asic_maker"]
     assert state.state == "unknown" and "needs the PDK files" in state.reason, state

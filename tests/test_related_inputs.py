@@ -20,7 +20,7 @@ from xeda.design import SourceType
 from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.io import declared_inputs, forget_declarations
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import NodeScoped, registered_flow
+from xeda.flow_runner.settings_layers import registered_flow
 from xeda.flows import VivadoPostsynthSim, VivadoPower
 from xeda.introspect import all_flow_classes, flow_chain_cells, flow_info
 
@@ -56,7 +56,7 @@ def plan(tmp_path, flow, *settings, sources=()):
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         flow,
         tmp_path / "design.yaml",
-        flow_settings=NodeScoped(scoped(flow, [*VIVADO_SETTINGS, *alternative, *settings])),
+        flow_settings=scoped(flow, [*VIVADO_SETTINGS, *alternative, *settings]),
     )
 
 
@@ -158,7 +158,7 @@ def test_the_chains_the_old_error_suggested_are_refused_with_what_to_bind(tmp_pa
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "vivado_alt_synth.checkpoint_route+vivado_power",
             tmp_path / "design.yaml",
-            flow_settings=NodeScoped(scoped("vivado_postsynth_sim", [*VIVADO_SETTINGS, *ALT])),
+            flow_settings=scoped("vivado_postsynth_sim", [*VIVADO_SETTINGS, *ALT]),
         )
     assert f"{SIM}.netlist_timing=vivado_alt_synth.netlist_timing" in " ".join(
         str(error.value).split()
@@ -450,14 +450,14 @@ def test_the_suggested_bindings_of_a_chain_make_the_plan_pass(tmp_path):
         runner.plan(
             request,
             tmp_path / "design.yaml",
-            flow_settings=NodeScoped(scoped("vivado_power", settings)),
+            flow_settings=scoped("vivado_power", settings),
         )
     advice = advice_of(" ".join(str(error.value).split()))
     assert advice
     planned = runner.plan(
         request,
         tmp_path / "design.yaml",
-        flow_settings=NodeScoped(scoped("vivado_power", [*settings, *advice])),
+        flow_settings=scoped("vivado_power", [*settings, *advice]),
     )
     assert producers(planned) == {"vivado_alt_synth", "vivado_postsynth_sim", "vivado_power"}
 
@@ -559,9 +559,7 @@ def groups(tmp_path):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def plan_(*settings):
-        return runner.plan(
-            TReport, design, flow_settings=NodeScoped(scoped(TReport.name, settings))
-        )
+        return runner.plan(TReport, design, flow_settings=scoped(TReport.name, settings))
 
     return TSynthA.name, TSynthB.name, TSim.name, TReport.name, plan_
 
@@ -693,7 +691,7 @@ def relations(tmp_path):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def plan_(flow, *settings):
-        return runner.plan(flow, design, flow_settings=NodeScoped(scoped(flow.name, settings)))
+        return runner.plan(flow, design, flow_settings=scoped(flow.name, settings))
 
     return types.SimpleNamespace(
         src=TSrc.name,

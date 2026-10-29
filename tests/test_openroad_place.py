@@ -48,6 +48,7 @@ from .tool_utils import (
     use_fake_asic_tools,
     use_fake_openroad,
 )
+from .scoping import node_settings
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "place_defaults.tcl"
@@ -146,7 +147,9 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None):
     given = text_items([*openroad_settings(store), *texts])
     given |= typed or {}
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "openroad_place", openroad_design(tmp_path / "design"), flow_settings=given
+        "openroad_place",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad_place", given),
     )
 
 
@@ -3657,7 +3660,9 @@ def test_a_launch_writes_the_constraints_and_the_files_of_the_stage(tmp_path, mo
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}),
+        flow_settings=node_settings(
+            OpenroadPlace, openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
+        ),
     )
     assert flow is not None and flow.succeeded
     run_dir = Path(flow.run_path)
@@ -3690,10 +3695,12 @@ def test_a_launch_removes_the_failed_database_of_an_earlier_run(tmp_path, monkey
     design = openroad_design(tmp_path / "design")
     with monkeypatch.context() as failing:
         failing.setenv("XEDA_FAKE_TOOL_FAIL", "pdngen")
-        failed_flow = runner.run(OpenroadPlace, design, flow_settings=settings)
+        failed_flow = runner.run(
+            OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, settings)
+        )
         assert failed_flow is None or not failed_flow.succeeded
     (failed,) = (tmp_path / "xeda_run").rglob("openroad_place-failed.odb")
-    flow = runner.run(OpenroadPlace, design, flow_settings=settings)
+    flow = runner.run(OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, settings))
     assert flow is not None and flow.succeeded
     assert not failed.exists()
 
@@ -3800,7 +3807,9 @@ def test_a_detailed_padding_above_the_global_padding_is_a_warning(tmp_path, monk
     )
     with caplog.at_level("WARNING"):
         flow = runner.run(
-            OpenroadPlace, openroad_design(tmp_path / "design"), flow_settings=settings
+            OpenroadPlace,
+            openroad_design(tmp_path / "design"),
+            flow_settings=node_settings(OpenroadPlace, settings),
         )
     assert flow is not None and flow.succeeded
     assert any(
@@ -3900,7 +3909,7 @@ def launch(tmp_path, monkeypatch):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
     settings = openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
-    flow = runner.run(OpenroadPlace, design, flow_settings=settings)
+    flow = runner.run(OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, settings))
     assert flow is not None and flow.succeeded
     return runner, design, settings, flow
 
@@ -3948,7 +3957,9 @@ def test_a_missing_metrics_file_fails_the_reading_of_the_results(tmp_path, monke
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}),
+        flow_settings=node_settings(
+            OpenroadPlace, openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
+        ),
     )
     assert flow is None or not flow.succeeded
     (run_dir,) = (tmp_path / "xeda_run").rglob("openroad_place")
@@ -3969,7 +3980,9 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, m
     flow = runner.run(
         OpenroadPlace,
         openroad_design(tmp_path / "design"),
-        flow_settings=openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}),
+        flow_settings=node_settings(
+            OpenroadPlace, openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
+        ),
     )
     assert flow is None or not flow.succeeded
 
@@ -4003,17 +4016,23 @@ def test_a_dry_run_judges_the_platform_files_and_the_netlist(tmp_path, monkeypat
     design = Design.load(design_file)
     given = text_items(settings)
     store = Path(given["pdk_root"])
-    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, given)
+    )
     assert states["openroad_place"].state == "fresh"
     library = store / "tiny" / "tiny.lib"
     library.write_text(library.read_text() + "\n/* edited */\n")
-    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, given)
+    )
     assert states["openroad_place"].state == "stale"
     assert states["openroad_place"].reason == f"input changed: {library.resolve()}"
     library.write_text(library.read_text().replace("\n/* edited */\n", ""))
     netlist = design.root / "counter_netlist.v"
     netlist.write_text(netlist.read_text() + "// edited\n")
-    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, given)
+    )
     assert states["openroad_place"].state == "stale"
     assert states["openroad_place"].reason == f"input changed: {netlist.resolve()}"
 
@@ -4028,7 +4047,9 @@ def test_a_dry_run_shows_a_missing_store_as_unknown_with_the_message_of_the_laun
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = Design.load(openroad_design(tmp_path / "design"))
     given = text_items(openroad_settings(empty, **{"clocks.main_clock.period": "5 ns"}))
-    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        OpenroadPlace, design, flow_settings=node_settings(OpenroadPlace, given)
+    )
     assert states["openroad_place"].state == "unknown"
     with pytest.raises(PdkNotInstalled) as refused:
         runner.launch_flow(OpenroadPlace, design, given)
@@ -4048,9 +4069,13 @@ def test_a_synthesized_netlist_chains_into_the_placement(tmp_path, monkeypatch):
     given = text_items(openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}))
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design", rtl=True)
-    planned = runner.plan("yosys+openroad_place", design, flow_settings=given)
+    planned = runner.plan(
+        "yosys+openroad_place", design, flow_settings=node_settings("yosys+openroad_place", given)
+    )
     assert [node.name for node in planned.nodes] == ["yosys", "openroad_place"]
-    flow = runner.run("yosys+openroad_place", design, flow_settings=given)
+    flow = runner.run(
+        "yosys+openroad_place", design, flow_settings=node_settings("yosys+openroad_place", given)
+    )
     assert flow is not None and flow.succeeded
     assert Path(flow.inputs.netlist).parent.name == "yosys"
 

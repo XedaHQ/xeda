@@ -18,6 +18,7 @@ from . import tool_utils
 from .io_flows import TTaker
 from .test_read_locks import _probe
 from .test_xilinx_chipdb import _binary, generation as chipdb_generation, prefix  # noqa: F401
+from .scoping import node_settings
 
 # Expose the shared fixture under its dependency name without shadowing an import.
 generation = chipdb_generation
@@ -180,7 +181,11 @@ def test_cache_planning_has_no_preparation_or_tools(tmp_path, generation, monkey
     monkeypatch.setattr(xilinx, "prepare_chipdb", fail, raising=False)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     DefaultRunner(generation[1].run_root, display_results=False).plan(
-        TChipdbTaker, design, flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"}
+        TChipdbTaker,
+        design,
+        flow_settings=node_settings(
+            TChipdbTaker, {"nextpnr": generation[0] / "bin/nextpnr-himbaechel"}
+        ),
     )
     assert not (generation[1].run_root / ".cache").exists()
 
@@ -401,7 +406,9 @@ def _dry(tmp_path, generation, settings=None):
     return runner.plan_with_freshness(
         TChipdbTaker,
         design,
-        flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel", **(settings or {})},
+        flow_settings=node_settings(
+            TChipdbTaker, {"nextpnr": generation[0] / "bin/nextpnr-himbaechel", **(settings or {})}
+        ),
     )[1]
 
 
@@ -472,7 +479,9 @@ def test_a_corrupt_cache_entry_is_unknown_even_when_every_flow_is_forced_to_run(
     _, states = runner.plan_with_freshness(
         TChipdbTaker,
         design,
-        flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"},
+        flow_settings=node_settings(
+            TChipdbTaker, {"nextpnr": generation[0] / "bin/nextpnr-himbaechel"}
+        ),
     )
     assert states[TChipdbTaker.name].state == "unknown"
     assert "Corrupt Xilinx chipdb cache entry" in states[TChipdbTaker.name].reason

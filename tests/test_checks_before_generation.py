@@ -25,6 +25,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse import Dse
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
 
+from .scoping import node_settings
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .tool_utils import use_fake_tools
 
@@ -144,7 +145,9 @@ def test_a_launch_refuses_on_the_declared_design_before_the_generator_runs(
     generated = _design(tmp_path, writes, extra)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException, match=refusal):
-        getattr(runner, launch)(flow, str(generated.file), flow_settings=settings)
+        getattr(runner, launch)(
+            flow, str(generated.file), flow_settings=node_settings(flow, settings)
+        )
     assert generated.runs == 0
     assert not (generated.root / "gen").exists()
     assert not (tmp_path / "xeda_run").exists(), "nothing was set up"
@@ -185,7 +188,10 @@ def test_a_remote_launch_refuses_before_the_generator_runs(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"])
     outcome = remote_request(
-        tmp_path, generated.file, "yosys_fpga", flow_settings=["fpga.part=xc7a12tcsg325-1"]
+        tmp_path,
+        generated.file,
+        "yosys_fpga",
+        flow_settings=node_settings("yosys_fpga", ["fpga.part=xc7a12tcsg325-1"]),
     )
     assert isinstance(outcome.error, FlowSettingsException)
     assert "yosys_fpga reads none of the design's" in str(outcome.error)
@@ -203,7 +209,11 @@ def test_an_exploration_refuses_before_the_generator_runs(tmp_path, monkeypatch)
         max_workers=1,
     )
     with pytest.raises(FlowSettingsException, match="cannot read the design's Chisel"):
-        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_synth",
+            str(generated.file),
+            flow_settings=node_settings("vivado_synth", dict(XILINX)),
+        )
     assert generated.runs == 0
     assert not (tmp_path / "xeda_run").exists()
 
@@ -215,13 +225,25 @@ def test_a_design_the_flow_can_run_is_generated_once(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.v"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    flow = runner.run(
+        "vivado_synth",
+        str(generated.file),
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
+    )
     assert flow is not None and flow.succeeded
     assert generated.runs == 1
-    flow = runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    flow = runner.run(
+        "vivado_synth",
+        str(generated.file),
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
+    )
     assert flow is not None and flow.succeeded
     assert generated.runs == 1
-    assert runner.plan("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert runner.plan(
+        "vivado_synth",
+        str(generated.file),
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
+    )
 
 
 def test_a_plan_of_a_generator_design_succeeds_and_starts_no_generator(tmp_path, monkeypatch):
@@ -229,7 +251,11 @@ def test_a_plan_of_a_generator_design_succeeds_and_starts_no_generator(tmp_path,
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.v"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    plan = runner.plan("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    plan = runner.plan(
+        "vivado_synth",
+        str(generated.file),
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
+    )
     assert [node.name for node in plan.nodes] == ["vivado_synth"]
     assert generated.runs == 0
     assert not (tmp_path / "xeda_run").exists() and not (generated.root / "gen").exists()
@@ -245,13 +271,17 @@ def test_a_file_a_setting_reads_to_check_it_must_exist_before_the_generator_runs
     settings = {"board": "mine", "custom_boards_file": "$DESIGN_ROOT/gen/boards.yaml"}
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException, match="Cannot read custom boards file"):
-        runner.run("nextpnr", str(generated.file), flow_settings=dict(settings))
+        runner.run(
+            "nextpnr", str(generated.file), flow_settings=node_settings("nextpnr", dict(settings))
+        )
     assert generated.runs == 0
     (generated.root / "gen").mkdir()
     (generated.root / "gen" / "boards.yaml").write_text(
         "mine:\n  fpga: {part: LFE5U-25F-6BG256C}\n"
     )
-    assert runner.plan("nextpnr", str(generated.file), flow_settings=dict(settings))
+    assert runner.plan(
+        "nextpnr", str(generated.file), flow_settings=node_settings("nextpnr", dict(settings))
+    )
     assert generated.runs == 0
 
 
@@ -265,7 +295,11 @@ def test_a_pattern_without_a_definite_type_is_refused_when_the_design_loads(tmp_
     generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError, match=r"`gen/\*`.*type: Verilog"):
-        runner.run("yosys_fpga", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "yosys_fpga",
+            str(generated.file),
+            flow_settings=node_settings("yosys_fpga", dict(XILINX)),
+        )
     assert generated.runs == 0
 
 
@@ -278,7 +312,11 @@ def test_a_pattern_with_a_type_is_judged_on_its_declaration_before_the_generator
     generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*.edf"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException, match="yosys_fpga reads none of the design's"):
-        runner.run("yosys_fpga", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "yosys_fpga",
+            str(generated.file),
+            flow_settings=node_settings("yosys_fpga", dict(XILINX)),
+        )
     assert generated.runs == 0
 
 
@@ -289,7 +327,9 @@ def test_a_pattern_is_one_source_in_the_plan_and_its_files_in_the_launch(tmp_pat
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*.edf"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run("vivado_impl", str(generated.file), flow_settings=dict(XILINX))
+    flow = runner.run(
+        "vivado_impl", str(generated.file), flow_settings=node_settings("vivado_impl", dict(XILINX))
+    )
     assert flow is not None and flow.succeeded
     assert generated.runs == 1
 
@@ -300,7 +340,11 @@ def test_a_pattern_that_matches_two_files_fails_a_flow_that_takes_one(tmp_path, 
     generated = Generated(tmp_path, ["gen/a.edf", "gen/b.edf"], sources=["gen/*.edf"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(Exception, match="2 paths"):
-        runner.run("vivado_impl", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_impl",
+            str(generated.file),
+            flow_settings=node_settings("vivado_impl", dict(XILINX)),
+        )
     assert generated.runs == 1
 
 
@@ -315,7 +359,11 @@ def test_a_testbench_file_the_generator_writes_is_refused_when_the_design_loads(
     )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError, match="does not exist"):
-        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_synth",
+            str(generated.file),
+            flow_settings=node_settings("vivado_synth", dict(XILINX)),
+        )
     assert generated.runs == 0
 
 
@@ -334,7 +382,7 @@ def test_a_project_s_design_generates_once(tmp_path, monkeypatch):
         "vivado_synth",
         spec["name"],
         xedaproject=str(project),
-        flow_settings=dict(XILINX),
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
     )
     assert flow is not None and flow.succeeded
     assert generated.runs == 1
@@ -349,7 +397,11 @@ def test_a_malformed_design_is_refused_without_running_its_generator(tmp_path, m
     generated = Generated(tmp_path, ["gen/top.v"], sources=[1])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError):
-        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_synth",
+            str(generated.file),
+            flow_settings=node_settings("vivado_synth", dict(XILINX)),
+        )
     assert generated.runs == 0
 
 
@@ -358,7 +410,12 @@ def test_a_remote_launch_refuses_a_malformed_design_without_running_its_generato
 ):
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.v"], sources=[1])
-    outcome = remote_request(tmp_path, generated.file, "vivado_synth", flow_settings=dict(XILINX))
+    outcome = remote_request(
+        tmp_path,
+        generated.file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
+    )
     assert isinstance(outcome.error, DesignValidationError)
     assert generated.runs == 0 and not connected(remote_host)
 
@@ -370,7 +427,11 @@ def test_a_source_given_as_both_file_and_path_is_refused_as_it_is(tmp_path, monk
     generated = Generated(tmp_path, ["gen/top.v"], sources=[both])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError, match="mutually exclusive"):
-        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_synth",
+            str(generated.file),
+            flow_settings=node_settings("vivado_synth", dict(XILINX)),
+        )
     assert generated.runs == 0
 
 
@@ -386,7 +447,11 @@ def test_a_local_dependency_the_generator_writes_is_refused_at_planning(tmp_path
     )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignError, match="dep.toml") as refused:
-        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_synth",
+            str(generated.file),
+            flow_settings=node_settings("vivado_synth", dict(XILINX)),
+        )
     assert refused.value.code == "design_file_not_found" and "gen.py" in str(refused.value)
     assert generated.runs == 0
 
@@ -401,7 +466,12 @@ def test_a_remote_launch_refuses_a_local_dependency_the_generator_writes(
         sources=["gen/top.v"],
         dependencies=["gen/dep.toml"],
     )
-    outcome = remote_request(tmp_path, generated.file, "vivado_synth", flow_settings=dict(XILINX))
+    outcome = remote_request(
+        tmp_path,
+        generated.file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", dict(XILINX)),
+    )
     assert isinstance(outcome.error, DesignError)
     assert generated.runs == 0 and not connected(remote_host)
 
@@ -417,5 +487,9 @@ def test_a_malformed_field_beside_a_missing_file_runs_no_generator(tmp_path, mon
     generated.file.write_text(json.dumps(spec))
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError, match="rtl"):
-        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+        runner.run(
+            "vivado_synth",
+            str(generated.file),
+            flow_settings=node_settings("vivado_synth", dict(XILINX)),
+        )
     assert generated.runs == 0

@@ -31,6 +31,7 @@ from xeda.dataclass import Field
 from xeda.units import Time
 from xeda.utils import replacing_file
 from xeda.flow import FpgaSynthFlow, MetricSpec
+from .scoping import node_settings
 from .design_edits import design_from_dump
 from .io_flows import TPlace
 from .tool_utils import HANG_GUARD
@@ -100,10 +101,13 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
     best = runner.run(
         TDsePlace,
         design,
-        flow_settings={
-            "fpga": {"part": "LFE5U-25F-6BG256C"},
-            "clocks": {"main_clock": {"period": "10 ns"}},
-        },
+        flow_settings=node_settings(
+            TDsePlace,
+            {
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
+        ),
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -139,10 +143,13 @@ def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_pa
     best = runner.run(
         TDseLeaf,
         design,
-        flow_settings={
-            "fpga": {"part": "LFE5U-25F-6BG256C"},
-            "clocks": {"main_clock": {"period": "10 ns"}},
-        },
+        flow_settings=node_settings(
+            TDseLeaf,
+            {
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
+        ),
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -168,10 +175,13 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
     runner.run(
         TDseLeaf,
         design,
-        flow_settings={
-            "fpga": {"part": "LFE5U-25F-6BG256C"},
-            "clocks": {"main_clock": {"period": "10 ns"}},
-        },
+        flow_settings=node_settings(
+            TDseLeaf,
+            {
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
+        ),
     )
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
     best = outcomes["one"].run_path
@@ -451,10 +461,13 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     assert runner.run(
         TDsePlace,
         design,
-        flow_settings={
-            "fpga": {"part": "LFE5U-25F-6BG256C"},
-            "clocks": {"main_clock": {"period": "10 ns"}},
-        },
+        flow_settings=node_settings(
+            TDsePlace,
+            {
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
+        ),
     )
     assert len(runner.optimizer.outcomes) == 2
     assert [o.results["producer_period"] for o in runner.optimizer.outcomes] == [12.0, 14.0]
@@ -499,10 +512,13 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
     assert runner.run(
         TFmaxPlace,
         design,
-        flow_settings={
-            "fpga": {"part": "LFE5U-25F-6BG256C"},
-            "clocks": {"main_clock": {"period": "10 ns"}},
-        },
+        flow_settings=node_settings(
+            TFmaxPlace,
+            {
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
+        ),
     )
     assert len(runner.optimizer.outcomes) >= 2
 
@@ -532,10 +548,13 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     runner.run(
         "vivado_alt_synth",
         design,
-        flow_settings={
-            "fpga": {"part": "xc7a12tcsg325-1"},
-            "clocks": {"main_clock": {"period": "5 ns"}},
-        },
+        flow_settings=node_settings(
+            "vivado_alt_synth",
+            {
+                "fpga": {"part": "xc7a12tcsg325-1"},
+                "clocks": {"main_clock": {"period": "5 ns"}},
+            },
+        ),
     )
     return runner
 
@@ -731,10 +750,13 @@ def _search_timing_judged(tmp_path) -> Dse:
     assert runner.run(
         TTimingJudged,
         design,
-        flow_settings={
-            "fpga": {"part": "LFE5U-25F-6BG256C"},
-            "clocks": {"main_clock": {"period": "10 ns"}},
-        },
+        flow_settings=node_settings(
+            TTimingJudged,
+            {
+                "fpga": {"part": "LFE5U-25F-6BG256C"},
+                "clocks": {"main_clock": {"period": "10 ns"}},
+            },
+        ),
     )
     return runner
 
@@ -879,10 +901,13 @@ def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monke
         runner.run(
             TDseLeaf,
             design,
-            flow_settings={
-                "fpga": {"part": "LFE5U-25F-6BG256C"},
-                "clocks": {"main_clock": {"period": "10 ns"}},
-            },
+            flow_settings=node_settings(
+                TDseLeaf,
+                {
+                    "fpga": {"part": "LFE5U-25F-6BG256C"},
+                    "clocks": {"main_clock": {"period": "10 ns"}},
+                },
+            ),
         )
         is not None
     )
@@ -909,8 +934,11 @@ def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_t
     runner.run(
         "vivado_alt_synth",
         design,
-        flow_settings={
-            "fpga": {"part": "xc7a12tcsg325-1"},
-            "clocks": {"main_clock": {"period": "5 ns"}},
-        },
+        flow_settings=node_settings(
+            "vivado_alt_synth",
+            {
+                "fpga": {"part": "xc7a12tcsg325-1"},
+                "clocks": {"main_clock": {"period": "5 ns"}},
+            },
+        ),
     )

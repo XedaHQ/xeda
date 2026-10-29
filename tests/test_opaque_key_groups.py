@@ -27,6 +27,7 @@ from .openroad_utils import openroad_design, openroad_settings, register_openroa
 from .tiny_platform import tiny_store
 from .project_files import project_listing
 from .setting_texts import text_items
+from .scoping import node_settings
 
 NAME = "u_core.reg_1"
 DEEP_NAME = "u_top.u_core.u_alu.reg_1"
@@ -56,7 +57,7 @@ def plan_openroad(
     given = text_items([*openroad_settings(store), *texts])
     with register_openroad_flows():
         plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-            "openroad", selected, flow_settings=given, **kwargs
+            "openroad", selected, flow_settings=node_settings("openroad", given), **kwargs
         )
     return plan.nodes[-1].settings
 
@@ -85,11 +86,6 @@ def test_the_command_line_gives_a_net_with_dots_one_key(tmp_path):
     )
     assert dict(settings.ndr.assignments) == {"u_core.clk_div": "wide"}
     assert list(settings.ir_drop.nets) == ["u_core.VDD"]
-
-
-def test_the_command_line_qualified_by_the_flow_gives_the_same_key(tmp_path):
-    settings = plan_openroad(tmp_path, f"flows.openroad.ir_drop.instance_power.{NAME}=1mW")
-    assert dict(settings.ir_drop.instance_power) == {NAME: MILLIWATT}
 
 
 def test_a_name_with_signs_is_a_key_of_the_command_line(tmp_path):

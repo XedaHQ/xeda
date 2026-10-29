@@ -53,6 +53,7 @@ from xeda.flows import (
     YosysFpga,
     YosysSim,
 )
+from .scoping import node_settings
 
 VERILOG = "module top(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
 TESTBENCH = "module tb; reg clk = 0; top dut(clk); initial #10 $finish; endmodule\n"
@@ -321,7 +322,7 @@ def test_a_dry_run_shows_the_refusal(tmp_path, name):
     design = case.design(tmp_path / "design")
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(case.error, match=case.match):
-        runner.plan(case.flow, design, flow_settings=_flow_settings(case))
+        runner.plan(case.flow, design, flow_settings=node_settings(case.flow, _flow_settings(case)))
     assert not (tmp_path / "runs").exists()
 
 
@@ -345,9 +346,17 @@ def test_a_producer_in_the_middle_of_a_chain_is_refused_before_the_first_produce
     settings = [*VIVADO_SETTINGS, "flows.vivado_postsynth_sim.sim_flags=-R"]
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsException, match="conflicts with xsim runtime evidence"):
-        runner.plan(VivadoPower, tmp_path / "design.yaml", flow_settings=settings)
+        runner.plan(
+            VivadoPower,
+            tmp_path / "design.yaml",
+            flow_settings=node_settings(VivadoPower, settings),
+        )
     with pytest.raises(FlowSettingsException, match="conflicts with xsim runtime evidence"):
-        runner.run(VivadoPower, tmp_path / "design.yaml", flow_settings=settings)
+        runner.run(
+            VivadoPower,
+            tmp_path / "design.yaml",
+            flow_settings=node_settings(VivadoPower, settings),
+        )
     assert not (tmp_path / "runs").exists() or not list((tmp_path / "runs").rglob("fake_vivado*"))
 
 
@@ -367,7 +376,7 @@ def test_the_activity_that_power_demands_needs_the_instance_to_record(
         *(f"flows.vivado_postsynth_sim.{item}" for item in settings),
     ]
     with pytest.raises(FlowSettingsException, match="set `tb.uut`"):
-        runner.plan(VivadoPower, design, flow_settings=flow_settings)
+        runner.plan(VivadoPower, design, flow_settings=node_settings(VivadoPower, flow_settings))
     assert not (tmp_path / "runs").exists()
 
 

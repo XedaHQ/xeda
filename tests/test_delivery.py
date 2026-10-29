@@ -37,6 +37,7 @@ from xeda.local_settings import LocalSettings
 from xeda.run_root import ensure_run_root
 from xeda.utils import PATH_VARIABLES
 
+from .scoping import node_settings
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .tool_utils import producers_of
 
@@ -1868,7 +1869,9 @@ def test_a_remote_run_refuses_a_located_output_before_connecting(world, remote_h
         world.design_file,
         "vivado_synth",
         run_root=world.root,
-        flow_settings=["fpga.part=xc7a12tcsg325-1", "bitstream=$PWD/top.bit"],
+        flow_settings=node_settings(
+            "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "bitstream=$PWD/top.bit"]
+        ),
     )
     assert isinstance(outcome.error, DeliveryError) and "--outputs-to" in str(outcome.error)
     assert not connected(remote_host)
@@ -1881,7 +1884,9 @@ def test_a_remote_run_checks_its_output_names_before_connecting(world, remote_ho
         world.design_file,
         "yosys_fpga",
         run_root=world.root,
-        flow_settings=["fpga.part=LFE5U-25F-6BG381C", "netlist_json=results.json"],
+        flow_settings=node_settings(
+            "yosys_fpga", ["fpga.part=LFE5U-25F-6BG381C", "netlist_json=results.json"]
+        ),
     )
     assert isinstance(outcome.error, FlowSettingsError) and "a name Xeda keeps" in str(
         outcome.error
@@ -2205,7 +2210,7 @@ def test_a_loaded_private_settings_file_is_never_a_destination_even_with_overwri
         launcher.run(
             TDeliverer,
             world.design,
-            flow_settings={"netlist": str(private)},
+            flow_settings=node_settings(TDeliverer, {"netlist": str(private)}),
             local_settings=settings,
         )
     assert private.read_text() == "flows: {}\n" and RUNS == []

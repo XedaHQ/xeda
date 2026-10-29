@@ -30,6 +30,7 @@ from xeda.utils import XedaException
 
 from .project_files import PROJECT_FILE
 from .settings_samples import PROBES, flow_classes, minimal_settings
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -173,12 +174,11 @@ def test_the_examples_still_load():
 # traceback and never silently ignored.
 # ---------------------------------------------------------------------------------------------
 
-#: Where a `flows` table is written. "design with a target" is a design file whose own table is
+#: Where a `flows` table is written. Neither `-s` nor the API takes one: a key there names its flow
+#: (`test_spec_settings.py`). "design with a target" is a design file whose own table is
 #: the one under test, with a target that writes a good `flows` mapping of its own and is
 #: selected: the merge of that mapping must not hide the design's table.
 ORIGINS = [
-    "command line",
-    "API",
     "design file",
     "design with a target",
     "target",
@@ -216,11 +216,6 @@ def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
     `verilator` section of one ("section"), written by `origin`."""
     runner = DefaultRunner(directory / "xeda_run", display_results=False)
     flows = value if shape == "table" else {"verilator": value}
-    if origin == "command line":
-        key = "flows" if shape == "table" else "flows.verilator"
-        return runner.plan("verilator", _write_design(directory), flow_settings=[f"{key}={value}"])
-    if origin == "API":
-        return runner.plan("verilator", _write_design(directory), flow_settings={"flows": flows})
     if origin == "design file":
         return runner.plan("verilator", _write_design(directory, flows=flows))
     if origin == "design with a target":
@@ -239,12 +234,7 @@ def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
 @pytest.mark.parametrize("shape", ["table", "section"])
 @pytest.mark.parametrize("origin", ORIGINS)
 def test_a_flows_table_of_the_wrong_shape_is_reported_never_a_traceback(tmp_path, origin, shape):
-    if origin == "command line":
-        values: list[Any] = COMMAND_LINE_TEXTS
-    elif origin == "API":
-        values = MALFORMED
-    else:
-        values = [value for value in MALFORMED if _writable_in_a_file(value)]
+    values = [value for value in MALFORMED if _writable_in_a_file(value)]
     leaks = []
     for number, value in enumerate(values):
         try:
@@ -285,16 +275,14 @@ NOT_FLOW_NAMES = [3, None, 1.5, ("verilator",)]
 
 
 @pytest.mark.parametrize("key", NOT_FLOW_NAMES, ids=repr)
-@pytest.mark.parametrize("door", ["plan", "run_flow", "launch_flow"])
+@pytest.mark.parametrize("door", ["run_flow", "launch_flow"])
 def test_a_flows_key_that_is_no_flow_name_is_refused_naming_it(tmp_path, door, key):
     """Code can give a `flows` table whose key is not text; it is refused like any other
     malformed table, never left to fail deeper in the merge."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design_file = _write_design(tmp_path / "d")
     with pytest.raises(XedaException, match=r"`flows` has the key .*, which is no flow name"):
-        if door == "plan":
-            runner.plan("verilator", design_file, flow_settings={"flows": {key: {}}})
-        elif door == "run_flow":
+        if door == "run_flow":
             runner.run_flow("verilator", Design.load(design_file), {}, all_flows_settings={key: {}})
         else:
             runner.launch_flow(
@@ -307,10 +295,9 @@ def test_a_flows_key_that_is_no_flow_name_is_refused_naming_it(tmp_path, door, k
 #: such text.
 REFUSED_EVEN_WHEN_EMPTY = [
     (origin, shape, value)
-    for origin in ("API", "design file", "design with a target", "target", "project file")
+    for origin in ("design file", "design with a target", "target", "project file")
     for shape in ("table", "section")
     for value in ([], [1], ["verilator.x=1"], "")
-    if not (origin == "API" and shape == "section" and value in ([], ["verilator.x=1"]))
 ]
 
 
@@ -323,29 +310,15 @@ def test_a_flows_table_or_section_that_is_a_list_or_text_is_refused_even_when_em
     tmp_path, origin, shape, value
 ):
     """No origin treats an empty list or text as "no settings", and none reads a list of items as
-    a table: that is how a mistake such as `flows: []` went unnoticed. Code may give a flow's
-    section as `KEY=VALUE` text, and only code."""
+    a table: that is how a mistake such as `flows: []` went unnoticed."""
     with pytest.raises(XedaException, match="must be a mapping"):
         _plan_with_flows(tmp_path, origin, shape, value)
-
-
-@pytest.mark.parametrize("value", [[1], [{}], ["x", "y"], [1, "a=1"], ["a=1", None]], ids=repr)
-def test_a_section_given_by_code_is_key_value_text_or_it_is_refused(tmp_path, value):
-    with pytest.raises(XedaException, match="`flows.verilator` must be a mapping"):
-        _plan_with_flows(tmp_path, "API", "section", value)
-
-
-def test_code_may_give_a_flow_s_section_as_key_value_text(tmp_path):
-    """The API takes a flow's settings as `KEY=VALUE` text, as the command line does."""
-    plan = _plan_with_flows(tmp_path, "API", "section", ["timing=true"])
-
-    assert plan.nodes[0].settings.timing is True
 
 
 @pytest.mark.parametrize("value", [{}, None], ids=repr)
 @pytest.mark.parametrize("shape", ["table", "section"])
 @pytest.mark.parametrize(
-    "origin", ["API", "design file", "design with a target", "target", "project file"]
+    "origin", ["design file", "design with a target", "target", "project file"]
 )
 def test_an_empty_or_absent_flows_table_or_section_is_still_accepted(
     tmp_path, origin, shape, value
@@ -399,7 +372,9 @@ def test_a_malformed_table_of_a_target_is_refused_at_the_target_whichever_is_sel
 def test_a_section_written_on_the_command_line_is_still_accepted(tmp_path):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     plan = runner.plan(
-        "verilator", _write_design(tmp_path), flow_settings=["flows.verilator.timing=true"]
+        "verilator",
+        _write_design(tmp_path),
+        flow_settings=["verilator.timing=true"],
     )
 
     assert [node.name for node in plan.nodes] == ["verilator"]
@@ -486,11 +461,17 @@ def _plan_with_keys(
         items.reverse()
     texts = [f"{key}={item}" for key, item in items]
     if origin == "command line":
-        return runner.plan("verilator", _write_design(directory), flow_settings=texts)
+        return runner.plan(
+            "verilator", _write_design(directory), flow_settings=node_settings("verilator", texts)
+        )
     if origin == "design overrides":
         return runner.plan("verilator", _write_design(directory), design_updates=texts)
     if origin == "API":
-        return runner.plan("verilator", _write_design(directory), flow_settings=dict(items))
+        return runner.plan(
+            "verilator",
+            _write_design(directory),
+            flow_settings=node_settings("verilator", dict(items)),
+        )
     if origin == "design file":
         return runner.plan("verilator", _write_design(directory, **dict(items)))
     if origin == "target":
@@ -503,7 +484,9 @@ def _plan_with_keys(
         return runner.plan("verilator", _write_design(directory, flows=dict(flow_items)))
     if origin == "flows table of the API":
         return runner.plan(
-            "verilator", _write_design(directory), flow_settings={"flows": dict(flow_items)}
+            "verilator",
+            _write_design(directory),
+            flow_settings=node_settings("verilator", {"flows": dict(flow_items)}),
         )
     if origin == "flows table of a project":
         design = _write_design(directory)

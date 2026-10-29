@@ -13,6 +13,7 @@ from xeda.run_dir import RunDirectoryError
 
 from .test_cli_structured_output import run_xeda
 from .tool_utils import require_cocotb, require_verilator
+from .scoping import node_settings
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -297,11 +298,15 @@ def test_a_design_with_its_own_main_and_hdl_sources_needs_no_testbench_top(tmp_p
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     for settings in ({"timing": True}, {"timing": True, "main": True}):
         with pytest.raises(FlowSettingsException, match="`tb.top`"):
-            runner.plan("verilator", design, flow_settings=settings)
+            runner.plan("verilator", design, flow_settings=node_settings("verilator", settings))
         with pytest.raises(FlowSettingsException, match="`tb.top`"):
             runner.run_flow(Verilator, design, settings)
     assert not (tmp_path / "runs").exists()
-    runner.plan("verilator", design, flow_settings={"timing": True, "main": False})
+    runner.plan(
+        "verilator",
+        design,
+        flow_settings=node_settings("verilator", {"timing": True, "main": False}),
+    )
     flow = runner.run_flow(Verilator, design, {"timing": True, "main": False})
     assert flow is not None and flow.succeeded
     assert flow.results["sim.ended_by"] == "exit"
@@ -478,7 +483,9 @@ def test_optimize_that_verilator_would_not_take_is_refused_before_it_runs(
     design = Design(name="tb", root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsError, match=message):
-        runner.plan("verilator", design, flow_settings={"optimize": optimize})
+        runner.plan(
+            "verilator", design, flow_settings=node_settings("verilator", {"optimize": optimize})
+        )
     assert not (tmp_path / "runs").exists()
 
 
@@ -584,7 +591,11 @@ def test_stop_time_is_refused_in_every_mode_before_anything_runs(tmp_path):
     for name, design, settings in _stop_time_designs(tmp_path):
         runner = DefaultRunner(tmp_path / f"runs-{name}", display_results=False)
         with pytest.raises(FlowSettingsException, match=r"\$finish.*`timeout`"):
-            runner.plan("verilator", design, flow_settings={**settings, "stop_time": "10ns"})
+            runner.plan(
+                "verilator",
+                design,
+                flow_settings=node_settings("verilator", {**settings, "stop_time": "10ns"}),
+            )
         assert not (tmp_path / f"runs-{name}").exists()
         flow_settings = Verilator.Settings.from_input(
             {**settings, "stop_time": "10ns"}, design_root=tmp_path
@@ -600,7 +611,11 @@ def test_two_trace_formats_are_refused(tmp_path, pair):
     design = Design(name="d", root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"})
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsException, match="one trace format"):
-        runner.plan("verilator", design, flow_settings={name: True for name in pair})
+        runner.plan(
+            "verilator",
+            design,
+            flow_settings=node_settings("verilator", {name: True for name in pair}),
+        )
 
 
 def test_the_trace_formats_are_switches_that_default_to_verilators_own_options(tmp_path, commands):

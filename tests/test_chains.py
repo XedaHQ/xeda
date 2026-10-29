@@ -21,6 +21,7 @@ from xeda.flow_runner.chains import (
     validate_chain,
 )
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from . import io_flows
 from .io_flows import (
@@ -282,7 +283,11 @@ def test_a_suggestion_resolves_with_a_valid_design(tmp_path):
     design = Design(name="top", root=root, rtl={"sources": ["top.v"], "top": "top"})
     suggestion, _qualified = _suggestions("yosys_fpga.netlist_edif+fpga_pack")
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-        parse_request(suggestion), design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        parse_request(suggestion),
+        design,
+        flow_settings=node_settings(
+            parse_request(suggestion), {"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        ),
     )
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
     assert plan.requested == "fpga_pack"

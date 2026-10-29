@@ -18,6 +18,7 @@ from xeda import Design
 from xeda.dataclass import Field, field_validator, model_validator
 from xeda.flow import Flow, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -111,10 +112,12 @@ def _launch(how: str, runner: DefaultRunner, design: Design, root: Path) -> Flow
         return runner.run(cls, "d", xedaproject=str(_project_file(root, {NAME: GIVEN})))
     if how == "-s":
         flow_settings = [f"{key}={value}" for key, value in GIVEN.items()]
-        return runner.run(cls, _design_file(root), flow_settings=flow_settings)
+        return runner.run(cls, _design_file(root), flow_settings=node_settings(cls, flow_settings))
     if how == "design file and -s":
         return runner.run(
-            cls, _design_file(root, {NAME: {"where": "a/b"}}), flow_settings=["label=ok"]
+            cls,
+            _design_file(root, {NAME: {"where": "a/b"}}),
+            flow_settings=node_settings(cls, ["label=ok"]),
         )
     if how == "API dict":
         return runner.launch_flow(cls, design, dict(GIVEN))
@@ -186,7 +189,11 @@ def test_a_setting_given_nowhere_is_a_clear_error_naming_it_and_the_flow(
         elif how == "sections":
             runner.launch_flow(cls, design, {}, all_flows_settings={NAME: given})
         elif how == "-s":
-            runner.run(cls, _design_file(tmp_path), flow_settings=["note=only an optional one"])
+            runner.run(
+                cls,
+                _design_file(tmp_path),
+                flow_settings=node_settings(cls, ["note=only an optional one"]),
+            )
         else:
             runner.run(cls, _design_file(tmp_path, {NAME: given}))
     message = str(refused.value)

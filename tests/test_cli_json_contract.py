@@ -15,6 +15,7 @@ import pytest
 
 from xeda.platforms import bundled_platform_names
 
+from .scoping import node_settings
 from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_remote_client import _cli_script, _design
 from .tool_utils import HANG_GUARD
@@ -137,7 +138,9 @@ def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_
     from xeda.flow_runner.error_codes import public_error
 
     with pytest.raises(Exception) as refused:
-        DefaultRunner(tmp_path / "run").resolve_run("nextpnr", str(SQRT), flow_settings=["sed=1"])
+        DefaultRunner(tmp_path / "run").resolve_run(
+            "nextpnr", str(SQRT), flow_settings=node_settings("nextpnr", ["sed=1"])
+        )
     error = public_error(refused.value)
     assert (error.code, error.node, error.setting) == ("unknown_setting", "nextpnr", "sed")
     assert error.suggestions == ("seed",)

@@ -17,6 +17,7 @@ from xeda.remote.packaging import InputPackage, package_inputs
 from .io_flows import TReadsInstalled, TReadsInstalledNested  # noqa: F401  (registers the flows)
 from .test_git_dependencies import git_log, remote
 from .tiny_platform import TINY_OPENROAD_RESIDUE
+from .scoping import node_settings
 
 FIXTURES = (git_log, remote)
 
@@ -369,7 +370,10 @@ def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
     else:
         request = dict(design=directory / "knight.yaml")
     prepared = local.prepare_request(
-        case["flow"], flow_settings=settings, target=case["target"], **request
+        case["flow"],
+        flow_settings=node_settings(case["flow"], settings),
+        target=case["target"],
+        **request,
     )
     assert prepared.design.target == case["target"]
 
@@ -450,7 +454,7 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
     prepared = DefaultRunner(local_root, display_results=False).prepare_request(
         "vivado_synth",
         design=design_root / "sqrt.yaml",
-        flow_settings=["set_synth_properties.A.B=2"],
+        flow_settings=node_settings("vivado_synth", ["set_synth_properties.A.B=2"]),
     )
     package = _assert_tables_reach_the_remote(
         tmp_path,
@@ -477,13 +481,16 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
     prepared = DefaultRunner(local_root, display_results=False).prepare_request(
         "vivado_synth",
         design=design_root / "sqrt.yaml",
-        flow_settings=[
-            "fpga.part=xc7a12tcsg325-1",
-            "clocks.main_clock.period=5ns",
-            "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
-            "set_synth_properties.A.B=2",
-            "set_synth_properties.A.C=3",
-        ],
+        flow_settings=node_settings(
+            "vivado_synth",
+            [
+                "fpga.part=xc7a12tcsg325-1",
+                "clocks.main_clock.period=5ns",
+                "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
+                "set_synth_properties.A.B=2",
+                "set_synth_properties.A.C=3",
+            ],
+        ),
     )
     _assert_tables_reach_the_remote(
         tmp_path,
@@ -509,7 +516,7 @@ def test_an_openroad_table_that_holds_a_name_inside_another_reaches_the_remote_w
     items = [*openroad_settings(tiny_store(tmp_path)), "ir_drop.instance_power.u_core.reg_1=1mW"]
     with register_openroad_flows():
         prepared = DefaultRunner(local_root, display_results=False).prepare_request(
-            "openroad", design=design, flow_settings=items
+            "openroad", design=design, flow_settings=node_settings("openroad", items)
         )
         _assert_tables_reach_the_remote(
             tmp_path,
@@ -781,7 +788,7 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
     local_root = tmp_path / "local" / "xeda_run"
     local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=hashed)
     prepared = local.prepare_request(
-        case["flow"], flow_settings=case.get("settings", []), **request
+        case["flow"], flow_settings=node_settings(case["flow"], case.get("settings", [])), **request
     )
     for node, name, producers in case["edges"]:
         declared = next(i for i in prepared.plan.node(node).inputs if i.name == name)
@@ -956,7 +963,9 @@ def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_r
     local_root = tmp_path / "local" / "xeda_run"
     local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
     prepared = local.prepare_request(
-        "nextpnr", design=design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"]
+        "nextpnr",
+        design=design,
+        flow_settings=node_settings("nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
     )
 
     _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
@@ -1030,7 +1039,9 @@ def test_the_host_merges_local_and_git_dependencies_as_the_client_does(
     (tmp_path / "design").mkdir()
     design_file = _mixed(tmp_path / "design", remote, order)
     runner = DefaultRunner(local_root, display_results=False)
-    prepared = runner.prepare_request("yosys_fpga", design=design_file, flow_settings=dict(XILINX))
+    prepared = runner.prepare_request(
+        "yosys_fpga", design=design_file, flow_settings=node_settings("yosys_fpga", dict(XILINX))
+    )
     started = len(git_log())
 
     package, remote_plan, remote_root, remote_dir = _remote_plan(

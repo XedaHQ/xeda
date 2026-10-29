@@ -41,6 +41,7 @@ from xeda.flow_runner.outputs import (
 )
 from xeda.flows import Bsc, BscSim
 
+from .scoping import node_settings
 from .design_edits import with_updates
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
@@ -707,6 +708,6 @@ def test_the_planning_of_bsc_refuses_the_reset_macro(tmp_path) -> None:
     with pytest.raises(FlowSettingsException, match=REFUSAL):
         DefaultRunner(tmp_path / "run", display_results=False).plan("bsc", design)
     planned = DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "bsc", design, flow_settings={"positive_reset": False}
+        "bsc", design, flow_settings=node_settings("bsc", {"positive_reset": False})
     )
     assert [node.name for node in planned.nodes] == ["bsc"]

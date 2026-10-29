@@ -41,6 +41,7 @@ from .test_yosys import _yosys_has_tcl
 from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 MAC = (
     "module mul8(input [7:0] a, b, output [15:0] p);\n"
@@ -151,12 +152,16 @@ def test_stop_after_rtl_with_a_netlist_is_refused_before_anything_runs(tmp_path)
     (`tests/test_yosys_stop_after.py` has the rule for every flow that stops)."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsError, match="netlist_verilog") as refused:
-        runner.plan(Yosys, _design(tmp_path / "design"), flow_settings=["stop_after=rtl"])
+        runner.plan(
+            Yosys,
+            _design(tmp_path / "design"),
+            flow_settings=node_settings(Yosys, ["stop_after=rtl"]),
+        )
     assert "netlist_json" in str(refused.value)
     assert runner.plan(
         Yosys,
         _design(tmp_path / "other"),
-        flow_settings=["stop_after=rtl", "netlist_verilog=", "netlist_json="],
+        flow_settings=node_settings(Yosys, ["stop_after=rtl", "netlist_verilog=", "netlist_json="]),
     )
 
 
@@ -1123,6 +1128,8 @@ def test_a_liberty_file_that_includes_another_is_refused_before_yosys_starts(tmp
             runner.launch_flow(Yosys, design, settings)
         assert named in str(refused.value), name
         assert not list((tmp_path / "xeda_run").glob("mac/yosys*/yosys_synth.ys")), name
-        _plan, states = runner.plan_with_freshness("yosys", design, flow_settings=settings)
+        _plan, states = runner.plan_with_freshness(
+            "yosys", design, flow_settings=node_settings("yosys", settings)
+        )
         assert states["yosys"].state == "unknown", name
         assert "Liberty reader of yosys" in states["yosys"].reason, name

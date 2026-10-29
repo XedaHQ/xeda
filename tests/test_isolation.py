@@ -77,6 +77,7 @@ from .tool_utils import (
     require_yosys,
     use_fake_tools,
 )
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -2992,7 +2993,9 @@ def test_only_local_settings_and_the_command_line_open_the_private_settings_file
     try:
         project = Project.load(project_file)
         design = project.design("d")
-        plan = DefaultRunner(tmp_path / "run").plan("vivado_synth", design, flow_settings=settings)
+        plan = DefaultRunner(tmp_path / "run").plan(
+            "vivado_synth", design, flow_settings=node_settings("vivado_synth", settings)
+        )
         assert plan.requested == "vivado_synth"
         assert _PRIVATE_OPENS == [], "the library read a private file"
         local_settings(project)

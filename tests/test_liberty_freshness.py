@@ -14,6 +14,7 @@ from xeda.flow import FlowDependencyFailure
 from .test_openroad_flows import NAMES, chain, launch, openroad_flows  # noqa: F401
 from .tiny_platform import tiny_store
 from .setting_texts import text_items
+from .scoping import node_settings
 
 
 @pytest.mark.usefixtures("chain")
@@ -31,13 +32,15 @@ def test_a_changed_library_makes_the_chain_stale_and_a_dry_run_agrees(tmp_path, 
     given = text_items(settings)
 
     def states_now() -> dict[str, str]:
-        _, found = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
+        _, found = runner.plan_with_freshness(
+            "openroad", Design.load(design), flow_settings=node_settings("openroad", given)
+        )
         return {name: state.state for name, state in found.items()}
 
     assert states_now() == dict.fromkeys(NAMES, "fresh")
     library.write_text(library.read_text() + "/* edited */\n")
     assert set(states_now().values()) == {"stale"}
-    again = runner.run("openroad", design, flow_settings=settings)
+    again = runner.run("openroad", design, flow_settings=node_settings("openroad", settings))
     assert again is not None and again.succeeded and not again.reused
 
 
@@ -77,13 +80,15 @@ def test_a_file_that_a_library_includes_is_an_input_of_the_chain(tmp_path, monke
     named = text_items(settings)
 
     def states_now() -> dict[str, str]:
-        _, found = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=named)
+        _, found = runner.plan_with_freshness(
+            "openroad", Design.load(design), flow_settings=node_settings("openroad", named)
+        )
         return {name: state.state for name, state in found.items()}
 
     assert states_now() == dict.fromkeys(NAMES, "fresh")
     units.write_text(units.read_text() + "/* edited */\n")
     assert set(states_now().values()) == {"stale"}
-    again = runner.run("openroad", design, flow_settings=settings)
+    again = runner.run("openroad", design, flow_settings=node_settings("openroad", settings))
     assert again is not None and again.succeeded and not again.reused
 
 
@@ -124,7 +129,7 @@ def test_a_dry_run_after_an_included_file_is_deleted_judges_the_chain_unknown(
     _, found = runner.plan_with_freshness(
         "openroad",
         Design.load(design),
-        flow_settings=text_items(settings),
+        flow_settings=node_settings("openroad", text_items(settings)),
     )
     assert found["openroad_place"].state == "unknown"
     assert "units.lib" in found["openroad_place"].reason

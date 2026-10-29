@@ -19,6 +19,7 @@ from xeda.flows import VivadoPower
 
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 REMOVED = {
     "postsynthsim": ({}, "flows.vivado_postsynth_sim.<key>"),
@@ -51,7 +52,9 @@ def test_power_is_a_reporter_with_only_declared_producers():
 def test_power_demands_timing_activity_without_configuring_the_producer(tmp_path):
     write_vivado_design(tmp_path)
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS
+        "vivado_power",
+        tmp_path / "design.yaml",
+        flow_settings=node_settings("vivado_power", VIVADO_SETTINGS),
     )
     assert [node.name for node in plan.nodes] == [
         "vivado_synth",
@@ -125,7 +128,11 @@ def test_failed_activity_prevents_power_reporter_execution(tmp_path, monkeypatch
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "silent")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowDependencyFailure):
-        runner.run("vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS)
+        runner.run(
+            "vivado_power",
+            tmp_path / "design.yaml",
+            flow_settings=node_settings("vivado_power", VIVADO_SETTINGS),
+        )
     assert not (tmp_path / "run/sim/vivado_power/vivado_power.tcl").exists()
     assert not (tmp_path / "run/sim/vivado_power/results.json").exists()  # blocked: it did not run
     producer = json.loads((tmp_path / "run/sim/vivado_postsynth_sim/results.json").read_text())
@@ -138,10 +145,13 @@ def test_power_takes_functional_activity_when_its_input_is_bound_to_the_saif(tmp
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
         "vivado_power",
         tmp_path / "design.yaml",
-        flow_settings=[
-            *VIVADO_SETTINGS,
-            "flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif",
-        ],
+        flow_settings=node_settings(
+            "vivado_power",
+            [
+                *VIVADO_SETTINGS,
+                "flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif",
+            ],
+        ),
     )
     simulation = plan.node("vivado_postsynth_sim")
     assert simulation.settings.timing_sim is False

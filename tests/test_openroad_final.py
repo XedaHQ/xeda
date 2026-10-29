@@ -45,6 +45,7 @@ from .openroad_utils import (
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, fake_returns, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
+from .scoping import node_settings
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "route_defaults.tcl"
@@ -906,7 +907,9 @@ def plan(tmp_path: Path, *texts: str):
     store = tiny_store(tmp_path)
     given = text_items([*openroad_settings(store), *texts])
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "openroad", openroad_design(tmp_path / "design"), flow_settings=given
+        "openroad",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad", given),
     )
 
 
@@ -2020,7 +2023,9 @@ def test_every_method_plans_on_a_platform_with_rules(tmp_path, method):
     )
     with register_openroad_flows():
         planned = DefaultRunner(tmp_path / "run", display_results=False).plan(
-            "openroad", openroad_design(tmp_path / "design"), flow_settings=given
+            "openroad",
+            openroad_design(tmp_path / "design"),
+            flow_settings=node_settings("openroad", given),
         )
     assert planned.nodes[-1].name == "openroad"
 
@@ -2589,7 +2594,9 @@ def plan_gds(tmp_path: Path, *texts: str, layout: bool = True):
     settings = {"platform_file": str(residue)}
     given = text_items([*openroad_settings(store, **(settings if layout else {})), *texts])
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "openroad", openroad_design(tmp_path / "design"), flow_settings=given
+        "openroad",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad", given),
     )
 
 

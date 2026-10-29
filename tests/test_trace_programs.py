@@ -19,6 +19,7 @@ from xeda.flow_runner import DefaultRunner, trace
 from xeda.flow_runner.trace import locate_program
 from xeda.proc_utils import DOCKER_IMAGE_PREFIX, note_program, recording_programs, run_process
 from xeda.tool import Docker, Tool
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -142,13 +143,17 @@ def test_an_earlier_match_on_the_child_path_makes_the_node_stale(
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     runner.launch_flow(TRunsTool, design, settings)
     assert runner.launch_flow(TRunsTool, design, settings).reused
-    _, states = runner.plan_with_freshness(TRunsTool, design, flow_settings=settings)
+    _, states = runner.plan_with_freshness(
+        TRunsTool, design, flow_settings=node_settings(TRunsTool, settings)
+    )
     assert states[TRunsTool.name].state == "fresh"
 
     program = preferred / "probe-tool"
     program.write_text("#!/bin/sh\necho preferred\n")
     program.chmod(0o755)
-    _, states = runner.plan_with_freshness(TRunsTool, design, flow_settings=settings)
+    _, states = runner.plan_with_freshness(
+        TRunsTool, design, flow_settings=node_settings(TRunsTool, settings)
+    )
     assert states[TRunsTool.name].state == "stale"
     assert states[TRunsTool.name].reason == "probe-tool changed"
     again = runner.launch_flow(TRunsTool, design, settings)

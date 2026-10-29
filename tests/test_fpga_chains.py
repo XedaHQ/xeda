@@ -31,6 +31,7 @@ from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
 from xeda.introspect import plan_info
 from xeda.utils import LOCATION_FORMS, replacing_file
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .project_files import PROJECT_FILE
@@ -138,7 +139,7 @@ def test_a_chain_narrows_the_packer_s_input_to_the_family_nextpnr_selects(tmp_pa
     plan = _runner(tmp_path).plan(
         parse_request("nextpnr+fpga_pack"),
         _design(tmp_path, part),
-        flow_settings={"fpga": {"part": part}},
+        flow_settings=node_settings(parse_request("nextpnr+fpga_pack"), {"fpga": {"part": part}}),
     )
     nodes = {node["name"]: node for node in plan_info(plan)["nodes"]}
     assert nodes["nextpnr"]["output_types"]["config"] == [config]
@@ -198,7 +199,9 @@ def test_a_database_override_agrees_along_a_chained_edge(tmp_path, owner):
     plan = _runner(tmp_path).plan(
         parse_request("yosys_fpga+nextpnr+fpga_pack"),
         design,
-        flow_settings={"fpga": {"part": A100T}},
+        flow_settings=node_settings(
+            parse_request("yosys_fpga+nextpnr+fpga_pack"), {"fpga": {"part": A100T}}
+        ),
     )
     database = (tmp_path / "design" / "db").resolve()
     assert plan.node("fpga_pack").settings.prjxray_db == database
@@ -208,7 +211,9 @@ def test_a_database_override_agrees_along_a_chained_edge(tmp_path, owner):
         _runner(tmp_path).plan(
             parse_request("nextpnr+fpga_pack"),
             _design(tmp_path, A100T, flows=flows),
-            flow_settings={"fpga": {"part": A100T}},
+            flow_settings=node_settings(
+                parse_request("nextpnr+fpga_pack"), {"fpga": {"part": A100T}}
+            ),
         )
 
 

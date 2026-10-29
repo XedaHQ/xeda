@@ -43,6 +43,7 @@ from .test_openfpgaloader import (
     assert_fake_loader,
 )
 from .test_proc_utils_terminal import Terminal
+from .scoping import node_settings
 
 RESOURCES = Path(__file__).parent / "resources/openfpgaloader"
 
@@ -719,7 +720,9 @@ def program(tmp_path, settings=None):
     """Launch the programmer on a prebuilt bitstream; the flow (a failed one too)."""
     assert_fake_loader()
     flow = _runner(tmp_path).run(
-        "openfpgaloader", _prebuilt(tmp_path), flow_settings=settings or {"fpga": {"part": ECP5}}
+        "openfpgaloader",
+        _prebuilt(tmp_path),
+        flow_settings=node_settings("openfpgaloader", settings or {"fpga": {"part": ECP5}}),
     )
     assert flow is not None
     return flow
@@ -879,7 +882,9 @@ def test_a_programmer_in_a_chain_fails_the_chain_with_its_message(
     printing(monkeypatch, stdout=owner_log("basys3-id-error.txt"))
     assert_fake_loader()
     flow = _runner(tmp_path).run(
-        "openfpgaloader", _design(tmp_path), flow_settings={"board": "basys_3"}
+        "openfpgaloader",
+        _design(tmp_path),
+        flow_settings=node_settings("openfpgaloader", {"board": "basys_3"}),
     )
     assert flow is not None and not flow.succeeded
     assert "ID Error        ID error" in recorded(tmp_path)["error"]["message"]

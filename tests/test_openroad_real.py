@@ -49,6 +49,7 @@ from .tool_utils import (
     require_pdk_store,
     require_yosys,
 )
+from .scoping import node_settings
 
 # ---------------------------------------------------------------------------- the guard
 
@@ -500,7 +501,7 @@ def run_gcd(
     launched = runner.run(
         flow or "openroad",
         str(GCD_DESIGN),
-        flow_settings=[*gcd_settings(store, period), *extra],
+        flow_settings=node_settings(flow or "openroad", [*gcd_settings(store, period), *extra]),
     )
     assert launched is not None
     return launched
@@ -694,7 +695,9 @@ def test_the_chain_writes_nothing_outside_its_run_root(tmp_path, monkeypatch):
 
             def launch(period: str | None = None) -> Flow:
                 settings = gcd_settings(pdks, period)
-                flow = runner.run("openroad", design, flow_settings=settings)
+                flow = runner.run(
+                    "openroad", design, flow_settings=node_settings("openroad", settings)
+                )
                 assert flow is not None
                 return flow
 

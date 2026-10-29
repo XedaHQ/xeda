@@ -23,6 +23,7 @@ from xeda.flow_runner.bindings import (
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.settings_layers import split_flow_sections
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import (
     TChainConsumer,
@@ -218,12 +219,11 @@ def test_pc1_a_chain_overrides_a_file_binding_of_the_same_input(origin, referenc
     assert data.origin == "chain" and data.overridden == ()
 
 
-def test_same_cli_input_in_unqualified_and_qualified_forms_is_an_error_even_when_equal():
-    with pytest.raises(FlowSettingsError, match="inputs.made.*flows.*inputs.made"):
+@pytest.mark.parametrize("key", ["inputs.made", f"flows.{TTaker.name}.inputs.made"])
+def test_a_cli_input_without_its_node_is_refused(key):
+    with pytest.raises(FlowSettingsError, match="unscoped_setting"):
         split_flow_sections(
-            {"inputs.made": "t_maker.made", f"flows.{TTaker.name}.inputs.made": "t_maker.made"},
-            TTaker.name,
-            lambda name: registered_flows[name][1],
+            {key: "t_maker.made"}, TTaker.name, lambda name: registered_flows[name][1]
         )
 
 
@@ -252,7 +252,7 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
         TTaker,
         "binding_design",
         str(project),
-        {"inputs.made": "t_maker"},
+        {"t_taker.inputs.made": "t_maker"},
         {"inputs.made": "t_maker.made"},
     )
     assert "inputs" not in request.settings
@@ -295,7 +295,7 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
             parse_request("t_chain_simple_producer+t_chain_simple_consumer"),
             "d" if origin == "project" else design,
             str(project),
-            {"inputs.netlist": reference} if origin == "CLI" else {},
+            {"t_chain_simple_consumer.inputs.netlist": reference} if origin == "CLI" else {},
             {"inputs.netlist": reference} if origin == "API" else {},
         )
 
@@ -334,8 +334,8 @@ def test_a_reached_binding_selects_the_edge_on_every_entry_path(tmp_path, entry)
             TTaker,
             design,
             flow_settings={
-                "inputs.made": "t_input_maker.made",
-                "flows.t_input_maker.input_file": str(source),
+                "t_taker.inputs.made": "t_input_maker.made",
+                "t_input_maker.input_file": str(source),
             },
         )
     if entry in ("plan", "resolve"):
@@ -354,7 +354,7 @@ def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
         rtl={"sources": []},
         flows={"unavailable_plugin": {"inputs": {"unknown": {"invalid": True}}}},
     )
-    request = runner._request(TMaker, design, flow_settings={"nthreads": 2})
+    request = runner._request(TMaker, design, flow_settings=node_settings(TMaker, {"nthreads": 2}))
     restored = pickle.loads(pickle.dumps(request))
     assert restored.binding_layers == request.binding_layers
     with pytest.raises(TypeError):
@@ -391,7 +391,7 @@ def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
     )
     before = design.rtl_hash
     request = DefaultRunner(tmp_path / "runs")._request(
-        TTaker, design, flow_settings={"inputs.made": "t_maker.made"}
+        TTaker, design, flow_settings=node_settings(TTaker, {"inputs.made": "t_maker.made"})
     )
     assert effective_bindings(request.binding_layers, default_nodes([TTaker]))[
         NodeKey(TTaker.name)

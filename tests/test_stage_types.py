@@ -41,6 +41,7 @@ from .test_tool_input_equivalence import (
     VIVADO_SETTINGS,
     write_vivado_design,
 )
+from .scoping import node_settings
 
 FPGA_NETLISTS = (SourceType.FpgaNetlist, SourceType.FpgaTimingNetlist)
 CHECKPOINTS = (SourceType.SynthCheckpoint, SourceType.RoutedCheckpoint)
@@ -79,11 +80,14 @@ def test_an_explicit_binding_of_the_wrong_kind_to_an_openroad_flow_is_refused_na
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "openroad_place",
             tmp_path / "design.yaml",
-            flow_settings=[
-                *openroad_settings(store),
-                *VIVADO_SETTINGS,
-                "inputs.netlist=vivado_synth.netlist",
-            ],
+            flow_settings=node_settings(
+                "openroad_place",
+                [
+                    *openroad_settings(store),
+                    *VIVADO_SETTINGS,
+                    "inputs.netlist=vivado_synth.netlist",
+                ],
+            ),
         )
     assert "VerilogNetlist" in str(error.value) and "FpgaNetlist" in str(error.value)
 
@@ -109,11 +113,14 @@ def test_an_explicit_binding_of_the_wrong_kind_is_refused_naming_the_types(tmp_p
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "nextpnr",
             tmp_path / "design.yaml",
-            flow_settings=[
-                *VIVADO_SETTINGS,
-                "flows.nextpnr.fpga.part=LFE5U-25F-6BG381C",
-                "inputs.netlist=vivado_synth.netlist",
-            ],
+            flow_settings=node_settings(
+                "nextpnr",
+                [
+                    *VIVADO_SETTINGS,
+                    "flows.nextpnr.fpga.part=LFE5U-25F-6BG381C",
+                    "inputs.netlist=vivado_synth.netlist",
+                ],
+            ),
         )
     assert "JsonNetlist" in str(error.value) and "FpgaNetlist" in str(error.value)
 
@@ -124,7 +131,10 @@ def test_power_refuses_a_checkpoint_bound_from_before_routing(tmp_path):
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "vivado_power",
             tmp_path / "design.yaml",
-            flow_settings=[*VIVADO_SETTINGS, "inputs.checkpoint=vivado_synth.checkpoint_synth"],
+            flow_settings=node_settings(
+                "vivado_power",
+                [*VIVADO_SETTINGS, "inputs.checkpoint=vivado_synth.checkpoint_synth"],
+            ),
         )
     assert "RoutedCheckpoint" in str(error.value) and "SynthCheckpoint" in str(error.value)
 
@@ -134,7 +144,9 @@ def test_the_functional_netlist_of_vivado_still_binds_to_the_post_synthesis_simu
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
         "vivado_postsynth_sim",
         tmp_path / "design.yaml",
-        flow_settings=[*VIVADO_SETTINGS, "inputs.netlist=vivado_synth.netlist"],
+        flow_settings=node_settings(
+            "vivado_postsynth_sim", [*VIVADO_SETTINGS, "inputs.netlist=vivado_synth.netlist"]
+        ),
     )
     simulation = plan.node("vivado_postsynth_sim")
     bound = {item.name: item.references for item in simulation.inputs}
@@ -175,15 +187,18 @@ def test_the_functional_and_the_timing_netlist_cannot_be_crossed(
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "vivado_postsynth_sim",
             tmp_path / "design.yaml",
-            flow_settings=[
-                *VIVADO_SETTINGS,
-                *(
-                    ["flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1"]
-                    if producer == "vivado_alt_synth"
-                    else []
-                ),
-                f"inputs.{crossing}={producer}.{other}",
-            ],
+            flow_settings=node_settings(
+                "vivado_postsynth_sim",
+                [
+                    *VIVADO_SETTINGS,
+                    *(
+                        ["flows.vivado_alt_synth.fpga.part=xc7a12tcsg325-1"]
+                        if producer == "vivado_alt_synth"
+                        else []
+                    ),
+                    f"inputs.{crossing}={producer}.{other}",
+                ],
+            ),
         )
     message = " ".join(str(error.value).split())
     assert f"takes {wanted}" in message and f"makes {given}" in message
@@ -419,7 +434,10 @@ def test_an_explicit_binding_of_the_generic_netlist_to_the_placement_is_refused(
         DefaultRunner(tmp_path / "run", display_results=False).plan(
             "openroad_place",
             openroad_design(tmp_path / "design", rtl=True),
-            flow_settings=[*openroad_settings(store), "inputs.netlist=yosys.netlist_generic"],
+            flow_settings=node_settings(
+                "openroad_place",
+                [*openroad_settings(store), "inputs.netlist=yosys.netlist_generic"],
+            ),
         )
     message = " ".join(str(error.value).split())
     assert "GenericVerilogNetlist" in message and re.search(r"\bVerilogNetlist\b", message)
