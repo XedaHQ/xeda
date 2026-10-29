@@ -73,7 +73,7 @@ def test_vivado_synth_runs_in_its_default_image(work_dir) -> None:
         {
             "fpga": {"part": "xc7a12tcsg325-1"},
             "clocks": {"main_clock": {"period": "10 ns"}},
-            "dockerized": True,
+            "docker": True,
         },
     )
     assert flow is not None and flow.succeeded
@@ -99,7 +99,7 @@ def test_ghdl_sim_runs_in_its_default_image(work_dir) -> None:
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
     )
-    flow = DefaultRunner(work_dir / "run").run_flow(GhdlSim, design, {"dockerized": True})
+    flow = DefaultRunner(work_dir / "run").run_flow(GhdlSim, design, {"docker": True})
     assert flow is not None and flow.succeeded
 
 
@@ -112,7 +112,7 @@ def test_yosys_runs_in_its_default_image(work_dir) -> None:
         **{"inv.v": INVERTER_V},
     )
     require_docker_image(_image(Docker(image=YOSYS_DOCKER_IMAGE)))
-    flow = DefaultRunner(work_dir / "run").run_flow(Yosys, design, {"dockerized": True})
+    flow = DefaultRunner(work_dir / "run").run_flow(Yosys, design, {"docker": True})
     assert flow is not None and flow.succeeded
 
 
@@ -161,9 +161,7 @@ def _modelsim_run(
         rtl={"sources": ["inv.sv"], "top": "inv"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
     )
-    flow = DefaultRunner(work_dir / "run").run_flow(
-        Modelsim, design, {"dockerized": True, **settings}
-    )
+    flow = DefaultRunner(work_dir / "run").run_flow(Modelsim, design, {"docker": True, **settings})
     assert flow is not None
     if check_post_assertion:
         assert (flow.run_path / "post_assertion.marker").read_text().strip() == "reached"
@@ -249,7 +247,7 @@ def test_a_containerized_tool_never_relabels_the_users_files(monkeypatch, tmp_pa
         ("sv", 'initial begin #5; $warning("check"); $finish; end', {}, True),
         ("sv", "initial begin #5; end", {}, False),
         ("sv", "reg clk=0; always #1 clk=~clk;", {"stop_time": "10ns"}, True),
-        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": 20}, False),
+        ("sv", "reg clk=0; always #1 clk=~clk;", {"timeout": "20 s"}, False),
         ("vhdl", "std.env.finish;", {}, True),
         ("vhdl", "wait for 5 ns; std.env.stop;", {}, True),
         ("vhdl", "assert false severity warning; std.env.finish;", {}, True),
@@ -279,7 +277,7 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
         language={"vhdl": {"standard": "2008"}},
     )
     flow = DefaultRunner(work_dir / "runs").run_flow(
-        Modelsim, design, {"dockerized": True, "timeout": 60, **settings}
+        Modelsim, design, {"docker": True, "timeout": "60 s", **settings}
     )
     assert flow is not None and flow.succeeded is passes
     if passes:
@@ -364,7 +362,7 @@ def test_a_dockerized_consumer_reads_the_files_of_its_producer_and_its_settings(
         outside.mkdir()
         (outside / "pins.xdc").write_text("a setting names this file")
         flow = DefaultRunner(work_dir / "run").run_flow(
-            Reader, design, {"dockerized": True, "constraints": str(outside / "pins.xdc")}
+            Reader, design, {"docker": True, "constraints": str(outside / "pins.xdc")}
         )
 
     assert flow is not None and flow.succeeded

@@ -81,6 +81,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   changed one with `model_copy(update=...)` and call `invalidate_cached_properties()`
   (`tests/test_frozen_design.py`). A launch leaves no process-wide state
   (`tests/test_isolation.py` sweeps it, `tests/test_shared_state.py` has its offenders).
+- No flow reads `os.environ`: a launch takes one `EnvironmentSnapshot`; tools and Xeda's own reads
+  use the node's admitted view (`flow_runner/environment.py`, `tests/test_tool_environment.py`).
 - `init()` runs even for a fresh flow: no dependency, no input read, no file written. A file it
   or `prepare_inputs()` registers in `Flow.implicit_inputs` needs a `locate_prepared_inputs()`
   counterpart, since `--dry-run` never calls `init()` (`tests/test_prepare_inputs.py`,
@@ -208,8 +210,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   design model; code `removed_alias`), and a row of `REMOVED_SPELLINGS`
   (`tests/test_removed_spellings.py`).
 - A setting accepts exactly its type; never add an implicit conversion. A boolean takes only
-  `true`/`false`; list text is comma-separated and `[...]` text is refused; `Code` is for
-  number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`).
+  `True`/`False`; list text is comma-separated and `[...]` text is refused; `Code` is for
+  number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`). Command-line
+  text (the `SettingText` that `utils.settings_to_dict` marks) goes through
+  `setting_text.parse_setting_text` by the field's annotation where the layers merge; values from
+  Python and files are never converted (`tests/test_setting_text.py`).
 - A physical measurement is a quantity type from `xeda.units` with a unit, never a bare number;
   every other numeric setting carries one marker (`count`, `ratio`, `percent`, `library_units`,
   `data_size`); the test's `NOT_MIGRATED_YET` table, which only shrinks, lists what is left
@@ -243,6 +248,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   are named through `RunDirectory.unlinked`. `tests/test_isolation.py` checks it (canary sweep, audit hook,
   read-only tree); a new delete or raw write fails until it is added to `REVIEWED_PY_DELETIONS`,
   `REVIEWED_SCRIPT_DELETIONS` or `REVIEWED_WRITES`.
+- Locks: a delivery is the one phase that holds locks and waits, taking its destinations and delivery
+  records in canonical order; `scrub` and the Git fetch of planning hold one exclusive lock at a time;
+  the remote client locks its whole mirror in one `acquire_all`; a thread that holds a lock gets
+  `lease_held` from a launch, sweep or scrub (`tests/test_graph_locks.py`).
 - Loading a design runs no generator and writes nothing; its generated `rtl.sources` are
   declarations (`Source.declaration`, a name or pattern in the generator output, never expanded; an
   entry is wholly generated or wholly written, `tests/test_generated_declarations.py`). A launch
@@ -252,11 +261,14 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   The key hashes the recipe, `design_configuration` (no content), the generator inputs and the
   executable; the inherited environment is freshness evidence, never key. The generator runs in
   the storage with `DESIGN_ROOT` and `XEDA_GENERATED`; flows get `execution_design`, and the plan,
-  the identity and the node configuration use the declared design. A launch generates before it takes any
-  run-directory lock, and holds the shared lease of the storage until the last delivery
-  (`run_lock.storage_lock`, `tests/test_storage_locks.py`). A dependency with a generator is a unit
-  of generation (`Design.generation_units`, `Source.owner`) with a storage of its own, dependencies
-  first; a generation holds one exclusive lock and waits for no other, and the shared leases of all
+  the identity and the node configuration use the declared design. A launch takes the locks of its
+  whole graph in one `run_lock.acquire_all` call (run directories, then storages, then
+  destinations, each by one resource key; it waits only for the first and, on a busy later lock,
+  releases all and waits for that one), generates under its exclusive locks, takes the storages
+  again shared, and keeps them with the node locks until the last delivery
+  (`tests/test_graph_locks.py`, `tests/test_storage_locks.py`). A dependency with a generator is a
+  unit of generation (`Design.generation_units`, `Source.owner`) with a storage of its own,
+  dependencies first; a generator takes no lock of its own, and the shared leases of all
   storages come after all generations (`tests/test_dependency_generation.py`). Loading reads no
   dependency. Planning merges them (`flow_runner/dependencies.py`): a Git fetch runs after every
   check that reads no value a dependency supplies, into `<run root>/.dependencies/<key>/` (the one

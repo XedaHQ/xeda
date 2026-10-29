@@ -47,6 +47,31 @@ _SIM_TIME_UNIT_NS = {
 }
 
 
+#: The setting that controls a variable which a cocotb run sets itself, by the name of the variable.
+COCOTB_SETTING_OF_VARIABLE = {
+    "COCOTB_RANDOM_SEED": "cocotb.random_seed",
+    "COCOTB_REDUCED_LOG_FMT": "cocotb.reduced_log_fmt",
+    "COCOTB_RESOLVE_X": "cocotb.resolve_x",
+    "COCOTB_RESULTS_FILE": "cocotb.results_xml",
+    "COCOTB_TEST_FILTER": "cocotb.testcase",
+    "COCOTB_TOPLEVEL": "tb.cocotb.toplevel or rtl.top",
+    "COCOTB_TEST_MODULES": "tb.cocotb.module",
+}
+
+
+def cocotb_variable_problem(name: str) -> str | None:
+    """Return why `env` may not set the variable `name` for a cocotb run, or None if it may.
+
+    A cocotb run sets the `COCOTB_*` variables, `PYTHONPATH` and `PYTHONPYCACHEPREFIX` itself.
+    The text names the setting that controls the variable, when there is one."""
+    if not (name.startswith("COCOTB_") or name in ("PYTHONPATH", "PYTHONPYCACHEPREFIX")):
+        return None
+    setting = COCOTB_SETTING_OF_VARIABLE.get(name)
+    return f"`env.{name}` is set by a cocotb run itself" + (
+        f": use `{setting}`" if setting else ", and no setting controls it"
+    )
+
+
 class CocotbSettings(XedaBaseModel):
     coverage: bool = Field(
         False, description="Collect coverage data if supported by simulation tool."
@@ -369,13 +394,14 @@ class Cocotb(CocotbSettings, Tool):
         passed in. This mirrors `cocotb_tools.runner`: libpython first, then the PYGPI entry
         point, separated by ";".
         """
-        preset = os.environ.get("GPI_USERS")
+        view = self.environment_view()
+        preset = view.get("GPI_USERS")
         if preset:
             return preset
         entry_point = self.pygpi_entry_point
         if not entry_point:
             return None  # cocotb < 2.1: the interface library registers itself
-        libpython = os.environ.get("LIBPYTHON_LOC") or self.probe_stdout(
+        libpython = view.get("LIBPYTHON_LOC") or self.probe_stdout(
             "--libpython", raise_on_error=False
         )
         return ";".join(user for user in (libpython, entry_point) if user)
@@ -452,6 +478,7 @@ class Cocotb(CocotbSettings, Tool):
         wrote.
         """
         environ: Dict[str, Any] = dict()
+        view = self.environment_view()
         cocotb = cocotb_of(design.tb)
         if cocotb is not None:
             if design.tb is None or not design.tb.sources:
@@ -467,7 +494,7 @@ class Cocotb(CocotbSettings, Tool):
                 top_cocotb_source = None
 
             py_path = []
-            current_py_path = os.environ.get("PYTHONPATH")
+            current_py_path = view.get("PYTHONPATH")
             if current_py_path:
                 py_path += current_py_path.split(os.pathsep)
             coco_module = None
@@ -486,7 +513,7 @@ class Cocotb(CocotbSettings, Tool):
             if top_cocotb_source:
                 py_path.append(str(top_cocotb_source.parent))
             toplevel = cocotb_toplevel(design)
-            python_bin = os.environ.get("PYGPI_PYTHON_BIN") or self.probe_stdout(
+            python_bin = view.get("PYGPI_PYTHON_BIN") or self.probe_stdout(
                 "--python-bin", raise_on_error=False
             )
             if not python_bin:
@@ -501,7 +528,7 @@ class Cocotb(CocotbSettings, Tool):
                 "COCOTB_TEST_MODULES": coco_module,
                 "TOPLEVEL": toplevel,
                 "COCOTB_TOPLEVEL": toplevel,
-                "COCOTB_REDUCED_LOG_FMT": os.environ.get(
+                "COCOTB_REDUCED_LOG_FMT": view.get(
                     "COCOTB_REDUCED_LOG_FMT", "1" if self.reduced_log_fmt else "0"
                 ),
                 "PYTHONPATH": os.pathsep.join(py_path),
@@ -520,7 +547,7 @@ class Cocotb(CocotbSettings, Tool):
             gpi_users = self.gpi_users()
             if gpi_users:
                 environ["GPI_USERS"] = gpi_users
-            log.debug("Cocotb env: %s", environ)
+            log.debug("Cocotb env: %s", ", ".join(sorted(environ)))
         return environ
 
     @cached_property

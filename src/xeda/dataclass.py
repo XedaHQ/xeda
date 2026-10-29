@@ -46,6 +46,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticUndefined
 
 from .frozen import FrozenModel, thaw
+from .units import QuantityJsonSchema
 
 __all__ = [
     "AliasChoices",
@@ -91,6 +92,8 @@ __all__ = [
     "atomic_keys",
     "escaped_names_atomic",
     "AtomicName",
+    "SettingText",
+    "scalar_problems",
     "name_inside_another",
     "shape_problems",
     "single_item_fields_of",
@@ -499,6 +502,17 @@ class AtomicName(str):
         return str.replace(self, ESCAPED_DOT, ".")
 
 
+class SettingText(str):
+    """The text of one setting as the command line writes it (`-s seed=4`: the text `4`).
+
+    `utils.settings_to_dict` marks each value of a `KEY=VALUE` item with this class. A merge that
+    knows the model of the setting reads the text by the annotation of the setting
+    (`setting_text.parse_setting_text`). A value from Python or from a file is never marked, so
+    it is never read this way."""
+
+    __slots__ = ()
+
+
 def fold_dotted_keys(value: Any) -> Any:
     """Fold a table given for a setting whose keys are names that contain dots
     (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`) into a table of those names.
@@ -881,11 +895,11 @@ WAVEFORM_KEY = "x-xeda-waveform"
 def waveform(extension: str, conventional: Optional[str] = None) -> Dict[str, Any]:
     """Return the marker of a setting that names a waveform file of the format `extension` (`vcd`,
     `fst`, `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name that the run
-    writes when the setting is given a location, `dump.<extension>` by default. `true` stands for
-    that same name, so `true` and a location are one run (`flow.identity_settings`). The name may
-    hold the name of the design (`outputs/{design}.saif`). The setting then keeps the text as it
-    is, and the launcher writes the name of the design where the run writes the file
-    (`deliver.split_deliveries`)."""
+    writes when the setting is given a location, `dump.<extension>` by default. The boolean `true`
+    stands for that same name, so `true` and a location are one run (`flow.identity_settings`). The
+    name may hold the name of the design (`outputs/{design}.saif`). The setting then keeps
+    `{design}` as it is, and the launcher writes the name of the design where the run writes the
+    file (`deliver.split_deliveries`)."""
     marker = deliverable(conventional or f"dump.{extension}")
     marker[WAVEFORM_KEY] = {"format": extension}
     return marker
@@ -980,20 +994,17 @@ def waveform_value(value: Any, extension: str, true_name: str) -> Any:
     """Return a waveform setting as the name it stands for. This is the one rule for every
     simulator.
 
-    `true` (the boolean, or the text in any letter case, which is all `-s` can write) stands for
-    `true_name`, the name that the run writes for a location (`waveform`), which may hold
-    `{design}`. `false` (likewise) and an empty name stand for none. A name without an extension
-    gets `.<extension>`. A setting is on, off or a name, so the other words that YAML 1.1 reads
-    as a boolean (`yes`, `on`, `n`, ...) are refused as they are for a boolean field
-    (`boolean_text_message`). So is `true` or `false` with spaces around it, given as the whole
-    value. Other text is a name. Anything else is left as it is, for the validation of the
-    field."""
+    The boolean `true` stands for `true_name`, the name that the run writes for a location
+    (`waveform`), which may hold `{design}`. The boolean `false` and an empty name stand for none.
+    A name without an extension gets `.<extension>`. A setting is on, off or a name, so text that
+    reads as a boolean is refused as it is for a boolean field (`boolean_text_message`): `true` and
+    `false` in any letter case, with or without spaces around them, and the other words that YAML
+    1.1 reads as a boolean (`yes`, `on`, `n`, ...), each given as the whole value. The command line
+    reads `true` and `false` as the booleans before they get here (`setting_text`). Other text is
+    a name. Anything else is left as it is, for the validation of the field."""
     if isinstance(value, str):
         word = value.strip().lower()
-        if value.lower() in ("true", "false"):
-            value = value.lower() == "true"
-        elif word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
-            # As for a boolean field, text with spaces around `true` is no boolean and no name.
+        if word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
             raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
     if value is True:
         return true_name
@@ -1078,6 +1089,8 @@ def _is_boolean_or_text_annotation(annotation: Any) -> bool:
 def boolean_text_message(text: str) -> str:
     """Return what to say about `text` given where a boolean is required."""
     word = text.strip().lower()
+    if word in ("true", "false"):
+        return f"`{text}` is text, not a boolean: write it without quotes, or as `True` or `False`"
     if word in _TRUE_WORDS:
         return f"`{text}` is text, not a boolean: write `true`"
     if word in _FALSE_WORDS:
@@ -1238,6 +1251,13 @@ class XedaBaseModel(BaseModel):
         return values
 
     @classmethod
+    def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Return the JSON Schema of the model, with the default of a quantity written in the
+        unit of its field."""
+        kwargs.setdefault("schema_generator", QuantityJsonSchema)
+        return super().model_json_schema(*args, **kwargs)
+
+    @classmethod
     def as_mapping(cls, value: Any) -> Any:
         """Return the table that `value`, a form other than a table, stands for as this model.
         The validator of the model reads the form by this function, and a merge of two layers
@@ -1263,13 +1283,15 @@ class XedaBaseModel(BaseModel):
     @_pydantic_model_validator(mode="before")
     @classmethod
     def _booleans_are_not_text(cls, values: Any) -> Any:
-        """Refuse text or a number given to a `bool` or `Optional[bool]` field, unless the text is
-        `true` or `false` (a command line has no other way to write a boolean). The lax booleans
-        of pydantic would read `yes`, `on`, `y` and `1` as `True`, but a setting accepts exactly
-        its declared type. A number is refused for a field that takes a boolean or text too
-        (`Union[bool, str]`). There is one more exception: `true` and `false` given to a deliverable
-        that is no waveform are refused too. Every model of Xeda shares this rule: flow settings,
-        the design and nested models. The input is only read and never rewritten."""
+        """Refuse text or a number given to a `bool` or `Optional[bool]` field. The lax booleans
+        of pydantic would read `true`, `yes`, `on`, `y` and `1` as `True`, but a setting accepts
+        exactly its declared type. The command line is no exception: its text is read as a
+        boolean before it reaches a model (`setting_text`). A number is refused for a field that
+        takes a boolean or text too (`Union[bool, str]`), and a waveform setting refuses the text
+        `true` or `false` (`waveform_value`). `true` and `false` given to a
+        deliverable that is no waveform are refused too. Every model of Xeda shares this rule:
+        flow settings, the design and nested models. The input is only read and never
+        rewritten."""
         if not isinstance(values, Mapping):
             return values
         names = input_names(cls)
@@ -1296,9 +1318,21 @@ class XedaBaseModel(BaseModel):
                 )
                 continue
             if isinstance(value, str):
-                if value.lower() in ("true", "false"):  # how a command line writes a boolean
-                    continue
                 message = boolean_text_message(value)
+                if (
+                    value.lower() in ("true", "false")
+                    and waveform_format_of(cls, names[key]) is None
+                    and _is_boolean_or_text_annotation(field_annotation(cls, names[key]))
+                ):
+                    # Beside a name, `true` is text that stands for a name, never the switch.
+                    problems.append(
+                        InitErrorDetails(
+                            type=PydanticCustomError("boolean_text", message),
+                            loc=(key,),
+                            input=value,
+                        )
+                    )
+                    continue
             elif isinstance(value, (int, float)) and not isinstance(value, bool):
                 message = f"`{value}` is a number, not a boolean: write `true` or `false`"
                 if _is_boolean_or_text_annotation(field_annotation(cls, names[key])):
@@ -1322,6 +1356,47 @@ class XedaBaseModel(BaseModel):
             raise ValidationError.from_exception_data(cls.__name__, problems)
         return values
 
+    @_pydantic_model_validator(mode="before")
+    @classmethod
+    def _exact_scalars(cls, values: Any, info: Any) -> Any:
+        """Refuse a number, text or switch of the wrong type for a setting that declares a plain
+        type (`scalar_problems`). A setting accepts exactly its declared type from Python and from
+        a file: an `int` takes no `"1"`, `1.0` or `True`. A boolean field is judged by
+        `_booleans_are_not_text`. The input is only read and never rewritten. On an assignment,
+        only the assigned field is judged."""
+        if not isinstance(values, Mapping):
+            return values
+        names = input_names(cls)
+        assigned = info.field_name if info.data is None else None
+        problems = []
+        for key, value in values.items():
+            if not (isinstance(key, str) and key in names):
+                if assigned is None and cls.model_config.get("extra") == "forbid":
+                    # Reported with the findings below, as pydantic reports it with its own.
+                    problems.append(
+                        InitErrorDetails(type="extra_forbidden", loc=(key,), input=value)
+                    )
+                continue
+            if assigned is not None and names[key] != assigned:
+                continue
+            annotation = field_type(cls.model_fields[names[key]])
+            if _is_boolean_annotation(annotation) or _is_boolean_or_text_annotation(annotation):
+                continue
+            found = scalar_problems(annotation, value)
+            if found:
+                problems.append(
+                    InitErrorDetails(
+                        type=PydanticCustomError(
+                            "invalid_value", "{message}", {"message": "; ".join(found)}
+                        ),
+                        loc=(key,),
+                        input=value,
+                    )
+                )
+        if any(problem["type"] != "extra_forbidden" for problem in problems):
+            raise ValidationError.from_exception_data(cls.__name__, problems)
+        return values
+
     def invalidate_cached_properties(self):
         """Discard the cached properties, inherited ones included, after the state of the model
         changes."""
@@ -1332,6 +1407,111 @@ class XedaBaseModel(BaseModel):
                 if isinstance(value, cached_property) and key not in type(self).model_fields:
                     log.debug("invalidating: %s", str(key))
                     self.__dict__.pop(key, None)
+
+
+def _shown(value: Any) -> str:
+    text = repr(value)
+    return text if len(text) <= 40 else f"{text[:37]}..."
+
+
+def _number_problem(kind: str, value: Any) -> str:
+    if isinstance(value, bool):
+        return f"`{_shown(value)}` is a boolean, not {kind}"
+    if isinstance(value, str):
+        return f"`{value}` is text, not {kind}: write it without quotes"
+    if isinstance(value, float):
+        return f"`{_shown(value)}` is not {kind}"
+    return f"`{_shown(value)}` is not {kind}"
+
+
+def scalar_problems(annotation: Any, value: Any, *, in_union: bool = False) -> List[str]:
+    """Return what is wrong with `value` given where `annotation` is declared, as messages. An
+    empty list means that the value is accepted, or that another validator judges it.
+
+    A setting accepts exactly its declared type and Xeda converts nothing:
+
+    - `int` takes an `int`, never a `bool`, a `float` or text;
+    - `float` takes an `int` or a `float`, never a `bool` or text;
+    - `bool` takes a `bool`;
+    - a `Literal` takes one of its members, of the same type;
+    - `Annotated[X, ...]` is `X`, `Optional[X]` also takes `None`, and a union takes a value that
+      one of its branches accepts;
+    - a list, a tuple of any length, a set or a dictionary is judged item by item (by value for
+      a dictionary). Text where a list is expected is left to the setting (a flow setting splits
+      comma-separated text into items before this check);
+    - text, paths, enums, quantities, `Code` and nested models are not judged here: their own
+      validators decide."""
+    if value is None:
+        return []
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        arguments = get_args(annotation)
+        if any(isinstance(metadata, FrozenModel) for metadata in arguments[1:]):
+            return []
+        return scalar_problems(arguments[0], value, in_union=in_union)
+    if origin in (Union, UnionType):
+        problems: List[str] = []
+        branches = [a for a in get_args(annotation) if a is not type(None)]
+        if len(branches) == 1:
+            return scalar_problems(branches[0], value, in_union=in_union)
+        for branch in branches:
+            if branch is str or (isinstance(branch, type) and issubclass(branch, PurePath)):
+                # Beside a number, a text branch takes text: `True` is no text, and the number
+                # branch would read it as 1.
+                if isinstance(value, str) or isinstance(value, PurePath):
+                    return []
+                problems.append(f"`{_shown(value)}` is not text")
+                continue
+            found = scalar_problems(branch, value, in_union=True)
+            if not found:
+                return []
+            problems += found
+        return list(dict.fromkeys(problems))
+    if annotation is bool:
+        return [] if isinstance(value, bool) else [_number_problem("a boolean", value)]
+    if annotation is int:
+        ok = isinstance(value, int) and not isinstance(value, bool)
+        return [] if ok else [_number_problem("a whole number", value)]
+    if annotation is float:
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        return [] if ok else [_number_problem("a number", value)]
+    if origin is Literal:
+        members = get_args(annotation)
+        same = any(
+            member == value
+            and (
+                type(member) is type(value) or (isinstance(member, str) and isinstance(value, str))
+            )
+            for member in members
+        )
+        if same:
+            return []
+        if not in_union and isinstance(value, str) and all(isinstance(m, str) for m in members):
+            return []  # not a member: the validation of the field reports it, with the others
+        return [f"`{_shown(value)}` is none of {', '.join(repr(m) for m in members)}"]
+    if origin in (list, set, frozenset, tuple):
+        arguments = get_args(annotation)
+        if not isinstance(value, (list, tuple, set, frozenset)) or not arguments:
+            return []
+        problems = []
+        if origin is tuple and not (len(arguments) == 2 and arguments[1] is Ellipsis):
+            # A tuple of fixed length checks each item against the annotation at its place; a
+            # wrong length is for the validation of the field to report.
+            for item_annotation, item in zip(arguments, value):
+                problems += scalar_problems(item_annotation, item)
+            return list(dict.fromkeys(problems))
+        for item in value:
+            problems += scalar_problems(arguments[0], item)
+        return list(dict.fromkeys(problems))
+    if origin in (dict, Mapping):
+        arguments = get_args(annotation)
+        if not isinstance(value, Mapping) or len(arguments) != 2:
+            return []
+        problems = []
+        for item in value.values():
+            problems += scalar_problems(arguments[1], item)
+        return list(dict.fromkeys(problems))
+    return []
 
 
 _XedaModelType = TypeVar("_XedaModelType", bound=XedaBaseModel)

@@ -13,6 +13,7 @@ from xeda.flow import FlowDependencyFailure
 
 from .test_openroad_flows import NAMES, chain, launch, openroad_flows  # noqa: F401
 from .tiny_platform import tiny_store
+from .setting_texts import text_items
 
 
 @pytest.mark.usefixtures("chain")
@@ -27,7 +28,7 @@ def test_a_changed_library_makes_the_chain_stale_and_a_dry_run_agrees(tmp_path, 
         tmp_path, monkeypatch, "fail_timing=false", f"liberty={library}"
     )
     assert first is not None and first.succeeded and not first.reused
-    given = dict(text.split("=", 1) for text in settings)
+    given = text_items(settings)
 
     def states_now() -> dict[str, str]:
         _, found = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
@@ -73,7 +74,7 @@ def test_a_file_that_a_library_includes_is_an_input_of_the_chain(tmp_path, monke
     units, given = settings_with_included_unit(tmp_path, where)
     runner, design, settings, first = launch(tmp_path, monkeypatch, "fail_timing=false", *given)
     assert first is not None and first.succeeded and not first.reused
-    named = dict(text.split("=", 1) for text in settings)
+    named = text_items(settings)
 
     def states_now() -> dict[str, str]:
         _, found = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=named)
@@ -123,7 +124,7 @@ def test_a_dry_run_after_an_included_file_is_deleted_judges_the_chain_unknown(
     _, found = runner.plan_with_freshness(
         "openroad",
         Design.load(design),
-        flow_settings=dict(text.split("=", 1) for text in settings),
+        flow_settings=text_items(settings),
     )
     assert found["openroad_place"].state == "unknown"
     assert "units.lib" in found["openroad_place"].reason

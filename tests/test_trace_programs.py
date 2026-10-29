@@ -18,7 +18,7 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner, trace
 from xeda.flow_runner.trace import locate_program
 from xeda.proc_utils import DOCKER_IMAGE_PREFIX, note_program, recording_programs, run_process
-from xeda.tool import Docker
+from xeda.tool import Docker, Tool
 
 pytestmark = pytest.mark.python_compat
 
@@ -40,6 +40,28 @@ def test_a_relative_program_is_recorded_where_the_process_starts(tmp_path):
         run_process("./simv", [], cwd=tmp_path)
     assert names == [str(program)]
     assert names.before[str(program)] is not None
+
+
+def test_the_program_that_the_child_path_finds_is_recorded(tmp_path, monkeypatch):
+    """Keep the requested name and record its state through the child's PATH."""
+    parent_bin, child_bin = tmp_path / "parent", tmp_path / "child"
+    for directory in (parent_bin, child_bin):
+        directory.mkdir()
+        program = directory / "twin-tool"
+        program.write_text("#!/bin/sh\nexit 0\n")
+        program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{parent_bin}{os.pathsep}{os.environ['PATH']}")
+    with recording_programs() as names:
+        run_process("twin-tool", [], cwd=tmp_path, env={"PATH": str(child_bin)})
+    assert names == ["twin-tool"]
+    child = (child_bin / "twin-tool").stat()
+    assert names.before["twin-tool"] == (
+        child.st_dev,
+        child.st_ino,
+        child.st_size,
+        child.st_mtime_ns,
+        child.st_ctime_ns,
+    )
 
 
 def test_nothing_is_recorded_outside_a_recording():
@@ -98,7 +120,43 @@ class _RunsTool(Flow):
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
-        run_process("probe-tool", [], stdout=True, cwd=self.run_path)
+        Tool("probe-tool").run(stdout=True)
+
+
+@pytest.mark.parametrize("same_initial_match", [False, True])
+def test_an_earlier_match_on_the_child_path_makes_the_node_stale(
+    tmp_path, probe_tool, same_initial_match
+):
+    """An unchanged PATH can select a new program after an earlier match is installed."""
+    preferred = tmp_path / "preferred"
+    preferred.mkdir()
+    fallback = probe_tool.parent
+    if not same_initial_match:
+        fallback = tmp_path / "fallback"
+        fallback.mkdir()
+        program = fallback / "probe-tool"
+        program.write_text("#!/bin/sh\necho child\n")
+        program.chmod(0o755)
+    settings = {"env": {"PATH": f"{preferred}{os.pathsep}{fallback}"}}
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    runner.launch_flow(_RunsTool, design, settings)
+    assert runner.launch_flow(_RunsTool, design, settings).reused
+    _, states = runner.plan_with_freshness(_RunsTool, design, flow_settings=settings)
+    assert states[_RunsTool.name].state == "fresh"
+
+    program = preferred / "probe-tool"
+    program.write_text("#!/bin/sh\necho preferred\n")
+    program.chmod(0o755)
+    _, states = runner.plan_with_freshness(_RunsTool, design, flow_settings=settings)
+    assert states[_RunsTool.name].state == "stale"
+    assert states[_RunsTool.name].reason == "probe-tool changed"
+    again = runner.launch_flow(_RunsTool, design, settings)
+    assert not again.reused and again.stale_reason == "probe-tool changed"
+    assert runner.launch_flow(_RunsTool, design, settings).reused
+    recorded = trace.read_trace(again.run_path)[0].programs
+    assert set(recorded) == {"probe-tool"}
+    assert recorded["probe-tool"].path == str(program.resolve())
 
 
 def test_a_program_edited_with_its_size_and_mtime_put_back_makes_the_run_stale(

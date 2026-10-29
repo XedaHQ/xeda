@@ -75,7 +75,7 @@ def test_dc_constrains_each_port_once_and_names_it(tmp_path, monkeypatch) -> Non
     `dc_shell` records a `foreach_in_collection` and does not run its body). Each port gets its own
     `set_input_delay` or `set_output_delay`, and each message names the port it is about."""
     _, run_path = _run_dc(
-        tmp_path, monkeypatch, default_max_input_delay=1.5, default_max_output_delay=2.5
+        tmp_path, monkeypatch, default_max_input_delay="1.5 ns", default_max_output_delay="2.5 ns"
     )
     prelude = """
 proc all_inputs {args} { return {a b} }

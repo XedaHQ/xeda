@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from ...dataclass import WORKING, Field, waveform
 from ...design import Design, DesignValidationError, SourceType
@@ -13,8 +13,8 @@ from ...flow import (
     ArtifactSpec,
     describe_artifacts,
 )
-from ...flow.sim import SimEvidence
-from ...units import convert_unit, count
+from ...flow.sim import SimEvidence, whole_femtoseconds
+from ...units import Bounds, Time, Unit, count
 from ...utils import SDF
 from ..vivado import Vivado
 from .sim_evidence import PROCESS_LOG, RUNTIME_LOG, parse_xsim_evidence
@@ -30,6 +30,8 @@ class VivadoSim(Vivado, SimFlow):
     pre-run and the run, measured from the current time that `xsim` reports. Verified with
     Vivado 2024.2.
     """
+
+    simulated_time_fields = ("stop_time", "prerun_time")
 
     #: `xvlog` analyzes Verilog and SystemVerilog, `xvhdl` analyzes VHDL.
     reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
@@ -91,11 +93,11 @@ class VivadoSim(Vivado, SimFlow):
             description="Enable the debug tracing of the simulator (`ltrace` and `ptrace`). "
             "The output is very verbose and the simulation is slow.",
         )
-        prerun_time: Optional[str] = Field(
+        prerun_time: Optional[Annotated[Time, Unit("ns"), Bounds(ge="0 ns")]] = Field(
             None,
-            description="Run the simulation for this long before the SAIF file is opened, for "
-            'example "10ns". The activity of this time, such as an initial reset sequence, is '
-            "not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not "
+            description="Run the simulation for this long before the SAIF file is opened, a "
+            "time with a unit, such as `10 ns`. The activity of this time, such as an initial reset "
+            "sequence, is not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not "
             "affected: it records from the start of the simulation.",
         )
         work_lib: str = Field("work", description="Name of the HDL working library.")
@@ -186,16 +188,6 @@ class VivadoSim(Vivado, SimFlow):
                 raise FlowSettingsException(
                     f"sim_flags {option} conflicts with xsim runtime evidence"
                 )
-        for name in ("stop_time", "prerun_time"):
-            value = getattr(settings, name)
-            if value is not None:
-                try:
-                    if convert_unit(value, "fs", from_unit="ns") < 0:
-                        raise ValueError("negative duration")
-                except ValueError as exc:
-                    raise FlowSettingsException(
-                        f"{name} is not a nonnegative simulation time: {value}"
-                    ) from exc
 
     def init(self) -> None:
         super().init()
@@ -263,18 +255,9 @@ class VivadoSim(Vivado, SimFlow):
             saif.parent.mkdir(parents=True, exist_ok=True)
         self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
         self.run_directory.writable(RUNTIME_LOG)
-        process_log = self.run_directory.writable(self.vivado.redirect_stdout or PROCESS_LOG)
-        self.vivado.redirect_stdout = None
-        stop_fs = (
-            int(round(convert_unit(ss.stop_time, "fs", from_unit="ns")))
-            if ss.stop_time is not None
-            else None
-        )
-        prerun_fs = (
-            int(round(convert_unit(ss.prerun_time, "fs", from_unit="ns")))
-            if ss.prerun_time is not None
-            else None
-        )
+        process_log = self.run_directory.writable(PROCESS_LOG)
+        stop_fs = whole_femtoseconds(ss.stop_time) if ss.stop_time is not None else None
+        prerun_fs = whole_femtoseconds(ss.prerun_time) if ss.prerun_time is not None else None
         script_path = self.copy_from_template(
             "vivado_sim.tcl", stop_fs=stop_fs, prerun_fs=prerun_fs, runtime_log=RUNTIME_LOG
         )
@@ -283,7 +266,7 @@ class VivadoSim(Vivado, SimFlow):
             RUNTIME_LOG,
             "-source",
             script_path,
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=process_log,
             merge_stderr=True,
         )

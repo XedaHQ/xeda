@@ -695,11 +695,11 @@ class YosysBase(Flow):
         """The Yosys tool, with the output and debug options of the settings."""
         default_args = []
         ss = self.settings
-        if ss.is_quiet or (not ss.verbose and not ss.debug):
+        if ss.verbosity in ("quiet", "normal"):
             default_args += ["-T", "-Q"]
-        if ss.is_quiet:
+        if ss.verbosity == "quiet":
             default_args += ["-q"]
-        if ss.debug:
+        if ss.verbosity == "debug":
             default_args += ["-g"]
         return Tool(
             executable="yosys",

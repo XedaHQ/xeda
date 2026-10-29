@@ -317,11 +317,16 @@ SWITCHES = ("true", "false", "TRUE", True, False)
 )
 def test_true_and_false_name_no_file(tmp_path, cls, path, model, field):
     """A deliverable that has no switch meaning refuses `true` and `false`, as text and as a
-    boolean, and says to give a location. One that reads them as a switch (a waveform) takes them.
+    boolean, and says to give a location. One that reads them as a switch (a waveform) takes the
+    booleans.
     """
     for value in SWITCHES:
         if waveform_format_of(model, field) is not None:
-            _hash(cls, tmp_path, path, value)
+            if isinstance(value, bool):
+                _hash(cls, tmp_path, path, value)
+            else:  # a waveform takes the boolean, and refuses its text as a boolean setting does
+                with pytest.raises(FlowSettingsError, match="is text, not a boolean"):
+                    _hash(cls, tmp_path, path, value)
             continue
         with pytest.raises(FlowSettingsError) as refused:
             _hash(cls, tmp_path, path, value)

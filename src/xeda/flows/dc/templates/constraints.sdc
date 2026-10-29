@@ -3,7 +3,7 @@
 create_clock -period {{"%.03f" % (clock.period | to("ns"))}} -name {{clock_name|tcl_word}} [get_ports {{clock.port|tcl_word}}]
 
 {% if settings.default_max_input_delay is not none -%}
-set max_input_delay {{settings.default_max_input_delay}}
+set max_input_delay {{settings.default_max_input_delay|to("ns")}}
 set input_ports [all_inputs -exclude_clock_ports]
 foreach_in_collection port $input_ports {
     set port_name [get_object_name $port]
@@ -14,7 +14,7 @@ foreach_in_collection port $input_ports {
 
 {% if settings.default_max_output_delay is not none -%}
 # Ensuring valid output can be captured on the clock edge
-set max_output_delay {{settings.default_max_output_delay}}
+set max_output_delay {{settings.default_max_output_delay|to("ns")}}
 set output_ports [all_outputs]
 foreach_in_collection port $output_ports {
     set port_name [get_object_name $port]

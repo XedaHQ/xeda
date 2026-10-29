@@ -93,11 +93,9 @@
      "results_xml": "results.xml",
      "testcase": []
     },
-    "console_colors": true,
-    "debug": false,
     "debug_traces": false,
-    "docker": null,
-    "dockerized": false,
+    "docker": false,
+    "docker_image": null,
     "elab_debug": null,
     "elab_flags": [
      "-relax",
@@ -110,7 +108,9 @@
      "-debug typical",
      "-sdfmax dut=<RUN>/sim/vivado_synth/outputs/route_design/timesim.max.sdf"
     ],
+    "env": {},
     "fail_severity": "error",
+    "inherit_env": true,
     "initialize_zeros": false,
     "lib_paths": [
      [
@@ -126,10 +126,7 @@
     ],
     "outputs_dir": "outputs",
     "prerun_time": null,
-    "print_commands": true,
-    "quiet": false,
     "read_oneshot": false,
-    "redirect_stdout": false,
     "reports_dir": "reports",
     "saif": null,
     "sdf": {
@@ -157,14 +154,13 @@
        "uncertainty": null
       }
      },
-     "console_colors": true,
-     "debug": false,
      "default_max_input_delay": null,
      "default_max_output_delay": null,
      "default_min_input_delay": null,
      "default_min_output_delay": null,
-     "docker": null,
-     "dockerized": false,
+     "docker": false,
+     "docker_image": null,
+     "env": {},
      "extra_reports": false,
      "fail_critical_warning": false,
      "fail_timing": true,
@@ -192,6 +188,7 @@
       },
       "strategy": ""
      },
+     "inherit_env": true,
      "lib_paths": [],
      "no_console": false,
      "no_log": false,
@@ -199,10 +196,7 @@
      "num_critical_paths": 100,
      "out_of_context": false,
      "outputs_dir": "outputs",
-     "print_commands": true,
      "qor_suggestions": false,
-     "quiet": false,
-     "redirect_stdout": false,
      "report_power": false,
      "reports_dir": "reports",
      "set_impl_properties": {},
@@ -223,7 +217,7 @@
      "tcl_files": [],
      "tcl_shell": false,
      "timeout_seconds": 7200,
-     "verbose": 0,
+     "verbosity": "normal",
      "write_checkpoint": false,
      "write_netlist": false,
      "xdc_files": []
@@ -235,7 +229,7 @@
     "vcd": null,
     "vcd_level": 0,
     "vcd_scope": "",
-    "verbose": 0,
+    "verbosity": "normal",
     "work_lib": "work",
     "xelab_log": "xeda_xelab.log"
    },
@@ -1575,14 +1569,13 @@
       "uncertainty": null
      }
     },
-    "console_colors": true,
-    "debug": false,
     "default_max_input_delay": null,
     "default_max_output_delay": null,
     "default_min_input_delay": null,
     "default_min_output_delay": null,
-    "docker": null,
-    "dockerized": false,
+    "docker": false,
+    "docker_image": null,
+    "env": {},
     "extra_reports": false,
     "fail_critical_warning": false,
     "fail_timing": true,
@@ -1631,6 +1624,7 @@
      },
      "strategy": ""
     },
+    "inherit_env": true,
     "lib_paths": [],
     "no_console": false,
     "no_log": false,
@@ -1638,10 +1632,7 @@
     "num_critical_paths": 100,
     "out_of_context": false,
     "outputs_dir": "outputs",
-    "print_commands": true,
     "qor_suggestions": false,
-    "quiet": false,
-    "redirect_stdout": false,
     "report_power": false,
     "reports_dir": "reports",
     "set_impl_properties": {},
@@ -1674,7 +1665,7 @@
     "tcl_files": [],
     "tcl_shell": false,
     "timeout_seconds": 7200,
-    "verbose": 0,
+    "verbosity": "normal",
     "write_checkpoint": false,
     "write_netlist": true,
     "xdc_files": []

@@ -65,10 +65,10 @@ class StartedPrograms(List[str]):
         self.before: Dict[str, Optional[ProgramState]] = {}
 
 
-def program_state(name: str) -> Optional[ProgramState]:
+def program_state(name: str, path: Optional[str] = None) -> Optional[ProgramState]:
     """Return the state of the file that `name` runs, or None. A name that is not a path is
-    looked up on PATH."""
-    found = name if os.path.isabs(name) or os.sep in name else shutil.which(name)
+    looked up on `path` (the caller's PATH by default)."""
+    found = name if os.path.isabs(name) or os.sep in name else shutil.which(name, path=path)
     try:
         st = os.stat(found) if found else None
     except OSError:
@@ -92,14 +92,14 @@ def recording_programs() -> Iterator[StartedPrograms]:
         _programs.reset(token)
 
 
-def note_program(name: str) -> None:
+def note_program(name: str, path: Optional[str] = None) -> None:
     """Record `name` and the state of its file as it is now, before the program starts, if a
     recording is active."""
     names = _programs.get()
     if names is not None and name not in names:
         names.append(name)
         if not name.startswith(DOCKER_IMAGE_PREFIX):
-            names.before[name] = program_state(name)
+            names.before[name] = program_state(name, path=path)
 
 
 def tool_output_stream() -> TextIO:
@@ -993,13 +993,13 @@ def run_process(
     program = str(executable)
     if cwd is not None and not os.path.isabs(program) and os.sep in program:
         program = os.path.normpath(os.path.join(os.fspath(cwd), program))
-    note_program(program)
-    if args is None:
-        args = []
-    args = [str(a) for a in args]
     if env is not None:
         env = {k: str(v) for k, v in env.items() if v is not None}
     env = {**(os.environ if env is None else env), "PWD": _pwd(cwd)}
+    note_program(program, path=env.get("PATH", os.defpath))
+    if args is None:
+        args = []
+    args = [str(a) for a in args]
     command: List[str] = [str(c) for c in (executable, *args)]
     cmd_str = " ".join(map(lambda x: str(x), command))
     if print_command and TOOL_OUTPUT.get() == "terminal":

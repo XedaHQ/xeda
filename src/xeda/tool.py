@@ -9,6 +9,7 @@ import tempfile
 import uuid
 import weakref
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
 from .console import console
@@ -116,8 +117,12 @@ class Docker(XedaBaseModel):
         cwd: Path | None = None,
         log_to: Path | None = None,
         log_append: bool = False,
+        client_env: Optional[Dict[str, Any]] = None,
     ) -> Union[str, None]:
         """Run the tool in a Docker container.
+
+        `env` is the environment of the container, written to its environment file. `client_env`
+        is the environment of the `docker` client; None is the environment of this process.
 
         The container works in `cwd`, which must be an absolute directory, and mounts it
         writable. It sees the resolved path of that directory, as a process that changed into it
@@ -210,7 +215,7 @@ class Docker(XedaBaseModel):
             return run_process(
                 self.cli,
                 cmd,
-                env=None,
+                env=client_env,
                 stdout=stdout,
                 check=check,
                 print_command=print_command,
@@ -224,7 +229,7 @@ class Docker(XedaBaseModel):
                 log_append=log_append,
             )
         except FileNotFoundError as e:
-            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH", "")
+            path = (client_env or os.environ).get("PATH", "")
             raise ExecutableNotFound(
                 e.filename, self.__class__.__qualname__, path, *e.args
             ) from None
@@ -263,7 +268,6 @@ class Tool(XedaBaseModel):
     version_flag: Optional[List[str]] = ["--version"]
     version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
     docker: Optional[Docker] = Field(None)
-    redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
     dockerized: bool = False
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
@@ -333,15 +337,12 @@ class Tool(XedaBaseModel):
             source_dirs_ = {src.path.parent for src in design.rtl.sources}
             source_dirs_ |= {src.path.parent for src in design.tb.sources}
             self.source_dirs_ = list(source_dirs_)
-            self.print_command = flow.settings.print_commands
-            self.console_colors = self.console_colors and flow.settings.console_colors
-            log.debug("flow.settings.dockerized=%s", flow.settings.dockerized)
-            self.dockerized = flow.settings.dockerized
-            if flow.settings.docker:
+            self.dockerized = flow.settings.docker
+            if flow.settings.docker_image:
                 if self.docker:
-                    self.docker.image = flow.settings.docker
+                    self.docker.image = flow.settings.docker_image
                 else:
-                    self.docker = Docker(image=flow.settings.docker)  # type: ignore
+                    self.docker = Docker(image=flow.settings.docker_image)  # type: ignore
 
         self.require_minimum_version()
         if flow is not None:
@@ -533,7 +534,11 @@ class Tool(XedaBaseModel):
             return Path(executable).resolve()
         if executable != self.executable:
             return None
-        which = shutil.which(self.executable)
+        flow = self._live_flow()
+        search_path = (flow.process_environment() if flow is not None else os.environ).get(
+            "PATH", os.defpath
+        )
+        which = shutil.which(self.executable, path=search_path)
         if which is not None:
             return Path(which).resolve()
         return None
@@ -692,8 +697,6 @@ class Tool(XedaBaseModel):
         else `working_directory()`. A tool without a flow needs an absolute `cwd`. The process starts there, and a relative `stdout` or `tee`
         file and the files that Xeda writes for the tool are relative to it too."""
         directory = self._directory(cwd)
-        if not stdout and self.redirect_stdout:
-            stdout = self.redirect_stdout
         stdout = _placed(directory, stdout)
         if tee is not None:
             tee = directory / tee
@@ -744,6 +747,7 @@ class Tool(XedaBaseModel):
             highlight_rules = highlight_rules or self.highlight_rules
         else:
             highlight_rules = None
+        flow = self._live_flow()
         if self.docker and self.dockerized:
             # The container sees the physical directory (`Docker.run`), and so do its read-only
             # mounts, which are compared with it.
@@ -751,7 +755,8 @@ class Tool(XedaBaseModel):
             return self.docker.run(
                 executable,
                 *args,
-                env=env,
+                env=env if flow is None else flow.container_environment(env or {}),
+                client_env=None if flow is None else flow.process_environment(),
                 stdout=stdout,
                 check=check,
                 read_only=self._read_only_directories(container_directory),
@@ -764,7 +769,9 @@ class Tool(XedaBaseModel):
                 log_to=log_to,
                 log_append=log_append,
             )
-        if env is not None:
+        if flow is not None:
+            env = flow.process_environment(env or {})
+        elif env is not None:
             env = {**os.environ, **env}
         try:
             return run_process(
@@ -784,10 +791,16 @@ class Tool(XedaBaseModel):
                 log_append=log_append,
             )
         except FileNotFoundError as e:
-            path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")
+            path = (env if env is not None else os.environ).get("PATH")
             raise ExecutableNotFound(
                 e.filename, self.__class__.__qualname__, path, *e.args
             ) from None
+
+    def environment_view(self) -> Mapping[str, str]:
+        """Return the environment that Xeda reads for this tool: the view of its flow
+        (`Flow.env_view`). A tool outside a flow reads the environment of this process."""
+        flow = self._live_flow()
+        return flow.env_view if flow is not None else dict(os.environ)
 
     def run_get_stdout(
         self,

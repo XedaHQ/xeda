@@ -10,7 +10,6 @@ from ...flow import (
 )
 from ...flow.flow import describe_results
 from ...flow.sim import SimEvidence
-from ...units import convert_unit
 from .sim_evidence import parse_modelsim_evidence
 from ...tool import Docker, Tool
 from ...utils import SDF
@@ -48,6 +47,7 @@ class Modelsim(SimFlow):
     """
 
     executables = ("vsim",)
+    locator_variables = ("MODEL_TECH", "LM_LICENSE_FILE", "MGLS_LICENSE_FILE")
 
     artifacts_description = describe_artifacts("log")
 
@@ -125,11 +125,7 @@ class Modelsim(SimFlow):
         )
         self.run_directory.writable("modelsim_runtime.log")
         self.run_directory.writable("modelsim_end.txt")
-        stop_time = (
-            str(convert_unit(ss.stop_time, "ps", from_unit="ns")) + "ps"
-            if ss.stop_time is not None
-            else None
-        )
+        stop_time = str(ss.stop_time.to("ps")) + "ps" if ss.stop_time is not None else None
         script_path = self.copy_from_template(
             "run.tcl",
             vcom_opts=ss.vcom_flags,
@@ -144,12 +140,11 @@ class Modelsim(SimFlow):
             modelsim_opts.extend(["-modelsimini", str(ss.modelsimini)])
         vsim = ModelsimTool()
         # One `vsim` run does both the build and the simulation. Keep all its output on failure
-        # or timeout. Only the runtime transcript supplies evidence. A general stdout redirect
-        # (`redirect_stdout`) could hide that transcript, so the derived tool sets none.
-        runtime = vsim.derive(vsim.executable, redirect_stdout=None)
+        # or timeout. Only the runtime transcript supplies evidence.
+        runtime = vsim.derive(vsim.executable)
         runtime.run(
             *modelsim_opts,
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable("modelsim_process.log"),
             merge_stderr=True,
         )

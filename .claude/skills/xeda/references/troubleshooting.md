@@ -34,13 +34,13 @@
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
 | `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). For example, use `timeout` (on the simulators) for `timeout_seconds`. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
-| `` `10` needs a unit, such as `10 ns`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit: `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
+| `` `timeout` needs a unit, such as `180 s`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit; the message names the field and suggests your number in the unit of that field: `timeout: 180 s`, `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
 | `` `5 MHz` is a frequency, not a time `` | The unit is of another kind. Use a unit of the kind that the message names. |
 | `` unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`? `` | Write the unit as the message says (`MHz`, not `mhz`). |
 | `` unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, µs, ms, s, min, h `` | Use one of the units listed. A spelled-out name is refused. |
 | `` cannot read `fast` as a time: write one number and one unit, such as `10 ns` `` | The text is not one number and one unit (a word, `5 ns * 2`, `1_000 ns`). |
 | `must be greater than 0 ns, got -1 ns` | The value is outside the limit of the setting. |
-| `Input should be a valid number, unable to parse string as a number` | The setting still takes a plain number (`timeout` in s, `hold_detour_max` in ns; `freq` of `openfpgaloader` is an integer in Hz). Remove the unit. |
+| `Input should be a valid number, unable to parse string as a number` | The setting takes a plain number (a count, a ratio, a size of data, or a value in the units of the library). Remove the unit. |
 | a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
 | `` `true` is a switch, and `bitstream` names a file `` | Give a name or location, or leave it unset. |
 
@@ -91,7 +91,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  Install the tool, or run it from a container with `-s dockerized=true`. For a node that ran in this
+  Install the tool, or run it from a container with `-s docker=true`. For a node that ran in this
   launch, the log shows the executable that Xeda found.
 - `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `record.error`. The
   generated script and the tool's log are in its `run_dir`.
@@ -187,8 +187,8 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
 ### Waveform settings
 
 `vcd`, `fst`, `vcdgz`, `saif` and the other waveform settings take `true` (the conventional file,
-`dump.<format>`), `false`, a file name, or a location. `-s vcd=true` is `vcd: true`. `yes` and `on`
-are refused.
+`dump.<format>`), `false`, a file name, or a location. `-s vcd=true` is `vcd: true`. `yes`, `on`
+and the quoted text `"true"` are refused.
 
 | Message | Fix |
 | --- | --- |

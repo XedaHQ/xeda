@@ -702,6 +702,7 @@ def test_a_declaration_is_inherited_and_added_to():
 #: `<module>.<class>.<field>`, that does not take dotted names as keys: why a dotted key of it
 #: stays a path into nested tables.
 ORDINARY_DICTIONARIES = {
+    "xeda.flow.flow.Flow.Settings.env": "names of environment variables, which have no dots",
     "xeda.flow.synth.SynthFlow.Settings.clocks": "clock names, with tables as values: "
     "`clocks.clk.period` is a path into the clock's table",
     "xeda.flows.dc.Dc.Settings.compile": "suffixes of DC `compile_*` variables, which have no dots",

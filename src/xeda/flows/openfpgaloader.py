@@ -3,7 +3,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, List, Literal, Optional, Tuple, Union
+from typing import Annotated, Any, ClassVar, List, Literal, Optional, Tuple, Union
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
@@ -12,13 +12,14 @@ from ..flow import (
     FPGA,
     Flow,
     FlowFatalError,
+    FlowSettingsException,
     FpgaSynthFlow,
     In,
     describe_artifacts,
 )
 from ..records import REPORTED_FAILURE, ErrorInfo
 from ..tool import Tool
-from ..units import count, data_size
+from ..units import Bounds, Frequency, count, data_size
 from ..utils import ToolException
 from .openfpgaloader_probes import (
     BITBANG_CABLES,
@@ -487,17 +488,15 @@ class OpenfpgaloaderTool(Tool):
 def _switched_on(value: Any) -> bool:
     """Tell whether the input of a Boolean setting, as given, turns it on.
 
-    The function reads the input the way the setting does. A boolean turns it on, and so does
-    `true` as text (how a command line writes one). `yes`, `on` and numbers are no booleans, so
-    they are off here. The validation of the setting refuses them and says what to write."""
-    return value is True or (isinstance(value, str) and value.lower() == "true")
+    The function reads the input the way the setting does. Only `True` turns it on. Text and
+    numbers are no booleans, so they are off here. The validation of the setting refuses them and
+    says what to write."""
+    return value is True
 
 
 def _is_boolean(value: Any) -> bool:
     """Tell whether the input of a Boolean setting, as given, is a boolean it accepts."""
-    return isinstance(value, bool) or (
-        isinstance(value, str) and value.lower() in ("true", "false")
-    )
+    return isinstance(value, bool)
 
 
 class Openfpgaloader(FpgaSynthFlow):
@@ -606,7 +605,11 @@ class Openfpgaloader(FpgaSynthFlow):
         verify: bool = Field(
             False, description="Verify the SPI flash after programming. Needs `write_flash`."
         )
-        freq: Optional[int] = Field(None, gt=0, description="JTAG clock frequency in Hz.")
+        freq: Optional[Annotated[Frequency, Bounds(gt="0 Hz")]] = Field(
+            None,
+            description="JTAG clock frequency, a frequency with a unit, such as `6 MHz`. The "
+            "loader takes a whole number of hertz.",
+        )
         offset: Optional[int] = Field(
             None, ge=0, description="Flash start address in bytes.", json_schema_extra=data_size()
         )
@@ -655,8 +658,8 @@ class Openfpgaloader(FpgaSynthFlow):
             the whole state with the assigned value, before the settings store anything. The
             order in which the two settings are given or assigned therefore does not matter, and
             a refused assignment leaves the settings as they were. The check reads each value as
-            its field will read it (`true` as text is true; `1` and `"yes"` are no booleans, and
-            the field refuses them). It rewrites nothing."""
+            its field will read it (text and numbers are no booleans, and the field refuses
+            them). It rewrites nothing."""
             flash = values.get("write_flash")
             if (
                 _switched_on(values.get("verify"))
@@ -676,6 +679,17 @@ class Openfpgaloader(FpgaSynthFlow):
             output="bitstream",
             description="The bitstream to program: a design source or fpga_pack's.",
         )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a `freq` that is not a whole number of hertz: `--freq` takes an integer."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        if settings.freq is not None and not settings.freq.to("Hz").is_integer():
+            raise FlowSettingsException(
+                f"`freq` is {settings.freq}, which is not a whole number of hertz: "
+                "openFPGALoader takes an integer"
+            )
 
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
@@ -984,7 +998,7 @@ class Openfpgaloader(FpgaSynthFlow):
             (ss.verify, "--verify"),
             (ss.skip_reset, "--skip-reset"),
             (ss.skip_load_bridge, "--skip-load-bridge"),
-            (ss.verbose > 0, "--verbose"),
+            (ss.verbosity == "verbose", "--verbose"),
         ):
             if enabled:
                 args.append(flag)
@@ -1002,7 +1016,7 @@ class Openfpgaloader(FpgaSynthFlow):
         ):
             value = getattr(ss, name)
             if value is not None:
-                args.extend([option, str(value)])
+                args.extend([option, str(int(value.to("Hz")) if name == "freq" else value)])
         # The probe whose FPGA matches the part, when the run names none.
         args.extend(self._probe_arguments(board_name))
         args.extend(ss.extra_args)

@@ -47,13 +47,13 @@ def layer(cls, inputs, location="the design file"):
 
 def test_split_copies_settings_and_captures_immutable_binding_data():
     sections = {
-        _ChainConsumer.name: {"quiet": True, "inputs": {"files": ["__chain_producer.files"]}}
+        _ChainConsumer.name: {"nthreads": 2, "inputs": {"files": ["__chain_producer.files"]}}
     }
     before = deepcopy(sections)
     settings, bindings = split_bindings(sections, location="project.yaml")
     sections[_ChainConsumer.name]["inputs"]["files"].append("__maker.made")
 
-    assert settings == {_ChainConsumer.name: {"quiet": True}}
+    assert settings == {_ChainConsumer.name: {"nthreads": 2}}
     assert before[_ChainConsumer.name]["inputs"]["files"] == ["__chain_producer.files"]
     selected = effective_bindings([bindings], default_nodes([_ChainConsumer]))
     binding = selected[NodeKey(_ChainConsumer.name)]["files"]
@@ -243,7 +243,7 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
         yaml.safe_dump(
             {
                 "designs": [{"file": "design.yaml"}],
-                "flows": {_Taker.name: {"inputs": {"made": "__maker"}, "quiet": False}},
+                "flows": {_Taker.name: {"inputs": {"made": "__maker"}, "nthreads": 3}},
             }
         )
     )
@@ -354,11 +354,11 @@ def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
         rtl={"sources": []},
         flows={"unavailable_plugin": {"inputs": {"unknown": {"invalid": True}}}},
     )
-    request = runner._request(_Maker, design, flow_settings={"quiet": True})
+    request = runner._request(_Maker, design, flow_settings={"nthreads": 2})
     restored = pickle.loads(pickle.dumps(request))
     assert restored.binding_layers == request.binding_layers
     with pytest.raises(TypeError):
-        restored.binding_layers[2].settings[_Maker.name]["quiet"] = False
+        restored.binding_layers[2].settings[_Maker.name]["nthreads"] = 3
 
 
 def test_embedded_yaml_design_binding_names_its_project_file_and_design(tmp_path):

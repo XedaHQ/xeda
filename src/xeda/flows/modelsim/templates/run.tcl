@@ -35,7 +35,7 @@ set BreakOnAssertion 4
 # A built-in break returns to this script and must not skip the status and time checkpoint.
 onbreak {resume}
 {% if settings.vcd %}
-vcd add -r {% if not settings.debug and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
+vcd add -r {% if settings.verbosity != "debug" and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
 {% endif %}
 # The launch option -logfile enables transcript capture in batch mode. Disable macro echo.
 # The adapter bounds the runtime evidence with the markers below.

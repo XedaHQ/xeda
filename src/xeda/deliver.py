@@ -821,6 +821,24 @@ def _read_record(path: Path) -> dict[str, Any]:
     return data
 
 
+def _same_file(held: Any, entry: dict[str, Any]) -> bool:
+    """Return whether the record entry `held` is for the same file as `entry`: the same inode
+    and the same content."""
+    if not isinstance(held, dict):
+        return False
+    one, other = held.get("record"), entry.get("record")
+    if not isinstance(one, dict) or not isinstance(other, dict):
+        return False
+    return one.get("inode") == other.get("inode") and one.get("sha") == other.get("sha")
+
+
+def _run_lock() -> Any:
+    """Return the module of the locks of Xeda. The import comes late: that package imports this one."""
+    from .flow_runner import run_lock
+
+    return run_lock
+
+
 def _refused(conflicts: Sequence[Conflict]) -> str:
     listed = "; ".join(f"{c.destination} ({c.why}), named by `{c.delivery.key}`" for c in conflicts)
     return (
@@ -924,11 +942,22 @@ class Deliveries:
         #: The state of the record file just before it was read (`reread_record`).
         self._record_state: _State = _state(self.record_path)
         self.record = _read_record(self.record_path)
+        #: What this node adds to the record: the files it delivers and the directories it
+        #: names. `_write_record` merges these into the record as it is on disk by then.
+        self._written_files: dict[str, dict[str, Any]] = {}
+        #: The entries that a check refreshed and anchored, by destination, for files this node
+        #: did not copy. A merge keeps one only while the record on disk still holds the same
+        #: file there.
+        self._refreshed: dict[str, dict[str, Any]] = {}
+        self._written_directories: list[str] = []
         #: Every destination checked before the run, as it was then.
         self.checked: dict[Path, _State] = {}
         #: What the node delivers, noted when it completed (`collect`): each file, where it goes,
         #: and its content digest as the run left it.
         self.pending: list[tuple[Delivery, Path, Path, str]] = []
+        #: The destinations whose missing directories `make_directories` could not make, with the
+        #: error. They get no lock, and `deliver` raises the error when it reaches one.
+        self._unprepared: dict[Path, OSError] = {}
         #: What `deliver` has copied so far in this call, even one that raises. An `OSError`
         #: partway through must not leave the copies already made unreported.
         self.delivered: list[Delivered] = []
@@ -939,18 +968,67 @@ class Deliveries:
     def reread_record(self) -> None:
         """Read the delivery record again if its file changed since it was read.
 
-        The lock of the run directory keeps the file from changing during the turn of a node. A
-        node whose deliveries were made ready before its turn
-        (`FlowLauncher._check_deliveries_ahead`) calls this once it holds the lock. Another
+        A launch that delivers calls this once it holds the lock of its destinations. Another
         launch of the run directory may have delivered and written the record meanwhile, and what
         this object read then is no longer true. When the file did not change, the record stays
         as it is. The entries that a check anchored in it still vouch for their destinations, so
-        nothing is read twice.
+        nothing is read twice. What this node has added to the record stays in it.
         """
         state = _state(self.record_path)
         if state != self._record_state:
             self._record_state = state
-            self.record = _read_record(self.record_path)
+            self.record = self._with_written(_read_record(self.record_path))
+
+    def _with_written(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Add to `record` what this node has delivered, the directories it names, and the
+        anchors it established for files it did not copy.
+
+        An anchor is for one file. When the record holds another file (a later delivery of
+        another launch) or no entry for the destination, the record stays as it is."""
+        files = record["files"]
+        for name, entry in self._refreshed.items():
+            if name not in self._written_files and _same_file(files.get(name), entry):
+                files[name] = entry
+        files.update(self._written_files)
+        for directory in self._written_directories:
+            if directory not in record["directories"]:
+                record["directories"].append(directory)
+        return record
+
+    def lock_requests(self) -> list[Any]:
+        """Return the exclusive locks that `deliver` needs: one for each destination of the
+        files noted by `collect`, and one for the delivery record of the node.
+
+        A launch takes the locks of all its deliveries at once, in one order, and then delivers.
+        The record lies beside the run directory, and nodes that only reuse their run directory
+        share it, so the record is locked as a destination is."""
+        request = _run_lock().LockRequest
+        found = [
+            request("destination", destination, True)
+            for _d, _s, dest, _sha in self.pending
+            if (destination := _located(dest)) not in self._unprepared
+        ]
+        found.append(request("destination", self.record_path, True))
+        return found
+
+    def make_directories(self) -> None:
+        """Make the missing directories above the destinations and the record of the node.
+
+        The launch calls this before it takes the locks (`lock_requests`). The lock of a
+        destination is named by the nearest directory that exists above it, so a lock taken
+        while a directory is missing would name another directory than the lock taken after the
+        copy made it. A destination that `deliver` refuses gets no directory. A destination whose
+        directory cannot be made gets no lock, so that no copy makes the directory later while the
+        locks are held; `deliver` raises the error when it reaches that destination."""
+        self._unprepared = {}
+        for delivery, _source, dest, _sha in self.pending:
+            destination = _located(dest)
+            if self._refusal(destination, delivery) is None:
+                try:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                except OSError as error:
+                    self._unprepared[destination] = error
+        self.record_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
         """Return why nothing may ever be delivered to `destination` (located), or None.
@@ -1104,6 +1182,7 @@ class Deliveries:
         if now.inode != record.inode or now.sha != record.sha:
             return "changed since Xeda wrote it"
         self._refresh_entry(entry, now, reading)
+        self._refreshed[str(destination)] = entry
         return None
 
     @staticmethod
@@ -1129,7 +1208,13 @@ class Deliveries:
             entry.pop("anchor_device", None)
 
     def _confirmed(self, conflicts: Sequence[Conflict]) -> bool:
-        return self.overwrite or (self.confirm is not None and bool(self.confirm(conflicts)))
+        if self.overwrite:
+            return True
+        if self.confirm is None:
+            return False
+        # A delivery asks while it holds locks: the callback may use those and no others.
+        with _run_lock().callback_guard():
+            return bool(self.confirm(conflicts))
 
     def check_outputs_to(self, directory: Optional[Path]) -> None:
         """Refuse an unusable `--outputs-to` directory before any tool of the launch runs.
@@ -1248,6 +1333,8 @@ class Deliveries:
                 directory = str(_located(delivery.destination))
                 if directory not in self.record["directories"]:
                     self.record["directories"].append(directory)
+                if directory not in self._written_directories:
+                    self._written_directories.append(directory)
             else:
                 pairs = [(source, delivery.destination)]
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
@@ -1291,6 +1378,10 @@ class Deliveries:
         and raises a `DeliveryError` once the other deliveries are made. A file found in the way
         only now needs the yes that `check` would have asked for.
 
+        The launch takes the locks of all its destinations and of the delivery record
+        (`lock_requests`) before it calls this, in one order. A call without them takes the lock
+        of each destination for its own copy.
+
         An `OSError` from `_copy` (a full disk, a permission lost during the run) can interrupt
         the method. Whatever was copied before is still recorded (`self.delivered`, and
         `_write_record` under `finally`). A later call, and `flow.deliveries` of the caller
@@ -1306,6 +1397,9 @@ class Deliveries:
         that flow, is copied. Without `reached`, only the deliveries of this node are counted.
         """
         self.delivered = list(self.skipped)
+        # Another launch may have delivered, and written the record, since this node noted its
+        # files. The caller holds the locks of the destinations now.
+        self.reread_record()
         movable = self._movable(reached) if move else set()
         changed: list[str] = []
         shared: list[str] = []
@@ -1322,6 +1416,8 @@ class Deliveries:
                         f"{earlier} delivered"
                     )
                     continue
+                if destination in self._unprepared:
+                    raise self._unprepared[destination]
                 refusal = self._refusal(destination, delivery)
                 if refusal is None and destination.is_dir() and not destination.is_symlink():
                     refusal = "a directory"
@@ -1450,48 +1546,55 @@ class Deliveries:
         (`_move_into`), and everything after that is as for a copy. If the delivery does not
         complete, the file goes back to where the run left it (`_discard`).
         """
-        if destination.is_file() and not destination.is_symlink():
-            try:
-                now, reading = self._held(destination)
-                if now.sha == sha and _state(destination) == expected:
-                    self._remember(delivery, source, destination, sha, reading)
-                    return Delivered(delivery.key, source, destination, "unchanged")
-            except OSError:
-                pass
+        # Holding the lock from the check below through the replacement and the record: two
+        # launches cannot both find the destination unchanged and both replace it. A launch has
+        # taken the lock already, and the lock is then held again at once. The directory above
+        # the destination is made first: the lock is named by the nearest directory that exists.
         destination.parent.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=".xeda-delivery-", dir=destination.parent)
-        temporary = Path(name)
-        moved = done = False
-        try:
-            with os.fdopen(fd, "wb") as out:
-                moved = move and self._move_into(source, temporary)
-                if not moved:
-                    with open(source, "rb") as data:
-                        copy_fd(data.fileno(), out.fileno())
-                        # by descriptor, because the name may lead elsewhere now
-                        if hasattr(os, "fchmod"):
-                            os.fchmod(out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode))
-            if (
-                _located(destination) != destination
-                or self._refusal(destination, delivery) is not None
-                or _state(destination) != expected
-            ):
-                return None
-            if content_digest(temporary) != sha:
-                raise DeliveryError(
-                    f"{source} changed after its run -- did another launch run in "
-                    f"{delivery.root or self.run_path} meanwhile? -- so it is not delivered to "
-                    f"{destination}",
-                    output_problem=True,
-                )
-            os.replace(temporary, destination)
-            done = True
-        finally:
-            if not done:
-                _discard(temporary, source, moved)
-        self._remember(delivery, source, destination, sha)
-        log.info("%s %s to %s", "Moved" if moved else "Delivered", source, destination)
-        return Delivered(delivery.key, source, destination, "delivered")
+        with _run_lock().destination_lock(destination, self.run_root):
+            if destination.is_file() and not destination.is_symlink():
+                try:
+                    now, reading = self._held(destination)
+                    if now.sha == sha and _state(destination) == expected:
+                        self._remember(delivery, source, destination, sha, reading)
+                        return Delivered(delivery.key, source, destination, "unchanged")
+                except OSError:
+                    pass
+            fd, name = tempfile.mkstemp(prefix=".xeda-delivery-", dir=destination.parent)
+            temporary = Path(name)
+            moved = done = False
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    moved = move and self._move_into(source, temporary)
+                    if not moved:
+                        with open(source, "rb") as data:
+                            copy_fd(data.fileno(), out.fileno())
+                            # by descriptor, because the name may lead elsewhere now
+                            if hasattr(os, "fchmod"):
+                                os.fchmod(
+                                    out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode)
+                                )
+                if (
+                    _located(destination) != destination
+                    or self._refusal(destination, delivery) is not None
+                    or _state(destination) != expected
+                ):
+                    return None
+                if content_digest(temporary) != sha:
+                    raise DeliveryError(
+                        f"{source} changed after its run -- did another launch run in "
+                        f"{delivery.root or self.run_path} meanwhile? -- so it is not delivered to "
+                        f"{destination}",
+                        output_problem=True,
+                    )
+                os.replace(temporary, destination)
+                done = True
+            finally:
+                if not done:
+                    _discard(temporary, source, moved)
+            self._remember(delivery, source, destination, sha)
+            log.info("%s %s to %s", "Moved" if moved else "Delivered", source, destination)
+            return Delivered(delivery.key, source, destination, "delivered")
 
     def _remember(
         self,
@@ -1533,16 +1636,21 @@ class Deliveries:
             entry["anchor_ns"] = anchored_at.ns
             entry["anchor_device"] = anchored_at.device
         self.record["files"][str(destination)] = entry
+        self._written_files[str(destination)] = entry
         self.launch_files.add(destination, _written_as(self.owner, delivery))
 
     def _write_record(self) -> None:
         """Write the delivery record atomically, beside the run directory.
 
-        The lock of the run directory serializes the write.
-        """
-        self.record_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.record_path.with_name(self.record_path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(with_json_keys(self.record), default=json_encodable, indent=2)
-        )
-        os.replace(temporary, self.record_path)
+        The record belongs to the run directory, which launches that reuse a node share. So the
+        write holds the lock of the record, reads the record as it is on disk by then, adds what
+        this node delivered, and writes that. The lock stays until the file is replaced."""
+        with _run_lock().destination_lock(self.record_path, self.run_root):
+            self.record = self._with_written(_read_record(self.record_path))
+            self.record_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.record_path.with_name(self.record_path.name + ".tmp")
+            temporary.write_text(
+                json.dumps(with_json_keys(self.record), default=json_encodable, indent=2)
+            )
+            os.replace(temporary, self.record_path)
+            self._record_state = _state(self.record_path)

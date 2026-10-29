@@ -110,17 +110,17 @@ def test_three_values_give_one_error_with_every_pair(design_file):
 
 def test_every_conflicting_setting_is_in_the_one_error(design_file):
     error = _refused(
-        design_file, "fpga.part=A", "verbose=1", "fpga.part=B", "verbose=2", "fpga.part=A"
+        design_file, "fpga.part=A", "nthreads=1", "fpga.part=B", "nthreads=2", "fpga.part=A"
     )
     assert _messages(error) == [
         f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}",
-        f"`-s verbose=1` and `-s verbose=2` {TWO_VALUES}",
+        f"`-s nthreads=1` and `-s nthreads=2` {TWO_VALUES}",
     ]
 
 
 def test_values_that_differ_as_text_are_two_values(design_file):
-    error = _refused(design_file, "verbose=1", "verbose=01")
-    assert _messages(error) == [f"`-s verbose=1` and `-s verbose=01` {TWO_VALUES}"]
+    error = _refused(design_file, "nthreads=1", "nthreads=01")
+    assert _messages(error) == [f"`-s nthreads=1` and `-s nthreads=01` {TWO_VALUES}"]
 
 
 def test_one_leaf_of_a_nested_setting_is_one_setting(design_file):
@@ -158,12 +158,12 @@ def test_the_two_spellings_keep_their_message(design_file):
 
 def test_one_setting_in_two_nodes_is_not_a_repeat():
     sections, own = split_flow_sections(
-        ["flows.nextpnr.seed=1", "flows.yosys_fpga.verbose=2", "flows.nextpnr.verbose=2"],
+        ["flows.nextpnr.seed=1", "flows.yosys_fpga.nthreads=2", "flows.nextpnr.nthreads=2"],
         "nextpnr",
         registered_flow,
     )
-    assert sections["nextpnr"] == {"seed": "1", "verbose": "2"}
-    assert sections["yosys_fpga"] == {"verbose": "2"}
+    assert sections["nextpnr"] == {"seed": 1, "nthreads": 2}
+    assert sections["yosys_fpga"] == {"nthreads": 2}
     assert own == {}
 
 

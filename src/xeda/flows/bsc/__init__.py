@@ -851,9 +851,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     def _verbosity_flags(self) -> list[str]:
         """Return `-verbose` for a verbose run and `-quiet` for a quiet one."""
-        if self.settings.verbose:
+        if self.settings.verbosity == "verbose":
             return ["-verbose"]
-        if self.settings.is_quiet:
+        if self.settings.verbosity == "quiet":
             return ["-quiet"]
         return []
 
@@ -960,15 +960,6 @@ class BscFlow(Flow, metaclass=ABCMeta):
             raise FlowSettingsException(
                 f'{cls.name}: Bluesim is two-valued and cannot tie don\'t-cares to "X" or "Z"; '
                 'set unspecified_to to "0", "1" or "A"'
-            )
-
-    def _warn_about_environment(self) -> None:
-        """Warn that `BSC_OPTIONS` makes the run depend on more than the settings."""
-        if "BSC_OPTIONS" in os.environ:
-            log.warning(
-                "BSC_OPTIONS is set (%r): bsc prepends it to every command line, so the run "
-                "does not depend on its settings alone",
-                os.environ["BSC_OPTIONS"],
             )
 
     def _prepare_dirs(self, out_dir: Path) -> None:
@@ -1165,7 +1156,6 @@ class Bsc(BscFlow):
         assert isinstance(self.settings, self.Settings)
         self.check_design_supported(self.design, self.settings)
         self.check_settings_supported(self.settings)
-        self._warn_about_environment()
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
@@ -1552,7 +1542,7 @@ class BscSim(BscFlow, SimFlow):
             None,
             gt=0,
             description="Number of C++ files compiled at once when linking a Bluesim model "
-            "(`-parallel-sim-link`). Defaults to `ncpus` when that is set, otherwise 1.",
+            "(`-parallel-sim-link`). Defaults to `nthreads` when that is set, otherwise 1.",
             json_schema_extra=count(),
         )
         c_flags: list[str] = Field(
@@ -1674,7 +1664,6 @@ class BscSim(BscFlow, SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         self.check_settings_supported(ss)
-        self._warn_about_environment()
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
         if ss.simulator == "verilator":
             _ = self._verilator()
@@ -1831,7 +1820,7 @@ class BscSim(BscFlow, SimFlow):
             else:
                 simulation.run(
                     *sim_args,
-                    timeout=ss.timeout,
+                    timeout=ss.timeout_in_seconds(),
                     env=env,
                     tee=self.run_directory.writable("sim.log"),
                     merge_stderr=True,
@@ -1899,14 +1888,14 @@ class BscSim(BscFlow, SimFlow):
         )
         with replacing_file(script, encoding="utf-8") as stream:
             stream.write(text)
-        tool = ModelsimTool().derive("vsim", redirect_stdout=None, log_key="simulation_log")
+        tool = ModelsimTool().derive("vsim", log_key="simulation_log")
         tool.run(
             "-batch",
             "-logfile",
             "modelsim_runtime.log",
             "-do",
             "do " + script.name,
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable("modelsim_process.log"),
             merge_stderr=True,
         )
@@ -1919,13 +1908,12 @@ class BscSim(BscFlow, SimFlow):
         assert isinstance(ss, self.Settings)
         self.run_directory.remove(RUNTIME_LOG)
         script = prepare_vcs_runtime(self, setup=[], user_script=None, stop_time=None)
-        simulation.redirect_stdout = None
         simulation.run(
             *sim_args,
             "-ucli",
             "-i",
             str(script),
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable(RUNTIME_LOG),
             merge_stderr=True,
         )
@@ -1955,7 +1943,6 @@ class BscSim(BscFlow, SimFlow):
         tool = self.bsc.derive(
             "xsim", version_flag=None, minimum_version=None, log_key="simulation_log"
         )
-        tool.redirect_stdout = None
         tool.run(
             str(executable) + ".xsim",
             "-log",
@@ -1967,7 +1954,7 @@ class BscSim(BscFlow, SimFlow):
             "stop",
             "-onerror",
             "stop",
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self.run_directory.writable(PROCESS_LOG),
             merge_stderr=True,
         )
@@ -2005,7 +1992,7 @@ class BscSim(BscFlow, SimFlow):
                 )
         obj = self.run_directory.writable("bsc_verilator_hooks.o")
         self.run_directory.remove(obj)
-        self.bsc.derive("c++", version_flag=None, minimum_version=None, redirect_stdout=None).run(
+        self.bsc.derive("c++", version_flag=None, minimum_version=None).run(
             "-std=c++14",
             "-I",
             str(Path(roots[-1]) / "include"),
@@ -2048,7 +2035,7 @@ class BscSim(BscFlow, SimFlow):
             flags += ["-I", str(prefix / "include" / "iverilog")]
         target = self.run_directory.writable("iverilog_evidence.vpi")
         self.run_directory.remove(target)
-        self.bsc.derive("cc", version_flag=None, minimum_version=None, redirect_stdout=None).run(
+        self.bsc.derive("cc", version_flag=None, minimum_version=None).run(
             *flags, source, "-o", target, timeout=120
         )
 

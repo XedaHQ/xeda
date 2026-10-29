@@ -73,6 +73,7 @@ from ..records import ErrorInfo
 from ..version import __version__
 from .code_digest import CodeDigests
 from .configuration import configuration_hash
+from .environment import EnvironmentSnapshot, environment_evidence
 from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
@@ -522,7 +523,7 @@ def located_input_files(flow: Flow) -> Optional[list[Path]]:
     return None if located is None else _existing_files(located, flow.run_path)
 
 
-def installation_prefixes(programs: Sequence[str]) -> list[Path]:
+def installation_prefixes(programs: Sequence[str], path: Optional[str] = None) -> list[Path]:
     """Return the installation prefix of each host program among `programs`.
 
     The prefix is the directory above the `bin/` that the resolved executable lies in. A
@@ -532,7 +533,7 @@ def installation_prefixes(programs: Sequence[str]) -> list[Path]:
     for name in programs:
         if name.startswith(DOCKER_IMAGE_PREFIX):
             continue
-        where = locate_program(name)
+        where = locate_program(name, path=path)
         if where is None:
             continue
         parent = Path(where).parent
@@ -551,7 +552,9 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
     its `init()` registered, which are expected inputs already). Where a file lies decides
     whether it is an input or the run's own (`build_trace`). A file that a producer handed over
     is neither: the edge records it."""
-    prefixes = installation_prefixes(programs)
+    prefixes = installation_prefixes(
+        programs, path=flow.process_environment().get("PATH", os.defpath)
+    )
     named = [
         dep
         for depfile in flow.depfiles
@@ -644,6 +647,7 @@ def expected_run(
     declared: Sequence[DeclaredInputRecord],
     dependency_run_ids: Mapping[str, str],
     digests: CodeDigests,
+    environment: EnvironmentSnapshot,
 ) -> Expectation:
     """Return what a run of a flow would consume now, from explicit data.
 
@@ -653,7 +657,12 @@ def expected_run(
     `prepare_inputs()` (`Flow.locate_prepared_inputs` says where they are without making them).
     `declared` are its input records with what the producers handed over, and
     `dependency_run_ids` are the runs consumed, as provenance. `digests` holds the code digests
-    of the launch (`code_digest.CodeDigests`), which a launch keeps for its length and no longer."""
+    of the launch (`code_digest.CodeDigests`), which a launch keeps for its length and no longer.
+    `environment` is the snapshot of the launch: the digest of what the node inherits is part of
+    what it would consume."""
+    environment_digest, environment_names = environment_evidence(
+        environment, input_settings, flow_class
+    )
     return Expectation(
         flow=name,
         flowrun_hash=flowrun_hash,
@@ -675,6 +684,8 @@ def expected_run(
         dependencies=tuple(
             (d.repository, d.commit) for d in design.resolved_dependencies if d.commit is not None
         ),
+        environment_digest=environment_digest,
+        environment_names=tuple(environment_names),
     )
 
 
@@ -685,8 +696,12 @@ def expectation(
     run_root: Path,
     producers: Sequence[Flow],
     digests: CodeDigests,
+    registered: Sequence[Path] | None = None,
 ) -> Expectation:
     """Return what `flow` would consume now.
+
+    `registered` replaces the files that `flow` registered: a node that is not prepared (held
+    shared) is judged by where its preparation puts its files (`located_input_files`).
 
     `design` and `input_settings` are those of the launcher (never modified by the flow), so
     the same inputs are found before and after the run. `run_root` is the root of the run
@@ -711,9 +726,10 @@ def expectation(
         design=design,
         input_settings=input_settings,
         run_root=run_root,
-        registered=flow.implicit_inputs,
+        registered=flow.implicit_inputs if registered is None else registered,
         declared=getattr(flow, "declared_input_records", ()),
         dependency_run_ids=dependency_runs(producers, run_root),
+        environment=flow.environment,
         digests=digests,
     )
 
@@ -813,7 +829,7 @@ def snapshot_inputs(
 
 
 def _programs(
-    names: Sequence[str], previous: Optional[Trace] = None
+    names: Sequence[str], previous: Optional[Trace] = None, search_path: Optional[str] = None
 ) -> Dict[str, Optional[ProgramRecord]]:
     """Return each program as it is after the run, with its file recorded.
 
@@ -832,7 +848,7 @@ def _programs(
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
-        where = locate_program(name)
+        where = locate_program(name, path=search_path)
         if where is None or name.startswith(DOCKER_IMAGE_PREFIX):
             programs[name] = None if where is None else ProgramRecord(path=where)
             continue
@@ -1074,7 +1090,11 @@ def build_trace(
         xeda_code=expected.xeda_code,
         flow_code=expected.flow_code,
         dependencies=[DependencyCommit(repository=r, commit=c) for r, c in expected.dependencies],
-        programs=_programs(programs, previous),
+        environment_digest=expected.environment_digest,
+        environment_names=list(expected.environment_names),
+        programs=_programs(
+            programs, previous, search_path=flow.process_environment().get("PATH", os.defpath)
+        ),
         dependency_runs=dict(expected.dependency_runs),
         setting_locations={key: list(value) for key, value in expected.setting_locations.items()},
         inputs_recorded_ns=snapshot.inputs_recorded_ns,

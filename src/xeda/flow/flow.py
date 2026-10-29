@@ -52,6 +52,7 @@ from ..dataclass import (
     comma_separated_items,
     conventional_output,
     field_annotation,
+    field_validator,
     fold_dotted_keys,
     input_names,
     is_locator,
@@ -64,6 +65,7 @@ from ..dataclass import (
     written_always,
     waveform_format,
     waveform_value,
+    yaml11_hint,
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, Source, SourceType
@@ -115,8 +117,12 @@ from .io import (
 
 if TYPE_CHECKING:
     from ..deliver import Delivered
+    from ..flow_runner.environment import EnvironmentSnapshot
 
 log = logging.getLogger(__name__)
+
+#: The names that an environment variable may have (`Flow.Settings.env`).
+_VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 __all__ = [
@@ -742,6 +748,12 @@ def is_unset(value: Any) -> bool:
     return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
+#: Why the settings that chose where tool output appears have no replacement.
+NO_OUTPUT_SETTING = NoReplacement(
+    "where the output of the tools appears is not a setting of a flow"
+)
+
+
 class Flow(metaclass=ABCMeta):
     """A flow runs one or more tools for one design with one set of settings.
 
@@ -820,6 +832,12 @@ class Flow(metaclass=ABCMeta):
     #: them on the login `PATH` of a remote host. A program that a run builds (`simv`) is not
     #: one. `tests/test_flow_executables.py` finds the programs that the code names.
     executables: ClassVar[tuple[str, ...]] = ()
+
+    #: The names, or patterns with `*`, of the variables that locate the tool or the license of the
+    #: flow (`XILINX_VIVADO`, `*_LICENSE_FILE`). A flow without `inherit_env` still gets them
+    #: from the caller. A flow that runs in Docker gets the variables of the `docker` client in
+    #: addition (`flow_runner.environment.DOCKER_LOCATORS`).
+    locator_variables: ClassVar[tuple[str, ...]] = ()
 
     def main_executable(self) -> str:
         """Return the program of the main tool of this flow. Its log is the artifact `log`.
@@ -1058,21 +1076,13 @@ class Flow(metaclass=ABCMeta):
     class Settings(XedaBaseModel):
         """The settings that affect the behavior of a flow."""
 
-        verbose: int = Field(
-            0,
-            description="Verbosity level. Higher values make the tools more talkative.",
-            json_schema_extra=count(),
-        )
-        debug: bool = Field(
-            False,
-            description="Run the flow in debug mode: verbose logging, and exceptions are re-raised "
-            "instead of being reported as a failure.",
-        )
-        quiet: bool = Field(
-            False, description="Run the flow quietly, unless `verbose` or `debug` is set."
-        )
-        redirect_stdout: bool = Field(
-            False, description="Redirect stdout from execution of tools to files."
+        verbosity: Literal["quiet", "normal", "verbose", "debug"] = Field(
+            "normal",
+            description="How much the tools say. `quiet` asks them for less. `verbose` and "
+            "`debug` ask for more, and `debug` also keeps the traces that a tool drops. Each "
+            "level adds only its own options: `debug` does not add the options of `verbose`. The "
+            "level changes the command lines and the logs, so a run with another level is "
+            "another run.",
         )
         nthreads: Optional[int] = Field(
             None,
@@ -1103,14 +1113,47 @@ class Flow(metaclass=ABCMeta):
             "path can be none, but not both. GHDL and NVC take a relative path as relative to "
             "the design root.",
         )
-        docker: Optional[str] = Field(
-            None,
-            description="Run the tools in this Docker image, instead of the default image of the "
-            "flow.",
+        env: Dict[str, str] = Field(
+            {},
+            description='Environment variables for the processes of the flow, `NUM_TV: "8"` '
+            "for example, cocotb test processes included. They come after the environment that "
+            "the flow inherits and before the variables that the flow sets itself. A name is "
+            "letters, digits and `_`, and does not start with a digit. A value is text. The "
+            "variables are part of the identity of the run.",
         )
-        dockerized: bool = Field(False, description="Run the tools in Docker.")
-        print_commands: bool = Field(True, description="Print the commands that the flow runs.")
-        console_colors: bool = Field(True, description="Colorize tool output on the console.")
+        inherit_env: bool = Field(
+            True,
+            description="Whether the processes of the flow get the environment of the caller. "
+            "With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), "
+            "the variables that locate the tool or its license, and `env`. Neither mode is "
+            "hermetic. The environment of the caller is evidence: a changed value runs the flow "
+            "again.",
+        )
+        docker: bool = Field(False, description="Run the tools in Docker.")
+        docker_image: Optional[str] = Field(
+            None,
+            description="The Docker image to run the tools in, instead of the default image of "
+            "the flow. It has an effect only with `docker`.",
+        )
+
+        @field_validator("env", mode="before")
+        @classmethod
+        def _env_names_and_text(cls, value: Any) -> Any:
+            """Refuse a name that is no variable name and a value that is not text."""
+            if not isinstance(value, Mapping):
+                return value
+            for name, text in value.items():
+                if not isinstance(name, str) or not _VARIABLE_NAME.fullmatch(name):
+                    raise ValueError(
+                        f"`env` has the name {name!r}, which is no environment variable name: "
+                        "use letters, digits and `_`, and do not start with a digit"
+                    )
+                if not isinstance(text, str):
+                    raise ValueError(
+                        f"`env.{name}` is {text!r}, which is not text: write "
+                        f'"{text}" to pass it as text'
+                    )
+            return value
 
         @classmethod
         def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
@@ -1146,6 +1189,13 @@ class Flow(metaclass=ABCMeta):
             "flow limits a tool's run time",
             "no_console": NoReplacement("no flow read it"),
             "ncpus": SecondSpelling("`nthreads`"),
+            "verbose": "`verbosity`",
+            "quiet": "`verbosity`",
+            "debug": "`verbosity`",
+            "dockerized": "`docker`",
+            "redirect_stdout": NO_OUTPUT_SETTING,
+            "print_commands": NO_OUTPUT_SETTING,
+            "console_colors": NO_OUTPUT_SETTING,
         }
 
         @classmethod
@@ -1185,13 +1235,25 @@ class Flow(metaclass=ABCMeta):
             3. A setting whose keys are opaque names (`opaque_key_fields`) takes a dotted key as
                one key: the nested tables that every origin makes of it are joined again.
             4. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
-               (`dataclass.waveform_value`): the text `true` or `false` is the boolean, as it is
-               everywhere else, `true` stands for the name the run writes, a name gets the
-               format's extension, and a word such as `yes` is refused.
+               (`dataclass.waveform_value`): the boolean `true` stands for the name the run
+               writes, a name gets the format's extension, and text that reads as a boolean
+               (`true`, `yes`) is refused, as it is for a boolean setting.
+            5. `docker` is a switch: text that is no boolean word is refused with a pointer to
+               `docker_image`, the setting that takes an image.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
                 return value
+            if (
+                name == "docker"
+                and isinstance(value, str)
+                and value.strip().lower() not in ("true", "false")
+                and yaml11_hint(value) is None
+            ):
+                raise WaveformText(
+                    f"`{value}` is text, not a boolean: write `docker: true`, and give the image "
+                    f"as `docker_image: {value}`"
+                )
             if name in opaque_key_fields_of(cls):
                 value = fold_dotted_keys(value)
             waveform = waveform_format(cls, name)
@@ -1234,9 +1296,6 @@ class Flow(metaclass=ABCMeta):
             try:
                 return cls.model_validate(dict(data), context=context)
             except ValidationError as e:
-                debug = data.get("debug")
-                if debug is True or (isinstance(debug, str) and debug.lower() == "true"):
-                    raise e
                 raise FlowSettingsError(_with_case_hints(cls, e.errors()), cls, e.json()) from e
 
         @property
@@ -1300,14 +1359,6 @@ class Flow(metaclass=ABCMeta):
             (`xeda.dataclass.conventional_output`). A flow whose other settings name its outputs
             overrides this method."""
             return conventional_output(type(self), field, design)
-
-        @property
-        def is_quiet(self) -> bool:
-            """Whether the flow is quiet: `quiet`, unless `verbose` or `debug` asks for more output.
-
-            This is decided where it is read, so `quiet` keeps the value that was written and the
-            order of the three settings does not matter."""
-            return self.quiet and not (self.verbose or self.debug)
 
     class Results(Box):
         """The results of a flow, written to `results.json`."""
@@ -1481,12 +1532,14 @@ class Flow(metaclass=ABCMeta):
         run_path: Path,
         runner_cwd: Optional[Path] = None,
         run_directory: Optional[RunDirectory] = None,
+        environment: Optional["EnvironmentSnapshot"] = None,
     ):
         """Construct the flow. A subclass should not override this unless it must.
 
         `run_directory` is `run_path` as the launcher chose it (`RunDirectory.claimed`), handed
         over here, once. A flow constructed without one holds an `unlaunched` directory, in which
-        Xeda deletes nothing.
+        Xeda deletes nothing. `environment` is the snapshot of the launch. A flow constructed
+        without one takes the environment of the process now.
         """
         # Normalized once, here, to absolute: a relative `run_path` given directly (bypassing the
         # launcher, which always hands one down already absolute) must join, and look up the
@@ -1562,6 +1615,17 @@ class Flow(metaclass=ABCMeta):
                 runner_cwd=settings.context.get("runner_cwd") or runner_cwd,
             )
         assert isinstance(settings, self.Settings)
+        if environment is None:
+            from ..flow_runner.environment import EnvironmentSnapshot
+
+            environment = EnvironmentSnapshot.take({})
+        #: The environment of the launch (`flow_runner.environment`). The launcher hands it over.
+        self.environment: "EnvironmentSnapshot" = environment
+        #: What Xeda reads of the environment for this flow, and what its processes inherit: the
+        #: view that `inherit_env` admits, then `env`. A flow reads no other environment.
+        self.env_view: FrozenDict = FrozenDict(
+            {**self._admitted_environment(settings), **settings.env}
+        )
         settings.outputs_dir = self.process_path(settings.outputs_dir)
         settings.reports_dir = self.process_path(settings.reports_dir)
         settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)
@@ -1629,6 +1693,34 @@ class Flow(metaclass=ABCMeta):
         #: Set by the launcher once the launch has finished: the outputs delivered where the user
         #: named them (`xeda.deliver`).
         self.deliveries: List["Delivered"] = []
+
+    def _admitted_environment(self, settings: "Flow.Settings") -> FrozenDict:
+        from ..flow_runner.environment import admitted
+
+        return admitted(self.environment, settings, type(self))
+
+    def process_environment(self, own: Mapping[str, str] | None = None) -> dict[str, str]:
+        """Return the environment of a process of this flow: the view, `env`, then `own`, the
+        variables that the flow sets for the process. For a flow in Docker, it is the environment
+        of the `docker` client."""
+        from ..flow_runner.environment import node_environment
+
+        return node_environment(self.environment, self.settings, type(self), own or {})
+
+    def container_environment(self, own: Mapping[str, str] | None = None) -> dict[str, str]:
+        """Return the environment of a container of this flow: the private `env`, `env`, then
+        `own`. No variable of the caller enters a container."""
+        from ..flow_runner.environment import container_environment
+
+        return container_environment(self.environment, self.settings, own or {})
+
+    @property
+    def inherited_variables(self) -> tuple[str, ...]:
+        """The names of the inherited variables that this run used: their values are the evidence
+        of the run, and no value is kept."""
+        from ..flow_runner.environment import environment_evidence
+
+        return tuple(environment_evidence(self.environment, self.settings, type(self))[1])
 
     def always_runs(self) -> Optional[str]:
         """Return why this run can never be reused, or None for a run that its trace can vouch for.

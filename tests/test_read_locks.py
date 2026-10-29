@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.errors import LeaseHeldError
 from xeda.console import console
 from xeda.flow_runner import DefaultRunner, default_runner
 from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock
@@ -22,7 +23,6 @@ from xeda.run_root import ensure_run_root
 
 from .io_flows import _Maker, _Taker
 from .tool_utils import producers_of
-from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
 
@@ -102,31 +102,31 @@ def test_a_consumer_holds_its_producer_for_its_whole_run(tmp_path, monkeypatch):
     assert _probe(maker.run_path) == "free", "released when the consumer's launch ended"
 
 
-def test_reusing_a_producer_in_the_acquisition_gap_keeps_its_completion_evidence(
-    tmp_path, monkeypatch
-):
+def test_a_launch_made_while_a_consumer_holds_its_producer_is_refused(tmp_path, monkeypatch):
+    """A consumer locks its producer when its launch starts and keeps the lock to the end. A
+    launch that the same thread makes meanwhile would wait for that lock: it is refused."""
     from contextlib import contextmanager
 
     root = tmp_path / "xeda_run"
     runner = DefaultRunner(root, display_results=False)
     design = _design(tmp_path, monkeypatch)
     original = runner._producer_read_lease
-    reused = []
+    refused = []
 
     @contextmanager
-    def gap(producer):
-        another = DefaultRunner(root, display_results=False).launch_flow(
-            type(producer), design, producer.settings, depender=producer
-        )
-        assert another.reused and another.run_id == producer.run_id
-        reused.append(another.name)
+    def meanwhile(producer):
+        with pytest.raises(LeaseHeldError) as error:
+            DefaultRunner(root, display_results=False).launch_flow(
+                type(producer), design, producer.settings, depender=producer
+            )
+        refused.append(error.value.code)
         with original(producer):
             yield producer
 
-    monkeypatch.setattr(runner, "_producer_read_lease", gap)
+    monkeypatch.setattr(runner, "_producer_read_lease", meanwhile)
     outcome = runner.launch_flow(_Taker, design, {})
     assert outcome.succeeded and outcome.results["read"] == "made\n"
-    assert len(reused) == 1
+    assert refused == ["lease_held"]
 
 
 @pytest.mark.parametrize("untraced", [False, True])
@@ -150,24 +150,8 @@ def test_a_changed_completed_run_is_refused_before_hand_over(tmp_path, monkeypat
     @contextmanager
     def gap(producer):
         if producer.name == target:
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    """
-import sys
-from pathlib import Path
-from xeda.flow_runner.run_lock import run_dir_lock
-p = Path(sys.argv[1])
-with run_dir_lock(p):
-    (p / "another-output.txt").write_text("changed generation")
-""",
-                    str(producer.run_path),
-                ],
-                check=True,
-                env=_environment(),
-                timeout=HANG_GUARD,
-            )
+            # The launch holds the lock of the producer, so only this thread can change it.
+            (producer.run_path / "another-output.txt").write_text("changed generation")
         with original(producer):
             yield producer
 
@@ -222,8 +206,10 @@ root = Path(sys.argv[1])
 action = sys.argv[2]
 p = root / "run" / "d" / "__maker"
 original = run_lock.fcntl.flock
+told = []
 def flock(fd, mode):
-    if mode == run_lock.fcntl.LOCK_EX:
+    if mode & run_lock.fcntl.LOCK_EX and not told:
+        told.append(True)
         print("waiting", flush=True)
     return original(fd, mode)
 run_lock.fcntl.flock = flock
@@ -322,8 +308,9 @@ def test_a_rebuild_under_this_threads_read_lease_is_refused(tmp_path, monkeypatc
     runner = DefaultRunner(tmp_path / "run", display_results=False, clean=True)
     producer = runner.get_flow_run_path("d", _Maker.name)
     with run_dir_read_lock(producer):
-        with pytest.raises(RunDirectoryError, match="shared"):
+        with pytest.raises(LeaseHeldError) as refused:
             runner.launch_flow(_Maker, design, {})
+        assert refused.value.code == "lease_held"
         assert not producer.exists(), "rebuild wrote before acquiring an exclusive lock"
 
 
@@ -545,7 +532,7 @@ def run(self):
 _Maker.run = run
 original_lease = DefaultRunner._producer_read_lease
 def lease(self, producer):
-    (control / "completed").write_text("x")  # the producer is complete and unlocked, not yet leased
+    (control / "completed").write_text("x")  # the producer is complete, not yet read
     wait_for("lease")
     return original_lease(self, producer)
 DefaultRunner._producer_read_lease = lease
@@ -567,9 +554,9 @@ def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_wa
     tmp_path, monkeypatch
 ):
     """A consumer launches its producer. A scrub of the producer's flow lists the producer's run
-    directory while the producer runs, and waits for its lock. The producer ends its run, and the
-    scrub gets the lock before the consumer takes its read lease on the producer. The run that
-    ended is the one the consumer needs: scrub keeps it, and the consumer succeeds."""
+    directory while the producer runs, and waits for its lock. The consumer holds that lock to the
+    end of its launch. The producer ends its run, and the consumer succeeds. The scrub then gets
+    the lock and keeps the run that ended while it waited."""
     control = tmp_path / "control"
     control.mkdir()
     child = subprocess.Popen(
@@ -603,13 +590,14 @@ def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_wa
         thread.start()
         assert listed.wait(timeout=30), "scrub did not list the run directories"
         (control / "go").write_text("x")  # the producer ends its run
-        _until_there(control / "completed")  # and the consumer waits before it takes its lease
-        thread.join(timeout=30)
-        assert not thread.is_alive()
+        _until_there(control / "completed")  # and the consumer waits before it reads its files
+        assert thread.is_alive(), "the scrub waits for the lock of the consumer"
         (control / "lease").write_text("x")
         stdout, stderr = child.communicate(timeout=60)
         assert child.returncode == 0, stderr
         assert stdout.strip() == "done"
+        thread.join(timeout=30)
+        assert not thread.is_alive()
     finally:
         if child.poll() is None:
             child.kill()
@@ -627,10 +615,12 @@ def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path,
     monkeypatch.chdir(tmp_path)
     design = tmp_path / "d.toml"
     design.write_text('name="d"\n[rtl]\nsources=[]\ntop="t"\n')
+    assert CliRunner().invoke(cli, ["run", _Taker.name, str(design)]).exit_code == 0
+    # Both flows are up to date now: the next launch asks for shared locks.
     original = run_lock.fcntl.flock
 
     def no_shared_locks(fd, mode):
-        if mode == run_lock.fcntl.LOCK_SH:
+        if mode & run_lock.fcntl.LOCK_SH:
             raise OSError(errno.ENOLCK, "No locks available")
         return original(fd, mode)
 

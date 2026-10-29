@@ -62,7 +62,7 @@ from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.settings_layers import command_line_table
-from ..flow_runner.run_lock import run_dir_lock
+from ..flow_runner.run_lock import LockRequest, LockSet, acquire_all
 from ..local_settings import LocalSettings
 from ..outcomes import (
     Disposition,
@@ -1160,18 +1160,26 @@ def _discard_mirrors(
     mirror_root: Path,
     local_root: Path,
     nodes: Optional[Mapping[str, PurePosixPath]] = None,
+    held: Optional[LockSet] = None,
 ) -> None:
     """Empty the mirror directories of the planned nodes (and of `nodes`, the places that a
     result names), under their locks. Call it when the launch or the fetch failed: the records
     of an earlier run there would say that this run passed. A directory that is not there stays
-    absent. A failure here is logged and does not hide the error that called it."""
+    absent. A failure here is logged and does not hide the error that called it.
+
+    The locks of all the directories are taken in one acquisition. A caller that holds them
+    already passes that set as `held`, and the directories are emptied under it."""
     directories = _planned_mirrors(local, mirror_root, local_root)
     directories |= {mirror_root / place for place in (nodes or {}).values()}
     try:
         with ExitStack() as locked:
             existing = sorted(d for d in directories if d.is_dir() and not d.is_symlink())
-            for directory in existing:
-                locked.enter_context(run_dir_lock(directory, local_root))
+            if held is None:
+                locked.enter_context(
+                    acquire_all(
+                        [LockRequest("run_dir", d, True) for d in existing], run_root=local_root
+                    )
+                )
             for directory in existing:
                 RunDirectory.claimed(directory, local_root).clear()
     except Exception as error:  # pylint: disable=broad-except
@@ -1721,9 +1729,12 @@ def _finish(
     # (it failed before any node ran, or a producer failed): an earlier run's records there
     # would say that this node passed.
     replaced = set(directories.values()) | _planned_mirrors(local, mirror_root, local_root)
-    with ExitStack() as locked:
-        for directory in sorted(replaced):
-            locked.enter_context(run_dir_lock(directory, local_root))
+    # The locks of the whole mirror are taken in one acquisition, in the order of every launch, and
+    # held through the publication, the rewrite of the records and the local delivery.
+    with acquire_all(
+        [LockRequest("run_dir", directory, True) for directory in sorted(replaced)],
+        run_root=local_root,
+    ) as locked:
         try:
             for directory in sorted(replaced):
                 if directory.is_dir() and not directory.is_symlink():
@@ -1770,9 +1781,9 @@ def _finish(
                 check_fetched_outputs(record)
         except BaseException:
             # A cut in the transfer, or a failure while the records are rewritten, leaves some files
-            # of this run beside the records of an earlier one. The locks are held: the discard
-            # takes them again in this thread.
-            _discard_mirrors(local, mirror_root, local_root, nodes)
+            # of this run beside the records of an earlier one. The discard runs under the locks
+            # that are held.
+            _discard_mirrors(local, mirror_root, local_root, nodes, held=locked)
             raise
         if record is not None:
             if outputs_to is not None and local.deliveries is not None:

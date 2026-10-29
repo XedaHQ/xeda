@@ -723,6 +723,22 @@ def require_iverilog() -> None:
 FAKE_TOOLS_DIR = Path(__file__).parent / "fake_tools"
 
 
+@contextmanager
+def failing_tool_commands(
+    monkeypatch: pytest.MonkeyPatch, directory: Path, commands: str
+) -> Iterator[None]:
+    """Make the fake OpenROAD fail the `commands` (a Tcl list) inside the block. The launches
+    inside and outside the block have the same environment, so a node that ran before the failure
+    stays up to date (the environment of a node is part of its trace)."""
+    path = directory / "fake-tool-fail.txt"
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL_FILE", str(path))
+    path.write_text(commands)
+    try:
+        yield
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Put the fake tools first on PATH for the rest of the test."""
     loader = FAKE_TOOLS_DIR / "openFPGALoader"
@@ -1407,7 +1423,7 @@ def require_modelsim() -> None:
             tb={"top": "probe"},
         )
         flow = DefaultRunner(work / "runs", display_results=False).run_flow(
-            Modelsim, design, {"dockerized": True, "timeout": 60}
+            Modelsim, design, {"docker": True, "timeout": 60}
         )
         if flow is None or not flow.succeeded or flow.results.get("sim.ended_by") != "finish":
             pytest.fail(f"{image} did not provide native quiet-finish runtime evidence")
@@ -1492,6 +1508,8 @@ def check_after_the_racy_window(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(digest, "RACY_NS", window)
     real = trace.filesystem_time_ns
     monkeypatch.setattr(trace, "filesystem_time_ns", lambda directory: real(directory) + 3 * window)
+    wall = trace.wall_clock_ns
+    monkeypatch.setattr(trace, "wall_clock_ns", lambda: wall() + 3 * window)
 
 
 def run_outputs_state(*run_dirs: Path) -> dict[Path, tuple[Any, ...]]:

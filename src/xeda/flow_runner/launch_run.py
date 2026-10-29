@@ -214,7 +214,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 log=None,
             ).as_json_value()
     success = flow.outcome == "passed"
-    if not success and not input_settings.is_quiet:
+    if not success and input_settings.verbosity != "quiet":
         log.debug("Failure was reported in the parsed results.")
     if not success and not flow.results.get("error"):
         # No exception and no exit status: the reports or checks said so. A failure

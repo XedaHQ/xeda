@@ -26,8 +26,9 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
-from ... import log_context
+from ... import log_context, proc_utils
 from ..chains import FlowRequest, parse_request
+from ..environment import EnvironmentSnapshot
 from ..default_runner import (
     FlowLauncher,
     add_file_logger,
@@ -35,9 +36,9 @@ from ..default_runner import (
     remove_file_logger,
 )
 from ..scrub import run_directory_names
-from ..settings_layers import merge_layers
+from ..settings_layers import merge_layers, read_command_line_text
 from ..resolver import Plan, planned_design_of
-from ..run_lock import run_dir_lock
+from ..run_lock import refuse_if_held, run_dir_lock
 from ..trace import as_recorded
 
 log = logging.getLogger(__name__)
@@ -212,6 +213,17 @@ class Executioner:
         self.candidate_changes: dict[str, Any] = {}
 
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
+        # The candidates of an exploration run side by side, so their tool output goes to the log
+        # of each run and never to the terminal, whatever the caller chose.
+        token = proc_utils.TOOL_OUTPUT.set("log")
+        try:
+            return self._launch_candidate(args)
+        finally:
+            proc_utils.TOOL_OUTPUT.reset(token)
+
+    def _launch_candidate(
+        self, args: Tuple[int, Dict[str, Any]]
+    ) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
             delta = merge_layers(
@@ -300,8 +312,11 @@ class Dse(FlowLauncher):
         run_root: Union[str, Path, None] = None,
         **kwargs,
     ) -> None:
-        """Configure the optimizer and the run root (default `./xeda_run`) of a DSE launcher."""
-        super().__init__(run_root, **kwargs)
+        """Configure the optimizer and the run root (default `./xeda_run`) of a DSE launcher.
+
+        The text of `KEY=VALUE` items in `kwargs` and in `optimizer_settings` (as the command line
+        gives them) is read as the type of each setting."""
+        super().__init__(run_root, **read_command_line_text(kwargs, self.Settings))
         assert isinstance(self.settings, self.Settings)
 
         # update settings
@@ -316,6 +331,9 @@ class Dse(FlowLauncher):
             optimizer_class = cls
         if not isinstance(optimizer_settings, Optimizer.Settings):
             assert isinstance(optimizer_settings, dict)
+            optimizer_settings = read_command_line_text(
+                optimizer_settings, optimizer_class.Settings
+            )
             try:
                 optimizer_settings = optimizer_class.Settings(**optimizer_settings)
             except ValidationError as e:
@@ -351,7 +369,10 @@ class Dse(FlowLauncher):
         all_flows_settings: Optional[Dict[str, Any]] = None,
         plan: Plan | None = None,
     ):
-        """Explore variations of the flow settings and return the best run."""
+        """Explore variations of the flow settings and return the best run.
+
+        The exploration holds no lock while its workers run: a thread that holds one is refused."""
+        refuse_if_held()
         assert isinstance(self.settings, self.Settings)
         _refuse_openroad(self.optimizer, flow_class)
         timer = Timer()
@@ -462,21 +483,11 @@ class Dse(FlowLauncher):
                 ],
                 flow_class.Settings,
             )
-        base_settings.redirect_stdout = True
-        base_settings.print_commands = False
-
         if base_settings.nthreads and base_settings.nthreads > 1:
             max_nthreads = max(2, multiprocessing.cpu_count() // self.settings.max_workers)
             base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
 
-        adjustments = {
-            key: getattr(base_settings, key)
-            for key in (
-                "redirect_stdout",
-                "print_commands",
-                "nthreads",
-            )
-        }
+        adjustments = {"nthreads": base_settings.nthreads}
         candidate_input = merge_layers(flow_settings, adjustments, settings_cls=flow_class.Settings)
         adjusted_plan = self.resolve(
             flow_class,
@@ -509,6 +520,11 @@ class Dse(FlowLauncher):
             },
         )
         worker._request_context = self._request_context
+        # One snapshot of the environment for the whole exploration: every point judges and
+        # starts its processes by the same environment.
+        worker._pinned_environment = EnvironmentSnapshot.take(
+            self._request_context.private_env if self._request_context is not None else {}
+        )
         worker._launch_inputs = list(self._launch_inputs)
         executioner = Executioner(
             worker,

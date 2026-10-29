@@ -150,7 +150,7 @@ def test_canonical_text() -> None:
     assert str(Time("10 ns")) == "10 ns"
     assert str(Time("10.0 ns")) == "10 ns"
     assert str(Time("2.5 ns")) == "2.5 ns"
-    assert str(Time("1e-5 ns")) == "1e-05 ns"
+    assert str(Time("1e-5 ns")) == "0.00001 ns"
     assert Time("2.5 ns").as_json_value() == "2.5 ns"
     assert Time("10000 ps").as_json_value() == "10 ns"
     assert repr(Time("10 ns")) == "Time('10 ns')"
@@ -327,15 +327,16 @@ def test_a_bad_value_is_a_field_error(value) -> None:
 
 @pytest.mark.parametrize("value", [10, 10.0, Decimal("10"), "10", " 10 ", "10.5"])
 def test_a_bare_number_needs_a_unit(value) -> None:
-    message = _problem(value)
-    assert "needs a unit" in message
-    assert "10 ns" in message
+    number = str(value).strip()
+    assert _problem(value) == (
+        f"`period` needs a unit, such as `{number} ns`: a bare number does not mean anything"
+    )
 
 
 def test_a_bool_is_refused_with_the_example() -> None:
-    message = _problem(True)
-    assert "needs a unit" in message
-    assert "10 ns" in message
+    assert _problem(True) == (
+        "`period` needs a unit, such as `10 ns`: a bare number does not mean anything"
+    )
 
 
 def test_a_unit_of_another_kind_is_named() -> None:
@@ -404,9 +405,12 @@ def test_a_value_out_of_range_is_refused() -> None:
     assert _problem("not a number") is not None
 
 
-def test_no_message_names_the_field() -> None:
-    """The location of the error names the field already."""
-    assert "period" not in _problem("10")
+def test_a_message_that_suggests_a_value_names_the_field() -> None:
+    assert _problem("10").startswith("`period` needs a unit")
+    assert _problem("soon").startswith("`period`: cannot read `soon` as a time")
+    assert _problem(["10 ns"]).startswith("`period`: expected a time")
+    # a message that suggests no value does not
+    assert "period" not in _problem("5 MHz")
 
 
 def test_negative_zero_is_zero() -> None:
@@ -614,7 +618,7 @@ def test_the_dump_keeps_the_object_and_the_json_dump_is_the_canonical_text() -> 
     assert as_json["period"] == "10 ns"
     assert as_json["opt"] == "2.5 ns"
     assert as_json["many"] == ["1000 ns"]
-    assert as_json["named"] == {"k": "1e-05 ns"}
+    assert as_json["named"] == {"k": "0.00001 ns"}
     assert as_json["bounded"] == "1 ns"
     assert as_json["auto"] == "auto"
     assert json.loads(m.model_dump_json()) == as_json

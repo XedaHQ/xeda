@@ -295,6 +295,6 @@ def test_a_frozen_flows_section_goes_straight_to_the_settings(tmp_path):
 
     assert settings.main_clock is not None and settings.main_clock.period.to("ns") == 5.0
     assert settings.fpga is not None and settings.fpga.part == "xc7a100tcsg324-1"
-    for refused in ({"ncpus": 1}, {"quiet": "yes"}):
+    for refused in ({"ncpus": 1}, {"nthreads": "yes"}):
         with pytest.raises(FlowSettingsError):
             VivadoSynth.Settings.from_input(FrozenDict({**section, **refused}))

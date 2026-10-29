@@ -152,7 +152,7 @@ def test_a_setting_of_the_dependency_moves_its_depender_whatever_the_output(tmp_
     identity is the cutoff cases below.)"""
     _, consumer = toys
     _run(tmp_path, consumer, design)
-    flow, ran = _run(tmp_path, consumer, design, sections={"toy_producer": {"verbose": 1}})
+    flow, ran = _run(tmp_path, consumer, design, sections={"toy_producer": {"nthreads": 1}})
     assert ran == ["toy_producer", "toy_consumer"]
     assert flow.stale_reason == OTHER_SETTINGS
 

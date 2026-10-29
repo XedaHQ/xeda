@@ -39,6 +39,7 @@ from .openroad_utils import (
     render_driver,
     run_fake_openroad,
 )
+from .setting_texts import text_items
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import (
     fake_calls,
@@ -142,7 +143,7 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None):
     """Plan `openroad_place` on the tiny platform. `texts` are `KEY=VALUE` settings as the command
     line gives them, and `typed` gives the leaves that are no text, by dotted key."""
     store = tiny_store(tmp_path)
-    given = dict(text.split("=", 1) for text in [*openroad_settings(store), *texts])
+    given = text_items([*openroad_settings(store), *texts])
     given |= typed or {}
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
         "openroad_place", openroad_design(tmp_path / "design"), flow_settings=given
@@ -3931,9 +3932,7 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
 
 def test_a_second_launch_reuses_the_run(tmp_path, monkeypatch):
     runner, design, settings, first = launch(tmp_path, monkeypatch)
-    again = runner.launch_flow(
-        OpenroadPlace, Design.load(design), dict(s.split("=", 1) for s in settings)
-    )
+    again = runner.launch_flow(OpenroadPlace, Design.load(design), text_items(settings))
     assert again.succeeded and again.reused
     assert not first.reused
 
@@ -4002,7 +4001,7 @@ def test_the_results_are_described():
 def test_a_dry_run_judges_the_platform_files_and_the_netlist(tmp_path, monkeypatch):
     runner, design_file, settings, _ = launch(tmp_path, monkeypatch)
     design = Design.load(design_file)
-    given = dict(s.split("=", 1) for s in settings)
+    given = text_items(settings)
     store = Path(given["pdk_root"])
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
     assert states["openroad_place"].state == "fresh"
@@ -4028,9 +4027,7 @@ def test_a_dry_run_shows_a_missing_store_as_unknown_with_the_message_of_the_laun
     empty.mkdir()
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = Design.load(openroad_design(tmp_path / "design"))
-    given = dict(
-        s.split("=", 1) for s in openroad_settings(empty, **{"clocks.main_clock.period": "5 ns"})
-    )
+    given = text_items(openroad_settings(empty, **{"clocks.main_clock.period": "5 ns"}))
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
     assert states["openroad_place"].state == "unknown"
     with pytest.raises(PdkNotInstalled) as refused:
@@ -4048,10 +4045,7 @@ def test_a_synthesized_netlist_chains_into_the_placement(tmp_path, monkeypatch):
     use_fake_openroad(monkeypatch)
     use_fake_asic_tools(monkeypatch, tmp_path / "bin")
     store = tiny_store(tmp_path)
-    given = dict(
-        text.split("=", 1)
-        for text in openroad_settings(store, **{"clocks.main_clock.period": "5 ns"})
-    )
+    given = text_items(openroad_settings(store, **{"clocks.main_clock.period": "5 ns"}))
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design", rtl=True)
     planned = runner.plan("yosys+openroad_place", design, flow_settings=given)

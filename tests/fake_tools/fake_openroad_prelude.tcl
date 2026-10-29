@@ -37,6 +37,14 @@ proc __record {args} {
 }
 
 set __fail [expr {[info exists ::env(XEDA_FAKE_TOOL_FAIL)] ? $::env(XEDA_FAKE_TOOL_FAIL) : {}}]
+# `XEDA_FAKE_TOOL_FAIL_FILE`: a file whose words are failing commands too. Its name is the same
+# for every launch of a test, so the environment of the launches stays the same (a trace holds
+# the digest of the environment) while the file comes and goes.
+if {[info exists ::env(XEDA_FAKE_TOOL_FAIL_FILE)] && [file exists $::env(XEDA_FAKE_TOOL_FAIL_FILE)]} {
+    set __fh [open $::env(XEDA_FAKE_TOOL_FAIL_FILE)]
+    lappend __fail {*}[read $__fh]
+    close $__fh
+}
 set __returns {}
 if {[info exists ::env(XEDA_FAKE_TOOL_RETURNS)]} { set __returns $::env(XEDA_FAKE_TOOL_RETURNS) }
 

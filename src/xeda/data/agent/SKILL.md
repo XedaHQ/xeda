@@ -125,7 +125,8 @@ flows:
 - Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
   `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
 - A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
-  quotes), `abc.load: 3.9 fF`. A bare number fails with `` `5` needs a unit, such as `10 ns` ``.
+  quotes), `abc.load: 3.9 fF`. A bare number fails with `` `period` needs a unit, such as `5 ns` ``:
+  the message names the field and writes the example in its unit (`timeout: 180` suggests `180 s`).
   `list-settings` shows the kind (`time`, `frequency`, `capacitance`, ...) as the `type` of a
   setting that takes a unit. Units are case-sensitive (`MHz`, `fF`). See "Units" in
   `references/design-file.md`.
@@ -180,11 +181,11 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `ndr.assignments`) takes a dotted name as one key:
   `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
   `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
-- Settings every flow accepts (`"common": true`) include `nthreads`, `dockerized`
-  (run the tools from their Docker image), `docker`, `quiet`, `verbose`, `debug`,
-  `redirect_stdout` and `lib_paths`. A flow whose
-  tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
-  only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
+- Settings every flow accepts (`"common": true`) are `nthreads`, `docker` (run the tools from
+  their Docker image), `docker_image` (the image to use), `verbosity` (`quiet`, `normal`,
+  `verbose` or `debug`; each level adds only its own tool options, so `debug` does not add those
+  of `verbose`) and `lib_paths`. A flow whose tool has no matching option accepts
+  `nthreads` or `lib_paths` and ignores it: only GHDL, ModelSim, NVC and the Vivado simulation
   flows read `lib_paths`. `ghdl_sim`, `ghdl_synth` and `nvc` take a relative path as relative to the
   design root. `nvc` maps `(name, path)` with `--map=name:path`, passes `(None, path)` as `-L path`
   (a directory that holds library directories) and refuses an entry that has a name and no path.
@@ -199,8 +200,10 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   - A removed setting fails with "`<name>` was removed: ...". If nothing replaces it, the message
     says to delete it. On the simulator flows, `timeout` replaces `timeout_seconds`; no other flow
     limits a tool's run time. `no_console` has no replacement.
-- A setting accepts its declared type only. `true` and `false` are the only booleans, and a list
-  setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
+- A setting accepts its declared type only, from Python and from files: an integer setting takes
+  `4`, not `"4"`, `4.0` or `true`. `true` and `false` are the only booleans. On the command line
+  every value is text and Xeda reads it as the type of the setting (`-s seed=4`,
+  `-s timing_allow_fail=false`); a list setting is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
 
 ## Flows that feed each other
 
@@ -393,7 +396,8 @@ output of every program the flow started; a Python caller sees them there and no
 
 A run is make-like: a flow runs only when its settings, sources, tools, Xeda code or outputs
 changed since its last success or rejection; otherwise its recorded results are reused. Inputs outside the
-trace (indirect programs, environment variables, files a tool finds on its own) are not tracked.
+trace (indirect programs, files a tool finds on its own) are not tracked. The inherited
+environment is tracked (see Environment).
 
 | Need | Option |
 | --- | --- |
@@ -408,6 +412,24 @@ A flow that programs a device or draws a new random seed (`random_seed: random`)
 (`always_runs`): it runs every time and keeps no trace. A
 removed option (`--cwd`, `--xeda-run-dir`, `--incremental`, `--cached-dependencies`) fails with
 `<option> was removed: use ...`.
+
+
+## Environment
+
+Every flow has `env` (a table of text variables, part of the identity) and `inherit_env` (default
+`true`). A process gets: with `inherit_env`, the caller's environment; without it, from the caller
+only the essential variables (`PATH`, `HOME`, `LANG`, `LC_*`, ...) and the flow's tool and license
+variables (`locator_variables`, plus the `DOCKER_*` client variables with `docker`). Then come the
+`env` of the private settings files, then `env`, then the variables the flow sets. A Docker
+container gets only `DISPLAY` (`host.docker.internal:0`, replaceable), those last three, and `PWD`
+(its working directory). Neither mode is hermetic.
+
+The inherited values a node uses are freshness evidence, not identity: a changed value runs the
+node again, and the stale reason names a variable, never a value. Shell, terminal, login and
+`XEDA_*` session variables (`PWD`, `SHLVL`, `SSH_*`, `TMUX*`, `XEDA_RUN_ROOT`, ...) never count.
+`results.json` lists the names in `inherited_variables`. With `--remote`, the environment is the
+host agent's, and the private `env` of the local files is not sent; the `env` of the host profile
+in `remotes.yaml` applies.
 
 ## Deliverables
 
@@ -564,7 +586,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
-| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s dockerized=true`. |
+| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s docker=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
 | `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. Check the generator, or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
 | `generator_failed` (`error.node` is null, every node `skipped`) | The generator failed or could not be judged. The message names it and its exit status; its output is in the log. |

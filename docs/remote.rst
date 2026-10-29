@@ -184,6 +184,8 @@ first. If that works, ``--remote HOST`` connects.
 * Xeda closes the connection when the launch ends. If Xeda is killed, OpenSSH ends the idle
   connection after five minutes.
 
+.. _remote-profiles:
+
 Host profiles
 =============
 

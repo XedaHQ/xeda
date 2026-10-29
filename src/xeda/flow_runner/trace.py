@@ -20,6 +20,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -77,7 +78,8 @@ TRACE_FILE = "trace.json"
 #: 19: a trace holds the equivalence digest of each declared output file
 #: (`Trace.output_equivalences`), no longer `results.json`.
 #: 20: the identity holds the design configuration, and a trace holds its hash.
-TRACE_FORMAT = 20
+#: 21: a trace holds the digest of the environment that the node inherits, and the names in it.
+TRACE_FORMAT = 21
 
 #: The names that Xeda reserves at the top of a run directory, never outputs: the trace and the
 #: trace being written. The clock markers (`digest.TIME_MARKER_PREFIX` plus a random suffix) are
@@ -294,6 +296,10 @@ class Trace(XedaBaseModel):
     #: the producer relative to the run root (`xeda_run`), in POSIX form. This is provenance: it
     #: says which run the files were taken from and decides nothing (`declared_inputs` does).
     dependency_runs: Dict[str, str] = {}
+    #: The digest of the environment that the run inherited and the sorted names of the variables
+    #: in it (`environment.environment_evidence`). No value is kept.
+    environment_digest: str = ""
+    environment_names: List[str] = []
     #: Where each path-typed setting pointed, by its key path. This binds a setting that names a
     #: directory, or nothing yet (`trace_inputs.setting_locations`).
     setting_locations: Dict[str, List[str]] = {}
@@ -442,14 +448,14 @@ def _image_id(reference: str) -> Optional[str]:
     return found.stdout.strip() or None
 
 
-def locate_program(name: str) -> Optional[str]:
+def locate_program(name: str, path: Optional[str] = None) -> Optional[str]:
     """Return where `name` is now, or None if it cannot be found.
 
-    A program is resolved through PATH (or taken as given, if absolute). A container image is
-    located by its ID."""
+    A program is resolved through `path` (the caller's PATH by default), or taken as given if
+    absolute. A container image is located by its ID."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
         return _image_id(name[len(DOCKER_IMAGE_PREFIX) :])
-    found = name if os.path.isabs(name) else shutil.which(name)
+    found = name if os.path.isabs(name) else shutil.which(name, path=path)
     if not found or not os.path.exists(found):
         return None
     return str(Path(found).resolve())
@@ -486,6 +492,10 @@ class Expectation:
     #: The repository and the commit of each Git dependency of the design now (as
     #: `Trace.dependencies`).
     dependencies: tuple[tuple[str, str], ...] = ()
+    #: The digest of the inherited environment now, and the names in it (as
+    #: `Trace.environment_digest` and `Trace.environment_names`).
+    environment_digest: str = ""
+    environment_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -506,6 +516,10 @@ class Freshness:
     equivalent: tuple[str, ...] = ()
     verdict: str = "passed"
     error: Optional[Dict[str, Any]] = None
+    #: A check without `refresh` read a file by content and a check that may refresh would have
+    #: written a refreshed trace. The wall clock stands in for the file-system clock here: a
+    #: wrong answer costs one lock upgrade or one later hash, never a wrong verdict.
+    would_refresh: bool = False
 
 
 def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
@@ -548,6 +562,29 @@ def _moved_dependency(trace: Trace, expected: Expectation) -> Optional[str]:
         if before != now:
             return f"dependency {now[0]} now at {now[1][:12]}"
     return "the Git dependencies changed"
+
+
+def _changed_environment(trace: Trace, expected: Expectation) -> Optional[str]:
+    """Say what changed in the inherited environment, or None if it is the same.
+
+    The reason names a variable that was added or removed, and says that a value changed
+    otherwise. It holds no value."""
+    if trace.environment_digest == expected.environment_digest:
+        return None
+    added = sorted(set(expected.environment_names) - set(trace.environment_names))
+    removed = sorted(set(trace.environment_names) - set(expected.environment_names))
+    if added:
+        what = f"`{added[0]}` added"
+    elif removed:
+        what = f"`{removed[0]}` removed"
+    else:
+        what = "a value changed"
+    return f"the inherited environment changed: {what}"
+
+
+def wall_clock_ns() -> int:
+    """Return the time of this machine, for a decision that must not write in a run directory."""
+    return time.time_ns()
 
 
 def check_trace(
@@ -607,6 +644,9 @@ def check_trace(
     moved = _moved_dependency(trace, expected)
     if moved is not None:
         return Freshness(False, moved)
+    environment = _changed_environment(trace, expected)
+    if environment is not None:
+        return Freshness(False, environment)
     #: When the check began to read files: from then on, the records it takes vouch for them.
     #: None if the clock could not be read; then nothing is refreshed.
     clock: list[int | None] = []
@@ -727,7 +767,20 @@ def check_trace(
     if checked_ns is None or (
         refreshed == trace and not any(record.settled_before(checked_ns) for record in read)
     ):
-        return Freshness(True, "", None, trace.run_id, equivalent, trace.verdict, trace.error)
+        return Freshness(
+            True,
+            "",
+            None,
+            trace.run_id,
+            equivalent,
+            trace.verdict,
+            trace.error,
+            would_refresh=not refresh
+            and reads[0] > 0
+            and (
+                refreshed != trace or any(record.settled_before(wall_clock_ns()) for record in read)
+            ),
+        )
     # Every record now reflects the file as it was at `checked_ns` or later.
     refreshed.inputs_recorded_ns = checked_ns
     refreshed.outputs_recorded_ns = checked_ns

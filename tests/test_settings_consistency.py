@@ -120,7 +120,7 @@ def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
     assert settings.main_clock is not None
     settings.main_clock.period = "7 ns"
 
-    settings.verbose = 1
+    settings.nthreads = 1
 
     assert settings.main_clock.period == Time("7 ns")
 

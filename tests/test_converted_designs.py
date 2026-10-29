@@ -540,7 +540,12 @@ def test_the_converter_runs_before_the_flow_is_built_and_the_flow_reads_what_it_
     assert [event for event in after[4:] if event != "design hash"] == [
         ("reader runs", derived_names)
     ]
-    assert "construct" not in events[:verified] and "init" not in events[:verified]
+    # The judgment that precedes the locks constructs flows from the planned design (as a dry run
+    # does) and never calls `init()`. Between the start of the converter and the verified
+    # record nothing is constructed, and the flow of the launch is constructed once, after it.
+    assert "init" not in events[:verified]
+    assert "construct" not in events[ran:verified]
+    assert after.count("construct") == 1
     assert ("check", ["mkTop.v", "ext.v"]) in events[:ran]
 
 
@@ -798,7 +803,9 @@ def test_the_converter_of_a_design_is_launched_as_a_producer(tmp_path, monkeypat
     launch(tmp_path, classes)  # the first launch judges nothing: no trace yet
     launch(tmp_path, classes)
     converter, reader = classes
-    assert refreshes == {converter.name: False, reader.name: True}
+    # the fresh reader is held shared, so it too is checked without a refresh (it would take the
+    # node exclusively to refresh one, `tests/test_graph_locks.py`); the converter never refreshes
+    assert refreshes == {converter.name: False, reader.name: False}
 
     seen: list[tuple[str | None, bool]] = []
     launch_flow = DefaultRunner.launch_flow

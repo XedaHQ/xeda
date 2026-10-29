@@ -1,11 +1,10 @@
 """Physical quantities in settings: clock periods, frequencies, delays.
 
-This paragraph describes the helpers (`convert_unit` and the others) that the settings without a
-quantity type use (`NOT_MIGRATED_YET` in `tests/test_physical_quantities.py` lists them). They read a number, optionally followed by one unit: `5.5`, `"5.5ns"`,
-`"200 MHz"`, `"1e3 kHz"`. That is the whole grammar. Text never reaches the expression evaluator
-of pint. The evaluator would accept anything it can compute as a clock (`"5 ns * 2"`, `"5..5ns"`,
-`"(100)mHz"`), and malformed text would escape as a traceback instead of a field error. Xeda
-asks pint only to convert a number from one known unit to another.
+The helpers (`convert_unit` and the others) read a number, optionally followed by one unit: `5.5`,
+`"5.5ns"`, `"200 MHz"`, `"1e3 kHz"`. That is the whole grammar. Text never reaches the expression
+evaluator of pint. The evaluator would accept anything it can compute as a clock (`"5 ns * 2"`,
+`"5..5ns"`, `"(100)mHz"`), and malformed text would escape as a traceback instead of a field
+error. Xeda asks pint only to convert a number from one known unit to another.
 
 The setting types of flows are the classes `Time`, `Frequency`, `Capacitance`, `Length`, `Voltage`,
 `Resistance` and `Power`. A value of such a type is a number with a unit, written as text
@@ -26,6 +25,7 @@ from typing import Any, ClassVar, NoReturn, Optional, Self, Union
 
 from pint import PintError, UnitRegistry
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import PydanticCustomError, core_schema
 
 #: Units are case-sensitive, as in SI: "MHz" is megahertz, "mHz" millihertz, "nS" nanosiemens.
@@ -205,6 +205,8 @@ def time_ns_optional(
 
 #: The key of the JSON Schema of a quantity that names its kind (`time`).
 QUANTITY_KEY = "x-xeda-quantity"
+#: The key of the JSON Schema of a quantity that names the unit its value is written in.
+UNIT_KEY = "x-xeda-unit"
 
 
 class QuantityError(ValueError):
@@ -271,6 +273,27 @@ def _exact_float(parts: _Decimal3, scale: Fraction) -> float:
     return result
 
 
+def _plain_decimal(negative: bool, digits: str, exponent: int) -> str:
+    """Return the number `int(digits) * 10**exponent` as a plain decimal: no exponent, no needless
+    zero. A zero is `0`."""
+    kept = digits.rstrip("0")
+    if not kept:
+        return "0"
+    exponent += len(digits) - len(kept)
+    if exponent >= 0:
+        text = kept + "0" * exponent
+    elif len(kept) + exponent > 0:
+        text = f"{kept[: len(kept) + exponent]}.{kept[len(kept) + exponent :]}"
+    else:
+        text = f"0.{'0' * -(len(kept) + exponent)}{kept}"
+    return f"-{text}" if negative else text
+
+
+def _restored_quantity(kind: type["Quantity"], magnitude: float, display: str) -> "Quantity":
+    """Return the quantity that `Quantity.__reduce__` described."""
+    return kind._from_magnitude(magnitude, display)  # pylint: disable=protected-access
+
+
 class Quantity:
     """A number with a unit: the value of a setting that measures something.
 
@@ -281,10 +304,15 @@ class Quantity:
     The object is immutable and holds its value exactly in the canonical unit as one float. It is
     no number: it has no arithmetic, no `float()` and no truth value. Compare it with a quantity
     of the same kind, or read a number in a unit with `to`. Build a computed value with `of`.
-    The text of the value in its canonical unit (`str(q)`) reads back as the same quantity.
+
+    A quantity also carries the unit that it is shown in (`display_unit`). A setting declares the
+    unit of its field with `Unit`, and the field gives its value that unit (`with_unit`). The
+    display unit changes how the quantity is written and nothing else: the value, the equality,
+    the order and the hash ignore it. The text of the value (`str(q)`) is the value in the display
+    unit, as a plain decimal, and reads back as the same quantity.
     """
 
-    __slots__ = ("_magnitude",)
+    __slots__ = ("_magnitude", "_display")
 
     #: The name of the kind: "time".
     kind: ClassVar[str]
@@ -299,6 +327,7 @@ class Quantity:
     _kind_of_unit: ClassVar[dict[str, type["Quantity"]]] = {}
 
     _magnitude: float
+    _display: str
 
     def __init_subclass__(
         cls,
@@ -328,6 +357,7 @@ class Quantity:
         """Read `value`, text such as `10 ns` or a quantity of this type, or raise
         `QuantityError`."""
         object.__setattr__(self, "_magnitude", type(self)._read(value))
+        object.__setattr__(self, "_display", type(self).canonical_unit)
 
     @classmethod
     def _need_kind(cls) -> None:
@@ -367,34 +397,49 @@ class Quantity:
         return QuantityError(f"`{text}` is {error}: {reason}")
 
     @classmethod
-    def _read(cls, value: Any) -> float:
-        """Return the canonical magnitude of `value`: text or an instance of this type."""
+    def _read(cls, value: Any, field: Optional[str] = None, unit: Optional[str] = None) -> float:
+        """Return the canonical magnitude of `value`: text or an instance of this type.
+
+        The messages that suggest a value write it in `unit`, the unit of the setting `field`
+        (the canonical unit of the kind if `unit` is None), and name the field. A value that has
+        no field (`Time("10")`) gets the example of the kind."""
         cls._need_kind()
         if isinstance(value, cls):
             return value._magnitude
         if isinstance(value, Quantity):
             raise QuantityError(f"`{value}` is a {value.kind}, not a {cls.kind}")
-        if isinstance(value, (bool, int, float, Decimal)):
-            raise QuantityError(
-                f"`{value}` needs a unit, such as `{cls.example}`: a bare number does not mean "
-                f"anything"
+        where = "" if field is None else f"`{field}`: "
+
+        def suggestion(number: Optional[str] = None) -> str:
+            """Return a value to write, with the number that the user gave, if any."""
+            if field is None:
+                return cls.example
+            example_number = cls.example.split(" ")[0]
+            return f"{example_number if number is None else number} {unit or cls.canonical_unit}"
+
+        def needs_unit(shown: str, number: Optional[str]) -> QuantityError:
+            subject = f"`{shown}`" if field is None else f"`{field}`"
+            return QuantityError(
+                f"{subject} needs a unit, such as `{suggestion(number)}`: a bare number does not "
+                f"mean anything"
             )
+
+        if isinstance(value, (bool, int, float, Decimal)):
+            raise needs_unit(str(value), None if isinstance(value, bool) else str(value))
         if not isinstance(value, str):
             raise QuantityError(
-                f"expected a {cls.kind}, such as `{cls.example}`, not {type(value).__name__}"
+                f"{where}expected a {cls.kind}, such as `{suggestion()}`, not "
+                f"{type(value).__name__}"
             )
         text = value.strip()
         m = _QUANTITY_RE.fullmatch(text)
         if m is None or m["number"] is None:
             raise QuantityError(
-                f"cannot read `{value}` as a {cls.kind}: write one number and one unit, such as "
-                f"`{cls.example}`"
+                f"{where}cannot read `{value}` as a {cls.kind}: write one number and one unit, "
+                f"such as `{suggestion()}`"
             )
         if m["unit"] is None:
-            raise QuantityError(
-                f"`{text}` needs a unit, such as `{cls.example}`: a bare number does not mean "
-                f"anything"
-            )
+            raise needs_unit(text, text)
         factor = cls._factor(m["unit"], text)
         try:
             return _exact_float(_digits_of_text(m["number"]), factor)
@@ -404,10 +449,45 @@ class Quantity:
             raise QuantityError(f"`{text[:40]}...` has too many digits") from None
 
     @classmethod
-    def _from_magnitude(cls, magnitude: float) -> Self:
+    def _from_magnitude(cls, magnitude: float, display: Optional[str] = None) -> Self:
         obj = object.__new__(cls)
         object.__setattr__(obj, "_magnitude", magnitude)
+        object.__setattr__(obj, "_display", display or cls.canonical_unit)
         return obj
+
+    @classmethod
+    def _power_of_ten(cls, unit: str) -> int:
+        """Return `k`, where one `unit` is `10**k` canonical units. Raise `QuantityError` for a
+        unit of another kind, an unknown unit, and a unit whose factor is no power of ten (`min`,
+        `h`): the text of such a value in that unit could not be written exactly."""
+        factor = cls._factor(unit, unit)
+        if factor.denominator == 1:
+            exponent = len(str(factor.numerator)) - 1
+            if factor.numerator == 10**exponent:
+                return exponent
+        elif factor.numerator == 1:
+            exponent = len(str(factor.denominator)) - 1
+            if factor.denominator == 10**exponent:
+                return -exponent
+        raise QuantityError(
+            f"`{unit}` cannot be the unit that a {cls.kind} is shown in: it is no power of ten of "
+            f"`{cls.canonical_unit}`"
+        )
+
+    def with_unit(self, unit: str) -> Self:
+        """Return this quantity shown in `unit`: the same value, written in `unit`.
+
+        `unit` is a unit of the kind whose factor is a power of ten (`s`, `ns`, `kHz`). The copy
+        holds the same magnitude, so it equals this quantity and has its hash and its identity."""
+        type(self)._power_of_ten(unit)
+        if unit == self._display:
+            return self
+        return type(self)._from_magnitude(self._magnitude, unit)
+
+    @property
+    def display_unit(self) -> str:
+        """The unit that `str(q)` and the JSON text of the quantity use."""
+        return self._display
 
     @classmethod
     def of(cls, magnitude: Union[int, float, Decimal], unit: str) -> Self:
@@ -452,10 +532,15 @@ class Quantity:
             raise self._out_of_range(e, f"{self} in {unit}") from None
 
     def as_json_value(self) -> str:
-        """Return the canonical text: the shortest text of the magnitude that reads back as it,
-        a space and the canonical unit (`10 ns`, `2.5 ns`, `1e-05 ns`)."""
-        number = repr(self._magnitude)
-        return f"{number.removesuffix('.0')} {self.canonical_unit}"
+        """Return the text of the value in its display unit: the shortest plain decimal that
+        reads back as the same quantity, a space and the unit (`10 ns`, `0.00001 ns`, `2 s`).
+
+        The decimal exponent of the shortest text of the magnitude is shifted by the exact power
+        of ten between the display unit and the canonical unit, so nothing is rounded again, and
+        the text has no exponent."""
+        shift = type(self)._power_of_ten(self._display)
+        negative, digits, exponent = _digits_of_text(repr(self._magnitude))
+        return f"{_plain_decimal(negative, digits, exponent - shift)} {self._display}"
 
     # ---- the value object ----------------------------------------------------------------
 
@@ -507,7 +592,7 @@ class Quantity:
         return self._magnitude >= other._magnitude
 
     def __reduce__(self) -> tuple[Any, ...]:
-        return type(self), (self.as_json_value(),)
+        return _restored_quantity, (type(self), self._magnitude, self._display)
 
     def __copy__(self) -> Self:
         return self
@@ -518,11 +603,19 @@ class Quantity:
     # ---- pydantic ------------------------------------------------------------------------
 
     @classmethod
-    def _validate(cls, value: Any) -> Self:
+    def _validate(cls, value: Any, info: core_schema.ValidationInfo) -> Self:
+        return cls._validate_field(value, info.field_name, None)
+
+    @classmethod
+    def _validate_field(cls, value: Any, field: Optional[str], unit: Optional[str]) -> Self:
+        """Return `value` as a quantity of the setting `field`, which is written in `unit`
+        (the canonical unit if None). Both name the setting in the message of a refusal."""
         if isinstance(value, cls):
-            return value
+            # A field without `Unit` writes in the unit of its kind, whatever unit this value
+            # came with. A `Unit` after this validator gives the unit of its field.
+            return value.with_unit(cls.canonical_unit)
         try:
-            return cls._from_magnitude(cls._read(value))
+            return cls._from_magnitude(cls._read(value, field, unit))
         except QuantityError as e:
             raise PydanticCustomError("quantity", "{message}", {"message": str(e)}) from None
 
@@ -531,7 +624,7 @@ class Quantity:
         cls, source: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
         cls._need_kind()
-        return core_schema.no_info_plain_validator_function(
+        return core_schema.with_info_plain_validator_function(
             cls._validate,
             serialization=core_schema.plain_serializer_function_ser_schema(
                 Quantity.as_json_value, when_used="json"
@@ -545,6 +638,7 @@ class Quantity:
         return {
             "type": "string",
             QUANTITY_KEY: cls.kind,
+            UNIT_KEY: cls.canonical_unit,
             "description": (
                 f"A {cls.kind} with a unit, such as `{cls.example}`. "
                 f"Units: {', '.join(cls.units)}."
@@ -707,6 +801,7 @@ class Bounds:
         if not (isinstance(source, type) and issubclass(source, Quantity)):
             raise TypeError(f"{self!r} bounds a quantity, not {source!r}")
         limits = [(op, source(text)) for op, text in self.limits.items()]
+        inner = handler(source)
 
         def check(value: Any) -> Any:
             for op, bound in limits:
@@ -720,11 +815,132 @@ class Bounds:
                     raise PydanticCustomError(
                         "quantity",
                         "{message}",
-                        {"message": f"must be {self._WORDS[op]} {bound}, got {value}"},
+                        {
+                            "message": f"must be {self._WORDS[op]} "
+                            f"{bound.with_unit(value.display_unit)}, got {value}"
+                        },
                     )
             return value
 
-        return core_schema.no_info_after_validator_function(check, handler(source))
+        check._xeda_bounds = True  # type: ignore[attr-defined]
+        return core_schema.no_info_after_validator_function(check, inner)
+
+
+def _unit_functions(schema: Any) -> list[Any]:
+    """Return the validator functions that wrap the core schema `schema`, outermost first."""
+    found = []
+    while isinstance(schema, dict) and str(schema.get("type", "")).startswith("function-"):
+        function = schema.get("function")
+        found.append(function.get("function") if isinstance(function, dict) else function)
+        schema = schema.get("schema")
+    return found
+
+
+class Unit:
+    """The unit that a quantity field is written in, as metadata of an annotation:
+
+        timeout: Optional[Annotated[Time, Unit("s"), Bounds(gt="0 s")]] = None
+
+    A value of the field is shown in this unit everywhere: `str(value)`, `settings.json`, the
+    documents of the command line and the listing of the settings. It is the same value that the
+    user wrote, in any unit of the kind (`2 min` is `120 s`). The field gives its value the unit
+    (`Quantity.with_unit`). Without `Unit`, a field shows its value in the canonical unit of the
+    kind.
+
+    The unit is one of the kind with a factor that is a power of ten to the canonical unit (`s`,
+    `ps`, `GHz`; not `min` or `h`), or the class fails when the model class is built. So do a
+    second `Unit` on one quantity, a `Bounds` before the `Unit`, and a `Unit` on anything but a
+    quantity: put it on the quantity itself, inside `Optional` and inside a container, before
+    `Bounds`. Another kind keeps the unit that it has."""
+
+    __slots__ = ("unit",)
+
+    def __init__(self, unit: str) -> None:
+        if not isinstance(unit, str):
+            raise TypeError(f"the unit is unit text such as 's', not {unit!r}")
+        self.unit = unit
+
+    def __repr__(self) -> str:
+        return f"Unit({self.unit!r})"
+
+    def __get_pydantic_core_schema__(
+        self, source: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        if not (isinstance(source, type) and issubclass(source, Quantity)):
+            raise TypeError(
+                f"{self!r} gives a quantity its unit, not {source!r}: put it on the quantity, "
+                "inside Optional or a container"
+            )
+        try:
+            source._power_of_ten(self.unit)  # pylint: disable=protected-access
+        except QuantityError as error:
+            raise TypeError(f"{self!r}: {error}") from None
+        inner = handler(source)
+        for function in _unit_functions(inner):
+            if getattr(function, "_xeda_unit", None) is not None:
+                raise TypeError(f"{self!r}: the quantity has a unit already")
+            if getattr(function, "_xeda_bounds", None):
+                raise TypeError(f"{self!r} must come before Bounds in the annotation")
+        unit = self.unit
+        if _unit_functions(inner) != [source._validate]:  # pylint: disable=protected-access
+            raise TypeError(f"{self!r} must be the first annotation of the quantity")
+
+        def read(value: Any, info: core_schema.ValidationInfo) -> Any:
+            # The messages of a refusal write a suggestion in the unit of the field.
+            return source._validate_field(value, info.field_name, unit)  # pylint: disable=W0212
+
+        inner = core_schema.with_info_plain_validator_function(
+            read, serialization=inner.get("serialization"), metadata=inner.get("metadata")
+        )
+
+        def give_unit(value: Any) -> Any:
+            return value.with_unit(unit)
+
+        give_unit._xeda_unit = unit  # type: ignore[attr-defined]
+
+        def write(value: Any) -> Any:
+            return value.with_unit(unit).as_json_value() if isinstance(value, Quantity) else value
+
+        return core_schema.no_info_after_validator_function(
+            give_unit,
+            inner,
+            serialization=core_schema.plain_serializer_function_ser_schema(write, when_used="json"),
+        )
+
+    def __get_pydantic_json_schema__(
+        self, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> dict[str, Any]:
+        json_schema = handler(schema)
+        json_schema[UNIT_KEY] = self.unit
+        return json_schema
+
+
+def quantity_in_unit(unit: str, value: Union[str, Quantity]) -> Quantity:
+    """Return `value`, text with a unit or a quantity, as a quantity shown in `unit`. The kind is
+    the one of `unit`. Raise `QuantityError` for a value that is no quantity of that kind, or a
+    unit that a quantity cannot be shown in."""
+    kind = Quantity._kind_of_unit.get(unit)  # pylint: disable=protected-access
+    if kind is None:
+        raise QuantityError(f"`{unit}` is no unit of a quantity")
+    return kind(value).with_unit(unit)
+
+
+class QuantityJsonSchema(GenerateJsonSchema):
+    """The JSON Schema generator of the settings models. It writes the default of a quantity field
+    in the unit of the field (`Unit`), as the validated value is written."""
+
+    def default_schema(self, schema: Any) -> JsonSchemaValue:
+        json_schema = super().default_schema(schema)
+        default = schema.get("default")
+        if "default" in json_schema and isinstance(default, Quantity):
+            inner = schema.get("schema")
+            while isinstance(inner, dict) and inner.get("type") in ("nullable", "default"):
+                inner = inner.get("schema")
+            for function in _unit_functions(inner):
+                unit = getattr(function, "_xeda_unit", None)
+                if unit is not None:
+                    json_schema["default"] = default.with_unit(unit).as_json_value()
+        return json_schema
 
 
 # ---- templates ------------------------------------------------------------------------------
@@ -834,8 +1050,12 @@ __all__ = [
     "QuantityError",
     "QUANTITY_KEY",
     "Q_",
+    "QuantityJsonSchema",
+    "quantity_in_unit",
     "Resistance",
     "Time",
+    "UNIT_KEY",
+    "Unit",
     "Voltage",
     "check_unit_case",
     "convert_freq",

@@ -492,8 +492,7 @@ def test_tee_keeps_the_output_of_a_failed_process(tmp_path):
 
 
 #: The two ways to ask `run_process` for a tool's log: copy the output to a file while showing it
-#: (`tee`), or send it to a file alone (`stdout` given a path, `Tool.redirect_stdout`). One rule
-#: holds for both.
+#: (`tee`), or send it to a file alone (`stdout` given a path). One rule holds for both.
 LOG_ROUTES = pytest.mark.parametrize("route", ["tee", "stdout"])
 
 

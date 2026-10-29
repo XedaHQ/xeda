@@ -82,6 +82,7 @@ class Quartus(FpgaSynthFlow):
     """Compile a design for an Intel FPGA with Quartus."""
 
     executables = ("quartus_sh",)
+    locator_variables = ("QUARTUS_ROOTDIR", "LM_LICENSE_FILE")
 
     artifacts_description = describe_artifacts(
         "log",
@@ -229,7 +230,7 @@ class Quartus(FpgaSynthFlow):
         if self.quartus_sh.docker:
             # `mounts` are writable, so the design stays out of them. A tool built in a flow
             # mounts the design read-only for each run (`Tool.execute`).
-            if self.settings.dockerized and self.quartus_sh.docker.nproc and self.settings.nthreads:
+            if self.settings.docker and self.quartus_sh.docker.nproc and self.settings.nthreads:
                 self.settings.nthreads = min(self.settings.nthreads, self.quartus_sh.docker.nproc)
 
     def create_project(self, **kwargs: Any) -> None:

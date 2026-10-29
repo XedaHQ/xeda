@@ -10,7 +10,7 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from ...dataclass import SecondSpelling, Field, deliverable, field_validator, waveform
+from ...dataclass import SecondSpelling, Field, deliverable, waveform
 from ...design import Design, Source, SourceType, Tuple012, VhdlSettings, language_of
 from ...flow import (
     Flow,
@@ -24,10 +24,9 @@ from ...flow import (
     describe_results,
 )
 from ...flow.metrics import COCOTB_METRICS
-from ...flow.sim import SimEvidence
+from ...flow.sim import SimEvidence, whole_femtoseconds
 from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
-from ...units import convert_unit
 from ...utils import LOCATION_FORMS, SDF, common_root, replacing_file, setting_flag
 
 log = logging.getLogger(__name__)
@@ -224,7 +223,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 elab_flags.extend(["-frelaxed"])
             if self.psl_in_comments:
                 analysis_flags.append("--psl")
-            if self.verbose:
+            if self.verbosity == "verbose":
                 analysis_flags.append("-v")
                 elab_flags.append("-v")
             if self.diagnostics:
@@ -583,14 +582,6 @@ class GhdlSim(Ghdl, SimFlow):
         )
         # TODO workdir?
 
-        @field_validator("stop_time", mode="before")
-        @classmethod
-        def validate_stop_time(cls, value):
-            if value is not None:
-                if convert_unit(value, "fs", from_unit="ns") < 0:
-                    raise ValueError("stop_time must be nonnegative")
-            return value
-
         def runtime_flags(self) -> list[str]:
             """Return `run_flags` with the `--assert-level` that `fail_severity` selects."""
             threshold = "failure" if self.fail_severity == "fatal" else self.fail_severity
@@ -775,7 +766,7 @@ class GhdlSim(Ghdl, SimFlow):
                 tb_top = (design.rtl.top,)
         run_flags += setting_flag(vpi, name="vpi")
 
-        if ss.debug:
+        if ss.verbosity == "debug":
             run_flags.extend(
                 [
                     "--trace-processes",
@@ -788,7 +779,7 @@ class GhdlSim(Ghdl, SimFlow):
             )
 
         if ss.stop_time is not None:
-            stop_fs = round(convert_unit(ss.stop_time, "fs", from_unit="ns"))
+            stop_fs = whole_femtoseconds(ss.stop_time)
             run_flags.append(f"--stop-time={stop_fs}fs")
         run_flags += setting_flag(ss.stop_delta, name="stop_delta")
 
@@ -799,19 +790,17 @@ class GhdlSim(Ghdl, SimFlow):
         sim_tops = (design.rtl.top,) if design.tb.cocotb is not None and design.rtl.top else tb_top
         runtime = self.ghdl
         if not self.cocotb:
+            # The evidence tee shows native output and copies it into this invocation's log.
             self._sim_log = self.run_directory.writable("sim.log")
             self.run_directory.remove(self._sim_log)
             run_flags.append("--unbuffered")
-            # The evidence tee shows native output and copies it into this invocation's log.
-            # A flow's general stdout redirection still applies to analysis/elaboration.
-            runtime = runtime.derive(runtime.executable, redirect_stdout=None)
         runtime.run(
             "run",
             *cf,
             *sim_tops,
             *run_flags,
             env=self.cocotb.env(design) if self.cocotb else {},
-            timeout=ss.timeout,
+            timeout=ss.timeout_in_seconds(),
             tee=self._sim_log,
             merge_stderr=not self.cocotb,
         )

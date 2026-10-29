@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 import psutil
@@ -21,10 +22,11 @@ import pytest
 from click.testing import CliRunner
 
 from xeda.cli import cli
-from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner import DefaultRunner, run_lock
 from xeda.outcomes import result_from_dict
 from xeda.records import read_record
 from xeda.run_dir import RunDirectoryError
+from xeda.run_root import ensure_run_root
 from xeda.remote import client
 from xeda.remote.client import new_launch_id, workspace_key
 from xeda.remote.errors import (
@@ -44,6 +46,7 @@ from .remote_fixtures import (
     remote_request,
 )
 from .test_proc_utils import DEFAULT_SIGINT
+from .tool_utils import HANG_GUARD
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -1303,3 +1306,105 @@ def test_a_request_that_only_the_host_refuses_starts_no_launch(tmp_path, remote_
     result = _cli(tmp_path, design, "nextpnr", "--json")
     assert result.exit_code == 2, result.output
     assert json.loads(result.stdout)["error"]["code"] == "unknown_setting"
+
+
+# --- The locks of the mirror ----------------------------------------------------------------------
+
+
+def _recording_acquisitions(monkeypatch) -> list[list[tuple[str, Path, bool]]]:
+    """Record the requests of every `acquire_all` call of the client."""
+    calls: list[list[tuple[str, Path, bool]]] = []
+    real = client.acquire_all
+
+    def recording(requests, **keywords):
+        requests = list(requests)
+        calls.append([(r.kind, r.path, r.exclusive) for r in requests])
+        return real(requests, **keywords)
+
+    monkeypatch.setattr(client, "acquire_all", recording)
+    return calls
+
+
+def test_the_mirror_is_locked_in_one_acquisition_held_to_the_end_of_the_fetch(
+    tmp_path, remote_host, monkeypatch
+):
+    calls = _recording_acquisitions(monkeypatch)
+    held: list[bool] = []
+    real_rewrite = client.rewrite_records
+
+    def rewriting(*arguments, **keywords):
+        held.append(run_lock.held_by_this_thread())
+        return real_rewrite(*arguments, **keywords)
+
+    monkeypatch.setattr(client, "rewrite_records", rewriting)
+    _succeeded(_request(tmp_path, _design(tmp_path)))
+    mirror = _mirror(tmp_path) / "top"
+    assert len(calls) == 1, "the whole mirror is one acquisition"
+    assert sorted(calls[0]) == sorted(
+        ("run_dir", mirror / name, True) for name in ("yosys_fpga", "nextpnr")
+    )
+    assert held and all(held), "the records are rewritten under the locks"
+    assert not run_lock.held_by_this_thread()
+
+
+def test_a_cut_fetch_empties_the_mirror_under_the_locks_it_holds(
+    tmp_path, remote_host, monkeypatch
+):
+    design, mirror = _earlier_success(tmp_path)
+    calls = _recording_acquisitions(monkeypatch)
+    held: list[bool] = []
+
+    def cut(*_arguments, **_keywords):
+        held.append(run_lock.held_by_this_thread())
+        raise OSError("the transfer was cut")
+
+    monkeypatch.setattr(client, "publish_mirror", cut)
+    outcome = _request(tmp_path, design)
+    assert not outcome.success and held == [True]
+    assert len(calls) == 1, "the cleanup takes no second acquisition"
+    _assert_mirror_emptied(mirror)
+    assert not run_lock.held_by_this_thread()
+
+
+def test_the_discard_of_a_mirror_waits_for_one_lock_while_it_holds_none(tmp_path, monkeypatch):
+    """Another launch holds the lock of one mirror directory. The discard waits for it with the
+    other directory free, and it empties both when the lock ends."""
+    root = ensure_run_root(tmp_path / "xeda_run")
+    mirror = root / "@somewhere"
+    directories = [mirror / "top" / "first", mirror / "top" / "second"]
+    for directory in directories:
+        directory.mkdir(parents=True)
+        (directory / "results.json").write_text("{}")
+    local = SimpleNamespace(run_paths=[root / "top" / "first", root / "top" / "second"])
+    holding, release, waiting = threading.Event(), threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with run_lock.run_dir_lock(directories[1], root):
+            holding.set()
+            assert release.wait(HANG_GUARD)
+
+    def waits(path: Path) -> None:
+        if path == run_lock.lock_file(directories[1]):
+            waiting.set()
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert holding.wait(HANG_GUARD)
+    monkeypatch.setattr(run_lock, "wait_hook", waits)
+    discard = threading.Thread(target=client._discard_mirrors, args=(local, mirror, root))
+    discard.start()
+    try:
+        assert waiting.wait(HANG_GUARD)
+        # a free lock is taken at once; a held one makes this call wait, and `canceled` ends it
+        with run_lock.acquire_all(
+            [run_lock.LockRequest("run_dir", directories[0], True)],
+            run_root=root,
+            canceled=lambda: True,
+        ):
+            assert (directories[0] / "results.json").exists()
+    finally:
+        release.set()
+    for thread in (holder, discard):
+        thread.join(HANG_GUARD)
+        assert not thread.is_alive()
+    assert [(d / "results.json").exists() for d in directories] == [False, False]

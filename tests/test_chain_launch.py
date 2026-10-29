@@ -3,7 +3,6 @@ hand-over through checked output records, producers held for reading through the
 results and trace, and deliveries only for a graph that succeeded."""
 
 import json
-import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,8 +19,7 @@ from xeda.flow_runner.trace import as_recorded
 from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .io_flows import _Join, _Taker
-from .test_read_locks import _environment, _probe
-from .tool_utils import HANG_GUARD
+from .test_read_locks import _probe
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -208,14 +206,17 @@ def test_every_bound_producer_is_held_through_the_consumer_s_results_and_trace(
     monkeypatch.setattr(runner_module, "write_trace", writing)
     flow = _runner(tmp_path).run(_Join, _design(tmp_path, MORE))
     assert flow.succeeded
-    held = ["blocked", "blocked", "free", "free"]  # no writer may enter; readers may
+    # The producers ran in this launch: it holds them exclusively, so no other launch, writer
+    # or reader, enters before the consumer's results and trace are written.
+    held = ["blocked", "blocked", "blocked", "blocked"]
     assert seen == {"run": held, "trace": held}
     assert [_probe(path) for path in producers] == ["free", "free"]
 
 
-def test_a_bound_producer_changed_in_the_acquisition_gap_is_refused(tmp_path, monkeypatch):
-    """Between the alternate producer's own exclusive lock and the consumer's shared lease,
-    another process completes a different generation there: the hand-over is refused."""
+def test_a_bound_producer_changed_after_it_completed_is_refused(tmp_path, monkeypatch):
+    """The launch holds the run directory of the alternate producer from before it runs until
+    the end, so no Xeda process completes another generation there. A file that changes anyway
+    (something outside Xeda) between the producer's completion and the hand-over is refused."""
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
     original = runner._producer_read_lease
@@ -225,21 +226,7 @@ def test_a_bound_producer_changed_in_the_acquisition_gap_is_refused(tmp_path, mo
     @contextmanager
     def gap(producer):
         if producer.name == "__input_maker":
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    "import sys\nfrom pathlib import Path\n"
-                    "from xeda.flow_runner.run_lock import run_dir_lock\n"
-                    "p = Path(sys.argv[1])\n"
-                    "with run_dir_lock(p):\n"
-                    "    (p / 'another-output.txt').write_text('changed generation')\n",
-                    str(producer.run_path),
-                ],
-                check=True,
-                env=_environment(),
-                timeout=HANG_GUARD,
-            )
+            (producer.run_path / "another-output.txt").write_text("changed generation")
         with original(producer):
             yield producer
 

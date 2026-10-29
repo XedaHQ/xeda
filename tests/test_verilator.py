@@ -30,7 +30,9 @@ def test_verilator_sim_py(tmp_path: Path) -> None:
     run_dir = tmp_path / "xeda_run"
     for design in design_paths:
         xeda_runner = DefaultRunner(run_dir, debug=debug)
-        flow = xeda_runner.run(Verilator, design, flow_overrides=dict(debug=debug, verbose=debug))
+        flow = xeda_runner.run(
+            Verilator, design, flow_overrides=dict(verbosity="debug" if debug else "normal")
+        )
         assert flow is not None, "run_flow returned None"
         settings_json = flow.run_path / "settings.json"
         results_json = flow.run_path / "results.json"
@@ -347,7 +349,9 @@ def test_the_wall_clock_timeout_stops_a_simulation_that_never_finishes(tmp_path)
     """A free-running clock never drains, and nothing stops it but the wall-clock `timeout`,
     which leaves no end record (a failure)."""
     require_verilator()
-    flow = _launch(tmp_path, "reg clk = 0; always #5 clk = ~clk;", {"timing": True, "timeout": 2})
+    flow = _launch(
+        tmp_path, "reg clk = 0; always #5 clk = ~clk;", {"timing": True, "timeout": "2 s"}
+    )
     assert "sim.ended_by" not in flow.results
     assert flow.results["error"]["code"] == "timeout"
     assert not flow.succeeded
@@ -362,7 +366,7 @@ def test_a_timed_out_model_s_output_reaches_the_log(tmp_path, own_driver):
     flow = _launch(
         tmp_path,
         'reg clk = 0; always #5 clk = ~clk; initial $display("printed before the hang");',
-        {"timing": True, "timeout": 3, **({"main": False} if own_driver else {})},
+        {"timing": True, "timeout": "3 s", **({"main": False} if own_driver else {})},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "0")} if own_driver else None,
     )
     assert (flow.results.get("error") or {}).get("code") == "timeout"
@@ -939,7 +943,7 @@ def test_an_untimed_run_that_never_finishes_drains_at_once(tmp_path, body):
     """Without `timing`, Verilator's main leaves its loop when no event is left (a delay is
     ignored): the run drained and fails, and does not wait for the wall-clock `timeout`."""
     require_verilator()
-    flow = _launch(tmp_path, body, {"timing": False, "timeout": 60})
+    flow = _launch(tmp_path, body, {"timing": False, "timeout": "60 s"})
     assert flow.results["sim.ended_by"] == "drained"
     assert not flow.succeeded
 

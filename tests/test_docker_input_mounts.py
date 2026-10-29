@@ -148,7 +148,7 @@ def world(tmp_path, monkeypatch):
 
 def _launch(tmp_path, design, flow, **settings):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    result = runner.launch_flow(flow, design, {"dockerized": True, **settings})
+    result = runner.launch_flow(flow, design, {"docker": True, **settings})
     assert result.succeeded
     return result
 

@@ -14,6 +14,7 @@ import pytest
 
 from xeda.dataclass import ValidationError
 from xeda.flow import FPGA, FlowSettingsError
+from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flow.flow import flowrun_hash
 from xeda.flow.synth import PhysicalClock
 from xeda.flows import Nextpnr, Quartus, VivadoSynth, Yosys, YosysFpga
@@ -93,12 +94,17 @@ def test_the_fall_time_is_a_time_and_stays_inside_the_period():
         PhysicalClock(period="10 ns", rise="9 ns").fall  # type: ignore[call-arg]
 
 
-@pytest.mark.parametrize("value", [0.5, "0.5", " 0.5 ", Decimal("0.5")])
+@pytest.mark.parametrize("value", [0.5, 0.50])
 def test_duty_cycle_accepts_unitless_numeric_values(value):
-    """The command line form `-s clock.duty_cycle=0.5` arrives as the text `"0.5"`."""
     clock = PhysicalClock(period="5 ns", duty_cycle=value)  # type: ignore[call-arg]
     assert clock.duty_cycle == 0.5
     assert clock.fall == Time("2.5 ns")
+
+
+def test_the_command_line_text_of_a_duty_cycle_is_a_number():
+    """`-s clocks.main_clock.duty_cycle=0.5` is read as the number before the model sees it."""
+    merged = merge_layers(["clocks.main_clock.duty_cycle=0.5"], settings_cls=VivadoSynth.Settings)
+    assert merged == {"clocks": {"main_clock": {"duty_cycle": 0.5}}}
 
 
 def test_the_duty_cycle_is_a_marked_fraction():
@@ -238,7 +244,7 @@ def test_a_flow_refuses_a_bad_clock(clock, problem):
 @pytest.mark.parametrize("value", ["5.5", "5", "0"])
 def test_a_bare_number_from_the_command_line_names_the_missing_unit(value):
     """`-s clocks.main_clock.period=5.5` hands the model the text `5.5`."""
-    with pytest.raises(REFUSED, match="needs a unit, such as `10 ns`"):
+    with pytest.raises(REFUSED, match=f"`period` needs a unit, such as `{value} ns`"):
         VivadoSynth.Settings(
             fpga={"part": "xc7a100tftg256-2L"}, clocks={"main_clock": {"period": value}}
         )
@@ -253,10 +259,10 @@ def test_clock_period_was_removed(extra):
         VivadoSynth.Settings(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.0, **extra)
 
 
-@pytest.mark.parametrize("value", ["0.5ns", "50%", "half"])
-def test_duty_cycle_rejects_units_and_non_numeric_values(value):
+@pytest.mark.parametrize("value", ["0.5", "0.5ns", "50%", "half", True, Decimal("0.5")])
+def test_duty_cycle_takes_only_a_number(value):
     """Duty cycle is a unitless ratio, unlike the clock timing fields."""
-    with pytest.raises(ValidationError, match="unitless number"):
+    with pytest.raises(ValidationError, match="duty_cycle"):
         PhysicalClock(period="5 ns", duty_cycle=value)  # type: ignore[call-arg]
 
 
@@ -302,7 +308,7 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.period": "10 ns",
         },
-        "d60eef71efbb6f3c35f9d8a3a1da122533ac16cc058b732c930fc5904db22db9",
+        "2ea4a1e41151b30cc1afaaeeeba70b6c41dc002f26eca468c62d352930f8a1de",
         id="vivado_synth",
     ),
     pytest.param(
@@ -313,14 +319,14 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.freq": "125 MHz",
         },
-        "ac970556706d61384cbdac6fdaca090a23e14a438d38695f21a5065fe01cdf47",
+        "67c539466ff23379b4afbe8419ff21c8a83f678b2fcaedc65448c3f05f67a21a",
         id="yosys_fpga",
     ),
     pytest.param(
         Nextpnr,
         "nextpnr",
         {"fpga.part": "LFE5U-25F-6BG381C", "clocks.clk": {"period": "3.3 ns", "port": "clk"}},
-        "27d04419599f2909bc75daee90b194c0e203bac884823d79e3e0e66ce05c9cda",
+        "de2bddbdcd17c171261cf3de04adbe4044cb6bd38919cf022c8d5fb723a7dbf5",
         id="nextpnr",
     ),
     pytest.param(
@@ -338,7 +344,7 @@ IDENTITY_PINS = [
                 }
             },
         },
-        "0ed7b7739b3b7a683651aff88f2bfc6d6ff99604596cdcca970a0aa2195743f8",
+        "32aaefd2ac01b5b0c31dda3ddb07a1f50c566f0040c66a29631bdde95305aa1d",
         id="quartus",
     ),
     pytest.param(
@@ -349,7 +355,7 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.period": "2.5 ns",
         },
-        "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3",
+        "e975e721a7cd569640ce38b6535dc95a5f3550f0651b2cbc796d8e9a0887a5d9",
         id="yosys",
     ),
 ]
@@ -379,7 +385,7 @@ def test_the_same_clock_in_another_unit_has_the_same_identity():
     assert (
         flowrun_hash("yosys", in_ps, "pin")
         == flowrun_hash("yosys", in_ns, "pin")
-        == "76cdee59359d9b28d4c40942d1202c60304e297b9ed8341d37db1e383ff762c3"
+        == "e975e721a7cd569640ce38b6535dc95a5f3550f0651b2cbc796d8e9a0887a5d9"
     )
 
 

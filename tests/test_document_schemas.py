@@ -9,6 +9,7 @@ and what happens with a value that is no metric or a file that an older Xeda wro
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import sys
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from xeda.errors import RecordError
 from xeda.flow import Flow, FlowFatalError, MetricSpec, Out, registered_flows
 from xeda.flow.sim import SimFlow, judge_evidence
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.environment import SESSION_VARIABLES
 from xeda.flow_runner.outputs import handed_entries
 from xeda.flow_runner.trace import previous_trace
 from xeda.frozen import FrozenDict, freeze, thaw
@@ -235,7 +237,9 @@ def test_a_passed_run_writes_schema_1(tmp_path, design):
     for name in ("started", "finished"):
         assert datetime.fromisoformat(document[name]).utcoffset() == timezone.utc.utcoffset(None)
     assert document["runtime"] >= 0
-    assert document["inherited_variables"] == [] and document["dependencies"] == []
+    # the names of the inherited variables, sorted, never a value
+    assert document["inherited_variables"] == sorted(os.environ.keys() - SESSION_VARIABLES)
+    assert document["dependencies"] == []
     assert document["artifacts"] == {} and document["outputs"] == {} and document["inputs"] == []
 
 

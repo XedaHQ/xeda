@@ -38,6 +38,8 @@ from pydantic import BaseModel, PydanticSchemaGenerationError
 from pydantic.errors import PydanticInvalidForJsonSchema
 
 from .dataclass import (
+    ListLiteralText,
+    comma_separated_items,
     PydanticUndefined,
     field_annotation,
     field_shorthands_of,
@@ -61,7 +63,7 @@ from .flow.io import declared_inputs, declared_outputs, selected_types
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
-from .units import QUANTITY_KEY
+from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit
 from .utils import json_encodable, unique, with_json_keys
 
 if TYPE_CHECKING:
@@ -450,12 +452,103 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
     return str(typ)
 
 
-def _default_of(model_field: Any) -> Any:
+def unit_of(field_schema: Any) -> Optional[str]:
+    """Return the unit that a quantity setting is written in (`s`), from its JSON Schema.
+
+    A setting that holds quantities in one unit (a list of times, a union of a keyword and a
+    time) has that unit. Return None for a setting that holds no quantity, one that holds a model
+    (its own fields have their units), and one that holds quantities in different units."""
+    units: set[str] = set()
+
+    def collect(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                collect(item)
+        elif isinstance(node, dict):
+            unit = node.get(UNIT_KEY)
+            if isinstance(unit, str):
+                units.add(unit)
+                return
+            for key in ("anyOf", "oneOf", "allOf", "items", "prefixItems", "additionalProperties"):
+                collect(node.get(key))
+
+    collect(field_schema)
+    return next(iter(units)) if len(units) == 1 else None
+
+
+def _in_field_units(schema: Any, definitions: Mapping[str, Any], value: Any) -> Any:
+    """Return `value`, the input of a setting, with each quantity written in the unit of its field.
+
+    `schema` is the JSON Schema of the setting. A quantity that does not read (a bare number, text
+    that is no quantity) stays as it is: the launch reports it. Keys that the schema does not
+    know stay as they are."""
+    if not isinstance(schema, dict):
+        return value
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        return _in_field_units(definitions.get(ref.rsplit("/", 1)[-1]), definitions, value)
+    unit = schema.get(UNIT_KEY)
+    if isinstance(unit, str):
+        if isinstance(value, (str, Quantity)):
+            try:
+                return quantity_in_unit(unit, value).as_json_value()
+            except ValueError:
+                return value
+        return value
+    for key in ("anyOf", "oneOf"):
+        for branch in schema.get(key, ()):
+            changed = _in_field_units(branch, definitions, value)
+            if changed != value:
+                return changed
+    if isinstance(value, Mapping):
+        properties = schema.get("properties", {})
+        values = schema.get("additionalProperties")
+        return {
+            key: _in_field_units(properties.get(key, values), definitions, item)
+            for key, item in value.items()
+        }
+    if isinstance(value, str) and schema.get("type") == "array":
+        # A list setting given as text is comma-separated, by the one rule of the settings input.
+        # Show the text as it was given unless an item holds a quantity.
+        try:
+            parts = comma_separated_items("setting", value)
+        except ListLiteralText:
+            return value  # the launch refuses it
+        shown = _in_field_units(schema, definitions, parts)
+        return shown if shown != parts else value
+    if isinstance(value, (list, tuple)):
+        prefix = schema.get("prefixItems")
+        items = schema.get("items")
+        return [
+            _in_field_units(prefix[i] if prefix and i < len(prefix) else items, definitions, item)
+            for i, item in enumerate(value)
+        ]
+    return value
+
+
+def settings_in_field_units(flow: Union[str, Type[Flow]], settings: Mapping[str, Any]) -> Any:
+    """Return the input `settings` of a flow with each quantity written in the unit of its field:
+    `timeout: 2 min` is `timeout: 120 s`. The keys stay the ones that were given."""
+    cls = _resolve(flow)
+    schema = cls.Settings.model_json_schema(by_alias=True)
+    return _in_field_units(schema, schema.get("$defs", {}), dict(settings))
+
+
+def _unit_of_setting(owner: Any, name: str) -> Optional[str]:
+    """Return the unit that the top-level setting `name` of `owner`, a flow or an optimizer, is
+    written in, or None."""
+    properties = owner.Settings.model_json_schema().get("properties", {})
+    return unit_of(properties.get(name))
+
+
+def _default_of(model_field: Any, unit: Optional[str] = None) -> Any:
     """Return the default of a pydantic field as JSON-safe data, or None for a field with no
-    default."""
+    default. A default that is a quantity is written in `unit`, the unit of the setting."""
     if model_field.is_required():
         return None
     default = model_field.default
+    if isinstance(default, Quantity) and unit is not None:
+        default = default.with_unit(unit)
     if default is None or default is PydanticUndefined:
         if model_field.default_factory is not None:
             try:
@@ -534,7 +627,8 @@ def _group_entries(
                 "name": f"{prefix}.{name}",
                 "type": type_str(prop, definitions),
                 "required": False,
-                "default": _default_of(info),
+                "unit": unit_of(prop),
+                "default": _default_of(info, unit_of(prop)),
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
                 "common": common,
@@ -571,7 +665,8 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "name": name,
                 "type": type_str(prop, definitions),
                 "required": model_field.is_required() or (name in required),
-                "default": _default_of(model_field),
+                "unit": unit_of(prop),
+                "default": _default_of(model_field, unit_of(prop)),
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
@@ -615,7 +710,7 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
-    shares (`nthreads`, `dockerized`, ...). After a settings group, it has one entry for each field
+    shares (`nthreads`, `docker`, ...). After a settings group, it has one entry for each field
     of the group, depth first in declaration order. Its `name` is the dotted path that `-s` and a
     design file accept, and its `group` is the top-level setting that holds the group.
 
@@ -1284,7 +1379,8 @@ def optimizers_info() -> List[Dict[str, Any]]:
                             cls.Settings.model_json_schema().get("$defs", {}),
                         ),
                         "required": model_field.is_required(),
-                        "default": _default_of(model_field),
+                        "unit": _unit_of_setting(cls, field_name),
+                        "default": _default_of(model_field, _unit_of_setting(cls, field_name)),
                         "description": model_field.description or None,
                     }
                     for field_name, model_field in cls.Settings.model_fields.items()

@@ -759,8 +759,7 @@ READER_SETTINGS = {
     "defines": "design input: a bare `yosys` needs the same `-D` to read the same source",
     "ghdl_args": "VHDL has no bare `yosys <file>` reader; the plugin is what reads it at all",
     "liberty": "not a `yosys_fpga` setting (the template's `is defined` guard)",
-    "debug": "`echo on` only",
-    "verbose": "`echo on` only",
+    "verbosity": "`echo on` only",
 }
 
 

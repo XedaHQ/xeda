@@ -8,7 +8,7 @@ from typing import Annotated, Any, ClassVar, Dict, Optional, Union
 
 from pydantic import TypeAdapter
 
-from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
+from ..dataclass import Field, XedaBaseModel, model_validator
 from ..design import Design
 from ..units import Bounds, Frequency, QuantityError, Time, ratio
 from ..utils import first_key, first_value
@@ -48,31 +48,6 @@ class PhysicalClock(XedaBaseModel):
         None, description="Clock skew, a time with a unit, such as `0.05 ns`."
     )
     port: Optional[str] = Field(None, description="The design port of the clock.")
-
-    @field_validator("duty_cycle", mode="before", json_schema_input_type=float | str)
-    @classmethod
-    def duty_cycle_validator(cls, value):
-        """Validate the duty cycle as a unitless fraction.
-
-        Unlike the other clock timing fields, `duty_cycle` is a ratio and not a duration. A
-        string that carries a unit (`"0.5ns"`) would otherwise reach pydantic's float parser and
-        fail with an opaque message, and the percentage spelling would too. Numeric strings stay
-        accepted, because command-line overrides arrive as strings. Strings that carry a unit,
-        and other non-numeric values, are rejected before pydantic applies the
-        `0 < duty_cycle < 1` bounds.
-        """
-        if isinstance(value, bool):
-            raise ValueError("duty_cycle must be a unitless number between 0 and 1")
-        if isinstance(value, str):
-            try:
-                return float(value.strip())
-            except ValueError as exc:
-                raise ValueError(
-                    "duty_cycle must be a unitless number between 0 and 1; do not specify a unit"
-                ) from exc
-        # Leave every other numeric representation (for example Decimal or Fraction) to
-        # pydantic's ordinary float validation instead of inventing a narrower number protocol.
-        return value
 
     @property
     def fall(self) -> Time:

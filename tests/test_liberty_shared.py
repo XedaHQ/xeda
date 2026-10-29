@@ -32,6 +32,7 @@ from .openroad_utils import (
 from .test_openroad_flows import plan, refusal
 from .test_openroad_templates import header
 from .tiny_platform import tiny_store
+from .setting_texts import text_items
 
 FLOWS = ("yosys", "openroad_place", "openroad_cts", "openroad_grt", "openroad")
 
@@ -173,7 +174,7 @@ def test_a_library_of_the_command_line_replaces_one_of_the_design_file(tmp_path)
     text = design.read_text() + f"flows:\n  yosys:\n    liberty: [{json.dumps(str(a))}]\n"
     design.write_text(text)
     store = tiny_store(tmp_path)
-    given = dict(item.split("=", 1) for item in openroad_settings(store))
+    given = text_items(openroad_settings(store))
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     planned = runner.plan(
         "openroad", design, flow_settings={**given, "flows.openroad_place.liberty": [str(b)]}

@@ -595,7 +595,7 @@ def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, c
     first = _bsc(design, tmp_path, **settings)
     assert first.succeeded, run_report(first, capfd.readouterr())
     before = first.results["outputs"]["design"]
-    again = _bsc(design, tmp_path, verbose=1, **settings)
+    again = _bsc(design, tmp_path, verbosity="verbose", **settings)
     assert again.succeeded, run_report(again, capfd.readouterr())
     assert again.results["outputs"]["design"] == before
     handed_design(again, "design", design)

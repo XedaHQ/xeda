@@ -160,6 +160,7 @@ under the name that you can type as ``-s <name>=<value>``:
         {
           "name": "nthreads",
           "type": "integer",
+          "unit": null,
           "required": false,
           "default": null,
           "description": "Maximum number of threads.",
@@ -212,8 +213,12 @@ under the name that you can type as ``-s <name>=<value>``:
   ``anyOf: [..., {"type": "null"}]`` that pydantic emits. A quantity reads as its kind (``time``,
   ``frequency``, ``capacitance``, ``length``, ``voltage``, ``resistance`` or ``power``; see :ref:`quantities`).
   In ``json_schema``, a quantity is ``"type": "string"`` with the kind in the key
-  ``x-xeda-quantity``. The schema separates a number from text, and it cannot check the unit in the
-  text.
+  ``x-xeda-quantity``, and the unit that the field is written in in the key ``x-xeda-unit``. The
+  schema separates a number from text, and it cannot check the unit in the text.
+* ``unit`` is the unit that a quantity setting is written in (``s``), or ``null``. Xeda writes
+  the value and the default of the setting in this unit (see :ref:`quantities`). A setting that
+  holds quantities in one unit, such as a list of times, has that unit. A setting that holds a
+  group or a table of models has ``null``: the fields of the model have their own units.
 
 ``fields`` has one entry for each top-level setting. After the entry of a settings group, it has
 one entry for each field of the group, depth first in the order of declaration. A sub-group has an

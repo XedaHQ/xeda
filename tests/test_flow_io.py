@@ -218,7 +218,7 @@ def test_an_output_switched_on_by_a_setting_must_be_allowed_to_be_absent():
             """Refused."""
 
             class Outputs(Flow.Outputs):
-                netlist: Path = Out(SourceType.JsonNetlist, enabled_by="debug", description="x")
+                netlist: Path = Out(SourceType.JsonNetlist, enabled_by="docker", description="x")
 
             def run(self) -> None:
                 pass

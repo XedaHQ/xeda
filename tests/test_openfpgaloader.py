@@ -287,24 +287,29 @@ def test_verify_without_write_flash_is_rejected_wherever_it_is_given(tmp_path):
     )
 
 
-@pytest.mark.parametrize("verify", ["true", "True"])
-@pytest.mark.parametrize("write_flash", [None, False, "false", "False"])
-def test_verify_needs_flash_in_whatever_form_the_two_are_spelled(tmp_path, verify, write_flash):
-    """The rule is checked on the input as the settings read it, not on `True` alone: `true` as
-    text (how a command line writes a boolean) is true as well."""
-    given = {"fpga": {"part": ECP5}, "verify": verify}
+@pytest.mark.parametrize("write_flash", [None, False])
+def test_verify_needs_flash_whichever_way_flash_is_left_off(tmp_path, write_flash):
+    given = {"fpga": {"part": ECP5}, "verify": True}
     if write_flash is not None:
         given["write_flash"] = write_flash
     with pytest.raises(FlowSettingsError, match="verify.*write_flash"):
         Openfpgaloader.Settings.from_input(given, design_root=tmp_path)
     settings = Openfpgaloader.Settings.from_input({"fpga": {"part": ECP5}}, design_root=tmp_path)
     with pytest.raises(ValidationError, match="verify.*write_flash"):
-        settings.verify = verify
+        settings.verify = True
     assert settings.verify is False
     accepted = Openfpgaloader.Settings.from_input(
-        {"fpga": {"part": ECP5}, "verify": verify, "write_flash": "true"}, design_root=tmp_path
+        {"fpga": {"part": ECP5}, "verify": True, "write_flash": True}, design_root=tmp_path
     )
     assert accepted.verify is True and accepted.write_flash is True
+
+
+@pytest.mark.parametrize("text", ["true", "True", "false"])
+def test_a_boolean_given_as_text_is_refused_as_text(tmp_path, text):
+    with pytest.raises(FlowSettingsError, match="not a boolean.*verify"):
+        Openfpgaloader.Settings.from_input(
+            {"fpga": {"part": ECP5}, "verify": text, "write_flash": True}, design_root=tmp_path
+        )
 
 
 @pytest.mark.parametrize("spelling", [1, "1", "yes", "on"])
@@ -312,7 +317,7 @@ def test_verify_needs_flash_in_whatever_form_the_two_are_spelled(tmp_path, verif
 def test_a_verify_that_is_no_boolean_is_refused_as_such_not_read_as_on(
     tmp_path, spelling, write_flash
 ):
-    """A setting accepts only a boolean (or `true`/`false` as text): `yes`, `on` and numbers
+    """A setting accepts only a boolean: text and numbers
     are refused with the message about booleans, whether or not `write_flash` is given, and
     never taken for true by the verify-needs-flash rule."""
     given = {"fpga": {"part": ECP5}, "verify": spelling}
@@ -373,7 +378,7 @@ def test_flash_and_verify_are_openfpgaloader_s_own_flags(tmp_path, fake_loader):
         "cable": "ft2232",
         "write_flash": True,
         "verify": True,
-        "freq": 6000000,
+        "freq": "6 MHz",
         "extra_args": ["--scan-usb"],
     }
     flow = _program(tmp_path, _prebuilt(tmp_path), settings)
@@ -403,7 +408,7 @@ ALL_LOADER_SETTINGS = {
     "cable": "ft2232",
     "write_flash": True,
     "verify": True,
-    "freq": 6000000,
+    "freq": "6 MHz",
     "offset": 4096,
     "cable_index": 1,
     "usb_serial_num": "FT123456",
@@ -425,7 +430,9 @@ def test_every_setting_of_the_loader_is_an_option_the_loader_has(tmp_path, fake_
     own = set(Openfpgaloader.Settings.model_fields) - set(WithFpgaBoardSettings.model_fields)
     assert own == set(ALL_LOADER_SETTINGS), "a setting of the loader that this table lacks"
     flow = _program(
-        tmp_path, _prebuilt(tmp_path), {"fpga": {"part": ECP5}, "verbose": 1, **ALL_LOADER_SETTINGS}
+        tmp_path,
+        _prebuilt(tmp_path),
+        {"fpga": {"part": ECP5}, "verbosity": "verbose", **ALL_LOADER_SETTINGS},
     )
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")

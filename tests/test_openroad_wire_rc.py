@@ -1,9 +1,9 @@
 """The `wire_rc` setting takes the same text on the command line as in a design file.
 
-The platform model reads its numbers strictly, since a residue file is typed YAML. The setting
-that overrides them is an ordinary setting: `-s` gives text, and a number is read from the text
-as for every other number setting. A pair (a layer's resistance and capacitance) is a
-comma-separated list, as every list given as text.
+The platform model and the setting that overrides it read their numbers strictly. `-s` gives
+text, and the text is read as numbers before the model sees it, as for every other number
+setting. A pair (a layer's resistance and capacitance) is a comma-separated list, as every list
+given as text.
 """
 
 from pathlib import Path
@@ -13,7 +13,7 @@ import pytest
 from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad.base import OpenroadStage
-from xeda.utils import settings_to_dict
+from xeda.flow_runner.settings_layers import merge_layers
 
 from .openroad_utils import (
     openroad_design,
@@ -23,6 +23,7 @@ from .openroad_utils import (
     render_driver,
 )
 from .tiny_platform import tiny_store
+from .setting_texts import text_items
 
 TEXT = [
     "wire_rc.signal_layer=m3",
@@ -40,7 +41,9 @@ TYPED = {
 
 
 def from_text(*texts: str):
-    return OpenroadStage.Settings.from_input(settings_to_dict(list(texts)))
+    return OpenroadStage.Settings.from_input(
+        merge_layers(list(texts), settings_cls=OpenroadStage.Settings)
+    )
 
 
 def test_text_from_the_command_line_gives_the_settings_of_the_design_file():
@@ -51,10 +54,12 @@ def test_text_from_the_command_line_gives_the_settings_of_the_design_file():
 
 
 def test_the_numbers_are_read_like_those_of_any_other_number_setting():
-    """A number setting takes the text of a number; so does a leaf of `wire_rc`."""
+    """The command-line text of a number is a number for a setting and for a leaf of `wire_rc`."""
     from xeda.flow import Flow
 
-    assert Flow.Settings.from_input({"nthreads": "3"}).nthreads == 3
+    assert Flow.Settings.from_input(merge_layers(["nthreads=3"], settings_cls=Flow.Settings))
+    with pytest.raises(FlowSettingsError):
+        Flow.Settings.from_input({"nthreads": "3"})
     assert from_text("wire_rc.vias.v1=1e-3").wire_rc.vias == {"v1": 0.001}
     assert from_text("wire_rc.vias.v1=2").wire_rc.vias == {"v1": 2.0}
 
@@ -68,7 +73,7 @@ def test_the_numbers_are_read_like_those_of_any_other_number_setting():
         ("wire_rc.layers.m1=0.1,0.2,0.3", "wire_rc -> layers -> m1"),
         ("wire_rc.layers.m1=a,b", "wire_rc -> layers -> m1"),
         ("wire_rc.layers.m1=inf,1", "wire_rc -> layers -> m1"),
-        ("wire_rc.layers.m1=[0.1,0.2]", "wire_rc -> layers"),
+        ("wire_rc.layers.m1=[0.1,0.2]", "wire_rc -> layers -> m1"),
     ],
 )
 def test_text_that_is_no_number_or_no_pair_is_refused_naming_the_leaf(text, where):
@@ -85,7 +90,9 @@ def test_a_typed_value_of_the_wrong_type_is_still_refused():
 
 def test_the_header_is_the_same_for_the_text_and_the_file_form(tmp_path):
     with probe_flows() as probes:
-        text = probes.flow(tmp_path / "text", settings=settings_to_dict(TEXT))
+        text = probes.flow(
+            tmp_path / "text", settings=merge_layers(TEXT, settings_cls=OpenroadStage.Settings)
+        )
         typed = probes.flow(tmp_path / "typed", settings=TYPED)
         first = render_driver(text, "openroad_probe")
         second = render_driver(typed, "openroad_probe")
@@ -121,7 +128,7 @@ def test_a_chain_planned_with_text_is_the_chain_planned_with_the_file_form(tmp_p
             "openroad",
             openroad_design(tmp_path / "typed" / "design", rtl=True),
             flow_settings={
-                **dict(item.split("=", 1) for item in openroad_settings(store)),
+                **text_items(openroad_settings(store)),
                 **flat,
             },
         )

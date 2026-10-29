@@ -42,7 +42,9 @@ class _ChipdbTaker(_Taker):
     def prepare_inputs(self):
         assert self.inputs.made.read_text() == "made\n"
         assert _probe(self.inputs.made.parent) == "blocked"
-        self.chipdb = xilinx.prepare_chipdb(*self._layout(), self.run_directory)
+        self.chipdb = xilinx.prepare_chipdb(
+            *self._layout(), self.run_directory, environment=self.process_environment()
+        )
         self.implicit_inputs.append(self.chipdb)
 
     def run(self):
@@ -285,20 +287,27 @@ def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypa
         assert self.inputs.made.read_text() == "made\n"
         seen.append("prepare")
 
-    def expectation(flow, *args):
+    def expectation(flow, *args, **kwargs):
         if isinstance(flow, _Taker):
             seen.append("expectation")
-        return original(flow, *args)
+        return original(flow, *args, **kwargs)
 
     monkeypatch.setattr(_Taker, "prepare_inputs", prepare, raising=False)
     monkeypatch.setattr(default_runner, "expectation", expectation)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     first = runner.launch_flow(_Taker, design, {})
     before = tool_utils.run_outputs_state(first.run_path)
-    tool_utils.check_after_the_racy_window(monkeypatch)  # the check refreshes the trace
+    # A launch that reuses the node holds it shared and writes nothing: it finds the prepared
+    # inputs where they are, without preparing, and judges the node by them.
     again = runner.launch_flow(_Taker, design, {})
     assert again.reused
-    assert seen == ["prepare", "expectation", "prepare", "expectation"]
+    assert seen == ["prepare", "expectation", "expectation"]
+    # A refresh of the trace is a write: the launch holds the node exclusively for it, so the
+    # inputs are prepared again, still before the node is judged.
+    tool_utils.check_after_the_racy_window(monkeypatch)  # the check refreshes the trace
+    refreshed = runner.launch_flow(_Taker, design, {})
+    assert refreshed.reused
+    assert seen[3:] == ["expectation", "prepare", "expectation"]
     assert tool_utils.run_outputs_state(first.run_path) == before
 
 
@@ -312,8 +321,10 @@ def test_preparation_failure_invalidates_success_and_releases_lease(tmp_path, mo
         raise FlowFatalError("broken preparation")
 
     monkeypatch.setattr(_Taker, "prepare_inputs", fail, raising=False)
+    # A node that is only reused is not prepared. A run that must prepare holds it exclusively.
+    rebuilding = DefaultRunner(tmp_path / "run", display_results=False, rebuild_all=True)
     with pytest.raises(FlowFatalError, match="broken preparation"):
-        runner.launch_flow(_Taker, design, {})
+        rebuilding.launch_flow(_Taker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
     assert recorded["error"]["message"] == "broken preparation"
@@ -351,10 +362,10 @@ def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, m
         assert _probe(self.inputs.made.parent) == "blocked"
         events.append("hand-over and prepare")
 
-    def expectation(flow, *args):
+    def expectation(flow, *args, **kwargs):
         if isinstance(flow, _Taker):
             events.append("expectation")
-        return original_expectation(flow, *args)
+        return original_expectation(flow, *args, **kwargs)
 
     def snapshot(expected, *args):
         if expected.flow == _Taker.name:
@@ -495,7 +506,7 @@ def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypa
     monkeypatch.setattr(module, "select_xilinx", lambda *a, **k: object())
     monkeypatch.setattr(module, "chipdb_identity", lambda *a: formed.append(1) or "identity")
     monkeypatch.setattr(
-        module, "prepare_chipdb", lambda layout, sel, rd, identity=None: tmp_path / "a.bin"
+        module, "prepare_chipdb", lambda layout, sel, rd, identity=None, **kw: tmp_path / "a.bin"
     )
     monkeypatch.setattr(
         module,

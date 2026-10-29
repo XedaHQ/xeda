@@ -1,5 +1,5 @@
 yosys -import
-{% if settings.debug or settings.verbose > 1 -%}
+{% if settings.verbosity == "debug" -%}
 yosys echo on
 {% endif -%}
 

@@ -29,7 +29,7 @@ def bsv_design(work, body):
 def launch_bsc(work, body, **settings):
     design = bsv_design(work / "design", body)
     return DefaultRunner(work / "runs", display_results=False).run_flow(
-        BscSim, design, {"timeout": 10, **settings}
+        BscSim, design, {"timeout": "10 s", **settings}
     )
 
 
@@ -79,7 +79,7 @@ def test_bluesim_severity_threshold(tmp_path, severity, task):
 
 def test_bluesim_no_finish_times_out(tmp_path):
     require_bluesim_evidence()
-    flow = launch_bsc(tmp_path, "", simulator="bluesim", timeout=0.2)
+    flow = launch_bsc(tmp_path, "", simulator="bluesim", timeout="0.2 s")
     assert flow is not None and not flow.succeeded
     assert flow.results.error.code == "timeout"
 
@@ -162,11 +162,11 @@ def test_bluesim_changed_configuration_rebuilds_objects(tmp_path):
     )
     runner = DefaultRunner(tmp_path / "runs", display_results=False, rebuild_all=True)
     first = runner.run_flow(
-        BscSim, design, {"timeout": 10, "check_assert": False, "cleanup_bobjs": False}
+        BscSim, design, {"timeout": "10 s", "check_assert": False, "cleanup_bobjs": False}
     )
     assert first is not None and first.succeeded
     second = runner.run_flow(
-        BscSim, design, {"timeout": 10, "check_assert": True, "cleanup_bobjs": False}
+        BscSim, design, {"timeout": "10 s", "check_assert": True, "cleanup_bobjs": False}
     )
     assert second is not None and not second.succeeded
 
@@ -313,7 +313,7 @@ def test_verilator_iverilog_severity_threshold(tmp_path, backend, severity, task
 @pytest.mark.parametrize("backend", ["verilator", "iverilog"])
 def test_verilator_iverilog_no_finish_times_out(tmp_path, backend):
     require_bsc_backend(backend)
-    flow = launch_bsc(tmp_path, "", simulator=backend, timeout=0.2)
+    flow = launch_bsc(tmp_path, "", simulator=backend, timeout="0.2 s")
     assert flow is not None and not flow.succeeded
     assert flow.results.error.code == "timeout"
 

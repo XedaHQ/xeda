@@ -76,15 +76,15 @@ def test_nested_setting_keys_complete_only_direct_children(shell: str) -> None:
 def test_unqualified_settings_target_the_final_chain_flow(shell: str) -> None:
     assert _complete(
         shell,
-        ["run", "yosys_fpga+nextpnr", "design.yaml", "--settings", "debug=false"],
+        ["run", "yosys_fpga+nextpnr", "design.yaml", "--settings", "docker=false"],
         "nthr",
     ) == ["nthreads="]
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_finite_setting_values_are_completed(shell: str) -> None:
-    candidate = "true" if shell == "bash" else "debug=true"
-    assert _complete(shell, ["run", "nextpnr", "design.yaml", "-s"], "debug=tr") == [candidate]
+    candidate = "true" if shell == "bash" else "docker=true"
+    assert _complete(shell, ["run", "nextpnr", "design.yaml", "-s"], "docker=tr") == [candidate]
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -98,7 +98,7 @@ def test_output_qualifier_restricts_the_next_chain_flow(shell: str) -> None:
         _complete(
             shell,
             ["run", "yosys_fpga.netlist+vivado_impl", "design.yaml", "-s"],
-            "debug",
+            "docker",
         )
         == []
     )
@@ -113,7 +113,7 @@ def test_ordinary_option_value_keeps_normal_completion(shell: str, tmp_path) -> 
         "yosys_fpga",
         "design.yaml",
         "-s",
-        "debug=true",
+        "docker=true",
         "--outputs-to",
     ]
     actual = _complete(
@@ -140,8 +140,8 @@ def test_scoped_setting_candidates_keep_the_typed_flow_prefix(shell: str) -> Non
     assert _complete(
         shell,
         ["run", "yosys_fpga+nextpnr", "design.yaml", "-s"],
-        "flows.nextpnr.deb",
-    ) == ["flows.nextpnr.debug="]
+        "flows.nextpnr.randomi",
+    ) == ["flows.nextpnr.randomize_seed="]
 
 
 def test_opaque_setting_before_omitted_design_is_counted_as_a_setting() -> None:
@@ -163,12 +163,12 @@ def test_attached_setting_before_omitted_design_is_counted_as_a_setting() -> Non
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_active_option_terminator_disables_setting_completion(shell: str) -> None:
-    args = ["run", "nextpnr", "DESIGN", "-s", "debug=tr"]
+    args = ["run", "nextpnr", "DESIGN", "-s", "docker=tr"]
     state = _parse_request_words(cli, args, "--")
 
     assert state is not None
     assert state.cursor_after_terminator
-    assert not {"true", "debug=true"}.intersection(_complete(shell, args, "--"))
+    assert not {"true", "docker=true"}.intersection(_complete(shell, args, "--"))
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -223,8 +223,8 @@ def test_scoped_finite_value_keeps_setting_key(shell: str) -> None:
     assert _complete(
         shell,
         ["run", "yosys_fpga+nextpnr", "DESIGN", "-s"],
-        "flows.nextpnr.debug=tr",
-    ) == ["flows.nextpnr.debug=true"]
+        "flows.nextpnr.docker=tr",
+    ) == ["flows.nextpnr.docker=true"]
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -233,12 +233,12 @@ def test_empty_attached_option_value_keeps_path_completion(shell: str, tmp_path)
     output_dir.mkdir()
     actual = _complete(
         shell,
-        ["run", "yosys_fpga", "DESIGN", "-s", "debug=true"],
+        ["run", "yosys_fpga", "DESIGN", "-s", "docker=true"],
         "--outputs-to=",
     )
     state = _parse_request_words(
         cli,
-        ["run", "yosys_fpga", "DESIGN", "-s", "debug=true"],
+        ["run", "yosys_fpga", "DESIGN", "-s", "docker=true"],
         "--outputs-to=",
     )
     assert state is not None and state.cursor_is_option_value
@@ -270,8 +270,8 @@ def test_attached_settings_option_completes_hierarchical_keys(shell: str) -> Non
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 def test_first_setting_value_completes_when_design_is_omitted(shell: str) -> None:
-    candidate = "true" if shell == "bash" else "debug=true"
-    assert _complete(shell, ["run", "nextpnr", "-s"], "debug=tr") == [candidate]
+    candidate = "true" if shell == "bash" else "docker=true"
+    assert _complete(shell, ["run", "nextpnr", "-s"], "docker=tr") == [candidate]
 
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
@@ -304,7 +304,7 @@ def test_setting_value_completion_uses_finite_enum_values(shell: str) -> None:
 def test_bash_raw_line_recovers_a_value_split_at_equals(tmp_path) -> None:
     executable = Path(sysconfig.get_path("scripts")) / "xeda"
     assert executable.is_file()
-    raw_line = "xeda run nextpnr -s debug=tr"
+    raw_line = "xeda run nextpnr -s docker=tr"
     env = {
         **os.environ,
         "_XEDA_COMPLETE": "bash_complete",
@@ -369,8 +369,8 @@ print(json.dumps([name for name in heavy if name in sys.modules]))
         "_XEDA_COMPLETE": "bash_complete",
         "COMP_WORDS": "xeda run nextpnr -s debug tr",
         "COMP_CWORD": "5",
-        "COMP_LINE": "xeda run nextpnr -s debug=tr",
-        "COMP_POINT": str(len("xeda run nextpnr -s debug=tr")),
+        "COMP_LINE": "xeda run nextpnr -s docker=tr",
+        "COMP_POINT": str(len("xeda run nextpnr -s docker=tr")),
         "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
     }
     result = subprocess.run(
@@ -616,8 +616,8 @@ def _interactive_shell(
     + [
         (
             "bash",
-            "xeda run nextpnr DESIGN -s debug=tr",
-            "xeda run nextpnr DESIGN -s debug=trueZZ",
+            "xeda run nextpnr DESIGN -s docker=tr",
+            "xeda run nextpnr DESIGN -s docker=trueZZ",
         )
     ]
     + [
@@ -631,8 +631,8 @@ def _interactive_shell(
     + [
         (
             "bash",
-            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.debug=tr",
-            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.debug=trueZZ",
+            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.docker=tr",
+            "xeda run yosys_fpga+nextpnr DESIGN -s flows.nextpnr.docker=trueZZ",
         )
     ],
 )

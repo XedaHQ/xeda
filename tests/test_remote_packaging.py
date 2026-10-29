@@ -461,7 +461,7 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
         expected={"A": "1", "A.B": "2"},
     )
     shipped = _shipped(package)["flows"]["vivado_synth"]["set_synth_properties"]
-    assert shipped == {"A": 1, "A\\.B": "2"}, "the document writes the names with escaped dots"
+    assert shipped == {"A": 1, "A\\.B": 2}, "the document writes the names with escaped dots"
 
 
 def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):

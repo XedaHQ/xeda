@@ -60,23 +60,120 @@ def test_a_value_of_another_type_is_a_validation_error_naming_the_setting(build,
 
 
 @pytest.mark.parametrize("given", ["lots", "", "2.5", 2.5, ["2"], {"level": 2}], ids=repr)
-def test_verbose_takes_a_whole_number_and_refuses_everything_else(given):
-    """`verbose: lots` used to become 0, and `verbose: 2.5` became 2, without a word."""
-    with pytest.raises(FlowSettingsError, match="verbose"):
-        Flow.Settings.from_input({"verbose": given})
+def test_a_whole_number_setting_refuses_everything_else(given):
+    """A whole number setting refuses text and a fraction: `nthreads: 2.5` is no count of threads,
+    and nothing becomes 0 or 2 without a word."""
+    with pytest.raises(FlowSettingsError, match="nthreads"):
+        Flow.Settings.from_input({"nthreads": given})
     with pytest.raises(ValidationError) as refused:
-        Flow.Settings(verbose=given)
-    assert [error["loc"] for error in refused.value.errors()] == [("verbose",)]
+        Flow.Settings(nthreads=given)
+    assert [error["loc"] for error in refused.value.errors()] == [("nthreads",)]
 
-    settings = Flow.Settings(verbose=2)
-    with pytest.raises(ValidationError, match="verbose"):
-        settings.verbose = given
-    assert settings.verbose == 2, "a refused assignment changes nothing"
+    settings = Flow.Settings(nthreads=2)
+    with pytest.raises(ValidationError, match="nthreads"):
+        settings.nthreads = given
+    assert settings.nthreads == 2, "a refused assignment changes nothing"
 
 
-@pytest.mark.parametrize("given", [2, "2"], ids=repr)
-def test_verbose_takes_a_number_as_it_is_written_in_a_file_or_on_the_command_line(given):
-    assert Flow.Settings.from_input({"verbose": given}).verbose == 2
+def test_a_whole_number_setting_takes_a_number_and_not_its_text():
+    assert Flow.Settings.from_input({"nthreads": 2}).nthreads == 2
+    with pytest.raises(FlowSettingsError, match="nthreads"):
+        Flow.Settings.from_input({"nthreads": "2"})
+
+
+def _codes(build) -> list[str]:
+    """The codes of the errors that `build` raises as a refusal of settings or of a model."""
+    from xeda.flow_runner.error_codes import settings_codes
+
+    with pytest.raises((FlowSettingsError, ValidationError)) as error:
+        build()
+    if isinstance(error.value, FlowSettingsError):
+        return settings_codes(error.value)
+    return [
+        "boolean_text" if e["type"] == "boolean_text" else "invalid_value"
+        for e in error.value.errors()
+    ]
+
+
+@pytest.mark.parametrize("value", ["1", 1.0, True])
+def test_an_int_setting_takes_only_an_int(value):
+    assert _codes(lambda: _flow("nextpnr").Settings(seed=value)) == ["invalid_value"]
+    assert _flow("nextpnr").Settings(seed=1).seed == 1
+
+
+@pytest.mark.parametrize(("value", "ok"), [(3, True), (3.5, True), (True, False), ("3", False)])
+def test_a_float_setting_takes_an_int_or_a_float(value, ok):
+    from xeda.flow.synth import PhysicalClock
+
+    if ok:
+        assert PhysicalClock(period="1 ns", duty_cycle=value if value < 1 else 0.5)
+    assert ok or _codes(lambda: PhysicalClock(period="1 ns", duty_cycle=value)) == ["invalid_value"]
+
+
+@pytest.mark.parametrize(
+    ("value", "ok"),
+    [("random", True), (5, True), ("5", False), (True, False), (5.0, False)],
+    ids=repr,
+)
+def test_a_union_branch_is_strict_too(value, ok):
+    settings = _flow("verilator").Settings
+    if ok:
+        assert settings(random_seed=value).random_seed == value
+    else:
+        assert _codes(lambda: settings(random_seed=value)) == ["invalid_value"]
+
+
+@pytest.mark.parametrize("value", [[10, 20], ["10"], [True]], ids=repr)
+def test_a_list_item_is_strict_too(value):
+    from .settings_samples import minimal_settings
+
+    cls = _flow("openroad_place")
+    base = minimal_settings(cls)
+    key = {"global_placement": {"timing_driven": {"reweight_overflow_percent": value}}}
+    if value == [10, 20]:
+        assert cls.Settings(**base, **key)
+    else:
+        assert _codes(lambda: cls.Settings(**base, **key)) == ["invalid_value"]
+
+
+def test_the_items_of_comma_separated_text_are_text():
+    from .settings_samples import minimal_settings
+
+    cls = _flow("openroad_place")
+    key = {"global_placement": {"timing_driven": {"reweight_overflow_percent": "10,20"}}}
+    assert _codes(lambda: cls.Settings(**minimal_settings(cls), **key)) == ["invalid_value"]
+
+
+def test_a_nested_group_leaf_is_strict_too():
+    from .settings_samples import minimal_settings
+
+    cls = _flow("openroad_grt")
+    base = minimal_settings(cls)
+    assert cls.Settings(**base, antenna={"iterations": 2}).antenna.iterations == 2
+    assert _codes(lambda: cls.Settings(**base, antenna={"iterations": "2"})) == ["invalid_value"]
+
+
+def test_an_assignment_is_strict_too():
+    settings = _flow("nextpnr").Settings(seed=1)
+    with pytest.raises(ValidationError, match="seed"):
+        settings.seed = "2"
+    assert settings.seed == 1
+
+
+def test_a_python_string_for_an_int_setting_stays_refused():
+    assert _codes(lambda: _flow("nextpnr").Settings.from_input({"seed": "4"})) == ["invalid_value"]
+
+
+@pytest.mark.parametrize("value", ["true", "false", "yes", 1], ids=repr)
+def test_a_boolean_setting_takes_only_a_boolean(value):
+    assert _codes(lambda: _flow("nextpnr").Settings(timing_allow_fail=value)) == ["boolean_text"]
+
+
+def test_code_keeps_its_two_forms():
+    from xeda.flow.fpga import FPGA
+
+    assert FPGA(part="xc7a100t", speed="1").speed == "1"
+    assert FPGA(part="xc7a100t", speed=1).speed == "1"
 
 
 def test_a_code_may_be_written_as_a_number():
@@ -101,14 +198,6 @@ def test_a_code_advertises_every_accepted_input_type():
         if isinstance(branch, dict) and branch.get("type") != "null"
     }
     assert types == {"string", "integer", "number"}
-
-
-def test_a_union_keeps_the_type_it_was_given():
-    """`stop_time` takes a number or text with a unit; neither is turned into the other."""
-    from xeda.flow.sim import SimFlow
-
-    assert SimFlow.Settings(stop_time=5).stop_time == 5
-    assert SimFlow.Settings(stop_time="5us").stop_time == "5us"
 
 
 def test_vivado_run_properties_take_text_numbers_and_booleans():
@@ -567,6 +656,12 @@ def _values_of_another_type(kinds: "set[str]", literals: "set[object]") -> list:
         wrong.append(2.5)
     if not kinds & {"int", "float", "bool", "literal"}:
         wrong += [True, False]
+    if not text:
+        wrong += ["1", "true"]  # a number or a switch is never taken from its text
+    if "int" in kinds and "float" not in kinds:
+        wrong.append(1.0)
+    if kinds & {"int", "float"} and "bool" not in kinds and "literal" not in kinds:
+        wrong += [True, False]  # a switch is no number
     if not kinds & {"int", "float"}:
         # A switch takes `true` and `false` only, never the numbers 0 and 1.
         wrong += [number for number in (0, 1, 2) if number not in literals]
@@ -635,7 +730,7 @@ def test_the_sweep_judges_fields_of_every_plain_kind():
     ]
     kinds = set().union(*(found[0] for _, _, found in judged if found))
     assert {"int", "float", "bool", "str", "path", "literal", "list"} <= kinds
-    assert ("Settings", "verbose", ({"int"}, set())) in [
+    assert ("Settings", "nthreads", ({"int"}, set())) in [
         (model.rpartition(".")[2], name, found) for model, name, found in judged
     ]
     assert sum(found is not None for _, _, found in judged) > 1200
@@ -643,7 +738,7 @@ def test_the_sweep_judges_fields_of_every_plain_kind():
 
 @pytest.mark.parametrize("model", SWEEP_MODELS, ids=[m.__qualname__ for m in SWEEP_MODELS])
 def test_a_scalar_setting_refuses_a_value_of_another_type_naming_the_setting(model):
-    """The class of `verbose: lots` becoming 0: a validator that converts what it cannot read
+    """The class of `nthreads: lots` becoming 0: a validator that converts what it cannot read
     into a default. Every field of a plain type (a number, a switch, text, a path) is given a list,
     a table, and the text or number that its type does not take. Each must be a validation error
     that names the field, on construction and on assignment, and an assignment that fails
@@ -662,7 +757,12 @@ def test_a_scalar_setting_refuses_a_value_of_another_type_naming_the_setting(mod
         if kinds is None:
             continue
         wrong = _values_of_another_type(*kinds)
-        wrong = [bad for bad in wrong if type(bad) not in taken_types]
+        wrong = [
+            bad
+            for bad in wrong
+            if type(bad) not in taken_types
+            and not any(bad == one and type(bad) is type(one) for one in kinds[1])
+        ]
         if waveform_format_of(model, name):
             wrong = [bad for bad in wrong if not isinstance(bad, bool)]
         for bad in wrong:
@@ -749,3 +849,12 @@ def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():
 def test_a_root_that_is_no_path_is_refused_not_replaced_by_the_working_directory(given):
     with pytest.raises(DesignValidationError, match="root"):
         Design(name="d", rtl={"sources": [], "top": "t"}, root=given)
+
+
+@pytest.mark.parametrize(
+    "value, ok", [((0.4, 0.2), True), ((1, 2), True), (("0.4", 0.2), False), ((0.4, True), False)]
+)
+def test_each_item_of_a_tuple_of_fixed_length_is_strict(value, ok):
+    from xeda.dataclass import scalar_problems
+
+    assert (not scalar_problems(tuple[float, float], value)) is ok

@@ -138,6 +138,7 @@ class Vivado(Flow, metaclass=ABCMeta):
     """Base class of the AMD Vivado synthesis and simulation flows."""
 
     executables = ("vivado",)
+    locator_variables = ("XILINX_VIVADO", "XILINXD_LICENSE_FILE", "LM_LICENSE_FILE")
 
     artifacts_description = describe_artifacts("log")
 
@@ -159,9 +160,9 @@ class Vivado(Flow, metaclass=ABCMeta):
             "-mode",
             "tcl" if self.settings.tcl_shell else "batch",
         ]
-        if not self.settings.debug:
+        if self.settings.verbosity != "debug":
             default_args.append("-notrace")
-        if self.settings.verbose:
+        if self.settings.verbosity == "verbose":
             default_args.append("-verbose")
         if self.settings.no_log:
             default_args.append("-nolog")
@@ -169,8 +170,6 @@ class Vivado(Flow, metaclass=ABCMeta):
             default_args=default_args,
             design_root_=self.design_root,
         )  # pyright: ignore
-        if self.settings.redirect_stdout:
-            self.vivado.redirect_stdout = self.run_directory.writable(f"{self.name}_stdout.log")
         self.add_template_filter(
             "vivado_generics", vivado_generics(not isinstance(self, SynthFlow))
         )

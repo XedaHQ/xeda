@@ -74,15 +74,15 @@ def test_the_launch_runs_exactly_its_plan(tmp_path, design):
     """The flows launched are the plan's nodes, with the plan's identities."""
     runner = _runner(tmp_path)
     sections = {"__maker": {"text": "planned\n"}}
-    plan = runner.resolve(_Taker, design, {"verbose": 2}, sections)
+    plan = runner.resolve(_Taker, design, {"verbosity": "debug"}, sections)
     taker = runner.launch_flow(
-        _Taker, design, {"verbose": 2}, all_flows_settings=sections, plan=plan
+        _Taker, design, {"verbosity": "debug"}, all_flows_settings=sections, plan=plan
     )
     assert taker.results["read"] == "planned\n"
     launched = [(flow.name, flow.flow_hash, str(flow.run_path)) for flow in runner.launched]
     planned = [(node.name, node.flowrun_hash, str(node.run_path)) for node in plan.nodes]
     assert launched == planned
-    assert plan.node("__maker").settings.verbose == 2  # carried from its consumer
+    assert plan.node("__maker").settings.verbosity == "debug"  # carried from its consumer
 
 
 def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_path, design):
@@ -184,7 +184,7 @@ def test_an_internal_plan_cannot_be_replayed_for_another_request(
     elif changed == "sections":
         sections = {_Maker.name: {"text": "different\n"}}
     else:
-        settings = {"verbose": 2}
+        settings = {"verbosity": "debug"}
     with pytest.raises(FlowFatalError, match="plan.*request|plan.*context"):
         runner.launch_flow(_Taker, design, settings, all_flows_settings=sections, plan=plan)
     assert not (tmp_path / "xeda_run").exists()

@@ -25,7 +25,7 @@ from .error_codes import error_info
 from .launch_run import refuse_inputs_inside
 from .outputs import handed_design, handed_entries, handed_over
 from .resolver import Plan, PlanNode
-from .run_lock import CompletedRun, run_dir_read_lock
+from .run_lock import CompletedRun
 from .trace import BoundProducer, DeclaredInputRecord, OutputEntry
 from .trace_inputs import declared_input_files
 
@@ -86,25 +86,20 @@ def recorded_error(flow: Flow) -> ErrorInfo:
 def producer_read_lease(
     producer: Flow, run_root: Path, completed_runs: Mapping[Path, tuple[Flow, CompletedRun]]
 ) -> Iterator[Flow]:
-    """Take a shared read lock on the run directory of a producer, and verify the completed run.
+    """Verify the completed run of a producer under the lock the launch holds on it.
 
-    A consumer may read the files of the producer only after that."""
-    with ExitStack() as lease:
-        try:
-            lease.enter_context(run_dir_read_lock(producer.run_path, run_root))
-        except (OSError, RunDirectoryError) as error:
-            raise FlowDependencyFailure(
-                f"Cannot acquire shared read lock for producer {producer.name} "
-                f"at {producer.run_path}: {error}"
-            ) from error
-        try:
-            _completed, token = completed_runs[producer.run_path.resolve()]
-            token.verify()
-        except (KeyError, OSError, ValueError, RunDirectoryError) as error:
-            raise FlowDependencyFailure(
-                f"{producer.name} changed before acquiring its read lease: {error}"
-            ) from error
-        yield producer
+    The launch locked the run directory of the producer with the rest of its graph, exclusive
+    if it ran and shared if it was reused, so no other launch changes it. This takes no lock. It
+    checks that nothing in this launch changed the files since the producer completed. A consumer
+    may read the files of the producer only after that."""
+    try:
+        _completed, token = completed_runs[producer.run_path.resolve()]
+        token.verify()
+    except (KeyError, OSError, ValueError, RunDirectoryError) as error:
+        raise FlowDependencyFailure(
+            f"{producer.name} changed before acquiring its read lease: {error}"
+        ) from error
+    yield producer
 
 
 @dataclass(frozen=True)

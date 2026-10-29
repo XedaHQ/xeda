@@ -69,10 +69,11 @@ def test_the_environment_sets_no_option(sqrt, monkeypatch):
     """No automatic `XEDA_<OPTION>` variables: a leftover `XEDA_CLEAN=1` would empty every run
     directory on every run, with nothing on the command line to turn it off."""
     settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
-    _run(str(sqrt), *settings, "--json")
+    # the variables are in both launches: a trace holds the digest of the environment
     for name in ("CLEAN", "REBUILD_ALL", "HASHED_RUN_DIRS", "POST_CLEANUP_PURGE"):
         monkeypatch.setenv(f"XEDA_{name}", "1")
         monkeypatch.setenv(f"XEDA_RUN_{name}", "1")  # the prefix a subcommand would derive
+    _run(str(sqrt), *settings, "--json")
     result, document = _run(str(sqrt), *settings, "--json")
     assert result.exit_code == 0
     assert [node["disposition"] for node in document["nodes"]] == ["reused"]

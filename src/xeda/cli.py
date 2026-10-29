@@ -298,7 +298,7 @@ def list_flows(output_format: str, json_flag: bool):
     "--common/--no-common",
     default=True,
     show_default=True,
-    help="Include the settings accepted by every flow (nthreads, dockerized, lib_paths, ...).",
+    help="Include the settings accepted by every flow (nthreads, docker, lib_paths, ...).",
 )
 @click.option(
     "--tier",

@@ -8,9 +8,9 @@ import re
 from abc import ABCMeta
 from importlib import metadata
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Literal, Mapping, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
-from ..cocotb import Cocotb, CocotbSettings
+from ..cocotb import Cocotb, CocotbSettings, cocotb_variable_problem
 from ..dataclass import (
     COMPRESSED_FORMATS,
     Field,
@@ -22,7 +22,7 @@ from ..dataclass import (
 )
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..records import REPORTED_FAILURE, ErrorInfo
-from ..units import convert_unit
+from ..units import Bounds, Time, Unit
 from ..utils import SDF
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -81,6 +81,18 @@ def time_in_fs(time: int, unit: str) -> int:
     if not match:
         raise ValueError(f"not a time unit: {unit!r}")
     return time * int(match.group(1)) * _FS_PER_UNIT[match.group(2)]
+
+
+def whole_femtoseconds(time: Time) -> int:
+    """Return a simulated time as a whole number of femtoseconds.
+
+    A simulator takes simulated time as an integer number of femtoseconds. Raise `ValueError`
+    for a time that is not one, since a value that a tool cannot take exactly is refused, never
+    rounded."""
+    femtoseconds = time.to("fs")
+    if not femtoseconds.is_integer():
+        raise ValueError(f"{time} is not a whole number of femtoseconds")
+    return int(femtoseconds)
 
 
 def readable_time(time: int, unit: str | None) -> str:
@@ -220,6 +232,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     flow.results["sim.errors"] = sum(e.kind in ("error", "stop", "fatal") for e in evidence.events)
     flow.results["sim.warnings"] = sum(e.kind == "warning" for e in evidence.events)
     stop_time = getattr(flow.settings, "stop_time", None)
+    requested_text = None if stop_time is None else str(stop_time)
     stop_reached = False
     if (
         evidence.ended_by == "stop_time"
@@ -227,9 +240,9 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         and evidence.time is not None
         and evidence.time_unit is not None
     ):
-        # A bare number is nanoseconds (`SimFlow.Settings.stop_time`); within one tick of the
-        # record's precision, since the driver stops at the last whole tick.
-        requested = int(round(convert_unit(stop_time, "fs", from_unit="ns")))
+        # Within one tick of the record's precision, since the driver stops at the last whole
+        # tick.
+        requested = whole_femtoseconds(stop_time)
         tick = time_in_fs(1, evidence.time_unit)
         stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
     max_cycles = getattr(flow.settings, "max_cycles", None)
@@ -252,7 +265,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         "exit": evidence.exit_code == 0,
     }.get(evidence.ended_by, False)
     if not ok:
-        asked = f" before the requested stop_time {stop_time}" if stop_time is not None else ""
+        asked = f" before the requested stop_time {requested_text}" if stop_time is not None else ""
         stopped = _first_event(evidence, ("stop", "error", "fatal"))
         at = (
             f" (at {readable_time(evidence.time, evidence.time_unit)})"
@@ -270,12 +283,12 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
                 fix = "set `stop_time` to that time, or remove the stop from the simulator options"
             elif evidence.time is None or evidence.time_unit is None:
                 cause = (
-                    f"the stop at the requested stop_time {stop_time} could not be confirmed, "
+                    f"the stop at the requested stop_time {requested_text} could not be confirmed, "
                     "because the end record gave no time or no time unit"
                 )
                 fix = f"{LOG_ADVICE} to see when it stopped"
             else:
-                cause = f"it stopped at a time other than the requested stop_time {stop_time}"
+                cause = f"it stopped at a time other than the requested stop_time {requested_text}"
                 fix = (
                     "set `stop_time` to a time at which the design has activity, or remove it and "
                     + FINISH_ADVICE
@@ -343,18 +356,21 @@ class SimFlow(Flow, metaclass=ABCMeta):
     #: simulator.
     unsupported_waveforms: ClassVar[Mapping[str, str]] = {}
 
+    #: The settings that hold a simulated time. A simulator takes such a time as a whole number
+    #: of femtoseconds, so `check_settings_supported` refuses any other value.
+    simulated_time_fields: ClassVar[tuple[str, ...]] = ("stop_time",)
+
     class Settings(Flow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "waveform": "`vcd`",
         }
-        timeout: float | None = Field(
+        timeout: Optional[Annotated[Time, Unit("s"), Bounds(gt="0 s")]] = Field(
             None,
-            gt=0,
             description="Stop and fail each subprocess invocation that contains simulation after "
-            "this many seconds of wall-clock time. An invocation can combine analysis, "
-            "elaboration and simulation. The limit applies to each invocation, not to their "
-            "total. None sets no limit.",
+            "this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An "
+            "invocation can combine analysis, elaboration and simulation. The limit applies to "
+            "each invocation, not to their total. None sets no limit.",
         )
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
             "error",
@@ -371,15 +387,19 @@ class SimFlow(Flow, metaclass=ABCMeta):
             "that cannot write VCD refuses it, and names its own waveform settings.",
             json_schema_extra=waveform("vcd"),
         )
-        stop_time: Union[str, int, float, None] = Field(
+        stop_time: Optional[Annotated[Time, Unit("ns"), Bounds(ge="0 ns")]] = Field(
             None,
-            description="Stop the simulation at this simulated time. Accepts a number of "
-            'nanoseconds or a string with a unit, e.g. "100us".',
+            description="Stop the simulation at this simulated time, a time with a unit, such "
+            "as `100 us`.",
         )
         cocotb: CocotbSettings = Field(
             CocotbSettings(),  # type: ignore
             description="Settings for the cocotb testbench, used when `tb.cocotb` is set.",
         )
+
+        def timeout_in_seconds(self) -> float | None:
+            """Return `timeout` as the number of seconds that a tool process takes, or None."""
+            return None if self.timeout is None else self.timeout.to("s")
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
@@ -405,7 +425,9 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`).
+        """Refuse a simulated time that is not a whole number of femtoseconds
+        (`simulated_time_fields`) and a waveform setting that this simulator cannot honor
+        (`unsupported_waveforms`).
 
         Also refuse a name that selects another format. The setting that gets a name decides the
         format, never the name. A name that ends in an extension of another format
@@ -414,6 +436,17 @@ class SimFlow(Flow, metaclass=ABCMeta):
         written under the conventional name of `wave`, in the wrong format, and `true` would
         then be the same run as a location of another format."""
         super().check_settings_supported(settings)
+        for name in cls.simulated_time_fields:
+            value = getattr(settings, name)
+            if value is None:
+                continue
+            try:
+                whole_femtoseconds(value)
+            except ValueError:
+                raise FlowSettingsException(
+                    f"`{name}` is {value}, which is not a whole number of femtoseconds: "
+                    "a simulator takes a simulated time as an integer number of femtoseconds"
+                ) from None
         formats = waveform_fields(type(settings))
         usable = {
             extension: name
@@ -477,6 +510,11 @@ class SimFlow(Flow, metaclass=ABCMeta):
                         f"`tb.python_packages` lists `{package}`, but it is not installed. "
                         "Install it in the Python environment that runs Xeda."
                     ) from None
+        if design.tb.cocotb is not None and cls.cocotb_sim_name and settings is not None:
+            for name in settings.env:
+                problem = cocotb_variable_problem(name)
+                if problem is not None:
+                    raise FlowSettingsException(f"{cls.name}: {problem}", code="invalid_value")
         if design.tb.cocotb is not None and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
             from importlib import import_module
@@ -543,7 +581,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
                     sim_name=self.cocotb_sim_name or "",
                     # pydantic-mypy does not see `Tool`'s fields through the
                     # `Cocotb(CocotbSettings, Tool)` diamond; `dockerized` is a real field.
-                    dockerized=self.settings.dockerized,  # type: ignore[call-arg]
+                    dockerized=self.settings.docker,  # type: ignore[call-arg]
                 )
                 if self.uses_cocotb
                 else None

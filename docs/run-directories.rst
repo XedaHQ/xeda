@@ -140,9 +140,8 @@ for example ``logs/vivado.log``. A program that the flow starts again adds to it
 of the flow makes the logs anew. Xeda writes these logs whatever you do with the output. There are
 three exceptions:
 
-* When the flow sends the output of a program to a file of its own (for example the
-  ``redirect_stdout`` setting of the Vivado flows), that file holds the output, and
-  ``logs/<program>.log`` holds the error output only.
+* When the flow sends the output of a program to a file of its own, that file holds the output,
+  and ``logs/<program>.log`` holds the error output only.
 * A program whose output the flow reads as a value (a version query) has no log. Its output is not
   kept.
 * If ``logs`` is a file or a link that a tool left in the run directory, Xeda writes no log for
@@ -503,17 +502,18 @@ when one of its inputs changed. Indirect tools and the packages that the generat
 outside this identity. The tree of the design is never written.
 
 A generation happens in the launch, after every check that needs only the declarations of the
-design, and before the first flow runs. A launch holds the lock of the storage while it generates,
-and a shared lease of it until it has made its last delivery, so no other launch regenerates or
-removes a storage that a flow reads. The lock files lie beside the storages, as the lock files of
-the run directories lie beside them. ``--rebuild-all`` and ``--clean`` regenerate, as they run every
+design, and before the first flow runs. A launch holds the exclusive lock of the storage while it
+generates. After that it holds a shared lease of the storage until it has made its last delivery, so
+no other launch regenerates or removes a storage that a flow reads (see `Locking`_). The lock files
+lie beside the storages, as the lock files of the run directories lie beside them. ``--rebuild-all`` and ``--clean`` regenerate, as they run every
 flow again. ``--clean``, post-cleanup and ``xeda scrub`` leave the storage alone. See
 :ref:`generators`.
 
 A Git dependency of a design is kept in the run root too, in ``.dependencies/<key>/``. The files of
 one commit of one repository are in one storage, and a storage never changes after Xeda has
-written it. Planning fetches it (see ``Git dependencies`` in the design file reference). A launch
-holds a shared lease of each storage that it reads until it has made its last delivery. No
+written it. Planning fetches it (see ``Git dependencies`` in the design file reference) under the
+exclusive lock of the storage, and holds no other lock while it does. A launch holds a shared lease
+of each storage that it reads until it has made its last delivery. No
 command of Xeda removes dependency storage, ``xeda scrub`` included. Delete ``.dependencies/`` by
 hand while no launch runs.
 
@@ -624,21 +624,56 @@ Locking
 
 A durable lock file, ``<run dir>.lock``, lies beside the run directory and never inside it. It
 serializes the writers of one directory. This works on POSIX only, and Windows has no lock. A
-consumer takes a shared lock on the run directory of each completed producer. It verifies the
-completion evidence under the lock it acquired, and holds the lock until its own launch ends,
-including the writing of results and trace. This protects every producer, including a producer that
-has no trace. If the producer directory changes between the producer's completion and the
-acquisition of the shared lock, Xeda refuses the hand-over. Matching bytes of the declared outputs
-do not prove that the rest of the completed run is unchanged.
+generation storage and a delivery destination have a lock file beside them in the same way. The
+lock files of the destinations lie under the run root. Two spellings of one path, such as names that
+differ only in letter case on a file system that ignores case, or two Unicode forms of one name,
+are one lock.
+
+A launch takes the locks of its whole graph in one step, before it runs anything. It asks for the
+run directory of every node of its plan and for every generation storage and dependency storage.
+It locks a node that it may run exclusively. It locks a node that it only reuses, and a storage that
+it only reads, in the shared mode. Xeda takes the locks in one order: run directories, then
+storages, then destinations, each kind sorted by the file that the path leads to. It waits for the
+first lock only. If another process holds a later lock, Xeda releases every lock that it took,
+waits until that lock is free, and starts again. So two launches that need the same directories in
+opposite orders cannot wait for each other. If a node that the launch expected to reuse is not up to
+date when it holds the lock, the launch releases everything and starts again with that node
+exclusive. A shared lock never becomes an exclusive one while the launch holds other locks.
+
+The launch generates under its exclusive locks, then releases the set and takes it again with the
+generated storages shared, and judges every storage again before any node runs. Another launch can
+replace a storage in this short gap. The launch accepts the storage if it is valid when the lock is
+taken again. A node that a launch holds in the shared mode is read only: the launch does not prepare
+its inputs and does not refresh its trace.
+
+A consumer therefore holds a shared lock on the run directory of each completed producer from the
+start of its launch. It verifies the completion evidence under the lock, and holds the lock until
+its own launch ends, including the writing of results and trace. This protects every producer,
+including a producer that has no trace. If the producer directory changes between the producer's
+completion and the acquisition of the shared lock, Xeda refuses the hand-over. Matching bytes of the
+declared outputs do not prove that the rest of the completed run is unchanged.
+
+Delivery is the one phase that holds locks and also waits for more. When all the files to deliver
+are known, the launch keeps its node locks and takes the exclusive locks of every destination and of
+the delivery record of every node, in the same order as before. It checks each destination again
+once it holds the lock of that destination, and holds the lock through the replacement and the
+record. It reads the delivery record again under the lock and adds its files to the latest record,
+so a launch never writes an older record over the entries of another.
 
 Readers that are compatible overlap. A rebuild, a clean-up, a scrub and the purge of a design-space
 exploration take the same lock exclusively and wait for the readers. Inside one process, a lock that
 is requested again in the same mode, or exclusive and then shared, keeps the operating system lock.
 A request for exclusive access while the process holds the lock shared is refused before anything is
-written. ``xeda scrub`` keeps the lock file when it deletes a run directory, so waiting processes
-continue to use the same lock identity. Scrub removes sibling run directories before the launch
-takes its own run lock. This avoids deadlocks between variants of the settings. A failure to take
-the lock names the producer, its path, the shared mode and the error of the operating system.
+written. A thread that holds a lock of Xeda cannot start a launch, an exploration or a scrub, and a
+function that Xeda calls while it holds locks (the question to the user, for example) cannot take a
+new lock. Xeda refuses both with the error code ``lease_held``. A wait for a lock never blocks in
+the operating system call: Xeda tries again at short intervals, so the wait can be canceled.
+``xeda scrub`` keeps the lock file when it deletes a run directory, so waiting processes continue
+to use the same lock identity. Scrub holds one exclusive lock at a time. It removes sibling run
+directories before the launch takes its own locks. This avoids deadlocks between variants of the
+settings. A failure to take the lock names the lock file, the mode and the error of the operating
+system. With ``--remote``, the client locks all the mirror directories of the launch in one step,
+and holds them while it stores the fetched files, rewrites the records and delivers.
 
 Xeda reserves these names at the top of a run directory and never counts them as outputs of a run:
 ``trace.json``, ``trace.json.tmp`` (a trace that is being written) and ``.xeda-time-*`` (a marker

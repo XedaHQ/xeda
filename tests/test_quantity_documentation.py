@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Annotated
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, create_model
 
 from xeda import Design
 from xeda.dataclass import ValidationError
@@ -27,6 +27,7 @@ from xeda.units import (
     Power,
     Resistance,
     Time,
+    Unit,
     Voltage,
 )
 
@@ -80,18 +81,21 @@ def test_a_value_in_each_documented_unit_is_read_and_written_in_the_unit_of_the_
 
 
 def test_the_documented_error_messages_are_the_ones_the_code_writes() -> None:
-    inputs: list[tuple[object, object]] = [
-        (Time, 10),
-        (Time, "5 MHz"),
-        (Capacitance, "3.9 ff"),
-        (Time, "5 ns * 2"),
-        (Time, "10 nanoseconds"),
-        (Annotated[Time, Bounds(gt="0 ns")], "-1 ns"),
+    # (the setting, its annotation, the value given); a message of a bare number names the setting
+    inputs: list[tuple[str, object, object]] = [
+        ("period", Time, 10),
+        ("timeout", Annotated[Time, Unit("s")], 180),
+        ("period", Time, "5 MHz"),
+        ("load", Capacitance, "3.9 ff"),
+        ("period", Time, "5 ns * 2"),
+        ("period", Time, "10 nanoseconds"),
+        ("period", Annotated[Time, Bounds(gt="0 ns")], "-1 ns"),
     ]
     written = []
-    for annotation, value in inputs:
+    for name, annotation, value in inputs:
+        model = create_model("Documented", **{name: (annotation, ...)})
         with pytest.raises(ValidationError) as caught:
-            TypeAdapter(annotation).validate_python(value)
+            model.model_validate({name: value})
         (error,) = caught.value.errors()
         written.append(error["msg"])
     assert _blocks("text") == written

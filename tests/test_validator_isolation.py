@@ -178,7 +178,7 @@ def test_unrelated_assignment_preserves_nested_field_identities():
     plugins = settings.plugins
     assert clock is not None
 
-    settings.verbose = 1
+    settings.nthreads = 1
 
     assert settings.fpga is fpga
     assert settings.main_clock is clock

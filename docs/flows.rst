@@ -208,8 +208,8 @@ are keyed by net or instance name: ``ir_drop.nets``, ``ir_drop.vsrc_files``,
 a dictionary of tables such as ``ndr.rules``, a dotted key is a path into nested tables. A path
 that goes on past the value of a key is an error, as for any setting.
 
-A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
-empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
+A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. Each item is read as the
+item type of the list. An empty value is the empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings, because it would be one item and not a list. A setting that also
 takes plain text keeps the text as it is. The lists of the ``cocotb`` section (``testcase`` and
 ``gpi_extra``) take text in the same way.
@@ -226,20 +226,29 @@ Settings shared by every flow
 -----------------------------
 
 Every flow accepts the settings below, in addition to its own. The tools of some flows have no
-matching option. Such a flow accepts ``nthreads``, ``redirect_stdout`` or ``lib_paths`` and does
-nothing with it.
+matching option. Such a flow accepts ``nthreads`` or ``lib_paths`` and does nothing with it.
 
 ``nthreads``
     The maximum number of threads that the tools may use.
 
-``dockerized`` / ``docker``
-    Run the tools of the flow from a container image instead of the local installation.
+``docker``
+    Run the tools of the flow from a container image instead of the local installation. The
+    default is ``false``.
 
-``quiet`` / ``verbose`` / ``debug``
-    How much the flow and its tools print.
+``docker_image``
+    The container image to run the tools in, instead of the default image of the flow. It has an
+    effect only with ``docker: true``.
 
-``redirect_stdout``
-    Send the output of the tools to files instead of the console. Only the Vivado flows do this.
+``verbosity``
+    How much the tools say: ``quiet``, ``normal`` (the default), ``verbose`` or ``debug``. Each
+    flow passes the level to its tools in the way that the tool allows: ``quiet`` adds the quiet
+    option of the tool, ``verbose`` adds its verbose option, and ``debug`` adds its debug option
+    or keeps the traces that the flow drops otherwise. The levels are not a scale: each level adds
+    only its own options, so ``debug`` does not add the options of ``verbose``. A tool without an
+    option for a level runs as it does at ``normal``. The level is part of the settings of the
+    run, so a run with another level is another run. ``verbose``, ``quiet`` and ``debug`` were
+    three settings before. ``redirect_stdout``, ``print_commands`` and ``console_colors`` are
+    gone: where the output of the tools appears is not a setting of a flow.
 
 ``lib_paths``
     Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
@@ -252,6 +261,67 @@ nothing with it.
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
 
+.. _environment:
+
+The environment of tools
+------------------------
+
+Every flow has the settings ``env`` and ``inherit_env``. They decide which environment variables
+the processes of the flow get. Xeda reads the environment of the caller once, when the launch
+starts. Every node of the launch, and every point of a sweep, uses that one copy.
+
+``env``
+    A table of variables for the processes of the flow, for example ``NUM_TV: "8"``. A name has
+    letters, digits and ``_``, and does not start with a digit. A value is text. The variables are
+    part of the identity of the run. A cocotb run refuses an ``env`` variable that it sets itself.
+
+``inherit_env``
+    ``true`` by default. It decides whether a process gets the environment of the caller.
+
+A process gets these variables. A later item replaces an earlier item of the same name.
+
+With ``inherit_env: true``:
+
+1. the environment of the caller,
+2. the ``env`` table of your private settings files (see :ref:`private-files`),
+3. the ``env`` setting of the flow,
+4. the variables that the flow sets itself.
+
+With ``inherit_env: false``:
+
+1. from the caller, only the essential variables (``PATH``, ``HOME``, ``USER``, ``LOGNAME``,
+   ``SHELL``, ``TMPDIR``, ``TERM``, ``LANG``, ``LC_*``, ``TZ``, ``LD_LIBRARY_PATH`` and
+   ``DYLD_LIBRARY_PATH``) and the variables that locate the tool or its license (``XILINX_VIVADO``
+   and ``LM_LICENSE_FILE`` for Vivado, for example; each flow declares its own),
+2. the ``env`` table of your private settings files,
+3. the ``env`` setting of the flow,
+4. the variables that the flow sets itself.
+
+A flow that runs in Docker (``docker: true``) also gets the variables that the ``docker`` client
+needs to find its daemon (``DOCKER_HOST``, ``DOCKER_CONTEXT``, ``DOCKER_CONFIG`` and
+``DOCKER_CERT_PATH``) from the caller. The container is different. It gets ``DISPLAY``
+(``host.docker.internal:0``), then the ``env`` table of your private settings files, then the
+``env`` setting, then the variables that the flow sets itself. Each of these can replace
+``DISPLAY``. Last, ``PWD`` is set to the working directory of the tool in the container. No
+variable of the caller enters a container.
+
+Neither mode is hermetic. A tool can read a file, a home directory or a program that Xeda does not
+track. ``inherit_env: false`` only reduces what the tool receives.
+
+The inherited values that a node uses are evidence for freshness. They are not part of the
+identity of the run, so the run directory does not change with them. A changed value makes the node
+run again. When a variable is added or removed, the reason for the run names the variable. It never
+shows a value. The variables of a shell session, a terminal or a login never count: ``PWD``,
+``OLDPWD``, ``SHLVL``, ``_``, ``COLUMNS``, ``LINES``, ``TERM_SESSION_ID``, ``ITERM_SESSION_ID``,
+``WINDOWID``, ``TMUX``, ``TMUX_PANE``, ``STY``, ``SSH_AUTH_SOCK``, ``SSH_AGENT_PID``,
+``SSH_CLIENT``, ``SSH_CONNECTION``, ``SSH_TTY``, ``XDG_SESSION_ID``, ``XEDA_RUN_ROOT``,
+``XEDA_REMOTE``, ``XEDA_LOG_LEVEL`` and ``XEDA_DETAILED_LOGS``. ``results.json`` lists the names of
+the inherited variables in ``inherited_variables``. It holds no value.
+
+With ``--remote``, Xeda takes the environment on the host, in the environment of the agent. Xeda
+does not send the ``env`` table of your local private settings files to the host. The profile of
+the host in ``remotes.yaml`` has its own ``env`` table (see :ref:`remote-profiles`).
+
 .. _quantities:
 
 Physical quantities and units
@@ -259,13 +329,13 @@ Physical quantities and units
 
 A setting that holds a physical measurement takes a number and a unit, such as ``5 ns``. A number
 without a unit is an error. It means nothing: ``5`` can be 5 ns, 5 ps or 5 MHz. Xeda never guesses
-the unit. A few settings do not follow this rule yet. The last part of this section lists them.
+the unit.
 
 Each such setting has a *kind*. The kind is what the setting measures: a time, a frequency, a
 capacitance, a length, a voltage, a resistance or a power. The kind decides which units the setting takes.
 ``clock.period`` is a time, ``clock.freq`` is a frequency, and ``abc.load`` of ``yosys`` is a
 capacitance. ``xeda list-settings <flow>`` shows the kind of a setting in its type column: ``time``
-and not ``string``. The JSON output shows it too (see :ref:`machine-readable-settings`).
+and not ``string``. Its unit column shows the unit that Xeda writes the setting in. The JSON output shows it too (see :ref:`machine-readable-settings`).
 
 Writing a quantity
 ~~~~~~~~~~~~~~~~~~
@@ -297,6 +367,9 @@ In a design file, a quantity is plain text:
       nextpnr:
         clock.freq: 400 MHz
 
+A time limit is a quantity too. On a simulation flow, ``timeout: 2 min`` limits the wall-clock
+time of each tool run, and ``stop_time: 100 us`` stops the simulation at a simulated time.
+
 In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
 write the number and the unit without a space. The shell then passes one word, and the item needs
 no quotes: ``-s clock.period=2.5ns``. With a space, quote the whole item:
@@ -306,8 +379,19 @@ Xeda reports the unit as an unexpected extra argument, with a hint.
 Kinds and units
 ~~~~~~~~~~~~~~~
 
-Each kind takes the units of its row in this table. Xeda writes a quantity into ``settings.json``
-in the unit of the last column, whatever unit you wrote: ``10000 ps`` becomes ``10 ns``.
+Each kind takes the units of its row in this table. You can write a quantity in any of them.
+Xeda writes it in the unit of its setting, whatever unit you wrote. That unit is the *unit of the
+setting*. It is in the ``unit`` column of ``xeda list-settings``, and the default of the setting
+is written in it. A setting that does not name a unit of its own uses the unit of the last column
+of the table, the unit of its kind: ``10000 ps`` becomes ``10 ns``. The time limits are written in
+seconds and the simulated times and delays in nanoseconds, so ``timeout: 2 min`` becomes
+``120 s``, and ``stop_time: 1 us`` becomes ``1000 ns``.
+
+The unit of a setting changes how Xeda writes a value, and nothing else. Two spellings of one value
+are one value, and the run identity is the same. Xeda writes the value as a plain decimal, with no
+exponent: ``0.00001 ns``. The places that show a setting use this unit: ``settings.json``, the
+document of ``xeda run --json`` (the settings that you gave, in the unit of each setting), the
+records of the runs, and the messages.
 
 .. list-table::
    :header-rows: 1
@@ -357,7 +441,14 @@ unit, as in ``clock.period: 10``, gives this message:
 
 .. code-block:: text
 
-    `10` needs a unit, such as `10 ns`: a bare number does not mean anything
+    `period` needs a unit, such as `10 ns`: a bare number does not mean anything
+
+The message names the setting and writes your number in the unit of that setting. A ``timeout`` is
+in seconds, so ``timeout: 180`` gives this message:
+
+.. code-block:: text
+
+    `timeout` needs a unit, such as `180 s`: a bare number does not mean anything
 
 A unit of another kind, as in ``clock.period: 5 MHz``:
 
@@ -375,7 +466,7 @@ Text that is no quantity at all, as in ``clock.period: 5 ns * 2`` or ``clock.per
 
 .. code-block:: text
 
-    cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
+    `period`: cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
 
 A unit that is not in the table, as in ``clock.period: 10 nanoseconds``:
 
@@ -405,49 +496,12 @@ A setting that holds a plain number takes no unit. These settings hold plain num
   library". Only the Liberty file of the library knows the unit, for example ``ns`` or ``ps`` for a
   time. Xeda passes the number to the tool as it is.
 
-Settings that do not take units yet
+Settings of the design-space search
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The settings in this table hold a time, a frequency or another measurement, but they do not take
-a quantity. Each keeps its current form. A setting that takes a number refuses text with a unit.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 24 36
-
-   * - Setting
-     - Flows
-     - Current form
-   * - ``stop_time``
-     - simulation flows
-     - a number of nanoseconds, or text with a unit, such as ``100us``
-   * - ``timeout``
-     - simulation flows
-     - a number of seconds
-   * - ``prerun_time``
-     - Vivado simulation flows
-     - text with a unit, such as ``10ns``
-   * - ``time_unit``, ``time_resolution``
-     - ``vcs``
-     - text such as ``1ns`` and ``1ps``
-   * - ``lic_wait``
-     - ``vcs``
-     - a whole number
-   * - ``default_max_input_delay``, ``default_min_input_delay``, ``default_max_output_delay``,
-       ``default_min_output_delay``
-     - Vivado synthesis and implementation flows
-     - a number of nanoseconds
-   * - ``hold_detour_max``
-     - ``nextpnr``
-     - a number of nanoseconds
-   * - ``freq``
-     - ``openfpgaloader``
-     - a whole number of hertz
-
-The ``dc`` flow keeps the form of its own numbers, such as ``default_max_input_delay``. Its clock
-settings need a unit, as in every other flow. ``xeda dse`` keeps the form of its options and
-optimizer settings: the frequency bounds (``--init-freq-low`` and ``--init-freq-high``),
-``resolution``, ``delta``, ``max_runtime_minutes`` and ``timeout`` are plain numbers.
+``xeda dse`` keeps plain numbers for its options and optimizer settings: the frequency bounds
+(``--init-freq-low`` and ``--init-freq-high``), ``resolution``, ``delta``, ``max_runtime_minutes``
+and ``timeout``.
 
 .. _settings-groups:
 
@@ -1381,8 +1435,8 @@ anything runs when neither ``fpga`` nor a board gives it. What the loader printe
 ``openfpgaloader.log`` in the run directory of the flow. In a terminal, Xeda runs the loader with a
 terminal of its own, as you would run it by hand: the colors work, and the progress bar is redrawn
 in place. The log has the same text without the escape codes, with one line for each redraw. Without
-a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
-line for each update of the bar.
+a terminal (a pipe, a file, a CI log), or with colors switched off (the ``NO_COLOR`` environment
+variable), the loader writes a line for each update of the bar.
 
 openFPGALoader opens the first probe whose USB id fits the cable (``digilent`` is
 ``0x0403:0x6010``). It does this before it reads the ID code of any FPGA, and ``--fpga-part`` does
@@ -2406,7 +2460,8 @@ All waveform settings read their value by one rule, on the command line and in a
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the extension of the format.
 * The words that YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``,
-  ``t`` and ``f``) are refused, as they are for a boolean setting. So is ``true`` or ``false`` with
+  ``t`` and ``f``) are refused, as they are for a boolean setting. So is the text ``"true"`` or
+  ``"false"`` (in quotes in a design file, or a ``str`` from Python), and ``true`` or ``false`` with
   spaces around it. Write ``true`` or a file name.
 * Other text is a name. The setting that receives a name decides the format, and the name never
   does: Xeda refuses a name that ends in an extension of another format. A format can have several

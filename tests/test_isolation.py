@@ -2624,7 +2624,7 @@ REVIEWED_WRITES = [
     ),
     (
         "flow_runner/run_lock.py",
-        'with os.fdopen(descriptor, "a") as f:',
+        'return os.fdopen(descriptor, "a")',
         "the descriptor of the lock file that the line above opened: held to be locked, not written",
     ),
     (

@@ -1154,7 +1154,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             args.extend(["-L", ss.log_file])
         # With a log file, the console shows only the messages of the flow, and the log has the
         # yosys output. `-T -Q` already come with the defaults of the tool (`yosys`).
-        if ss.log_file and not ss.verbose and not ss.debug:
+        if ss.log_file and ss.verbosity in ("quiet", "normal"):
             args.append("-q")
         depfile = self.run_path / "yosys.d"
         args += ["-E", depfile]

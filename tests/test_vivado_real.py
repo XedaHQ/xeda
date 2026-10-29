@@ -260,7 +260,7 @@ def test_xsim_native_sv_evidence(work_dir, body, settings, passes, ending, error
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoSim, design, {"timeout": 180.0, **settings}
+        VivadoSim, design, {"timeout": "180 s", **settings}
     )
     assert flow.succeeded is passes
     assert flow.results["sim.ended_by"] == ending
@@ -304,7 +304,7 @@ def test_xsim_native_vhdl_evidence(work_dir, body, passes, ending, errors, warni
         language={"vhdl": {"standard": "2008"}},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoSim, design, {"timeout": 180.0, "prerun_time": "10ns", "stop_time": "20ns"}
+        VivadoSim, design, {"timeout": "180 s", "prerun_time": "10ns", "stop_time": "20ns"}
     )
     assert flow.succeeded is passes
     assert flow.results["sim.ended_by"] == ending
@@ -337,7 +337,11 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
                 "clocks": {"main_clock": {"period": "10 ns"}},
                 "nthreads": 2,
             },
-            "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
+            "vivado_postsynth_sim": {
+                "timeout": "240 s",
+                "prerun_time": "10ns",
+                "stop_time": "20ns",
+            },
         },
     )
     runner = DefaultRunner(work_dir / "run")
@@ -384,7 +388,7 @@ def test_xsim_native_timeout_stops_the_container(work_dir):
         name="timeout", root=root, rtl={"sources": ["tb.sv"], "top": "tb"}, tb={"top": "tb"}
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoSim, design, {"dockerized": True, "timeout": 90.0}
+        VivadoSim, design, {"docker": True, "timeout": "90 s"}
     )
     assert not flow.succeeded
     assert flow.results["error"]["code"] == "timeout"

@@ -77,9 +77,13 @@ def _recorded_launch(
     return calls, run_dir, parent
 
 
+def _gets_the_directory(call) -> bool:
+    return call[1] is not None and call[1].get("TMPDIR") == YOSYS_TEMPORARY_DIRECTORY
+
+
 def test_the_yosys_call_gets_the_variable_and_no_other_call_does(tmp_path, monkeypatch):
     calls, run_dir, parent = _recorded_launch(tmp_path, monkeypatch)
-    yosys_calls = [call for call in calls if call[1] is not None]
+    yosys_calls = [call for call in calls if _gets_the_directory(call)]
     assert len(yosys_calls) == 1
     executable, env, existed = yosys_calls[0]
     assert executable == "yosys"
@@ -87,8 +91,10 @@ def test_the_yosys_call_gets_the_variable_and_no_other_call_does(tmp_path, monke
     assert env["XDG_STATE_HOME"] == YOSYS_TEMPORARY_DIRECTORY
     assert existed, "the directory exists, and is empty, when yosys starts"
     assert not (run_dir / YOSYS_TEMPORARY_DIRECTORY).exists()
-    # the other calls (the version query) get no environment of their own
-    assert [call for call in calls if call[1] is None], "the version query is a call too"
+    # the other calls (the version query) get the environment of the flow without the variable
+    others = [call for call in calls if not _gets_the_directory(call)]
+    assert others, "the version query is a call too"
+    assert all(call[1]["TMPDIR"] == str(parent) for call in others)
 
 
 def test_xedas_own_environment_is_not_changed(tmp_path, monkeypatch):
@@ -98,7 +104,7 @@ def test_xedas_own_environment_is_not_changed(tmp_path, monkeypatch):
 
 def test_the_directory_is_removed_when_yosys_fails(tmp_path, monkeypatch):
     calls, run_dir, _ = _recorded_launch(tmp_path, monkeypatch, fail=True)
-    assert any(call[1] is not None for call in calls)
+    assert any(_gets_the_directory(call) for call in calls)
     assert not (run_dir / YOSYS_TEMPORARY_DIRECTORY).exists()
 
 
@@ -112,7 +118,7 @@ def test_a_link_at_the_name_of_the_directory_is_replaced_and_not_followed(tmp_pa
     (outside / "keep").write_text("the file of the user\n")
     (run_dir / YOSYS_TEMPORARY_DIRECTORY).symlink_to(outside, target_is_directory=True)
     calls, _, _ = _recorded_launch(tmp_path, monkeypatch, settings=settings)
-    assert [call for call in calls if call[1] is not None][0][2]
+    assert [call for call in calls if _gets_the_directory(call)][0][2]
     assert (outside / "keep").read_text() == "the file of the user\n"
     assert list(outside.iterdir()) == [outside / "keep"]
 

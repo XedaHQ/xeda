@@ -1096,6 +1096,6 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         started=started.astimezone(timezone.utc),
         finished=finished.astimezone(timezone.utc),
         runtime=float(runtime),
-        inherited_variables=(),
+        inherited_variables=flow.inherited_variables,
         dependencies=tuple(d.as_mapping() for d in flow.design.resolved_dependencies),
     )

@@ -58,9 +58,10 @@ A node is judged in the order the launch uses:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Literal
 
 from ..deliver import split_deliveries
@@ -91,6 +92,7 @@ from .trace import (
     output_equivalences,
 )
 from .code_digest import CodeDigests
+from .environment import EnvironmentSnapshot
 from .trace_inputs import expected_run
 
 log = logging.getLogger(__name__)
@@ -119,14 +121,14 @@ class NeedsAProcess(Exception):
     """Judging the node needs something only a process can tell."""
 
 
-def dry_locate(name: str) -> str | None:
+def dry_locate(name: str, path: str | None = None) -> str | None:
     """Return where the program `name` is now (`trace.locate_program`).
 
     A container image is not looked up: `docker image inspect` is a process
     (`NeedsAProcess`)."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
         raise NeedsAProcess("its container image is checked when it runs")
-    return locate_program(name)
+    return locate_program(name, path=path)
 
 
 def _record(node: PlanNode, run_root: Path) -> RunRecord | None:
@@ -168,6 +170,7 @@ def _bare_flow(
     run_root: Path,
     runner_cwd: Path,
     design_hash: str,
+    environment: EnvironmentSnapshot,
 ) -> Flow:
     """Return the flow as the launch constructs it, before `init()`.
 
@@ -179,6 +182,7 @@ def _bare_flow(
         node.run_path,
         runner_cwd=runner_cwd,
         run_directory=RunDirectory.claimed(node.run_path, run_root),
+        environment=environment,
     )
     flow.flow_hash, flow.settings_hash, flow.design_hash = (
         node.flowrun_hash,
@@ -329,6 +333,7 @@ def judge_node(
     debug: bool,
     run_path: Callable[..., Path],
     digests: CodeDigests,
+    environment: EnvironmentSnapshot,
 ) -> NodeFreshness:
     flow_class = node.flow_class
     if (
@@ -383,7 +388,7 @@ def judge_node(
             if known
             else ""
         )
-        flow = _bare_flow(node, settings, view, run_root, runner_cwd, design_hash)
+        flow = _bare_flow(node, settings, view, run_root, runner_cwd, design_hash, environment)
     except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
         # The plan made the checks of the hooks of the flow. A launch also checks the settings in
         # the context of the design, as it constructs the flow, and would refuse these.
@@ -471,10 +476,15 @@ def judge_node(
         declared=_records(plan, node, settings, entries, stored),
         dependency_run_ids={},
         digests=digests,
+        environment=environment,
     )
     try:
         freshness = check_trace(
-            node.run_path, expected, dry_locate, refresh=False, edge=waiting is None
+            node.run_path,
+            expected,
+            lambda name: dry_locate(name, path=flow.process_environment().get("PATH", os.defpath)),
+            refresh=False,
+            edge=waiting is None,
         )
     except NeedsAProcess as why:
         return NodeFreshness("unknown", str(why))
@@ -503,20 +513,22 @@ def judge_plan(
     clean: bool = False,
     debug: bool = False,
     run_path: Callable[..., Path],
-    environ: Mapping[str, str] | None = None,
+    environment: EnvironmentSnapshot | None = None,
 ) -> dict[str, NodeFreshness]:
     """Return what a launch of `plan` would do with each node, by node name, producers first.
 
     `run_path` is the `run_path_of` of the launcher (`resolver.planned_design_of`). `design` is the
     design as the caller gave it. The generator of the design does not run: a read-only look at
     its storage (`launch_generation.inspect_generation`, under `run_root`) decides what the nodes
-    that read generated sources are. `environ` is the environment the generator inherits (the
-    environment of this process by default)."""
+    that read generated sources are. `environment` is the snapshot that every node is judged by
+    (the environment of this process now, by default). The generator inherits its inherited
+    part."""
+    environment = environment or EnvironmentSnapshot.take({})
     states: dict[str, NodeFreshness] = {}
     inspection = launch_generation.inspect_generation(
         design,
         run_root if run_root.is_dir() else None,
-        environ=environ,
+        environ=dict(environment.inherited),
         rebuild_all=rebuild_all or clean,
     )
     reading = launch_generation.execution_design(design, inspection.generation)
@@ -536,5 +548,6 @@ def judge_plan(
             debug=debug,
             run_path=run_path,
             digests=digests,
+            environment=environment,
         )
     return states

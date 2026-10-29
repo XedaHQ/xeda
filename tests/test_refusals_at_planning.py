@@ -36,6 +36,7 @@ from .tool_utils import use_fake_tools
 from xeda.flow_runner import DefaultRunner
 from xeda.units import convert_unit
 from xeda.flows import (
+    Openfpgaloader,
     VivadoPower,
     Bsc,
     BscSim,
@@ -156,12 +157,21 @@ CASES: dict[str, Case] = {
         BscSim, "max_cycles bounds Bluesim", {"simulator": "iverilog", "max_cycles": 10}, _bsv()
     ),
     "vcs-sdf-without-instance": Case(Vcs, "`sdf_instance` is required", {"sdf_file": "x.sdf"}),
+    "openfpgaloader-fractional-hertz": Case(
+        Openfpgaloader,
+        "`freq` is 0.0000015 MHz, which is not a whole number of hertz",
+        {"fpga": {"part": "LFE5U-25F-6BG381C"}, "freq": "1.5 Hz"},
+    ),
+    "vcs-time-scale": Case(Vcs, "`time_unit`: 2 ns is no time scale of VCS", {"time_unit": "2 ns"}),
+    "vcs-fractional-license-wait": Case(
+        Vcs, "`lic_wait` is 90 s, which is not a whole number of minutes", {"lic_wait": "90 s"}
+    ),
     "vivado-sim-elab-debug-off": Case(VivadoPostsynthSim, "elab_debug: off", {"elab_debug": "off"}),
     "vivado-sim-controlled-flag": Case(
         VivadoPostsynthSim, "conflicts with xsim runtime evidence", {"sim_flags": ["-R"]}
     ),
     "vivado-sim-negative-time": Case(
-        VivadoPostsynthSim, "not a nonnegative simulation time", {"prerun_time": "-1ns"}
+        VivadoPostsynthSim, "must be at least 0 ns", {"prerun_time": "-1ns"}
     ),
     "vivado-sim-saif-without-uut": Case(VivadoSim, "set `tb.uut`", {"saif": True}),
     "vivado-postsynth-sim-saif-without-uut": Case(
@@ -205,6 +215,17 @@ CASES: dict[str, Case] = {
         YosysFpga,
         r"`-iopad` in `synth_flags`.*out_of_context",
         {"fpga": {"part": "LFE5U-25F-6BG256C"}, "out_of_context": True, "synth_flags": ["-iopad"]},
+    ),
+    "ghdl-fractional-femtosecond-stop-time": Case(
+        GhdlSim,
+        "`stop_time` is .*not a whole number of femtoseconds",
+        {"stop_time": "1.5 fs"},
+        _vhdl,
+    ),
+    "vivado-sim-fractional-femtosecond-prerun-time": Case(
+        VivadoSim,
+        "`prerun_time` is .*not a whole number of femtoseconds",
+        {"prerun_time": "0.5 fs"},
     ),
     "yosys-sim-stop-time": Case(YosysSim, "cannot enforce stop_time", {"stop_time": "1us"}),
     "yosys-platform-with-gates": Case(
@@ -399,7 +420,7 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "(`run_path_of`); the path is the run root's, not the flow's settings or design",
     ),
     "xeda.flow.flow:Flow.Settings.from_input": (
-        2,
+        1,
         "validates settings given as a mapping to a flow built directly; a launched flow gets "
         "validated settings",
     ),

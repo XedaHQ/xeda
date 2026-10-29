@@ -9,10 +9,10 @@ explicit binaries and digest published cache entries.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
 import struct
 import logging
-import os
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
@@ -561,9 +561,15 @@ def _cached_chipdb(
 
 
 def _generate_chipdb(
-    layout: XilinxLayout, selection: XilinxSelection, temporary: RunDirectory, entry: Path
+    layout: XilinxLayout,
+    selection: XilinxSelection,
+    temporary: RunDirectory,
+    entry: Path,
+    environment: Mapping[str, str],
 ) -> Path:
-    """Run the generator and the assembler with a time limit. Write in no run directory."""
+    """Run the generator and the assembler with a time limit. Write in no run directory.
+
+    The programs get `environment`, with Python bytecode switched off."""
     assert layout.generator is not None and layout.bbasm is not None
     if selection.fabric == "xc7a100t":
         log.info(
@@ -579,7 +585,7 @@ def _generate_chipdb(
         )
     bba = temporary.writable(f"{selection.fabric}.bba")
     binary = temporary.writable(f"{selection.fabric}.bin")
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {**environment, "PYTHONDONTWRITEBYTECODE": "1"}
     commands = (
         (
             "generator",
@@ -658,6 +664,8 @@ def prepare_chipdb(
     selection: XilinxSelection,
     run_directory: RunDirectory,
     identity: XilinxChipdbIdentity | None = None,
+    *,
+    environment: Mapping[str, str],
 ) -> Path:
     """Validate an explicit chipdb, or prepare a shared immutable cache entry named by content.
 
@@ -667,6 +675,7 @@ def prepare_chipdb(
     `xeda scrub` leaves this cache and its locks alone. A cache hit starts no program. The
     manifest records the provenance of the generator. `identity` is the identity of this
     installation and device data, if the caller has formed it already (`chipdb_identity`).
+    `environment` is the environment of the generator and the assembler.
     """
     if layout.chipdb is not None:
         validate_chipdb(layout.chipdb, selection)
@@ -701,7 +710,7 @@ def prepare_chipdb(
         temporary = Path(tempfile.mkdtemp(prefix=f"{identity.key}.tmp-", dir=cache))
         scratch = RunDirectory.claimed(_cache_path(owner, temporary), root)
         try:
-            binary = _generate_chipdb(layout, selection, scratch, entry)
+            binary = _generate_chipdb(layout, selection, scratch, entry, environment)
             manifest = {
                 "identity": identity.key,
                 "fabric": selection.fabric,

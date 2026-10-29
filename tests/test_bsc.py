@@ -234,7 +234,7 @@ def test_debug_does_not_change_the_generated_hardware(tmp_path):
     `-remove-unused-modules`, `-cross-info`): a debug run generates the same design."""
     design = _accum_design(tmp_path / "d")
     plain = _flow(Bsc, design, tmp_path / "a")._compile_flags("verilog")
-    debug = _flow(Bsc, design, tmp_path / "b", debug=True)._compile_flags("verilog")
+    debug = _flow(Bsc, design, tmp_path / "b", verbosity="debug")._compile_flags("verilog")
     assert plain == debug
 
 
@@ -353,7 +353,7 @@ def test_bsc_sim_rejects_an_unknown_simulator():
     [
         (Bsc, {"opt_undetermined_vals": False}, "requires `opt_undetermined_vals: true`"),
         (BscSim, {"unspecified_to": "X", "opt_undetermined_vals": True}, "two-valued"),
-        (BscSim, {"stop_time": 100}, "max_cycles"),
+        (BscSim, {"stop_time": "100 ns"}, "max_cycles"),
         (BscSim, {"simulator": "verilator", "max_cycles": 10}, "Bluesim simulations only"),
     ],
 )
@@ -1431,7 +1431,7 @@ def test_bsc_sim_time_limit_stops_a_testbench_that_never_finishes(tmp_path):
     )
     start = time.monotonic()
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        BscSim, design, {"timeout": 5}
+        BscSim, design, {"timeout": "5 s"}
     )
     assert flow is not None and not flow.succeeded
     assert time.monotonic() - start < 60

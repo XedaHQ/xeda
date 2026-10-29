@@ -25,8 +25,11 @@ def test_sqrt() -> None:
         print("running long test!")
         ws = LONG_TEST
     for w in ws:
-        os.environ["NUM_TV"] = str(50)
-        f: Flow = xeda_runner.run_flow(GhdlSim, design.with_updates({"tb.parameters.G_IN_WIDTH": w}))
+        f: Flow = xeda_runner.run_flow(
+            GhdlSim,
+            design.with_updates({"tb.parameters.G_IN_WIDTH": w}),
+            {"env": {"NUM_TV": "50"}},
+        )
         if not f.succeeded:
             raise AssertionError(f"test failed for w={w}")
 

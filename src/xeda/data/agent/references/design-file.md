@@ -10,7 +10,7 @@ the schema leaves property sets open (dotted keys expand before validation).
   `0o17` is 15, `0x1F` is 31, `1e3` is a float. Dates, `1:30` and `1_000` are strings.
   `true`/`false` are booleans and `null`/`~` are null. Quote HDL text, bit vectors, leading-zero
   text and source paths.
-- A boolean setting accepts only `true` and `false` (also `-s key=true`). `debug: yes` fails with
+- A boolean setting accepts only `true` and `false` (also `-s key=true`). `docker: yes` fails with
   "`yes` is text, not a boolean: write `true`".
 - Mapping keys are strings. A duplicate key fails and names the file, the key and both lines.
   Merge keys (`<<`), recursive aliases and non-core tags are refused; ordinary aliases work.
@@ -146,7 +146,7 @@ A setting whose `type` in `xeda list-settings <flow> --json` is a kind (`time`, 
 and one unit, and nothing else (`5 ns * 2` is an error). A bare number is an error. Units are
 case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 
-| Kind | Units | `settings.json` writes |
+| Kind | Units | Unit of its kind |
 | --- | --- | --- |
 | time | `fs`, `ps`, `ns`, `us`, `µs` (micro sign, U+00B5), `ms`, `s`, `min`, `h` | `ns` |
 | frequency | `Hz`, `kHz`, `MHz`, `GHz` | `MHz` |
@@ -159,17 +159,20 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 - Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
   `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
   item).
-- `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. `settings.json` writes
-  `10 ns` for all three.
+- `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. Xeda writes a value in
+  the unit of its setting (the `unit` column of `list-settings`), as a plain decimal with no
+  exponent: a setting without a unit of its own uses the unit of its kind (the table), so all three
+  are `10 ns`. The time limits use `s` (`timeout: 2 min` is `120 s` in `settings.json` and in
+  `xeda run --json`; a default shows in the unit too, as `6000 s` for `lic_wait` of `vcs`), and the
+  simulated times and delays use `ns`.
 - Other numbers stay plain: counts, ratios and fractions, percentages (the name ends in
   `_percent`), sizes of data (the description names the unit) and values "in the units of the
   library" (passed to the tool unconverted).
-- These keep their current form and are not quantities: `stop_time` (ns, or text such as `100us`),
-  `timeout` (s), `prerun_time` (text such as `10ns`), `time_unit`, `time_resolution` and
-  `lic_wait` of `vcs`, the Vivado `default_{max,min}_{input,output}_delay` (ns), `hold_detour_max`
-  of `nextpnr` (ns), `freq` of `openfpgaloader` (Hz), and the numbers of `dc` and `xeda dse`. A
-  unit on one that takes a plain number fails with a type error ("unable to parse string as a
-  number" or "... as an integer").
+- Times, frequencies and delays of every flow take a unit, among them `timeout` (`2 min`),
+  `stop_time` (`100 us`), `prerun_time`, `time_unit`, `time_resolution` and `lic_wait` of `vcs`,
+  the Vivado `default_{max,min}_{input,output}_delay`, the two `max` delays of `dc`,
+  `hold_detour_max` of `nextpnr` and `freq` of `openfpgaloader` (`6 MHz`). A bare number is refused
+  (`invalid_quantity`). Only the numbers of `xeda dse` stay plain.
 
 ## Source files
 
@@ -278,7 +281,7 @@ flows:
     platform: nangate45
     clock.period: 10 ns
   ghdl_sim:
-    stop_time: 100us
+    stop_time: 100 us
 ```
 
 `xeda list-settings <flow> --json` lists the settings. An unknown key is an error. A section
