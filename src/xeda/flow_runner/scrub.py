@@ -565,8 +565,9 @@ def scrub_design(
     _log_skipped(skipped)
     listed = _listed(flow_name, candidates)
     done = _remove_confirmed(listed, run_root, confirm, storages)
+    base = run_root / GENERATION_DIRECTORY / design_dir.name
     return ScrubResult(
-        parents,
+        [*parents, base] if flow_name is None and base.is_dir() else parents,
         done.removed,
         done.kept,
         done.gone,

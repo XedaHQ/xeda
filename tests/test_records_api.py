@@ -424,7 +424,7 @@ def test_the_record_names_the_generated_source_and_its_producer(tmp_path):
     (row,) = record.inputs
     (source,) = row.sources
     assert (source.path, source.generated, source.producer) == ("gen/top.v", True, None)
-    assert row.generation == world.storages()[0].name
+    assert source.generation == world.storages()[0].name
     assert source.digest and source.dependency is None
     document = record.to_dict()["inputs"][0]["sources"][0]
     assert document["producer"] is None and document["path"] == "gen/top.v"
@@ -479,6 +479,31 @@ def test_an_open_record_keeps_a_scrub_from_removing_its_generation_storage(tmp_p
     assert not storage.exists()
 
 
+def test_one_input_hands_out_the_sources_of_two_generators(tmp_path):
+    chain = Chain(tmp_path, own=True)
+
+    class TListReader(Flow):
+        """Takes all its Verilog sources through one input, for the tests of records."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Inputs(Flow.Inputs):
+            files: list[Path] = In(SourceType.Verilog, description="The Verilog sources.")
+
+        def run(self) -> None:
+            pass
+
+    result = Workspace(chain.run_root).run(Spec("t_list_reader", chain.load()))
+    assert result.passed, result.error
+    (own,), (library,) = chain.storages("top"), chain.storages("lib1")
+    with result.record.open() as run:
+        assert run.generated_sources == {
+            "gen/top.v": own / "gen" / "top.v",
+            "lib1:gen/lib1.v": library / "gen" / "lib1.v",
+        }
+        assert run.missing_generated == ()
+
+
 def test_a_dependency_generator_source_is_named_by_its_design(tmp_path):
     chain = Chain(tmp_path)
 
@@ -503,7 +528,7 @@ def test_a_dependency_generator_source_is_named_by_its_design(tmp_path):
         ("top.v", False, None),
     ]
     (storage,) = chain.storages("lib1")
-    assert row.generation == storage.name
+    assert row.sources[0].generation == storage.name
     with record.open() as run:
         assert run.generated_sources == {"lib1:gen/lib1.v": storage / "gen" / "lib1.v"}
         assert run.missing_generated == ()

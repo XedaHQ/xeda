@@ -293,7 +293,7 @@ def test_a_record_names_a_generated_input_by_its_name_and_the_key_of_its_storage
     (source,) = item.sources
     assert (source.path, source.generated) == ("gen/top.v", True) and source.digest
     (storage,) = world.storages()
-    assert item.generation == storage.name
+    assert source.generation == storage.name
     assert str(world.run_root) not in repr(record.to_dict())
 
 

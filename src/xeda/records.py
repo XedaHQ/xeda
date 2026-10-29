@@ -201,13 +201,16 @@ class InputSource:
     its producer. `dependency` is the index of the dependency in `RunRecord.dependencies`, or
     `None`. `producer` tells which producer wrote a generated source: `None` for the generator of
     the design itself, the name of the design for the generator of a dependency, and the name of
-    the node for a converter. It is `None` for a written source."""
+    the node for a converter. It is `None` for a written source. `generation` is the key of the
+    generation storage that holds a source of a generator, `<run root>/.generated/<design>/<key>`,
+    and `None` for any other source."""
 
     path: str
     generated: bool
     digest: str
     dependency: int | None = None
     producer: str | None = None
+    generation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -224,7 +227,6 @@ class InputRecord:
     output: str | None
     producer_run_id: str | None
     producer_run_dir: Path | None
-    generation: str | None
     sources: tuple[InputSource, ...]
 
     def __post_init__(self) -> None:
@@ -529,7 +531,6 @@ def _encode_input(item: InputRecord, run_root: Path) -> dict[str, Any]:
             if item.producer_run_dir is None
             else _run_dir_text(item.producer_run_dir, run_root)
         ),
-        "generation": item.generation,
         "sources": [
             {
                 "path": source.path,
@@ -537,6 +538,7 @@ def _encode_input(item: InputRecord, run_root: Path) -> dict[str, Any]:
                 "digest": source.digest,
                 "dependency": source.dependency,
                 "producer": source.producer,
+                "generation": source.generation,
             }
             for source in item.sources
         ],
@@ -705,6 +707,9 @@ def _decode_input(value: Any, run_root: Path) -> InputRecord:
                     else _integer(dependency, "inputs[].sources[].dependency")
                 ),
                 producer=_optional_text(source.get("producer"), "inputs[].sources[].producer"),
+                generation=_optional_text(
+                    source.get("generation"), "inputs[].sources[].generation"
+                ),
             )
         )
     return InputRecord(
@@ -714,7 +719,6 @@ def _decode_input(value: Any, run_root: Path) -> InputRecord:
         output=_optional_text(item.get("output"), "inputs[].output"),
         producer_run_id=_optional_text(item.get("producer_run_id"), "inputs[].producer_run_id"),
         producer_run_dir=None if where is None else run_root / where,
-        generation=_optional_text(item.get("generation"), "inputs[].generation"),
         sources=tuple(sources),
     )
 
@@ -943,9 +947,7 @@ def _generated_places(record: RunRecord) -> dict[str, tuple[str, Path | None, In
     The value is the kind of the directory (`storage` or `run_dir`), the directory, and the source.
     The directory is None when the record does not name it. A converter's source is a file of the
     run directory of its node, which an input row that the node produced names. The source of a
-    generator is a file of a generation storage, `<run root>/.generated/<design>/<key>`. A row
-    holds one key, the one of the generator that wrote its first generated source, so the sources
-    of another generator in that row have no place."""
+    generator is a file of its generation storage, `<run root>/.generated/<design>/<key>`."""
     from .run_dir import RunDirectoryError
 
     nodes = {
@@ -955,7 +957,6 @@ def _generated_places(record: RunRecord) -> dict[str, tuple[str, Path | None, In
     }
     places: dict[str, tuple[str, Path | None, InputSource]] = {}
     for row in record.inputs:
-        first = next((source for source in row.sources if source.generated), None)
         for source in row.sources:
             if not source.generated:
                 continue
@@ -966,14 +967,10 @@ def _generated_places(record: RunRecord) -> dict[str, tuple[str, Path | None, In
                 places[key] = ("run_dir", nodes[source.producer], source)
                 continue
             directory = None
-            if (
-                row.generation is not None
-                and first is not None
-                and first.producer == source.producer
-            ):
+            if source.generation is not None:
                 design = record.design if source.producer is None else source.producer
                 try:
-                    directory = generation_storage(record.run_root, design, row.generation)
+                    directory = generation_storage(record.run_root, design, source.generation)
                 except RunDirectoryError:
                     pass
             places[key] = ("storage", directory, source)
@@ -1156,9 +1153,6 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
     return outputs
 
 
-_NO_OWNER: Any = object()
-
-
 def _design_source(flow: Flow, path: Path) -> Any:
     """Return the source of the design of `flow` that is the file at `path`, or None."""
     for part in ("rtl", "tb"):
@@ -1212,6 +1206,9 @@ def _input_source(flow: Flow, path: str) -> InputSource:
         digest=_source_digest(flow, Path(path)),
         dependency=dependency,
         producer=_generated_producer(flow, source) if generated else None,
+        generation=(
+            flow.generation_keys.get(source.owner) if generated and source is not None else None
+        ),
     )
 
 
@@ -1260,22 +1257,11 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                             if producer_path is None
                             else run_root / _run_dir_text(Path(producer_path), run_root)
                         ),
-                        generation=None,
                         sources=sources,
                     )
                 )
             continue
         sources = tuple(_input_source(flow, path) for path in declared.paths)
-        # the key of the storage that wrote the first generated source that the input reads
-        owner = next(
-            (
-                found.owner
-                for path in declared.paths
-                if (found := _design_source(flow, Path(path))) is not None and found.generated
-            ),
-            _NO_OWNER,
-        )
-        generation = None if owner is _NO_OWNER else flow.generation_keys.get(owner)
         inputs.append(
             InputRecord(
                 name=declared.name,
@@ -1284,7 +1270,6 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                 output=declared.output,
                 producer_run_id=None,
                 producer_run_dir=None,
-                generation=generation,
                 sources=sources,
             )
         )

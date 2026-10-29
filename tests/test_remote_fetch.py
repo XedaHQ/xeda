@@ -100,7 +100,6 @@ def _input_row(name: str, producer: str) -> dict:
         "output": "out",
         "producer_run_id": "f" * 32,
         "producer_run_dir": f"d/{producer}",
-        "generation": None,
         "sources": [],
     }
 

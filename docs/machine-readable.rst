@@ -368,12 +368,13 @@ The record has these fields:
 ``inputs``
     One entry for each declared input: ``name``, ``origin`` (``source``,
     ``producer`` or ``none``), ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir``
-    (relative to the run root), ``generation`` and the ``sources`` that the input read, each as
-    ``{path, generated, digest, dependency, producer}``. For a generated source, ``path`` is its
-    name in the output of its producer, and ``producer`` tells which one wrote it: ``null`` for the
-    generator of the design itself, the name of the design for the generator of a dependency, and
-    the name of the node for a converter (the ``design`` input of a flow that a converter feeds
-    lists the sources that the converter generated). An input of cardinality ``many`` that is bound to
+    (relative to the run root) and the ``sources`` that the input read, each as
+    ``{path, generated, digest, dependency, producer, generation}``. For a generated source,
+    ``path`` is its name in the output of its producer, and ``producer`` tells which one wrote it:
+    ``null`` for the generator of the design itself, the name of the design for the generator of a
+    dependency, and the name of the node for a converter (the ``design`` input of a flow that a
+    converter feeds lists the sources that the converter generated). ``generation`` is the key of
+    the generation storage that holds a source of a generator, and ``null`` for any other source. An input of cardinality ``many`` that is bound to
     several producer outputs has one entry for each binding. These entries have the same ``name``,
     in the order of the bindings. Each entry has its own ``producer``, ``output``, ``producer_run_id`` and
     ``producer_run_dir``. A binding that repeats gives an entry that repeats. A reader groups the

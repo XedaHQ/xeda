@@ -557,7 +557,6 @@ def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
         "output": None,
         "producer_run_id": None,
         "producer_run_dir": None,
-        "generation": None,
         "sources": [
             {
                 "path": "given.dat",
@@ -565,6 +564,7 @@ def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
                 "digest": content_digest(design.root / "given.dat"),
                 "dependency": None,
                 "producer": None,
+                "generation": None,
             }
         ],
     }
