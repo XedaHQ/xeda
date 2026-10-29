@@ -409,9 +409,9 @@ def test_a_section_written_on_the_command_line_is_still_accepted(tmp_path):
 @pytest.mark.parametrize(
     ("setting", "field"),
     [
-        ("flows=3", "`flows`"),
-        ("flows=[]", "`flows`"),
-        ("flows.verilator=3", "`flows.verilator`"),
+        ("flows=3", "flows:"),
+        ("flows=[]", "flows:"),
+        ("flows.verilator=3", "flows.verilator.<key>:"),
     ],
 )
 def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_2(
@@ -437,9 +437,8 @@ def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_2(
 
     assert result.exit_code == 2, result.output
     assert document["outcome"] is None
-    assert document["error"]["code"] == "invalid_value"
-    assert field in document["error"]["message"]
-    assert "must be a mapping" in document["error"]["message"]
+    assert document["error"]["code"] == "unscoped_setting"
+    assert document["error"]["message"].startswith(field)
     assert "Traceback" not in result.output
     assert not run_root.exists(), "validation failed before creating a run root"
 

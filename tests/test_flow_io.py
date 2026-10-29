@@ -42,7 +42,7 @@ def _flow_with_model(kind, annotation, declaration):
     base = Flow.Inputs if kind == "Inputs" else Flow.Outputs
     model = type(kind, (base,), {"__annotations__": {"file": annotation}, "file": declaration})
     return type(
-        "_DeclarationProbe",
+        "DeclarationProbe",
         (Flow,),
         {
             "__doc__": "A declaration validation probe.",

@@ -571,7 +571,7 @@ def test_the_final_settings_decide_what_the_producer_writes(tmp_path) -> None:
     """Under the default settings the converter writes Verilog, which verilator reads. The
     settings that the user agreed on make it write VHDL: the final check refuses it."""
 
-    class _Writes(converter_flows()[0]):  # type: ignore[misc]
+    class WritesVerilog(converter_flows()[0]):  # type: ignore[misc]
         """Writes the language of its setting."""
 
         class Settings(Flow.Settings):
@@ -587,8 +587,8 @@ def test_the_final_settings_decide_what_the_producer_writes(tmp_path) -> None:
     design = _verilog_design(
         tmp_path,
         flows={
-            "verilator": {"inputs": {"design": _Writes.name}},
-            _Writes.name: {"language": "Vhdl"},
+            "verilator": {"inputs": {"design": WritesVerilog.name}},
+            WritesVerilog.name: {"language": "Vhdl"},
         },
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -600,7 +600,7 @@ def test_a_conversion_that_the_consumer_gains_from_its_settings_is_two_hops(tmp_
     """The consumer converts nothing under its default settings, so the static rule accepts the
     binding. Its agreed settings make it convert the design: a conversion is one hop."""
 
-    class _Maybe(converter_flows()[0]):  # type: ignore[misc]
+    class MaybeConverts(converter_flows()[0]):  # type: ignore[misc]
         """Converts VHDL into Verilog when its setting says so."""
 
         reads_sources = frozenset({SourceType.Verilog, SourceType.Vhdl})
@@ -614,13 +614,13 @@ def test_a_conversion_that_the_consumer_gains_from_its_settings_is_two_hops(tmp_
                 return None
             return DesignConversion(frozenset({SourceType.Vhdl}), frozenset({SourceType.Verilog}))
 
-    flows = {_Maybe.name: {"inputs": {"design": "bsc"}}}
+    flows = {MaybeConverts.name: {"inputs": {"design": "bsc"}}}
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    plan = runner.plan(_Maybe.name, _bluespec_design(tmp_path, flows=flows))
-    assert [node.name for node in plan.nodes] == ["bsc", _Maybe.name]
-    flows[_Maybe.name]["convert"] = True  # type: ignore[assignment]
+    plan = runner.plan(MaybeConverts.name, _bluespec_design(tmp_path, flows=flows))
+    assert [node.name for node in plan.nodes] == ["bsc", MaybeConverts.name]
+    flows[MaybeConverts.name]["convert"] = True  # type: ignore[assignment]
     with pytest.raises(FlowSettingsException, match=r"one hop"):
-        runner.plan(_Maybe.name, _bluespec_design(tmp_path, flows=flows))
+        runner.plan(MaybeConverts.name, _bluespec_design(tmp_path, flows=flows))
 
 
 @pytest.mark.parametrize(

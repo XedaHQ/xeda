@@ -855,7 +855,7 @@ def test_displaced_producer_without_nested_settings_still_validates_syntax(tmp_p
 
 
 def test_command_line_sections_keep_the_p1_run_flow_check(tmp_path):
-    with pytest.raises(FlowSettingsError, match="no flow of this run"):
+    with pytest.raises(FlowSettingsError, match="names no node of this run"):
         _plan(tmp_path, TTaker, command_line={"t_reader": {}})
 
 

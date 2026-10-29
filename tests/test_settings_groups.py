@@ -880,7 +880,7 @@ def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer(tmp_path):
         [(producer_only, "Extra inputs are not permitted", "", "extra_forbidden")], Nextpnr.Settings
     )
     suggest_dependency_node(Nextpnr, design, plain)
-    assert "flows.yosys_fpga" in plain.errors[0][1]
+    assert "-s yosys_fpga.%s=" % producer_only in plain.errors[0][1]
 
     hinted_message = "Extra inputs are not permitted; did you mean `other`?"
     hinted = FlowSettingsError(

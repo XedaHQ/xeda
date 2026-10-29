@@ -501,7 +501,7 @@ def test_the_default_reader_flag_is_refused_and_the_message_says_what_to_write()
     message = str(raised.value)
     assert ": read_verilog_flags " in message, message
     assert "write `read_verilog_flags: []`".lower() in message.lower(), message
-    assert "-s read_verilog_flags=" in message, message
+    assert "-s yosys_fpga.read_verilog_flags=" in message, message
     written = YosysFpga.Settings.model_validate(settings.model_dump(mode="json"))
     assert written.synth_pass_only_conflicts() == settings.synth_pass_only_conflicts() != []
     explicit = YosysFpga.Settings(
@@ -567,7 +567,7 @@ def test_the_default_front_end_is_refused_and_the_message_says_what_to_write():
     ((key, why),) = settings.synth_pass_only_conflicts()
     assert key == "systemverilog"
     assert "read_verilog -sv" in why and "read_slang" in why, why
-    assert "systemverilog: default" in why and "-s systemverilog=default" in why, why
+    assert "systemverilog: default" in why and "-s yosys_fpga.systemverilog=default" in why, why
     with pytest.raises(FlowSettingsError) as raised:
         YosysFpga.check_settings_supported(settings)
     assert ": systemverilog " in str(raised.value)
@@ -601,7 +601,9 @@ def test_read_systemverilog_flags_are_refused_when_nonempty_and_accepted_when_em
     settings = _settings(synth_pass_only=True, **PASS_ONLY_READER, read_systemverilog_flags=["-x"])
     ((key, why),) = settings.synth_pass_only_conflicts()
     assert key == "read_systemverilog_flags"
-    assert "read_systemverilog_flags: []" in why and "-s read_systemverilog_flags=" in why, why
+    assert (
+        "read_systemverilog_flags: []" in why and "-s yosys_fpga.read_systemverilog_flags=" in why
+    ), why
     settings.read_systemverilog_flags = []  # an assignment is judged as a construction is
     assert settings.synth_pass_only_conflicts() == []
     settings.systemverilog = "slang"

@@ -444,7 +444,7 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
     the comment lines) and a flow that reads Verilog. Both record what they do in `events`."""
     fake, _rival, _to_vhdl = converter_flows()
 
-    class _Converter(fake):  # type: ignore[valid-type, misc]
+    class BluespecConverter(fake):  # type: ignore[valid-type, misc]
         """Converts a Bluespec source into a module of its text, less the comment lines."""
 
         def run(self) -> None:
@@ -494,7 +494,7 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
         def run(self) -> None:
             events.append(("reader runs", [s.file.name for s in self.design.rtl.sources]))
 
-    return _Converter, TReader
+    return BluespecConverter, TReader
 
 
 def launch(tmp_path: Path, classes: tuple[type[Flow], type[Flow]], **options: Any):

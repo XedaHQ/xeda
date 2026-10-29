@@ -219,7 +219,7 @@ def test_a_dictionary_of_tables_still_goes_on_into_the_table(tmp_path):
     [
         "ir_drop.instance_power.u_core/reg 1=1mW",
         "ir_drop.instance_power.\\u_core.reg[1]$x=1mW",
-        "flows.openroad.ndr.assignments.u_core.n$1=wide",
+        "openroad.ndr.assignments.u_core.n$1=wide",
         "ir_drop.nets.u_core.VDD=1.1V",
     ],
 )
@@ -242,7 +242,7 @@ def test_the_command_line_takes_no_other_key_with_signs(token):
 def test_a_key_starts_a_name_of_a_tool_after_a_path_of_identifiers_only():
     paths = {"ir_drop.instance_power"}
     assert starts_opaque_key("ir_drop.instance_power.a b", paths)
-    assert starts_opaque_key("flows.openroad.ir_drop.instance_power.a b", paths)
+    assert starts_opaque_key("openroad.ir_drop.instance_power.a b", paths)
     assert not starts_opaque_key("ir_drop.instance_power", paths)
     assert not starts_opaque_key("x/ir_drop.instance_power.a b", paths)
 
