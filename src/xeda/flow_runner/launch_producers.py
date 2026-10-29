@@ -20,6 +20,7 @@ from ..flow import Flow, FlowDependencyFailure
 from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..records import INTERNAL_ERROR, ErrorInfo
 from ..run_dir import RunDirectoryError
+from ..utils import Canceled
 from .bindings import NodeKey
 from .error_codes import error_info
 from .launch_run import refuse_inputs_inside
@@ -156,6 +157,8 @@ def _produced(
         except Exception as error:
             if isinstance(error, DeliveryError) and error.before_run:
                 raise  # refused before the producer's tool ran: not its failure
+            if isinstance(error, Canceled):
+                raise  # the launch stopped: the producer did not fail, and nothing is blocked
             cause = error_info(error, node=producer_node.name)
             raise FlowDependencyFailure(
                 f"producer {producer_node.name} failed ({cause.code}): {cause.message}"

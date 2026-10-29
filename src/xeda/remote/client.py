@@ -76,10 +76,12 @@ from ..outcomes import (
     run_document,
     spec_document,
 )
-from ..proc_utils import TOOL_OUTPUT, tool_output_stream
+from ..cancel import launch_canceled, never_canceled
+from ..proc_utils import CANCEL_POLL, TOOL_OUTPUT, tool_output_stream
 from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..types import Unset
+from ..utils import Canceled
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
 from .errors import (
@@ -251,6 +253,8 @@ class _Agent:
         self.launching = False
         #: Set by the first Ctrl-C during the launch.
         self.canceled = threading.Event()
+        #: Whether a `CancelToken`, and not Ctrl-C, canceled the launch.
+        self.by_request = False
         #: Set by the second Ctrl-C: the connection is closed.
         self.closed = False
         #: Whether the launch keeps running: Ctrl-C and a lost connection only stop the local
@@ -303,13 +307,15 @@ class _Agent:
             self._wake.wait(HEARTBEAT)
             self._wake.clear()
 
-    def interrupt(self) -> None:
-        """The reaction to Ctrl-C during the launch. It runs in a signal handler: it takes no lock
-        that the main thread may hold, and it does not log."""
+    def interrupt(self, *, quiet: bool = False) -> None:
+        """The reaction to Ctrl-C during the launch, and to a `CancelToken` (`quiet`: the library
+        says nothing). It runs in a signal handler: it takes no lock that the main thread may
+        hold, and it does not log."""
         if self.keep_running:
             if not self.closed:
                 self.closed = True
-                os.write(2, f"\nLeaving the launch on {self.host} running.\n".encode())
+                if not quiet:
+                    os.write(2, f"\nLeaving the launch on {self.host} running.\n".encode())
                 try:
                     self.process.kill()  # the agent sees the end of its input and leaves
                 except OSError:
@@ -317,12 +323,24 @@ class _Agent:
         elif not self.canceled.is_set():
             self.canceled.set()
             self._wake.set()
-            os.write(
-                2,
-                f"\nCanceling the launch on {self.host}. Press Ctrl-C again to close the "
-                "connection.\n".encode(),
-            )
+            self.by_request = quiet
+            if not quiet:
+                os.write(
+                    2,
+                    f"\nCanceling the launch on {self.host}. Press Ctrl-C again to close the "
+                    "connection.\n".encode(),
+                )
         elif not self.closed:
+            self.closed = True
+            try:
+                self.process.kill()
+            except OSError:
+                pass
+
+    def drop(self) -> None:
+        """Close the connection now: a read that waits for the agent ends. It is safe in any
+        thread."""
+        if not self.closed:
             self.closed = True
             try:
                 self.process.kill()
@@ -491,7 +509,79 @@ class _Agent:
 @contextmanager
 def _cancel_on_interrupt(agent: _Agent) -> Iterator[None]:
     """Send a cancel request to the agent on Ctrl-C, for the time of the block. A second Ctrl-C
-    closes the connection. Outside the main thread no handler is installed."""
+    closes the connection. Outside the main thread no handler is installed. The request of the
+    launch to stop (`cancel.launch_canceled`) does the same as the first Ctrl-C, in any thread."""
+    done = threading.Event()
+
+    def watch() -> None:
+        while not done.wait(CANCEL_POLL):
+            if launch_canceled():
+                agent.interrupt(quiet=True)
+                return
+
+    watcher = threading.Thread(target=contextvars.copy_context().run, args=(watch,), daemon=True)
+    watcher.start()
+    try:
+        with _interrupt_handler(agent):
+            yield
+    finally:
+        done.set()
+        watcher.join()
+
+
+@contextmanager
+def _cancel_while_fetching(
+    agent: _Agent, run: "_Run", destination_text: str, mirror_root: Path
+) -> Iterator[None]:
+    """Stop the fetch and the delivery of the results when the launch is asked to stop
+    (`cancel.launch_canceled`), in any thread, for the time of the block. The launch on the host
+    has finished, so the watch closes the connection: a read that waits for the agent ends. The
+    waits for the locks of the mirror observe the request too. Either way the block raises
+    `RemoteInterrupted`, as Ctrl-C does at this point."""
+    done = threading.Event()
+    closed = threading.Event()
+
+    def watch() -> None:
+        while not done.wait(CANCEL_POLL):
+            if launch_canceled():
+                closed.set()
+                agent.drop()
+                return
+
+    watcher = threading.Thread(target=contextvars.copy_context().run, args=(watch,), daemon=True)
+    watcher.start()
+    try:
+        yield
+    except Exception as error:
+        if closed.is_set() or isinstance(error, Canceled):
+            raise _interrupted(run, destination_text, mirror_root, "on request") from None
+        raise
+    finally:
+        done.set()
+        watcher.join()
+    if closed.is_set():
+        # the block ended without a read of the closed connection, as a local delivery does
+        raise _interrupted(run, destination_text, mirror_root, "on request")
+
+
+def _interrupted(
+    run: "_Run", destination_text: str, mirror_root: Path, by: str
+) -> RemoteInterrupted:
+    """The error for a stop `by` Ctrl-C or on request, after the launch on the host had finished."""
+    if run.phase == _DELIVERING:
+        return RemoteInterrupted(
+            f"Canceled {by} while {run.phase}. The launch on {destination_text} had "
+            f"finished, and its results are in the mirror {mirror_root}. The files in "
+            "--outputs-to may be partly written. Run the request again to deliver them."
+        )
+    return RemoteInterrupted(
+        f"Canceled {by} while {run.phase}. The launch on {destination_text} had "
+        "finished, and its results are on the host. Run the request again to fetch them."
+    )
+
+
+@contextmanager
+def _interrupt_handler(agent: _Agent) -> Iterator[None]:
     if threading.current_thread() is not threading.main_thread():
         yield
         return
@@ -950,7 +1040,8 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
             else ""
         )
         if agent.canceled.is_set():
-            raise RemoteCanceled(f"The launch on {agent.host} was canceled by Ctrl-C.{warning}")
+            by = "" if agent.by_request else " by Ctrl-C"
+            raise RemoteCanceled(f"The launch on {agent.host} was canceled{by}.{warning}")
         if agent.keep_running:
             raise RemoteCanceled(f"The launch on {agent.host} was canceled.{warning}")
         raise RemoteCanceled(
@@ -1203,7 +1294,9 @@ def _discard_mirrors(
             if held is None:
                 locked.enter_context(
                     acquire_all(
-                        [LockRequest("run_dir", d, True) for d in existing], run_root=local_root
+                        [LockRequest("run_dir", d, True) for d in existing],
+                        run_root=local_root,
+                        canceled=never_canceled,  # it cleans up after a cancel
                     )
                 )
             for directory in existing:
@@ -1698,18 +1791,19 @@ def _run(
                     _print_dry_run(destination_text, document)
                     outcome = RemoteOutcome(document, result.get("error") is None)
                 else:
-                    outcome = _finish(
-                        agent,
-                        local,
-                        run,
-                        result,
-                        mirror_root=mirror_root,
-                        local_root=local_root,
-                        remote_run_root=remote_run_root,
-                        translate=translate,
-                        fetch_all=fetch_all,
-                        outputs_to=outputs_to,
-                    )
+                    with _cancel_while_fetching(agent, run, destination_text, mirror_root):
+                        outcome = _finish(
+                            agent,
+                            local,
+                            run,
+                            result,
+                            mirror_root=mirror_root,
+                            local_root=local_root,
+                            remote_run_root=remote_run_root,
+                            translate=translate,
+                            fetch_all=fetch_all,
+                            outputs_to=outputs_to,
+                        )
                 agent.send({"bye": True}, "ending the session")
             except BaseException:
                 agent.close(wait=5)
@@ -1717,17 +1811,8 @@ def _run(
             agent.close()
             return outcome
     except KeyboardInterrupt:
-        if run.phase == _DELIVERING:
-            raise RemoteInterrupted(
-                f"Canceled by Ctrl-C while {run.phase}. The launch on {destination_text} had "
-                f"finished, and its results are in the mirror {mirror_root}. The files in "
-                "--outputs-to may be partly written. Run the request again to deliver them."
-            ) from None
         if run.phase is not None:
-            raise RemoteInterrupted(
-                f"Canceled by Ctrl-C while {run.phase}. The launch on {destination_text} had "
-                "finished, and its results are on the host. Run the request again to fetch them."
-            ) from None
+            raise _interrupted(run, destination_text, mirror_root, "by Ctrl-C") from None
         raise RemoteCanceled(
             f"Canceled by Ctrl-C. The launch on {destination_text} is stopped or was never "
             "started."

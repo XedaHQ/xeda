@@ -14,7 +14,9 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
+from .cancel import CancelToken
 from .errors import SpecError, StalePlanError
+from .events import Event
 from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.plan_check import workspace_difference
@@ -216,8 +218,8 @@ class Workspace:
         overwrite_outputs: bool | Unset = UNSET,
         post_cleanup: bool | Unset = UNSET,
         post_cleanup_purge: bool | Unset = UNSET,
-        cancel: Any | None = None,
-        on_event: Any | None = None,
+        cancel: CancelToken | None = None,
+        on_event: Callable[[Event], None] | None = None,
     ) -> Result:
         """Run a `Spec` or a `Plan`, and return what the launch did to every node.
 
@@ -233,10 +235,24 @@ class Workspace:
         exception. `prune_variants` removes the other run directories of every node of the plan,
         producers included: those of the same design and target that the launch does not use.
         It and the questions about a delivery ask `confirm`. `post_cleanup` and
-        `post_cleanup_purge` act on the nodes with the disposition `ran` only."""
+        `post_cleanup_purge` act on the nodes with the disposition `ran` only.
+
+        `cancel` stops the launch when `cancel.canceled` becomes true: the launch stops what it
+        waits for, generates or runs, releases its locks and returns a `Result` with the outcome
+        `canceled`. `on_event` gets an `Event` for the start and the end of the launch and of each
+        node, in the calling thread. It may reuse the locks that the launch holds and no other
+        (`LeaseHeldError`). An exception that it raises cancels the launch, and `run` raises it
+        again, unchanged, once the launch has released everything. A `KeyboardInterrupt` stops the
+        tool's whole process group, releases the locks and propagates.
+
+        A thread that holds a lock of Xeda (inside `on_event` or `confirm`) cannot start a launch:
+        it raises `LeaseHeldError` before it plans."""
         from .flow_runner import DefaultRunner
         from .flow_runner.error_codes import public_error
+        from .flow_runner.run_lock import refuse_if_held
         from .proc_utils import TOOL_OUTPUT
+
+        refuse_if_held()
 
         given = {
             "rebuild_all": rebuild_all,
@@ -278,14 +294,29 @@ class Workspace:
             answer = self.confirm
             runner.confirm_overwrite = lambda conflicts: answer(_overwrite_question(conflicts))
             runner.confirm_scrub = lambda candidates: answer(_prune_question(candidates))
+        from_callback: list[Exception] = []
+
+        def relay(event: Event) -> None:
+            assert on_event is not None
+            try:
+                on_event(event)
+            except Exception as error:
+                from_callback.append(error)
+                raise
+
         token = TOOL_OUTPUT.set(self.tool_output)
         try:
             return runner.run_spec(
-                spec, local_settings=self.local_settings, options=options, expected=expected
+                spec,
+                local_settings=self.local_settings,
+                options=options,
+                expected=expected,
+                cancel=cancel,
+                on_event=None if on_event is None else relay,
             )
         except Exception as error:
             public = public_error(error)
-            if public is error:
+            if public is error or error in from_callback:
                 raise
             raise public from error
         finally:

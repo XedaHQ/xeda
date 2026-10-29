@@ -12,6 +12,7 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
+from .cancel import never_canceled
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
 from .flow import Flow
@@ -207,6 +208,7 @@ class Docker(XedaBaseModel):
                     merge_stderr=True,
                     timeout=DOCKER_KILL_TIMEOUT,
                     cwd=cwd,
+                    canceled=never_canceled,  # it runs because the launch was canceled
                 )
             except (OSError, ProcessTimeout) as e:
                 log.warning("Could not stop container %s: %s", container, e)

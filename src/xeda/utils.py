@@ -1298,6 +1298,13 @@ class XedaException(Exception):
     """The base class of all Xeda exceptions. The command line catches and reports them."""
 
 
+class Canceled(XedaException):
+    """A launch was canceled: its `CancelToken` said so, or a callback of the caller raised.
+
+    A call that was waiting, generating or running a tool stops with this exception. The launch
+    turns it into the outcome `canceled`: it is never a failure of the node."""
+
+
 def restore_exception(cls: type[Exception], args: tuple[Any, ...], state: dict[str, Any]) -> Any:
     """Rebuild an exception that was pickled, without calling its constructor.
 
