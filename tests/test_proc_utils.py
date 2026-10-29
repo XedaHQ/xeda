@@ -1351,6 +1351,42 @@ def _orphaning(started: Path, announce: str | None = None) -> str:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_a_tool_that_exits_normally_leaves_a_detached_child_running(tmp_path):
+    """A successful tool run does not stop a child that started a new session."""
+    started = tmp_path / "started"
+    child = (
+        "import os, pathlib, time\n"
+        f"pathlib.Path({str(started)!r}).write_text(str(os.getpid()))\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    program = (
+        "import subprocess, sys\n"
+        f"child = subprocess.Popen([sys.executable, '-c', {child!r}], "
+        "stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, "
+        "start_new_session=True, text=True)\n"
+        "assert child.stdout.readline() == 'ready\\n'\n"
+        "print(child.pid, flush=True)\n"
+    )
+    try:
+        reported = int(run_process(sys.executable, ["-c", program], stdout=True))
+        assert reported == _read_pid(started)
+        assert _is_running(reported)
+    finally:
+        pid = _read_pid(started)
+        if pid is not None:
+            _kill(pid)
+        else:
+            # The child may be alive even if it could not write its PID file.
+            for process in psutil.process_iter(["cmdline"]):
+                try:
+                    if process.info["cmdline"] == [sys.executable, "-c", child]:
+                        process.kill()
+                except (psutil.Error, OSError):
+                    pass
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_an_interrupt_stops_what_a_tool_that_already_ended_left_running(tmp_path):
     """The leader ended and nobody reaped it, so its group id is still its own. The interrupt
     stops the child that outlived it. The leader ended by itself, so the stop hook does not run."""

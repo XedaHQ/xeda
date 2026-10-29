@@ -222,9 +222,9 @@ def _interrupt_like_ctrl_c(number: int, _frame: Any) -> None:
 
 
 class _Deadline:
-    """A watch on `proc`. Once `timeout` seconds pass (`None`: never) while the process still
-    runs, it stops the process and, when the process leads a session of its own (`group`,
-    POSIX), every process that it started.
+    """A watch on `proc`. Once `timeout` seconds pass (`None`: never) while the leader still
+    runs, it stops the leader and, when it leads a session of its own (`group`, POSIX), signals
+    its process group and the descendants still identifiable at the start of the stop.
 
     Use it as a context manager around everything that waits for `proc`. On leaving, it cancels
     the timer and joins its thread, so nothing signals afterwards. An exception (Ctrl-C
@@ -232,10 +232,10 @@ class _Deadline:
     `group`, Ctrl-C forwards SIGINT, other exceptions send SIGTERM, and the leader gets
     `PROCESS_STOP_GRACE` seconds to exit without being reaped. The group then gets SIGKILL
     before the leader is reaped, so the group id cannot be recycled (the other members of the
-    group are not children of the caller, so they cannot be reaped here). So does each process
-    that descended from the leader when the stop began, in whatever group: SBY, for one, starts
-    each engine in a group of its own. `on_stop` then runs, on the thread that leaves the
-    context, as `run_process` documents.
+    group are not children of the caller, so they cannot be reaped here). Each descendant found
+    at the start of the stop also gets SIGKILL, even in another group. A detached child that the
+    leader left behind before the stop may have been reparented and cannot be found this way.
+    `on_stop` then runs on the thread that leaves the context, as `run_process` documents.
 
     A process with a `group` runs in a session of its own, so the terminal's Ctrl-C and hangup
     do not reach it. Within the context, on the main thread, SIGTERM and SIGHUP therefore raise
@@ -960,14 +960,15 @@ def run_process(
     child with no log gets the terminal itself. `print_command` shows the command line in
     `"terminal"` mode only.
 
-    On POSIX the child leads a session and a process group of its own, so that stopping it also
-    stops the processes that it started: after `timeout` seconds, and when an exception (Ctrl-C
-    included) interrupts the wait. On other systems only the child is stopped. `timeout` stops
-    the process after this many seconds and raises `ProcessTimeout`. SIGTERM and SIGHUP to Xeda
-    stop the tool as Ctrl-C does, while it runs on the main thread (`_Deadline`). Another one of
-    them while the tool is being stopped waits until the stop, and the hook, are done. An
-    interrupted wait also stops a child that outlived the tool and still holds its output open,
-    because Xeda reaps the tool only after the output ends.
+    On POSIX the child leads a session and a process group of its own. A timeout or an exception
+    (Ctrl-C included) signals that group and kills descendants identifiable when the stop begins.
+    A detached child reparented before then may survive. On other systems only the child is
+    stopped. `timeout` applies while the child still runs; it stops the child after this many
+    seconds and raises `ProcessTimeout`. SIGTERM and SIGHUP to Xeda stop the tool as Ctrl-C does
+    while it runs on the main thread (`_Deadline`). Another one of them while the tool is being
+    stopped waits until the stop, and the hook, are done. An interrupted wait also signals the
+    former leader's group if the leader has not been reaped, stopping a child in that group that
+    still holds an output pipe open.
 
     The process starts in `cwd`, else in the current directory. Its environment variable `PWD`
     names that directory (`cwd` as an absolute path, resolved only if it holds `..`: `_pwd`) and
