@@ -1461,3 +1461,23 @@ def test_a_dry_run_plans_the_deliveries_and_asks_nothing(tmp_path, remote_host, 
         _last(document)["deliveries"]
     )
     assert (out / "config.txt").read_text() == "yours\n"
+
+
+def test_a_path_in_a_git_dependency_checkout_of_the_remote_is_the_local_checkout(tmp_path):
+    """Planning here fetched the same checkout under the same key, into the local run root, not
+    into the mirror."""
+    remote_run_root = PurePosixPath("/w/xeda_run")
+    translate = client._translation(
+        remote_run_root=remote_run_root,
+        mirror_root=tmp_path / "xeda_run" / "@host",
+        inputs_dir=PurePosixPath("/w/inputs"),
+        files={},
+        generated=(),
+        design_root=tmp_path / "design",
+        local_root=tmp_path / "xeda_run",
+    )
+    checkout = ".dependencies/abc/checkout/lib/pins.lpf"
+    assert translate(f"{remote_run_root}/{checkout}") == str(tmp_path / "xeda_run" / checkout)
+    assert translate(f"{remote_run_root}/top/nextpnr") == str(
+        tmp_path / "xeda_run/@host/top/nextpnr"
+    )

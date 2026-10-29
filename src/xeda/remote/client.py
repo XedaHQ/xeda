@@ -59,6 +59,7 @@ from ..deliver import (
 from ..design import generator_of
 from ..plan import PlanDelivery, delivery_key, planned_destination
 from ..flow_runner import DefaultRunner, launch_generation
+from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
@@ -1241,10 +1242,13 @@ def _translation(
     files: Mapping[str, str],
     generated: Collection[str],
     design_root: Path,
+    local_root: Path,
 ) -> Callable[[str], Optional[str]]:
     """Map a path on the remote to the path of the same file here, or to `None`.
 
-    A path in the run root of the remote goes to the same place in the mirror. A path in the
+    A path in the Git dependency checkouts of the remote goes to the same checkout in the local run
+    root, which planning here fetched under the same key. Any other path in the run root of the
+    remote goes to the same place in the mirror. A path in the
     inputs directory goes to the local file that was sent there, or else to the same place below
     the design root: a place that the remote makes for an output (`{path: out/trace.txt}`) has
     the same name there. The inputs directory itself goes to the design root. A file that xeda
@@ -1252,6 +1256,7 @@ def _translation(
     file here, and its path stays. So does a path elsewhere (a tool, a store of the remote)."""
     sent = {(inputs_dir / name).as_posix(): local for name, local in files.items()}
     made = {(inputs_dir / name).as_posix() for name in generated}
+    checkouts = remote_run_root / DEPENDENCIES_DIRECTORY
 
     def translate(text: str) -> Optional[str]:
         if not text.startswith("/"):
@@ -1259,6 +1264,8 @@ def _translation(
         path = PurePosixPath(text)
         if ".." in path.parts:
             return None
+        if path.is_relative_to(checkouts):
+            return str(local_root / DEPENDENCIES_DIRECTORY / path.relative_to(checkouts))
         if path == remote_run_root or path.is_relative_to(remote_run_root):
             return str(mirror_root / path.relative_to(remote_run_root))
         if path == inputs_dir:
@@ -1669,6 +1676,7 @@ def _run(
                     files={name: str(path) for name, path in package.files.items()},
                     generated=package.generated,
                     design_root=design.root,
+                    local_root=local_root,
                 )
                 if not dry_run:
                     run.localize = lambda: _localized(
