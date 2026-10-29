@@ -260,7 +260,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   record `generation.yaml` (`flow_runner/launch_generation.py`, `tests/test_generation_storage.py`).
   The key hashes the recipe, `design_configuration` (no content), the generator inputs and the
   executable; the inherited environment is freshness evidence, never key. The generator runs in
-  the storage with `DESIGN_ROOT` and `XEDA_GENERATED`; flows get `execution_design`, and the plan,
+  its `cwd` below the design root, else in the storage (Chisel: the design root), with `DESIGN_ROOT`
+  and `XEDA_GENERATED`; what it writes there itself is its own, not a write of the launch; flows get `execution_design`, and the plan,
   the identity and the node configuration use the declared design. A launch takes the locks of its
   whole graph in one `run_lock.acquire_all` call (run directories, then storages, then
   destinations, each by one resource key; it waits only for the first and, on a busy later lock,

@@ -107,6 +107,20 @@ def test_a_dependency_generator_input_outside_its_root_cannot_be_sent(tmp_path):
         _chain_document(tmp_path, chain)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
+@pytest.mark.parametrize("where", ["inside", "outside", "in a declared directory"])
+def test_a_generator_cwd_through_a_link_cannot_be_sent(tmp_path, where):
+    cwd = "gen/sub" if where == "in a declared directory" else "link"
+    world = _world(tmp_path, generator={"cwd": cwd, "sources": ["spec.txt", "gen.py", "gen"]})
+    target = (tmp_path if where == "outside" else world.root) / "work"
+    target.mkdir()
+    (world.root / "gen").mkdir()
+    (world.root / cwd).symlink_to(target, target_is_directory=True)
+    with pytest.raises(DesignValidationError, match=rf"`cwd` '{cwd}', which a link leads to"):
+        _document(tmp_path, world.load())
+    assert world.runs == 0
+
+
 def test_a_generator_without_sources_cannot_be_sent(tmp_path):
     world = _world(tmp_path, generator={"sources": []})
     with pytest.raises(DesignValidationError) as error:
@@ -446,23 +460,6 @@ def test_the_host_plans_the_identity_of_a_design_that_merges_units_with_content(
         raise dry.error
     planned = dry.document["plan"]["nodes"]
     assert [n["name"] for n in planned] == [n.name for n in local.nodes]
-
-
-@pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
-def test_a_working_directory_that_is_a_link_is_made_under_its_own_name_on_the_host(
-    tmp_path, remote_host
-):
-    world = _world(tmp_path, generator={"cwd": "link"})
-    (world.root / "real" / "work").mkdir(parents=True)
-    (world.root / "link").symlink_to("real/work", target_is_directory=True)
-    document, package = _document(tmp_path, world.load())
-    assert "link" in package.directories and "real/work" not in package.directories
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
-    if outcome.error is not None:
-        raise outcome.error
-    assert outcome.success, outcome.document
-    cwd, _design_root, _storage = world.where
-    assert cwd.endswith("/link")
 
 
 # ----------------------------------------- what is refused before a Git dependency is fetched

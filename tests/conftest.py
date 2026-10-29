@@ -207,6 +207,25 @@ def _empty_user_config_home(
         yield home
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _launches_see_one_environment(
+    _importing_the_tests_leaves_the_environment_alone,
+) -> Iterator[None]:
+    """pytest sets `PYTEST_CURRENT_TEST` anew for each phase of a test (setup, call), and a changed
+    variable makes a node stale (the ruled session variables do not include it). So the launches
+    of the tests take their snapshot without it: a launch in a fixture and one in the test body
+    see the same environment. The product rule itself is unchanged."""
+    from xeda.flow_runner.environment import EnvironmentSnapshot
+
+    def take(cls, private_env):
+        inherited = {k: v for k, v in os.environ.items() if k not in PYTEST_OWN_VARIABLES}
+        return cls(inherited, dict(private_env))
+
+    with pytest.MonkeyPatch.context() as session:
+        session.setattr(EnvironmentSnapshot, "take", classmethod(take))
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _no_test_reads_the_user_config(
     monkeypatch, _empty_user_config_home, _environment_is_left_as_found

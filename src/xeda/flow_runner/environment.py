@@ -68,7 +68,6 @@ SESSION_VARIABLES: Final[frozenset[str]] = frozenset(
         "SSH_CONNECTION",
         "SSH_TTY",
         "XDG_SESSION_ID",
-        "PYTEST_CURRENT_TEST",  # pytest changes it with every phase of a test
         "XEDA_RUN_ROOT",
         "XEDA_REMOTE",
         "XEDA_LOG_LEVEL",
