@@ -419,6 +419,21 @@ def generated_world(tmp_path: Path) -> tuple[World, Workspace, RunRecord]:
     return world, workspace, result.record
 
 
+def test_a_storage_that_was_gone_at_the_lease_hands_out_nothing(tmp_path, monkeypatch):
+    world, _workspace, record = generated_world(tmp_path)
+    (storage,) = world.storages()
+    aside = storage.with_name(storage.name + ".aside")
+    storage.rename(aside)  # as while another launch generates it again
+
+    def hook(path: Path) -> None:
+        if path == lock_file(record.run_dir) and aside.exists():
+            aside.rename(storage)  # back, with the same bytes, but after the leases were chosen
+
+    monkeypatch.setattr(run_lock, "acquired_hook", hook)
+    with record.open() as run:
+        assert run.generated_sources == {} and run.missing_generated == ("gen/top.v",)
+
+
 def test_the_record_names_the_generated_source_and_its_producer(tmp_path):
     world, _workspace, record = generated_world(tmp_path)
     (row,) = record.inputs

@@ -333,10 +333,19 @@ class RunRecord:
         if not os.path.lexists(where):
             raise RecordError(f"{where} does not exist", code="missing_record", path=where)
         places = _generated_places(self)
-        leases = [
-            LockRequest("storage" if kind == "storage" else "run_dir", directory, False)
+        leased = {
+            directory: kind
             for kind, directory, _source in places.values()
             if directory is not None and directory.is_dir()
+        }
+        # a directory that was not there to lease hands out nothing, even if it is back now
+        places = {
+            key: (kind, directory if directory in leased else None, source)
+            for key, (kind, directory, source) in places.items()
+        }
+        leases = [
+            LockRequest("storage" if kind == "storage" else "run_dir", directory, False)
+            for directory, kind in leased.items()
         ]
         with acquire_all(
             [LockRequest("run_dir", self.run_dir, False), *leases], run_root=self.run_root
