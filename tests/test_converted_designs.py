@@ -365,6 +365,11 @@ def _unreadable(flow_class: type[Flow], design: Design) -> set[SourceType]:
     }
 
 
+#: The flows that read both VHDL and Verilog but refuse a design that lists both, and the language
+#: that the refusal names as unread next to the other (`sby`: one formal model has one language).
+MIXED_LANGUAGE_REFUSALS = {"sby": SourceType.Vhdl}
+
+
 @pytest.mark.parametrize("bluespec_testbench", [False, True], ids=["verilog_tb", "bluespec_tb"])
 @pytest.mark.parametrize("cls, name", flow_classes(), ids=[name for _cls, name in flow_classes()])
 def test_a_bluespec_design_plans_a_conversion_with_its_reason_or_fails_with_a_refusal(
@@ -393,7 +398,10 @@ def test_a_bluespec_design_plans_a_conversion_with_its_reason_or_fails_with_a_re
         refusing = dict((n, c) for c, n in flow_classes())[match.group(1)]
         sources_of_design = [*design.rtl.sources, *design.tb.sources]
         refused = {s.type for s in sources_of_design if s.type.name in message}
-        assert refused & _unreadable(refusing, design), f"{name} refuses wrongly: {message}"
+        unread = _unreadable(refusing, design)
+        if match.group(1) in MIXED_LANGUAGE_REFUSALS:
+            unread.add(MIXED_LANGUAGE_REFUSALS[match.group(1)])
+        assert refused & unread, f"{name} refuses wrongly: {message}"
         return
     for node in plan.nodes:
         flow_class = node.flow_class

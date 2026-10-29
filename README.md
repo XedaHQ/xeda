@@ -214,6 +214,12 @@ generated scripts, reports and the effective settings are in the run root, `xeda
     then the final database, SDC file, DEF file, netlist and parasitics, with the timing, power
     and IR drop report. It checks timing, design rule violations and antenna violations. It can
     also merge the GDSII layout with KLayout and save images of the design
+- [SymbiYosys](https://github.com/YosysHQ/sby) formal property checker, with Verilog and
+  SystemVerilog through slang and VHDL through the GHDL Yosys plugin
+  - `sby`: checks one RTL design with a bounded model check, an unbounded proof or a cover search,
+    with the top module that the user names. The user's harness owns the clocks, the reset, the
+    initial state and the assumptions. The flow always runs and never reuses a formal result. It
+    refuses a design that mixes VHDL with Verilog or SystemVerilog
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator

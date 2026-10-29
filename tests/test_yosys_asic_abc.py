@@ -25,7 +25,7 @@ from xeda.units import Time
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
 from .test_yosys_asic_groups import no_liberty_message, _abc_script, _refused, _run
 from .test_yosys_asic_sequential import _enable_design
-from .tool_utils import require_yosys, require_yosys_tcl
+from .tool_utils import REQUIRE_TOOLS, require_yosys, require_yosys_tcl
 from .yosys_format import forced_script_format
 
 #: The script of each composed strategy at its defaults, as `abc -script` takes it. The text is
@@ -756,8 +756,51 @@ def test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(
     """`mfs3` can stop ABC on an assertion failure with other strategies and designs (the
     multiplier of the default design with `area_2`, and the delay strategies)."""
     _real(script_format)
-    run = _run_real(tmp_path, script_format, enables=True, abc={"strategy": "area_0", "mfs3": True})
-    assert "ABC: + mfs3 -aemvz -I 4 -O 2" in (run / "yosys.log").read_text()
+    design = _enable_design(tmp_path / "design")
+    settings = _tiny(tmp_path, abc={"strategy": "area_0", "mfs3": True})
+    with contextlib.suppress(FlowException), forced_script_format(script_format):
+        DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
+    (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
+    log = (results.parent / "yosys.log").read_text()
+    if "ABC: ** cmd error: unknown command 'mfs3'" in log:
+        message = "the ABC bundled with this yosys does not provide the mfs3 command"
+        if REQUIRE_TOOLS:
+            pytest.fail(f"{message}; XEDA_TESTS_REQUIRE_TOOLS is set")
+        pytest.skip(message)
+    assert json.loads(results.read_text())["outcome"] == "passed", results.read_text()
+    assert "ABC: + mfs3 -aemvz -I 4 -O 2" in log
+
+
+@pytest.mark.parametrize(
+    ("require_tools", "outcome"), [(False, pytest.skip.Exception), (True, pytest.fail.Exception)]
+)
+def test_yosys_mfs3_missing_obeys_require_tools(tmp_path, monkeypatch, require_tools, outcome):
+    """An unsupported ABC command is optional locally and a failure in strict tool CI."""
+    run_dir = tmp_path / "xeda_run" / "run" / "yosys"
+    run_dir.mkdir(parents=True)
+    (run_dir / "results.json").write_text('{"outcome": "failed"}')
+    (run_dir / "yosys.log").write_text("ABC: ** cmd error: unknown command 'mfs3'\n")
+
+    class FakeRunner:
+        def __init__(self, *_args):
+            pass
+
+        def run_flow(self, *_args):
+            pass
+
+    monkeypatch.setattr("tests.test_yosys_asic_abc._real", lambda _format: None)
+    monkeypatch.setattr("tests.test_yosys_asic_abc._enable_design", lambda path: path)
+    monkeypatch.setattr("tests.test_yosys_asic_abc._tiny", lambda *args, **kwargs: None)
+    monkeypatch.setattr("tests.test_yosys_asic_abc.DefaultRunner", FakeRunner)
+    monkeypatch.setattr(
+        "tests.test_yosys_asic_abc.forced_script_format",
+        lambda _format: contextlib.nullcontext(),
+    )
+    monkeypatch.setattr("tests.test_yosys_asic_abc.REQUIRE_TOOLS", require_tools)
+
+    with pytest.raises(BaseException, match="mfs3") as exc_info:
+        test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(tmp_path, "ys")
+    assert isinstance(exc_info.value, outcome)
 
 
 @FORMATS_REAL

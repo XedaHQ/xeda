@@ -19,6 +19,7 @@ from .nvc import Nvc
 from .openfpgaloader import Openfpgaloader
 from .openroad import Openroad, OpenroadCts, OpenroadGrt, OpenroadPlace
 from .quartus import Quartus
+from .sby import Sby
 from .vcs import Vcs
 from .verilator import Verilator
 from .vivado.vivado_alt_synth import VivadoAltSynth
@@ -50,6 +51,7 @@ __all__ = [
     "OpenroadGrt",
     "OpenroadPlace",
     "Quartus",
+    "Sby",
     "Vcs",
     "Verilator",
     "VivadoAltSynth",

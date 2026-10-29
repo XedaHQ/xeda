@@ -31,6 +31,8 @@ MINIMAL_SETTINGS_BY_FLOW: Dict[str, Dict[str, Any]] = {
     "nextpnr": {"fpga": {"part": "LFE5U-25F-6BG381C"}},
     "fpga_pack": {"fpga": {"part": "LFE5U-25F-6BG381C"}},
     "openfpgaloader": {"fpga": {"part": "LFE5U-25F-6BG381C"}},
+    # `mode` has no default: a run without it fails before SBY starts
+    "sby": {"mode": "bmc"},
 }
 
 

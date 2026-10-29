@@ -1064,6 +1064,124 @@ derives from a Bluespec design (see `Converted designs`_), and no other flow sup
 that reads no design sources (``nextpnr``, for example) has no such input, and a binding for it
 is refused.
 
+Formal property checks with SymbiYosys
+======================================
+
+The ``sby`` flow runs SymbiYosys (SBY) on one RTL design. The ``mode`` setting names the analysis.
+It is required, and it has no default:
+
+- ``bmc``: bounded model checking. It searches for a failing assertion within ``depth`` steps. A
+  pass covers only those steps. It is not a proof.
+- ``cover``: a bounded search for a trace that reaches each cover statement within ``depth``
+  steps. It checks no assertions.
+- ``prove``: a proof that every assertion holds for all time, by the IC3 engine of rIC3.
+
+The ``depth`` setting is the number of steps of ``bmc`` and ``cover``. It defaults to 20. ``prove``
+has no depth: SBY gives none to rIC3, so Xeda refuses ``depth`` for ``prove``. It does not ignore
+it.
+
+Sources and language
+--------------------
+
+The ``rtl.top`` setting is required. It names the formal harness. Its sources hold the design under
+test, the assertions, assumptions and cover statements, and the clock, reset and initial state that
+the proof assumes. Xeda adds none of these.
+
+Verilog and SystemVerilog sources are read by yosys-slang with ``FORMAL`` defined and ``SYNTHESIS``
+undefined. Xeda sets both, so ``rtl.defines`` must not name them. VHDL sources are read by the GHDL
+Yosys plugin, which also reads PSL in comments. A design cannot mix VHDL with Verilog or
+SystemVerilog, and the Synopsys packages of VHDL (``language.vhdl.synopsys``) are refused.
+
+The flow stages each source under its path relative to the design root. A relative ``include`` and
+a memory file that the HDL names relative to the design root resolve as they do in the design. The
+flow refuses a source outside the design root. It also refuses a path that holds a character other
+than a letter, a digit or one of ``_ . + - /``, a path that starts with ``-`` or ``+``, and two
+paths that differ only in case. Rename the file.
+
+``rtl.defines`` and ``rtl.parameters`` reach the task as one word each. A value that holds
+whitespace, ``#``, ``;`` or, in a string parameter, ``"`` is refused. Parameters apply to the top
+only. A parameter name that the top does not have fails the run, and the error names it. Slang
+ignores such a name in ``-G``, so for Verilog and SystemVerilog the task adds a second root to the
+compilation. It assigns each parameter to the top by name, which slang checks, and
+``hierarchy -top`` removes it before the checks. The root is the file ``xeda_sby_parameters.sv`` in
+the design root. A source with that path, in any letter case and of any type, would replace it, so
+the flow refuses it. GHDL refuses an unknown generic itself.
+
+In Verilog and SystemVerilog, a string parameter that reads as a number, a boolean (``true`` or
+``false``, in any case) or a based literal such as ``8'hff`` is refused. The command line gives
+every value as text. So ``--design-updates rtl.parameters.OK=0`` reaches the design as a string,
+not as zero, and a check on ``OK`` can pass when it should fail. Give such a value as a typed YAML
+value in the design file, such as ``OK: 0``. A sized binary literal such as ``4'b0101`` is
+accepted. VHDL generics are not refused, because GHDL reads their text by the type of the generic.
+
+``timeout`` takes a whole number of seconds, such as ``10 min``. Xeda does not round it. A task that
+reaches the limit ends with the status TIMEOUT, and the run fails. ``prove`` needs a ``timeout``,
+because its proof has no bound.
+
+Solvers
+-------
+
+Each mode runs one engine. Xeda selects no other solver, and it has no fallback:
+
+- ``bmc`` and ``cover`` run ``smtbmc`` with Bitwuzla. Before the search, the engine checks that the
+  assumptions are satisfiable (presat). Contradictory assumptions fail the run. They do not pass.
+- ``prove`` runs ``btor rIC3 -e ic3``, the IC3 engine of rIC3 alone. The ``btor`` engine has no
+  presat check, so contradictory assumptions pass vacuously, and the result metrics do not show it.
+  Write the assumptions so that they are satisfiable.
+
+The default portfolio of rIC3 runs several engines and writes ``/tmp/rIC3``, outside the run root.
+On the tested tuple, the single IC3 engine avoids both. This is not a ranking of the engines. Xeda
+has not measured whether IC3 is faster than the portfolio.
+
+SBY and every program that it starts come from one directory: the directory of the ``sby`` on
+``PATH``. The OSS CAD Suite installs all of them in its ``bin`` directory, and its ``sby`` wrapper
+puts that directory first on ``PATH``. Before SBY starts, the flow checks that the programs of the
+mode are in that directory: ``yosys`` in every mode, ``yosys-smtbmc`` and ``bitwuzla`` for ``bmc``
+and ``cover``, and ``rIC3``, ``yosys-witness`` and ``btorsim`` for ``prove``. The last two turn a
+counterexample into a trace. A missing program fails the run with the error code
+``executable_not_found``. A program of the same name elsewhere on ``PATH`` does not replace it.
+
+The flow gives SBY the absolute path of each program that SBY has an option for (``--yosys``,
+``--smtbmc``, ``--rIC3`` and ``--witness``), so the ``YOSYS``, ``SMTBMC``, ``WITNESS`` and ``RIC3``
+environment variables do not apply. SBY has no option for Bitwuzla and ``btorsim``: SBY or
+``yosys-smtbmc`` finds them on ``PATH``. The flow puts the directory of ``sby`` first on the
+``PATH`` of SBY, and the ``yosys-smtbmc`` wrapper of the OSS CAD Suite puts it first again. Xeda
+cannot see what another wrapper does with ``PATH``. SBY puts each path into a shell command without
+quotes, so the flow refuses a directory that holds a character other than a letter, a digit or one
+of ``_ . + - /``.
+
+Verdicts and evidence
+---------------------
+
+The flow always runs. It never reuses a formal result, because SBY starts Yosys and its engine
+itself, and Xeda does not trace those programs.
+
+Xeda reads the SBY status, and it checks the status against the exit code. PASS passes the run. FAIL
+rejects it: an assertion fails within ``depth`` steps (``bmc``), an assertion fails (``prove``), or a
+cover statement is not reached within ``depth`` steps (``cover``). The traces are in the evidence
+archive. The run fails for any other status, such as UNKNOWN, TIMEOUT or ERROR, for a status that
+does not match the exit code, and for a model with no statement of its mode: no assertion for
+``bmc`` and ``prove``, and no cover statement for ``cover``.
+
+The run also fails when the model holds a symbolic value (``anyconst``, ``anyseq``, ``allconst`` or
+``allseq``), a liveness or fairness property, or a blackbox in the hierarchy of the top. The
+property subset is limited and tested. Do not assume that every SVA or PSL construct is checked.
+Mixed-language designs are refused, and no proof cache exists.
+
+Each run keeps the SBY log (``log``), the generated task (``config``), the status file (``status``),
+the SBY task log (``task_logfile``) and the evidence archive (``evidence_archive``). The archive,
+``sby_evidence.zip``, holds every regular file of the SBY work directory: the task log, the model,
+the engine logs and every trace (``.vcd``, ``.yw`` and testbench files). Symbolic links are neither
+followed nor archived. Xeda writes the archive when SBY ends by itself, also on an error exit. It
+writes none after an interrupt.
+
+The results record SBY, Yosys and the engine program, each with its absolute path and its
+version. No version is refused. The tested tuple is SBY 0.70, Yosys 0.70, Bitwuzla 0.9.1 and rIC3
+1.5.2, from the OSS CAD Suite of 2026-10-28, on macOS with arm64. The VHDL tests used a GHDL plugin
+rebuilt for that Yosys, because the plugin of that suite does not load on macOS with arm64. Linux
+is not tested yet. The results also count the assertions, assumptions and cover statements in the
+hierarchy of the top.
+
 Open-source FPGA flows: devices and tuning
 ==========================================
 

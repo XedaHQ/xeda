@@ -1191,8 +1191,8 @@ class Flow(metaclass=ABCMeta):
         #: here.
         removed_settings: ClassVar[Dict[str, str]] = {
             "clean": "the --clean option (clean=True on the launcher)",
-            "timeout_seconds": "`timeout`, on the flows that have one (the simulators); no other "
-            "flow limits a tool's run time",
+            "timeout_seconds": "`timeout`, on the flows that have one (the simulators and `sby`); "
+            "other flows do not limit a tool's run time",
             "no_console": NoReplacement("no flow read it"),
             "ncpus": SecondSpelling("`nthreads`"),
             "verbose": "`verbosity`",

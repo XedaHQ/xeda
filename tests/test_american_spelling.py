@@ -26,6 +26,8 @@ BRITISH = re.compile(
     r"|favour\w*|artefacts?|whilst|amongst|licence[sd]?|judgement|programmes?)\b",
     re.IGNORECASE,
 )
+#: Words of a tool that Xeda quotes as the tool writes them: `CANCELLED` is a status of SBY.
+QUOTED = {"CANCELLED"}
 
 
 def _files():
@@ -50,6 +52,7 @@ def test_the_text_uses_american_spelling():
             found.extend(
                 f"{path.relative_to(ROOT)}:{number}: {match.group(0)}"
                 for match in BRITISH.finditer(line)
+                if match.group(0) not in QUOTED
             )
     assert not found, "British spelling:\n" + "\n".join(found)
 
