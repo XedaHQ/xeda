@@ -20,6 +20,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
+from .scoping import scoped
 from .bluespec_sources import COUNTER_BSV
 from .launch_utils import empty_project
 from .openroad_utils import (
@@ -47,6 +48,7 @@ from .tool_utils import (
     use_fake_asic_tools,
     use_fake_openroad,
 )
+from .scoping import node_settings
 
 CTS_PAIR = [("cts.odb", "OpenroadDbCts"), ("cts.sdc", "OpenroadSdcCts")]
 
@@ -64,7 +66,9 @@ def plan(tmp_path: Path, flow: str, *settings: str, typed: dict | None = None, *
     texts = [*openroad_settings(store), *settings]
     given = text_items(texts) | (typed or {})
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        flow, openroad_design(tmp_path / "design", **design), flow_settings=given
+        flow,
+        openroad_design(tmp_path / "design", **design),
+        flow_settings=node_settings(flow, given),
     )
 
 
@@ -215,7 +219,7 @@ def test_a_database_that_is_listed_does_not_take_the_sdc_of_a_producer(tmp_path)
     assert "`odb` and `sdc` are written together" in message
     assert "odb <- source" in message and "cts.odb" in message
     assert "sdc <- openroad_cts.sdc" in message
-    assert "-s flows.openroad_grt.inputs.odb=openroad_cts.odb" in message
+    assert "-s openroad_grt.inputs.odb=openroad_cts.odb" in message
     assert "list `sdc` as a typed source of the design too" in message
 
 
@@ -224,7 +228,7 @@ def test_an_sdc_that_is_listed_does_not_take_the_database_of_a_producer(tmp_path
     assert "`odb` and `sdc` are written together" in message
     assert "odb <- openroad_cts.odb" in message
     assert "sdc <- source" in message and "cts.sdc" in message
-    assert "-s flows.openroad_grt.inputs.sdc=openroad_cts.sdc" in message
+    assert "-s openroad_grt.inputs.sdc=openroad_cts.sdc" in message
 
 
 def test_a_binding_that_replaces_one_listed_file_is_refused(tmp_path):
@@ -242,10 +246,10 @@ def test_a_binding_that_replaces_one_listed_file_is_refused(tmp_path):
 def test_the_binding_the_refusal_suggests_makes_the_plan_pass(tmp_path):
     message = refusal(tmp_path, "openroad_grt", sources=CTS_PAIR[:1])
     advice = message.partition(" add `-s ")[2].partition("`")[0]
-    assert advice.startswith("flows.openroad_grt.inputs.odb=")
+    assert advice.startswith("openroad_grt.inputs.odb=")
     other = tmp_path / "other"
     other.mkdir()
-    planned = plan(other, "openroad_grt", advice, sources=CTS_PAIR[:1])
+    planned = plan(other, "openroad_grt", f"flows.{advice}", sources=CTS_PAIR[:1])
     assert "openroad_cts" in {node.name for node in planned.nodes}
 
 
@@ -434,7 +438,7 @@ def launch(tmp_path: Path, monkeypatch, *settings: str, request: str = "openroad
     given = chain_settings(tmp_path, *settings, **kwargs)
     design = openroad_design(tmp_path / "design")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run(request, design, flow_settings=given)
+    flow = runner.run(request, design, flow_settings=node_settings(request, given))
     return runner, design, given, flow
 
 
@@ -454,7 +458,7 @@ def xeda_run(tmp_path: Path, *settings: str, **named: Any) -> tuple[Any, dict]:
             "--run-root",
             str(tmp_path / "xeda_run"),
             "-s",
-            *chain_settings(tmp_path, *settings, **named),
+            *scoped("openroad", chain_settings(tmp_path, *settings, **named)),
             "--json",
         ],
     )
@@ -482,7 +486,7 @@ def test_the_command_line_plans_the_five_nodes_of_the_whole_chain(tmp_path, requ
             "--run-root",
             str(tmp_path / "xeda_run"),
             "-s",
-            *openroad_settings(store, **CLOCK),
+            *scoped("openroad", openroad_settings(store, **CLOCK)),
             "--dry-run",
             "--json",
         ],
@@ -569,7 +573,7 @@ def test_a_failed_stage_reruns_alone(tmp_path, monkeypatch, chain):
     """A stage that fails in the middle of the chain leaves the database of that moment and no
     trace. The stages after it are blocked, and the stage before it stays fresh. The next launch,
     without the failure, runs the failed stage and the two after it again and not the first."""
-    settings = ["flows.openroad.fail_timing=false"]
+    settings = ["openroad.fail_timing=false"]
     with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
         result, document = xeda_run(tmp_path, *settings)
     assert result.exit_code == 1 and document["outcome"] == "failed"
@@ -672,10 +676,12 @@ def test_a_second_launch_is_fresh_and_a_dry_run_agrees(tmp_path, monkeypatch, ch
         work = tmp_path / str(rcx)
         runner, design, settings, first = launch(work, monkeypatch, "fail_timing=false", rcx=rcx)
         assert first is not None and first.succeeded and not first.reused
-        again = runner.run("openroad", design, flow_settings=settings)
+        again = runner.run("openroad", design, flow_settings=node_settings("openroad", settings))
         assert again is not None and again.succeeded and again.reused
         given = text_items(settings)
-        _, states = runner.plan_with_freshness("openroad", Design.load(design), flow_settings=given)
+        _, states = runner.plan_with_freshness(
+            "openroad", Design.load(design), flow_settings=node_settings("openroad", given)
+        )
         assert {name: state.state for name, state in states.items()} == dict.fromkeys(
             NAMES, "fresh"
         )
@@ -697,7 +703,7 @@ def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
     written = (last / "openroad_final.log").stat().st_mtime_ns
     calls = (last / "fake_openroad.calls").read_text()
 
-    again = runner.run("openroad", design, flow_settings=settings)
+    again = runner.run("openroad", design, flow_settings=node_settings("openroad", settings))
     assert again is not None and again.outcome == "rejected" and again.rejected_again
     assert first.rejection in again.rejection
     assert (last / "openroad_final.log").stat().st_mtime_ns == written
@@ -840,14 +846,16 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
 
     def launch_chain() -> dict[str, bool]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        flow = runner.run("openroad", design, project, flow_settings=given)
+        flow = runner.run(
+            "openroad", design, project, flow_settings=node_settings("openroad", given)
+        )
         assert flow is not None and flow.succeeded
         return {f.name: f.reused for f in runner.launched}
 
     def judged() -> dict[str, str]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
         _, states = runner.plan_with_freshness(
-            "openroad", Design.load(design), project, flow_settings=given
+            "openroad", Design.load(design), project, flow_settings=node_settings("openroad", given)
         )
         return {name: state.state for name, state in states.items()}
 

@@ -25,6 +25,7 @@ from xeda.flow.io import declared_inputs, declared_outputs, output_required, sel
 from xeda.flows import Yosys
 from xeda.introspect import all_flow_classes
 
+from .scoping import scoped
 from .tool_utils import require_yosys
 
 #: The members that the table describes, written out here and not derived from the table.
@@ -288,7 +289,7 @@ def run_yosys(tmp_path: Path, *settings: str) -> tuple[dict, Path]:
     run_root = tmp_path / "xeda_run"
     proc = subprocess.run(
         [sys.executable, "-m", "xeda", "run", "yosys", "design.yaml", "--run-root", str(run_root)]
-        + (["-s", *settings] if settings else [])
+        + (["-s", *scoped("yosys", settings)] if settings else [])
         + ["--json"],
         cwd=design,
         capture_output=True,
@@ -344,7 +345,7 @@ def test_a_consumer_of_the_generic_netlist_is_handed_it_and_the_mapped_one_is_no
     require_yosys()
     with preserved_flow_registry():
 
-        class _GenericTaker(Flow):
+        class TGenericTaker(Flow):
             """Reads the generic netlist of yosys."""
 
             results_description = {}
@@ -369,9 +370,9 @@ def test_a_consumer_of_the_generic_netlist_is_handed_it_and_the_mapped_one_is_no
             rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}]},
         )
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        plan = runner.plan(_GenericTaker, design)
-        assert [node.name for node in plan.nodes] == ["yosys", "__generic_taker"]
-        flow = runner.run_flow(_GenericTaker, design)
+        plan = runner.plan(TGenericTaker, design)
+        assert [node.name for node in plan.nodes] == ["yosys", "t_generic_taker"]
+        flow = runner.run_flow(TGenericTaker, design)
     assert flow.succeeded and flow.results["read"] is True
     yosys = json.loads((tmp_path / "xeda_run" / "top" / "yosys" / "results.json").read_text())
     assert yosys["outputs"]["netlist_generic"]["names"] and not yosys["outputs"]["netlist"]["names"]

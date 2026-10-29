@@ -14,6 +14,7 @@ import pytest
 from pydantic import BaseModel
 
 import xeda.flows  # noqa: F401  (registers the built-in flows)
+from .flow_registry import is_product_flow
 from xeda.cli_types import ChainChoice, FlowChoice
 from xeda.flow_runner.settings_layers import RENAMED_FLOWS
 from xeda.project import REMOVED_PROJECT_KEYS, Project
@@ -38,7 +39,7 @@ from xeda.errors import ProjectError
 
 #: The flows of Xeda. A test module may register a flow of its own, named with a leading `_`.
 FLOWS = sorted(
-    {cls for _, cls in registered_flows.values() if not cls.__name__.startswith("_")},
+    {cls for _, cls in registered_flows.values() if is_product_flow(cls)},
     key=lambda cls: cls.name,
 )
 

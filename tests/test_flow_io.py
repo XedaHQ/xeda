@@ -28,7 +28,7 @@ from xeda.flow.io import (
 from xeda.introspect import flow_info
 
 from .flow_registry import preserved_flow_registry
-from .io_flows import _ChainUndeclared, _Maker, _Place, _Taker
+from .io_flows import TChainUndeclared, TMaker, TPlace, TTaker
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +42,7 @@ def _flow_with_model(kind, annotation, declaration):
     base = Flow.Inputs if kind == "Inputs" else Flow.Outputs
     model = type(kind, (base,), {"__annotations__": {"file": annotation}, "file": declaration})
     return type(
-        "_DeclarationProbe",
+        "DeclarationProbe",
         (Flow,),
         {
             "__doc__": "A declaration validation probe.",
@@ -54,7 +54,7 @@ def _flow_with_model(kind, annotation, declaration):
 
 
 def test_the_declarations_are_read_from_the_nested_models():
-    assert declared_outputs(_Maker) == {
+    assert declared_outputs(TMaker) == {
         "made": OutputDeclaration(
             name="made",
             types=(SourceType.Data,),
@@ -63,18 +63,18 @@ def test_the_declarations_are_read_from_the_nested_models():
             description="The file.",
         )
     }
-    made = declared_inputs(_Taker)["made"]
+    made = declared_inputs(TTaker)["made"]
     assert made == InputDeclaration(
         name="made",
         types=(SourceType.Data,),
         cardinality="one",
-        producer="__maker",
+        producer="t_maker",
         output="made",
         optional=False,
         description="What it reads.",
     )
     assert made.required
-    assert declared_inputs(_Place)["netlist"].producer == "__synth"
+    assert declared_inputs(TPlace)["netlist"].producer == "t_synth"
 
 
 def test_the_declarations_are_kept_per_model_and_a_caller_cannot_change_them():
@@ -82,35 +82,35 @@ def test_the_declarations_are_kept_per_model_and_a_caller_cannot_change_them():
     `Inputs` or `Outputs` model. A result is the caller's own dict, and a flow that gets another
     model gets the declarations of that model."""
     for declare in (declared_inputs, declared_outputs):
-        for flow in (_Maker, _Taker, _Place):
+        for flow in (TMaker, TTaker, TPlace):
             first = declare(flow)
             before = dict(first)
             first.clear()
             first["other"] = None
             assert declare(flow) == before
 
-    class Other(_Maker):
-        class Outputs(_Maker.Outputs):
+    class Other(TMaker):
+        class Outputs(TMaker.Outputs):
             extra: Path | None = Out(SourceType.Data, description="Another file.")
 
     assert list(declared_outputs(Other)) == ["made", "extra"]
-    assert list(declared_outputs(_Maker)) == ["made"]
-    Other.Outputs = _Maker.Outputs
+    assert list(declared_outputs(TMaker)) == ["made"]
+    Other.Outputs = TMaker.Outputs
     assert list(declared_outputs(Other)) == ["made"]
 
 
 def test_a_flow_with_no_declaration_declares_nothing():
-    assert declared_outputs(_Maker) and declared_inputs(_Taker) and declared_inputs(_Place)
-    assert not declared_inputs(_ChainUndeclared) and not declared_outputs(_ChainUndeclared)
+    assert declared_outputs(TMaker) and declared_inputs(TTaker) and declared_inputs(TPlace)
+    assert not declared_inputs(TChainUndeclared) and not declared_outputs(TChainUndeclared)
 
 
 def test_default_pure_hooks_preserve_the_declared_types_and_enablement():
-    settings = _Maker.Settings(write=False)
-    assert _Maker.output_types(settings, "made") == (SourceType.Data,)
-    assert _Taker.input_types(_Taker.Settings(), "made") == (SourceType.Data,)
-    _Maker.enable_output(settings, "made", design_name="d")
+    settings = TMaker.Settings(write=False)
+    assert TMaker.output_types(settings, "made") == (SourceType.Data,)
+    assert TTaker.input_types(TTaker.Settings(), "made") == (SourceType.Data,)
+    TMaker.enable_output(settings, "made", design_name="d")
     assert settings.write is True
-    assert selected_types(_Maker, settings, "made", output=True) == (SourceType.Data,)
+    assert selected_types(TMaker, settings, "made", output=True) == (SourceType.Data,)
 
 
 def test_default_hook_refuses_an_optional_output_without_a_switch():
@@ -120,7 +120,7 @@ def test_default_hook_refuses_an_optional_output_without_a_switch():
 
 
 def test_a_specialization_cannot_expand_the_declared_vocabulary():
-    class _Expanded(_Maker):
+    class TExpanded(TMaker):
         """An invalid output specialization."""
 
         results_description = {}
@@ -130,13 +130,13 @@ def test_a_specialization_cannot_expand_the_declared_vocabulary():
             return (SourceType.Data, SourceType.Bitstream)
 
     with pytest.raises(ValueError, match="must narrow"):
-        selected_types(_Expanded, _Expanded.Settings(), "made", output=True)
+        selected_types(TExpanded, TExpanded.Settings(), "made", output=True)
 
 
 def test_a_required_specialized_input_can_be_supplied_without_a_default_producer(tmp_path):
     from xeda.flow_runner import DefaultRunner
 
-    class _SourceOnly(Flow):
+    class TSourceOnly(Flow):
         """Read an explicitly supplied source of the selected type."""
 
         results_description = {}
@@ -157,23 +157,23 @@ def test_a_required_specialized_input_can_be_supplied_without_a_default_producer
         root=tmp_path,
         rtl={"sources": [{"file": "data", "type": "Data"}], "top": "t"},
     )
-    plan = DefaultRunner(tmp_path / "run").plan(_SourceOnly, design)
+    plan = DefaultRunner(tmp_path / "run").plan(TSourceOnly, design)
     assert plan.nodes[0].inputs[0].sources == (tmp_path / "data",)
 
 
 def test_inputs_and_outputs_are_unset_until_set_and_validated_when_set(tmp_path):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
-    taker = _Taker({}, design, tmp_path / "run")
+    taker = TTaker({}, design, tmp_path / "run")
     assert taker.inputs.made is None
     taker.inputs.made = str(tmp_path / "x")
     assert taker.inputs.made == tmp_path / "x"
-    assert _Maker({}, design, tmp_path / "run2").outputs.made is None
+    assert TMaker({}, design, tmp_path / "run2").outputs.made is None
 
 
 def test_a_field_not_made_with_in_is_refused():
     with pytest.raises(TypeError, match="not declared with In"):
 
-        class _Unmarked(Flow):
+        class TUnmarked(Flow):
             """Refused."""
 
             class Inputs(Flow.Inputs):
@@ -186,7 +186,7 @@ def test_a_field_not_made_with_in_is_refused():
 def test_an_input_that_is_no_path_is_refused():
     with pytest.raises(TypeError, match=r"a `Path`, `Path \| None` or `list\[Path\]`"):
 
-        class _Text(Flow):
+        class TText(Flow):
             """Refused."""
 
             class Inputs(Flow.Inputs):
@@ -199,7 +199,7 @@ def test_an_input_that_is_no_path_is_refused():
 def test_an_output_switched_on_by_a_setting_it_does_not_have_is_refused():
     with pytest.raises(TypeError, match="names no setting"):
 
-        class _Switchless(Flow):
+        class TSwitchless(Flow):
             """Refused."""
 
             class Outputs(Flow.Outputs):
@@ -214,7 +214,7 @@ def test_an_output_switched_on_by_a_setting_it_does_not_have_is_refused():
 def test_an_output_switched_on_by_a_setting_must_be_allowed_to_be_absent():
     with pytest.raises(TypeError, match="may be absent"):
 
-        class _Required(Flow):
+        class TRequired(Flow):
             """Refused."""
 
             class Outputs(Flow.Outputs):
@@ -230,7 +230,7 @@ def test_a_declaration_names_at_least_one_source_type():
 
 
 def test_list_flows_publishes_the_declarations():
-    info = flow_info(_Taker)
+    info = flow_info(TTaker)
     assert info["inputs"] == [
         {
             "name": "made",
@@ -240,7 +240,7 @@ def test_list_flows_publishes_the_declarations():
             "required": True,
             "optional": False,
             "equivalence": False,
-            "producer": "__maker",
+            "producer": "t_maker",
             "output": "made",
             "same_producer_as": None,
             "paired": False,
@@ -248,8 +248,8 @@ def test_list_flows_publishes_the_declarations():
             "description": "What it reads.",
         }
     ]
-    assert info["dependencies"] == ["__maker"]
-    assert flow_info(_Maker)["outputs"] == [
+    assert info["dependencies"] == ["t_maker"]
+    assert flow_info(TMaker)["outputs"] == [
         {
             "name": "made",
             "value": "files",
@@ -301,54 +301,54 @@ def test_malformed_classes_are_not_registered():
 
 
 def test_inherited_declarations_keep_their_order_and_cardinality():
-    class _Many(_Taker):
+    class TMany(TTaker):
         """Extends a scalar input with an optional list and nullable input."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
-        class Inputs(_Taker.Inputs):
+        class Inputs(TTaker.Inputs):
             files: list[Path] = In(
                 (SourceType.Data, SourceType.C), optional=True, description="Files."
             )
             maybe: Path | None = In(SourceType.Data, description="A nullable file.")
 
-    inputs = declared_inputs(_Many)
+    inputs = declared_inputs(TMany)
     assert list(inputs) == ["made", "files", "maybe"]
-    assert inputs["made"] == declared_inputs(_Taker)["made"]
+    assert inputs["made"] == declared_inputs(TTaker)["made"]
     assert inputs["files"].types == (SourceType.Data, SourceType.C)
     assert inputs["files"].cardinality == "many"
     assert not inputs["files"].required
     assert inputs["maybe"].cardinality == "optional"
     assert not inputs["maybe"].required
-    assert list(declared_inputs(_Taker)) == ["made"]
+    assert list(declared_inputs(TTaker)) == ["made"]
     many_required = _flow_with_model(
         "Inputs", list[Path], In(SourceType.Data, description="Files.")
     )
     assert declared_inputs(many_required)["file"].required
 
-    class _ManyOutputs(_Maker):
+    class TManyOutputs(TMaker):
         """Extends an optional output with an ordered list output."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
-        class Outputs(_Maker.Outputs):
+        class Outputs(TMaker.Outputs):
             files: list[Path] = Out((SourceType.Data, SourceType.C), description="Files.")
 
-    outputs = declared_outputs(_ManyOutputs)
+    outputs = declared_outputs(TManyOutputs)
     assert list(outputs) == ["made", "files"]
-    assert outputs["made"] == declared_outputs(_Maker)["made"]
+    assert outputs["made"] == declared_outputs(TMaker)["made"]
     assert outputs["files"].cardinality == "many"
     assert outputs["files"].types == (SourceType.Data, SourceType.C)
-    assert list(declared_outputs(_Maker)) == ["made"]
+    assert list(declared_outputs(TMaker)) == ["made"]
 
 
 def test_list_flows_json_publishes_the_declarations():
     result = CliRunner().invoke(cli, ["list-flows", "--json"])
     assert result.exit_code == 0, result.output
     flows = {item["name"]: item for item in json.loads(result.stdout)}
-    assert flows["__taker"]["inputs"] == flow_info(_Taker)["inputs"]
-    assert flows["__maker"]["outputs"] == flow_info(_Maker)["outputs"]
-    assert flows["__taker"]["dependencies"] == ["__maker"]
+    assert flows["t_taker"]["inputs"] == flow_info(TTaker)["inputs"]
+    assert flows["t_maker"]["outputs"] == flow_info(TMaker)["outputs"]
+    assert flows["t_taker"]["dependencies"] == ["t_maker"]
 
 
 def test_staged_models_validate_scalar_and_list_assignments_and_are_private(tmp_path):
@@ -368,11 +368,11 @@ def test_staged_models_validate_scalar_and_list_assignments_and_are_private(tmp_
         first.inputs.file = [False]
     with pytest.raises(ValidationError):
         first.inputs.extra = tmp_path / "extra"
-    taker = _Taker({}, design, tmp_path / "taker")
+    taker = TTaker({}, design, tmp_path / "taker")
     for value in (None, False, [], 42):
         with pytest.raises(ValidationError):
             taker.inputs.made = value
-    maker = _Maker({}, design, tmp_path / "maker")
+    maker = TMaker({}, design, tmp_path / "maker")
     maker.outputs.made = str(tmp_path / "made")
     assert maker.outputs.made == tmp_path / "made"
     with pytest.raises(ValidationError):
@@ -381,17 +381,17 @@ def test_staged_models_validate_scalar_and_list_assignments_and_are_private(tmp_
 
 
 def test_declaration_metadata_is_json_schema_safe():
-    schema = _Taker.Inputs.model_json_schema()
+    schema = TTaker.Inputs.model_json_schema()
     assert schema["properties"]["made"]["x-xeda-io"] == {
         "kind": "input",
         "types": ["Data"],
-        "producer": "__maker",
+        "producer": "t_maker",
         "output": "made",
         "optional": False,
     }
 
 
-class _Switches(Flow):
+class TSwitches(Flow):
     """Outputs enabled by Boolean, text and path settings."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -422,8 +422,8 @@ class _Switches(Flow):
 
 
 def test_output_enablement_uses_settings():
-    settings = _Switches.Settings()
-    outputs = declared_outputs(_Switches)
+    settings = TSwitches.Settings()
+    outputs = declared_outputs(TSwitches)
     assert not output_enabled(settings, outputs["flag"])
     assert not output_enabled(settings, outputs["path"])
     assert not output_enabled(settings, outputs["empty"])
@@ -442,35 +442,35 @@ def test_output_enablement_uses_settings():
 
 
 def test_switch_on_uses_the_annotation_for_a_nullable_boolean():
-    settings = _Switches.Settings()
-    switch_on(settings, declared_outputs(_Switches)["flag"])
+    settings = TSwitches.Settings()
+    switch_on(settings, declared_outputs(TSwitches)["flag"])
     assert settings.flag is True
     settings.flag = False
-    switch_on(settings, declared_outputs(_Switches)["flag"])
+    switch_on(settings, declared_outputs(TSwitches)["flag"])
     assert settings.flag is True
-    maker_settings = _Maker.Settings(write=False)
-    switch_on(maker_settings, declared_outputs(_Maker)["made"])
+    maker_settings = TMaker.Settings(write=False)
+    switch_on(maker_settings, declared_outputs(TMaker)["made"])
     assert maker_settings.write is True
 
 
 @pytest.mark.parametrize("name", ["path", "empty"])
 def test_unset_non_boolean_defaults_need_an_explicit_value(name):
-    settings = _Switches.Settings()
+    settings = TSwitches.Settings()
     before = settings.model_dump()
     with pytest.raises(ValueError, match=f"give `{name}` a value"):
-        switch_on(settings, declared_outputs(_Switches)[name])
+        switch_on(settings, declared_outputs(TSwitches)[name])
     assert settings.model_dump() == before
 
 
 @pytest.mark.parametrize("name", ["text", "destination", "files"])
 def test_non_boolean_switches_restore_a_non_empty_default(name):
-    settings = _Switches.Settings()
+    settings = TSwitches.Settings()
     if name == "text":
         settings.text = ""
     elif name == "files":
         settings.files = []
     else:
         settings.destination = Path("different.txt")
-    switch_on(settings, declared_outputs(_Switches)[name])
-    assert getattr(settings, name) == getattr(_Switches.Settings(), name)
-    assert output_enabled(settings, declared_outputs(_Switches)[name])
+    switch_on(settings, declared_outputs(TSwitches)[name])
+    assert getattr(settings, name) == getattr(TSwitches.Settings(), name)
+    assert output_enabled(settings, declared_outputs(TSwitches)[name])

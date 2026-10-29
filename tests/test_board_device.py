@@ -26,6 +26,7 @@ from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN, transitive_dep
 from xeda.flows import Openfpgaloader
 from xeda.introspect import boards_info
 
+from .scoping import node_settings
 from .project_files import project_listing
 from .settings_samples import flow_classes
 
@@ -168,9 +169,9 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
         targets = {"arty": {"flows": {node: {"board": board}}}}
         kwargs["target"] = "arty"
     elif origin == "command line":
-        kwargs["flow_settings"] = [f"board={board}"]
+        kwargs["flow_settings"] = [f"{parse_request(request_).requested.name}.board={board}"]
     elif origin == "command line node":
-        kwargs["flow_settings"] = [f"flows.{node}.board={board}"]
+        kwargs["flow_settings"] = [f"{node}.board={board}"]
     elif origin == "API":
         kwargs["flow_overrides"] = {"board": board}
     elif origin == "API settings":
@@ -320,7 +321,9 @@ def test_a_device_written_on_the_command_line_for_a_displaced_flow_is_named(tmp_
             tmp_path,
             "vivado_synth+openfpgaloader",
             design,
-            flow_settings=["flows.yosys_fpga.fpga.part=xc7a35tcpg236-1"],
+            flow_settings=node_settings(
+                "vivado_synth+openfpgaloader", ["flows.yosys_fpga.fpga.part=xc7a35tcpg236-1"]
+            ),
         )
     assert (
         f"The `fpga` in `flows.yosys_fpga` in {COMMAND_LINE_ORIGIN} does not reach vivado_synth"
@@ -343,7 +346,12 @@ def test_a_device_the_loader_needs_for_the_flash_is_named_where_it_does_not_reac
     data["rtl"]["sources"].append({"file": "given.bit", "type": "Bitstream"})
     design.write_text(yaml.safe_dump(data, sort_keys=False))
     with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
-        _plan(tmp_path, "openfpgaloader", design, flow_settings=["write_flash=true"])
+        _plan(
+            tmp_path,
+            "openfpgaloader",
+            design,
+            flow_settings=node_settings("openfpgaloader", ["write_flash=true"]),
+        )
     assert (
         f"The `fpga` in `flows.yosys_fpga` in {design} does not reach openfpgaloader: "
         "yosys_fpga is not part of this run" in str(raised.value)
@@ -377,7 +385,12 @@ def test_a_device_written_as_one_dotted_key_is_named_where_it_does_not_reach(
             given = ["write_flash=true"]
             if origin == "command line":
                 given.append("flows.yosys_fpga.fpga.part=xc7a35tcpg236-1")
-            _plan(tmp_path, "openfpgaloader", design, flow_settings=given)
+            _plan(
+                tmp_path,
+                "openfpgaloader",
+                design,
+                flow_settings=node_settings("openfpgaloader", given),
+            )
     message = str(raised.value)
     assert "The `fpga` in `flows.yosys_fpga` in " in message, message
     assert "does not reach openfpgaloader: yosys_fpga is not part of this run" in message, message

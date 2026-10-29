@@ -22,6 +22,7 @@ from xeda.flows import Openfpgaloader
 from xeda.flows.openfpgaloader import OpenfpgaloaderTool
 
 from . import tool_utils
+from .scoping import node_settings
 
 ECP5 = "LFE5U-25F-6BG381C"
 BITSTREAM = b"\x00\xffXEDA bitstream\x00"
@@ -77,7 +78,9 @@ def _calls(tmp_path: Path, flow: str) -> list[dict]:
 
 def _program(tmp_path, design, settings=None, **launcher):
     assert_fake_loader()
-    flow = _runner(tmp_path, **launcher).run("openfpgaloader", design, flow_settings=settings or {})
+    flow = _runner(tmp_path, **launcher).run(
+        "openfpgaloader", design, flow_settings=node_settings("openfpgaloader", settings or {})
+    )
     assert flow is not None
     return flow
 
@@ -173,7 +176,9 @@ def test_an_older_loader_is_refused_before_it_programs_and_the_message_names_bot
     monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", f"openFPGALoader {version}")
     with pytest.raises(ToolException) as raised:
         _runner(tmp_path).run(
-            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _prebuilt(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     message = str(raised.value)
     assert message.startswith("Minimum version not met: openFPGALoader ")
@@ -197,7 +202,9 @@ def test_an_older_loader_is_refused_before_any_producer_runs(tmp_path, fake_load
     assert_fake_loader()
     with pytest.raises(ToolException, match="Xeda needs 0.13.1 or newer"):
         _runner(tmp_path).run(
-            "openfpgaloader", _design(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _design(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     # only the loader's own directory was made, with the failure in it
     assert [p.name for p in (tmp_path / "run/top").iterdir() if p.is_dir()] == ["openfpgaloader"]
@@ -212,7 +219,9 @@ def test_planning_never_starts_the_loader(tmp_path, programmer_guard):
     sentinel as the only `openFPGALoader`, nothing starts it."""
     assert shutil.which("openFPGALoader") == str(programmer_guard.sentinel)
     plan = _runner(tmp_path).plan(
-        Openfpgaloader, _design(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+        Openfpgaloader,
+        _design(tmp_path),
+        flow_settings=node_settings(Openfpgaloader, {"fpga": {"part": ECP5}}),
     )
     assert [n.name for n in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"]
     assert not programmer_guard.reached()
@@ -349,12 +358,16 @@ def test_a_write_flash_that_is_no_boolean_is_refused_as_such_beside_verify(tmp_p
 def test_verify_given_with_dash_s_is_refused_in_planning(tmp_path, fake_loader):
     with pytest.raises(FlowSettingsError, match="verify.*write_flash"):
         _runner(tmp_path).plan(
-            Openfpgaloader, _prebuilt(tmp_path), flow_settings=["fpga.part=" + ECP5, "verify=true"]
+            Openfpgaloader,
+            _prebuilt(tmp_path),
+            flow_settings=node_settings(Openfpgaloader, ["fpga.part=" + ECP5, "verify=true"]),
         )
     plan = _runner(tmp_path).plan(
         Openfpgaloader,
         _prebuilt(tmp_path),
-        flow_settings=["fpga.part=" + ECP5, "verify=true", "write_flash=true"],
+        flow_settings=node_settings(
+            Openfpgaloader, ["fpga.part=" + ECP5, "verify=true", "write_flash=true"]
+        ),
     )
     assert plan.node("openfpgaloader").settings.verify is True
 
@@ -364,7 +377,7 @@ def test_verify_without_write_flash_fails_before_anything_is_built(tmp_path, fak
         _runner(tmp_path).run(
             "openfpgaloader",
             _design(tmp_path),
-            flow_settings={"fpga": {"part": ECP5}, "verify": True},
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}, "verify": True}),
         )
     assert not list((tmp_path / "run").rglob("fake_fpga.calls.jsonl"))
 
@@ -486,7 +499,9 @@ def test_the_fake_loader_rejects_what_the_real_option_parser_rejects(
     flow = _runner(tmp_path).run(
         "openfpgaloader",
         _prebuilt(tmp_path),
-        flow_settings={"fpga": {"part": ECP5}, "extra_args": argument},
+        flow_settings=node_settings(
+            "openfpgaloader", {"fpga": {"part": ECP5}, "extra_args": argument}
+        ),
     )
     assert flow is not None and not flow.succeeded
     assert flow.results["error"]["code"] == "nonzero_exit"
@@ -643,10 +658,18 @@ def test_a_typed_bitstream_source_launches_the_loader_alone(tmp_path, fake_loade
     # a build flow's own section that no longer applies: it does not run, so it cannot conflict
     design = _prebuilt(tmp_path, name, flows={"nextpnr": {"fpga": {"part": ECP5}, "seed": 7}})
     runner = _runner(tmp_path)
-    plan = runner.plan(Openfpgaloader, design, flow_settings={"fpga": {"part": part}})
+    plan = runner.plan(
+        Openfpgaloader,
+        design,
+        flow_settings=node_settings(Openfpgaloader, {"fpga": {"part": part}}),
+    )
     assert [node.name for node in plan.nodes] == ["openfpgaloader"]
     assert_fake_loader()
-    flow = runner.run("openfpgaloader", design, flow_settings={"fpga": {"part": part}})
+    flow = runner.run(
+        "openfpgaloader",
+        design,
+        flow_settings=node_settings("openfpgaloader", {"fpga": {"part": part}}),
+    )
     assert flow.succeeded and flow.inputs.bitstream == tmp_path / "design" / name
     assert [p.name for p in (tmp_path / "run/top").iterdir() if p.is_dir()] == ["openfpgaloader"]
     (call,) = _calls(tmp_path, "openfpgaloader")
@@ -663,7 +686,11 @@ def test_two_bitstreams_to_program_are_an_error(tmp_path, fake_loader):
         (root / name).write_bytes(b"bits")
     design = _design(tmp_path, extra=["a.bit", "b.bit"])
     with pytest.raises(FlowSettingsException, match="one Bitstream file.*a.bit.*b.bit"):
-        _runner(tmp_path).plan(Openfpgaloader, design, flow_settings={"fpga": {"part": ECP5}})
+        _runner(tmp_path).plan(
+            Openfpgaloader,
+            design,
+            flow_settings=node_settings(Openfpgaloader, {"fpga": {"part": ECP5}}),
+        )
 
 
 def test_a_prebuilt_bitstream_is_programmed_without_a_device_for_the_loader_to_detect(
@@ -692,7 +719,9 @@ def test_programming_the_flash_needs_the_device(tmp_path, fake_loader):
     `write_flash` needs the device: refused before anything runs, saying why."""
     with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
         _runner(tmp_path).plan(
-            Openfpgaloader, _prebuilt(tmp_path), flow_settings={"write_flash": True}
+            Openfpgaloader,
+            _prebuilt(tmp_path),
+            flow_settings=node_settings(Openfpgaloader, {"write_flash": True}),
         )
     assert "write_flash" in str(raised.value)
     assert not _calls(tmp_path, "openfpgaloader")
@@ -715,7 +744,11 @@ def test_a_board_without_a_device_does_not_give_the_flash_one(tmp_path, fake_loa
     boards.write_text('[MY_BOARD]\nopenfpgaloader_board = "programmer_board"\n')
     settings = {"board": "MY_BOARD", "custom_boards_file": "boards.toml", "write_flash": True}
     with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`"):
-        _runner(tmp_path).plan(Openfpgaloader, _prebuilt(tmp_path), flow_settings=settings)
+        _runner(tmp_path).plan(
+            Openfpgaloader,
+            _prebuilt(tmp_path),
+            flow_settings=node_settings(Openfpgaloader, settings),
+        )
     assert not _calls(tmp_path, "openfpgaloader")
 
 
@@ -729,7 +762,9 @@ def test_the_loader_s_output_is_kept_in_its_run_directory(tmp_path, fake_loader,
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
     try:
         flow = _runner(tmp_path).run(
-            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _prebuilt(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     except Exception as error:  # reported or raised, it is a failure
         assert type(error).__name__ == "NonZeroExitCode"
@@ -748,7 +783,9 @@ def test_a_relaunch_whose_loader_is_missing_leaves_no_earlier_log(
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
     try:
         _runner(tmp_path).run(
-            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _prebuilt(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     except Exception as error:  # reported or raised, it is a failure
         assert type(error).__name__ == "NonZeroExitCode"
@@ -760,7 +797,9 @@ def test_a_relaunch_whose_loader_is_missing_leaves_no_earlier_log(
     monkeypatch.setattr("xeda.flows.openfpgaloader.OpenfpgaloaderTool", _NotInstalled)
     with pytest.raises(Exception) as raised:
         _runner(tmp_path).run(
-            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _prebuilt(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     assert type(raised.value).__name__ == "ExecutableNotFound", raised.value
     assert not log.exists() or "requested failure" not in log.read_text()
@@ -788,7 +827,11 @@ def test_outputs_to_a_programmer_of_a_design_source_is_refused_before_it_runs(
 def test_the_default_graph_builds_then_programs_and_a_relaunch_only_programs(tmp_path, fake_loader):
     design = _design(tmp_path)
     runner = _runner(tmp_path)
-    plan = runner.plan(Openfpgaloader, design, flow_settings={"fpga": {"part": ECP5}})
+    plan = runner.plan(
+        Openfpgaloader,
+        design,
+        flow_settings=node_settings(Openfpgaloader, {"fpga": {"part": ECP5}}),
+    )
     assert [n.name for n in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"]
     first = _program(tmp_path, design, {"fpga": {"part": ECP5}})
     assert first.succeeded
@@ -888,7 +931,7 @@ def test_a_family_that_cannot_be_packed_is_refused_before_anything_runs(tmp_path
         _runner(tmp_path).run(
             "openfpgaloader",
             _design(tmp_path),
-            flow_settings={"fpga": {"part": "LIFCL-40-9BG400C"}},
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": "LIFCL-40-9BG400C"}}),
         )
     assert not list((tmp_path / "run").rglob("fake_fpga.calls.jsonl"))
 
@@ -920,7 +963,9 @@ def test_a_bitstream_the_packer_did_not_finish_never_reaches_the_programmer(
     assert_fake_loader()
     with pytest.raises(Exception) as error:  # noqa: PT011 - the dependency's failure
         _runner(tmp_path, rebuild_all=True).run(
-            "openfpgaloader", design, flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            design,
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     assert type(error.value).__name__ == "FlowDependencyFailure"
     assert len(_calls(tmp_path, "openfpgaloader")) == 1  # the first launch's only
@@ -958,7 +1003,9 @@ def test_a_failing_programmer_fails_the_flow(tmp_path, fake_loader, monkeypatch)
     assert_fake_loader()
     try:
         flow = _runner(tmp_path).run(
-            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _prebuilt(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     except Exception as error:  # noqa: BLE001 - reported or raised, it is a failure
         assert type(error).__name__ == "NonZeroExitCode"
@@ -1014,7 +1061,9 @@ def test_a_launch_without_the_fake_reaches_the_sentinel_not_a_programmer(
     flow = None
     try:
         flow = _runner(tmp_path).run(
-            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": {"part": ECP5}}
+            "openfpgaloader",
+            _prebuilt(tmp_path),
+            flow_settings=node_settings("openfpgaloader", {"fpga": {"part": ECP5}}),
         )
     except Exception:  # a failed launch, raised or returned: either way nothing was programmed
         pass

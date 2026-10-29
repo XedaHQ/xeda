@@ -40,6 +40,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import design_files
 from xeda.utils import semantic_hash
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .settings_samples import flow_classes
 from .tool_utils import launch_until_fresh, require_ghdl, require_yosys, use_fake_tools
@@ -304,7 +305,11 @@ def test_a_testbench_edit_reruns_the_simulation_and_power_but_not_synthesis(
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
 
     def launch() -> Flow:
-        flow = runner.run("vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS)
+        flow = runner.run(
+            "vivado_power",
+            tmp_path / "design.yaml",
+            flow_settings=node_settings("vivado_power", VIVADO_SETTINGS),
+        )
         assert flow and flow.succeeded
         return flow
 

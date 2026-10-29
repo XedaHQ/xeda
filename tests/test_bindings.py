@@ -23,14 +23,15 @@ from xeda.flow_runner.bindings import (
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.settings_layers import split_flow_sections
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import (
-    _ChainConsumer,
-    _ChainOptionalConsumer,
-    _ChainProducer,
-    _ChainSimpleConsumer,
-    _Maker,
-    _Taker,
+    TChainConsumer,
+    TChainOptionalConsumer,
+    TChainProducer,
+    TChainSimpleConsumer,
+    TMaker,
+    TTaker,
 )
 
 
@@ -47,49 +48,49 @@ def layer(cls, inputs, location="the design file"):
 
 def test_split_copies_settings_and_captures_immutable_binding_data():
     sections = {
-        _ChainConsumer.name: {"nthreads": 2, "inputs": {"files": ["__chain_producer.files"]}}
+        TChainConsumer.name: {"nthreads": 2, "inputs": {"files": ["t_chain_producer.files"]}}
     }
     before = deepcopy(sections)
     settings, bindings = split_bindings(sections, location="project.yaml")
-    sections[_ChainConsumer.name]["inputs"]["files"].append("__maker.made")
+    sections[TChainConsumer.name]["inputs"]["files"].append("t_maker.made")
 
-    assert settings == {_ChainConsumer.name: {"nthreads": 2}}
-    assert before[_ChainConsumer.name]["inputs"]["files"] == ["__chain_producer.files"]
-    selected = effective_bindings([bindings], default_nodes([_ChainConsumer]))
-    binding = selected[NodeKey(_ChainConsumer.name)]["files"]
-    assert binding.references == (ProducerRef(NodeKey(_ChainProducer.name), "files"),)
-    assert binding.location == f"project.yaml: flows.{_ChainConsumer.name}.inputs.files"
+    assert settings == {TChainConsumer.name: {"nthreads": 2}}
+    assert before[TChainConsumer.name]["inputs"]["files"] == ["t_chain_producer.files"]
+    selected = effective_bindings([bindings], default_nodes([TChainConsumer]))
+    binding = selected[NodeKey(TChainConsumer.name)]["files"]
+    assert binding.references == (ProducerRef(NodeKey(TChainProducer.name), "files"),)
+    assert binding.location == f"project.yaml: flows.{TChainConsumer.name}.inputs.files"
     with pytest.raises(FrozenInstanceError):
         binding.references[0].node = "other"
     with pytest.raises(TypeError):
-        selected[NodeKey(_ChainConsumer.name)]["files"] = binding
+        selected[NodeKey(TChainConsumer.name)]["files"] = binding
 
 
 def test_binding_precedence_merges_input_names_and_replaces_ordered_lists():
     layers = [
         layer(
-            _ChainConsumer,
-            {"left": "__chain_producer.json_a", "files": ["__maker.made"]},
+            TChainConsumer,
+            {"left": "t_chain_producer.json_a", "files": ["t_maker.made"]},
             "project",
         ),
         layer(
-            _ChainConsumer,
-            {"right": "__chain_producer.json_b", "files": ["__chain_producer.files"]},
+            TChainConsumer,
+            {"right": "t_chain_producer.json_b", "files": ["t_chain_producer.files"]},
             "design",
         ),
-        layer(_ChainConsumer, {"left": "__chain_producer.json_b"}, "CLI"),
+        layer(TChainConsumer, {"left": "t_chain_producer.json_b"}, "CLI"),
         layer(
-            _ChainConsumer, {"files": ["__chain_producer.data", "__chain_producer.files"]}, "API"
+            TChainConsumer, {"files": ["t_chain_producer.data", "t_chain_producer.files"]}, "API"
         ),
     ]
-    bindings = effective_bindings(layers, default_nodes([_ChainConsumer]))[
-        NodeKey(_ChainConsumer.name)
+    bindings = effective_bindings(layers, default_nodes([TChainConsumer]))[
+        NodeKey(TChainConsumer.name)
     ]
-    assert bindings["left"].references == (ProducerRef(NodeKey(_ChainProducer.name), "json_b"),)
-    assert bindings["right"].references == (ProducerRef(NodeKey(_ChainProducer.name), "json_b"),)
+    assert bindings["left"].references == (ProducerRef(NodeKey(TChainProducer.name), "json_b"),)
+    assert bindings["right"].references == (ProducerRef(NodeKey(TChainProducer.name), "json_b"),)
     assert bindings["files"].references == (
-        ProducerRef(NodeKey(_ChainProducer.name), "data"),
-        ProducerRef(NodeKey(_ChainProducer.name), "files"),
+        ProducerRef(NodeKey(TChainProducer.name), "data"),
+        ProducerRef(NodeKey(TChainProducer.name), "files"),
     )
     assert bindings["files"].location.startswith("API:")
 
@@ -101,60 +102,60 @@ def test_binding_precedence_merges_input_names_and_replaces_ordered_lists():
         7,
         None,
         Path("made.txt"),
-        {"node": "__maker"},
+        {"node": "t_maker"},
         "a/b",
-        "__maker..made",
-        "__maker+__taker",
+        "t_maker..made",
+        "t_maker+t_taker",
         "",
     ],
 )
 def test_winning_invalid_reference_is_rejected_at_its_location(value):
     with pytest.raises(FlowSettingsException, match=r"design.yaml.*inputs.made"):
-        effective_bindings([layer(_Taker, {"made": value}, "design.yaml")], default_nodes([_Taker]))
+        effective_bindings([layer(TTaker, {"made": value}, "design.yaml")], default_nodes([TTaker]))
 
 
-@pytest.mark.parametrize("value", [True, [], None, "__maker"])
+@pytest.mark.parametrize("value", [True, [], None, "t_maker"])
 def test_inputs_requires_a_mapping(value):
-    _, bindings = split_bindings({_Taker.name: {"inputs": value}}, location="project.yaml")
+    _, bindings = split_bindings({TTaker.name: {"inputs": value}}, location="project.yaml")
     with pytest.raises(FlowSettingsException, match="project.yaml.*inputs.*mapping"):
-        effective_bindings([bindings], default_nodes([_Taker]))
+        effective_bindings([bindings], default_nodes([TTaker]))
 
 
 @pytest.mark.parametrize(
     "value, message",
     [
         ("missing_producer.made", "producer"),
-        ("__maker.Made", "output.*Made"),
-        (["__maker.made"], "one.*list"),
+        ("t_maker.Made", "output.*Made"),
+        (["t_maker.made"], "one.*list"),
     ],
 )
 def test_strict_reference_names_and_scalar_cardinality(value, message):
     with pytest.raises(FlowSettingsException, match=message):
-        effective_bindings([layer(_Taker, {"made": value})], default_nodes([_Taker]))
+        effective_bindings([layer(TTaker, {"made": value})], default_nodes([TTaker]))
 
 
 def test_replaced_bad_value_is_not_validated_but_lower_input_names_are():
     bindings = effective_bindings(
-        [layer(_Taker, {"made": False}), layer(_Taker, {"made": "__maker.made"}, "API")],
-        default_nodes([_Taker]),
+        [layer(TTaker, {"made": False}), layer(TTaker, {"made": "t_maker.made"}, "API")],
+        default_nodes([TTaker]),
     )
-    assert bindings[NodeKey(_Taker.name)]["made"].references == (
-        ProducerRef(NodeKey(_Maker.name), "made"),
+    assert bindings[NodeKey(TTaker.name)]["made"].references == (
+        ProducerRef(NodeKey(TMaker.name), "made"),
     )
     with pytest.raises(FlowSettingsException, match="the design file.*Made.*input"):
         effective_bindings(
-            [layer(_Taker, {"Made": False}), layer(_Taker, {"made": "__maker.made"}, "API")],
-            default_nodes([_Taker]),
+            [layer(TTaker, {"Made": False}), layer(TTaker, {"made": "t_maker.made"}, "API")],
+            default_nodes([TTaker]),
         )
 
 
 def test_required_and_optional_empty_many_bindings():
     with pytest.raises(FlowSettingsException, match="files.*empty"):
-        effective_bindings([layer(_ChainConsumer, {"files": []})], default_nodes([_ChainConsumer]))
+        effective_bindings([layer(TChainConsumer, {"files": []})], default_nodes([TChainConsumer]))
     selected = effective_bindings(
-        [layer(_ChainOptionalConsumer, {"files": []})], default_nodes([_ChainOptionalConsumer])
+        [layer(TChainOptionalConsumer, {"files": []})], default_nodes([TChainOptionalConsumer])
     )
-    assert selected[NodeKey(_ChainOptionalConsumer.name)]["files"].references == ()
+    assert selected[NodeKey(TChainOptionalConsumer.name)]["files"].references == ()
 
 
 def test_unreached_plugin_sections_remain_tolerant():
@@ -162,34 +163,34 @@ def test_unreached_plugin_sections_remain_tolerant():
         {"unavailable_plugin": {"inputs": {"unknown": False}, "custom": 8}}, location="design.yaml"
     )
     assert settings == {"unavailable_plugin": {"custom": 8}}
-    assert effective_bindings([bindings], default_nodes([_Taker])) == {}
+    assert effective_bindings([bindings], default_nodes([TTaker])) == {}
 
 
 def test_unreached_inputs_shape_is_tolerated_until_its_consumer_is_reached():
-    settings, bindings = split_bindings({_Taker.name: {"inputs": False}}, location="design.yaml")
-    assert settings == {_Taker.name: {}}
-    assert effective_bindings([bindings], default_nodes([_Maker])) == {}
+    settings, bindings = split_bindings({TTaker.name: {"inputs": False}}, location="design.yaml")
+    assert settings == {TTaker.name: {}}
+    assert effective_bindings([bindings], default_nodes([TMaker])) == {}
     with pytest.raises(FlowSettingsException, match="design.yaml.*inputs.*mapping"):
-        effective_bindings([bindings], default_nodes([_Taker]))
+        effective_bindings([bindings], default_nodes([TTaker]))
 
 
-CHAIN_EDGE = (ProducerRef(NodeKey("__chain_simple_producer"), "netlist"),)
+CHAIN_EDGE = (ProducerRef(NodeKey("t_chain_simple_producer"), "netlist"),)
 
 
 @pytest.mark.parametrize("origin", ["CLI", "API"])
 @pytest.mark.parametrize(
-    "reference", ["__chain_simple_producer.netlist", "__chain_producer.json_a"]
+    "reference", ["t_chain_simple_producer.netlist", "t_chain_producer.json_a"]
 )
 def test_command_line_and_api_collisions_precede_precedence(origin, reference):
     """A chain collides with a command-line or API binding of the same
     input, equal or not, before layer precedence or value validation."""
-    request = parse_request("__chain_simple_producer+__chain_simple_consumer")
+    request = parse_request("t_chain_simple_producer+t_chain_simple_consumer")
     layers = [
-        layer(_ChainSimpleConsumer, {"netlist": False}, "design.yaml"),
-        layer(_ChainSimpleConsumer, {"netlist": reference}, origin),
+        layer(TChainSimpleConsumer, {"netlist": False}, "design.yaml"),
+        layer(TChainSimpleConsumer, {"netlist": reference}, origin),
     ]
     with pytest.raises(FlowSettingsException) as error:
-        effective_bindings(layers, default_nodes([_ChainSimpleConsumer]), request=request)
+        effective_bindings(layers, default_nodes([TChainSimpleConsumer]), request=request)
     message = str(error.value)
     assert "chain position 1" in message and "2" in message
     assert origin in message and "inputs.netlist" in message
@@ -197,33 +198,32 @@ def test_command_line_and_api_collisions_precede_precedence(origin, reference):
 
 @pytest.mark.parametrize("origin", ["design.yaml", "project.yaml"])
 @pytest.mark.parametrize(
-    "reference", ["__chain_simple_producer.netlist", "__chain_producer.json_a"]
+    "reference", ["t_chain_simple_producer.netlist", "t_chain_producer.json_a"]
 )
 def test_pc1_a_chain_overrides_a_file_binding_of_the_same_input(origin, reference):
     """A chain is command-line data: it wins over a saved binding, which is reported as
     overridden; a file binding of another input still applies, and a replaced value is not
     validated."""
-    request = parse_request("__chain_simple_producer+__chain_simple_consumer")
+    request = parse_request("t_chain_simple_producer+t_chain_simple_consumer")
     layers = [
-        layer(_ChainSimpleConsumer, {"netlist": False}, "an earlier file"),
-        layer(_ChainSimpleConsumer, {"netlist": reference}, origin),
+        layer(TChainSimpleConsumer, {"netlist": False}, "an earlier file"),
+        layer(TChainSimpleConsumer, {"netlist": reference}, origin),
     ]
-    bound = effective_bindings(layers, default_nodes([_ChainSimpleConsumer]), request=request)
-    netlist = bound[NodeKey(_ChainSimpleConsumer.name)]["netlist"]
+    bound = effective_bindings(layers, default_nodes([TChainSimpleConsumer]), request=request)
+    netlist = bound[NodeKey(TChainSimpleConsumer.name)]["netlist"]
     assert netlist.references == CHAIN_EDGE and netlist.origin == "chain"
     assert "chain position 1" in netlist.location
     assert [origin in location for location in netlist.overridden] == [False, True]
     assert all("inputs.netlist" in location for location in netlist.overridden)
-    data = bound[NodeKey(_ChainSimpleConsumer.name)]["data"]
+    data = bound[NodeKey(TChainSimpleConsumer.name)]["data"]
     assert data.origin == "chain" and data.overridden == ()
 
 
-def test_same_cli_input_in_unqualified_and_qualified_forms_is_an_error_even_when_equal():
-    with pytest.raises(FlowSettingsError, match="inputs.made.*flows.*inputs.made"):
+@pytest.mark.parametrize("key", ["inputs.made", f"flows.{TTaker.name}.inputs.made"])
+def test_a_cli_input_without_its_node_is_refused(key):
+    with pytest.raises(FlowSettingsError, match="unscoped_setting"):
         split_flow_sections(
-            {"inputs.made": "__maker.made", f"flows.{_Taker.name}.inputs.made": "__maker.made"},
-            _Taker.name,
-            lambda name: registered_flows[name][1],
+            {key: "t_maker.made"}, TTaker.name, lambda name: registered_flows[name][1]
         )
 
 
@@ -235,7 +235,7 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
             {
                 "name": "binding_design",
                 "rtl": {"sources": []},
-                "flows": {_Taker.name: {"inputs": {"made": "__maker.made"}}},
+                "flows": {TTaker.name: {"inputs": {"made": "t_maker.made"}}},
             }
         )
     )
@@ -243,23 +243,23 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
         yaml.safe_dump(
             {
                 "designs": [{"file": "design.yaml"}],
-                "flows": {_Taker.name: {"inputs": {"made": "__maker"}, "nthreads": 3}},
+                "flows": {TTaker.name: {"inputs": {"made": "t_maker"}, "nthreads": 3}},
             }
         )
     )
     runner = DefaultRunner(tmp_path / "runs")
     request = runner._request(
-        _Taker,
+        TTaker,
         "binding_design",
         str(project),
-        {"inputs.made": "__maker"},
-        {"inputs.made": "__maker.made"},
+        {"t_taker.inputs.made": "t_maker"},
+        {"inputs.made": "t_maker.made"},
     )
     assert "inputs" not in request.settings
     assert all("inputs" not in section for section in request.sections.values())
     assert len(request.binding_layers) == 4
-    binding = effective_bindings(request.binding_layers, default_nodes([_Taker]))[
-        NodeKey(_Taker.name)
+    binding = effective_bindings(request.binding_layers, default_nodes([TTaker]))[
+        NodeKey(TTaker.name)
     ]["made"]
     assert binding.location.startswith("the API:")
     assert str(project) in request.binding_layers[0].location
@@ -269,10 +269,10 @@ def test_yaml_project_design_cli_and_api_layers_are_captured_before_composition(
 
 @pytest.mark.parametrize("origin", ["CLI", "design", "project", "API"])
 @pytest.mark.parametrize(
-    "reference", ["__chain_simple_producer.netlist", "__chain_producer.json_a"]
+    "reference", ["t_chain_simple_producer.netlist", "t_chain_producer.json_a"]
 )
 def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
-    bindings = {_ChainSimpleConsumer.name: {"inputs": {"netlist": reference}}}
+    bindings = {TChainSimpleConsumer.name: {"inputs": {"netlist": reference}}}
     design = Design(
         name="d", root=tmp_path, rtl={"sources": []}, flows=bindings if origin == "design" else {}
     )
@@ -292,10 +292,10 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
 
     def request():
         return runner._request(
-            parse_request("__chain_simple_producer+__chain_simple_consumer"),
+            parse_request("t_chain_simple_producer+t_chain_simple_consumer"),
             "d" if origin == "project" else design,
             str(project),
-            {"inputs.netlist": reference} if origin == "CLI" else {},
+            {"t_chain_simple_consumer.inputs.netlist": reference} if origin == "CLI" else {},
             {"inputs.netlist": reference} if origin == "API" else {},
         )
 
@@ -307,10 +307,10 @@ def test_pc1_is_checked_at_the_request_boundary(tmp_path, origin, reference):
     captured = request()
     bound = effective_bindings(
         captured.binding_layers,
-        default_nodes([_ChainSimpleConsumer]),
+        default_nodes([TChainSimpleConsumer]),
         request=captured.flow_request,
     )
-    netlist = bound[NodeKey(_ChainSimpleConsumer.name)]["netlist"]
+    netlist = bound[NodeKey(TChainSimpleConsumer.name)]["netlist"]
     assert netlist.references == CHAIN_EDGE and netlist.origin == "chain"
     assert len(netlist.overridden) == 1 and label in netlist.overridden[0]
 
@@ -324,26 +324,26 @@ def test_a_reached_binding_selects_the_edge_on_every_entry_path(tmp_path, entry)
     source.write_text("bound\n")
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     sections = {
-        _Taker.name: {"inputs": {"made": "__input_maker.made"}},
-        "__input_maker": {"input_file": str(source)},
+        TTaker.name: {"inputs": {"made": "t_input_maker.made"}},
+        "t_input_maker": {"input_file": str(source)},
     }
     if entry in ("run_flow", "resolve"):
-        result = getattr(runner, entry)(_Taker, design, {}, all_flows_settings=sections)
+        result = getattr(runner, entry)(TTaker, design, {}, all_flows_settings=sections)
     else:
         result = getattr(runner, entry)(
-            _Taker,
+            TTaker,
             design,
             flow_settings={
-                "inputs.made": "__input_maker.made",
-                "flows.__input_maker.input_file": str(source),
+                "t_taker.inputs.made": "t_input_maker.made",
+                "t_input_maker.input_file": str(source),
             },
         )
     if entry in ("plan", "resolve"):
-        assert [node.name for node in result.nodes] == ["__input_maker", "__taker"]
+        assert [node.name for node in result.nodes] == ["t_input_maker", "t_taker"]
         assert not (tmp_path / "runs").exists()
     else:
         assert result.succeeded and result.results["read"] == "bound\n"
-        assert [flow.name for flow in runner.launched] == ["__input_maker", "__taker"]
+        assert [flow.name for flow in runner.launched] == ["t_input_maker", "t_taker"]
 
 
 def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
@@ -354,11 +354,11 @@ def test_captured_layers_can_be_transported_to_existing_dse_workers(tmp_path):
         rtl={"sources": []},
         flows={"unavailable_plugin": {"inputs": {"unknown": {"invalid": True}}}},
     )
-    request = runner._request(_Maker, design, flow_settings={"nthreads": 2})
+    request = runner._request(TMaker, design, flow_settings=node_settings(TMaker, {"nthreads": 2}))
     restored = pickle.loads(pickle.dumps(request))
     assert restored.binding_layers == request.binding_layers
     with pytest.raises(TypeError):
-        restored.binding_layers[2].settings[_Maker.name]["nthreads"] = 3
+        restored.binding_layers[2].settings[TMaker.name]["nthreads"] = 3
 
 
 def test_embedded_yaml_design_binding_names_its_project_file_and_design(tmp_path):
@@ -370,15 +370,15 @@ def test_embedded_yaml_design_binding_names_its_project_file_and_design(tmp_path
                     {
                         "name": "embedded",
                         "rtl": {"sources": []},
-                        "flows": {_Taker.name: {"inputs": {"made": "__maker.made"}}},
+                        "flows": {TTaker.name: {"inputs": {"made": "t_maker.made"}}},
                     }
                 ]
             }
         )
     )
-    request = DefaultRunner(tmp_path / "runs")._request(_Taker, "embedded", str(project))
-    binding = effective_bindings(request.binding_layers, default_nodes([_Taker]))[
-        NodeKey(_Taker.name)
+    request = DefaultRunner(tmp_path / "runs")._request(TTaker, "embedded", str(project))
+    binding = effective_bindings(request.binding_layers, default_nodes([TTaker]))[
+        NodeKey(TTaker.name)
     ]["made"]
     assert str(project) in binding.location and "design embedded" in binding.location
 
@@ -391,51 +391,51 @@ def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
     )
     before = design.rtl_hash
     request = DefaultRunner(tmp_path / "runs")._request(
-        _Taker, design, flow_settings={"inputs.made": "__maker.made"}
+        TTaker, design, flow_settings=node_settings(TTaker, {"inputs.made": "t_maker.made"})
     )
-    assert effective_bindings(request.binding_layers, default_nodes([_Taker]))[
-        NodeKey(_Taker.name)
+    assert effective_bindings(request.binding_layers, default_nodes([TTaker]))[
+        NodeKey(TTaker.name)
     ]["made"].references == (
-        ProducerRef(NodeKey(_Maker.name), "made"),
+        ProducerRef(NodeKey(TMaker.name), "made"),
     )
     assert request.design.rtl.sources[0].path == source
     assert request.design.rtl_hash == before == design.rtl_hash
 
 
 def test_node_keys_are_immutable_hashable_and_pickle_for_dse_transport():
-    plain = NodeKey(_Taker.name)
+    plain = NodeKey(TTaker.name)
     assert plain.instance is None
-    assert plain == NodeKey(_Taker.name) and hash(plain) == hash(NodeKey(_Taker.name))
-    assert plain != NodeKey(_Taker.name, "second")
-    assert len({plain, NodeKey(_Taker.name), NodeKey(_Taker.name, "second")}) == 2
+    assert plain == NodeKey(TTaker.name) and hash(plain) == hash(NodeKey(TTaker.name))
+    assert plain != NodeKey(TTaker.name, "second")
+    assert len({plain, NodeKey(TTaker.name), NodeKey(TTaker.name, "second")}) == 2
     with pytest.raises(FrozenInstanceError):
         plain.instance = "other"
-    keyed = NodeKey(_Taker.name, "second")
+    keyed = NodeKey(TTaker.name, "second")
     assert pickle.loads(pickle.dumps(keyed)) == keyed
-    ref = ProducerRef(NodeKey(_Maker.name, 1), "made")
+    ref = ProducerRef(NodeKey(TMaker.name, 1), "made")
     assert pickle.loads(pickle.dumps(ref)) == ref
 
 
 def test_two_reached_instances_of_one_flow_keep_distinct_bindings():
-    first, second = NodeKey(_Taker.name, "first"), NodeKey(_Taker.name, "second")
+    first, second = NodeKey(TTaker.name, "first"), NodeKey(TTaker.name, "second")
 
     def entry(node, reference, location):
         return BindingEntry(node, "made", reference, False, location)
 
     layers = [
-        BindingLayer("design", (entry(first, "__maker.made", "design: first"),), {}),
-        BindingLayer("CLI", (entry(second, "__maker.made", "CLI: second"),), {}),
-        BindingLayer("API", (entry(second, "__maker", "API: second"),), {}),
+        BindingLayer("design", (entry(first, "t_maker.made", "design: first"),), {}),
+        BindingLayer("CLI", (entry(second, "t_maker.made", "CLI: second"),), {}),
+        BindingLayer("API", (entry(second, "t_maker", "API: second"),), {}),
     ]
-    selected = effective_bindings(layers, [(first, _Taker), (second, _Taker)])
+    selected = effective_bindings(layers, [(first, TTaker), (second, TTaker)])
     assert set(selected) == {first, second}
-    assert selected[first]["made"].references == (ProducerRef(NodeKey(_Maker.name), "made"),)
+    assert selected[first]["made"].references == (ProducerRef(NodeKey(TMaker.name), "made"),)
     assert selected[first]["made"].location == "design: first"
-    assert selected[second]["made"].references == (ProducerRef(NodeKey(_Maker.name), None),)
+    assert selected[second]["made"].references == (ProducerRef(NodeKey(TMaker.name), None),)
     assert selected[second]["made"].location == "API: second"
 
     # An entry for the default (None) node does not bind an instance of that flow.
-    plain = BindingLayer("design", (entry(NodeKey(_Taker.name), "__maker.made", "plain"),), {})
-    assert effective_bindings([plain], [(first, _Taker), (second, _Taker)]) == {}
+    plain = BindingLayer("design", (entry(NodeKey(TTaker.name), "t_maker.made", "plain"),), {})
+    assert effective_bindings([plain], [(first, TTaker), (second, TTaker)]) == {}
     with pytest.raises(ValueError, match="twice"):
-        effective_bindings([plain], [(first, _Taker), (first, _Taker)])
+        effective_bindings([plain], [(first, TTaker), (first, TTaker)])

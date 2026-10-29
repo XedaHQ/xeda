@@ -16,6 +16,7 @@ from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.error_codes import settings_codes
 from xeda.flow_runner.settings_layers import registered_flow, split_flow_sections
+from .scoping import node_settings
 
 PART = "xc7a100tfgg676-3"
 ECP5 = "LFE5U-25F-6BG381C"
@@ -43,7 +44,10 @@ def _run(design_file: Path, *args: str, flow: str = "yosys_fpga"):
 
 def _planned(design_file: Path, *items: str, flow: str = "yosys_fpga"):
     return DefaultRunner(design_file.parent / "run", display_results=False).plan(
-        flow, Design.load(design_file), xedaproject="", flow_settings=list(items)
+        flow,
+        Design.load(design_file),
+        xedaproject="",
+        flow_settings=node_settings(flow, list(items)),
     )
 
 
@@ -58,25 +62,33 @@ def _messages(error: FlowSettingsError) -> list[str]:
 
 
 def test_a_setting_given_twice_with_two_values_is_an_error(design_file):
-    result, document = _run(design_file, "-s", "fpga.part=A", "-s", "fpga.part=B")
+    result, document = _run(
+        design_file, "-s", "yosys_fpga.fpga.part=A", "-s", "yosys_fpga.fpga.part=B"
+    )
     assert result.exit_code == 2, result.output
     assert document["outcome"] is None and document["nodes"] == []
     assert document["error"]["code"] == "conflicting_keys"
-    assert f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}" in document["error"]["message"]
+    assert (
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=B` {TWO_VALUES}"
+        in document["error"]["message"]
+    )
     error = _refused(design_file, "fpga.part=A", "fpga.part=B")
-    assert [location for location, *_rest in error.errors] == ["fpga.part"]
+    assert [location for location, *_rest in error.errors] == ["yosys_fpga.fpga.part"]
     assert settings_codes(error)[0] == "conflicting_keys"
 
 
 def test_the_same_setting_twice_in_one_option_is_an_error_too(design_file):
-    result, document = _run(design_file, "-s", "fpga.part=A", "fpga.part=B")
+    result, document = _run(design_file, "-s", "yosys_fpga.fpga.part=A", "yosys_fpga.fpga.part=B")
     assert result.exit_code == 2, result.output
     assert document["error"]["code"] == "conflicting_keys"
-    assert f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}" in document["error"]["message"]
+    assert (
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=B` {TWO_VALUES}"
+        in document["error"]["message"]
+    )
 
 
 def test_the_error_quotes_the_items_as_written_for_a_qualified_key(design_file):
-    qualified = "flows.yosys_fpga.fpga.part"
+    qualified = "yosys_fpga.fpga.part"
     error = _refused(design_file, f"{qualified}=A", f"{qualified}=B")
     assert _messages(error) == [f"`-s {qualified}=A` and `-s {qualified}=B` {TWO_VALUES}"]
 
@@ -85,13 +97,11 @@ def test_the_error_for_a_producer_quotes_the_items_as_written(design_file):
     error = _refused(
         design_file,
         f"fpga.part={ECP5}",
-        "flows.nextpnr.seed=1",
-        "flows.nextpnr.seed=2",
+        "nextpnr.seed=1",
+        "nextpnr.seed=2",
         flow="fpga_pack",
     )
-    assert _messages(error) == [
-        f"`-s flows.nextpnr.seed=1` and `-s flows.nextpnr.seed=2` {TWO_VALUES}"
-    ]
+    assert _messages(error) == [f"`-s nextpnr.seed=1` and `-s nextpnr.seed=2` {TWO_VALUES}"]
 
 
 def test_an_exact_repeat_is_one_item(design_file):
@@ -102,9 +112,9 @@ def test_an_exact_repeat_is_one_item(design_file):
 def test_three_values_give_one_error_with_every_pair(design_file):
     error = _refused(design_file, "fpga.part=A", "fpga.part=B", "fpga.part=C")
     assert _messages(error) == [
-        f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}",
-        f"`-s fpga.part=A` and `-s fpga.part=C` {TWO_VALUES}",
-        f"`-s fpga.part=B` and `-s fpga.part=C` {TWO_VALUES}",
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=B` {TWO_VALUES}",
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=C` {TWO_VALUES}",
+        f"`-s yosys_fpga.fpga.part=B` and `-s yosys_fpga.fpga.part=C` {TWO_VALUES}",
     ]
 
 
@@ -113,14 +123,16 @@ def test_every_conflicting_setting_is_in_the_one_error(design_file):
         design_file, "fpga.part=A", "nthreads=1", "fpga.part=B", "nthreads=2", "fpga.part=A"
     )
     assert _messages(error) == [
-        f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}",
-        f"`-s nthreads=1` and `-s nthreads=2` {TWO_VALUES}",
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=B` {TWO_VALUES}",
+        f"`-s yosys_fpga.nthreads=1` and `-s yosys_fpga.nthreads=2` {TWO_VALUES}",
     ]
 
 
 def test_values_that_differ_as_text_are_two_values(design_file):
     error = _refused(design_file, "nthreads=1", "nthreads=01")
-    assert _messages(error) == [f"`-s nthreads=1` and `-s nthreads=01` {TWO_VALUES}"]
+    assert _messages(error) == [
+        f"`-s yosys_fpga.nthreads=1` and `-s yosys_fpga.nthreads=01` {TWO_VALUES}"
+    ]
 
 
 def test_one_leaf_of_a_nested_setting_is_one_setting(design_file):
@@ -131,7 +143,7 @@ def test_one_leaf_of_a_nested_setting_is_one_setting(design_file):
         "clocks.clk.period=6ns",
     )
     assert _messages(error) == [
-        f"`-s clocks.clk.period=5ns` and `-s clocks.clk.period=6ns` {TWO_VALUES}"
+        f"`-s yosys_fpga.clocks.clk.period=5ns` and `-s yosys_fpga.clocks.clk.period=6ns` {TWO_VALUES}"
     ]
 
 
@@ -148,17 +160,9 @@ def test_two_leaves_of_one_table_are_not_a_repeat(design_file):
         assert TWO_VALUES not in " ".join(_messages(error))
 
 
-def test_the_two_spellings_keep_their_message(design_file):
-    error = _refused(design_file, "fpga.part=A", "flows.yosys_fpga.fpga.part=B")
-    assert _messages(error) == [
-        f"`-s fpga.part=A` and `-s flows.yosys_fpga.fpga.part=B` {TWO_VALUES}"
-    ]
-    _planned(design_file, f"fpga.part={PART}", f"flows.yosys_fpga.fpga.part={PART}")
-
-
 def test_one_setting_in_two_nodes_is_not_a_repeat():
     sections, own = split_flow_sections(
-        ["flows.nextpnr.seed=1", "flows.yosys_fpga.nthreads=2", "flows.nextpnr.nthreads=2"],
+        ["nextpnr.seed=1", "yosys_fpga.nthreads=2", "nextpnr.nthreads=2"],
         "nextpnr",
         registered_flow,
     )
@@ -167,13 +171,13 @@ def test_one_setting_in_two_nodes_is_not_a_repeat():
     assert own == {}
 
 
-def test_the_clock_shorthand_and_a_qualified_clock_are_one_setting(design_file):
-    """`clock.period` is `clocks.main_clock.period`, qualified or not."""
+def test_the_clock_shorthand_and_the_main_clock_are_one_setting(design_file):
+    """`clock.period` is `clocks.main_clock.period`."""
     error = _refused(
-        design_file, f"fpga.part={ECP5}", "clock.period=5ns", "flows.yosys_fpga.clock.period=6ns"
+        design_file, f"fpga.part={ECP5}", "clock.period=5ns", "clocks.main_clock.period=6ns"
     )
     assert settings_codes(error)[0] == "conflicting_keys"
     assert (
-        f"`-s clock.period=5ns` and `-s flows.yosys_fpga.clock.period=6ns` {TWO_VALUES}"
-        in _messages(error)[0]
+        f"`-s yosys_fpga.clock.period=5ns` and `-s yosys_fpga.clocks.main_clock.period=6ns` "
+        f"{TWO_VALUES}" in _messages(error)[0]
     )

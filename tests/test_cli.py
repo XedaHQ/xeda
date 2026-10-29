@@ -89,7 +89,15 @@ def _fake_vivado(tmp_path, monkeypatch):
 def test_dash_s_stops_before_the_design_file(tmp_path, monkeypatch):
     _fake_vivado(tmp_path, monkeypatch)
     result = CliRunner().invoke(
-        cli, ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", str(SQRT), "--json"]
+        cli,
+        [
+            "run",
+            "vivado_synth",
+            "-s",
+            "vivado_synth.fpga.part=xc7a12tcsg325-1",
+            str(SQRT),
+            "--json",
+        ],
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 0, document
@@ -116,7 +124,15 @@ def test_dash_s_keeps_a_value_that_contains_equals_signs():
 def test_a_missing_design_after_dash_s_is_reported_as_missing(tmp_path, monkeypatch):
     _fake_vivado(tmp_path, monkeypatch)
     result = CliRunner().invoke(
-        cli, ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", "missing.toml", "--json"]
+        cli,
+        [
+            "run",
+            "vivado_synth",
+            "-s",
+            "vivado_synth.fpga.part=xc7a12tcsg325-1",
+            "missing.toml",
+            "--json",
+        ],
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 2 and document["outcome"] is None

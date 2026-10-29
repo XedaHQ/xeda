@@ -892,13 +892,13 @@ output under in the run directory. A location is not part of that. A run that pa
 date therefore delivers to a location that you give it later, without running again. If the flow
 writes the output in any case, you can give a location, change it or remove it, and the run stays
 the same. When the setting is unset, the flow writes the conventional name. ``fpga_pack`` always
-writes its bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the
+writes its bitstream, so ``-s vivado_impl.bitstream=$PWD/blinky.bit`` after a plain run only delivers the
 file. The same holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr``
 on Xilinx targets.
 
 A setting that switches an output on works in another way. ``vivado_synth`` writes no bitstream
 until ``bitstream`` is set. The first location you give it runs the flow again. Later locations do
-not. A name without a location (``-s bitstream=board.bit``) is a different file in the run
+not. A name without a location (``-s vivado_impl.bitstream=board.bit``) is a different file in the run
 directory, so it is a different run.
 
 A setting that names a file refuses ``true`` and ``false``, as text or as a boolean, because they
@@ -908,7 +908,7 @@ waveform setting such as ``vcd`` takes ``true`` and ``false`` as a switch.
 A requested flow that writes no outputs has nothing to deliver. A programmer is such a flow, as in
 ``xeda run vivado_synth+openfpgaloader``. ``--outputs-to`` is then refused before anything runs. The
 error names the setting whose location delivers the file that the programmer reads, here ``-s
-flows.vivado_synth.bitstream=$PWD/<file>``, and it names every form of a location given above. With
+vivado_synth.bitstream=$PWD/<file>``, and it names every form of a location given above. With
 ``--remote``, that setting would deliver on the remote host, so the error names the request that
 brings the file back instead: ``xeda run --remote vivado_synth ... --outputs-to DIR``.
 

@@ -15,10 +15,11 @@ from xeda.flows import Bsc, Nextpnr, VivadoSynth, Yosys, YosysFpga
 
 from .test_nextpnr import _nextpnr_args
 from .test_vcs_sim_evidence import launch as launch_vcs
+from .flow_registry import is_product_flow
 
 HIDDEN = {"reports_dir", "checkpoints_dir", "outputs_dir"}
 FLOWS = sorted(
-    {cls for _, cls in registered_flows.values() if not cls.__name__.startswith("_")},
+    {cls for _, cls in registered_flows.values() if is_product_flow(cls)},
     key=lambda cls: cls.name,
 )
 

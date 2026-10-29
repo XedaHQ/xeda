@@ -28,7 +28,7 @@ FIXTURES = (fake_ssh, fake_remote, remote_host)
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
-SQRT_SETTINGS = ["-s", "fpga.part=xc7a12tcsg325-1"]
+SQRT_SETTINGS = ["-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
 
 BLINK = "module blink(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
 
@@ -65,7 +65,9 @@ def test_a_run_reports_the_design_s_name_and_the_file_it_was_read_from(world):
 
 
 def test_a_failure_after_the_design_loaded_still_names_it(world):
-    status, document = _json("run", "vivado_synth", "sqrt.yaml", "-s", "no_such_setting=1")
+    status, document = _json(
+        "run", "vivado_synth", "sqrt.yaml", "-s", "vivado_synth.no_such_setting=1"
+    )
 
     assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "unknown_setting"

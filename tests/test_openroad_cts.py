@@ -32,6 +32,7 @@ from .openroad_utils import (
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import failing_tool_commands, fake_calls, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
+from .scoping import node_settings
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "cts_defaults.tcl"
@@ -131,7 +132,7 @@ def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None, reque
     given = text_items([*openroad_settings(store), *texts])
     given |= typed or {}
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        request, openroad_design(tmp_path / "design"), flow_settings=given
+        request, openroad_design(tmp_path / "design"), flow_settings=node_settings(request, given)
     )
 
 
@@ -989,7 +990,7 @@ def launch(tmp_path, monkeypatch, request="openroad_cts", **given):
     _, settings = launch_settings(tmp_path, **given)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
-    flow = runner.run(request, design, flow_settings=settings)
+    flow = runner.run(request, design, flow_settings=node_settings(request, settings))
     assert flow is not None and flow.succeeded
     return runner, design, settings, flow
 
@@ -1073,7 +1074,9 @@ def test_a_second_launch_is_fresh(tmp_path, monkeypatch):
     runner, design, settings, first = launch(tmp_path, monkeypatch)
     log = Path(first.run_path) / "openroad_cts.log"
     written = log.stat().st_mtime_ns
-    again = runner.run("openroad_cts", design, flow_settings=settings)
+    again = runner.run(
+        "openroad_cts", design, flow_settings=node_settings("openroad_cts", settings)
+    )
     assert again is not None and again.succeeded and again.reused
     assert not first.reused
     assert log.stat().st_mtime_ns == written
@@ -1084,7 +1087,9 @@ def test_a_change_of_a_clock_tree_setting_runs_the_clock_tree_again_and_not_the_
 ):
     runner, design, settings, _ = launch(tmp_path, monkeypatch)
     given = text_items(settings) | {"sink_clustering.mode": "off"}
-    _, states = runner.plan_with_freshness("openroad_cts", Design.load(design), flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        "openroad_cts", Design.load(design), flow_settings=node_settings("openroad_cts", given)
+    )
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state != "fresh"
 
@@ -1098,7 +1103,11 @@ def test_a_missing_metrics_file_fails_the_reading_of_the_results(tmp_path, monke
     monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(recorded))
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run("openroad_cts", openroad_design(tmp_path / "design"), flow_settings=settings)
+    flow = runner.run(
+        "openroad_cts",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad_cts", settings),
+    )
     assert flow is None or not flow.succeeded
     (run_dir,) = (tmp_path / "xeda_run").rglob("openroad_cts")
     assert not (run_dir / "trace.json").exists()
@@ -1116,7 +1125,11 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, m
     monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(broken))
     _, settings = launch_settings(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run("openroad_cts", openroad_design(tmp_path / "design"), flow_settings=settings)
+    flow = runner.run(
+        "openroad_cts",
+        openroad_design(tmp_path / "design"),
+        flow_settings=node_settings("openroad_cts", settings),
+    )
     assert flow is None or not flow.succeeded
 
 
@@ -1127,7 +1140,9 @@ def test_a_failed_cts_stage_leaves_a_failed_database_and_no_trace(tmp_path, monk
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
     with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
-        failed = runner.run("openroad_cts", design, flow_settings=settings)
+        failed = runner.run(
+            "openroad_cts", design, flow_settings=node_settings("openroad_cts", settings)
+        )
     assert failed is None or not failed.succeeded
     (cts_dir,) = (tmp_path / "xeda_run").rglob("openroad_cts")
     place_dir = cts_dir.parent / "openroad_place"
@@ -1142,11 +1157,11 @@ def test_a_failed_cts_stage_leaves_a_failed_database_and_no_trace(tmp_path, monk
     _, states = runner.plan_with_freshness(
         "openroad_cts",
         Design.load(design),
-        flow_settings=text_items(settings),
+        flow_settings=node_settings("openroad_cts", text_items(settings)),
     )
     assert states["openroad_place"].state == "fresh"
     assert states["openroad_cts"].state != "fresh"
-    flow = runner.run("openroad_cts", design, flow_settings=settings)
+    flow = runner.run("openroad_cts", design, flow_settings=node_settings("openroad_cts", settings))
     assert flow is not None and flow.succeeded
     assert not (cts_dir / "openroad_cts-failed.odb").exists()
     assert (cts_dir / "trace.json").is_file() and (cts_dir / "cts.odb").is_file()
@@ -1159,10 +1174,10 @@ def test_the_placement_is_not_run_again_after_a_failed_clock_tree(tmp_path, monk
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     design = openroad_design(tmp_path / "design")
     with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
-        runner.run("openroad_cts", design, flow_settings=settings)
+        runner.run("openroad_cts", design, flow_settings=node_settings("openroad_cts", settings))
     (place_dir,) = (tmp_path / "xeda_run").rglob("openroad_place")
     placed = (place_dir / "place.odb").stat().st_mtime_ns
-    flow = runner.run("openroad_cts", design, flow_settings=settings)
+    flow = runner.run("openroad_cts", design, flow_settings=node_settings("openroad_cts", settings))
     assert flow is not None and flow.succeeded
     assert (place_dir / "place.odb").stat().st_mtime_ns == placed
 
@@ -1171,7 +1186,9 @@ def test_a_dry_run_judges_the_files_of_the_placement(tmp_path, monkeypatch):
     runner, design_file, settings, _ = launch(tmp_path, monkeypatch)
     design = Design.load(design_file)
     given = text_items(settings)
-    _, states = runner.plan_with_freshness("openroad_cts", design, flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        "openroad_cts", design, flow_settings=node_settings("openroad_cts", given)
+    )
     assert {name: state.state for name, state in states.items()} == {
         "openroad_place": "fresh",
         "openroad_cts": "fresh",
@@ -1179,7 +1196,9 @@ def test_a_dry_run_judges_the_files_of_the_placement(tmp_path, monkeypatch):
     store = Path(given["pdk_root"])
     library = store / "tiny" / "tiny.lib"
     library.write_text(library.read_text() + "\n/* edited */\n")
-    _, states = runner.plan_with_freshness("openroad_cts", design, flow_settings=given)
+    _, states = runner.plan_with_freshness(
+        "openroad_cts", design, flow_settings=node_settings("openroad_cts", given)
+    )
     assert states["openroad_place"].state == "stale"
     assert states["openroad_cts"].state == "stale"
 

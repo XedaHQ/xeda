@@ -29,13 +29,13 @@ as HDL text, and quote source paths.
 A setting takes exactly the type that it declares, and Xeda converts no value to another type.
 An integer setting takes ``4``, not ``"4"``, ``4.0`` or ``true``. A number setting takes an
 integer or a float, not text. This holds in a design file, in a project, in every other file
-and in Python. On the command line every value is text, so ``-s seed=4`` is read as the type of
+and in Python. On the command line every value is text, so ``-s nextpnr.seed=4`` is read as the type of
 the setting ``seed``.
 
 A boolean setting accepts only ``true`` and ``false`` in a file, and only ``True`` and ``False``
-in Python. On the command line, ``-s key=true`` and ``-s key=false`` give the boolean (in any
+in Python. On the command line, ``-s <flow>.key=true`` and ``-s <flow>.key=false`` give the boolean (in any
 letter case). ``yes`` and ``1`` are errors. For example, ``docker: yes`` and
-``-s docker=on`` fail with a message that ``yes`` (or ``on``) is text and not a boolean, and that
+``-s yosys.docker=on`` fail with a message that ``yes`` (or ``on``) is text and not a boolean, and that
 you should write ``true``. A field that is not a boolean gives the same advice for a word that
 YAML 1.1 reads as a boolean (``nthreads: on``).
 
@@ -1053,7 +1053,7 @@ choices that conflict on one flow, such as the FPGA family of ``yosys_fpga``.
   design without an error, and a ``seed`` that the target does not write stays the design's. A
   setting can come from these places, lowest first: the defaults of the flow, your user file, the
   project file, the design file, the target, the project-local file, the command line (``-s``) and
-  the API. So ``-s seed=9`` and an API
+  the API. So ``-s nextpnr.seed=9`` and an API
   override still win over a target. The loader records the name of the selected target, and a
   design update cannot set or change it. Two flows of one run that disagree about a setting
   they share, such as ``yosys_fpga`` and ``nextpnr`` that name different boards, are a different

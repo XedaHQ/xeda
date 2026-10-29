@@ -17,6 +17,7 @@ from xeda.flow_runner import DefaultRunner
 from .openroad_utils import openroad_design, openroad_settings, probe_flows
 from .tiny_platform import tiny_store
 from .tool_utils import require_tclsh, use_fake_openroad
+from .scoping import node_settings
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics" / "openroad_place.json"
 
@@ -39,7 +40,7 @@ class Launch:
         self.design = openroad_design(tmp_path / "design")
 
     def run_directory(self) -> Path:
-        (found,) = self.root.glob("*/__openroad_probe")
+        (found,) = self.root.glob("*/t_openroad_probe")
         return found
 
     def runner(self) -> DefaultRunner:
@@ -50,7 +51,7 @@ class Launch:
         return self.runner().run(
             self.probes.netlist,
             design or self.design,
-            flow_settings=openroad_settings(store),
+            flow_settings=node_settings(self.probes.netlist, openroad_settings(store)),
         )
 
     def outside_file(self, name: str) -> Path:
@@ -131,7 +132,7 @@ def test_a_link_at_the_name_of_the_failed_database_is_replaced_by_a_regular_file
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "report_tns_metric")
     flow = launched.launch()  # the process fails, as the script re-raises the error
     assert flow is None or not flow.succeeded
-    failed = launched.run_directory() / "__openroad_probe-failed.odb"
+    failed = launched.run_directory() / "t_openroad_probe-failed.odb"
     assert failed.is_file() and not failed.is_symlink()
     assert "write_db" in failed.read_text()
     assert target.read_text() == "outside\n"
@@ -201,7 +202,9 @@ def test_the_threads_setting_gives_the_thread_count(launched, monkeypatch):
     flow = launched.runner().run(
         launched.probes.netlist,
         launched.design,
-        flow_settings=[*openroad_settings(store), "nthreads=3"],
+        flow_settings=node_settings(
+            launched.probes.netlist, [*openroad_settings(store), "nthreads=3"]
+        ),
     )
     assert flow is not None and flow.succeeded
     (command,) = [c for c in commands if "-no_init" in c]

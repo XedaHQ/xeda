@@ -359,7 +359,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
     reads_sources = None
     design_parts = frozenset({"rtl"})
     required_settings = {
-        "platform": "the ASIC platform: give a bundled platform's name with `-s platform=<name>` "
+        "platform": "the ASIC platform: give a bundled platform's name with `-s {flow}.platform=<name>` "
         "(see `xeda list-platforms`), or a residue file with `platform_file`; in the design "
         "file, give it as `flows.{flow}.platform`",
     }

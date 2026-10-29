@@ -18,8 +18,9 @@ from xeda.flow_runner.configuration import configuration_hash
 from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.trace import TRACE_FORMAT
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
-from .io_flows import _ChainConsumer, _Join, _Left, _Taker
+from .io_flows import TChainConsumer, TJoin, TLeft, TTaker
 from .tool_utils import producers_of
 
 
@@ -61,15 +62,15 @@ def _settings_ids(plan):
 
 
 def test_identity_is_the_settings_hash_and_the_ordered_input_origins(tmp_path):
-    plan = _plan(tmp_path, _Join)
+    plan = _plan(tmp_path, TJoin)
     by_name = _ids(plan)
     fork, left, right, join = plan.nodes
     assert fork.origins == ()
-    assert left.origins == (("json_netlist", ((by_name["__fork"], "a"),)),)
-    assert right.origins == (("json_netlist", ((by_name["__fork"], "b"),)),)
+    assert left.origins == (("json_netlist", ((by_name["t_fork"], "a"),)),)
+    assert right.origins == (("json_netlist", ((by_name["t_fork"], "b"),)),)
     assert join.origins == (
-        ("left", ((by_name["__left"], "out"),)),
-        ("right", ((by_name["__right"], "out"),)),
+        ("left", ((by_name["t_left"], "out"),)),
+        ("right", ((by_name["t_right"], "out"),)),
         ("more", ()),
     )
     for node in plan.nodes:
@@ -79,69 +80,71 @@ def test_identity_is_the_settings_hash_and_the_ordered_input_origins(tmp_path):
         assert node.flowrun_hash != node.settings_hash
 
 
-@pytest.mark.parametrize("reference", ["__maker", "__maker.made"])
+@pytest.mark.parametrize("reference", ["t_maker", "t_maker.made"])
 def test_a_restated_default_under_any_spelling_is_the_bare_request_s_identity(tmp_path, reference):
-    bare = _plan(tmp_path, _Taker)
-    restated = _plan(tmp_path, _Taker, {"__taker": {"inputs": {"made": reference}}})
+    bare = _plan(tmp_path, TTaker)
+    restated = _plan(tmp_path, TTaker, {"t_taker": {"inputs": {"made": reference}}})
     assert _ids(restated) == _ids(bare)
 
 
 def test_where_a_binding_is_written_is_no_part_of_the_identity(tmp_path):
     runner = _runner(tmp_path)
     design = _design(tmp_path)
-    saved = _plan(tmp_path, _Taker, {"__taker": {"inputs": {"made": "__input_maker.made"}}})
+    saved = _plan(tmp_path, TTaker, {"t_taker": {"inputs": {"made": "t_input_maker.made"}}})
     plans = [
         saved,
-        runner.plan(parse_request("__input_maker+__taker"), design),
-        runner.plan(_Taker, design, flow_settings=["inputs.made=__input_maker"]),
-        runner.plan(_Taker, design, flow_overrides={"inputs.made": "__input_maker.made"}),
+        runner.plan(parse_request("t_input_maker+t_taker"), design),
+        runner.plan(
+            TTaker, design, flow_settings=node_settings(TTaker, ["inputs.made=t_input_maker"])
+        ),
+        runner.plan(TTaker, design, flow_overrides={"inputs.made": "t_input_maker.made"}),
     ]
     assert all(_ids(plan) == _ids(saved) for plan in plans)
 
 
 def test_another_producer_another_output_and_another_order_are_other_identities(tmp_path):
-    default = _plan(tmp_path, _Taker)
-    other = _plan(tmp_path, _Taker, {"__taker": {"inputs": {"made": "__input_maker"}}})
-    assert _ids(default)["__taker"] != _ids(other)["__taker"]
-    assert _settings_ids(default)["__taker"] == _settings_ids(other)["__taker"]
+    default = _plan(tmp_path, TTaker)
+    other = _plan(tmp_path, TTaker, {"t_taker": {"inputs": {"made": "t_input_maker"}}})
+    assert _ids(default)["t_taker"] != _ids(other)["t_taker"]
+    assert _settings_ids(default)["t_taker"] == _settings_ids(other)["t_taker"]
 
     def consumer(left, right, files):
         bindings = {"left": left, "right": right, "files": files}
-        return _plan(tmp_path, _ChainConsumer, {"__chain_consumer": {"inputs": bindings}})
+        return _plan(tmp_path, TChainConsumer, {"t_chain_consumer": {"inputs": bindings}})
 
-    a, b = "__chain_producer.json_a", "__chain_producer.json_b"
-    files = ["__chain_producer.files", "__chain_simple_producer.data"]
+    a, b = "t_chain_producer.json_a", "t_chain_producer.json_b"
+    files = ["t_chain_producer.files", "t_chain_simple_producer.data"]
     straight = consumer(a, b, files)
     crossed = consumer(b, a, files)
     reordered = consumer(a, b, files[::-1])
     for changed in (crossed, reordered):
         # the producers are configured alike: only the consumer's wiring differs
-        assert _ids(changed)["__chain_producer"] == _ids(straight)["__chain_producer"]
+        assert _ids(changed)["t_chain_producer"] == _ids(straight)["t_chain_producer"]
         assert _settings_ids(changed) == _settings_ids(straight)
-        assert _ids(changed)["__chain_consumer"] != _ids(straight)["__chain_consumer"]
-    assert _ids(crossed)["__chain_consumer"] != _ids(reordered)["__chain_consumer"]
+        assert _ids(changed)["t_chain_consumer"] != _ids(straight)["t_chain_consumer"]
+    assert _ids(crossed)["t_chain_consumer"] != _ids(reordered)["t_chain_consumer"]
 
 
 def test_a_source_supplied_input_is_another_identity_than_a_produced_one(tmp_path):
-    produced = _plan(tmp_path, _Taker)
-    sourced = _plan(tmp_path, _Taker, sources=[("x.dat", SourceType.Data)])
-    assert sourced.node("__taker").origins == (("made", ("source", (("x.dat", "Data"),))),)
-    assert _settings_ids(sourced)["__taker"] == _settings_ids(produced)["__taker"]
-    assert _ids(sourced)["__taker"] != _ids(produced)["__taker"]
+    produced = _plan(tmp_path, TTaker)
+    sourced = _plan(tmp_path, TTaker, sources=[("x.dat", SourceType.Data)])
+    assert sourced.node("t_taker").origins == (("made", ("source", (("x.dat", "Data"),))),)
+    assert _settings_ids(sourced)["t_taker"] == _settings_ids(produced)["t_taker"]
+    assert _ids(sourced)["t_taker"] != _ids(produced)["t_taker"]
 
 
 def test_a_producer_s_settings_move_every_downstream_identity(tmp_path):
-    before = _plan(tmp_path, _Join)
-    after = _plan(tmp_path, _Join, {"__fork": {"label": "x"}})
+    before = _plan(tmp_path, TJoin)
+    after = _plan(tmp_path, TJoin, {"t_fork": {"label": "x"}})
     assert all(_ids(before)[name] != _ids(after)[name] for name in _ids(before))
-    for name in ("__left", "__right", "__join"):
+    for name in ("t_left", "t_right", "t_join"):
         assert _settings_ids(before)[name] == _settings_ids(after)[name]
 
 
 def test_the_run_root_is_no_part_of_the_identity(tmp_path):
     design = _design(tmp_path)
-    here = DefaultRunner(tmp_path / "a").plan(_Join, design)
-    there = DefaultRunner(tmp_path / "b", hashed_run_dirs=True).plan(_Join, design)
+    here = DefaultRunner(tmp_path / "a").plan(TJoin, design)
+    there = DefaultRunner(tmp_path / "b", hashed_run_dirs=True).plan(TJoin, design)
     assert _ids(here) == _ids(there)
 
 
@@ -158,17 +161,17 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
     bound = _design(
         tmp_path,
         flows={
-            "__taker": {"inputs": {"made": "__input_maker.made"}},
-            "__input_maker": {"input_file": str(source)},
+            "t_taker": {"inputs": {"made": "t_input_maker.made"}},
+            "t_input_maker": {"input_file": str(source)},
         },
     )
     paths = []
     for request in (design, bound):
-        plan = runner.plan(_Taker, request)
-        flow = runner.run(_Taker, request)
-        node = plan.node("__taker")
+        plan = runner.plan(TTaker, request)
+        flow = runner.run(TTaker, request)
+        node = plan.node("t_taker")
         assert flow.succeeded and flow.run_path == node.run_path
-        assert node.run_path.name == f"__taker_{node.flowrun_hash[:DIR_NAME_HASH_LEN]}"
+        assert node.run_path.name == f"t_taker_{node.flowrun_hash[:DIR_NAME_HASH_LEN]}"
         results = json.loads((flow.run_path / "results.json").read_text())
         trace = json.loads((flow.run_path / "trace.json").read_text())
         settings = json.loads((flow.run_path / "settings.json").read_text())
@@ -202,21 +205,21 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
 def test_a_tampered_identity_fails_before_execution(tmp_path):
     runner = _runner(tmp_path)
     design = _design(tmp_path)
-    request = runner._request(_Taker, design, flow_overrides={"inputs.made": "__input_maker"})
+    request = runner._request(TTaker, design, flow_overrides={"inputs.made": "t_input_maker"})
     plan = runner._resolve_request(request)
     runner._request_context = request
-    node = plan.node("__taker")
+    node = plan.node("t_taker")
     saved = node.origins
     object.__setattr__(node, "origins", (("made", "source"),))
     with pytest.raises(FlowFatalError, match="identity or path"):
         runner.run_flow(
-            _Taker, design, request.settings, all_flows_settings=request.sections, plan=plan
+            TTaker, design, request.settings, all_flows_settings=request.sections, plan=plan
         )
     object.__setattr__(node, "origins", saved)
     object.__setattr__(node, "flowrun_hash", node.settings_hash)
     with pytest.raises(FlowFatalError, match="identity or path"):
         runner.run_flow(
-            _Taker, design, request.settings, all_flows_settings=request.sections, plan=plan
+            TTaker, design, request.settings, all_flows_settings=request.sections, plan=plan
         )
     assert not (tmp_path / "run").exists()
 
@@ -234,42 +237,42 @@ def test_a_changed_producer_is_the_named_reason_and_the_same_wiring_given_otherw
     tmp_path,
 ):
     source = tmp_path / "in.txt"
-    source.write_text("made\n")  # the very bytes `__maker` writes
-    maker = {"__input_maker": {"input_file": str(source)}}
-    saved = {**maker, "__taker": {"inputs": {"made": "__input_maker.made"}}}
+    source.write_text("made\n")  # the very bytes `t_maker` writes
+    maker = {"t_input_maker": {"input_file": str(source)}}
+    saved = {**maker, "t_taker": {"inputs": {"made": "t_input_maker.made"}}}
     runner = _runner(tmp_path)
-    first = runner.run(_Taker, _design(tmp_path))
+    first = runner.run(TTaker, _design(tmp_path))
     assert first.succeeded and first.results["read"] == "made\n"
-    rebound = runner.run(_Taker, _design(tmp_path, flows=saved))
+    rebound = runner.run(TTaker, _design(tmp_path, flows=saved))
     assert rebound.results["read"] == "made\n" and not rebound.reused
-    assert rebound.stale_reason == "made now from __input_maker.made (was __maker.made)"
+    assert rebound.stale_reason == "made now from t_input_maker.made (was t_maker.made)"
     # the same wiring from a chain instead of the file: nothing runs
-    chained = runner.run(parse_request("__input_maker+__taker"), _design(tmp_path, flows=maker))
+    chained = runner.run(parse_request("t_input_maker+t_taker"), _design(tmp_path, flows=maker))
     assert chained.reused and producers_of(runner, chained)[0].reused
     # and back to the default producer
-    back = runner.run(_Taker, _design(tmp_path))
-    assert back.stale_reason == "made now from __maker.made (was __input_maker.made)"
-    sourced = runner.run(_Taker, _design(tmp_path, [("x.dat", SourceType.Data)]))
-    assert sourced.stale_reason == "made now from the design's sources (was __maker.made)"
+    back = runner.run(TTaker, _design(tmp_path))
+    assert back.stale_reason == "made now from t_maker.made (was t_input_maker.made)"
+    sourced = runner.run(TTaker, _design(tmp_path, [("x.dat", SourceType.Data)]))
+    assert sourced.stale_reason == "made now from the design's sources (was t_maker.made)"
 
 
 def test_a_changed_reference_order_is_the_named_reason(tmp_path):
     def run(more):
-        design = _design(tmp_path, flows={"__join": {"inputs": {"more": more}}})
-        return runner.run(_Join, design)
+        design = _design(tmp_path, flows={"t_join": {"inputs": {"more": more}}})
+        return runner.run(TJoin, design)
 
     runner = _runner(tmp_path)
-    first = run(["__left.out", "__right.out"])
+    first = run(["t_left.out", "t_right.out"])
     assert first.succeeded and first.results["more"] == ["a\n", "b\n"]
-    assert run(["__left.out", "__right.out"]).reused
-    swapped = run(["__right.out", "__left.out"])
+    assert run(["t_left.out", "t_right.out"]).reused
+    swapped = run(["t_right.out", "t_left.out"])
     assert swapped.results["more"] == ["b\n", "a\n"]
     assert swapped.stale_reason == (
-        "more now from __right.out, __left.out (was __left.out, __right.out)"
+        "more now from t_right.out, t_left.out (was t_left.out, t_right.out)"
     )
     assert all(flow.reused for flow in runner.launched[-4:-1]), "only the consumer ran again"
     emptied = run([])
-    assert emptied.stale_reason == "more now from nothing (was __right.out, __left.out)"
+    assert emptied.stale_reason == "more now from nothing (was t_right.out, t_left.out)"
     trace = json.loads((emptied.run_path / "trace.json").read_text())
     assert trace["declared_inputs"][2]["references"] == []
     assert trace["declared_inputs"][2]["binding_origin"] == "file"
@@ -277,24 +280,24 @@ def test_a_changed_reference_order_is_the_named_reason(tmp_path):
 
 def test_a_reconfigured_producer_and_a_settings_change_keep_their_own_reasons(tmp_path):
     runner = _runner(tmp_path)
-    assert runner.run(_Left, _design(tmp_path)).succeeded
-    again = runner.run(_Left, _design(tmp_path, flows={"__fork": {"label": "x"}}))
-    assert _launched(runner, "__fork").stale_reason == "settings changed: label"
+    assert runner.run(TLeft, _design(tmp_path)).succeeded
+    again = runner.run(TLeft, _design(tmp_path, flows={"t_fork": {"label": "x"}}))
+    assert _launched(runner, "t_fork").stale_reason == "settings changed: label"
     assert again.stale_reason == (
-        "__fork, which makes json_netlist, has other settings or inputs than in the last run"
+        "t_fork, which makes json_netlist, has other settings or inputs than in the last run"
     )
     own = runner.run(
-        _Left, _design(tmp_path, flows={"__fork": {"label": "x"}, "__left": {"nthreads": 1}})
+        TLeft, _design(tmp_path, flows={"t_fork": {"label": "x"}, "t_left": {"nthreads": 1}})
     )
     assert own.stale_reason.startswith("settings changed: nthreads")
-    assert _launched(runner, "__fork").reused
+    assert _launched(runner, "t_fork").reused
     # when the settings and the wiring both change, the settings are the reason given: a
     # binding is named only when the settings hash is the recorded one
     both = runner.run(
-        _Left,
+        TLeft,
         _design(
             tmp_path,
-            flows={"__left": {"nthreads": 2, "inputs": {"json_netlist": "__fork.b"}}},
+            flows={"t_left": {"nthreads": 2, "inputs": {"json_netlist": "t_fork.b"}}},
         ),
     )
     assert both.stale_reason.startswith("settings changed: nthreads")

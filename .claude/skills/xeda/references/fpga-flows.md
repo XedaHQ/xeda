@@ -150,7 +150,7 @@ flows:
 ```
 
 ```bash
-xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit
+xeda run yosys_fpga+vivado_impl blinky.yaml -s vivado_impl.bitstream=$PWD/blinky.bit
 ```
 
 `vivado_impl` takes its clock from `rtl.clock` and its own `clock.period` (or `clock.freq`);
@@ -178,5 +178,5 @@ Xeda writes the `create_clock`. Clock settings under `flows.nextpnr` do not reac
   binds the checkpoint):
 
 ```bash
-xeda run yosys_fpga+vivado_impl+vivado_power <design.yaml> -s flows.vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist flows.vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing flows.vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf
+xeda run yosys_fpga+vivado_impl+vivado_power <design.yaml> -s vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf
 ```

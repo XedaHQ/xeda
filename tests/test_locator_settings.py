@@ -16,8 +16,9 @@ from xeda.flow import flowrun_hash
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import setting_path_leaves
 
-from .io_flows import _InstalledTaker, _ReadsInstalled, _ReadsInstalledNested, _Where
+from .io_flows import TInstalledTaker, TReadsInstalled, TReadsInstalledNested, _Where
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -38,9 +39,9 @@ def _design(tmp_path: Path) -> Design:
 
 def test_is_locator_tells_the_marked_fields():
     assert LOCATOR == {"x-xeda-locator": True}
-    assert is_locator(_ReadsInstalled.Settings, "store")
-    assert not is_locator(_ReadsInstalled.Settings, "text")
-    assert not is_locator(_ReadsInstalled.Settings, "no_such_field")
+    assert is_locator(TReadsInstalled.Settings, "store")
+    assert not is_locator(TReadsInstalled.Settings, "text")
+    assert not is_locator(TReadsInstalled.Settings, "no_such_field")
     assert is_locator(_Where, "store")
 
 
@@ -54,13 +55,13 @@ def test_the_marker_is_no_role_of_a_written_path():
 
 def test_a_locator_is_no_part_of_the_identity(tmp_path):
     a, b = _store(tmp_path / "a"), _store(tmp_path / "b")
-    first = _ReadsInstalled.Settings.from_input(
+    first = TReadsInstalled.Settings.from_input(
         {"store": a}, design_root=tmp_path, runner_cwd=tmp_path
     )
-    second = _ReadsInstalled.Settings.from_input(
+    second = TReadsInstalled.Settings.from_input(
         {"store": b}, design_root=tmp_path, runner_cwd=tmp_path
     )
-    unset = _ReadsInstalled.Settings.from_input({}, design_root=tmp_path, runner_cwd=tmp_path)
+    unset = TReadsInstalled.Settings.from_input({}, design_root=tmp_path, runner_cwd=tmp_path)
     assert flowrun_hash("x", first) == flowrun_hash("x", second) == flowrun_hash("x", unset)
     assert first.store == a, "the identity works on a copy"
 
@@ -68,7 +69,7 @@ def test_a_locator_is_no_part_of_the_identity(tmp_path):
 def test_a_locator_in_a_nested_model_is_no_part_of_the_identity(tmp_path):
     a, b = _store(tmp_path / "a"), _store(tmp_path / "b")
     first, second = (
-        _ReadsInstalledNested.Settings.from_input(
+        TReadsInstalledNested.Settings.from_input(
             {"where": {"store": store}}, design_root=tmp_path, runner_cwd=tmp_path
         )
         for store in (a, b)
@@ -79,11 +80,11 @@ def test_a_locator_in_a_nested_model_is_no_part_of_the_identity(tmp_path):
 
 def test_a_locator_is_never_traversed(tmp_path):
     store = _store(tmp_path / "s", extra_files=500)
-    settings = _ReadsInstalled.Settings.from_input(
+    settings = TReadsInstalled.Settings.from_input(
         {"store": store}, design_root=tmp_path, runner_cwd=tmp_path
     )
     assert setting_path_leaves(settings, written=False) == []
-    nested = _ReadsInstalledNested.Settings.from_input(
+    nested = TReadsInstalledNested.Settings.from_input(
         {"where": {"store": store}}, design_root=tmp_path, runner_cwd=tmp_path
     )
     assert setting_path_leaves(nested, written=False) == []
@@ -96,7 +97,7 @@ def test_moving_the_store_keeps_the_identity_and_makes_the_run_stale(tmp_path, h
 
     def launch(store):
         runner = DefaultRunner(tmp_path / "run", display_results=False, hashed_run_dirs=hashed)
-        flow = runner.run_flow(_ReadsInstalled, design, {"store": store})
+        flow = runner.run_flow(TReadsInstalled, design, {"store": store})
         assert flow is not None and flow.succeeded
         return flow
 
@@ -116,7 +117,7 @@ def test_moving_the_store_keeps_the_identity_and_makes_the_run_stale(tmp_path, h
 def test_settings_json_keeps_the_locator(tmp_path):
     store = _store(tmp_path / "s")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(_ReadsInstalled, _design(tmp_path), {"store": store})
+    flow = runner.run_flow(TReadsInstalled, _design(tmp_path), {"store": store})
     assert flow is not None
     recorded = json.loads((flow.run_path / "settings.json").read_text())
     assert Path(recorded["flow_settings"]["store"]) == store
@@ -130,16 +131,16 @@ def test_a_remote_run_does_not_ship_a_locator(tmp_path, remote_host, place):
     (store / "lib.txt").write_text(secret)
     command_line: list[str] = []
     if place == "requested":
-        flow_class, key = _ReadsInstalled, "__reads_installed"
+        flow_class, key = TReadsInstalled, "t_reads_installed"
         sections: dict = {}
         command_line = [f"store={store}"]
         field = "store"
     elif place == "producer":
-        flow_class, key = _InstalledTaker, "__reads_installed"
+        flow_class, key = TInstalledTaker, "t_reads_installed"
         sections = {key: {"store": str(store)}}
         field = "store"
     else:
-        flow_class, key = _ReadsInstalledNested, "__reads_installed_nested"
+        flow_class, key = TReadsInstalledNested, "t_reads_installed_nested"
         sections = {key: {"where": {"store": str(store)}}}
         field = "where"
     root = tmp_path / "design"
@@ -148,7 +149,12 @@ def test_a_remote_run_does_not_ship_a_locator(tmp_path, remote_host, place):
     design.write_text(
         yaml.safe_dump({"name": "d", "rtl": {"sources": [], "top": "t"}, "flows": sections})
     )
-    outcome = remote_request(tmp_path, design, flow_class.name, flow_settings=command_line)
+    outcome = remote_request(
+        tmp_path,
+        design,
+        flow_class.name,
+        flow_settings=node_settings(flow_class.name, command_line),
+    )
     assert outcome.error is None and outcome.success, outcome.document
 
     workspace = remote_host.workspace()

@@ -23,6 +23,7 @@ from xeda.flows.nextpnr import NextpnrTool
 from . import tool_utils
 from .test_xilinx_chipdb import PARTS, _binary
 from .test_xilinx_chipdb import prefix as chipdb_prefix
+from .scoping import node_settings
 
 # The fake installation, under the name the tests ask for it by.
 prefix = chipdb_prefix
@@ -497,7 +498,9 @@ def _project(tmp_path, monkeypatch, sdc=None):
 
 def test_a_launch_places_a_7_series_design_and_the_next_reuses_it(tmp_path, monkeypatch):
     design, runner = _project(tmp_path, monkeypatch, sdc="create_clock -period 8 [get_ports clk]\n")
-    first = runner.run("nextpnr", design, flow_settings={"fpga": {"part": A100T}})
+    first = runner.run(
+        "nextpnr", design, flow_settings=node_settings("nextpnr", {"fpga": {"part": A100T}})
+    )
     assert first is not None and first.succeeded
     (call,) = _calls(first.run_path)
     argv = call["argv"]
@@ -518,7 +521,9 @@ def test_a_launch_places_a_7_series_design_and_the_next_reuses_it(tmp_path, monk
     assert first.results["outputs"]["config"]["path"] == str(first.outputs.config)
     assert first.results["lut"] == 1 and first.results["ff"] == 1
     assert first.results["fabric"] == "xc7a100t"
-    again = runner.run("nextpnr", design, flow_settings={"fpga": {"part": A100T}})
+    again = runner.run(
+        "nextpnr", design, flow_settings=node_settings("nextpnr", {"fpga": {"part": A100T}})
+    )
     assert again is not None and again.reused and tool_utils.producers_of(runner, again)[0].reused
     assert len(_calls(first.run_path)) == 1
 
@@ -529,7 +534,7 @@ def test_a_launch_with_a_clock_in_the_sdc_and_the_settings_names_both(tmp_path, 
     )
     settings = {"fpga": {"part": A100T}, "clocks": {"main": {"port": "clk", "period": "10 ns"}}}
     with pytest.raises(FlowFatalError, match="Duplicate clock") as error:
-        runner.run("nextpnr", design, flow_settings=settings)
+        runner.run("nextpnr", design, flow_settings=node_settings("nextpnr", settings))
     assert f"{tmp_path / 'timing.sdc'}:2" in str(error.value)
     assert not (tmp_path / "run/top/nextpnr/fake_fpga.calls.jsonl").exists()
 
@@ -542,7 +547,7 @@ def test_a_board_supplies_the_part_and_its_pin_file(tmp_path, monkeypatch):
         "board": "arty_a7_100t",
         "clocks": {"main": {"port": "CLK100MHZ", "period": "10 ns"}},
     }
-    flow = runner.run("nextpnr", design, flow_settings=settings)
+    flow = runner.run("nextpnr", design, flow_settings=node_settings("nextpnr", settings))
     assert flow is not None and flow.succeeded
     merged = (flow.run_path / "constraints.xdc").read_text()
     assert "PACKAGE_PIN E3" in merged

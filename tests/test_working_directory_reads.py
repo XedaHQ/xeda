@@ -95,6 +95,7 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("remote/packaging.py", "package_inputs.packaged_liberty"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_path"): "relative setting paths",
     ("run_root.py", "ensure_run_root"): "a run root given relative to the caller",
+    ("spec.py", "Spec.__post_init__"): "`$PWD` in the text of a setting, replaced once",
 }
 
 #: (module, function) -> why a process it starts needs no explicit working directory.

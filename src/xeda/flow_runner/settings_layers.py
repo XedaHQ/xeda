@@ -13,8 +13,9 @@ The settings of a flow are assembled from these layers, lowest precedence first:
    is part of the origin of the design
 7. the `flows` table of the project-local file (`LocalSettings.local`), which overrides the
    checked-in files of one checkout
-8. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
-   overrides given through the API (`flow_overrides`)
+8. the command line (`-s NODE.KEY=VALUE`, or the `flow_settings` of `run`
+   and `plan`), then the overrides given through the API (`flow_overrides`). Every key of this
+   layer names a node (`node_settings`)
 
 The text of a `KEY=VALUE` item is read as the type of its setting where the layers merge
 (`merge_layers`). A value that Python or a file gives is never converted.
@@ -601,11 +602,13 @@ def _given_leaves(
     layer: Mapping[str, Any] | Sequence[Any],
     requested: str,
     flow_class_for: Callable[[str], Any | None] | None,
+    scoped: bool = False,
 ) -> dict[tuple[str, tuple[str, ...]], list[tuple[str, str, Any]]]:
     """Return what a command-line layer gives, by the leaf it sets.
 
     A leaf is the canonical path of a setting in the node that the item addresses: `-s key` and
-    `-s flows.<requested>.key` are one leaf of the requested node. Each leaf maps to the items
+    `-s flows.<requested>.key` are one leaf of the requested node. With `scoped`, every key of
+    the layer starts with its node (`-s <node>.key`). Each leaf maps to the items
     that set it, in the order given, as `(item as written, key as written, value)`. The value of
     an item that is text is the text after the first `=`, so two values are equal when their
     text is. An item is read alone, so a repeat is not lost to the replacement of
@@ -619,14 +622,30 @@ def _given_leaves(
 
     for piece in pieces:
         table = settings_to_dict(piece)  # type: ignore[arg-type]
-        sections = merge_flow_sections(
-            table.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
-        )
+        if scoped:
+            groups = [(node, content, f"{node}.") for node, content in table.items()]
+        else:
+            sections = merge_flow_sections(
+                table.pop("flows", None),
+                flow_class_for=flow_class_for,
+                location=COMMAND_LINE_ORIGIN,
+            )
+            groups = [
+                (requested, table, ""),
+                *((node, content, f"flows.{node}.") for node, content in sections.items()),
+            ]
         text = piece[0] if isinstance(piece, list) and isinstance(piece[0], str) else None
-        for node, content in ((requested, table), *sections.items()):
-            prefix = "" if content is table else f"flows.{node}."
+        for node, content, prefix in groups:
             node_settings = settings_of(node)
-            if node_settings is not None and content is table:
+            if isinstance(content, (list, tuple)):
+                # a section given as `KEY=VALUE` items; a malformed one is reported later
+                try:
+                    content = settings_to_dict(content)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    continue
+            if not isinstance(content, Mapping):
+                continue
+            if node_settings is not None and (scoped or content is table):
                 # `clock` is `clocks.main_clock`, as the sections of the other spelling are.
                 content = _canonicalize_clock_input(dict(content), node_settings)[0]
             for path, (written, value) in _leaves(content, node_settings).items():
@@ -663,79 +682,31 @@ def _repeated_leaves(
 
 
 def split_flow_sections(
-    layer: Mapping[str, Any],
+    layer: Mapping[str, Any] | Sequence[str],
     requested: str,
     flow_class_for: Callable[[str], Any | None] | None = None,
+    flows: Sequence[type[Flow]] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Split a command-line layer into `flows.<node>.*` sections and the requested flow's own.
+    """Split an explicit layer (the `-s` items or a table) into the settings of each node.
 
-    This function owns the rule of one value for one setting on the command line. `-s key` and
-    `-s flows.<requested>.key` name one leaf (one setting), and so does every other spelling of a
-    leaf of a node. Two items that set one leaf to different values are an error that names them
-    as written, and one error holds every such pair. An item that repeats an earlier one, value
-    included, is that item. The two spellings are one origin for the rule of `utils.set_hierarchy`
-    as well: a key is a value or a table, so a value in one spelling and a key inside it in the
-    other (`A` and `A.B`) are an error that names both."""
-    own = settings_to_dict(layer)  # type: ignore[arg-type]
-    sections = merge_flow_sections(
-        own.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
-    )
-    flow_cls = flow_class_for(requested) if flow_class_for is not None else None
-    settings_cls = flow_cls.Settings if flow_cls is not None else None
-    own_inputs = own.get("inputs")
-    section_inputs = sections.get(requested, {}).get("inputs")
-    if isinstance(own_inputs, Mapping) and isinstance(section_inputs, Mapping):
-        duplicate_inputs = own_inputs.keys() & section_inputs.keys()
-        if duplicate_inputs:
-            raise FlowSettingsError(
-                [
-                    (
-                        f"inputs.{name}",
-                        f"`-s inputs.{name}` and `-s flows.{requested}.inputs.{name}` "
-                        "bind one input twice; give one, even when equal",
-                        None,
-                        "conflicting_bindings",
-                    )
-                    for name in sorted(duplicate_inputs)
-                ],
-                settings_cls if settings_cls is not None else requested,
-            )
-    problems = _repeated_leaves(_given_leaves(layer, requested, flow_class_for))
-    requested_leaves = _leaves(sections.get(requested, {}), settings_cls)
-    for path, (written, value) in _leaves(own, settings_cls).items():
-        spelled = f"`-s {written}={value}`"
-        for other_path, (other, other_value) in requested_leaves.items():
-            qualified = f"`-s flows.{requested}.{other}={_command_line_text(other_value)}`"
-            if _is_inside(path, other_path) and _sets_value(value):
-                message = f"{spelled} sets a value, and {qualified} sets a key inside it; give one"
-            elif _is_inside(other_path, path) and _sets_value(other_value):
-                message = f"{qualified} sets a value, and {spelled} sets a key inside it; give one"
-            else:
-                continue
-            problems.append((written, message, None, "conflicting_spellings"))
-    if problems:
-        raise FlowSettingsError(problems, settings_cls if settings_cls is not None else requested)
-    return sections, own
+    Every setting names its node: `nextpnr.seed=7` and `{"nextpnr": {"seed": 7}}` are one
+    setting, and an unqualified key or a `flows.<node>` key is refused (`unscoped_setting`, with
+    the address to write). The requested flow has no settings of its own, so the second value is
+    always empty (`node_settings.split_node_sections`). `flows` are the flows of the request, for
+    the address that an unscoped key gets."""
+    from .node_settings import split_node_sections
+
+    return split_node_sections(layer, requested, flow_class_for, flows), {}
 
 
-def command_line_table(requested: str, items: Iterable[str]) -> dict[str, Any]:
-    """Return the `-s` items of a command line as a `flows` table: the settings by flow name.
+def command_line_table(items: Iterable[str] | Mapping[str, Any]) -> dict[str, Any]:
+    """Return the `-s` items of a command line as a `flows` table: the settings by node.
 
-    An item without a flow name is a setting of the `requested` flow, the last flow of the
-    chain. Nothing is checked or canonicalized: the table says what the command line gave. Items
-    that cannot be read give an empty table."""
-    try:
-        given = settings_to_dict(list(items))
-    except Exception:  # pylint: disable=broad-except
-        return {}
-    flows = given.pop("flows", None)
-    table: dict[str, Any] = dict(flows) if isinstance(flows, Mapping) else {}
-    if given:
-        own = table.get(requested)
-        table[requested] = (
-            hierarchical_merge(dict(own), given) if isinstance(own, Mapping) else given
-        )
-    return table
+    Nothing is checked or canonicalized: the table says what the command line gave. Items that
+    cannot be read give an empty table."""
+    if isinstance(items, Mapping):
+        return settings_to_dict(items)
+    return settings_to_dict(list(items))  # type: ignore[arg-type]
 
 
 def check_run_flows(
@@ -744,26 +715,26 @@ def check_run_flows(
     design: Design,
     run_flows: Collection[str] | None = None,
 ) -> None:
-    """Refuse a `flows.<name>` section of the command line that names a flow outside this run.
+    """Refuse a section of the command line that names a node outside this run.
 
-    The sections may name only the flows of this run: the requested flow and the flows below it
+    The sections may name only the nodes of this run: the requested flow and the flows below it
     in a run on `design` (`transitive_dependencies`), or `run_flows` when the resolver knows the
     graph (an explicit binding can reach a flow outside the default one). Any other name is an
-    error with the close matches among them."""
+    error (`unknown_node`) with the close matches among them."""
     run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls, design))})
     unknown = [name for name in sections if name not in run_flows]
     if unknown:
         raise FlowSettingsError(
             [
                 (
-                    f"flows.{name}",
-                    f"`-s flows.{name}.*` names no flow of this run ({', '.join(run_flows)})"
+                    name,
+                    f"names no node of this run ({', '.join(run_flows)})"
                     + "".join(
-                        f"; did you mean `flows.{m}`?"
+                        f"; did you mean `{m}`?"
                         for m in difflib.get_close_matches(name, run_flows, n=3)
                     ),
-                    None,
-                    "unknown_flow",
+                    ",".join(difflib.get_close_matches(name, run_flows, n=3)),
+                    "unknown_node",
                 )
                 for name in unknown
             ],
@@ -772,7 +743,7 @@ def check_run_flows(
 
 
 def command_line_sections(
-    layer: Mapping[str, Any],
+    layer: Mapping[str, Any] | Sequence[str],
     flow_cls: type[Flow],
     design: Design,
     flow_class_for: Callable[[str], Any | None] | None = None,
@@ -911,7 +882,7 @@ def settings_in_context(
 
 
 def suggest_dependency_node(flow_cls: type[Flow], design: Design, error: FlowSettingsError) -> None:
-    """Suggest `-s flows.<node>.key` when an unknown root setting belongs to a producer.
+    """Suggest `-s <node>.key` when an unknown root setting belongs to a producer.
 
     The producers are the flows below `flow_cls` in a run on `design` (`transitive_dependencies`).
     """
@@ -929,6 +900,6 @@ def suggest_dependency_node(flow_cls: type[Flow], design: Design, error: FlowSet
                 (d for d in dependencies.values() if location in d.Settings.model_fields), None
             )
             if owner is not None:
-                message = f"{message}; did you mean -s flows.{owner.name}.{location}=...?"
+                message = f"{message}; did you mean -s {owner.name}.{location}=...?"
         suggested.append((location, message, context, kind))
     error.errors = suggested

@@ -29,6 +29,7 @@ from xeda.flow import FlowException, SimFlow
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.flows import Verilator, YosysSim
+from .scoping import node_settings
 
 SIM_FLOW_NAMES = sorted(
     {
@@ -245,5 +246,5 @@ def test_verilator_is_exempt_from_the_testbench_top_exactly_when_its_main_is_fal
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowException, match=re.escape("`tb.top`")):
         runner.plan("verilator", design)
-    runner.plan("verilator", design, flow_settings={"main": False})
+    runner.plan("verilator", design, flow_settings=node_settings("verilator", {"main": False}))
     assert not (tmp_path / "runs").exists()

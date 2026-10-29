@@ -141,7 +141,7 @@ def test_a_settings_field_without_a_default_is_refused_when_the_class_is_defined
     before = dict(registered_flows)
     with pytest.raises(TypeError, match=r"`foo`.*`Flow.required_settings`") as refused:
 
-        class _NeedsFoo(Flow):
+        class TNeedsFoo(Flow):
             """Requires a field in its settings model."""
 
             results_description = {}
@@ -152,7 +152,7 @@ def test_a_settings_field_without_a_default_is_refused_when_the_class_is_defined
             def run(self) -> None:
                 pass
 
-    assert "_NeedsFoo.Settings" in str(refused.value)
+    assert "TNeedsFoo.Settings" in str(refused.value)
     assert registered_flows == before
 
 
@@ -160,7 +160,7 @@ def test_an_optional_setting_without_an_explicit_default_is_refused_too():
     """`Optional[X]` is no default: pydantic makes such a field required."""
     with pytest.raises(TypeError, match=r"`bar`.*`Flow.required_settings`"):
 
-        class _NeedsBar(Flow):
+        class TNeedsBar(Flow):
             """Requires a field it meant to leave optional."""
 
             results_description = {}
@@ -175,7 +175,7 @@ def test_an_optional_setting_without_an_explicit_default_is_refused_too():
 def test_a_settings_class_that_adds_a_field_without_a_default_is_refused():
     with pytest.raises(TypeError, match=r"`extra`.*`Flow.required_settings`"):
 
-        class _Extended(Flow.Settings):
+        class TExtended(Flow.Settings):
             extra: int = Field(description="Added by a subclass of the base settings.")
 
 

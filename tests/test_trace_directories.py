@@ -29,7 +29,7 @@ from .tool_utils import require_ghdl
 pytestmark = pytest.mark.python_compat
 
 
-class _ProbeLibraries(Flow):
+class TProbeLibraries(Flow):
     """Reads `pkg.txt` from the directory of its library `mylib`, as a simulator reads a compiled
     library, and copies it to an output."""
 
@@ -52,7 +52,7 @@ class _ProbeLibraries(Flow):
 @pytest.fixture(autouse=True)
 def _unregister():
     yield
-    for name in (_ProbeLibraries.name, _ProbeLibraries.__name__):
+    for name in (TProbeLibraries.name, TProbeLibraries.__name__):
         registered_flows.pop(name, None)
 
 
@@ -64,7 +64,7 @@ def _library(directory: Path, k: int) -> Path:
 
 def _launch(run_root: Path, design: Design, settings: dict):
     flow = DefaultRunner(run_root, display_results=False).launch_flow(
-        _ProbeLibraries, design, settings
+        TProbeLibraries, design, settings
     )
     assert flow.succeeded
     return flow, Path(flow.artifacts.out).read_text()
@@ -321,7 +321,7 @@ def test_an_empty_directory_added_to_a_library_is_a_new_input(tmp_path):
     _launch(tmp_path / "run", design, LIBS)
     (tree / "libs" / "work").mkdir()
     flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
-        _ProbeLibraries, design, LIBS
+        TProbeLibraries, design, LIBS
     )
     assert not flow.reused
     assert flow.stale_reason == f"new input: {(tree / 'libs' / 'work').resolve()}"
@@ -370,7 +370,7 @@ def test_the_run_s_own_directories_are_not_listed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     settings = {"lib_paths": [["mylib", str(lib / "libs")], ["root", "$DESIGN_ROOT"]]}
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flows = [runner.launch_flow(_ProbeLibraries, design, settings) for _ in range(2)]
+    flows = [runner.launch_flow(TProbeLibraries, design, settings) for _ in range(2)]
     assert flows[-1].reused, flows[-1].stale_reason
     trace = json.loads((flows[-1].run_path / "trace.json").read_text())
     assert not [p for p in trace["inputs"] if "xeda_run" in p]
@@ -471,13 +471,13 @@ def test_an_unchanged_library_directory_is_not_read_again(tmp_path, monkeypatch)
 
     monkeypatch.setattr(digest, "content_digest", counting)
     DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
-        _ProbeLibraries, design, settings
+        TProbeLibraries, design, settings
     )
     libs = (lib / "libs").resolve()
     assert len([p for p in read if p.is_relative_to(libs)]) == 21
     read.clear()
     flow = DefaultRunner(tmp_path / "run", display_results=False, rebuild_all=True).launch_flow(
-        _ProbeLibraries, design, settings
+        TProbeLibraries, design, settings
     )
     assert flow.succeeded and not flow.reused
     assert [p for p in read if p.is_relative_to(libs)] == [], "the library was read again"

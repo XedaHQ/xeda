@@ -26,6 +26,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.launch_input import setting_naming
 
 from . import tool_utils
+from .scoping import node_settings
 from .settings_samples import flow_classes, minimal_settings
 from .test_written_paths import _models
 
@@ -280,7 +281,11 @@ def test_a_location_given_to_a_finished_run_delivers_without_running_again(tmp_p
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def launch(**settings):
-        flow = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": ECP5}, **settings})
+        flow = runner.run(
+            "fpga_pack",
+            design,
+            flow_settings=node_settings("fpga_pack", {"fpga": {"part": ECP5}, **settings}),
+        )
         assert flow is not None and flow.succeeded
         return flow
 
@@ -354,6 +359,10 @@ def test_ghdl_synth_writes_its_conventional_name_when_unset(tmp_path):
     assert written.is_file() and first.outputs.verilog == [first.run_path / "outputs/inv.v"]
     location = tmp_path / "delivered" / "inverter.v"
     location.parent.mkdir()
-    again = runner.run("ghdl_synth", design, flow_settings={"verilog_output": str(location)})
+    again = runner.run(
+        "ghdl_synth",
+        design,
+        flow_settings=node_settings("ghdl_synth", {"verilog_output": str(location)}),
+    )
     assert again is not None and again.reused
     assert location.read_bytes() == written.read_bytes()

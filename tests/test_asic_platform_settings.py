@@ -29,8 +29,9 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import registered_input_files
 from xeda.platforms import PdkNotInstalled
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker, _Taker
+from .io_flows import TMaker, TTaker
 from .settings_samples import flow_classes
 from .setting_texts import text_items
 
@@ -40,12 +41,12 @@ OTHER_COMMIT = "1111111111111111111111111111111111111111"
 ROLES = ["liberty", "tech_lef", "cell_lef"]
 
 
-class _AsicMaker(AsicPlatformFlow, _Maker):
+class TAsicMaker(AsicPlatformFlow, TMaker):
     """Makes `made.txt` for one platform, and registers the files of the platform it opens."""
 
     results_description = {}
 
-    class Settings(AsicPlatformSettings, _Maker.Settings):
+    class Settings(AsicPlatformSettings, TMaker.Settings):
         pass
 
     def prepare_inputs(self) -> None:
@@ -56,21 +57,21 @@ class _AsicMaker(AsicPlatformFlow, _Maker):
         return _opened(self.settings)
 
 
-class _AsicTaker(AsicPlatformFlow, _Taker):
-    """Reads what `_AsicMaker` made, on the same platform. It needs a platform."""
+class TAsicTaker(AsicPlatformFlow, TTaker):
+    """Reads what `TAsicMaker` made, on the same platform. It needs a platform."""
 
     results_description = {}
     required_settings = {
         "platform": "a bundled platform name, or a residue file in `platform_file`"
     }
 
-    class Settings(AsicPlatformSettings, _Taker.Settings):
+    class Settings(AsicPlatformSettings, TTaker.Settings):
         pass
 
-    class Inputs(_Taker.Inputs):
+    class Inputs(TTaker.Inputs):
         made: Path = In(
             SourceType.Data,
-            producer="__asic_maker",
+            producer="t_asic_maker",
             output="made",
             description="What it reads.",
         )
@@ -133,8 +134,10 @@ def _runner(tmp_path: Path) -> DefaultRunner:
     return DefaultRunner(tmp_path / "run", display_results=False)
 
 
-def _plan(tmp_path: Path, root: Path, settings=(), flow=_AsicTaker, **sections):
-    return _runner(tmp_path).plan(flow, _design(root, **sections), flow_settings=list(settings))
+def _plan(tmp_path: Path, root: Path, settings=(), flow=TAsicTaker, **sections):
+    return _runner(tmp_path).plan(
+        flow, _design(root, **sections), flow_settings=node_settings(flow, list(settings))
+    )
 
 
 def _hashes(plan) -> dict[str, str]:
@@ -151,7 +154,7 @@ def test_a_location_given_on_one_node_reaches_every_connected_node(tmp_path):
     root = tmp_path / "d"
     _write_residue(root)
     plan = _plan(tmp_path, root, [f"pdk_root={store}", "platform_file=tiny.yaml"])
-    assert [node.name for node in plan.nodes] == ["__asic_maker", "__asic_taker"]
+    assert [node.name for node in plan.nodes] == ["t_asic_maker", "t_asic_taker"]
     for node in plan.nodes:
         assert node.settings.pdk_root == store.resolve(), node.name
         assert node.settings.platform_file == (root / "tiny.yaml").resolve(), node.name
@@ -164,7 +167,7 @@ def test_a_section_of_a_producer_reaches_the_consumer(tmp_path):
     plan = _plan(
         tmp_path,
         root,
-        __asic_maker={"pdk_root": str(store), "platform_file": "tiny.yaml", "corner": "tt"},
+        t_asic_maker={"pdk_root": str(store), "platform_file": "tiny.yaml", "corner": "tt"},
     )
     for node in plan.nodes:
         assert node.settings.pdk_root == store.resolve(), node.name
@@ -179,8 +182,8 @@ def test_two_stores_fail_and_name_both_locations(tmp_path):
         _plan(
             tmp_path,
             root,
-            __asic_maker={"pdk_root": str(first), "platform_file": "tiny.yaml"},
-            __asic_taker={"pdk_root": str(second)},
+            t_asic_maker={"pdk_root": str(first), "platform_file": "tiny.yaml"},
+            t_asic_taker={"pdk_root": str(second)},
         )
     message = str(raised.value)
     assert "pdk_root" in message and str(first.resolve()) in message
@@ -196,8 +199,8 @@ def test_two_platform_files_fail_and_name_both_locations(tmp_path):
         _plan(
             tmp_path,
             root,
-            __asic_maker={"platform_file": "tiny.yaml"},
-            __asic_taker={"platform_file": "other/tiny.yaml"},
+            t_asic_maker={"platform_file": "tiny.yaml"},
+            t_asic_taker={"platform_file": "other/tiny.yaml"},
         )
     message = str(raised.value)
     assert "platform_file" in message
@@ -209,7 +212,7 @@ def test_a_relative_location_is_read_against_the_design_root(tmp_path):
     root = tmp_path / "d"
     _write_residue(root)
     plan = _plan(
-        tmp_path, root, ["pdk_root=pdks/store", "platform_file=tiny.yaml"], __asic_maker={}
+        tmp_path, root, ["pdk_root=pdks/store", "platform_file=tiny.yaml"], t_asic_maker={}
     )
     for node in plan.nodes:
         assert node.settings.pdk_root == store.resolve(), node.name
@@ -254,7 +257,7 @@ def test_a_flow_that_declares_a_platform_declares_the_pin_of_its_pdk():
 def test_a_flow_that_declares_a_platform_without_the_pin_is_refused_when_planned(tmp_path):
     with preserved_flow_registry():
 
-        class _PlatformWithoutPin(Flow):
+        class TPlatformWithoutPin(Flow):
             """Declares `platform` and no pin."""
 
             results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -267,9 +270,9 @@ def test_a_flow_that_declares_a_platform_without_the_pin_is_refused_when_planned
 
         with pytest.raises(TypeError, match="_platform_without_pin.*AsicPlatformSettings"):
             _runner(tmp_path).plan(
-                _PlatformWithoutPin,
+                TPlatformWithoutPin,
                 _design(tmp_path / "d"),
-                flow_settings=["platform=nangate45"],
+                flow_settings=node_settings(TPlatformWithoutPin, ["platform=nangate45"]),
             )
 
 
@@ -351,7 +354,7 @@ def test_a_corner_of_ciel_only_is_refused_at_planning_when_lambdapdk_is_selected
 
 
 def test_nothing_is_filled_in_without_a_platform(tmp_path):
-    plan = _plan(tmp_path, tmp_path / "d", flow=_AsicMaker)
+    plan = _plan(tmp_path, tmp_path / "d", flow=TAsicMaker)
     (node,) = plan.nodes
     assert node.settings.pdk_provider is None and node.settings.pdk_version is None
 
@@ -380,8 +383,8 @@ def test_a_moved_store_is_the_same_run(tmp_path):
         )
     ]
     assert _hashes(plans[0]) == _hashes(plans[1])
-    assert plans[0].node("__asic_maker").settings.pdk_root != (
-        plans[1].node("__asic_maker").settings.pdk_root
+    assert plans[0].node("t_asic_maker").settings.pdk_root != (
+        plans[1].node("t_asic_maker").settings.pdk_root
     )
 
 
@@ -396,30 +399,32 @@ def test_a_platform_file_alone_is_enough(tmp_path):
     plan = _plan(tmp_path, root, ["platform_file=tiny.yaml"])
     assert all(node.settings.platform is None for node in plan.nodes)
     states = _runner(tmp_path).plan_with_freshness(
-        _AsicTaker, _design(root), flow_settings=["platform_file=tiny.yaml"]
+        TAsicTaker,
+        _design(root),
+        flow_settings=node_settings(TAsicTaker, ["platform_file=tiny.yaml"]),
     )[1]
-    assert set(states) == {"__asic_maker", "__asic_taker"}
+    assert set(states) == {"t_asic_maker", "t_asic_taker"}
 
 
 def test_a_consumer_without_a_platform_and_a_platform_file_is_refused(tmp_path):
-    with pytest.raises(FlowSettingsException, match=r"__asic_taker needs `platform`"):
+    with pytest.raises(FlowSettingsException, match=r"t_asic_taker needs `platform`"):
         _plan(tmp_path, tmp_path / "d")
 
 
 def test_a_platform_alone_is_enough_for_the_requirement(tmp_path):
     plan = _plan(tmp_path, tmp_path / "d", ["platform=nangate45"])
-    assert plan.node("__asic_taker").settings.platform == "nangate45"
+    assert plan.node("t_asic_taker").settings.platform == "nangate45"
 
 
 def test_the_requirement_loses_the_platform_when_a_file_is_given(tmp_path):
     root = tmp_path / "d"
-    plain = _AsicTaker.Settings.from_input({}, design_root=root, runner_cwd=tmp_path)
-    given = _AsicTaker.Settings.from_input(
+    plain = TAsicTaker.Settings.from_input({}, design_root=root, runner_cwd=tmp_path)
+    given = TAsicTaker.Settings.from_input(
         {"platform_file": "tiny.yaml"}, design_root=root, runner_cwd=tmp_path
     )
-    assert set(_AsicTaker.required_settings_for(plain)) == {"platform"}
-    assert _AsicTaker.required_settings_for(given) == {}
-    assert _AsicMaker.required_settings_for(given) == {}
+    assert set(TAsicTaker.required_settings_for(plain)) == {"platform"}
+    assert TAsicTaker.required_settings_for(given) == {}
+    assert TAsicMaker.required_settings_for(given) == {}
 
 
 def test_a_launch_with_a_platform_file_alone_registers_the_files_it_locates(tmp_path):
@@ -430,7 +435,7 @@ def test_a_launch_with_a_platform_file_alone_registers_the_files_it_locates(tmp_
     flow_settings = {"platform_file": "tiny.yaml", "pdk_root": store}
 
     def launch():
-        flow = _runner(tmp_path).run_flow(_AsicTaker, design, flow_settings)
+        flow = _runner(tmp_path).run_flow(TAsicTaker, design, flow_settings)
         assert flow is not None and flow.succeeded
         return flow
 
@@ -456,11 +461,13 @@ def test_a_dry_run_says_that_a_missing_store_cannot_be_judged(tmp_path):
     root = tmp_path / "d"
     _write_residue(root)
     states = _runner(tmp_path).plan_with_freshness(
-        _AsicTaker,
+        TAsicTaker,
         _design(root),
-        flow_settings=["platform_file=tiny.yaml", f"pdk_root={tmp_path / 'empty'}"],
+        flow_settings=node_settings(
+            TAsicTaker, ["platform_file=tiny.yaml", f"pdk_root={tmp_path / 'empty'}"]
+        ),
     )[1]
-    state = states["__asic_maker"]
+    state = states["t_asic_maker"]
     assert state.state == "unknown" and "needs the PDK files" in state.reason, state
 
 
@@ -469,13 +476,13 @@ def test_a_launch_with_a_missing_store_stops_at_the_first_node(tmp_path):
     _write_residue(root)
     with pytest.raises(FlowDependencyFailure, match="needs the PDK files"):
         _runner(tmp_path).run_flow(
-            _AsicTaker,
+            TAsicTaker,
             _design(root),
             {"platform_file": "tiny.yaml", "pdk_root": tmp_path / "empty"},
         )
-    maker = json.loads((tmp_path / "run" / "d" / "__asic_maker" / "results.json").read_text())
+    maker = json.loads((tmp_path / "run" / "d" / "t_asic_maker" / "results.json").read_text())
     assert maker["outcome"] == "failed" and maker["error"]["code"] == "reported_failure"
-    taker = tmp_path / "run" / "d" / "__asic_taker"  # blocked: it did not run, so it wrote nothing
+    taker = tmp_path / "run" / "d" / "t_asic_taker"  # blocked: it did not run, so it wrote nothing
     assert not (taker / "results.json").exists()
     assert not (taker / "trace.json").exists()
 
@@ -498,7 +505,7 @@ def test_a_platform_and_a_file_that_name_one_platform_agree(tmp_path):
     root = tmp_path / "d"
     _write_residue(root)
     plan = _plan(tmp_path, root, ["platform=tiny", "platform_file=tiny.yaml"])
-    assert plan.node("__asic_taker").settings.platform == "tiny"
+    assert plan.node("t_asic_taker").settings.platform == "tiny"
 
 
 @pytest.mark.parametrize(
@@ -523,13 +530,13 @@ def test_a_setting_the_platform_cannot_use_is_refused_at_planning(tmp_path, sett
     with pytest.raises(FlowSettingsException, match=message):
         _plan(tmp_path, root, settings)
     with pytest.raises(FlowSettingsException):
-        _runner(tmp_path).run_flow(_AsicTaker, _design(root), text_items(settings))
+        _runner(tmp_path).run_flow(TAsicTaker, _design(root), text_items(settings))
     assert not (tmp_path / "run").exists()
 
 
 def test_a_corner_takes_one_name(tmp_path):
     with pytest.raises(FlowSettingsException) as raised:
-        _AsicMaker.Settings.from_input(
+        TAsicMaker.Settings.from_input(
             {"platform": "nangate45", "corner": ["tt", "ss"]},
             design_root=tmp_path,
             runner_cwd=tmp_path,
@@ -541,7 +548,7 @@ def test_a_corner_takes_one_name(tmp_path):
 
 def test_a_list_of_corners_is_refused_at_planning(tmp_path):
     with pytest.raises(FlowSettingsException, match="takes one corner name"):
-        _plan(tmp_path, tmp_path / "d", ["platform=nangate45"], __asic_taker={"corner": ["a", "b"]})
+        _plan(tmp_path, tmp_path / "d", ["platform=nangate45"], t_asic_taker={"corner": ["a", "b"]})
 
 
 @pytest.mark.parametrize("problem", ["missing", "not a table", "invalid"])

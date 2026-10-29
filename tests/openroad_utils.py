@@ -167,7 +167,7 @@ def probe_flows() -> Iterator[Probes]:
     """Define the probe flows, and register them for the body. The registry is as it was after."""
     with preserved_flow_registry():
 
-        class _OpenroadProbe(OpenroadStage):
+        class TOpenroadProbe(OpenroadStage):
             """A netlist in, a database out."""
 
             results_description = {}
@@ -196,7 +196,7 @@ def probe_flows() -> Iterator[Probes]:
                     [self.outputs.odb, self.failed_odb, "reports/probe.rpt"],
                 )
 
-        class _OpenroadProbeDb(OpenroadStage):
+        class TOpenroadProbeDb(OpenroadStage):
             """A database and its SDC file in, a database out."""
 
             results_description = {}
@@ -226,7 +226,7 @@ def probe_flows() -> Iterator[Probes]:
                     [self.outputs.odb, self.failed_odb, "reports/probe.rpt"],
                 )
 
-        yield Probes(_OpenroadProbe, _OpenroadProbeDb)
+        yield Probes(TOpenroadProbe, TOpenroadProbeDb)
 
 
 def render_driver(flow: OpenroadStage, driver: str) -> str:

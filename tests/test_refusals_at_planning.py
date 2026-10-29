@@ -53,6 +53,7 @@ from xeda.flows import (
     YosysFpga,
     YosysSim,
 )
+from .scoping import node_settings
 
 VERILOG = "module top(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
 TESTBENCH = "module tb; reg clk = 0; top dut(clk); initial #10 $finish; endmodule\n"
@@ -321,7 +322,7 @@ def test_a_dry_run_shows_the_refusal(tmp_path, name):
     design = case.design(tmp_path / "design")
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(case.error, match=case.match):
-        runner.plan(case.flow, design, flow_settings=_flow_settings(case))
+        runner.plan(case.flow, design, flow_settings=node_settings(case.flow, _flow_settings(case)))
     assert not (tmp_path / "runs").exists()
 
 
@@ -345,9 +346,17 @@ def test_a_producer_in_the_middle_of_a_chain_is_refused_before_the_first_produce
     settings = [*VIVADO_SETTINGS, "flows.vivado_postsynth_sim.sim_flags=-R"]
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsException, match="conflicts with xsim runtime evidence"):
-        runner.plan(VivadoPower, tmp_path / "design.yaml", flow_settings=settings)
+        runner.plan(
+            VivadoPower,
+            tmp_path / "design.yaml",
+            flow_settings=node_settings(VivadoPower, settings),
+        )
     with pytest.raises(FlowSettingsException, match="conflicts with xsim runtime evidence"):
-        runner.run(VivadoPower, tmp_path / "design.yaml", flow_settings=settings)
+        runner.run(
+            VivadoPower,
+            tmp_path / "design.yaml",
+            flow_settings=node_settings(VivadoPower, settings),
+        )
     assert not (tmp_path / "runs").exists() or not list((tmp_path / "runs").rglob("fake_vivado*"))
 
 
@@ -367,7 +376,7 @@ def test_the_activity_that_power_demands_needs_the_instance_to_record(
         *(f"flows.vivado_postsynth_sim.{item}" for item in settings),
     ]
     with pytest.raises(FlowSettingsException, match="set `tb.uut`"):
-        runner.plan(VivadoPower, design, flow_settings=flow_settings)
+        runner.plan(VivadoPower, design, flow_settings=node_settings(VivadoPower, flow_settings))
     assert not (tmp_path / "runs").exists()
 
 
@@ -733,7 +742,7 @@ def _helper():
     raise ValueError("in a helper")
 
 
-class _Probe:
+class TProbe:
     Settings = _Settings
 
     def __init__(self):
@@ -746,12 +755,12 @@ class _Probe:
         _helper()
 
 
-class _Direct(_Probe):
+class TDirect(TProbe):
     def init(self):
         raise ValueError("direct")
 
 
-class _Hooked(_Probe):
+class THooked(TProbe):
     @classmethod
     def check_settings_supported(cls, settings):
         settings.judge()
@@ -761,30 +770,30 @@ class _Hooked(_Probe):
 
 
 def test_the_scan_sees_a_raise_in_init_a_settings_method_and_a_helper():
-    assert run_time_refusals(_Direct) == {f"{__name__}:_Direct.init": 1, f"{__name__}:_helper": 1}
-    assert run_time_refusals(_Probe) == {f"{__name__}:_Settings.judge": 1, f"{__name__}:_helper": 1}
+    assert run_time_refusals(TDirect) == {f"{__name__}:TDirect.init": 1, f"{__name__}:_helper": 1}
+    assert run_time_refusals(TProbe) == {f"{__name__}:_Settings.judge": 1, f"{__name__}:_helper": 1}
 
 
 this_module = sys.modules[__name__]
 
 
-class _ThroughAModule(_Probe):
+class TThroughAModule(TProbe):
     def init(self):
         this_module._helper()
 
 
 def test_the_scan_follows_a_function_called_through_a_module():
-    assert f"{__name__}:_helper" in run_time_refusals(_ThroughAModule)
+    assert f"{__name__}:_helper" in run_time_refusals(TThroughAModule)
 
 
-class _ThroughAnotherModule(_Probe):
+class TThroughAnotherModule(TProbe):
     def init(self):
         convert_unit("1 parsec", "ns")  # a helper of `xeda.units`, which raises on a bad unit
 
 
 def test_the_scan_follows_a_helper_in_another_xeda_module():
-    assert any(key.startswith("xeda.units:") for key in run_time_refusals(_ThroughAnotherModule))
+    assert any(key.startswith("xeda.units:") for key in run_time_refusals(TThroughAnotherModule))
 
 
 def test_the_scan_leaves_alone_what_a_hook_judges():
-    assert run_time_refusals(_Hooked) == {f"{__name__}:_helper": 1}
+    assert run_time_refusals(THooked) == {f"{__name__}:_helper": 1}

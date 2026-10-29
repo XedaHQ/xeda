@@ -33,6 +33,7 @@ from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys, require_yosys_tcl
 from .yosys_format import force_script_format
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 
 @pytest.fixture(autouse=True)
@@ -799,7 +800,9 @@ def test_the_tcl_modes_arrive_at_planning_before_any_run_directory(tmp_path):
         runner.plan(
             Yosys,
             _design(tmp_path / "design"),
-            flow_settings=["platform=nangate45", "abc.mapper=abc_new"] + ["abc.strategy=speed"],
+            flow_settings=node_settings(
+                Yosys, ["platform=nangate45", "abc.mapper=abc_new"] + ["abc.strategy=speed"]
+            ),
         )
     assert not (tmp_path / "xeda_run").exists()
 

@@ -15,8 +15,9 @@ from xeda.flow import Flow, In
 from xeda.design import SourceType
 from xeda.flow_runner.trace import TRACE_FORMAT
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker, _Taker
+from .io_flows import TMaker, TTaker
 from .tool_utils import producers_of
 
 
@@ -41,18 +42,18 @@ def _runner(tmp_path: Path) -> DefaultRunner:
 
 def test_the_launcher_runs_the_producer_and_hands_over_its_recorded_output(tmp_path, design):
     runner = _runner(tmp_path)
-    taker = runner.launch_flow(_Taker, design, {})
+    taker = runner.launch_flow(TTaker, design, {})
     assert taker.succeeded and taker.results["read"] == "made\n"
     (maker,) = producers_of(runner, taker)
-    assert maker.name == "__maker"
+    assert maker.name == "t_maker"
     assert taker.inputs.made == Path(maker.results["outputs"]["made"]["path"])
-    assert [flow.name for flow in runner.launched] == ["__maker", "__taker"]
+    assert [flow.name for flow in runner.launched] == ["t_maker", "t_taker"]
 
 
 def test_a_second_launch_reuses_both_and_hands_over_the_reused_record(tmp_path, design):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
     runner = _runner(tmp_path)
-    again = runner.launch_flow(_Taker, design, {})
+    again = runner.launch_flow(TTaker, design, {})
     assert again.reused and producers_of(runner, again)[0].reused
     assert again.inputs.made == first.inputs.made
 
@@ -65,24 +66,24 @@ def test_a_design_source_of_the_accepted_type_replaces_the_producer(tmp_path, de
         rtl={"sources": [{"file": "given.dat", "type": "Data"}], "top": "t"},
     )
     runner = _runner(tmp_path)
-    taker = runner.launch_flow(_Taker, with_source, {})
+    taker = runner.launch_flow(TTaker, with_source, {})
     assert taker.results["read"] == "given\n"
-    assert [flow.name for flow in runner.launched] == ["__taker"]
+    assert [flow.name for flow in runner.launched] == ["t_taker"]
 
 
 def test_the_launch_runs_exactly_its_plan(tmp_path, design):
     """The flows launched are the plan's nodes, with the plan's identities."""
     runner = _runner(tmp_path)
-    sections = {"__maker": {"text": "planned\n"}}
-    plan = runner.resolve(_Taker, design, {"verbosity": "debug"}, sections)
+    sections = {"t_maker": {"text": "planned\n"}}
+    plan = runner.resolve(TTaker, design, {"verbosity": "debug"}, sections)
     taker = runner.launch_flow(
-        _Taker, design, {"verbosity": "debug"}, all_flows_settings=sections, plan=plan
+        TTaker, design, {"verbosity": "debug"}, all_flows_settings=sections, plan=plan
     )
     assert taker.results["read"] == "planned\n"
     launched = [(flow.name, flow.flow_hash, str(flow.run_path)) for flow in runner.launched]
     planned = [(node.name, node.flowrun_hash, str(node.run_path)) for node in plan.nodes]
     assert launched == planned
-    assert plan.node("__maker").settings.verbosity == "debug"  # carried from its consumer
+    assert plan.node("t_maker").settings.verbosity == "debug"  # carried from its consumer
 
 
 def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_path, design):
@@ -90,21 +91,21 @@ def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_pat
         name="d",
         root=design.root,
         rtl={"sources": [], "top": "t"},
-        flows={"__maker": {"text": "from its section\n"}},
+        flows={"t_maker": {"text": "from its section\n"}},
     )
-    plan = _runner(tmp_path).plan(_Taker, with_section)
-    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
+    plan = _runner(tmp_path).plan(TTaker, with_section)
+    assert [node.name for node in plan.nodes] == ["t_maker", "t_taker"]
     assert not (tmp_path / "xeda_run").exists(), "a plan writes nothing"
-    taker = _runner(tmp_path).run(_Taker, with_section)
+    taker = _runner(tmp_path).run(TTaker, with_section)
     assert taker is not None and taker.results["read"] == "from its section\n"
 
 
 def test_a_plan_cannot_launch_a_flow_it_has_no_node_for(tmp_path, design):
     runner = _runner(tmp_path)
-    plan = runner.plan(_Maker, design)
-    assert [node.name for node in plan.nodes] == ["__maker"]
+    plan = runner.plan(TMaker, design)
+    assert [node.name for node in plan.nodes] == ["t_maker"]
     with pytest.raises(FlowFatalError, match="plan has no node"):
-        runner.launch_flow(_Taker, design, {}, plan=plan)
+        runner.launch_flow(TTaker, design, {}, plan=plan)
     assert not (tmp_path / "xeda_run").exists()
 
 
@@ -113,17 +114,17 @@ def test_pure_paths_create_nothing_and_launch_revalidates_containment(tmp_path, 
     from xeda.run_root import ensure_run_root
 
     runner = _runner(tmp_path)
-    assert runner.run_path_of("d", "__taker") == tmp_path / "xeda_run" / "d" / "__taker"
+    assert runner.run_path_of("d", "t_taker") == tmp_path / "xeda_run" / "d" / "t_taker"
     assert not (tmp_path / "xeda_run").exists()
     with pytest.raises(RunDirectoryError, match="not a design name"):
-        runner.run_path_of("../out", "__taker")
+        runner.run_path_of("../out", "t_taker")
     ensure_run_root(tmp_path / "xeda_run", start=tmp_path)
-    plan = runner.resolve(_Taker, design, {})
+    plan = runner.resolve(TTaker, design, {})
     outside = tmp_path / "outside"
     outside.mkdir()
     (tmp_path / "xeda_run" / "d").symlink_to(outside, target_is_directory=True)
     with pytest.raises(RunDirectoryError, match="xeda_run/d is a symbolic link"):
-        runner.launch_flow(_Taker, design, {}, plan=plan)
+        runner.launch_flow(TTaker, design, {}, plan=plan)
     assert list(outside.iterdir()) == []
 
 
@@ -134,26 +135,26 @@ def test_an_output_changed_after_its_run_recorded_it_is_never_handed_over(
 
     def launch_then_rewrite(self, flow_class, *args, **kwargs):
         flow = launch(self, flow_class, *args, **kwargs)
-        if flow.name == "__maker":  # another process rebuilds it before its consumer reads it
+        if flow.name == "t_maker":  # another process rebuilds it before its consumer reads it
             Path(flow.results["outputs"]["made"]["path"]).write_text("rebuilt\n")
         return flow
 
     monkeypatch.setattr(DefaultRunner, "launch_flow", launch_then_rewrite)
     with pytest.raises(FlowDependencyFailure, match="changed before acquiring its read lease"):
-        _runner(tmp_path).launch_flow(_Taker, design, {})
-    results = json.loads((tmp_path / "xeda_run" / "d" / "__taker" / "results.json").read_text())
+        _runner(tmp_path).launch_flow(TTaker, design, {})
+    results = json.loads((tmp_path / "xeda_run" / "d" / "t_taker" / "results.json").read_text())
     assert results["outcome"] == "failed"
 
 
 def test_setup_failure_invalidates_a_previous_success(tmp_path, design, monkeypatch):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
 
     def fail(self):
         raise FlowFatalError("broken init")
 
-    monkeypatch.setattr(_Taker, "init", fail)
+    monkeypatch.setattr(TTaker, "init", fail)
     with pytest.raises(FlowFatalError):
-        _runner(tmp_path).launch_flow(_Taker, design, {})
+        _runner(tmp_path).launch_flow(TTaker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
     for key in ("design", "flow", "identity", "run_id", "started", "finished"):
@@ -168,7 +169,7 @@ def test_an_internal_plan_cannot_be_replayed_for_another_request(
     tmp_path, design, monkeypatch, changed
 ):
     runner = _runner(tmp_path)
-    plan = runner.resolve(_Taker, design, {})
+    plan = runner.resolve(TTaker, design, {})
     settings = {}
     sections = None
     if changed == "design":
@@ -180,13 +181,13 @@ def test_an_internal_plan_cannot_be_replayed_for_another_request(
     elif changed == "policy":
         runner.settings.hashed_run_dirs = True
     elif changed == "model_context":
-        settings = _Taker.Settings.from_input({}, design_root=tmp_path, runner_cwd=tmp_path)
+        settings = TTaker.Settings.from_input({}, design_root=tmp_path, runner_cwd=tmp_path)
     elif changed == "sections":
-        sections = {_Maker.name: {"text": "different\n"}}
+        sections = {TMaker.name: {"text": "different\n"}}
     else:
         settings = {"verbosity": "debug"}
     with pytest.raises(FlowFatalError, match="plan.*request|plan.*context"):
-        runner.launch_flow(_Taker, design, settings, all_flows_settings=sections, plan=plan)
+        runner.launch_flow(TTaker, design, settings, all_flows_settings=sections, plan=plan)
     assert not (tmp_path / "xeda_run").exists()
 
 
@@ -201,23 +202,23 @@ def test_two_inputs_launch_the_same_producer_once_and_keep_the_plan(tmp_path, de
 
     monkeypatch.setattr(DefaultRunner, "_producer_read_lease", read_lease)
 
-    class _Twice(Flow):
+    class TTwice(Flow):
         """Reads the same producer's output twice."""
 
         results_description = {}
 
         class Inputs(Flow.Inputs):
-            a: Path = In(SourceType.Data, producer="__maker", output="made", description="First.")
-            b: Path = In(SourceType.Data, producer="__maker", output="made", description="Second.")
+            a: Path = In(SourceType.Data, producer="t_maker", output="made", description="First.")
+            b: Path = In(SourceType.Data, producer="t_maker", output="made", description="Second.")
 
         def run(self):
             assert leases == ["enter"]
             self.results["read"] = self.inputs.a.read_text() + self.inputs.b.read_text()
 
     runner = _runner(tmp_path)
-    plan = runner.resolve(_Twice, design, {})
+    plan = runner.resolve(TTwice, design, {})
     before = [(n.name, n.settings.model_dump(), n.inputs, n.switched_on) for n in plan.nodes]
-    flow = runner.launch_flow(_Twice, design, {}, plan=plan)
+    flow = runner.launch_flow(TTwice, design, {}, plan=plan)
     assert flow.results["read"] == "made\nmade\n"
     assert leases == ["enter", "exit"]
     assert [(f.name, f.flow_hash, f.run_path) for f in runner.launched] == [
@@ -238,14 +239,14 @@ def test_declared_outputs_survive_cleanup_and_are_delivered_without_artifact_lab
     runner = DefaultRunner(
         tmp_path / "xeda_run", display_results=False, post_cleanup=True, outputs_to=tmp_path / "out"
     )
-    maker = runner.launch_flow(_Maker, design, {})
+    maker = runner.launch_flow(TMaker, design, {})
     assert Path(maker.results["outputs"]["made"]["path"]).read_text() == "made\n"
     assert (tmp_path / "out" / "made.txt").read_text() == "made\n"
 
 
 @pytest.mark.parametrize("binding", ["name", "origin", "order", "format"])
 def test_changed_binding_provenance_invalidates_the_same_file_set(tmp_path, design, binding):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
     trace_file = first.run_path / "trace.json"
     trace = json.loads(trace_file.read_text())
     if binding == "format":
@@ -256,11 +257,11 @@ def test_changed_binding_provenance_invalidates_the_same_file_set(tmp_path, desi
         trace["declared_inputs"][0][binding] = "different" if binding == "name" else "source"
     trace_file.write_text(json.dumps(trace))
     runner = _runner(tmp_path)
-    again = runner.launch_flow(_Taker, design, {})
+    again = runner.launch_flow(TTaker, design, {})
     assert not again.reused and producers_of(runner, again)[0].reused
     assert {
         "format": "another Xeda",
-        "origin": "made now from __maker.made (was the design's sources)",
+        "origin": "made now from t_maker.made (was the design's sources)",
     }.get(binding, "declared input bindings changed") in again.stale_reason
 
 
@@ -270,23 +271,23 @@ def test_planning_runs_no_generator_and_writes_nothing(tmp_path, monkeypatch):
     path.write_text(
         'name="d"\n[rtl]\nsources=["gen/top.v"]\ntop="t"\ngenerator="touch generated"\n'
     )
-    assert _runner(tmp_path).plan(_Taker, path)
+    assert _runner(tmp_path).plan(TTaker, path)
     assert not (tmp_path / "generated").exists()
     assert not (tmp_path / "xeda_run").exists()
 
 
 def test_a_failed_producer_reports_its_error_and_blocks_its_consumer(tmp_path, design, monkeypatch):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
 
     def fail(self):
         raise FlowFatalError("maker broke")
 
-    monkeypatch.setattr(_Maker, "run", fail)
+    monkeypatch.setattr(TMaker, "run", fail)
     runner = DefaultRunner(
         tmp_path / "xeda_run", display_results=False, rebuild_all=True, outputs_to=tmp_path / "out"
     )
     with pytest.raises(FlowDependencyFailure, match="maker broke.*results.json"):
-        runner.launch_flow(_Taker, design, {})
+        runner.launch_flow(TTaker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "passed" and recorded["run_id"] == first.run_id
     assert (first.run_path / "trace.json").exists()  # a blocked consumer writes nothing
@@ -294,7 +295,7 @@ def test_a_failed_producer_reports_its_error_and_blocks_its_consumer(tmp_path, d
 
 
 def test_absent_optional_inputs_keep_their_cardinality(tmp_path, design):
-    class _Optional(Flow):
+    class TOptional(Flow):
         """Accepts absent optional inputs."""
 
         results_description = {}
@@ -309,7 +310,7 @@ def test_absent_optional_inputs_keep_their_cardinality(tmp_path, design):
             assert self.inputs.one is None and self.inputs.many == []
 
     runner = _runner(tmp_path)
-    flow = runner.launch_flow(_Optional, design, {})
+    flow = runner.launch_flow(TOptional, design, {})
     assert flow.succeeded
     trace = json.loads((flow.run_path / "trace.json").read_text())
     assert [entry["origin"] for entry in trace["declared_inputs"]] == ["none", "none"]
@@ -319,12 +320,12 @@ def test_absent_optional_inputs_keep_their_cardinality(tmp_path, design):
 def test_a_failed_handover_invalidates_previous_success_without_delivery(
     tmp_path, design, monkeypatch, change
 ):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
     launch = DefaultRunner.launch_flow
 
     def change_output(self, flow_class, *args, **kwargs):
         flow = launch(self, flow_class, *args, **kwargs)
-        if flow.name == _Maker.name:
+        if flow.name == TMaker.name:
             path = Path(flow.results["outputs"]["made"]["path"])
             if change == "missing":
                 path.unlink()
@@ -335,7 +336,7 @@ def test_a_failed_handover_invalidates_previous_success_without_delivery(
     monkeypatch.setattr(DefaultRunner, "launch_flow", change_output)
     runner = DefaultRunner(tmp_path / "xeda_run", outputs_to=tmp_path / "out")
     with pytest.raises(FlowDependencyFailure, match="missing|changed"):
-        runner.launch_flow(_Taker, design, {})
+        runner.launch_flow(TTaker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
     assert recorded["error"]["code"] == "producer_failed"
@@ -354,7 +355,9 @@ def test_power_diamond_enters_synthesis_once_with_the_union_of_outputs(tmp_path,
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
     runner = _runner(tmp_path)
     launch = lambda: runner.run(
-        "vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS
+        "vivado_power",
+        tmp_path / "design.yaml",
+        flow_settings=node_settings("vivado_power", VIVADO_SETTINGS),
     )
     power = launch()
     assert power and power.succeeded

@@ -14,6 +14,7 @@ from xeda.flows import VivadoPostsynthSim
 
 from .test_tool_input_equivalence import REQUESTS, launch, write_vivado_design
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 
 @pytest.mark.parametrize("saif", [None, Path("chosen.saif")])
@@ -67,7 +68,9 @@ def test_alternative_bindings_of_the_three_inputs_use_only_the_alternative(tmp_p
         *(f"inputs.{name}=vivado_alt_synth.{name}" for name in names),
     ]
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-        "vivado_postsynth_sim", tmp_path / "design.yaml", flow_settings=settings
+        "vivado_postsynth_sim",
+        tmp_path / "design.yaml",
+        flow_settings=node_settings("vivado_postsynth_sim", settings),
     )
     assert plan is not None
     producers = [node.name for node in plan.nodes if node.name != "vivado_postsynth_sim"]
@@ -91,7 +94,9 @@ def test_a_partial_binding_is_refused_instead_of_pairing_two_runs(tmp_path):
     ]
     with pytest.raises(FlowSettingsException, match="must come from the same producer"):
         DefaultRunner(tmp_path / "run", display_results=False).plan(
-            "vivado_postsynth_sim", tmp_path / "design.yaml", flow_settings=settings
+            "vivado_postsynth_sim",
+            tmp_path / "design.yaml",
+            flow_settings=node_settings("vivado_postsynth_sim", settings),
         )
 
 
@@ -125,7 +130,7 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
             command.insert(command.index("--design-name") + 1, "sim")
             command.extend(["--xedaproject", str(project)])
         else:
-            command.extend(["-s", "flows.vivado_postsynth_sim.synth.write_checkpoint=true"])
+            command.extend(["-s", "vivado_postsynth_sim.synth.write_checkpoint=true"])
         proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
         assert proc.returncode == 2 and document["outcome"] is None
@@ -180,7 +185,9 @@ def test_three_alternative_bindings_run_only_the_alternative_and_relaunch_nothin
     ]
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     launch_flow = lambda: runner.run(
-        "vivado_postsynth_sim", tmp_path / "design.yaml", flow_settings=settings
+        "vivado_postsynth_sim",
+        tmp_path / "design.yaml",
+        flow_settings=node_settings("vivado_postsynth_sim", settings),
     )
     flow = launch_flow()
     assert flow.succeeded

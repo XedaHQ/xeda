@@ -27,6 +27,7 @@ from xeda.project import Project
 
 from .project_files import PROJECT_FILE
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -281,7 +282,9 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
             "vivado_postsynth_sim",
             "d",
             xedaproject=str(tmp_path / PROJECT_FILE),
-            flow_settings=["nthreads=5", "flows.vivado_synth.fail_timing=false"],
+            flow_settings=node_settings(
+                "vivado_postsynth_sim", ["nthreads=5", "flows.vivado_synth.fail_timing=false"]
+            ),
         )
     assert launched["settings"] == {"timeout": "1 s", "nthreads": 5}
     assert launched["all_flows"]["vivado_synth"] == {
@@ -320,7 +323,9 @@ def test_local_run_allows_higher_clock_spelling_to_override_design_layer(
     )
 
     with pytest.raises(_Launched):
-        DefaultRunner(tmp_path / "run").run("vivado_synth", design, flow_settings=[override])
+        DefaultRunner(tmp_path / "run").run(
+            "vivado_synth", design, flow_settings=node_settings("vivado_synth", [override])
+        )
 
     assert launched["settings"]["clocks"] == {"main_clock": expected}
 
@@ -442,7 +447,10 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, s
         """,
     )
     outcome = remote_request(
-        tmp_path, design, "vivado_synth", flow_settings=["out_of_context=true"]
+        tmp_path,
+        design,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", ["out_of_context=true"]),
     )
     assert isinstance(outcome.error, _Launched), outcome.document
     settings = _composed(sent, "vivado_synth", tmp_path)
@@ -462,7 +470,9 @@ def test_a_remote_run_composes_the_section_of_the_flow(tmp_path, sent):
         werror = true
         """,
     )
-    outcome = remote_request(tmp_path, design, "ghdl_sim", flow_settings=["werror=false"])
+    outcome = remote_request(
+        tmp_path, design, "ghdl_sim", flow_settings=node_settings("ghdl_sim", ["werror=false"])
+    )
     assert isinstance(outcome.error, _Launched), outcome.document
     settings = _composed(sent, "ghdl_sim", tmp_path)
     assert type(settings).__qualname__ == "GhdlSim.Settings"
@@ -494,7 +504,7 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, sent):
         "d",
         "vivado_synth",
         xedaproject=project,
-        flow_settings=["fail_timing=false"],
+        flow_settings=node_settings("vivado_synth", ["fail_timing=false"]),
     )
     assert isinstance(outcome.error, _Launched), outcome.document
     settings = _composed(sent, "vivado_synth", tmp_path)
@@ -535,7 +545,11 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
         max_workers=1,
     )
 
-    dse.run("vivado_synth", design, flow_settings=["clocks.main_clock.period=4ns"])
+    dse.run(
+        "vivado_synth",
+        design,
+        flow_settings=node_settings("vivado_synth", ["clocks.main_clock.period=4ns"]),
+    )
 
     assert dse.optimizer.base_settings.main_clock.period.to("ns") == 4.0
     assert design.flows == before
@@ -677,7 +691,7 @@ def test_running_a_design_mapping_does_not_modify_the_callers_mapping(tmp_path, 
 
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            VivadoSynth, design, flow_settings={"fpga": {"part": "x"}}
+            VivadoSynth, design, flow_settings=node_settings(VivadoSynth, {"fpga": {"part": "x"}})
         )
 
     assert design == before
@@ -791,7 +805,9 @@ def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch,
         DefaultRunner(tmp_path / "run").run(
             "vivado_postsynth_sim",
             design,
-            flow_settings=["flows.vivado_synth.out_of_context=false", "timeout=3s"],
+            flow_settings=node_settings(
+                "vivado_postsynth_sim", ["flows.vivado_synth.out_of_context=false", "timeout=3s"]
+            ),
         )
     assert (
         launched["all_flows"]["vivado_synth"]["out_of_context"] == False
@@ -800,22 +816,26 @@ def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch,
     assert launched["all_flows"]["vivado_synth"]["out_of_context"] == False
 
 
-def test_dash_s_key_and_flows_requested_key_are_one_leaf(tmp_path, monkeypatch, launched):
+def test_dash_s_gives_one_leaf_one_value(tmp_path, monkeypatch, launched):
     monkeypatch.chdir(tmp_path)
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["seed=3", "flows.nextpnr.seed=3"]
+            "nextpnr",
+            design,
+            flow_settings=node_settings("nextpnr", ["nextpnr.seed=3", "nextpnr.seed=3"]),
         )
     assert launched["settings"]["seed"] == 3
-    with pytest.raises(FlowSettingsError, match=r"seed.*flows\.nextpnr\.seed"):
+    with pytest.raises(FlowSettingsError, match=r"nextpnr\.seed=3.*nextpnr\.seed=4"):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["seed=3", "flows.nextpnr.seed=4"]
+            "nextpnr",
+            design,
+            flow_settings=node_settings("nextpnr", ["nextpnr.seed=3", "nextpnr.seed=4"]),
         )
 
 
 def test_no_flow_has_a_setting_named_flows():
-    """`flows` is the command line's reserved prefix for `-s flows.<node>.key`."""
+    """`flows` is a reserved word: no flow can have a setting of that name."""
     from xeda.flow import registered_flows
 
     assert not [
@@ -824,12 +844,14 @@ def test_no_flow_has_a_setting_named_flows():
 
 
 def test_dash_s_flows_must_name_a_flow_of_the_run(tmp_path, monkeypatch):
-    """A typo in `-s flows.<name>` is an error with suggestions, never silently ignored."""
+    """A typo in `-s <name>.key` is an error with suggestions, never silently ignored."""
     monkeypatch.chdir(tmp_path)
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
     with pytest.raises(FlowSettingsError, match=r"yosys_fpg.*yosys_fpga"):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["flows.yosys_fpg.flatten=true"]
+            "nextpnr",
+            design,
+            flow_settings=["yosys_fpg.flatten=true"],
         )
 
 
@@ -843,7 +865,11 @@ def test_a_command_line_dependency_setting_beats_the_producers_file_value(
     )
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run(
-            "vivado_postsynth_sim", design, flow_settings=["flows.vivado_synth.fail_timing=false"]
+            "vivado_postsynth_sim",
+            design,
+            flow_settings=node_settings(
+                "vivado_postsynth_sim", ["flows.vivado_synth.fail_timing=false"]
+            ),
         )
     assert launched["all_flows"]["vivado_synth"]["fail_timing"] == False
 
@@ -861,34 +887,38 @@ def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeyp
             "nextpnr",
             design.stem,
             xedaproject=str(tmp_path / PROJECT_FILE),
-            flow_settings=["seed=3"],
+            flow_settings=node_settings("nextpnr", ["seed=3"]),
         )
 
 
 def test_a_misdirected_setting_suggests_the_node_it_belongs_to(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
-    with pytest.raises(FlowSettingsError, match=r"-s flows\.yosys_fpga\.flatten"):
-        DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["flatten=true"])
-
-
-def test_an_alias_and_its_setting_are_one_leaf_across_the_two_spellings(
-    tmp_path, monkeypatch, launched
-):
-    monkeypatch.chdir(tmp_path)
-    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
-    with pytest.raises(FlowSettingsError, match=r"nthreads.*flows\.nextpnr\.nthreads"):
+    with pytest.raises(FlowSettingsError, match=r"-s yosys_fpga\.flatten"):
         DefaultRunner(tmp_path / "run").run(
-            "nextpnr", design, flow_settings=["nthreads=3", "flows.nextpnr.nthreads=4"]
+            "nextpnr", design, flow_settings=node_settings("nextpnr", ["flatten=true"])
         )
 
 
-def test_the_command_line_table_keeps_both_spellings_of_one_group():
-    """A qualified and an unqualified setting in one group of the requested flow are both in the
-    table that the run document shows as `spec.settings`."""
+def test_an_alias_and_its_setting_are_one_leaf(tmp_path, monkeypatch, launched):
+    monkeypatch.chdir(tmp_path)
+    design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    with pytest.raises(
+        FlowSettingsError, match=r"nextpnr\.clock\.period.*nextpnr\.clocks\.main_clock\.period"
+    ):
+        DefaultRunner(tmp_path / "run").run(
+            "nextpnr",
+            design,
+            flow_settings=node_settings(
+                "nextpnr", ["nextpnr.clock.period=5ns", "nextpnr.clocks.main_clock.period=6ns"]
+            ),
+        )
+
+
+def test_the_command_line_table_holds_the_settings_by_node():
+    """The items of `-s` are the `spec.settings` that the run document shows."""
     table = command_line_table(
-        "nextpnr",
-        ["flows.nextpnr.clock.period=5ns", "clock.port=clk", "flows.yosys_fpga.abc9=true"],
+        ["nextpnr.clock.period=5ns", "nextpnr.clock.port=clk", "yosys_fpga.abc9=true"]
     )
     assert table == {
         "nextpnr": {"clock": {"period": "5ns", "port": "clk"}},

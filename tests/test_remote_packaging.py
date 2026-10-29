@@ -14,17 +14,18 @@ from xeda.flow import FlowSettingsException
 from xeda.remote.manifest import apply_sync, build_manifest, plan_sync, write_tar
 from xeda.remote.packaging import InputPackage, package_inputs
 
-from .io_flows import _ReadsInstalled, _ReadsInstalledNested  # noqa: F401  (registers the flows)
+from .io_flows import TReadsInstalled, TReadsInstalledNested  # noqa: F401  (registers the flows)
 from .test_git_dependencies import git_log, remote
 from .tiny_platform import TINY_OPENROAD_RESIDUE
+from .scoping import node_settings
 
 FIXTURES = (git_log, remote)
 
 pytestmark = pytest.mark.python_compat
 
 REMOTE_INPUTS = PurePosixPath("/remote/xeda/v1/ws/key/inputs/d")
-STORE_KEY = "__reads_installed"
-NESTED_KEY = "__reads_installed_nested"
+STORE_KEY = "t_reads_installed"
+NESTED_KEY = "t_reads_installed_nested"
 
 
 def _design(tmp_path: Path, **kwargs) -> Design:
@@ -339,8 +340,8 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
             settings=["clocks.main_clock.period=8 ns"],
             project=True,
         ),
-        dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory=True),
-        dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory="inside"),
+        dict(flow="t_input_maker", target=None, settings=["input_file=@data"], directory=True),
+        dict(flow="t_input_maker", target=None, settings=["input_file=@data"], directory="inside"),
     ],
     ids=[
         "target",
@@ -369,7 +370,10 @@ def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
     else:
         request = dict(design=directory / "knight.yaml")
     prepared = local.prepare_request(
-        case["flow"], flow_settings=settings, target=case["target"], **request
+        case["flow"],
+        flow_settings=node_settings(case["flow"], settings),
+        target=case["target"],
+        **request,
     )
     assert prepared.design.target == case["target"]
 
@@ -397,9 +401,9 @@ def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
 
     data = _directory_input(tmp_path)
     design = _design(tmp_path)
-    package = _package(design, {"__input_maker": {"input_file": str(data)}}, tmp_path)
+    package = _package(design, {"t_input_maker": {"input_file": str(data)}}, tmp_path)
     assert all(path.is_file() for path in package.files.values())
-    (setting,) = _shipped(package)["flows"]["__input_maker"].values()
+    (setting,) = _shipped(package)["flows"]["t_input_maker"].values()
     relative = setting.removeprefix("$DESIGN_ROOT/")
     assert set(package.files) >= {f"{relative}/top.txt", f"{relative}/deep/deeper/x.txt"}
     assert package.directories == [f"{relative}/empty/inner"]
@@ -450,7 +454,7 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
     prepared = DefaultRunner(local_root, display_results=False).prepare_request(
         "vivado_synth",
         design=design_root / "sqrt.yaml",
-        flow_settings=["set_synth_properties.A.B=2"],
+        flow_settings=node_settings("vivado_synth", ["set_synth_properties.A.B=2"]),
     )
     package = _assert_tables_reach_the_remote(
         tmp_path,
@@ -477,13 +481,16 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
     prepared = DefaultRunner(local_root, display_results=False).prepare_request(
         "vivado_synth",
         design=design_root / "sqrt.yaml",
-        flow_settings=[
-            "fpga.part=xc7a12tcsg325-1",
-            "clocks.main_clock.period=5ns",
-            "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
-            "set_synth_properties.A.B=2",
-            "set_synth_properties.A.C=3",
-        ],
+        flow_settings=node_settings(
+            "vivado_synth",
+            [
+                "fpga.part=xc7a12tcsg325-1",
+                "clocks.main_clock.period=5ns",
+                "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0",
+                "set_synth_properties.A.B=2",
+                "set_synth_properties.A.C=3",
+            ],
+        ),
     )
     _assert_tables_reach_the_remote(
         tmp_path,
@@ -509,7 +516,7 @@ def test_an_openroad_table_that_holds_a_name_inside_another_reaches_the_remote_w
     items = [*openroad_settings(tiny_store(tmp_path)), "ir_drop.instance_power.u_core.reg_1=1mW"]
     with register_openroad_flows():
         prepared = DefaultRunner(local_root, display_results=False).prepare_request(
-            "openroad", design=design, flow_settings=items
+            "openroad", design=design, flow_settings=node_settings("openroad", items)
         )
         _assert_tables_reach_the_remote(
             tmp_path,
@@ -694,73 +701,73 @@ def _write_project(root: Path, flows: dict, design_flows: dict | None) -> str:
     return str(path)
 
 
-MADE_BY_INPUT_MAKER = {"made": "__input_maker.made"}
-BOUND_PRODUCER = {"__input_maker": {"input_file": "input.txt"}}
+MADE_BY_INPUT_MAKER = {"made": "t_input_maker.made"}
+BOUND_PRODUCER = {"t_input_maker": {"input_file": "input.txt"}}
 
 #: name -> (flow, settings of the design file, settings of the project file, `-s` items,
 #: nodes that the plan has, as `(node, input, producers of it)`).
 BINDING_CASES = {
     "design-file": dict(
-        flow="__taker",
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "project-file": dict(
-        flow="__taker",
-        project={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        project={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "command-line": dict(
-        flow="__taker",
+        flow="t_taker",
         design=BOUND_PRODUCER,
-        settings=["flows.__taker.inputs.made=__input_maker.made"],
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        settings=["flows.t_taker.inputs.made=t_input_maker.made"],
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "command-line-over-file": dict(
-        flow="__taker",
-        design={"__taker": {"inputs": {"made": "__maker.made"}}, **BOUND_PRODUCER},
-        settings=["flows.__taker.inputs.made=__input_maker.made"],
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        design={"t_taker": {"inputs": {"made": "t_maker.made"}}, **BOUND_PRODUCER},
+        settings=["flows.t_taker.inputs.made=t_input_maker.made"],
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "file-over-project": dict(
-        flow="__taker",
-        project={"__taker": {"inputs": {"made": "__maker.made"}}},
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        project={"t_taker": {"inputs": {"made": "t_maker.made"}}},
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "chain-over-file": dict(
-        flow="__maker+__taker",
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__maker", "made")])],
+        flow="t_maker+t_taker",
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_maker", "made")])],
         shipped_inputs=False,
     ),
     "inputs-of-a-producer": dict(
-        flow="__left",
+        flow="t_left",
         design={
-            "__left": {"inputs": {"json_netlist": "__relay.netlist"}},
-            "__relay": {"inputs": {"data": "__maker.made"}},
-            "__fork": {"first": True},
+            "t_left": {"inputs": {"json_netlist": "t_relay.netlist"}},
+            "t_relay": {"inputs": {"data": "t_maker.made"}},
+            "t_fork": {"first": True},
         },
         edges=[
-            ("__left", "json_netlist", [("__relay", "netlist")]),
-            ("__relay", "data", [("__maker", "made")]),
+            ("t_left", "json_netlist", [("t_relay", "netlist")]),
+            ("t_relay", "data", [("t_maker", "made")]),
         ],
     ),
     "two-producers-of-a-many-input": dict(
-        flow="__join",
-        design={"__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}}}
+        flow="t_join",
+        design={"t_join": {"inputs": {"more": ["t_maker.made", "t_input_maker.made"]}}}
         | BOUND_PRODUCER,
-        edges=[("__join", "more", [("__maker", "made"), ("__input_maker", "made")])],
+        edges=[("t_join", "more", [("t_maker", "made"), ("t_input_maker", "made")])],
     ),
     "many-input-in-the-other-order": dict(
-        flow="__join",
-        design={"__join": {"inputs": {"more": ["__input_maker.made", "__maker.made"]}}}
+        flow="t_join",
+        design={"t_join": {"inputs": {"more": ["t_input_maker.made", "t_maker.made"]}}}
         | BOUND_PRODUCER,
-        edges=[("__join", "more", [("__input_maker", "made"), ("__maker", "made")])],
+        edges=[("t_join", "more", [("t_input_maker", "made"), ("t_maker", "made")])],
     ),
     "binding-of-a-flow-the-plan-leaves-out": dict(
-        flow="__maker",
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}},
+        flow="t_maker",
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}},
         edges=[],
         shipped_inputs=True,
     ),
@@ -781,7 +788,7 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
     local_root = tmp_path / "local" / "xeda_run"
     local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=hashed)
     prepared = local.prepare_request(
-        case["flow"], flow_settings=case.get("settings", []), **request
+        case["flow"], flow_settings=node_settings(case["flow"], case.get("settings", [])), **request
     )
     for node, name, producers in case["edges"]:
         declared = next(i for i in prepared.plan.node(node).inputs if i.name == name)
@@ -796,7 +803,7 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
     if case.get("shipped_inputs") is False:
         assert not holding  # the chain binds the input, and the remote gets the chain
     else:
-        assert holding and all(name not in ("__maker",) for name in holding)
+        assert holding and all(name not in ("t_maker",) for name in holding)
 
 
 # --- The identity of a node is the same on both ends -------------------------------------------
@@ -956,7 +963,9 @@ def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_r
     local_root = tmp_path / "local" / "xeda_run"
     local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
     prepared = local.prepare_request(
-        "nextpnr", design=design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"]
+        "nextpnr",
+        design=design,
+        flow_settings=node_settings("nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
     )
 
     _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
@@ -1030,7 +1039,9 @@ def test_the_host_merges_local_and_git_dependencies_as_the_client_does(
     (tmp_path / "design").mkdir()
     design_file = _mixed(tmp_path / "design", remote, order)
     runner = DefaultRunner(local_root, display_results=False)
-    prepared = runner.prepare_request("yosys_fpga", design=design_file, flow_settings=dict(XILINX))
+    prepared = runner.prepare_request(
+        "yosys_fpga", design=design_file, flow_settings=node_settings("yosys_fpga", dict(XILINX))
+    )
     started = len(git_log())
 
     package, remote_plan, remote_root, remote_dir = _remote_plan(

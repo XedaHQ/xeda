@@ -21,6 +21,7 @@ from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.units import Time
 
+from .scoping import node_settings
 from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
 from .tool_utils import producers_of
@@ -202,9 +203,13 @@ def test_a_json_netlist_among_the_design_s_sources_skips_synthesis(tmp_path, mon
 def test_nextpnr_switches_on_the_netlist_it_reads(tmp_path, monkeypatch, tools):
     runner = _runner(tmp_path, monkeypatch)
     cli = [f"fpga.part={PART}", "flows.yosys_fpga.netlist_json="]
-    plan = runner.plan("nextpnr", _design(tmp_path / "d"), flow_settings=cli)
+    plan = runner.plan(
+        "nextpnr", _design(tmp_path / "d"), flow_settings=node_settings("nextpnr", cli)
+    )
     assert plan.node("yosys_fpga").switched_on == ("netlist",)
-    nextpnr = runner.run("nextpnr", _design(tmp_path / "d"), flow_settings=cli)
+    nextpnr = runner.run(
+        "nextpnr", _design(tmp_path / "d"), flow_settings=node_settings("nextpnr", cli)
+    )
     assert nextpnr is not None and nextpnr.succeeded
     assert producers_of(runner, nextpnr)[0].settings.netlist_json == Path("netlist.json")
 
@@ -246,7 +251,10 @@ def test_a_device_given_on_the_command_line_is_the_whole_run_s(tmp_path, monkeyp
     _files(tmp_path, OTHER_PART, PART)
     runner = _runner(tmp_path, monkeypatch)
     nextpnr = runner.run(
-        "nextpnr", "blink", xedaproject=_project(tmp_path), flow_settings=[f"fpga.part={PART}"]
+        "nextpnr",
+        "blink",
+        xedaproject=_project(tmp_path),
+        flow_settings=node_settings("nextpnr", [f"fpga.part={PART}"]),
     )
     assert nextpnr is not None and nextpnr.succeeded
     assert nextpnr.settings.fpga.part == PART
@@ -303,7 +311,9 @@ def test_invalid_target_is_rejected_by_pure_planning(tmp_path, monkeypatch, sett
     monkeypatch.setattr(YosysFpga, "__init__", unexpected)
     monkeypatch.setattr(NextpnrTool, "__init__", unexpected)
     with pytest.raises(FlowSettingsException):
-        DefaultRunner(tmp_path / "run").plan(Nextpnr, design, flow_settings=settings)
+        DefaultRunner(tmp_path / "run").plan(
+            Nextpnr, design, flow_settings=node_settings(Nextpnr, settings)
+        )
     assert not (tmp_path / "run").exists()
 
 
@@ -378,10 +388,16 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
     )
     runner = _runner(tmp_path, monkeypatch)
     plan = runner.plan(
-        "nextpnr", "blink", xedaproject=_project(tmp_path), flow_settings=[f"{cli_leaf}={PART}"]
+        "nextpnr",
+        "blink",
+        xedaproject=_project(tmp_path),
+        flow_settings=node_settings("nextpnr", [f"{cli_leaf}={PART}"]),
     )
     flow = runner.run(
-        "nextpnr", "blink", xedaproject=_project(tmp_path), flow_settings=[f"{cli_leaf}={PART}"]
+        "nextpnr",
+        "blink",
+        xedaproject=_project(tmp_path),
+        flow_settings=node_settings("nextpnr", [f"{cli_leaf}={PART}"]),
     )
     assert flow.succeeded
     (producer,) = producers_of(runner, flow)
@@ -574,7 +590,7 @@ def test_two_unchanged_cli_processes_reuse_both_recorded_flows(tmp_path):
     assert binding["paths"] == [str(producer / name) for name in record["names"]]
 
 
-@pytest.mark.parametrize("cli_leaf", ["fpga.part", "flows.yosys_fpga.fpga.part"])
+@pytest.mark.parametrize("cli_leaf", ["nextpnr.fpga.part", "yosys_fpga.fpga.part"])
 def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_leaf):
     import json
     import subprocess
@@ -629,7 +645,9 @@ def test_a_typed_netlist_source_displaces_its_producer(tmp_path):
         rtl={"sources": [{"file": "d.v", "type": "JsonNetlist"}], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
-    plan = runner.plan(Nextpnr, design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"])
+    plan = runner.plan(
+        Nextpnr, design, flow_settings=node_settings(Nextpnr, ["fpga.part=LFE5U-25F-6BG381C"])
+    )
     assert len(plan.nodes) == 1
     netlist = next(item for item in plan.node("nextpnr").inputs if item.name == "netlist")
     assert netlist.origin == "source"
@@ -649,7 +667,9 @@ def test_the_design_s_sdc_sources_are_a_declared_input_in_source_order(tmp_path)
         },
     )
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
-    plan = runner.plan(Nextpnr, design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"])
+    plan = runner.plan(
+        Nextpnr, design, flow_settings=node_settings(Nextpnr, ["fpga.part=LFE5U-25F-6BG381C"])
+    )
     sdc = next(item for item in plan.node("nextpnr").inputs if item.name == "sdc")
     assert sdc.origin == "source"
     assert list(sdc.sources) == [tmp_path / "b.sdc", tmp_path / "a.sdc"]

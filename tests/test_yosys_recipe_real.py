@@ -27,6 +27,7 @@ from xeda.flows import YosysFpga
 
 from .tool_utils import require_yosys, require_yosys_config
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 PART = "xc7a100tcsg324-1"
 
@@ -120,7 +121,11 @@ def _structure(netlist: Any) -> Any:
 def _launch(tmp_path: Path, name: str, **settings: Any):
     """Run `yosys_fpga` in its own run root, so two recipes keep two netlists."""
     runner = DefaultRunner(tmp_path / name, display_results=False)
-    flow = runner.run(YosysFpga, _design(tmp_path), flow_settings={**SETTINGS, **settings})
+    flow = runner.run(
+        YosysFpga,
+        _design(tmp_path),
+        flow_settings=node_settings(YosysFpga, {**SETTINGS, **settings}),
+    )
     assert flow is not None and flow.succeeded, f"{name} did not synthesize"
     return flow
 
@@ -288,11 +293,14 @@ def _keyword_launch(tmp_path: Path, name: str, **settings: Any) -> Any:
     return runner.run(
         YosysFpga,
         _design(tmp_path, "kw.v", KEYWORD_SOURCE),
-        flow_settings={
-            "fpga": {"part": PART},
-            "clocks": {"main_clock": {"period": "5 ns"}},
-            **settings,
-        },
+        flow_settings=node_settings(
+            YosysFpga,
+            {
+                "fpga": {"part": PART},
+                "clocks": {"main_clock": {"period": "5 ns"}},
+                **settings,
+            },
+        ),
     )
 
 
@@ -347,11 +355,14 @@ def test_the_mode_reads_a_systemverilog_source_as_yosys_does(tmp_path):
         return DefaultRunner(tmp_path / name, display_results=False).run(
             YosysFpga,
             design,
-            flow_settings={
-                "fpga": {"part": PART},
-                "clocks": {"main_clock": {"period": "5 ns"}},
-                **settings,
-            },
+            flow_settings=node_settings(
+                YosysFpga,
+                {
+                    "fpga": {"part": PART},
+                    "clocks": {"main_clock": {"period": "5 ns"}},
+                    **settings,
+                },
+            ),
         )
 
     with pytest.raises(FlowSettingsError, match=r"systemverilog: default"):

@@ -41,7 +41,7 @@ from xeda.run_dir import (
 from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker
+from .io_flows import TMaker
 from .scrub_utils import ask_scrub_design, ask_scrub_runs
 
 pytestmark = [
@@ -398,16 +398,16 @@ def test_a_plan_refuses_the_link_a_launch_refuses(tmp_path, case):
     (design_dir / "d.yaml").write_text(
         'name: d\nrtl: {sources: [], top: "t"}\ntargets: {a: {}, b: {}}\n'
     )
-    link = world.parent / _Maker.name
+    link = world.parent / TMaker.name
     CASES[case][0](world, link)
     before = entries(tmp_path)
     launcher = DefaultRunner(world.root, display_results=False)
     design = Design.load(design_dir / "d.yaml", target="a")
     with pytest.raises(RunDirectoryError) as refused:
-        launcher.plan(_Maker, design)
+        launcher.plan(TMaker, design)
     assert str(link) in str(refused.value)
     with pytest.raises(RunDirectoryError):
-        launcher.launch_flow(_Maker, design, {})
+        launcher.launch_flow(TMaker, design, {})
     assert entries(tmp_path) == before
 
 
@@ -797,17 +797,17 @@ def test_a_purge_through_a_link_takes_the_link_with_the_directory(tmp_path, opti
     removes the directory, and the link: a link left leading nowhere would be refused by the
     next launch."""
     root = ensure_run_root(tmp_path / "xeda_run")
-    target = run_dir(root / "d" / f"{_Maker.name}_cccccccccccccccc")
-    link = root / "d" / _Maker.name
+    target = run_dir(root / "d" / f"{TMaker.name}_cccccccccccccccc")
+    link = root / "d" / TMaker.name
     link.symlink_to(target, target_is_directory=True)
     purge = {"post_cleanup_purge": True, "post_cleanup": option == "both"}
     launcher = DefaultRunner(root, display_results=False, **purge)
-    flow = launcher.launch_flow(_Maker, maker_design(tmp_path), {})
+    flow = launcher.launch_flow(TMaker, maker_design(tmp_path), {})
     assert flow.succeeded
     assert not target.exists(), "the run directory was purged"
     assert not os.path.lexists(link), "the link led nowhere"
     again = DefaultRunner(root, display_results=False, **purge)
-    assert again.launch_flow(_Maker, maker_design(tmp_path), {}).succeeded
+    assert again.launch_flow(TMaker, maker_design(tmp_path), {}).succeeded
 
 
 @pytest.mark.parametrize("option", ["post_cleanup_purge", "both"])
@@ -816,17 +816,17 @@ def test_a_purge_takes_every_name_of_the_directory_with_it(tmp_path, option):
     link to it): a purge removes both with the directory, as scrub does, so neither is left
     leading nowhere. A link to another directory is no name of it, and stays."""
     root = ensure_run_root(tmp_path / "xeda_run")
-    target = run_dir(root / "d" / f"{_Maker.name}_cccccccccccccccc")
-    link = root / "d" / _Maker.name
+    target = run_dir(root / "d" / f"{TMaker.name}_cccccccccccccccc")
+    link = root / "d" / TMaker.name
     link.symlink_to(target, target_is_directory=True)
-    other_name = root / "d" / f"{_Maker.name}_dddddddddddddddd"
+    other_name = root / "d" / f"{TMaker.name}_dddddddddddddddd"
     other_name.symlink_to(target, target_is_directory=True)
-    unrelated = run_dir(root / "d" / f"{_Maker.name}_eeeeeeeeeeeeeeee")
-    elsewhere = root / "d" / f"{_Maker.name}_ffffffffffffffff"
+    unrelated = run_dir(root / "d" / f"{TMaker.name}_eeeeeeeeeeeeeeee")
+    elsewhere = root / "d" / f"{TMaker.name}_ffffffffffffffff"
     elsewhere.symlink_to(unrelated, target_is_directory=True)
     purge = {"post_cleanup_purge": True, "post_cleanup": option == "both"}
     launcher = DefaultRunner(root, display_results=False, **purge)
-    assert launcher.launch_flow(_Maker, maker_design(tmp_path), {}).succeeded
+    assert launcher.launch_flow(TMaker, maker_design(tmp_path), {}).succeeded
     assert not target.exists(), "the run directory was purged"
     assert not os.path.lexists(link) and not os.path.lexists(other_name), "no name leads nowhere"
     assert unrelated.is_dir() and elsewhere.is_symlink(), "another directory's names stay"

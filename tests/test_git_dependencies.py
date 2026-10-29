@@ -44,6 +44,7 @@ from xeda.records import read_record
 
 from .flow_registry import preserved_flow_registry
 from .tool_utils import require_git
+from .scoping import node_settings
 
 SECRET = "s3cr3t-sentinel"
 XILINX = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}}
@@ -168,7 +169,9 @@ def _runner(root: Path) -> DefaultRunner:
 
 
 def _plan(root: Path, design_file: Path):
-    return _runner(root).plan("yosys_fpga", str(design_file), flow_settings=dict(XILINX))
+    return _runner(root).plan(
+        "yosys_fpga", str(design_file), flow_settings=node_settings("yosys_fpga", dict(XILINX))
+    )
 
 
 def _configuration(plan) -> dict:
@@ -269,7 +272,9 @@ def test_an_invalid_spec_fetches_nothing(tmp_path, remote, git_log):
     design_file = _design_file(tmp_path, _pinned(remote))
     with pytest.raises(Exception, match="no_such_setting"):
         _runner(tmp_path).plan(
-            "yosys_fpga", str(design_file), flow_settings={**XILINX, "no_such_setting": 1}
+            "yosys_fpga",
+            str(design_file),
+            flow_settings=node_settings("yosys_fpga", {**XILINX, "no_such_setting": 1}),
         )
     assert git_log() == [] and not (tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY).exists()
 
@@ -893,7 +898,9 @@ def test_a_request_that_is_wrong_in_itself_reads_no_dependency(tmp_path, remote,
     (tmp_path / "lib" / "lib.yaml").unlink()
     with pytest.raises(Exception, match="no_such_setting"):
         _runner(tmp_path).plan(
-            "yosys_fpga", str(design_file), flow_settings={**XILINX, "no_such_setting": 1}
+            "yosys_fpga",
+            str(design_file),
+            flow_settings=node_settings("yosys_fpga", {**XILINX, "no_such_setting": 1}),
         )
     assert git_log() == []
 
@@ -905,7 +912,9 @@ def test_the_debug_log_of_a_request_shows_no_credential(tmp_path, caplog, git_lo
     design_file = _design_file(tmp_path, dependency)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, debug=True)
     with caplog.at_level(logging.DEBUG), pytest.raises(DesignError):
-        runner.plan("yosys_fpga", str(design_file), flow_settings=dict(XILINX))
+        runner.plan(
+            "yosys_fpga", str(design_file), flow_settings=node_settings("yosys_fpga", dict(XILINX))
+        )
     assert "design:" in caplog.text and "does/not/exist.git" in caplog.text
     assert SECRET not in caplog.text
 
@@ -981,9 +990,17 @@ def test_a_refusal_from_the_settings_alone_starts_no_git_process(tmp_path, remot
     started = len(git_log())
     with pytest.raises(Exception, match="vcd|fst"):
         if entry == "plan":
-            runner.plan("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
+            runner.plan(
+                "verilator",
+                str(design_file),
+                flow_settings=node_settings("verilator", TWO_WAVEFORMS),
+            )
         elif entry == "run":
-            runner.run("verilator", str(design_file), flow_settings=TWO_WAVEFORMS)
+            runner.run(
+                "verilator",
+                str(design_file),
+                flow_settings=node_settings("verilator", TWO_WAVEFORMS),
+            )
         elif entry == "resolve":
             runner.resolve(Verilator, Design.load(design_file), TWO_WAVEFORMS)
         else:
@@ -1016,7 +1033,9 @@ def test_a_source_that_moves_to_another_dependency_is_another_origin_of_an_input
             yaml.safe_dump({"name": "d", "dependencies": [f"../{n}/{n}.yaml" for n in order]})
         )
         plan = DefaultRunner(root / "xeda_run", display_results=False).plan(
-            "fpga_pack", str(root / "d.yaml"), flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+            "fpga_pack",
+            str(root / "d.yaml"),
+            flow_settings=node_settings("fpga_pack", {"fpga": {"part": "LFE5U-25F-6BG381C"}}),
         )
         node = plan.node("fpga_pack")
         assert [i.origin for i in node.inputs if i.name == "config"] == ["source"]

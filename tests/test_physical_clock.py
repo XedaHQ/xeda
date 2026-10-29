@@ -402,8 +402,8 @@ def test_a_bare_period_on_the_command_line_fails_with_the_unit_message_in_json(t
         + [
             str(tmp_path / "xeda_run"),
             "-s",
-            "fpga.part=xc7a12tcsg325-1",
-            "clocks.main_clock.period=5.5",
+            "vivado_synth.fpga.part=xc7a12tcsg325-1",
+            "vivado_synth.clocks.main_clock.period=5.5",
         ]
         + ["--json"],
         cwd=tmp_path,

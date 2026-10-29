@@ -55,6 +55,7 @@ from xeda.utils import ToolException
 from . import tool_utils
 from .loader_world import Usb, World, detect_text, queries, scan_usb_text
 from .test_openfpgaloader import _calls, _prebuilt, _runner, assert_fake_loader
+from .scoping import node_settings
 
 ARTY = "AB00000001"  # an Arty A7-100T: xc7a100, IDCODE 0x3631093
 BASYS = "AB00000002"  # a Basys 3: xc7a35, IDCODE 0x362d093
@@ -794,7 +795,11 @@ def _start(tmp_path, monkeypatch, world, settings, caplog=None):
     if caplog is not None:
         caplog.set_level(logging.INFO, logger=LOGGER)
     record = world.install(monkeypatch, tmp_path)
-    flow = _runner(tmp_path).run("openfpgaloader", _prebuilt(tmp_path), flow_settings=settings)
+    flow = _runner(tmp_path).run(
+        "openfpgaloader",
+        _prebuilt(tmp_path),
+        flow_settings=node_settings("openfpgaloader", settings),
+    )
     return flow, record
 
 
@@ -1210,7 +1215,9 @@ def test_the_queries_have_a_time_limit(tmp_path, fake_loader, monkeypatch):
 def test_planning_a_dry_run_asks_the_loader_nothing(tmp_path, fake_loader, monkeypatch):
     record = _two_boards().install(monkeypatch, tmp_path)
     plan = _runner(tmp_path).plan(
-        Openfpgaloader, _prebuilt(tmp_path), flow_settings={"board": "arty_a7_100t"}
+        Openfpgaloader,
+        _prebuilt(tmp_path),
+        flow_settings=node_settings(Openfpgaloader, {"board": "arty_a7_100t"}),
     )
     assert [n.name for n in plan.nodes] == ["openfpgaloader"]
     assert queries(record) == []

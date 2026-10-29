@@ -341,6 +341,18 @@ def get_flow_class(
     return flow_class
 
 
+def _request_flows(request: FlowRequest) -> tuple[Type[Flow], ...]:
+    """Return the flows that a request names, and those that its links pass through."""
+    return tuple(
+        dict.fromkeys(
+            (
+                *(element.flow_class for element in request.elements),
+                *(flow for link in request.links for flow in link.through),
+            )
+        )
+    )
+
+
 def _get_flow_class_if_known(flow_name: str) -> Type[Flow] | None:
     """Resolve a flow-section key without rejecting sections for unavailable plugin flows."""
     try:
@@ -2051,10 +2063,14 @@ class FlowLauncher:
 
         # The layers that a request reads bindings from, taken out as `_request` takes them.
         explicit = (
-            _explicit(flow_settings) if isinstance(flow_settings, Flow.Settings) else flow_settings
+            {requested.name: _explicit(flow_settings)}
+            if isinstance(flow_settings, Flow.Settings)
+            else flow_settings
         )
         cli_sections, cli_own = split_flow_sections(
-            explicit, requested.name, flow_class_for=_get_flow_class_if_known
+            explicit,
+            requested.name,
+            flow_class_for=_get_flow_class_if_known,
         )
         cli_sections = merge_flow_sections(
             cli_sections, {requested.name: cli_own}, flow_class_for=_get_flow_class_if_known
@@ -2623,19 +2639,21 @@ class FlowLauncher:
         from .resolver import _explicit
 
         settings_instance = isinstance(flow_settings, Flow.Settings)
+        explicit_flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any]
         self.target = design.target if isinstance(design, Design) else None
         self.design_name = design.name if isinstance(design, Design) else None
         if isinstance(flow_settings, Flow.Settings):
-            explicit_flow_settings = _explicit(flow_settings)
+            explicit_flow_settings = {flow_class.name: _explicit(flow_settings)}
             flow_settings = flow_settings.model_dump()
         else:
             assert isinstance(
                 flow_settings, (list, tuple, Mapping)
             ), "flow_settings should be a list, tuple or dict"
-            # The items stay as given: the table of `settings_to_dict` keeps one value for a key
-            # that two items give, and `split_flow_sections` refuses such a pair.
+            # The items stay as given: `split_flow_sections` refuses two items that give one
+            # setting two values. Every key names its node, so the requested flow has no own
+            # settings.
             explicit_flow_settings = flow_settings
-            flow_settings = settings_to_dict(flow_settings)
+            flow_settings = {}
         if not isinstance(flow_overrides, dict):
             flow_overrides = settings_to_dict(flow_overrides)
         assert isinstance(
@@ -2691,10 +2709,13 @@ class FlowLauncher:
             local_settings.local_file if local_settings else None,
             design,
         )
-        # The `-s flows.<node>.key` items of the command line are the third origin. They may only
-        # name a flow of this run, and `-s key` is a leaf of the requested flow.
+        # The `-s` items of the command line are the third origin. They may only name a flow of
+        # this run. Every key of the layer names its node.
         cli_sections, cli_own = split_flow_sections(
-            explicit_flow_settings, flow_class.name, flow_class_for=_get_flow_class_if_known
+            explicit_flow_settings,
+            flow_class.name,
+            flow_class_for=_get_flow_class_if_known,
+            flows=_request_flows(flow_request),
         )
         cli_sections = merge_flow_sections(
             cli_sections, {flow_class.name: cli_own}, flow_class_for=_get_flow_class_if_known

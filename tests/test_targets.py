@@ -28,6 +28,7 @@ from xeda.utils import settings_to_dict
 from xeda.project import Project
 
 from .tool_utils import use_fake_tools
+from .scoping import node_settings
 
 RESOURCES = Path(__file__).parent / "resources" / "targets"
 KNIGHT = RESOURCES / "knight.yaml"
@@ -562,7 +563,7 @@ def test_design_updates_of_the_command_line_replace_the_sources_of_a_target(tmp_
 
 
 #: The device that a design needs for `vivado_synth` when no target supplies one.
-PART = ("-s", "fpga.part=xc7a100tcsg324-1")
+PART = ("-s", "vivado_synth.fpga.part=xc7a100tcsg324-1")
 
 
 def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(
@@ -746,19 +747,30 @@ def test_a_target_overrides_the_design_and_only_where_it_writes(tmp_path):
     assert (base.seed, base.placer, base.board) == (3, "heap", "arty_a7_100t")  # design > project
     chosen = planned_nextpnr(tmp_path, "layered", "ulx3s")
     assert (chosen.seed, chosen.placer, chosen.board) == (5, "heap", "ulx3s_85f")  # target > design
-    cli = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["seed=9"])
+    cli = planned_nextpnr(
+        tmp_path, "layered", "ulx3s", flow_settings=node_settings("nextpnr", ["seed=9"])
+    )
     assert (cli.seed, cli.placer, cli.board) == (9, "heap", "ulx3s_85f")  # command line > target
     qualified = planned_nextpnr(
-        tmp_path, "layered", "ulx3s", flow_settings=["flows.nextpnr.seed=8"]
+        tmp_path,
+        "layered",
+        "ulx3s",
+        flow_settings=node_settings("nextpnr", ["flows.nextpnr.seed=8"]),
     )
     assert qualified.seed == 8
     api = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_overrides={"seed": 11})
     assert api.seed == 11  # API > target
     both = planned_nextpnr(
-        tmp_path, "layered", "ulx3s", flow_settings=["seed=9"], flow_overrides={"seed": 11}
+        tmp_path,
+        "layered",
+        "ulx3s",
+        flow_settings=node_settings("nextpnr", ["seed=9"]),
+        flow_overrides={"seed": 11},
     )
     assert both.seed == 11  # API > command line > target
-    board = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["board=arty_a7_35t"])
+    board = planned_nextpnr(
+        tmp_path, "layered", "ulx3s", flow_settings=node_settings("nextpnr", ["board=arty_a7_35t"])
+    )
     # a command-line `board` beats the target's too
     assert board.board == "arty_a7_35t"
 

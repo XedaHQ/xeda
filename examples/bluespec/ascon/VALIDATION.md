@@ -27,7 +27,7 @@ first, to convert the design to Verilog.
 
 | Command | Result |
 | --- | --- |
-| `xeda run bsc_sim examples/bluespec/ascon/ascon.yaml` | passed in Bluesim, Verilator (`-s simulator=verilator`) and Icarus Verilog (`-s simulator=iverilog`) |
+| `xeda run bsc_sim examples/bluespec/ascon/ascon.yaml` | passed in Bluesim, Verilator (`-s bsc_sim.simulator=verilator`) and Icarus Verilog (`-s bsc_sim.simulator=iverilog`) |
 | `xeda run yosys_fpga examples/bluespec/ascon/ascon.yaml --target artix7` | 2239 LUT, 1106 FF, 13 CARRY4 (`xc7a100tcsg324-1`, a synthesis estimate) |
 | `xeda run yosys_fpga+nextpnr examples/bluespec/ascon/ascon.yaml --target ecp5` | placed and routed on `LFE5U-85F-6BG381C` without pins: 3170 TRELLIS_COMB, 1106 TRELLIS_FF, Fmax 63.2 MHz at a 20 ns target |
 | `xeda run openroad examples/bluespec/ascon/ascon.yaml` | the whole chain passed on Nangate45 at a 2 ns clock period |

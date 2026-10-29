@@ -44,14 +44,14 @@ from xeda.utils import ExecutableNotFound, replacing_file
 from .flow_registry import preserved_flow_registry
 from .record_documents import record_document
 from .test_converted_designs import Events, consumer_flows, write_design
-from .test_failure_results import _MayFail, _NeedsMayFail, producer_registered  # noqa: F401
+from .test_failure_results import TMayFail, TNeedsMayFail, producer_registered  # noqa: F401
 
 pytestmark = pytest.mark.python_compat
 
-MAY_FAIL = _MayFail.name
+MAY_FAIL = TMayFail.name
 
 
-#: The clock of the collector in the timing test: `_Slow` advances it, not the wall clock.
+#: The clock of the collector in the timing test: `TSlow` advances it, not the wall clock.
 _CLOCK = [0.0]
 
 
@@ -64,7 +64,7 @@ def isolate_registration():
 def _flows() -> dict[str, Any]:
     """Define the test flows that the failure tests do not have, and return them by name."""
 
-    class _Rejects(Flow):
+    class TRejects(Flow):
         """Passes its run and rejects the results."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -76,7 +76,7 @@ def _flows() -> dict[str, Any]:
             self.reject("the results are not good enough")
             return super().check_results()
 
-    class _Quiet(Flow):
+    class TQuiet(Flow):
         """Writes a note, which another flow reads."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -89,8 +89,8 @@ def _flows() -> dict[str, Any]:
             self.run_directory.writable(note).write_text("note\n")
             self.outputs.note = note
 
-    class _NeedsBoth(Flow):
-        """Reads the report of `_MayFail` first and the note of `_Quiet` second."""
+    class TNeedsBoth(Flow):
+        """Reads the report of `TMayFail` first and the note of `TQuiet` second."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
@@ -102,13 +102,13 @@ def _flows() -> dict[str, Any]:
                 description="The report.",
             )
             note: Path = In(
-                SourceType.Data, producer=_Quiet.name, output="note", description="The note."
+                SourceType.Data, producer=TQuiet.name, output="note", description="The note."
             )
 
         def run(self) -> None:
             pass
 
-    class _Slow(Flow):
+    class TSlow(Flow):
         """Takes a while to write a note, which another flow reads."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -122,20 +122,20 @@ def _flows() -> dict[str, Any]:
             self.run_directory.writable(note).write_text("note\n")
             self.outputs.note = note
 
-    class _AfterSlow(Flow):
-        """Reads the note of `_Slow`, and does nothing else."""
+    class TAfterSlow(Flow):
+        """Reads the note of `TSlow`, and does nothing else."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             note: Path = In(
-                SourceType.Data, producer=_Slow.name, output="note", description="The note."
+                SourceType.Data, producer=TSlow.name, output="note", description="The note."
             )
 
         def run(self) -> None:
             pass
 
-    class _Interrupts(Flow):
+    class TInterrupts(Flow):
         """Is interrupted by the user while it runs."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -143,7 +143,7 @@ def _flows() -> dict[str, Any]:
         def run(self) -> None:
             raise KeyboardInterrupt
 
-    class _Missing(Flow):
+    class TMissing(Flow):
         """Starts a program that is not installed."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -151,7 +151,7 @@ def _flows() -> dict[str, Any]:
         def run(self) -> None:
             raise ExecutableNotFound("xeda-no-such-program-for-this-test")
 
-    class _Deliverer(Flow):
+    class TDeliverer(Flow):
         """Writes the file its setting names, which a launch delivers where the setting says."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -177,14 +177,14 @@ def _flows() -> dict[str, Any]:
     return {
         cls.__name__: cls
         for cls in (
-            _Rejects,
-            _Quiet,
-            _NeedsBoth,
-            _Slow,
-            _AfterSlow,
-            _Interrupts,
-            _Missing,
-            _Deliverer,
+            TRejects,
+            TQuiet,
+            TNeedsBoth,
+            TSlow,
+            TAfterSlow,
+            TInterrupts,
+            TMissing,
+            TDeliverer,
         )
     }
 
@@ -239,17 +239,17 @@ def _skipped_means_never_attempted(runner: DefaultRunner, result: Result) -> Non
 @pytest.mark.usefixtures("flows")
 def test_a_failed_producer_blocks_its_consumer_and_is_the_cause(tmp_path):
     result = _launch(
-        _runner(tmp_path), _NeedsMayFail, _design(tmp_path), {MAY_FAIL: {"fail": True}}
+        _runner(tmp_path), TNeedsMayFail, _design(tmp_path), {MAY_FAIL: {"fail": True}}
     )
     assert result.outcome == "failed" and not result.passed
     assert result.error is not None and result.error.node == MAY_FAIL
     assert result.error.code == "reported_failure" and result.error.message == "boom"
-    assert list(result.nodes) == [MAY_FAIL, _NeedsMayFail.name]
+    assert list(result.nodes) == [MAY_FAIL, TNeedsMayFail.name]
     producer = result.nodes[MAY_FAIL]
     assert (producer.outcome, producer.disposition) == ("failed", "ran")
     assert producer.record is not None and producer.record.outcome == "failed"
     assert producer.elapsed > 0
-    consumer = result.nodes[_NeedsMayFail.name]
+    consumer = result.nodes[TNeedsMayFail.name]
     assert (consumer.outcome, consumer.disposition) == ("blocked", "not_run")
     assert consumer.blocked_by == MAY_FAIL and consumer.record is None and consumer.elapsed == 0.0
     assert consumer.error is not None and consumer.error.code == "producer_failed"
@@ -263,14 +263,14 @@ def test_a_failed_producer_blocks_its_consumer_and_is_the_cause(tmp_path):
 @pytest.mark.usefixtures("flows")
 def test_a_blocked_consumer_keeps_its_earlier_record(tmp_path):
     design, runner = _design(tmp_path), _runner(tmp_path)
-    first = _launch(runner, _NeedsMayFail, design)
+    first = _launch(runner, TNeedsMayFail, design)
     assert first.passed and first.require_passed() is first
-    consumer = first.nodes[_NeedsMayFail.name]
+    consumer = first.nodes[TNeedsMayFail.name]
     earlier = read_record(consumer.run_dir, run_root=runner.run_root)
     assert (consumer.run_dir / "trace.json").exists()
 
-    second = _launch(runner, _NeedsMayFail, design, {MAY_FAIL: {"fail": True}})
-    blocked = second.nodes[_NeedsMayFail.name]
+    second = _launch(runner, TNeedsMayFail, design, {MAY_FAIL: {"fail": True}})
+    blocked = second.nodes[TNeedsMayFail.name]
     assert blocked.outcome == "blocked" and blocked.record is None
     kept = read_record(consumer.run_dir, run_root=runner.run_root)
     assert kept.run_id == earlier.run_id and kept.outcome == "passed"
@@ -278,7 +278,7 @@ def test_a_blocked_consumer_keeps_its_earlier_record(tmp_path):
 
 
 def test_a_rejected_root_aggregates_rejected_with_its_error(tmp_path, flows):
-    rejects = flows["_Rejects"]
+    rejects = flows["TRejects"]
     design, runner = _design(tmp_path), _runner(tmp_path)
     result = _launch(runner, rejects, design)
     assert result.outcome == "rejected" and not result.passed
@@ -300,28 +300,28 @@ def test_a_rejected_root_aggregates_rejected_with_its_error(tmp_path, flows):
 def test_a_sibling_not_reached_is_skipped_without_an_error(tmp_path, flows):
     result = _launch(
         _runner(tmp_path),
-        flows["_NeedsBoth"],
+        flows["TNeedsBoth"],
         _design(tmp_path),
         {MAY_FAIL: {"fail": True}},
     )
-    quiet = flows["_Quiet"].name
+    quiet = flows["TQuiet"].name
     assert result.outcome == "failed" and result.error is not None
     assert result.error.node == MAY_FAIL
-    assert set(result.nodes) == {MAY_FAIL, quiet, flows["_NeedsBoth"].name}
+    assert set(result.nodes) == {MAY_FAIL, quiet, flows["TNeedsBoth"].name}
     skipped = result.nodes[quiet]
     assert (skipped.outcome, skipped.disposition) == ("skipped", "not_run")
     assert skipped.error is None and skipped.record is None and skipped.blocked_by is None
-    assert result.nodes[flows["_NeedsBoth"].name].outcome == "blocked"
+    assert result.nodes[flows["TNeedsBoth"].name].outcome == "blocked"
     assert not (skipped.run_dir / "results.json").exists()
 
 
 @pytest.mark.usefixtures("flows")
 def test_a_reused_node_has_disposition_reused_and_zero_elapsed(tmp_path):
     design, runner = _design(tmp_path), _runner(tmp_path)
-    first = _launch(runner, _NeedsMayFail, design)
+    first = _launch(runner, TNeedsMayFail, design)
     assert {n.disposition for n in first.nodes.values()} == {Disposition.RAN}
     assert all(n.elapsed > 0 for n in first.nodes.values())
-    second = _launch(runner, _NeedsMayFail, design)
+    second = _launch(runner, TNeedsMayFail, design)
     assert second.passed
     for node in second.nodes.values():
         assert (node.outcome, node.disposition, node.elapsed) == ("passed", "reused", 0.0)
@@ -350,7 +350,7 @@ def test_a_storage_failure_is_a_failed_node_without_a_record(tmp_path, monkeypat
             return real_dump(data, path, *args, **kwargs)
 
         monkeypatch.setattr(launch_report, "dump_json", full)
-    result = _launch(_runner(tmp_path), _MayFail, _design(tmp_path))
+    result = _launch(_runner(tmp_path), TMayFail, _design(tmp_path))
     node = result.nodes[MAY_FAIL]
     assert (node.outcome, node.disposition) == ("failed", "ran")
     assert node.record is None
@@ -365,7 +365,7 @@ def test_a_storage_failure_is_a_failed_node_without_a_record(tmp_path, monkeypat
 @pytest.mark.parametrize("stage", ["during the run", "while the record is written"])
 def test_an_interrupt_leaves_no_partial_record(tmp_path, monkeypatch, flows, stage):
     runner, design = _runner(tmp_path), _design(tmp_path)
-    flow = flows["_Interrupts"] if stage == "during the run" else _MayFail
+    flow = flows["TInterrupts"] if stage == "during the run" else TMayFail
     if stage != "during the run":
         real_dump = launch_report.dump_json
 
@@ -387,7 +387,7 @@ def test_an_interrupt_leaves_no_partial_record(tmp_path, monkeypatch, flows, sta
 
 
 def test_a_missing_executable_fails_the_node_with_its_code(tmp_path, flows):
-    missing = flows["_Missing"]
+    missing = flows["TMissing"]
     result = _launch(_runner(tmp_path), missing, _design(tmp_path))
     node = result.nodes[missing.name]
     assert node.outcome == "failed" and node.record is not None
@@ -398,15 +398,15 @@ def test_a_missing_executable_fails_the_node_with_its_code(tmp_path, flows):
 @pytest.mark.usefixtures("flows")
 def test_result_record_raises_for_a_root_without_a_record(tmp_path):
     result = _launch(
-        _runner(tmp_path), _NeedsMayFail, _design(tmp_path), {MAY_FAIL: {"fail": True}}
+        _runner(tmp_path), TNeedsMayFail, _design(tmp_path), {MAY_FAIL: {"fail": True}}
     )
-    consumer = result.nodes[_NeedsMayFail.name]
+    consumer = result.nodes[TNeedsMayFail.name]
     assert consumer.record is None
     with pytest.raises(RecordError) as raised:
         result.record  # noqa: B018
     assert raised.value.code == "missing_record"
     assert raised.value.path == consumer.run_dir / "results.json"
-    passing = _launch(_runner(tmp_path / "other"), _MayFail, _design(tmp_path))
+    passing = _launch(_runner(tmp_path / "other"), TMayFail, _design(tmp_path))
     assert passing.record is passing.nodes[MAY_FAIL].record
 
 
@@ -433,7 +433,7 @@ def test_values_are_deeply_frozen_and_picklable(tmp_path):
     }
     assert pickle.loads(pickle.dumps(spec)) == spec
 
-    result = _launch(_runner(tmp_path / "work"), _NeedsMayFail, design)
+    result = _launch(_runner(tmp_path / "work"), TNeedsMayFail, design)
     assert pickle.loads(pickle.dumps(result)) == result
     with pytest.raises(TypeError):
         result.nodes["x"] = result.nodes[MAY_FAIL]  # type: ignore[index]
@@ -571,7 +571,7 @@ def test_clean_does_not_remove_a_consumer_that_ends_up_blocked(
     """`clean` empties the run directory of a node only when the node is about to run. A failed
     producer blocks its consumer first, so the consumer keeps its record and trace."""
     if producer_kind == "output":
-        design, root = _design(tmp_path), _NeedsMayFail
+        design, root = _design(tmp_path), TNeedsMayFail
         sections: dict[str, Any] | None = None
         broken = {MAY_FAIL: {"fail": True}}
 
@@ -623,7 +623,7 @@ def test_clean_does_not_remove_a_consumer_that_ends_up_blocked(
 def test_a_failed_delivery_is_a_launch_error_and_the_node_records_stay(
     tmp_path, monkeypatch, flows
 ):
-    deliverer = flows["_Deliverer"]
+    deliverer = flows["TDeliverer"]
     design, runner = _design(tmp_path), _runner(tmp_path)
     destination = tmp_path / "user" / "net.v"
     sections = {deliverer.name: {"netlist": str(destination)}}
@@ -657,7 +657,7 @@ def test_a_failure_before_any_plan_is_raised_not_reported(tmp_path):
     """A request that is refused before the plan exists has no nodes: it is an exception."""
     runner = _runner(tmp_path)
     with pytest.raises(FlowSettingsError, match="no_such_setting"):
-        _launch(runner, _MayFail, _design(tmp_path), None, {"no_such_setting": 1})
+        _launch(runner, TMayFail, _design(tmp_path), None, {"no_such_setting": 1})
     assert not list((tmp_path / "run").glob("**/results.json"))
 
 
@@ -692,7 +692,7 @@ def test_a_failed_clean_up_after_a_passed_root_is_a_failed_launch(
 ):
     _fail_removal(monkeypatch, purge, failure)
     runner = _runner(tmp_path, post_cleanup=True, post_cleanup_purge=purge)
-    result = _launch(runner, _MayFail, _design(tmp_path))
+    result = _launch(runner, TMayFail, _design(tmp_path))
     node = result.nodes[MAY_FAIL]
     assert result.outcome == "failed" and not result.passed
     assert result.error is not None and result.error.code == "cleanup_failed"
@@ -708,7 +708,7 @@ def test_a_clean_up_that_fails_in_another_way_is_a_failed_launch_too(tmp_path, m
         raise RuntimeError("bug")
 
     monkeypatch.setattr(DefaultRunner, "_clean_up", refuse)
-    result = _launch(_runner(tmp_path, post_cleanup=True), _MayFail, _design(tmp_path))
+    result = _launch(_runner(tmp_path, post_cleanup=True), TMayFail, _design(tmp_path))
     node = result.nodes[MAY_FAIL]
     assert result.error is not None and result.error.code == "cleanup_failed"
     assert str(node.run_dir) in result.error.message and "bug" in result.error.message
@@ -721,7 +721,7 @@ def test_a_failed_clean_up_never_replaces_the_error_of_a_root_that_did_not_pass(
 ):
     _fail_removal(monkeypatch, purge, OSError(5, "Input/output error"))
     runner = _runner(tmp_path, post_cleanup=True, post_cleanup_purge=purge)
-    result = _launch(runner, _MayFail, _design(tmp_path), {MAY_FAIL: {"report_failure": True}})
+    result = _launch(runner, TMayFail, _design(tmp_path), {MAY_FAIL: {"report_failure": True}})
     node = result.nodes[MAY_FAIL]
     assert node.outcome == "failed" and node.error is not None
     assert node.error.code == "reported_failure"
@@ -731,7 +731,7 @@ def test_a_failed_clean_up_never_replaces_the_error_of_a_root_that_did_not_pass(
 def test_a_failed_delivery_keeps_its_error_when_the_clean_up_fails_too(
     tmp_path, monkeypatch, flows
 ):
-    deliverer = flows["_Deliverer"]
+    deliverer = flows["TDeliverer"]
     destination = tmp_path / "user" / "net.v"
 
     def disk_full(source, target):
@@ -764,16 +764,16 @@ def _refuse_identity_of(monkeypatch, name, failure):
 def test_a_node_that_fails_before_it_has_a_flow_is_failed_not_skipped(
     tmp_path, monkeypatch, failing
 ):
-    name = MAY_FAIL if failing == "producer" else _NeedsMayFail.name
+    name = MAY_FAIL if failing == "producer" else TNeedsMayFail.name
     _refuse_identity_of(monkeypatch, name, RunDirectoryError("refused for the test"))
-    result = _launch(_runner(tmp_path), _NeedsMayFail, _design(tmp_path))
+    result = _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path))
     node = result.nodes[name]
     assert (node.outcome, node.record) == ("failed", None)
     assert node.error is not None and node.error.code == "storage_error"
     assert node.error.node == name and "refused for the test" in node.error.message
     assert result.outcome == "failed" and result.error == node.error
     if failing == "producer":
-        consumer = result.nodes[_NeedsMayFail.name]
+        consumer = result.nodes[TNeedsMayFail.name]
         assert (consumer.outcome, consumer.blocked_by) == ("blocked", MAY_FAIL)
 
 
@@ -786,11 +786,11 @@ def test_a_failure_while_a_producer_ends_is_the_failure_of_the_producer(tmp_path
         raise OSError(5, "Input/output error")
 
     monkeypatch.setattr(default_runner_module.CompletedRun, "capture", refuse)
-    result = _launch(_runner(tmp_path), _NeedsMayFail, _design(tmp_path))
+    result = _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path))
     producer = result.nodes[MAY_FAIL]
     assert (producer.outcome, producer.record) == ("failed", None)
     assert producer.error is not None and producer.error.code == "storage_error"
-    consumer = result.nodes[_NeedsMayFail.name]
+    consumer = result.nodes[TNeedsMayFail.name]
     assert (consumer.outcome, consumer.blocked_by) == ("blocked", MAY_FAIL)
     assert result.outcome == "failed" and result.error == producer.error
 
@@ -800,7 +800,7 @@ def test_a_refusal_before_the_run_is_raised_not_reported(tmp_path, monkeypatch):
     refusal = DeliveryError("refused for the test", before_run=True)
     _refuse_identity_of(monkeypatch, MAY_FAIL, refusal)
     with pytest.raises(DeliveryError) as raised:
-        _launch(_runner(tmp_path), _NeedsMayFail, _design(tmp_path))
+        _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path))
     assert raised.value is refusal
 
 
@@ -815,8 +815,8 @@ def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows, monkey
 
     _CLOCK[0] = 0.0
     monkeypatch.setattr(launch_result, "time", SimpleNamespace(monotonic=monotonic))
-    result = _launch(_runner(tmp_path), flows["_AfterSlow"], _design(tmp_path))
-    slow, after = result.nodes[flows["_Slow"].name], result.nodes[flows["_AfterSlow"].name]
+    result = _launch(_runner(tmp_path), flows["TAfterSlow"], _design(tmp_path))
+    slow, after = result.nodes[flows["TSlow"].name], result.nodes[flows["TAfterSlow"].name]
     assert slow.elapsed > 100.0
     assert 0.0 < after.elapsed < 1.0, "the consumer's time includes its producer's"
 
@@ -882,13 +882,13 @@ def _document_keys(document: dict[str, Any]) -> None:
 def test_a_failed_result_round_trips_through_its_document(tmp_path):
     result = _launch(
         _runner(tmp_path),
-        _NeedsMayFail,
+        TNeedsMayFail,
         _design(tmp_path),
         {MAY_FAIL: {"fail": True}},
     )
     document = result.to_dict()
     _document_keys(document)
-    assert document["outcome"] == "failed" and document["roots"] == [_NeedsMayFail.name]
+    assert document["outcome"] == "failed" and document["roots"] == [TNeedsMayFail.name]
     assert document["spec"]["design"] == "d" and document["spec"]["design_file"] is None
     assert document["spec"]["settings"] == {MAY_FAIL: {"fail": True}}
     producer, consumer = document["nodes"]
@@ -902,9 +902,9 @@ def test_a_failed_result_round_trips_through_its_document(tmp_path):
     assert (again.outcome, again.error) == (result.outcome, result.error)
     assert again.nodes[MAY_FAIL].record == result.nodes[MAY_FAIL].record
     assert again.nodes == result.nodes
-    blocked = again.nodes[_NeedsMayFail.name]
+    blocked = again.nodes[TNeedsMayFail.name]
     assert blocked.error is not None and blocked.error.code == "producer_failed"
-    assert blocked.error.node == _NeedsMayFail.name
+    assert blocked.error.node == TNeedsMayFail.name
 
 
 def _mixed_result(tmp_path: Path) -> Result:
@@ -980,8 +980,8 @@ def test_a_passed_result_round_trips_and_keeps_the_design_file(tmp_path):
     runner = _runner(tmp_path)
     result = launch_result(
         runner,
-        Spec(_NeedsMayFail.name, design),
-        lambda: runner.run_flow(_NeedsMayFail, design, {}),
+        Spec(TNeedsMayFail.name, design),
+        lambda: runner.run_flow(TNeedsMayFail, design, {}),
     )
     document = result.to_dict()
     assert document["outcome"] == "passed" and document["error"] is None
@@ -989,7 +989,7 @@ def test_a_passed_result_round_trips_and_keeps_the_design_file(tmp_path):
     again = result_from_dict(document)
     assert again.to_dict() == document
     assert again.passed and again.record == result.record
-    assert [node.flow for node in again.nodes.values()] == [MAY_FAIL, _NeedsMayFail.name]
+    assert [node.flow for node in again.nodes.values()] == [MAY_FAIL, TNeedsMayFail.name]
 
 
 def _write_design_file(tmp_path: Path) -> Path:
@@ -1076,11 +1076,11 @@ def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_ru
     def interrupted(self):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(_NeedsMayFail, "run", interrupted)
+    monkeypatch.setattr(TNeedsMayFail, "run", interrupted)
     runner, design = _runner(tmp_path), _design(tmp_path)
-    spec = Spec(_NeedsMayFail.name, design)
+    spec = Spec(TNeedsMayFail.name, design)
     with pytest.raises(KeyboardInterrupt):
-        launch_result(runner, spec, lambda: runner.run_flow(_NeedsMayFail, design, {}))
+        launch_result(runner, spec, lambda: runner.run_flow(TNeedsMayFail, design, {}))
     error = ErrorInfo("canceled", "The launch was interrupted.", None, None, None)
     result = failed_result(runner, spec, None, error, interrupted=True)
     assert result.outcome is Outcome.CANCELED and result.error == error
@@ -1091,7 +1091,7 @@ def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_ru
     # without `interrupted`, the node that the interrupt left is a failure like any other
     failed = failed_result(runner, spec, None, ErrorInfo("internal_error", "x", None, None, None))
     assert failed.outcome is Outcome.FAILED
-    assert failed.nodes[_NeedsMayFail.name].outcome is Outcome.FAILED
+    assert failed.nodes[TNeedsMayFail.name].outcome is Outcome.FAILED
 
 
 @pytest.mark.usefixtures("flows")
@@ -1105,9 +1105,9 @@ def test_a_node_that_ended_before_the_interrupt_keeps_its_outcome(tmp_path, monk
 
     monkeypatch.setattr(default_runner_module.CompletedRun, "capture", interrupted)
     runner, design = _runner(tmp_path), _design(tmp_path)
-    spec = Spec(_NeedsMayFail.name, design)
+    spec = Spec(TNeedsMayFail.name, design)
     with pytest.raises(KeyboardInterrupt):
-        launch_result(runner, spec, lambda: runner.run_flow(_NeedsMayFail, design, {}))
+        launch_result(runner, spec, lambda: runner.run_flow(TNeedsMayFail, design, {}))
     error = ErrorInfo("canceled", "The launch was interrupted.", None, None, None)
     result = failed_result(runner, spec, None, error, interrupted=True)
     assert result.outcome is Outcome.CANCELED and result.error == error

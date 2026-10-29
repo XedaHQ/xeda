@@ -41,13 +41,13 @@ def test_the_helper_keeps_the_built_in_flows_of_a_registry_that_was_not_loaded()
 
         assert "xeda.flows" not in sys.modules and not registered_flows
         with preserved_flow_registry():
-            class _Probe(Flow):
+            class TProbe(Flow):
                 '''A flow that only this block registers.'''
                 results_description = {}
                 def run(self): pass
                 def parse_reports(self): return True
-            assert _Probe.name in registered_flows
-        print(_Probe.name in registered_flows, "nextpnr" in registered_flows,
+            assert TProbe.name in registered_flows
+        print(TProbe.name in registered_flows, "nextpnr" in registered_flows,
               "openfpgaloader" in registered_flows)
         """)
     assert out == "False True True"

@@ -26,7 +26,7 @@ from xeda.flow.sim import SimFlow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.introspect import all_flow_classes, flow_info, results_info, settings_info
 
-from .flow_registry import preserved_flow_registry
+from .flow_registry import is_product_flow, preserved_flow_registry
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
 #: setting is documented today. A new setting must be documented rather than added here.
@@ -410,7 +410,7 @@ def test_readme_catalog_lists_every_flow():
             listed.add(get_flow_class(token).name)
         except FlowNotFoundError:
             continue
-    public_flows = {cls.name for cls in FLOW_CLASSES if not cls.__name__.startswith("_")}
+    public_flows = {cls.name for cls in FLOW_CLASSES if is_product_flow(cls)}
     missing = sorted(public_flows - listed)
     assert (
         not missing

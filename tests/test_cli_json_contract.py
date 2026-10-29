@@ -15,6 +15,7 @@ import pytest
 
 from xeda.platforms import bundled_platform_names
 
+from .scoping import node_settings
 from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_remote_client import _cli_script, _design
 from .tool_utils import HANG_GUARD
@@ -111,7 +112,7 @@ def test_an_unknown_option_prints_the_invalid_launch_document():
 
 def test_an_invalid_setting_exits_2_with_a_null_outcome(tmp_path):
     """A misspelled setting of a flow starts no launch. The valid spelling dry-runs."""
-    proc = run_xeda("run", "nextpnr", str(SQRT), "-s", "sed=1", "--json", cwd=tmp_path)
+    proc = run_xeda("run", "nextpnr", str(SQRT), "-s", "nextpnr.sed=1", "--json", cwd=tmp_path)
     document = json_stdout(proc)
     assert proc.returncode == 2
     assert document["outcome"] is None and document["launch_id"] is None
@@ -126,7 +127,7 @@ def test_an_invalid_setting_exits_2_with_a_null_outcome(tmp_path):
         "settings": {"nextpnr": {"sed": "1"}},
     }
     valid = run_xeda(
-        "run", "nextpnr", str(SQRT), "-s", "seed=1", "--dry-run", "--json", cwd=tmp_path
+        "run", "nextpnr", str(SQRT), "-s", "nextpnr.seed=1", "--dry-run", "--json", cwd=tmp_path
     )
     assert valid.returncode == 0, valid.stderr
     assert json_stdout(valid)["success"] is True
@@ -137,7 +138,9 @@ def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_
     from xeda.flow_runner.error_codes import public_error
 
     with pytest.raises(Exception) as refused:
-        DefaultRunner(tmp_path / "run").resolve_run("nextpnr", str(SQRT), flow_settings=["sed=1"])
+        DefaultRunner(tmp_path / "run").resolve_run(
+            "nextpnr", str(SQRT), flow_settings=node_settings("nextpnr", ["sed=1"])
+        )
     error = public_error(refused.value)
     assert (error.code, error.node, error.setting) == ("unknown_setting", "nextpnr", "sed")
     assert error.suggestions == ("seed",)

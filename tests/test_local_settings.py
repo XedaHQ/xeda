@@ -28,9 +28,10 @@ from xeda.project import Project
 from xeda.remote.errors import RemoteConfigError
 from xeda.types import UNSET
 
-from .io_flows import _ReadsInstalled
+from .io_flows import TReadsInstalled
 from .project_files import PROJECT_FILE
 from .test_project import PART, design_file, rtl, write_project
+from .scoping import node_settings
 
 
 @pytest.fixture(autouse=True)
@@ -283,7 +284,9 @@ def test_no_library_call_reads_a_private_file_unasked(tmp_path, private_home):
     write(local_file_of(project), "colour: 1\n")
     design = project.design("d")
     plan = DefaultRunner(tmp_path / "run").plan(
-        "vivado_synth", design, flow_settings=["fpga.part=xc7a100tcsg324-1"]
+        "vivado_synth",
+        design,
+        flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a100tcsg324-1"]),
     )
     assert plan.requested == "vivado_synth"
 
@@ -377,15 +380,15 @@ def test_the_layers_merge_key_by_key(tmp_path):
 def test_an_entry_for_a_flow_outside_the_plan_is_ignored(tmp_path):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     ls = LocalSettings(user={"yosys": {"abc9": True}, "vivado_synth": {"nthreads": 3}})
-    plan = DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design, local_settings=ls)
-    assert [node.flow_class.name for node in plan.nodes] == [_ReadsInstalled.name]
+    plan = DefaultRunner(tmp_path / "run").plan(TReadsInstalled, design, local_settings=ls)
+    assert [node.flow_class.name for node in plan.nodes] == [TReadsInstalled.name]
 
 
 def test_a_removed_flow_name_in_a_private_file_is_refused(tmp_path):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     with pytest.raises(errors.FlowNotFoundError):
         DefaultRunner(tmp_path / "run").plan(
-            _ReadsInstalled, design, local_settings=LocalSettings(user={"openxc7": {}})
+            TReadsInstalled, design, local_settings=LocalSettings(user={"openxc7": {}})
         )
 
 
@@ -394,18 +397,18 @@ def test_a_relative_path_in_a_private_file_is_relative_to_that_file(tmp_path):
     (tmp_path / "other").mkdir()
     design = Design(name="d", root=tmp_path / "other", rtl={"sources": [], "top": "t"})
     ls = LocalSettings(
-        user={_ReadsInstalled.name: {"store": "pdks"}}, user_file=directory / "config.yaml"
+        user={TReadsInstalled.name: {"store": "pdks"}}, user_file=directory / "config.yaml"
     )
-    request = DefaultRunner(tmp_path / "run")._request(_ReadsInstalled, design, local_settings=ls)
+    request = DefaultRunner(tmp_path / "run")._request(TReadsInstalled, design, local_settings=ls)
     assert Path(request.settings["store"]) == directory.resolve() / "pdks"
 
 
 def test_a_private_value_and_the_same_checked_in_value_give_one_identity(tmp_path):
     def hash_of(design: Design, ls: LocalSettings | None) -> str:
-        plan = DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design, local_settings=ls)
+        plan = DefaultRunner(tmp_path / "run").plan(TReadsInstalled, design, local_settings=ls)
         return plan.node(plan.requested).flowrun_hash
 
-    name = _ReadsInstalled.name
+    name = TReadsInstalled.name
     bare = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     written = Design(
         name="d", root=tmp_path, rtl={"sources": [], "top": "t"}, flows={name: {"text": "x"}}
@@ -419,11 +422,11 @@ def test_a_private_value_and_the_same_checked_in_value_give_one_identity(tmp_pat
 def test_a_pdk_root_from_any_layer_changes_no_identity(tmp_path):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
-    name = _ReadsInstalled.name
+    name = TReadsInstalled.name
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
 
     def hash_of(ls: LocalSettings | None) -> str:
-        plan = DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design, local_settings=ls)
+        plan = DefaultRunner(tmp_path / "run").plan(TReadsInstalled, design, local_settings=ls)
         return plan.node(plan.requested).flowrun_hash
 
     plain = hash_of(None)
@@ -535,7 +538,7 @@ def test_a_private_value_and_the_same_value_on_the_command_line_give_one_identit
 ):
     path = write_project(tmp_path / "repo", {"designs": [{"name": "d", "rtl": rtl()}]})
     _, plain = dry_run(path)
-    _, on_the_line = dry_run(path, "-s", "nthreads=3")
+    _, on_the_line = dry_run(path, "-s", "vivado_synth.nthreads=3")
     assert hash_of(plain) != hash_of(on_the_line)
     user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
     _, from_user = dry_run(path)
@@ -549,7 +552,7 @@ def test_a_private_value_and_the_same_value_on_the_command_line_give_one_identit
     _, from_local = dry_run(path)
     assert hash_of(from_local) == hash_of(on_the_line)
     # The value on the command line wins over both.
-    _, over = dry_run(path, "-s", "nthreads=3")
+    _, over = dry_run(path, "-s", "vivado_synth.nthreads=3")
     assert hash_of(over) == hash_of(on_the_line)
 
 
@@ -571,7 +574,7 @@ def test_the_project_local_file_overrides_the_project_and_the_user_file_is_below
         tmp_path / "repo" / "xedaproject.local.yaml", {"flows": {"vivado_synth": {"nthreads": 9}}}
     )
     _, local_wins = dry_run(path)
-    _, nine = dry_run(path, "--no-config", "-s", "nthreads=9")
+    _, nine = dry_run(path, "--no-config", "-s", "vivado_synth.nthreads=9")
     assert hash_of(local_wins) == hash_of(nine)
 
 
@@ -683,14 +686,14 @@ def test_a_remote_request_carries_the_private_layers_in_its_sections(tmp_path):
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     ls = LocalSettings(
-        user={_ReadsInstalled.name: {"text": "user"}},
-        local={_ReadsInstalled.name: {"text": "local"}},
+        user={TReadsInstalled.name: {"text": "user"}},
+        local={TReadsInstalled.name: {"text": "local"}},
     )
     prepared = DefaultRunner(tmp_path / "run").prepare_request(
-        _ReadsInstalled, design, host_flows={_ReadsInstalled.name: {"text": "host"}},
+        TReadsInstalled, design, host_flows={TReadsInstalled.name: {"text": "host"}},
         local_settings=ls,
     )  # fmt: skip
-    assert prepared.sections[_ReadsInstalled.name]["text"] == "local"
+    assert prepared.sections[TReadsInstalled.name]["text"] == "local"
 
 
 def test_a_config_file_that_does_not_exist_is_an_error(tmp_path):
@@ -745,7 +748,7 @@ def test_a_flow_name_that_is_no_flow_in_a_private_file_is_refused_naming_the_fil
     file = tmp_path / ("config.yaml" if which == "user" else "x.local.yaml")
     ls = LocalSettings(**{which: {"vivadosynth": {"nthreads": 3}}, f"{which}_file": file})
     with pytest.raises(errors.FlowNotFoundError) as raised:
-        DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design, local_settings=ls)
+        DefaultRunner(tmp_path / "run").plan(TReadsInstalled, design, local_settings=ls)
     assert raised.value.code == "flow_not_found" and raised.value.name == "vivadosynth"
     assert "vivado_synth" in raised.value.suggestions
     assert str(file) in str(raised.value)
@@ -758,8 +761,8 @@ def test_a_flow_name_that_is_no_flow_in_the_other_layers_is_still_left_alone(tmp
         rtl={"sources": [], "top": "t"},
         flows={"a_plugin_not_installed": {"x": 1}},
     )
-    plan = DefaultRunner(tmp_path / "run").plan(_ReadsInstalled, design)
-    assert plan.requested == _ReadsInstalled.name
+    plan = DefaultRunner(tmp_path / "run").plan(TReadsInstalled, design)
+    assert plan.requested == TReadsInstalled.name
 
 
 def test_a_design_file_gets_the_user_file_and_no_project_or_project_local_layer(
@@ -779,7 +782,7 @@ def test_a_design_file_gets_the_user_file_and_no_project_or_project_local_layer(
     user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
     arguments = ("run", "vivado_synth", "--xedaproject", str(path), str(other), "--dry-run", *PART)
     _, document = invoke(*arguments)
-    _, expected = invoke(*arguments, "--no-config", "-s", "nthreads=3")
+    _, expected = invoke(*arguments, "--no-config", "-s", "vivado_synth.nthreads=3")
     assert hash_of(document) == hash_of(expected)
     assert run_path_of(document).is_relative_to((repo / "project").resolve())
 
@@ -845,7 +848,7 @@ def test_a_remote_launch_protects_the_private_files_it_loaded(tmp_path, private_
     prepared = runner.prepare_request(
         "vivado_synth",
         project.design("d"),
-        flow_settings=["fpga.part=xc7a100tcsg324-1"],
+        flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a100tcsg324-1"]),
         local_settings=local_settings(project),
     )
     seen: list = []

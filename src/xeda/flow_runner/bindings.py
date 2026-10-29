@@ -157,7 +157,11 @@ def split_bindings(
                     name,
                     _freeze(value),
                     isinstance(value, list),
-                    f"{location}: flows.{node}.inputs.{name}",
+                    (
+                        f"{location}: {node}.inputs.{name}"
+                        if kind == "cli"
+                        else f"{location}: flows.{node}.inputs.{name}"
+                    ),
                 )
             )
     return normalized, BindingLayer(
@@ -303,9 +307,8 @@ def node_bindings(
     declarations = declared_inputs(cls)
     for layer in layers:
         if key.instance is None and key.flow in layer.invalid_inputs:
-            raise FlowSettingsException(
-                f"{layer.location}: flows.{key.flow}.inputs must be a mapping."
-            )
+            section = key.flow if layer.kind == "cli" else f"flows.{key.flow}"
+            raise FlowSettingsException(f"{layer.location}: {section}.inputs must be a mapping.")
         for entry in layer.entries:
             if entry.node != key:
                 continue

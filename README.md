@@ -74,7 +74,7 @@ flows:
 ```
 
 A dotted key stands for a nested table: `clock.period: 5 ns` is a `clock` table with the key
-`period`. The command line uses the same keys, for example `-s clock.period=4.5ns`.
+`period`. The command line uses the same keys, for example `-s vivado_synth.clock.period=4.5ns`.
 
 A `.py` testbench source makes the testbench a cocotb one. The clock period is a setting of each
 flow, because it constrains one build.
@@ -92,7 +92,7 @@ The same design file serves every flow:
 xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml          # simulate with GHDL and run the cocotb tests
 xeda run nvc examples/vhdl/sqrt/sqrt.yaml               # the same design and testbench with NVC
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize and implement with Vivado
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns   # change one setting
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4.5ns   # change one setting
 xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml   # search for the highest clock frequency
 ```
 

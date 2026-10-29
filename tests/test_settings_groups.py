@@ -30,6 +30,7 @@ from xeda.utils import dump_json, tcl_word
 
 from .flow_registry import preserved_flow_registry
 from .settings_samples import PROBES
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -155,7 +156,9 @@ def test_a_design_file_takes_a_dotted_key_and_a_nested_table(toy_flow, tmp_path)
 def test_the_command_line_key_reaches_the_planned_settings(toy_flow, tmp_path):
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     plan = runner.plan(
-        toy_flow, _design(tmp_path / "d"), flow_settings=["toy.sub.knob=3", "toy.sub.enabled=true"]
+        toy_flow,
+        _design(tmp_path / "d"),
+        flow_settings=node_settings(toy_flow, ["toy.sub.knob=3", "toy.sub.enabled=true"]),
     )
     assert plan.node(toy_flow.name).settings.toy.sub.knob == 3
 
@@ -207,7 +210,11 @@ def test_a_mis_cased_key_with_dashes_names_the_right_spelling(toy_flow):
 def test_a_mis_cased_key_is_refused_by_a_planning_entry_point(toy_flow, tmp_path):
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(FlowSettingsError, match="did you mean `knob`"):
-        runner.plan(toy_flow, _design(tmp_path / "d"), flow_settings=["toy.sub.Knob=3"])
+        runner.plan(
+            toy_flow,
+            _design(tmp_path / "d"),
+            flow_settings=node_settings(toy_flow, ["toy.sub.Knob=3"]),
+        )
 
 
 def test_a_key_with_no_case_insensitive_match_keeps_the_plain_message(toy_flow):
@@ -393,7 +400,9 @@ def test_planning_refuses_a_bad_group_before_any_run_directory_exists(toy_flow, 
         runner.plan(
             toy_flow,
             _design(tmp_path / "d"),
-            flow_settings=["toy.sub.enabled=false", "toy.sub.knob=3", "toy.extra_args=-nope"],
+            flow_settings=node_settings(
+                toy_flow, ["toy.sub.enabled=false", "toy.sub.knob=3", "toy.extra_args=-nope"]
+            ),
         )
     assert len(raised.value.errors) == 2
     assert not (tmp_path / "runs").exists()
@@ -880,7 +889,7 @@ def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer(tmp_path):
         [(producer_only, "Extra inputs are not permitted", "", "extra_forbidden")], Nextpnr.Settings
     )
     suggest_dependency_node(Nextpnr, design, plain)
-    assert "flows.yosys_fpga" in plain.errors[0][1]
+    assert "-s yosys_fpga.%s=" % producer_only in plain.errors[0][1]
 
     hinted_message = "Extra inputs are not permitted; did you mean `other`?"
     hinted = FlowSettingsError(

@@ -11,6 +11,7 @@ from xeda.dataclass import SecondSpelling, removed_message
 from xeda.flows import Openroad
 
 from .project_files import project_listing
+from .scoping import node_settings
 
 FLOWS = sorted({cls for _, cls in registered_flows.values()}, key=lambda c: c.name)
 
@@ -155,7 +156,11 @@ def test_an_open_xc7_section_given_as_a_setting_is_an_error_naming_the_replaceme
     design = _design_with_sections(tmp_path, {})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowNotFoundError) as error:
-        runner.run("yosys_fpga", design, flow_settings=["flows.open_xc7.seed=1"])
+        runner.run(
+            "yosys_fpga",
+            design,
+            flow_settings=["open_xc7.seed=1"],
+        )
     assert str(error.value) == REMOVED_OPEN_XC7
     with pytest.raises(FlowNotFoundError) as error:
         runner.run_flow("yosys_fpga", design, all_flows_settings={"open_xc7": {"seed": 1}})
@@ -272,7 +277,7 @@ def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path)
     for spelling in ("open_xc7", "openxc7", "OpenXC7"):
         proc = subprocess.run(
             [sys.executable, "-m", "xeda", "run", "yosys_fpga", str(design_file), "--json"]
-            + ["--dry-run", "-s", "fpga.part=xc7a100tcsg324-1", f"flows.{spelling}.seed=1"],
+            + ["--dry-run", "-s", "yosys_fpga.fpga.part=xc7a100tcsg324-1", f"{spelling}.seed=1"],
             capture_output=True,
             text=True,
         )
@@ -325,17 +330,34 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
     with pytest.raises(Exception, match=re.escape(CLOCK_PERIOD_REMOVED)):
         if origin == "project":
             project = project_listing(design_file, {"vivado_synth": {"clock_period": 5.0}})
-            runner.plan("vivado_synth", "top", xedaproject=project, flow_settings=base)
+            runner.plan(
+                "vivado_synth",
+                "top",
+                xedaproject=project,
+                flow_settings=node_settings("vivado_synth", base),
+            )
         elif origin == "cli":
-            runner.plan("vivado_synth", design, flow_settings=[*base, "clock_period=5.0"])
+            runner.plan(
+                "vivado_synth",
+                design,
+                flow_settings=node_settings("vivado_synth", [*base, "clock_period=5.0"]),
+            )
         elif origin == "flows-cli":
             runner.plan(
-                "vivado_synth", design, flow_settings=[*base, "flows.vivado_synth.clock_period=5.0"]
+                "vivado_synth",
+                design,
+                flow_settings=node_settings(
+                    "vivado_synth", [*base, "flows.vivado_synth.clock_period=5.0"]
+                ),
             )
         elif origin == "api":
-            runner.plan("vivado_synth", design, flow_settings={"fpga": fpga, "clock_period": 5.0})
+            runner.plan(
+                "vivado_synth",
+                design,
+                flow_settings=node_settings("vivado_synth", {"fpga": fpga, "clock_period": 5.0}),
+            )
         else:
-            runner.plan("vivado_synth", design, flow_settings=base)
+            runner.plan("vivado_synth", design, flow_settings=node_settings("vivado_synth", base))
     assert not (tmp_path / "run").exists()
 
 

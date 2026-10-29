@@ -800,7 +800,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         "flags change how a `.v` source parses and what it accepts (a "
                         "SystemVerilog source is read with `-sv` regardless, as yosys does for "
                         "`.sv`). Write "
-                        "`read_verilog_flags: []` (`-s read_verilog_flags=` on the command line)",
+                        "`read_verilog_flags: []` (`-s yosys_fpga.read_verilog_flags=` on the command line)",
                     )
                 )
             if self.systemverilog != "default":
@@ -812,7 +812,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         f"the built-in `read_verilog -sv`, not {front_end} "
                         f"(`systemverilog: {self.systemverilog}`), which reads and elaborates "
                         "differently before the pass starts. Write `systemverilog: default` "
-                        "(`-s systemverilog=default` on the command line)",
+                        "(`-s yosys_fpga.systemverilog=default` on the command line)",
                     )
                 )
             if self.read_systemverilog_flags:
@@ -822,7 +822,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         "`synth_pass_only` reads SystemVerilog as `yosys <file>.sv` does, which "
                         "passes no flag of its own to a plugin front end, so it cannot also pass "
                         f"{self.read_systemverilog_flags!r}. Write `read_systemverilog_flags: []` "
-                        "(`-s read_systemverilog_flags=` on the command line)",
+                        "(`-s yosys_fpga.read_systemverilog_flags=` on the command line)",
                     )
                 )
             if self.clockgate_map:

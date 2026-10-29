@@ -236,10 +236,10 @@ def test_model_field_scalar_schema_is_used_for_validation_aliases(completion_flo
     from xeda.cli_settings_completion import _settings_candidates
 
     candidates = _settings_candidates(
-        "completion", [], "selected-tex", {"completion": {"settings": info}}
+        ["completion"], "completion.selected-tex", {"completion": {"settings": info}}
     )
     assert candidates is not None
-    assert "selected-text=" in [item.value for item in candidates]
+    assert "completion.selected-text=" in [item.value for item in candidates]
 
 
 def test_opaque_settings_are_marked_for_lightweight_cli_parsing(completion_flow) -> None:

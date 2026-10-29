@@ -30,7 +30,7 @@ def deliverer():
     """A flow that writes the netlist its setting names, and counts its runs."""
     with preserved_flow_registry():
 
-        class _EntryDeliverer(Flow):
+        class TEntryDeliverer(Flow):
             """Writes the netlist its setting names."""
 
             results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -55,7 +55,7 @@ def deliverer():
                 self.outputs.netlist = netlist
 
         RUNS.clear()
-        yield _EntryDeliverer
+        yield TEntryDeliverer
 
 
 def _tree(root: Path) -> None:

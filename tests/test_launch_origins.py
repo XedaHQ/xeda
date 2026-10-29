@@ -33,18 +33,19 @@ from xeda.flow_runner.dse import dse_runner
 from xeda.flow_runner.dse.dse_runner import Dse, Executioner
 from xeda.flow_runner.trace import as_recorded
 
-from .io_flows import _Place, _Taker
+from .io_flows import TPlace, TTaker
 from .test_dse_run import _DeclaredOptimizer
+from .scoping import node_settings
 
 PART = "LFE5U-25F-6BG256C"
 OTHER_PART = "LFE5U-85F-6BG381C"
 
 #: Where the design writes the device: in the requested flow's section, or in its producer's alone.
 SECTIONS = {
-    "requested": {"__place": {"fpga": {"part": PART}}},
-    "producer": {"__synth": {"fpga": {"part": PART}}},
+    "requested": {"t_place": {"fpga": {"part": PART}}},
+    "producer": {"t_synth": {"fpga": {"part": PART}}},
 }
-NODES = ["__synth", "__place"]
+NODES = ["t_synth", "t_place"]
 
 
 @pytest.fixture(autouse=True)
@@ -63,14 +64,14 @@ def _design(root: Path, where: str, sections=None) -> Design:
 
 def _planned(root: Path, design) -> list[tuple[str, str]]:
     """The nodes `plan` names, with their identities."""
-    plan = DefaultRunner(root / "planned", display_results=False).plan(_Place, design)
+    plan = DefaultRunner(root / "planned", display_results=False).plan(TPlace, design)
     return [(node.name, node.flowrun_hash) for node in plan.nodes]
 
 
 def _planned_with(root: Path, design, settings) -> list[tuple[str, str]]:
     """The nodes `plan` names when the command line gives `settings`."""
     plan = DefaultRunner(root / "planned_with", display_results=False).plan(
-        _Place, design, flow_settings=settings
+        TPlace, design, flow_settings=node_settings(TPlace, settings)
     )
     return [(node.name, node.flowrun_hash) for node in plan.nodes]
 
@@ -80,9 +81,9 @@ def _launched(runner: DefaultRunner) -> list[tuple[str, str]]:
 
 
 DOORS = {
-    "run": lambda runner, design: runner.run(_Place, design),
-    "run_flow": lambda runner, design: runner.run_flow(_Place, design, {}),
-    "launch_flow": lambda runner, design: runner.launch_flow(_Place, design, {}),
+    "run": lambda runner, design: runner.run(TPlace, design),
+    "run_flow": lambda runner, design: runner.run_flow(TPlace, design, {}),
+    "launch_flow": lambda runner, design: runner.launch_flow(TPlace, design, {}),
 }
 
 
@@ -94,7 +95,7 @@ def test_the_device_is_planned_from_the_design_alone(tmp_path, where):
     assert [name for name, _ in planned] == NODES
     with pytest.raises(FlowSettingsException, match="needs `fpga`"):
         DefaultRunner(tmp_path / "bare", display_results=False).plan(
-            _Place, _design(tmp_path, where, sections={})
+            TPlace, _design(tmp_path, where, sections={})
         )
 
 
@@ -117,9 +118,9 @@ def test_a_launch_runs_the_nodes_planning_names(tmp_path, where, door):
 @pytest.mark.parametrize("where", SECTIONS)
 def test_resolving_a_built_design_gives_the_plan_planning_does(tmp_path, where):
     design = _design(tmp_path, where)
-    planned = DefaultRunner(tmp_path / "planned", display_results=False).plan(_Place, design)
+    planned = DefaultRunner(tmp_path / "planned", display_results=False).plan(TPlace, design)
     resolved = DefaultRunner(tmp_path / "resolved", display_results=False).resolve(
-        _Place, design, {}
+        TPlace, design, {}
     )
 
     assert [(n.name, n.flowrun_hash, n.settings_hash) for n in resolved.nodes] == [
@@ -143,7 +144,7 @@ def test_the_command_line_launches_the_nodes_planning_names(tmp_path, where):
     )
     planned = _planned(tmp_path, path)
 
-    result = CliRunner().invoke(cli, ["run", "__place", str(path), "--json"])
+    result = CliRunner().invoke(cli, ["run", "t_place", str(path), "--json"])
 
     document = json.loads(result.stdout)
     assert result.exit_code == 0 and document["outcome"] == "passed", document
@@ -177,13 +178,13 @@ def test_an_exploration_resolves_the_nodes_planning_names(tmp_path, monkeypatch,
     monkeypatch.setattr(runner, "resolve", resolved)
     monkeypatch.setattr(dse_runner, "add_file_logger", stop)
     with pytest.raises(Stop):
-        runner.run_flow(_Place, design, {})
+        runner.run_flow(TPlace, design, {})
 
     # the requested node carries the exploration's own adjustments (it is quiet, and bounded in
     # time), so its identity differs from the plan's; the producer is exactly the planned one
-    (producer,) = (n for n in plans[-1].nodes if n.name == "__synth")
+    (producer,) = (n for n in plans[-1].nodes if n.name == "t_synth")
     assert (producer.name, producer.flowrun_hash) in planned
-    assert plans[-1].node("__place").settings.fpga.part == PART
+    assert plans[-1].node("t_place").settings.fpga.part == PART
 
 
 @pytest.mark.parametrize("where", SECTIONS)
@@ -193,7 +194,7 @@ def test_an_exploration_worker_launches_the_nodes_planning_names(tmp_path, where
     planned = _planned(tmp_path, design)
     runner = DefaultRunner(tmp_path / "worker", display_results=False)
 
-    outcome, index = Executioner(runner, design, _Place)((7, {}))
+    outcome, index = Executioner(runner, design, TPlace)((7, {}))
 
     assert outcome is not None and index == 7
     assert _launched(runner) == planned
@@ -214,7 +215,7 @@ def test_an_exploration_worker_keeps_tool_output_in_the_logs(tmp_path, monkeypat
     monkeypatch.setattr(runner, "launch_flow", recording)
     token = proc_utils.TOOL_OUTPUT.set("terminal")
     try:
-        outcome, _ = Executioner(runner, design, _Place)((0, {}))
+        outcome, _ = Executioner(runner, design, TPlace)((0, {}))
         assert proc_utils.TOOL_OUTPUT.get() == "terminal", "the worker restores the caller's"
     finally:
         proc_utils.TOOL_OUTPUT.reset(token)
@@ -228,9 +229,9 @@ def test_the_caller_s_settings_win_over_the_design_s_sections(tmp_path, door):
     design = _design(tmp_path, "requested")
     runner = DefaultRunner(tmp_path / door, display_results=False)
     launches = {
-        "run": lambda: runner.run(_Place, design, flow_overrides={"fpga": {"part": OTHER_PART}}),
-        "run_flow": lambda: runner.run_flow(_Place, design, {"fpga": {"part": OTHER_PART}}),
-        "launch_flow": lambda: runner.launch_flow(_Place, design, {"fpga": {"part": OTHER_PART}}),
+        "run": lambda: runner.run(TPlace, design, flow_overrides={"fpga": {"part": OTHER_PART}}),
+        "run_flow": lambda: runner.run_flow(TPlace, design, {"fpga": {"part": OTHER_PART}}),
+        "launch_flow": lambda: runner.launch_flow(TPlace, design, {"fpga": {"part": OTHER_PART}}),
     }
 
     flow = launches[door]()
@@ -244,9 +245,9 @@ def test_the_caller_s_settings_win_over_the_design_s_sections(tmp_path, door):
 def test_sections_handed_to_a_launch_win_over_the_design_s(tmp_path, door):
     design = _design(tmp_path, "requested")
     runner = DefaultRunner(tmp_path / door, display_results=False)
-    sections = {"__place": {"fpga": {"part": OTHER_PART}}}
+    sections = {"t_place": {"fpga": {"part": OTHER_PART}}}
 
-    flow = getattr(runner, door)(_Place, design, {}, all_flows_settings=sections)
+    flow = getattr(runner, door)(TPlace, design, {}, all_flows_settings=sections)
 
     assert flow is not None and flow.settings.fpga.part == OTHER_PART
 
@@ -259,34 +260,34 @@ def test_handing_a_launch_the_design_s_own_sections_changes_nothing(tmp_path, do
     planned = _planned(tmp_path, design)
     runner = DefaultRunner(tmp_path / door, display_results=False)
 
-    getattr(runner, door)(_Place, design, {}, all_flows_settings=design.flows)
+    getattr(runner, door)(TPlace, design, {}, all_flows_settings=design.flows)
 
     assert _launched(runner) == planned
 
 
 def _bound_design(root: Path) -> Design:
     """A design that writes a binding, and the settings of the producer it names, in its own
-    sections: `__taker` reads `__input_maker`'s file, not the default producer's."""
+    sections: `t_taker` reads `t_input_maker`'s file, not the default producer's."""
     (root / "in.txt").write_text("bound\n")
     return Design(
         name="d",
         root=root,
         rtl={"sources": [], "top": "t"},
         flows={
-            "__taker": {"inputs": {"made": "__input_maker.made"}},
-            "__input_maker": {"input_file": str(root / "in.txt")},
+            "t_taker": {"inputs": {"made": "t_input_maker.made"}},
+            "t_input_maker": {"input_file": str(root / "in.txt")},
         },
     )
 
 
-BOUND = ["__input_maker", "__taker"]
+BOUND = ["t_input_maker", "t_taker"]
 
 
 def test_resolving_a_design_that_writes_a_binding_follows_it(tmp_path):
     design = _bound_design(tmp_path)
-    planned = DefaultRunner(tmp_path / "planned", display_results=False).plan(_Taker, design)
+    planned = DefaultRunner(tmp_path / "planned", display_results=False).plan(TTaker, design)
     resolved = DefaultRunner(tmp_path / "resolved", display_results=False).resolve(
-        _Taker, design, {}
+        TTaker, design, {}
     )
 
     assert [n.name for n in planned.nodes] == BOUND
@@ -298,12 +299,12 @@ def test_resolving_a_design_that_writes_a_binding_follows_it(tmp_path):
 @pytest.mark.parametrize("door", ["run", "run_flow", "launch_flow"])
 def test_a_binding_the_design_writes_is_followed_by_every_door(tmp_path, door):
     design = _bound_design(tmp_path)
-    planned = DefaultRunner(tmp_path / "planned", display_results=False).plan(_Taker, design)
+    planned = DefaultRunner(tmp_path / "planned", display_results=False).plan(TTaker, design)
     runner = DefaultRunner(tmp_path / door, display_results=False)
     launches = {
-        "run": lambda: runner.run(_Taker, design),
-        "run_flow": lambda: runner.run_flow(_Taker, design, {}),
-        "launch_flow": lambda: runner.launch_flow(_Taker, design, {}),
+        "run": lambda: runner.run(TTaker, design),
+        "run_flow": lambda: runner.run_flow(TTaker, design, {}),
+        "launch_flow": lambda: runner.launch_flow(TTaker, design, {}),
     }
 
     flow = launches[door]()
@@ -317,10 +318,10 @@ def test_a_binding_the_caller_gives_wins_over_the_design_s(tmp_path, door):
     design = _bound_design(tmp_path)
     runner = DefaultRunner(tmp_path / door, display_results=False)
 
-    flow = getattr(runner, door)(_Taker, design, {"inputs": {"made": "__maker.made"}})
+    flow = getattr(runner, door)(TTaker, design, {"inputs": {"made": "t_maker.made"}})
 
     assert flow is not None and flow.results["read"] == "made\n"
-    assert [f.name for f in runner.launched] == ["__maker", "__taker"]
+    assert [f.name for f in runner.launched] == ["t_maker", "t_taker"]
 
 
 @pytest.mark.parametrize("door", ["run_flow", "launch_flow"])
@@ -330,7 +331,7 @@ def test_settings_given_as_a_model_leave_the_design_s_sections_in_force(tmp_path
     design = _design(tmp_path, "producer")
     runner = DefaultRunner(tmp_path / door, display_results=False)
 
-    flow = getattr(runner, door)(_Place, design, _Place.Settings(nthreads=1))
+    flow = getattr(runner, door)(TPlace, design, TPlace.Settings(nthreads=1))
 
     assert flow is not None and flow.succeeded
     assert flow.settings.nthreads == 1 and flow.settings.fpga.part == PART
@@ -346,12 +347,12 @@ COMMAND_LINE = "the command line (`-s`) or `flow_settings`"
 def _plan_error(tmp_path, **kwargs) -> str:
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     with pytest.raises(FlowSettingsException) as raised:
-        DefaultRunner(tmp_path / "labels", display_results=False).plan(_Place, design, **kwargs)
+        DefaultRunner(tmp_path / "labels", display_results=False).plan(TPlace, design, **kwargs)
     return str(raised.value)
 
 
-DISAGREEING_MAPPING = {"fpga": {"part": OTHER_PART}, "flows": {"__synth": {"fpga": {"part": PART}}}}
-DISAGREEING_ITEMS = [f"fpga.part={OTHER_PART}", f"flows.__synth.fpga.part={PART}"]
+DISAGREEING_MAPPING = {"fpga": {"part": OTHER_PART}, "flows": {"t_synth": {"fpga": {"part": PART}}}}
+DISAGREEING_ITEMS = [f"fpga.part={OTHER_PART}", f"flows.t_synth.fpga.part={PART}"]
 
 
 @pytest.mark.parametrize(
@@ -360,7 +361,7 @@ DISAGREEING_ITEMS = [f"fpga.part={OTHER_PART}", f"flows.__synth.fpga.part={PART}
 def test_a_conflict_in_flow_settings_names_the_command_line_and_flow_settings(tmp_path, given):
     """`run` and `plan` take the command line's `-s` items and an API caller's `flow_settings`
     as one layer, so the label says both."""
-    message = _plan_error(tmp_path, flow_settings=given)
+    message = _plan_error(tmp_path, flow_settings=node_settings(TPlace, given))
     assert f"in {COMMAND_LINE}" in message, message
     assert "in the command line (fpga.part)" not in message, message
 
@@ -370,12 +371,12 @@ def test_a_conflict_in_the_api_layer_still_names_the_api(tmp_path):
     runner = DefaultRunner(tmp_path / "labels", display_results=False)
     with pytest.raises(FlowSettingsException) as raised:
         runner.resolve(
-            _Place,
+            TPlace,
             design,
             {},
             api_overrides={
-                "__place": {"fpga": {"part": OTHER_PART}},
-                "__synth": {"fpga": {"part": PART}},
+                "t_place": {"fpga": {"part": OTHER_PART}},
+                "t_synth": {"fpga": {"part": PART}},
             },
         )
     assert "in the API" in str(raised.value) and "command line" not in str(raised.value)
@@ -384,8 +385,8 @@ def test_a_conflict_in_the_api_layer_still_names_the_api(tmp_path):
 def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings(tmp_path):
     path = tmp_path / "design.yaml"
     path.write_text(yaml.safe_dump({"name": "d", "rtl": {"sources": [], "top": "t"}}))
-    arguments = ["run", "__place", str(path), "--dry-run", "--json"]
-    for item in DISAGREEING_ITEMS:
+    arguments = ["run", "t_place", str(path), "--dry-run", "--json"]
+    for item in (f"t_place.fpga.part={OTHER_PART}", f"t_synth.fpga.part={PART}"):
         arguments += ["-s", item]
     result = CliRunner().invoke(cli, arguments)
     document = json.loads(result.stdout)
@@ -395,29 +396,29 @@ def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings
 
 @pytest.mark.parametrize(
     "given",
-    [{"inputs": {"made": "__input_maker.made"}}, ["inputs.made=__input_maker.made"]],
+    [{"inputs": {"made": "t_input_maker.made"}}, ["inputs.made=t_input_maker.made"]],
     ids=["mapping", "items"],
 )
 def test_a_binding_in_flow_settings_is_located_in_that_layer(tmp_path, given):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
-        _Taker, design, flow_settings=given
+        TTaker, design, flow_settings=node_settings(TTaker, given)
     )
-    (made,) = (i for i in plan.node("__taker").inputs if i.name == "made")
+    (made,) = (i for i in plan.node("t_taker").inputs if i.name == "made")
     assert made.binding_origin == "cli"
-    assert made.binding_location == f"{COMMAND_LINE}: flows.__taker.inputs.made"
+    assert made.binding_location == f"{COMMAND_LINE}: t_taker.inputs.made"
     assert "(`-s` or `flow_settings`)" in made.describe(), made.describe()
 
 
 def test_a_binding_in_flow_overrides_is_still_located_in_the_api(tmp_path):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
-        _Taker, design, flow_overrides={"inputs.made": "__input_maker.made"}
+        TTaker, design, flow_overrides={"inputs.made": "t_input_maker.made"}
     )
-    (made,) = (i for i in plan.node("__taker").inputs if i.name == "made")
+    (made,) = (i for i in plan.node("t_taker").inputs if i.name == "made")
     assert (made.binding_origin, made.binding_location) == (
         "api",
-        "the API: flows.__taker.inputs.made",
+        "the API: flows.t_taker.inputs.made",
     )
 
 

@@ -33,8 +33,9 @@ from xeda.utils import location_free
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker
+from .io_flows import TMaker
 from .generation_world import World
+from .scoping import node_settings
 
 PART = "LFE5U-25F-6BG381C"
 
@@ -94,7 +95,7 @@ def source_reader() -> type[Flow]:
     """Define a flow that reads Verilog and VHDL sources and is judged on Verilog only, unless
     its `wide` setting widens the scope (as the Python hooks of nextpnr do)."""
 
-    class _SourceReader(Flow):
+    class TSourceReader(Flow):
         """Reads the Verilog and VHDL sources of the design, for the tests."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -112,7 +113,7 @@ def source_reader() -> type[Flow]:
         def run(self) -> None:
             self.results["sources"] = len(self.sources_read())
 
-    return _SourceReader
+    return TSourceReader
 
 
 def mixed_design(root: Path, *vhdl: str) -> Design:
@@ -167,9 +168,21 @@ def test_two_tops_on_one_netlist_give_two_hashed_directories(tmp_path):
     designs that differ only in `rtl.top` are two nodes, with two run directories."""
     launcher = runner(tmp_path)
     settings = [f"fpga.part={PART}"]
-    first = launcher.plan("nextpnr", netlist_design(tmp_path / "d", "a"), flow_settings=settings)
-    second = launcher.plan("nextpnr", netlist_design(tmp_path / "d", "b"), flow_settings=settings)
-    again = launcher.plan("nextpnr", netlist_design(tmp_path / "d", "a"), flow_settings=settings)
+    first = launcher.plan(
+        "nextpnr",
+        netlist_design(tmp_path / "d", "a"),
+        flow_settings=node_settings("nextpnr", settings),
+    )
+    second = launcher.plan(
+        "nextpnr",
+        netlist_design(tmp_path / "d", "b"),
+        flow_settings=node_settings("nextpnr", settings),
+    )
+    again = launcher.plan(
+        "nextpnr",
+        netlist_design(tmp_path / "d", "a"),
+        flow_settings=node_settings("nextpnr", settings),
+    )
 
     one, two, same = first.node("nextpnr"), second.node("nextpnr"), again.node("nextpnr")
     assert (one.settings_hash, one.origins) == (two.settings_hash, two.origins)
@@ -284,19 +297,19 @@ def test_an_old_hashed_directory_is_left_alone(tmp_path):
     the old names. A launch makes its directory beside them and does not touch them."""
     design = verilog_design(tmp_path / "d")
     launcher = runner(tmp_path)
-    old = launcher.run_root / "d" / "__maker_0123456789abcdef"
+    old = launcher.run_root / "d" / "t_maker_0123456789abcdef"
     old.mkdir(parents=True)
     (old / "results.json").write_text('{"old": true}\n')
     (old / "made.txt").write_text("from an older xeda\n")
     snapshot = {path: path.read_bytes() for path in sorted(old.iterdir())}
 
-    flow = launcher.run(_Maker, design)
+    flow = launcher.run(TMaker, design)
 
     assert flow is not None and flow.succeeded
     assert flow.run_path != old and flow.run_path.parent == old.parent
     assert {path: path.read_bytes() for path in sorted(old.iterdir())} == snapshot
 
-    again = runner(tmp_path).run(_Maker, design)
+    again = runner(tmp_path).run(TMaker, design)
     assert again is not None and again.reused and again.run_path == flow.run_path
     assert {path: path.read_bytes() for path in sorted(old.iterdir())} == snapshot
 
@@ -334,7 +347,9 @@ def test_a_node_without_a_design_input_has_the_metadata_and_no_sources(tmp_path)
     """nextpnr reads a netlist, not the design's sources: no `sources`, but the metadata and the
     language still count."""
     plan = runner(tmp_path).plan(
-        "nextpnr", netlist_design(tmp_path / "d", "a"), flow_settings=[f"fpga.part={PART}"]
+        "nextpnr",
+        netlist_design(tmp_path / "d", "a"),
+        flow_settings=node_settings("nextpnr", [f"fpga.part={PART}"]),
     )
     configuration = configuration_of(plan.node("nextpnr"))
 
@@ -454,7 +469,9 @@ def test_the_sources_are_the_ones_in_the_scope_of_the_flow(tmp_path):
     design = mixed_design(tmp_path / "d", "pkg.vhd")
 
     narrow = launcher.plan(reader, design).node(reader.name)
-    wide = launcher.plan(reader, design, flow_settings=["wide=true"]).node(reader.name)
+    wide = launcher.plan(reader, design, flow_settings=node_settings(reader, ["wide=true"])).node(
+        reader.name
+    )
 
     assert configuration_of(narrow)["rtl"]["sources"] == [{"path": "top.v", "type": "Verilog"}]
     assert configuration_of(wide)["rtl"]["sources"] == [
@@ -467,7 +484,9 @@ def test_the_sources_are_the_ones_in_the_scope_of_the_flow(tmp_path):
     renamed = mixed_design(tmp_path / "d", "other.vhd")
     assert launcher.plan(reader, renamed).node(reader.name).flowrun_hash == narrow.flowrun_hash
     assert (
-        launcher.plan(reader, renamed, flow_settings=["wide=true"]).node(reader.name).flowrun_hash
+        launcher.plan(reader, renamed, flow_settings=node_settings(reader, ["wide=true"]))
+        .node(reader.name)
+        .flowrun_hash
         != wide.flowrun_hash
     )
 
@@ -546,16 +565,16 @@ def test_the_configuration_is_immutable(tmp_path):
 
 
 def _plan_join(tmp_path):
-    from .io_flows import _Join
+    from .io_flows import TJoin
 
-    return runner(tmp_path).plan(_Join, verilog_design(tmp_path / "d"))
+    return runner(tmp_path).plan(TJoin, verilog_design(tmp_path / "d"))
 
 
 def _plan_fpga_chain(tmp_path):
     return runner(tmp_path).plan(
         parse_request("yosys_fpga+nextpnr"),
         verilog_design(tmp_path / "d", parameters={"W": 4}),
-        flow_settings=[f"fpga.part={PART}"],
+        flow_settings=node_settings(parse_request("yosys_fpga+nextpnr"), [f"fpga.part={PART}"]),
     )
 
 
@@ -605,9 +624,11 @@ def test_two_netlists_give_two_identities_and_two_hashed_directories(tmp_path):
     launcher = runner(tmp_path)
     settings = [f"fpga.part={PART}"]
     nodes = [
-        launcher.plan("nextpnr", two_netlists(tmp_path / "d", name), flow_settings=settings).node(
-            "nextpnr"
-        )
+        launcher.plan(
+            "nextpnr",
+            two_netlists(tmp_path / "d", name),
+            flow_settings=node_settings("nextpnr", settings),
+        ).node("nextpnr")
         for name in ("a.json", "b.json", "a.json")
     ]
     first, second, again = nodes
@@ -625,10 +646,14 @@ def test_two_netlists_give_two_identities_and_two_hashed_directories(tmp_path):
 def test_the_same_netlist_in_two_checkouts_is_one_identity(tmp_path):
     settings = [f"fpga.part={PART}"]
     here = DefaultRunner(tmp_path / "a", hashed_run_dirs=True).plan(
-        "nextpnr", two_netlists(tmp_path / "one" / "d", "n.json"), flow_settings=settings
+        "nextpnr",
+        two_netlists(tmp_path / "one" / "d", "n.json"),
+        flow_settings=node_settings("nextpnr", settings),
     )
     there = DefaultRunner(tmp_path / "b", hashed_run_dirs=True).plan(
-        "nextpnr", two_netlists(tmp_path / "two" / "deeper" / "d", "n.json"), flow_settings=settings
+        "nextpnr",
+        two_netlists(tmp_path / "two" / "deeper" / "d", "n.json"),
+        flow_settings=node_settings("nextpnr", settings),
     )
 
     assert here.node("nextpnr").origins == there.node("nextpnr").origins
@@ -640,10 +665,16 @@ def test_a_netlist_edit_moves_no_identity(tmp_path):
     launcher = runner(tmp_path)
     settings = [f"fpga.part={PART}"]
     before = launcher.plan(
-        "nextpnr", two_netlists(tmp_path / "d", "n.json"), flow_settings=settings
+        "nextpnr",
+        two_netlists(tmp_path / "d", "n.json"),
+        flow_settings=node_settings("nextpnr", settings),
     )
     (tmp_path / "d" / "n.json").write_text('{"modules": {}}\n')
-    after = launcher.plan("nextpnr", two_netlists(tmp_path / "d", "n.json"), flow_settings=settings)
+    after = launcher.plan(
+        "nextpnr",
+        two_netlists(tmp_path / "d", "n.json"),
+        flow_settings=node_settings("nextpnr", settings),
+    )
 
     assert after.node("nextpnr").flowrun_hash == before.node("nextpnr").flowrun_hash
 
@@ -705,23 +736,23 @@ def _stale_reason(launcher: DefaultRunner, flow: Any, design: Design) -> str:
 def test_a_changed_design_configuration_is_the_reason_a_node_runs_again(tmp_path, change):
     """With plain run directories the run directory is the same, and the trace says what moved."""
     launcher = runner(tmp_path, hashed_run_dirs=False)
-    first = launcher.run(_Maker, verilog_design(tmp_path / "d", parameters={"W": 8}))
+    first = launcher.run(TMaker, verilog_design(tmp_path / "d", parameters={"W": 8}))
     assert first is not None and first.succeeded
     assert (
-        launcher.plan_with_freshness(_Maker, verilog_design(tmp_path / "d", parameters={"W": 8}))[
+        launcher.plan_with_freshness(TMaker, verilog_design(tmp_path / "d", parameters={"W": 8}))[
             1
-        ]["__maker"].state
+        ]["t_maker"].state
         == "fresh"
     )
 
     moved = verilog_design(tmp_path / "d", **{"parameters": {"W": 8}, **change})
-    reason = _stale_reason(launcher, _Maker, moved)
+    reason = _stale_reason(launcher, TMaker, moved)
 
     assert reason.startswith("the design configuration changed")
     assert "settings changed" not in reason
 
     # the launch itself gives the reason and runs the node again
-    second = runner(tmp_path, hashed_run_dirs=False).run(_Maker, moved)
+    second = runner(tmp_path, hashed_run_dirs=False).run(TMaker, moved)
     assert second is not None and second.succeeded and not second.reused
     assert second.run_path == first.run_path
     assert second.flow_hash != first.flow_hash
@@ -730,18 +761,18 @@ def test_a_changed_design_configuration_is_the_reason_a_node_runs_again(tmp_path
 def test_a_consumer_reports_the_change_of_its_own_design_configuration(tmp_path):
     """Both flows of the chain read the top of the design. The consumer says so itself, and does
     not only name the producer that ran again."""
-    from .io_flows import _Taker
+    from .io_flows import TTaker
 
     launcher = runner(tmp_path, hashed_run_dirs=False)
-    first = launcher.run(_Taker, verilog_design(tmp_path / "d", top="a"))
+    first = launcher.run(TTaker, verilog_design(tmp_path / "d", top="a"))
     assert first is not None and first.succeeded
 
-    plan, freshness = launcher.plan_with_freshness(_Taker, verilog_design(tmp_path / "d", top="b"))
+    plan, freshness = launcher.plan_with_freshness(TTaker, verilog_design(tmp_path / "d", top="b"))
 
-    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
-    assert freshness["__maker"].reason == "the design configuration changed"
-    assert freshness["__taker"].state == "stale"
-    assert freshness["__taker"].reason == "the design configuration changed"
+    assert [node.name for node in plan.nodes] == ["t_maker", "t_taker"]
+    assert freshness["t_maker"].reason == "the design configuration changed"
+    assert freshness["t_taker"].state == "stale"
+    assert freshness["t_taker"].reason == "the design configuration changed"
 
 
 def test_a_changed_source_is_not_a_changed_configuration(tmp_path):
@@ -790,8 +821,8 @@ def test_a_run_record_carries_the_configuration_of_its_node(tmp_path):
     reader = source_reader()
     launcher = runner(tmp_path)
     design = mixed_design(tmp_path / "d", "pkg.vhd")
-    plan = launcher.plan(reader, design, flow_settings=["wide=true"])
-    flow = launcher.run(reader, design, flow_settings=["wide=true"])
+    plan = launcher.plan(reader, design, flow_settings=node_settings(reader, ["wide=true"]))
+    flow = launcher.run(reader, design, flow_settings=node_settings(reader, ["wide=true"]))
     assert flow is not None and flow.succeeded
 
     expected = json.loads(json.dumps(configuration_of(plan.node(reader.name))))

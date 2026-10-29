@@ -54,18 +54,18 @@ after you upgrade Xeda, then load the new script in your shell.
 After selecting a flow, press Tab after ``-s`` or ``--settings`` to complete
 a setting. Nested names use dots::
 
-    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s fpga.p<Tab>
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s nextpnr.fpga.p<Tab>
 
-This offers ``fpga.package=``, ``fpga.part=``, and ``fpga.pins=``. A leaf ends in ``=`` so that
-you can type its value immediately. A group ends in ``.`` so that you can complete its fields.
+This offers ``nextpnr.fpga.package=``, ``nextpnr.fpga.part=``, and ``nextpnr.fpga.pins=``. A leaf
+ends in ``=`` so that you can type its value immediately. A group ends in ``.`` so that you can complete its fields.
 Some settings support both forms: ``fpga=`` takes a part-number string, while ``fpga.`` leads to
 the device fields. The shell keeps the cursor after ``=`` or ``.`` without adding a space.
 Boolean and enum values are suggested when their choices are declared by the settings model.
 
-An unqualified setting belongs to the last flow in a chain. To select another flow, complete
-``flows.<flow>.`` first::
+Every setting starts with the flow that it addresses. Complete the flow first, then its
+setting::
 
-    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s flows.yosys_fpga.fl<Tab>
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s yosys_fpga.fl<Tab>
 
 Flow suggestions include the chain and its potential default producers. The design can change
 which producers the run needs; normal settings validation checks the selected flow when you run
@@ -106,7 +106,7 @@ To synthesize it for an FPGA with Vivado::
 The ``flows.vivado_synth`` section of the design file holds the settings of that flow. Override
 any of them on the command line with ``-s``/``--settings``. Nested settings use dotted keys::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns impl.strategy=Performance_ExplorePostRoutePhysOpt
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4.5ns vivado_synth.impl.strategy=Performance_ExplorePostRoutePhysOpt
 
 Xeda rejects an unknown setting, so a typo is an error. A clock setting needs a unit: ``4.5ns`` is
 a time, and ``4.5`` is an error (see :ref:`quantities`).

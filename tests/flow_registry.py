@@ -14,6 +14,11 @@ from typing import Iterator
 from xeda.flow import registered_flows
 
 
+def is_product_flow(flow_class: type) -> bool:
+    """Whether a flow is no test-only flow. The names of the test-only flows start with `t_`."""
+    return not flow_class.name.startswith("t_")
+
+
 def load_builtin_flows() -> None:
     """Import the built-in flows now, so a registry snapshot holds them."""
     import_module("xeda.flows")

@@ -18,13 +18,14 @@ from xeda.flow_runner.trace import as_recorded
 from xeda.flows import Nextpnr
 from xeda.introspect import plan_info
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from .io_flows import (
-    _ChainAmbiguousConsumer,
-    _ChainConsumer,
-    _Join,
-    _Left,
-    _Taker,
+    TChainAmbiguousConsumer,
+    TChainConsumer,
+    TJoin,
+    TLeft,
+    TTaker,
 )
 
 PART = "LFE5U-25F-6BG381C"
@@ -79,91 +80,97 @@ def _input(plan, node, name):
 
 
 def test_an_unbound_input_takes_a_source_before_its_default_producer(tmp_path):
-    plan = _runner(tmp_path).plan(_Taker, _design(tmp_path, [("x.dat", SourceType.Data)]))
-    assert [node.name for node in plan.nodes] == ["__taker"]
-    assert _input(plan, "__taker", "made").origin == "source"
+    plan = _runner(tmp_path).plan(TTaker, _design(tmp_path, [("x.dat", SourceType.Data)]))
+    assert [node.name for node in plan.nodes] == ["t_taker"]
+    assert _input(plan, "t_taker", "made").origin == "source"
 
 
 def test_a_bound_alternate_producer_displaces_both_the_source_and_the_default(tmp_path):
     design = _design(
         tmp_path,
         [("x.dat", SourceType.Data)],
-        {"__taker": {"inputs": {"made": "__input_maker.made"}}},
+        {"t_taker": {"inputs": {"made": "t_input_maker.made"}}},
     )
-    plan = _runner(tmp_path).plan(_Taker, design)
-    assert [node.name for node in plan.nodes] == ["__input_maker", "__taker"]
-    made = _input(plan, "__taker", "made")
+    plan = _runner(tmp_path).plan(TTaker, design)
+    assert [node.name for node in plan.nodes] == ["t_input_maker", "t_taker"]
+    made = _input(plan, "t_taker", "made")
     assert (made.origin, made.producer, made.output, made.sources) == (
         "producer",
-        "__input_maker",
+        "t_input_maker",
         "made",
         (),
     )
-    assert made.references == (ResolvedReference("__input_maker", "made"),)
-    assert made.binding_origin == "file" and "flows.__taker.inputs.made" in made.binding_location
+    assert made.references == (ResolvedReference("t_input_maker", "made"),)
+    assert made.binding_origin == "file" and "flows.t_taker.inputs.made" in made.binding_location
 
 
 def test_an_explicit_default_binding_selects_the_producer_over_a_source(tmp_path):
     design = _design(
-        tmp_path, [("x.dat", SourceType.Data)], {"__taker": {"inputs": {"made": "__maker"}}}
+        tmp_path, [("x.dat", SourceType.Data)], {"t_taker": {"inputs": {"made": "t_maker"}}}
     )
-    plan = _runner(tmp_path).plan(_Taker, design)
-    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
+    plan = _runner(tmp_path).plan(TTaker, design)
+    assert [node.name for node in plan.nodes] == ["t_maker", "t_taker"]
 
 
 def test_a_chain_a_file_binding_and_an_api_binding_plan_the_same_graph(tmp_path):
     runner = _runner(tmp_path)
-    chain = runner.plan(parse_request("__input_maker+__taker"), _design(tmp_path))
+    chain = runner.plan(parse_request("t_input_maker+t_taker"), _design(tmp_path))
     saved = runner.plan(
-        _Taker, _design(tmp_path, flows={"__taker": {"inputs": {"made": "__input_maker.made"}}})
+        TTaker, _design(tmp_path, flows={"t_taker": {"inputs": {"made": "t_input_maker.made"}}})
     )
     project = tmp_path / "project.yaml"
     project.write_text(
         yaml.safe_dump(
             {
                 "designs": [{"name": "d", "rtl": {"sources": [], "top": "blink"}}],
-                "flows": {"__taker": {"inputs": {"made": "__input_maker"}}},
+                "flows": {"t_taker": {"inputs": {"made": "t_input_maker"}}},
             }
         )
     )
-    from_project = runner.plan(_Taker, "d", xedaproject=str(project))
+    from_project = runner.plan(TTaker, "d", xedaproject=str(project))
     api = runner.plan(
-        _Taker, _design(tmp_path), flow_overrides={"inputs.made": "__input_maker.made"}
+        TTaker, _design(tmp_path), flow_overrides={"inputs.made": "t_input_maker.made"}
     )
-    cli = runner.plan(_Taker, _design(tmp_path), flow_settings=["inputs.made=__input_maker"])
+    cli = runner.plan(
+        TTaker,
+        _design(tmp_path),
+        flow_settings=node_settings(TTaker, ["inputs.made=t_input_maker"]),
+    )
     assert _graph(chain) == _graph(saved) == _graph(from_project) == _graph(api) == _graph(cli)
-    origins = [_input(p, "__taker", "made").binding_origin for p in (chain, saved, api, cli)]
+    origins = [_input(p, "t_taker", "made").binding_origin for p in (chain, saved, api, cli)]
     assert origins == ["chain", "file", "api", "cli"]
-    assert chain.request.elements[0].node == "__input_maker" and len(saved.request.elements) == 1
+    assert chain.request.elements[0].node == "t_input_maker" and len(saved.request.elements) == 1
 
 
 def test_a_default_only_chain_plans_what_the_bare_request_plans(tmp_path):
     runner = _runner(tmp_path, hashed_run_dirs=True)
-    bare = runner.plan(_Taker, _design(tmp_path))
-    chain = runner.plan(parse_request("__maker+__taker"), _design(tmp_path))
+    bare = runner.plan(TTaker, _design(tmp_path))
+    chain = runner.plan(parse_request("t_maker+t_taker"), _design(tmp_path))
     assert _graph(chain) == _graph(bare)
-    assert _input(bare, "__taker", "made").binding_origin is None
-    assert _input(chain, "__taker", "made").binding_origin == "chain"
+    assert _input(bare, "t_taker", "made").binding_origin is None
+    assert _input(chain, "t_taker", "made").binding_origin == "chain"
 
 
 def test_a_chain_overrides_a_saved_binding_and_the_plan_says_so(tmp_path):
-    design = _design(tmp_path, flows={"__taker": {"inputs": {"made": "__maker.made"}}})
-    plan = _runner(tmp_path).plan(parse_request("__input_maker+__taker"), design)
-    made = _input(plan, "__taker", "made")
-    assert made.producer == "__input_maker" and made.binding_origin == "chain"
-    assert len(made.overridden) == 1 and "flows.__taker.inputs.made" in made.overridden[0]
+    design = _design(tmp_path, flows={"t_taker": {"inputs": {"made": "t_maker.made"}}})
+    plan = _runner(tmp_path).plan(parse_request("t_input_maker+t_taker"), design)
+    made = _input(plan, "t_taker", "made")
+    assert made.producer == "t_input_maker" and made.binding_origin == "chain"
+    assert len(made.overridden) == 1 and "flows.t_taker.inputs.made" in made.overridden[0]
     assert "(chain) overriding" in made.describe()
     document = plan_info(plan)["nodes"][-1]["inputs"][0]
     assert document["binding_origin"] == "chain" and document["overridden"] == list(made.overridden)
-    assert document["references"] == [{"node": "__input_maker", "output": "made"}]
+    assert document["references"] == [{"node": "t_input_maker", "output": "made"}]
 
 
 def test_a_chain_and_a_command_line_binding_of_one_input_are_an_error_even_when_equal(tmp_path):
     with pytest.raises(FlowSettingsException, match="chain position 1.*command line"):
         _runner(tmp_path).plan(
-            parse_request("__input_maker+__taker"),
+            parse_request("t_input_maker+t_taker"),
             _design(tmp_path),
-            flow_settings=["inputs.made=__input_maker.made"],
+            flow_settings=node_settings(
+                parse_request("t_input_maker+t_taker"), ["inputs.made=t_input_maker.made"]
+            ),
         )
 
 
@@ -174,46 +181,46 @@ def test_a_chain_and_a_command_line_binding_of_one_input_are_an_error_even_when_
 
 def test_a_binding_of_the_wrong_kind_names_both_ends_and_what_the_producer_makes(tmp_path):
     design = _design(
-        tmp_path, flows={"__taker": {"inputs": {"made": "__chain_simple_producer.netlist"}}}
+        tmp_path, flows={"t_taker": {"inputs": {"made": "t_chain_simple_producer.netlist"}}}
     )
     with pytest.raises(FlowSettingsException) as raised:
-        _runner(tmp_path).plan(_Taker, design)
+        _runner(tmp_path).plan(TTaker, design)
     message = str(raised.value)
     for text in (
-        "flows.__taker.inputs.made",
-        "__taker.made takes Data",
-        "__chain_simple_producer.netlist makes JsonNetlist",
+        "flows.t_taker.inputs.made",
+        "t_taker.made takes Data",
+        "t_chain_simple_producer.netlist makes JsonNetlist",
         "data (Data)",
     ):
         assert text in message, message
 
 
 def test_an_unqualified_binding_takes_the_one_output_that_fits(tmp_path):
-    """`__chain_producer` makes two `Data` outputs; only the scalar one fits a scalar input."""
-    design = _design(tmp_path, flows={"__taker": {"inputs": {"made": "__chain_producer"}}})
-    assert _input(_runner(tmp_path).plan(_Taker, design), "__taker", "made").output == "data"
+    """`t_chain_producer` makes two `Data` outputs; only the scalar one fits a scalar input."""
+    design = _design(tmp_path, flows={"t_taker": {"inputs": {"made": "t_chain_producer"}}})
+    assert _input(_runner(tmp_path).plan(TTaker, design), "t_taker", "made").output == "data"
 
 
 def test_an_ambiguous_binding_names_the_outputs_to_choose_from(tmp_path):
     design = _design(
         tmp_path,
-        flows={"__chain_ambiguous_consumer": {"inputs": {"netlist": "__chain_producer"}}},
+        flows={"t_chain_ambiguous_consumer": {"inputs": {"netlist": "t_chain_producer"}}},
     )
     with pytest.raises(FlowSettingsException) as raised:
-        _runner(tmp_path).plan(_ChainAmbiguousConsumer, design)
-    assert "__chain_producer.json_a, __chain_producer.json_b; name one" in str(raised.value)
+        _runner(tmp_path).plan(TChainAmbiguousConsumer, design)
+    assert "t_chain_producer.json_a, t_chain_producer.json_b; name one" in str(raised.value)
 
 
 def test_a_many_output_cannot_be_bound_to_a_scalar_input(tmp_path):
-    design = _design(tmp_path, flows={"__taker": {"inputs": {"made": "__chain_producer.files"}}})
+    design = _design(tmp_path, flows={"t_taker": {"inputs": {"made": "t_chain_producer.files"}}})
     with pytest.raises(FlowSettingsException, match="takes one file.*produces many"):
-        _runner(tmp_path).plan(_Taker, design)
+        _runner(tmp_path).plan(TTaker, design)
 
 
 def test_a_flow_without_outputs_cannot_be_bound_as_a_producer(tmp_path):
-    design = _design(tmp_path, flows={"__taker": {"inputs": {"made": "__taker"}}})
-    with pytest.raises(FlowSettingsException, match="__taker declares no outputs"):
-        _runner(tmp_path).plan(_Taker, design)
+    design = _design(tmp_path, flows={"t_taker": {"inputs": {"made": "t_taker"}}})
+    with pytest.raises(FlowSettingsException, match="t_taker declares no outputs"):
+        _runner(tmp_path).plan(TTaker, design)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -223,47 +230,47 @@ def test_a_flow_without_outputs_cannot_be_bound_as_a_producer(tmp_path):
 
 def test_two_inputs_bound_to_one_producer_enable_its_outputs_together(tmp_path):
     bindings = {
-        "left": "__chain_producer.json_a",
-        "right": "__chain_producer.json_b",
+        "left": "t_chain_producer.json_a",
+        "right": "t_chain_producer.json_b",
         "files": [
-            "__chain_producer.files",
-            "__chain_simple_producer.data",
-            "__chain_producer.files",
+            "t_chain_producer.files",
+            "t_chain_simple_producer.data",
+            "t_chain_producer.files",
         ],
     }
-    design = _design(tmp_path, flows={"__chain_consumer": {"inputs": bindings}})
-    plan = _runner(tmp_path).plan(_ChainConsumer, design)
+    design = _design(tmp_path, flows={"t_chain_consumer": {"inputs": bindings}})
+    plan = _runner(tmp_path).plan(TChainConsumer, design)
     assert [node.name for node in plan.nodes] == [
-        "__chain_producer",
-        "__chain_simple_producer",
-        "__chain_consumer",
+        "t_chain_producer",
+        "t_chain_simple_producer",
+        "t_chain_consumer",
     ]
-    producer = plan.node("__chain_producer")
+    producer = plan.node("t_chain_producer")
     assert producer.settings.first and producer.settings.second
     assert producer.switched_on == ("json_a", "json_b")
     # an ordered many binding keeps its reference order and its duplicates
-    assert _input(plan, "__chain_consumer", "files").references == (
-        ResolvedReference("__chain_producer", "files"),
-        ResolvedReference("__chain_simple_producer", "data"),
-        ResolvedReference("__chain_producer", "files"),
+    assert _input(plan, "t_chain_consumer", "files").references == (
+        ResolvedReference("t_chain_producer", "files"),
+        ResolvedReference("t_chain_simple_producer", "data"),
+        ResolvedReference("t_chain_producer", "files"),
     )
 
 
 def test_one_producer_reached_through_two_branches_is_one_node_one_identity_one_run(tmp_path):
-    """`_Left` demands `_Fork.a`, `_Right` demands `_Fork.b`; both outputs are switched on
-    before `_Fork` is hashed, and it runs once."""
+    """`TLeft` demands `TFork.a`, `TRight` demands `TFork.b`; both outputs are switched on
+    before `TFork` is hashed, and it runs once."""
     runner = _runner(tmp_path, hashed_run_dirs=True)
     design = _design(tmp_path)
-    plan = runner.plan(_Join, design)
-    assert [node.name for node in plan.nodes] == ["__fork", "__left", "__right", "__join"]
+    plan = runner.plan(TJoin, design)
+    assert [node.name for node in plan.nodes] == ["t_fork", "t_left", "t_right", "t_join"]
     assert [node.node_key for node in plan.nodes] == [NodeKey(node.name) for node in plan.nodes]
-    fork = plan.node(NodeKey("__fork"))
+    fork = plan.node(NodeKey("t_fork"))
     assert fork.switched_on == ("a", "b") and fork.settings.first and fork.settings.second
-    flow = runner.run(_Join, design)
+    flow = runner.run(TJoin, design)
     assert flow.succeeded and flow.results["read"] == "a\nb\n"
     launched = [f.name for f in runner.launched]
-    assert launched.count("__fork") == 1, launched
-    (ran,) = [f for f in runner.launched if f.name == "__fork"]
+    assert launched.count("t_fork") == 1, launched
+    (ran,) = [f for f in runner.launched if f.name == "t_fork"]
     assert ran.flow_hash == fork.flowrun_hash and ran.run_path == fork.run_path
     assert [(f.name, f.run_path) for f in runner.launched] == [
         (node.name, node.run_path) for node in plan.nodes
@@ -272,18 +279,18 @@ def test_one_producer_reached_through_two_branches_is_one_node_one_identity_one_
 
 def test_a_binding_cycle_is_reported_in_order(tmp_path):
     flows = {
-        "__left": {"inputs": {"json_netlist": "__relay.netlist"}},
-        "__relay": {"inputs": {"data": "__left.out"}},
+        "t_left": {"inputs": {"json_netlist": "t_relay.netlist"}},
+        "t_relay": {"inputs": {"data": "t_left.out"}},
     }
-    with pytest.raises(FlowSettingsException, match="cycle: __left -> __relay -> __left"):
-        _runner(tmp_path).plan(_Left, _design(tmp_path, flows=flows))
+    with pytest.raises(FlowSettingsException, match="cycle: t_left -> t_relay -> t_left"):
+        _runner(tmp_path).plan(TLeft, _design(tmp_path, flows=flows))
 
 
 def test_an_empty_binding_of_an_optional_list_is_an_explicit_nothing(tmp_path):
-    design = _design(tmp_path, [("x.dat", SourceType.Data)], {"__join": {"inputs": {"more": []}}})
-    bare = _runner(tmp_path).plan(_Join, _design(tmp_path, [("x.dat", SourceType.Data)]))
-    assert _input(bare, "__join", "left").origin == "source"
-    more = _input(_runner(tmp_path).plan(_Join, design), "__join", "more")
+    design = _design(tmp_path, [("x.dat", SourceType.Data)], {"t_join": {"inputs": {"more": []}}})
+    bare = _runner(tmp_path).plan(TJoin, _design(tmp_path, [("x.dat", SourceType.Data)]))
+    assert _input(bare, "t_join", "left").origin == "source"
+    more = _input(_runner(tmp_path).plan(TJoin, design), "t_join", "more")
     assert (more.origin, more.references, more.sources) == ("none", (), ())
     assert more.binding_origin == "file"
 
@@ -295,32 +302,38 @@ def test_an_empty_binding_of_an_optional_list_is_an_explicit_nothing(tmp_path):
 
 def test_command_line_settings_reach_an_alternate_producer(tmp_path):
     plan = _runner(tmp_path).plan(
-        _Taker,
+        TTaker,
         _design(tmp_path),
-        flow_settings=["inputs.made=__input_maker", "flows.__input_maker.text=given"],
+        flow_settings=node_settings(
+            TTaker, ["inputs.made=t_input_maker", "flows.t_input_maker.text=given"]
+        ),
     )
-    assert plan.node("__input_maker").settings.text == "given"
+    assert plan.node("t_input_maker").settings.text == "given"
 
 
 def test_command_line_settings_for_a_flow_outside_the_graph_name_its_nodes(tmp_path):
     with pytest.raises(FlowSettingsError) as raised:
         _runner(tmp_path).plan(
-            _Taker,
+            TTaker,
             _design(tmp_path),
-            flow_settings=["inputs.made=__input_maker", "flows.__fork.label=x"],
+            flow_settings=node_settings(
+                TTaker, ["inputs.made=t_input_maker", "flows.t_fork.label=x"]
+            ),
         )
     message = str(raised.value)
-    assert "`-s flows.__fork.*` names no flow of this run" in message
-    assert "__input_maker" in message and "__taker" in message
+    assert "names no node of this run (t_input_maker, t_maker, t_taker): t_fork" in message
+    assert "t_input_maker" in message and "t_taker" in message
 
 
 def test_a_displaced_default_producer_is_still_addressable_and_unused(tmp_path):
     plan = _runner(tmp_path).plan(
-        _Taker,
+        TTaker,
         _design(tmp_path),
-        flow_settings=["inputs.made=__input_maker", "flows.__maker.text=unused"],
+        flow_settings=node_settings(
+            TTaker, ["inputs.made=t_input_maker", "flows.t_maker.text=unused"]
+        ),
     )
-    assert "__maker" not in plan
+    assert "t_maker" not in plan
 
 
 def test_file_sections_for_unrelated_flows_stay_tolerated(tmp_path):
@@ -328,10 +341,10 @@ def test_file_sections_for_unrelated_flows_stay_tolerated(tmp_path):
         tmp_path,
         flows={
             "unavailable_plugin": {"inputs": {"x": {"not": "a reference"}}},
-            "__chain_consumer": {"inputs": {"no_such_input": "__maker"}},
+            "t_chain_consumer": {"inputs": {"no_such_input": "t_maker"}},
         },
     )
-    assert [n.name for n in _runner(tmp_path).plan(_Taker, design).nodes] == ["__maker", "__taker"]
+    assert [n.name for n in _runner(tmp_path).plan(TTaker, design).nodes] == ["t_maker", "t_taker"]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -344,17 +357,19 @@ NETLIST_AND_RTL = [("blink.v", SourceType.Verilog), ("net.json", SourceType.Json
 def test_a_netlist_source_skips_yosys_unless_a_binding_or_chain_selects_it(tmp_path):
     runner = _runner(tmp_path)
     settings = [f"fpga.part={PART}"]
-    bare = runner.plan(Nextpnr, _design(tmp_path, NETLIST_AND_RTL), flow_settings=settings)
+    bare = runner.plan(
+        Nextpnr, _design(tmp_path, NETLIST_AND_RTL), flow_settings=node_settings(Nextpnr, settings)
+    )
     assert [node.name for node in bare.nodes] == ["nextpnr"]
     saved = runner.plan(
         Nextpnr,
         _design(tmp_path, NETLIST_AND_RTL, {"nextpnr": {"inputs": {"netlist": "yosys_fpga"}}}),
-        flow_settings=settings,
+        flow_settings=node_settings(Nextpnr, settings),
     )
     chain = runner.plan(
         parse_request("yosys_fpga+nextpnr"),
         _design(tmp_path, NETLIST_AND_RTL),
-        flow_settings=settings,
+        flow_settings=node_settings(parse_request("yosys_fpga+nextpnr"), settings),
     )
     for plan in (saved, chain):
         assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr"]
@@ -366,27 +381,27 @@ def test_a_netlist_source_skips_yosys_unless_a_binding_or_chain_selects_it(tmp_p
 
 
 def test_an_alternate_synthesis_agrees_its_device_through_the_new_edge(tmp_path):
-    """`__synth` replaces `yosys_fpga`: its `fpga` reaches `nextpnr` along the bound edge,
+    """`t_synth` replaces `yosys_fpga`: its `fpga` reaches `nextpnr` along the bound edge,
     and the displaced default's conflicting device takes no part in the agreement."""
     flows = {
-        "nextpnr": {"inputs": {"netlist": "__synth.netlist"}},
-        "__synth": {"fpga": {"part": PART}},
+        "nextpnr": {"inputs": {"netlist": "t_synth.netlist"}},
+        "t_synth": {"fpga": {"part": PART}},
         "yosys_fpga": {"fpga": {"part": ICE40}},
     }
     plan = _runner(tmp_path).plan(
         Nextpnr, _design(tmp_path, [("blink.v", SourceType.Verilog)], flows)
     )
-    assert [node.name for node in plan.nodes] == ["__synth", "nextpnr"]
+    assert [node.name for node in plan.nodes] == ["t_synth", "nextpnr"]
     assert plan.node("nextpnr").settings.fpga.part == PART
     conflicting = dict(flows, nextpnr={**flows["nextpnr"], "fpga": {"part": ICE40}})
     with pytest.raises(FlowSettingsError) as raised:
         _runner(tmp_path).plan(
             Nextpnr, _design(tmp_path, [("blink.v", SourceType.Verilog)], conflicting)
         )
-    assert "__synth" in str(raised.value) and "nextpnr" in str(raised.value)
+    assert "t_synth" in str(raised.value) and "nextpnr" in str(raised.value)
 
 
-class _EcpTaker(Flow):
+class TEcpTaker(Flow):
     """Reads an ECP5 configuration only: `nextpnr.config` may be another family's."""
 
     results_description = {}
@@ -404,39 +419,39 @@ def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
     from xeda.flow_runner.chains import fitting_outputs
 
     with pytest.raises(FlowSettingsException, match="no compatible output"):
-        parse_request("nextpnr+__ecp_taker")
+        parse_request("nextpnr+t_ecp_taker")
     design = _design(
         tmp_path,
         [("blink.v", SourceType.Verilog)],
         {
-            "__ecp_taker": {"inputs": {"config": "nextpnr.config"}},
+            "t_ecp_taker": {"inputs": {"config": "nextpnr.config"}},
             "nextpnr": {"fpga": {"part": PART}},
         },
     )
     with pytest.raises(FlowSettingsException) as raised:
-        _runner(tmp_path).plan(_EcpTaker, design)
+        _runner(tmp_path).plan(TEcpTaker, design)
     message = str(raised.value)
-    assert "__ecp_taker.config takes EcpConfig" in message
+    assert "t_ecp_taker.config takes EcpConfig" in message
     assert "nextpnr.config makes EcpConfig/IceAsc/Fasm" in message
     from xeda.flow.io import declared_inputs
 
-    assert fitting_outputs(Nextpnr, declared_inputs(_EcpTaker)["config"]) == ([], [])
+    assert fitting_outputs(Nextpnr, declared_inputs(TEcpTaker)["config"]) == ([], [])
 
 
 def test_a_chain_over_an_invalid_saved_binding_succeeds(tmp_path):
     """A saved binding the chain replaces is not validated, as one a command-line binding
     replaces is not."""
-    for bad in (False, "no such flow", "__maker.no_such_output", ["__maker"]):
-        design = _design(tmp_path, flows={"__taker": {"inputs": {"made": bad}}})
-        plan = _runner(tmp_path).plan(parse_request("__input_maker+__taker"), design)
-        made = _input(plan, "__taker", "made")
-        assert made.producer == "__input_maker" and len(made.overridden) == 1
+    for bad in (False, "no such flow", "t_maker.no_such_output", ["t_maker"]):
+        design = _design(tmp_path, flows={"t_taker": {"inputs": {"made": bad}}})
+        plan = _runner(tmp_path).plan(parse_request("t_input_maker+t_taker"), design)
+        made = _input(plan, "t_taker", "made")
+        assert made.producer == "t_input_maker" and len(made.overridden) == 1
         replaced = _runner(tmp_path).plan(
-            _Taker, design, flow_settings=["inputs.made=__input_maker"]
+            TTaker, design, flow_settings=node_settings(TTaker, ["inputs.made=t_input_maker"])
         )
-        assert _input(replaced, "__taker", "made").producer == "__input_maker"
+        assert _input(replaced, "t_taker", "made").producer == "t_input_maker"
         with pytest.raises(FlowSettingsException):
-            _runner(tmp_path).plan(_Taker, design)
+            _runner(tmp_path).plan(TTaker, design)
 
 
 def test_a_producer_s_settings_do_not_depend_on_who_asks(tmp_path):
@@ -462,18 +477,18 @@ def test_a_producer_s_settings_do_not_depend_on_who_asks(tmp_path):
 
 
 def test_the_plan_keeps_its_request_and_bindings_immutably(tmp_path):
-    flows = {"__taker": {"inputs": {"made": "__input_maker.made"}}}
-    plan = _runner(tmp_path).plan(_Taker, _design(tmp_path, flows=flows))
+    flows = {"t_taker": {"inputs": {"made": "t_input_maker.made"}}}
+    plan = _runner(tmp_path).plan(TTaker, _design(tmp_path, flows=flows))
     before = _graph(plan)
-    flows["__taker"]["inputs"]["made"] = "__maker.made"
+    flows["t_taker"]["inputs"]["made"] = "t_maker.made"
     (entry,) = [e for layer in plan.bindings for e in layer.entries]
-    assert entry.value == "__input_maker.made"
+    assert entry.value == "t_input_maker.made"
     for target, name, value in (
         (plan, "nodes", ()),
         (plan.nodes[-1], "inputs", ()),
-        (plan.nodes[-1].inputs[0], "producer", "__maker"),
-        (plan.nodes[-1].inputs[0].references[0], "node", "__maker"),
-        (entry, "value", "__maker.made"),
+        (plan.nodes[-1].inputs[0], "producer", "t_maker"),
+        (plan.nodes[-1].inputs[0].references[0], "node", "t_maker"),
+        (entry, "value", "t_maker.made"),
     ):
         with pytest.raises(AttributeError):
             setattr(target, name, value)
@@ -496,21 +511,21 @@ def test_a_dry_run_of_a_saved_binding_shows_the_graph_that_then_runs(tmp_path, m
                 "name": "bound_demo",
                 "rtl": {"sources": []},
                 "flows": {
-                    "__taker": {"inputs": {"made": "__input_maker.made"}},
-                    "__input_maker": {"input_file": "$DESIGN_ROOT/in.txt"},
+                    "t_taker": {"inputs": {"made": "t_input_maker.made"}},
+                    "t_input_maker": {"input_file": "$DESIGN_ROOT/in.txt"},
                 },
             }
         )
     )
-    dry = CliRunner().invoke(cli, ["run", "__taker", str(design), "--dry-run", "--json"])
+    dry = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--dry-run", "--json"])
     assert dry.exit_code == 0, dry.output
     planned = json.loads(dry.stdout)["plan"]["nodes"]
-    assert [node["name"] for node in planned] == ["__input_maker", "__taker"]
+    assert [node["name"] for node in planned] == ["t_input_maker", "t_taker"]
     assert planned[1]["inputs"][0]["binding_origin"] == "file"
     assert not (tmp_path / "xeda_run").exists()
-    text = CliRunner().invoke(cli, ["run", "__taker", str(design), "--dry-run"])
-    assert "made <- __input_maker.made (saved binding)" in text.output
-    ran = CliRunner().invoke(cli, ["run", "__taker", str(design), "--json"])
+    text = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--dry-run"])
+    assert "made <- t_input_maker.made (saved binding)" in text.output
+    ran = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--json"])
     assert ran.exit_code == 0, ran.output
     document = json.loads(ran.stdout)
     assert document["outcome"] == "passed"
@@ -525,10 +540,10 @@ def test_dse_refuses_a_chain_or_a_reached_binding_before_any_worker(tmp_path):
 
     from .test_dse_run import _DeclaredOptimizer
 
-    bound = _design(tmp_path, flows={"__taker": {"inputs": {"made": "__input_maker.made"}}})
+    bound = _design(tmp_path, flows={"t_taker": {"inputs": {"made": "t_input_maker.made"}}})
     for flow, design in (
-        (_Taker, bound),
-        (parse_request("__maker+__taker"), _design(tmp_path)),
+        (TTaker, bound),
+        (parse_request("t_maker+t_taker"), _design(tmp_path)),
     ):
         runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
         with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):

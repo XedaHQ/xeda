@@ -139,7 +139,15 @@ def test_dash_s_given_a_boolean_word_says_what_to_write(tmp_path, monkeypatch, s
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(
         cli,
-        ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", setting, str(SQRT), "--json"],
+        [
+            "run",
+            "vivado_synth",
+            "-s",
+            "vivado_synth.fpga.part=xc7a12tcsg325-1",
+            f"vivado_synth.{setting}",
+            str(SQRT),
+            "--json",
+        ],
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 2
@@ -155,7 +163,15 @@ def test_dash_s_true_and_false_set_a_boolean(tmp_path, monkeypatch, setting):
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(
         cli,
-        ["run", "vivado_synth", "-s", "fpga.part=xc7a12tcsg325-1", setting, str(SQRT), "--json"],
+        [
+            "run",
+            "vivado_synth",
+            "-s",
+            "vivado_synth.fpga.part=xc7a12tcsg325-1",
+            f"vivado_synth.{setting}",
+            str(SQRT),
+            "--json",
+        ],
     )
     assert result.exit_code == 0, result.stdout
 

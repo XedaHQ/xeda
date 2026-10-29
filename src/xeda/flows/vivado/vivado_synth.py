@@ -1005,7 +1005,7 @@ class VivadoSynth(VivadoImplementation):
             description="Properties to set on the synthesis run (`synth_1`), by property name. "
             "A name with dots is one key. In YAML, write the setting as a block and each name as "
             "one key, for example `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0`. On the command line, "
-            "write `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Values may be "
+            "write `-s vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Values may be "
             "text, numbers or booleans.",
         )
         set_impl_properties: Dict[str, PropertyValue] = Field(

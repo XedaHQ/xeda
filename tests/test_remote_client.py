@@ -47,6 +47,7 @@ from .remote_fixtures import (
 )
 from .test_proc_utils import DEFAULT_SIGINT
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -242,7 +243,7 @@ def test_chain_and_binding_run_remotely(tmp_path, remote_host):
         _request(
             tmp_path,
             design,
-            flow_settings=["flows.nextpnr.inputs.netlist=yosys_fpga.netlist"],
+            flow_settings=node_settings("nextpnr", ["nextpnr.inputs.netlist=yosys_fpga.netlist"]),
             rebuild_all=True,
         )
     )
@@ -351,7 +352,11 @@ def test_outputs_to_delivers_from_the_mirror(tmp_path, remote_host):
 def test_a_deliverable_location_is_refused_before_a_connection(tmp_path, remote_host):
     """A deliverable setting with a location is a refusal of the request: no launch starts."""
     design = _design(tmp_path)
-    outcome = _request(tmp_path, design, flow_settings=[f"textcfg={tmp_path / 'config.txt'}"])
+    outcome = _request(
+        tmp_path,
+        design,
+        flow_settings=node_settings("nextpnr", [f"textcfg={tmp_path / 'config.txt'}"]),
+    )
     assert outcome.exit_status == 2 and outcome.document["outcome"] is None
     assert outcome.document["error"]["code"] == "delivery_refused"
     assert "names a location" in outcome.document["error"]["message"]
@@ -553,7 +558,7 @@ def test_a_failed_remote_flow_is_a_failed_run(tmp_path, remote_host):
 
 def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_host):
     design = _design(tmp_path)
-    result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "no_such_setting=1")
+    result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "nextpnr.no_such_setting=1")
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
     assert document["outcome"] is None and document["error"]["code"] == "unknown_setting"
@@ -1408,3 +1413,12 @@ def test_the_discard_of_a_mirror_waits_for_one_lock_while_it_holds_none(tmp_path
         thread.join(HANG_GUARD)
         assert not thread.is_alive()
     assert [(d / "results.json").exists() for d in directories] == [False, False]
+
+
+def test_items_that_conflict_give_one_json_document_and_exit_status_2(tmp_path, remote_host):
+    design = _design(tmp_path)
+    result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "nextpnr.seed=1", "nextpnr.seed.x=2")
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)
+    assert document["outcome"] is None
+    assert document["error"]["code"] == "conflicting_keys"

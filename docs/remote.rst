@@ -364,7 +364,7 @@ sends it.
 at the intermediate files of a tool.
 
 ``--outputs-to DIR`` delivers from the mirror after a run that succeeded. A deliverable setting
-that gives a location (``-s flows.vivado_synth.bitstream=$PWD/out.bit``) would write on the host,
+that gives a location (``-s vivado_synth.bitstream=$PWD/out.bit``) would write on the host,
 so Xeda refuses it before it connects. Use ``--outputs-to`` instead. A delivery happens only in
 the command that has ``--outputs-to``. ``xeda remote attach`` delivers nothing.
 

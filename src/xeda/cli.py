@@ -310,7 +310,7 @@ def list_flows(output_format: str, json_flag: bool):
     ),
 )
 def list_settings(flow, output_format: str, json_flag: bool, common: bool, tier: str | None):
-    """Show every setting of FLOW_NAME that can be given as `-s KEY=VALUE` or in a design file.
+    """Show every setting of FLOW_NAME that can be given as `-s FLOW_NAME.KEY=VALUE` or in a design file.
 
     A setting of a group has a dotted name (`global_placement.timing_driven.enabled`)."""
     print_flow_settings(
@@ -601,13 +601,22 @@ preceding flow's declared output to the compatible required inputs of the next f
 design or from their default producers. Write the + inside one argument. A link may pass through the
 flows between its two flows: `yosys_fpga+fpga_pack` runs `nextpnr` in between.
 
--s KEY=VALUE sets a setting of the last flow. -s flows.NAME.KEY=VALUE sets a setting of another
-flow of the run. To save a binding, write it under flows.NAME.inputs in a YAML design file or
+-s NODE.KEY=VALUE sets a setting of a flow of the run, where NODE is the name of the flow:
+-s nextpnr.seed=7. To save a binding, write it under flows.NAME.inputs in a YAML design file or
 project file. --dry-run shows the plan and runs no tools. With --remote HOST, the whole request
 runs on a Linux host over SSH; Xeda installs what it needs there on the first run.
 
 Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
+
+
+def _request_table(items: Iterable[str] | str | None) -> dict[str, Any]:
+    """Return the `-s` items as the settings table of a request document. Items that cannot be
+    read give an empty table: the launch reports them."""
+    try:
+        return command_line_table(list(items or ()))
+    except ValueError:
+        return {}
 
 
 def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
@@ -949,9 +958,9 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
-    Example: --settings clocks.main_clock.period=2.345ns impl.strategy=Debug
-    flows.<flow>.KEY=VALUE sets a setting of another flow of the run, e.g. -s flows.yosys_fpga.flatten=true.
+    help="""Override setting values. Every KEY starts with the name of the flow that it addresses: NODE.KEY=VALUE, for a flow of the run (the last flow, or one of its producers). Separate multiple items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
+    Example: --settings vivado_synth.clocks.main_clock.period=2.345ns vivado_synth.impl.strategy=Debug
+    Another flow of the run: -s yosys_fpga.flatten=true.
     """,
 )
 @click.option(
@@ -1090,10 +1099,7 @@ def run(
     if log_level is None:
         log_level = logging.INFO
     setup_logger(log_level, detailed_logs)
-    if flow_settings is not None:
-        flow_settings = list(flow_settings)
-    else:
-        flow_settings = []
+    # Every `-s` item starts with the node that it addresses.
 
     # The positional DESIGN argument is a design file, and --design-name names a design of the
     # project. Neither selects the only design of the project (`project.design()`).
@@ -1112,7 +1118,6 @@ def run(
         remote = None
     selected_target = _selected_target(target, no_target)
     launcher: Optional[DefaultRunner] = None
-    table = command_line_table(flow, flow_settings)
 
     def request_spec() -> Dict[str, Any]:
         """The `spec` of a document of a launch that never got its `Spec`: the request text."""
@@ -1120,7 +1125,7 @@ def run(
             flow=chain,
             **design_info(design, launcher.design_name if launcher is not None else None),
             target=(launcher.target if launcher is not None else None) or target,
-            settings=table,
+            settings=_request_table(flow_settings),
         )
 
     def canceled_before_start() -> NoReturn:
@@ -1231,7 +1236,7 @@ def run(
             design=design,
             destination_text=remote,
             run_root=run_root,
-            flow_settings=flow_settings,
+            flow_settings=list(flow_settings or ()),
             xedaproject=project_for_launcher,
             design_updates=design_updates,
             design_allow_extra=False,
@@ -1295,7 +1300,7 @@ def run(
                 chain,
                 xedaproject=project_for_launcher,
                 design=design,
-                flow_settings=flow_settings,
+                flow_settings=list(flow_settings or ()),
                 design_updates=design_updates,
                 target=selected_target,
                 local_settings=local,
@@ -1341,7 +1346,7 @@ def run(
             chain,
             xedaproject=project_for_launcher,
             design=design or design_name,
-            flow_settings=flow_settings,
+            flow_settings=list(flow_settings or ()),
             design_updates=design_updates,
             target=selected_target,
             local_settings=local,
@@ -1350,7 +1355,7 @@ def run(
         canceled_before_start()
     except Exception as e:
         not_started(e)
-    spec = Spec(chain, resolved.design, settings=table)
+    spec = Spec(chain, resolved.design, settings=_request_table(flow_settings))
     try:
         result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
     except KeyboardInterrupt as interrupt:
@@ -1459,8 +1464,8 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
-    Example: --settings clocks.main_clock.period=2.345ns impl.strategy=Debug
+    help="""Override setting values for the executed flow. Every KEY starts with the name of the flow: FLOW.KEY=VALUE. Separate multiple items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
+    Example: --settings vivado_synth.clocks.main_clock.period=2.345ns vivado_synth.impl.strategy=Debug
     """,
 )
 @_run_root_options

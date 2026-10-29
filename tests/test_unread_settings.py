@@ -1053,13 +1053,13 @@ def test_a_setting_added_to_a_real_flow_is_found() -> None:
 
     with preserved_flow_registry():
 
-        class _Extended(Yosys):
+        class TExtended(Yosys):
             """A flow with a setting that nothing reads."""
 
             class Settings(Yosys.Settings):
                 never_read: int = Field(0, description="No code reads it.")
 
-        assert "never_read" in unread_settings(_Extended)
+        assert "never_read" in unread_settings(TExtended)
     assert "never_read" not in unread_settings(Yosys)
 
 
@@ -1380,13 +1380,13 @@ def test_a_group_added_to_a_real_flow_is_reported_by_its_leaves() -> None:
 
     with preserved_flow_registry():
 
-        class _Extended(Yosys):
+        class TExtended(Yosys):
             """A flow with a group that nothing reads."""
 
             class Settings(Yosys.Settings):
                 grouped: _G = Field(default_factory=_G, description="A group.")
 
-        assert [name for name in unread_settings(_Extended) if "grouped" in name] == [
+        assert [name for name in unread_settings(TExtended) if "grouped" in name] == [
             "grouped.x",
             "grouped.y",
         ]

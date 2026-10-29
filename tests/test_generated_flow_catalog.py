@@ -193,17 +193,17 @@ def _flows_that_skip():
         [
             getattr(io_flows, name)
             for name in (
-                "_SkipMake",
-                "_SkipMid",
-                "_SkipEnd",
-                "_SkipSide",
-                "_SkipSink",
-                "_RouteA",
-                "_RouteB",
-                "_RouteC",
-                "_ChainProducer",
-                "_ChainAliased",
-                "_ChainAction",
+                "TSkipMake",
+                "TSkipMid",
+                "TSkipEnd",
+                "TSkipSide",
+                "TSkipSink",
+                "TRouteA",
+                "TRouteB",
+                "TRouteC",
+                "TChainProducer",
+                "TChainAliased",
+                "TChainAction",
             )
         ],
         key=lambda cls: cls.name,
@@ -222,32 +222,32 @@ def test_completion_from_the_catalog_matches_the_runtime_across_a_skipped_flow(m
         catalog = json.loads(render(classes))
         monkeypatch.setattr(flow_catalog, "_builtin_flows", lambda: list(catalog.items()))
         # the catalog lists the flow a link skips, and lists it for the follower alone
-        assert catalog["__skip_make"]["followers"][""] == [
-            "__chain_aliased",
-            "__route_b",
-            "__skip_mid",
-            "__skip_side",
-            "__skip_end",
-            "__skip_sink",
+        assert catalog["t_skip_make"]["followers"][""] == [
+            "t_chain_aliased",
+            "t_route_b",
+            "t_skip_mid",
+            "t_skip_side",
+            "t_skip_end",
+            "t_skip_sink",
         ]
-        assert catalog["__skip_make"]["routes"][""] == {
-            "__skip_end": ["__skip_mid"],
-            "__skip_sink": ["__skip_mid"],
+        assert catalog["t_skip_make"]["routes"][""] == {
+            "t_skip_end": ["t_skip_mid"],
+            "t_skip_sink": ["t_skip_mid"],
         }
-        assert "routes" not in catalog["__skip_mid"]
+        assert "routes" not in catalog["t_skip_mid"]
         cases = _agreement_cases(classes, complete_request)
-        assert "__skip_make+__skip_end+__skip_side+" in cases
+        assert "t_skip_make+t_skip_end+t_skip_side+" in cases
         assert len(cases) > 200
         for incomplete in sorted(cases):
             expected = complete_request(incomplete, classes)
             actual = flow_catalog.complete_builtin_request(incomplete)
             assert actual == expected, (incomplete, expected, actual)
         # a skipped flow is refused as the next element and in a later link
-        after_end = flow_catalog.complete_builtin_request("__skip_make+__skip_end+")
-        assert "__skip_make+__skip_end+__skip_side" in after_end
-        assert not [name for name in after_end if name.endswith(("__skip_mid", "__skip_sink"))]
-        assert flow_catalog.complete_builtin_request("__skip_make+__skip_end+__skip_side+") == []
-        assert flow_catalog.complete_builtin_request("__skip_make+__skip_end+__skip_mid+") == []
+        after_end = flow_catalog.complete_builtin_request("t_skip_make+t_skip_end+")
+        assert "t_skip_make+t_skip_end+t_skip_side" in after_end
+        assert not [name for name in after_end if name.endswith(("t_skip_mid", "t_skip_sink"))]
+        assert flow_catalog.complete_builtin_request("t_skip_make+t_skip_end+t_skip_side+") == []
+        assert flow_catalog.complete_builtin_request("t_skip_make+t_skip_end+t_skip_mid+") == []
 
 
 def test_a_catalog_without_routes_completes_every_follower_as_a_direct_one(monkeypatch):

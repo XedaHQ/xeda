@@ -98,7 +98,7 @@ def refuse_outputs_to_a_programmer(
             producers.append(producer.name)
             setting = setting_naming(producer.flow_class, reference.output)
             if setting is not None:
-                settings.append(f"-s flows.{producer.name}.{setting}=$PWD/<file>")
+                settings.append(f"-s {producer.name}.{setting}=$PWD/<file>")
     message = (
         f"--outputs-to {outputs_to}: {flow_class.name} writes no outputs "
         f"({flow_class.action_reason}), so there is nothing to deliver"

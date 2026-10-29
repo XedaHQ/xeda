@@ -27,6 +27,7 @@ from .openroad_utils import openroad_design, openroad_settings, register_openroa
 from .tiny_platform import tiny_store
 from .project_files import project_listing
 from .setting_texts import text_items
+from .scoping import node_settings
 
 NAME = "u_core.reg_1"
 DEEP_NAME = "u_top.u_core.u_alu.reg_1"
@@ -56,7 +57,7 @@ def plan_openroad(
     given = text_items([*openroad_settings(store), *texts])
     with register_openroad_flows():
         plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
-            "openroad", selected, flow_settings=given, **kwargs
+            "openroad", selected, flow_settings=node_settings("openroad", given), **kwargs
         )
     return plan.nodes[-1].settings
 
@@ -85,11 +86,6 @@ def test_the_command_line_gives_a_net_with_dots_one_key(tmp_path):
     )
     assert dict(settings.ndr.assignments) == {"u_core.clk_div": "wide"}
     assert list(settings.ir_drop.nets) == ["u_core.VDD"]
-
-
-def test_the_command_line_qualified_by_the_flow_gives_the_same_key(tmp_path):
-    settings = plan_openroad(tmp_path, f"flows.openroad.ir_drop.instance_power.{NAME}=1mW")
-    assert dict(settings.ir_drop.instance_power) == {NAME: MILLIWATT}
 
 
 def test_a_name_with_signs_is_a_key_of_the_command_line(tmp_path):
@@ -219,7 +215,7 @@ def test_a_dictionary_of_tables_still_goes_on_into_the_table(tmp_path):
     [
         "ir_drop.instance_power.u_core/reg 1=1mW",
         "ir_drop.instance_power.\\u_core.reg[1]$x=1mW",
-        "flows.openroad.ndr.assignments.u_core.n$1=wide",
+        "openroad.ndr.assignments.u_core.n$1=wide",
         "ir_drop.nets.u_core.VDD=1.1V",
     ],
 )
@@ -242,7 +238,7 @@ def test_the_command_line_takes_no_other_key_with_signs(token):
 def test_a_key_starts_a_name_of_a_tool_after_a_path_of_identifiers_only():
     paths = {"ir_drop.instance_power"}
     assert starts_opaque_key("ir_drop.instance_power.a b", paths)
-    assert starts_opaque_key("flows.openroad.ir_drop.instance_power.a b", paths)
+    assert starts_opaque_key("openroad.ir_drop.instance_power.a b", paths)
     assert not starts_opaque_key("ir_drop.instance_power", paths)
     assert not starts_opaque_key("x/ir_drop.instance_power.a b", paths)
 

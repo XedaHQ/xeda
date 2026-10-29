@@ -143,7 +143,7 @@ def _binding(node: Node, name: str, producer: str) -> str | None:
         fitting = [name]
     if len(fitting) != 1:
         return None
-    return f"flows.{node.label}.inputs.{name}={producer}.{fitting[0]}"
+    return f"{node.label}.inputs.{name}={producer}.{fitting[0]}"
 
 
 def _advice(graph: Graph, node: Node, declaration: InputDeclaration) -> str:

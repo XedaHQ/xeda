@@ -18,7 +18,7 @@ from xeda.flow_runner import DefaultRunner
 from .tool_utils import producers_of
 
 
-class _MayFail(Flow):
+class TMayFail(Flow):
     """Writes a report, or raises in `run()` when told to."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -41,15 +41,15 @@ class _MayFail(Flow):
         return not self.settings.report_failure
 
 
-class _NeedsMayFail(Flow):
-    """Reads the report `_MayFail` writes, which fails when told to."""
+class TNeedsMayFail(Flow):
+    """Reads the report `TMayFail` writes, which fails when told to."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         report: Path = In(
             SourceType.Data,
-            producer="__may_fail",
+            producer="t_may_fail",
             output="report",
             description="The producer's report.",
         )
@@ -58,7 +58,7 @@ class _NeedsMayFail(Flow):
         pass
 
 
-class _ExitsNonZero(Flow):
+class TExitsNonZero(Flow):
     """Runs a program that exits with status 3."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -72,7 +72,7 @@ class _ExitsNonZero(Flow):
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
 _REGISTERED = {
-    _cls.name: registered_flows[_cls.name] for _cls in (_MayFail, _NeedsMayFail, _ExitsNonZero)
+    _cls.name: registered_flows[_cls.name] for _cls in (TMayFail, TNeedsMayFail, TExitsNonZero)
 }
 for _name in _REGISTERED:
     registered_flows.pop(_name, None)
@@ -80,7 +80,7 @@ for _name in _REGISTERED:
 
 @pytest.fixture
 def producer_registered():
-    """`_NeedsMayFail` finds its producer by name."""
+    """`TNeedsMayFail` finds its producer by name."""
     registered_flows.update(_REGISTERED)
     yield
     for name in _REGISTERED:
@@ -95,12 +95,12 @@ def _design(tmp_path):
 def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp_path):
     design = _design(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run_flow(_MayFail, design, {})
+    first = runner.run_flow(TMayFail, design, {})
     results_json = first.run_path / "results.json"
     assert json.loads(results_json.read_text())["outcome"] == "passed"
 
     with pytest.raises(FlowFatalError, match="boom"):
-        runner.run_flow(_MayFail, design, {"fail": True})
+        runner.run_flow(TMayFail, design, {"fail": True})
     document = json.loads(results_json.read_text())
     assert document["outcome"] == "failed"
     assert document["error"] == {
@@ -118,7 +118,7 @@ def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp
 def test_a_non_zero_exit_is_recorded_in_the_failure_document(tmp_path):
     design = _design(tmp_path)
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _ExitsNonZero, design, {}
+        TExitsNonZero, design, {}
     )
     document = json.loads((flow.run_path / "results.json").read_text())
     assert document["outcome"] == "failed"
@@ -132,7 +132,7 @@ def test_a_failure_the_reports_show_is_a_failure_document_with_an_error(tmp_path
     still names the error."""
     design = _design(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(_MayFail, design, {"report_failure": True})
+    flow = runner.run_flow(TMayFail, design, {"report_failure": True})
     document = json.loads((flow.run_path / "results.json").read_text())
     assert document["outcome"] == "failed"
     assert document["error"]["code"] == "reported_failure"
@@ -155,14 +155,14 @@ def test_a_failing_producer_blocks_the_consumer_and_leaves_its_earlier_record(
     trace of its last success."""
     design = _design(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run_flow(_NeedsMayFail, design, {})
+    first = runner.run_flow(TNeedsMayFail, design, {})
     results_json = first.run_path / "results.json"
     assert json.loads(results_json.read_text())["outcome"] == "passed"
     assert (first.run_path / "trace.json").exists()
     (done,) = producers_of(runner, first)
 
     with pytest.raises(FlowDependencyFailure, match=reason) as raised:
-        runner.run_flow(_NeedsMayFail, design, {}, all_flows_settings={"__may_fail": producer})
+        runner.run_flow(TNeedsMayFail, design, {}, all_flows_settings={"t_may_fail": producer})
     kept = json.loads(results_json.read_text())
     assert kept["outcome"] == "passed" and kept["run_id"] == first.run_id
     assert (first.run_path / "trace.json").exists()

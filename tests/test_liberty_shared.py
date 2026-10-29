@@ -33,6 +33,7 @@ from .test_openroad_flows import plan, refusal
 from .test_openroad_templates import header
 from .tiny_platform import tiny_store
 from .setting_texts import text_items
+from .scoping import node_settings
 
 FLOWS = ("yosys", "openroad_place", "openroad_cts", "openroad_grt", "openroad")
 
@@ -177,10 +178,14 @@ def test_a_library_of_the_command_line_replaces_one_of_the_design_file(tmp_path)
     given = text_items(openroad_settings(store))
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     planned = runner.plan(
-        "openroad", design, flow_settings={**given, "flows.openroad_place.liberty": [str(b)]}
+        "openroad",
+        design,
+        flow_settings=node_settings(
+            "openroad", {**given, "flows.openroad_place.liberty": [str(b)]}
+        ),
     )
     assert liberty_of(planned) == {name: [b.resolve()] for name in FLOWS}
-    unchanged = runner.plan("openroad", design, flow_settings=given)
+    unchanged = runner.plan("openroad", design, flow_settings=node_settings("openroad", given))
     assert liberty_of(unchanged) == {name: [a.resolve()] for name in FLOWS}
 
 

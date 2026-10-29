@@ -24,6 +24,7 @@ from xeda.remote.packaging import package_inputs
 from .generation_world import World
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .test_git_dependencies import git_log, remote
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host, git_log, remote)
 
@@ -83,7 +84,12 @@ def test_a_generator_input_outside_the_design_root_cannot_be_sent(tmp_path, remo
     text = str(error.value)
     assert str(tmp_path / "lib" / "tool.py") in text and "below the design root" in text
     # a request refuses it at planning: no connection, no generator
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     assert isinstance(outcome.error, DesignValidationError)
     assert world.runs == 0 and not connected(remote_host)
     # a local launch is not changed
@@ -132,7 +138,12 @@ def test_a_generator_without_sources_cannot_be_sent(tmp_path):
 
 def test_a_remote_request_for_such_a_generator_is_refused_before_connecting(tmp_path, remote_host):
     world = _world(tmp_path, generator={"sources": []})
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     assert isinstance(outcome.error, DesignValidationError)
     assert "declare its `sources`" in str(outcome.error)
     assert world.runs == 0 and not connected(remote_host)
@@ -143,7 +154,12 @@ def test_a_remote_request_refuses_the_copies_of_generated_sources_before_connect
 ):
     """The host would deliver them to the same path on the host, never into the local tree."""
     world = _world(tmp_path, generator={"outputs_to": "$DESIGN_ROOT/copies"})
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     assert isinstance(outcome.error, DeliveryError)
     assert "rtl.generator.outputs_to" in str(outcome.error) and "--remote" in str(outcome.error)
     assert world.runs == 0 and not connected(remote_host)
@@ -152,7 +168,12 @@ def test_a_remote_request_refuses_the_copies_of_generated_sources_before_connect
 
 def test_the_host_generates_into_its_own_run_root(tmp_path, remote_host):
     world = _world(tmp_path)
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -169,7 +190,11 @@ def test_the_host_reuses_its_storage_and_rebuild_all_forces_the_generator(tmp_pa
 
     def run(**overrides) -> None:
         outcome = remote_request(
-            tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS, **overrides
+            tmp_path,
+            world.design_file,
+            "vivado_synth",
+            flow_settings=node_settings("vivado_synth", SETTINGS),
+            **overrides,
         )
         if outcome.error is not None:
             raise outcome.error
@@ -185,11 +210,16 @@ def test_the_host_reuses_its_storage_and_rebuild_all_forces_the_generator(tmp_pa
 
 def test_the_remote_node_has_the_identity_of_the_local_plan(tmp_path, remote_host):
     world = _world(tmp_path)
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     local = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
-        "vivado_synth", world.design_file, flow_settings=SETTINGS
+        "vivado_synth", world.design_file, flow_settings=node_settings("vivado_synth", SETTINGS)
     )
     assert outcome.document["nodes"][-1]["record"]["identity"] == (
         local.node("vivado_synth").flowrun_hash
@@ -226,7 +256,12 @@ def test_the_package_says_what_is_written_and_what_is_generated(tmp_path):
 
 def test_a_written_source_of_a_dependency_travels_beside_a_generated_one(tmp_path, remote_host):
     world = _world_with_a_dependency(tmp_path)
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -287,7 +322,12 @@ def test_the_host_generates_the_generators_of_dependencies_in_order(tmp_path, re
         "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
     )
     chain.design_file.write_text(text)
-    outcome = remote_request(tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        chain.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -296,10 +336,19 @@ def test_the_host_generates_the_generators_of_dependencies_in_order(tmp_path, re
     assert {p.name for p in host_root.iterdir() if p.is_dir()} == {"lib1", "lib2", "top"}
     assert not (tmp_path / "local" / "xeda_run" / ".generated").exists()
     # the second request reuses the storages of the host; `--rebuild-all` regenerates them all
-    again = remote_request(tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS)
+    again = remote_request(
+        tmp_path,
+        chain.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     assert again.success and chain.ran == ["lib2", "lib1", "top"]
     forced = remote_request(
-        tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS, rebuild_all=True
+        tmp_path,
+        chain.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+        rebuild_all=True,
     )
     assert forced.success and chain.ran == ["lib2", "lib1", "top"] * 2
 
@@ -312,11 +361,16 @@ def test_the_remote_node_of_a_design_with_dependency_generators_has_the_local_id
         "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
     )
     chain.design_file.write_text(text)
-    outcome = remote_request(tmp_path, chain.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        chain.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     local = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
-        "vivado_synth", chain.design_file, flow_settings=SETTINGS
+        "vivado_synth", chain.design_file, flow_settings=node_settings("vivado_synth", SETTINGS)
     )
     assert (
         outcome.document["nodes"][-1]["record"]["identity"]
@@ -341,7 +395,9 @@ def test_two_dependency_designs_in_one_directory_are_two_units_on_the_host(tmp_p
         "a",
         "b",
     ]
-    outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path, design_file, "vivado_synth", flow_settings=node_settings("vivado_synth", SETTINGS)
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -401,7 +457,9 @@ def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_hos
     assert unit["language"]["vhdl"]["standard"] == "08"
     assert "_dependencies/0/extra.v" in package.files
 
-    outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path, design_file, "vivado_synth", flow_settings=node_settings("vivado_synth", SETTINGS)
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -427,7 +485,12 @@ def test_an_empty_working_directory_of_a_generator_exists_on_the_host(tmp_path, 
     (world.root / "work").mkdir()
     document, package = _document(tmp_path, world.load())
     assert "work" in package.directories
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -442,19 +505,25 @@ def test_the_host_plans_the_identity_of_a_design_that_merges_units_with_content(
     """The units carry parameters, defines, clocks and written sources, and the design merges
     them. The node on the host has the identity of the node in the plan of this side."""
     design_file = _rich_dependency(tmp_path)
-    outcome = remote_request(tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path, design_file, "vivado_synth", flow_settings=node_settings("vivado_synth", SETTINGS)
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
     local = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
-        "vivado_synth", design_file, flow_settings=SETTINGS
+        "vivado_synth", design_file, flow_settings=node_settings("vivado_synth", SETTINGS)
     )
     assert outcome.document["nodes"][-1]["record"]["identity"] == (
         local.node("vivado_synth").flowrun_hash
     )
     # a dry run on the host plans the same node
     dry = remote_request(
-        tmp_path, design_file, "vivado_synth", flow_settings=SETTINGS, dry_run=True
+        tmp_path,
+        design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+        dry_run=True,
     )
     if dry.error is not None:
         raise dry.error
@@ -499,7 +568,12 @@ def test_a_generator_that_cannot_be_sent_is_refused_before_any_git_process(
     fetched first. The request starts no generator and makes no connection either."""
     world = _with_a_git_dependency_first(tmp_path, remote, local, sources)
     started = len(git_log())
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     assert isinstance(outcome.error, DesignValidationError)
     assert said in str(outcome.error)
     assert len(git_log()) == started, "a Git command was started"
@@ -529,7 +603,12 @@ def test_the_host_fetches_the_commit_the_client_resolved(
         return storage
 
     monkeypatch.setattr(dependencies, "fetch", fetch_then_move_the_branch)
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -574,7 +653,12 @@ def test_the_host_fetches_the_commit_of_a_dependency_of_a_git_dependency(
         return storage
 
     monkeypatch.setattr(dependencies, "fetch", fetch_then_move_the_branch)
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
@@ -609,7 +693,12 @@ def test_two_entries_of_one_repository_get_each_its_own_commit_on_the_host(
         return storage
 
     monkeypatch.setattr(dependencies, "fetch", fetch_then_move_the_head)
-    outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
+    outcome = remote_request(
+        tmp_path,
+        world.design_file,
+        "vivado_synth",
+        flow_settings=node_settings("vivado_synth", SETTINGS),
+    )
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document

@@ -149,7 +149,8 @@ Discovering what to set
 =======================
 
 ``xeda list-settings <flow> --json`` returns the full settings of the flow. Each setting is listed
-under the name that you can type as ``-s <name>=<value>``:
+under the name of the setting in its flow. Write the flow before it on the command line:
+``-s <flow>.<name>=<value>``:
 
 .. code-block:: json
 
@@ -195,7 +196,7 @@ under the name that you can type as ``-s <name>=<value>``:
 * ``opaque_keys`` is true for a setting that holds a dictionary whose keys are names that the tool
   defines or that a netlist gives, such as the run properties of Vivado (``set_synth_properties``)
   or the powers of instances (``ir_drop.instance_power``). A dot in such a key is part of the
-  name. For example, ``-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`` sets the one
+  name. For example, ``-s vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`` sets the one
   property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM``. For any other setting, a dotted key is a path into
   nested tables.
 * ``enum`` lists the permitted values when the setting is limited to a set.
@@ -668,8 +669,9 @@ The code of an error of the whole launch (``node`` is ``null``): ``generator_fai
 The code of an error of a request that started no launch is the code of the setting, design,
 project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
 ``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
+``unscoped_setting`` and ``unknown_node`` (a ``-s`` key that names no flow of the run; ``error.suggestions`` holds the address to write),
 ``removed_setting``, ``removed_alias`` (another spelling of a name that stays), ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
-``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
+``several_roots_unsupported``, ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
 ``design_file_not_found``, ``unknown_target``, ``target_required``, ``unknown_design``,
 ``design_name_required``, ``use_design_name``, ``several_project_files``, ``invalid_project``,
 ``invalid_local_settings`` (a private settings file is invalid; the message names the file),
@@ -802,7 +804,7 @@ top is ``blinky``. It also shows a consumer that switches an optional output of 
 
 .. code-block:: bash
 
-    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 flows.yosys_fpga.netlist_json= --dry-run --json
+    xeda run nextpnr blinky.yaml -s nextpnr.fpga.part=iCE40HX1K-TQ144 yosys_fpga.netlist_json= --dry-run --json
 
 .. code-block:: json
 
@@ -1007,7 +1009,7 @@ To run a flow:
 
     design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
-    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
+    flow = runner.run("vivado_synth", design, flow_settings=["vivado_synth.clock.period=5ns"])
     if flow and flow.record and flow.record.passed:
         print(flow.record.metric("fmax"))
 
@@ -1020,7 +1022,7 @@ To inspect a plan without constructing or running flows:
 
     from xeda.introspect import plan_info
 
-    plan = runner.plan("nextpnr", design, flow_settings=["fpga.part=iCE40HX1K-TQ144"])
+    plan = runner.plan("nextpnr", design, flow_settings=["nextpnr.fpga.part=iCE40HX1K-TQ144"])
     print(plan_info(plan))
 
 ``plan_info`` returns the same plain data as the ``plan`` key of ``--dry-run --json``. A
@@ -1040,6 +1042,6 @@ Notes for coding agents
   ``.nodes[-1].record.metrics``) and the run directory of each node, so you never need to guess
   where the output landed.
 * The producers of a flow run automatically. Run the flow you want, not the chain that leads to it.
-  Set a producer through its own flow, for example ``-s flows.yosys_fpga.flatten=true``.
+  Set a producer through its own flow, for example ``-s yosys_fpga.flatten=true``.
 * ``xeda run`` is make-like by default. A run with nothing changed runs nothing, and ``nodes`` says
   so for each flow. Force everything to run with ``--rebuild-all``.

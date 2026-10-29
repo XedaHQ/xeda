@@ -143,6 +143,12 @@ __all__ = [
     "written_path_problems",
 ]
 
+#: The form of a flow name. A name starts with a letter, so no name begins with an underscore.
+FLOW_NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+#: Names that no flow may have: they start the keys of a table of settings or of a sweep.
+RESERVED_FLOW_NAMES = frozenset({"flows", "design", "settings"})
+
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
 DictStrPath = Dict[str, Union[str, os.PathLike]]
@@ -1398,6 +1404,12 @@ class Flow(metaclass=ABCMeta):
         log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
+            if not FLOW_NAME.fullmatch(cls.name) or cls.name in RESERVED_FLOW_NAMES:
+                raise TypeError(
+                    f"The class {cls.__qualname__} gives the flow name {cls.name!r}. A flow name "
+                    "matches [a-z][a-z0-9_]* and is none of "
+                    f"{', '.join(sorted(RESERVED_FLOW_NAMES))}: rename the class."
+                )
             # A flow has one name, `cls.name`: the only spelling that the CLI, the files and the
             # docs accept.
             if cls.name in registered_flows:

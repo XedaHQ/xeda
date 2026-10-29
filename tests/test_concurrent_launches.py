@@ -65,7 +65,7 @@ FLOWS = {"ghdl_sim": GhdlSim, "nvc": Nvc}
 TIMEOUT = 120.0
 
 
-def _require_tools(pair: tuple[str, str], alone: "_Alone") -> None:
+def _require_tools(pair: tuple[str, str], alone: "TAlone") -> None:
     require_ghdl()
     if "nvc" in pair:
         require_nvc_evidence()
@@ -94,7 +94,7 @@ def _summary(results: Any) -> dict[str, Any]:
     return {key: results[key] for key in RESULT_KEYS}
 
 
-class _Alone:
+class TAlone:
     """What a launch that has the machine to itself reports and writes, per flow name. Each flow
     runs once, the first time a test asks for it, before that test starts its launches."""
 
@@ -116,13 +116,13 @@ class _Alone:
 
 
 @pytest.fixture(scope="module")
-def alone(tmp_path_factory: pytest.TempPathFactory) -> _Alone:
+def alone(tmp_path_factory: pytest.TempPathFactory) -> TAlone:
     """The flows run alone, in a run root of their own."""
     base = tmp_path_factory.mktemp("alone")
-    return _Alone(_write_design(base / "design"), base / "run")
+    return TAlone(_write_design(base / "design"), base / "run")
 
 
-def _check_launch(saved: dict[str, Any], files: list[str], flow_name: str, alone: _Alone) -> None:
+def _check_launch(saved: dict[str, Any], files: list[str], flow_name: str, alone: TAlone) -> None:
     """Check the saved record and files of a finished launch against the same flow run alone.
 
     The record nests the metrics by their dotted path (`sim.time` is `metrics["sim"]["time"]`)."""

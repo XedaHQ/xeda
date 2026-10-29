@@ -39,6 +39,7 @@ from .settings_samples import flow_classes, minimal_settings
 from .test_design_parts import _mro, reachable_templates
 from .test_tcl_paths import needs_tclsh
 from .tool_utils import fake_calls, use_fake_tools
+from .scoping import node_settings
 
 MAIN_SCRIPTS = {
     "vivado_synth.tcl",
@@ -433,7 +434,9 @@ def test_a_plan_refuses_a_design_with_nothing_the_flow_reads(
         FlowSettingsException, match="yosys_fpga reads none of the design's sources"
     ) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-            request_text, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+            request_text,
+            design,
+            flow_settings=node_settings(request_text, {"fpga": {"part": "LFE5U-25F-6BG381C"}}),
         )
     assert (SKIPPED_BY_A_NETLIST in str(raised.value)) is hinted
     if hinted:
@@ -452,7 +455,7 @@ def _reads_nextpnr_and_the_netlist():
     """A test flow with two inputs: `nextpnr`'s configuration, which it takes from the default
     producer, and a netlist that has no default and that a saved binding takes from `yosys_fpga`."""
 
-    class _ReadsNextpnrAndTheNetlist(Flow):
+    class TReadsNextpnrAndTheNetlist(Flow):
         """Read a configuration from nextpnr and a netlist from yosys_fpga."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -473,7 +476,7 @@ def _reads_nextpnr_and_the_netlist():
         def run(self):
             self.results["read"] = self.inputs.netlist.read_text()
 
-    return _ReadsNextpnrAndTheNetlist
+    return TReadsNextpnrAndTheNetlist
 
 
 def _own_refusal(flow: str, design: Design) -> str:
@@ -495,7 +498,9 @@ def test_a_producer_that_another_input_binds_is_not_said_to_leave_the_plan(
     design = with_updates(design, flows={taker.name: {"inputs": {"netlist": "yosys_fpga.netlist"}}})
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-            taker, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+            taker,
+            design,
+            flow_settings=node_settings(taker, {"fpga": {"part": "LFE5U-25F-6BG381C"}}),
         )
     assert str(raised.value) == _own_refusal("yosys_fpga", design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -522,10 +527,13 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             "vivado_power",
             design,
-            flow_settings={
-                "fpga": {"part": "xc7a12tcsg325-1"},
-                "clocks": {"main_clock": {"period": "10 ns"}},
-            },
+            flow_settings=node_settings(
+                "vivado_power",
+                {
+                    "fpga": {"part": "xc7a12tcsg325-1"},
+                    "clocks": {"main_clock": {"period": "10 ns"}},
+                },
+            ),
         )
     assert str(raised.value) == _own_refusal("vivado_synth", design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -546,7 +554,7 @@ def test_a_source_of_a_later_stage_stands_in_for_the_flow_that_would_read_none(
     (tmp_path / source["file"]).write_text("{}\n")
     design = Design(name="d", root=tmp_path, rtl={"sources": [source], "top": "top"})
     planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-        flow, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        flow, design, flow_settings=node_settings(flow, {"fpga": {"part": "LFE5U-25F-6BG381C"}})
     )
     assert [node.name for node in planned.nodes] == plan
 
@@ -1375,7 +1383,7 @@ def test_every_example_plans_for_every_flow_it_names(path, tmp_path, monkeypatch
     requests = list(_example_requests(path))
     for design, flow, settings in requests:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        runner.plan(flow, design, flow_settings=settings)
+        runner.plan(flow, design, flow_settings=node_settings(flow, settings))
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
 
 

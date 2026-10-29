@@ -40,6 +40,7 @@ from xeda.records import read_record
 from xeda.tool import Docker, Tool
 
 from .launch_utils import empty_project
+from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
 
@@ -133,7 +134,7 @@ def _launch(
         flow,
         _design(tmp_path, cocotb=cocotb),
         xedaproject=empty_project(tmp_path),
-        flow_settings=settings or {},
+        flow_settings=node_settings(flow, settings or {}),
         local_settings=local,
     )
     assert result is not None and result.succeeded
@@ -152,7 +153,7 @@ def _plan(
         flow,
         _design(tmp_path),
         xedaproject=empty_project(tmp_path),
-        flow_settings=settings or {},
+        flow_settings=node_settings(flow, settings or {}),
         local_settings=local,
     )
 

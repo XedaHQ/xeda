@@ -86,7 +86,11 @@ the lowest to the highest precedence:
    :ref:`private-files`)
 8. the command line, with ``-s`` or ``--settings``, and then the API, with ``flow_overrides``. The
    ``flow_settings`` argument of ``run()`` and ``plan()`` is the same layer as ``-s``, so messages
-   call it "the command line (``-s``) or ``flow_settings``".
+   call it "the command line (``-s``) or ``flow_settings``". On the command line, every key starts
+   with the flow that it addresses: ``-s nextpnr.seed=7``. The ``flow_settings`` of the API takes
+   the same keys, as items or as a table of nodes (``{"nextpnr": {"seed": 7}}``). A key without its
+   flow, and a key that starts with ``flows.``, is an error (``unscoped_setting``) that names the
+   address to write.
 
 The project file is a layer only for a design that you select from it with ``--design-name``. A
 design file that you give as the ``DESIGN`` argument does not get the ``flows`` of a project, nor
@@ -96,7 +100,7 @@ A value has the same identity whichever file wrote it: the origin of a value nev
 of a run. A setting that names where installed data lives (``pdk_root``) is no part of the identity
 in any layer.
 
-The layers merge key by key. ``-s clock.freq=100MHz`` changes that one clock setting
+The layers merge key by key. ``-s nextpnr.clock.freq=100MHz`` changes that one clock setting
 section from the design file and does not replace the whole section. A higher layer replaces only
 the keys that it writes. This holds for a target as well: its value wins over the value of the
 design for the same key, and only for the keys that the target writes.
@@ -106,8 +110,9 @@ a second spelling of a setting (``ncpus``, ``clock``, a bare part number as ``fp
 that names the spelling to use. A value that is no table where a table is expected
 (``synth: 3``) is an error, whatever a higher layer writes over it.
 
-A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
-flow's run needs them. For example, ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that
+A flow's settings are written in one place, its own ``flows.<flow_name>`` section in a file, and
+on the command line as ``-s <flow_name>.<key>=<value>``, whichever flow's run needs them. For
+example, ``-s yosys_fpga.flatten=true`` sets the synthesis that
 ``nextpnr`` places. ``nextpnr`` has no ``yosys`` section, and using one is an error that names
 ``flows.yosys_fpga.<key>``. The Vivado simulation and power flows follow the same rule:
 
@@ -123,30 +128,32 @@ flow's run needs them. For example, ``-s flows.yosys_fpga.flatten=true`` sets th
 OpenROAD place and route is a chain of four flows (see `OpenROAD place and route`_). ``openroad``
 refuses its removed settings. Each error names the setting to use, or says why there is none.
 
-``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
-of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
-``-s seed=2`` are the same setting, and giving both different values is an error. A flow that is
-not part of the run is an error too, with a list of close matches. ``-s`` can also name a default
+``-s <flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one of
+its producers. Every key starts with the flow, so a flow keeps its settings when you add a flow to
+the chain. A key without a flow is an error (``unscoped_setting``) that gives the address to write:
+``-s seed=2`` and ``-s flows.nextpnr.seed=2`` both name ``nextpnr.seed=2`` when the run has
+``nextpnr``. A flow that is not part of the run is an error too (``unknown_node``), with a list of
+close matches. ``-s`` can also name a default
 producer of the requested flow that a source or a binding of the design displaces, and a converter
 that could feed it. Xeda checks those settings and then does not use them: it logs ``<flow> is not
-part of this run: its settings are unused``. So ``-s flows.bsc.<key>`` is accepted in a run of a
+part of this run: its settings are unused``. So ``-s bsc.<key>`` is accepted in a run of a
 design that has no Bluespec source. A flow of a chain or of a binding is part of the run too. A
 design, target or project file can keep a ``flows.<flow>`` section for any flow that Xeda knows, and
 Xeda ignores the sections of the flows that do not run. A section of a removed flow is an error.
 
 The flows of the run depend on the design. They are the flows that the plan contains, and the
 default producers that a source or a binding of the design displaced. A converter belongs to the
-run only when the design has a source that it converts. So ``-s flows.bsc.optimize=true`` is
+run only when the design has a source that it converts. So ``-s bsc.optimize=true`` is
 accepted for a design with Bluespec sources, and refused for a design with Verilog sources only.
-The same rule gives the ``did you mean -s flows.<flow>.<key>`` hint for an unknown setting. A
+The same rule gives the ``did you mean -s <flow>.<key>`` hint for an unknown setting. A
 ``flows.<flow>`` section of a design, a target or a project file for a flow outside the run is
 ignored.
 
 A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
 file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
 and so is each ``flows.<flow>``. Text, a number or a list in either place is an error that names
-the key and where it was written, even when the value is empty. ``-s flows=3`` and
-``-s flows.nextpnr=3`` are errors, and so is ``flows: []`` in a file. Only the API also accepts
+the key and where it was written, even when the value is empty. ``-s nextpnr=3`` is an error, and
+so is ``flows: []`` in a file. Only the API also accepts
 the settings of a flow as a list of ``KEY=VALUE`` text, as ``-s`` does.
 
 ``-s`` takes space-separated ``KEY=VALUE`` items. It ends at the next option, or at the first token
@@ -155,14 +162,14 @@ options.
 
 The command line takes dotted keys for nested values, and you can give several at once::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4.5ns vivado_synth.synth.strategy=Flow_PerfOptimized_high
 
-A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
+A key is a value or a table, never both. ``-s yosys.timing=true yosys.timing.x=1`` is an error that names
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
 design file, a target, ``--design-updates`` and a ``flows`` table.
 
 One command line gives a setting one value. If two items set one setting to different values, for
-example ``-s fpga.part=A -s fpga.part=B`` or ``-s fpga.part=A flows.yosys_fpga.fpga.part=B``, Xeda
+example ``-s nextpnr.fpga.part=A -s nextpnr.fpga.part=B``, Xeda
 refuses the run. The error quotes the items as you wrote them and lists every such pair. An item
 that you repeat with the same value is one item. Xeda compares the value text as you wrote it, so
 ``seed=1`` and ``seed=01`` are two values. Settings in different layers (a design file and the
@@ -175,7 +182,7 @@ The run properties of Vivado are an example, and their names contain dots. So ar
 instances and nets after a flattening, such as ``u_core.reg_1``. A dotted key of such a setting is
 one key and not a path into nested tables::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
 
 This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
 file, a target, a project file and the API give it in the same way. In a design file, the key
@@ -184,8 +191,8 @@ name written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is t
 Each origin gives its names, and the origins merge name by name: a higher origin replaces only the
 names that it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
 both stay. One origin cannot give both ``A`` and ``A.B``, because it writes a key either as a
-value or as a table, as for any setting. ``-s set_synth_properties.A=1`` and
-``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so Xeda refuses them too. A
+value or as a table, as for any setting. ``-s vivado_synth.set_synth_properties.A=1`` and
+``-s vivado_synth.set_synth_properties.A.B=2`` are one origin, so Xeda refuses them. A
 name with a backslash before a dot (``A\.B``) is refused in every origin, because the names of the
 tool have no backslash.
 A remote run (``--remote``) gets the table as the local origins merged it, ``A`` and ``A.B``
@@ -193,12 +200,12 @@ included.
 
 A name with a space is a quoted shell item::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
 The same holds for a dictionary inside a settings group. The path goes on to the dictionary, and
 the rest of the key is one name::
 
-    xeda run openroad design.yaml -s ir_drop.instance_power.u_core.reg_1=1mW ndr.assignments.u_core.clk_div=wide
+    xeda run openroad design.yaml -s openroad.ir_drop.instance_power.u_core.reg_1=1mW openroad.ndr.assignments.u_core.clk_div=wide
 
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
 ``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and the flows that share
@@ -208,8 +215,8 @@ are keyed by net or instance name: ``ir_drop.nets``, ``ir_drop.vsrc_files``,
 a dictionary of tables such as ``ndr.rules``, a dotted key is a path into nested tables. A path
 that goes on past the value of a key is an error, as for any setting.
 
-A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. Each item is read as the
-item type of the list. An empty value is the empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
+A list setting takes comma-separated text: ``-s vivado_synth.xdc_files=a.xdc,b.xdc``. Each item is read as the
+item type of the list. An empty value is the empty list (``-s vivado_synth.xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings, because it would be one item and not a list. A setting that also
 takes plain text keeps the text as it is. The lists of the ``cocotb`` section (``testcase`` and
 ``gpi_extra``) take text in the same way.
@@ -372,8 +379,8 @@ time of each tool run, and ``stop_time: 100 us`` stops the simulation at a simul
 
 In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
 write the number and the unit without a space. The shell then passes one word, and the item needs
-no quotes: ``-s clock.period=2.5ns``. With a space, quote the whole item:
-``-s "clock.period=2.5 ns"``. Without the quotes, the list of ``-s`` items ends at the unit, and
+no quotes: ``-s vivado_synth.clock.period=2.5ns``. With a space, quote the whole item:
+``-s "vivado_synth.clock.period=2.5 ns"``. Without the quotes, the list of ``-s`` items ends at the unit, and
 Xeda reports the unit as an unexpected extra argument, with a hint.
 
 Kinds and units
@@ -520,7 +527,7 @@ the same setting as nested tables or as a dotted key. The two spellings mean the
 the usual rules for layers and dotted keys hold (see :ref:`the rules for dotted keys
 <dotted-keys>`)::
 
-    xeda run yosys design.yaml -s abc.strategy=speed -s sequential.clock_gating.enabled=true
+    xeda run yosys design.yaml -s yosys.abc.strategy=speed -s yosys.sequential.clock_gating.enabled=true
 
 .. code-block:: yaml
 
@@ -600,7 +607,7 @@ arguments for flags that have no setting of their own. The list is not free text
   value. ``-0.5`` is a negative number, not a flag.
 
 Xeda checks all of this when it plans the run, before any tool starts. Each item reaches the tool
-as one word, with the quoting that the tool needs. ``-s <group>.extra_args=-flag,value`` gives the
+as one word, with the quoting that the tool needs. ``-s <flow>.<group>.extra_args=-flag,value`` gives the
 list ``-flag``, ``value``, because a list takes comma-separated text.
 
 Producers and consumers
@@ -619,10 +626,10 @@ name the stages yourself, see :ref:`flow-chains`.
 
 A producer runs in its own run directory, a sibling of the run directory of its consumer. Its
 settings are those of its own section (``flows.yosys_fpga``), and you set them on the command line
-with ``-s flows.<flow>.<setting>``. For example, to change how the synthesis stage behaves while
+with ``-s <flow>.<setting>``. For example, to change how the synthesis stage behaves while
 you run ``openfpgaloader``::
 
-    xeda run openfpgaloader blinky.yaml -s flows.yosys_fpga.flatten=true
+    xeda run openfpgaloader blinky.yaml -s yosys_fpga.flatten=true
 
 Some flows declare inputs and outputs (``xeda list-flows --json`` shows them). ``nextpnr`` reads a
 ``netlist``, by default the one that ``yosys_fpga`` writes. A source of type ``JsonNetlist`` in
@@ -668,7 +675,7 @@ of a chain must use the same values. Xeda compares ``wire_rc`` leaf by leaf (``w
 combine. Different
 values for the same leaf fail before anything runs, and the error names both files and sections.
 An example is ``flows.nextpnr.fpga.part`` in a project and ``flows.yosys_fpga.fpga.part`` in a
-design. A command-line leaf (``-s fpga.part=...`` or ``-s flows.yosys_fpga.fpga.part=...``) wins
+design. A command-line leaf (``-s yosys_fpga.fpga.part=...``) wins
 for the connected group and keeps the unrelated leaves. API overrides keep their own origin with
 the highest precedence. Within each node, the normal precedence of the layers still applies.
 
@@ -757,7 +764,12 @@ Rules for chains
 
 * ``+`` is the only separator, and each flow may appear once. Name a flow as anywhere else.
   ``FLOW.OUTPUT`` names one output of a producer that has
-  several: ``nextpnr.config+fpga_pack``.
+  several: ``nextpnr.config+fpga_pack``. An output name matches ``[a-z][a-z0-9_]*``. A name that
+  is no flow name is an error that names the flow to use, so ``vivado-synth`` suggests
+  ``vivado_synth``.
+* ``,`` and ``@`` are reserved for later and are errors now: ``,`` for several chains
+  (``several_roots_unsupported``) and ``@`` after a flow (``invalid_chain``). So are an empty
+  element (``yosys_fpga+``) and a malformed output name.
 * A flow supplies every compatible required input of the next one, or the inputs that it feeds in
   the plan of the next one when the link passes through flows. Optional inputs are not bound. An
   output that fits no such input, or two outputs that fit, is an error that names the choices. When
@@ -765,7 +777,9 @@ Rules for chains
   ``yosys_fpga.netlist_edif+fpga_pack`` suggests ``yosys_fpga+fpga_pack`` and
   ``yosys_fpga.netlist+fpga_pack``. Nothing searches all flows, so a refusal with no such output has
   no suggestion.
-* A flow that programs a device (``openfpgaloader``) can only end a chain.
+* A flow that programs a device (``openfpgaloader``) can only end a chain. An action may come
+  before another flow only if it declares an output and the next flow reads that output. No
+  built-in action declares an output, so each of them ends a chain.
 * Only flows that declare their outputs can start a link: those with a nonempty ``outputs`` in
   ``xeda list-flows --json``. Today these are ``bsc``, ``ghdl_synth``, ``yosys_fpga``, ``nextpnr``,
   ``fpga_pack``, ``yosys``, the OpenROAD stages, ``vivado_synth``, ``vivado_alt_synth``,
@@ -787,14 +801,13 @@ Completion returns the whole token, so ``<TAB>`` after a prefix extends the chai
     xeda run fpga_pack+<TAB>         ->  fpga_pack+openfpgaloader
     xeda run openfpgaloader+<TAB>    ->  (nothing: a programmer can only end a chain)
 
-``-s`` sets the last flow, as for any run, and ``-s flows.<flow>.<key>=<value>`` sets any other
-flow of the chain. A flow that is not in the run is an error with a list of close matches. A
+``-s <flow>.<key>=<value>`` sets any flow of the chain. A flow that is not in the run is an error with a list of close matches. A
 flow's settings are written in one place, its ``flows.<flow>`` section, whether the flow runs
 because you named it or because it is the default producer of another flow:
 
 .. code-block:: bash
 
-    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s flows.nextpnr.seed=2 flows.yosys_fpga.flatten=true
+    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s nextpnr.seed=2 yosys_fpga.flatten=true
 
 Shared settings (``fpga``, ``board``, ``clocks`` and others) that are given at any one node apply
 to every node along the edges of the chain. Two different values in files are a conflict that
@@ -802,7 +815,7 @@ names both nodes and their files, and a command-line value wins for the whole gr
 not part of the run gives no shared setting. For example, ``vivado_synth+openfpgaloader`` replaces
 the default producers of the programmer, so a device written only in ``flows.yosys_fpga`` reaches
 neither node. Write the device for a flow of the chain (``flows.vivado_synth.fpga.part``, or a
-``board`` for ``openfpgaloader``), or give ``-s fpga.part=<part>``. The error that a flow needs
+``board`` for ``openfpgaloader``), or give ``-s <flow>.fpga.part=<part>`` for a flow of the chain. The error that a flow needs
 ``fpga`` names each section that gives it without reaching the flow.
 
 The exit status follows the ``outcome`` of the launch, which an error of the whole launch, such as a
@@ -812,7 +825,7 @@ that Xeda planned but never started after a failure is ``blocked`` or ``skipped`
 :doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and
 only after the whole chain succeeded. A chain that ends at ``openfpgaloader`` has no outputs to
 deliver, so ``--outputs-to`` is refused before anything runs. The error names the setting that
-delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the
+delivers the bitstream (``-s vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the
 graph and runs no tool.
 
 Deliveries
@@ -916,7 +929,7 @@ so its ``checkpoint`` has to come from the synthesis whose netlist that simulati
 declares such a relation on the input. ``xeda list-flows --json`` shows it as ``same_producer_as``,
 with ``via`` when the relation goes through the flow that makes the other input. Xeda refuses a
 plan that takes related inputs from different producers, before anything runs. The error names the
-inputs, where each comes from and the ``-s flows.<flow>.inputs.<input>=<producer>.<output>``
+inputs, where each comes from and the ``-s <flow>.inputs.<input>=<producer>.<output>``
 bindings that make them agree. The rule compares what Xeda generates. A file that you list in
 ``rtl.sources`` is your own choice and is not compared.
 
@@ -987,15 +1000,14 @@ binding is the only switch:
           activity: vivado_postsynth_sim.saif
 
 The same binding on the command line is
-``-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif``.
+``-s vivado_power.inputs.activity=vivado_postsynth_sim.saif``.
 
 Where a binding can be given
 ----------------------------
 
 From the lowest rank to the highest, you can give a binding in a project file, in the design file,
 on the command line and through the API. On the command line, use a chain,
-``-s flows.<consumer>.inputs.<input>=<reference>``, or ``-s inputs.<input>=<reference>`` for the
-requested flow. A higher rank replaces a lower one input by input. A chain is command-line input,
+``-s <consumer>.inputs.<input>=<reference>``. A higher rank replaces a lower one input by input. A chain is command-line input,
 so it replaces a binding saved in a design or project for the same input, and the plan says so
 (``overridden``). A chain and an explicit command-line or API binding of the same input are an
 error, even when they are equal. Xeda reports the error before it checks either binding:
@@ -1003,7 +1015,7 @@ error, even when they are equal. Xeda reports the error before it checks either 
 .. code-block:: text
 
     The chain position 1 (yosys_fpga) -> 2 (nextpnr) binds input 'netlist'; the command line (`-s`)
-    or `flow_settings`: flows.nextpnr.inputs.netlist also binds that input. Give the binding in one
+    or `flow_settings`: nextpnr.inputs.netlist also binds that input. Give the binding in one
     place, even when equal.
 
 A project file given with ``--xedaproject project.yaml`` holds the same ``flows.<flow>.inputs``
@@ -1106,7 +1118,7 @@ never change a netlist.
 (``rtl_json``, ``rtl_verilog`` and ``rtl_graph``) and stops before synthesis. The run succeeds,
 with no netlist and no report. Xeda refuses, before anything runs, a setting that asks for what
 synthesis writes: ``netlist_json`` and ``netlist_verilog`` (both on by default), ``netlist_graph``,
-``write_blif``, ``sta`` and ``ltp``. So write ``-s stop_after=rtl netlist_json= netlist_verilog=``.
+``write_blif``, ``sta`` and ``ltp``. So write ``-s yosys_fpga.stop_after=rtl yosys_fpga.netlist_json= yosys_fpga.netlist_verilog=``.
 A flow that takes the netlist, such as ``nextpnr``, cannot follow a stopped flow. Xeda refuses the
 plan, and the message names that flow.
 
@@ -1139,9 +1151,9 @@ opt-in. A faster or smaller Yosys netlist alone does not show an improvement in 
 
 For example, list ``{file: "pins.pcf", type: Pcf}`` in ``rtl.sources``, then run::
 
-    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
-      -s clock.period=20ns -s seed=2
-    xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
+    xeda run nextpnr blinky.yaml -s nextpnr.fpga.part=iCE40HX1K-TQ144 \
+      -s nextpnr.clock.period=20ns -s nextpnr.seed=2
+    xeda run openfpgaloader blinky.yaml -s openfpgaloader.write_flash=true -s openfpgaloader.verify=true
 
 Use ``xeda list-settings <flow> --json`` with ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` or
 ``openfpgaloader`` to inspect all named settings. ``synth_flags``, ``extra_args`` and the
@@ -1177,7 +1189,7 @@ for a ``.v`` file. The option changes what such a file accepts: ``logic`` is a k
 ``-sv`` and an identifier without it. ``systemverilog`` defaults to ``slang``, a plugin whose
 ``read_slang`` is not what ``yosys file.sv`` runs. ``default`` is the built-in ``read_verilog -sv``
 of Yosys, which reads a ``.sv`` source. Xeda refuses these three settings by value, so it refuses
-their defaults too. On the command line, the empty list is ``-s read_verilog_flags=`` (an empty
+their defaults too. On the command line, the empty list is ``-s yosys_fpga.read_verilog_flags=`` (an empty
 value). The text ``[]`` is refused, as it is for every list setting.
 
 The default ABC9 behavior depends on the mode. In the full recipe of Xeda, an unset ABC9 script
@@ -1191,12 +1203,12 @@ both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 
 
 .. code-block:: bash
 
-    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags= \
-      systemverilog=default
-    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags= \
-      systemverilog=default abc9_script=flow2
-    xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true \
-      flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
+    xeda run yosys_fpga blinky.yaml -s yosys_fpga.synth_pass_only=true yosys_fpga.read_verilog_flags= \
+      yosys_fpga.systemverilog=default
+    xeda run yosys_fpga blinky.yaml -s yosys_fpga.synth_pass_only=true yosys_fpga.read_verilog_flags= \
+      yosys_fpga.systemverilog=default yosys_fpga.abc9_script=flow2
+    xeda run fpga_pack blinky.yaml -s yosys_fpga.synth_pass_only=true \
+      yosys_fpga.read_verilog_flags= yosys_fpga.systemverilog=default
 
 The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
 as the required time of the LUT mapping (the ``-D`` option of the ``&if`` command of ABC). The Yosys
@@ -1624,7 +1636,7 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
 .. code-block:: bash
 
     xeda run yosys_fpga+vivado_impl blinky.yaml                              # reports and results
-    xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit # and a bitstream
+    xeda run yosys_fpga+vivado_impl blinky.yaml -s vivado_impl.bitstream=$PWD/blinky.bit # and a bitstream
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
 ``fpga`` and ``clocks`` are shared along the edge, so one section gives them to both flows, and one
@@ -1674,7 +1686,7 @@ simulate the routed netlists alone):
 
 .. code-block:: text
 
-    -s flows.vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist flows.vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing flows.vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf
+    -s vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf
 
 The power report needs a testbench in the design (``tb``), as for the other Vivado flows.
 
@@ -2261,7 +2273,7 @@ without quoting. Use a run root without whitespace (``--run-root``).
 .. code-block:: bash
 
     xeda run bsc examples/bluespec/gcd/gcd.yaml
-    xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=verilator
+    xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s bsc_sim.simulator=verilator
 
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
@@ -2456,7 +2468,7 @@ All waveform settings read their value by one rule, on the command line and in a
   location and ``true`` are the same run. For the ``saif`` of ``vivado_sim`` and
   ``vivado_postsynth_sim``, that name is ``outputs/<design>.saif``. ``verilator`` without cocotb
   accepts only ``true`` and no location, because the testbench names the file. On the command line,
-  ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
+  ``-s ghdl_sim.vcd=true`` and a YAML ``vcd: true`` are the same setting.
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the extension of the format.
 * The words that YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``,

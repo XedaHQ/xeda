@@ -22,7 +22,7 @@ from xeda.outcomes import result_from_dict
 from xeda.records import decode_record, encode_record, read_record
 from xeda.run_root import ensure_run_root
 
-from .io_flows import _InputTaker, _Join, _Maker, _PartialMaker, _Place, _Taker
+from .io_flows import TInputTaker, TJoin, TMaker, TPartialMaker, TPlace, TTaker
 from .remote_fixtures import (
     connected,
     fake_remote,
@@ -33,6 +33,7 @@ from .remote_fixtures import (
 from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_store
 from .tool_utils import require_bsc, require_ghdl, require_yosys
 from .design_edits import design_from_dump
+from .scoping import node_settings
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -83,7 +84,7 @@ def _mirror(tmp_path: Path) -> Path:
 def _local_hash(design: Path, flow: str, settings, tmp_path: Path) -> str:
     """The identity of the requested node in a local plan."""
     plan = DefaultRunner(tmp_path / "plan_only", display_results=False).plan(
-        flow, design, flow_settings=settings
+        flow, design, flow_settings=node_settings(flow, settings)
     )
     return plan.node(flow).flowrun_hash
 
@@ -114,7 +115,7 @@ def test_a_remote_run_without_a_target_runs_the_design(tmp_path, remote_host):
             tmp_path,
             TARGETS / "knight.yaml",
             "vivado_synth",
-            flow_settings=["fpga.part=xc7a100tcsg324-1"],
+            flow_settings=node_settings("vivado_synth", ["fpga.part=xc7a100tcsg324-1"]),
         )
     )
     assert document["spec"]["target"] is None
@@ -146,7 +147,12 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     local_trace.write_text("{}")
 
     document = _succeeded(
-        remote_request(tmp_path, design, "vivado_synth", flow_settings=SQRT_SETTINGS)
+        remote_request(
+            tmp_path,
+            design,
+            "vivado_synth",
+            flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
+        )
     )
     assert local_trace.read_text() == "{}", "a local run's directory is not the mirror"
     mirror = _run_dir(document)
@@ -195,7 +201,7 @@ def test_a_flow_without_declared_io_has_the_identity_it_was_sent(tmp_path, remot
     design = _sqrt_design(tmp_path / "design")
     (design.parent / "cells.db").write_text("")
     settings = ["target_libraries=cells.db", "clocks.main_clock.period=5ns"]
-    outcome = remote_request(tmp_path, design, "dc", flow_settings=settings)
+    outcome = remote_request(tmp_path, design, "dc", flow_settings=node_settings("dc", settings))
     # the fake `dc_shell` writes no timing report, so the run itself may report failure: what is
     # compared is the identity
     assert outcome.error is None, outcome.document
@@ -213,7 +219,10 @@ def test_a_vivado_composite_resolves_the_same_declared_graph(tmp_path, remote_ho
     remote_host.configure(env={"XEDA_FAKE_XSIM_STATE": "finish5"})
     document = _succeeded(
         remote_request(
-            tmp_path, root / "design.yaml", flow_name, flow_settings=list(VIVADO_SETTINGS)
+            tmp_path,
+            root / "design.yaml",
+            flow_name,
+            flow_settings=node_settings(flow_name, list(VIVADO_SETTINGS)),
         )
     )
     expected = _local_hash(root / "design.yaml", flow_name, VIVADO_SETTINGS, tmp_path)
@@ -236,7 +245,11 @@ def test_the_fpga_graph_runs_on_the_remote_and_mirrors_its_bitstream(tmp_path, r
     design = root / "top.yaml"
     design.write_text("name: top\nrtl:\n  sources: [top.v]\n  top: top\n")
     settings = ["fpga.part=LFE5U-25F-6BG381C"]
-    document = _succeeded(remote_request(tmp_path, design, "fpga_pack", flow_settings=settings))
+    document = _succeeded(
+        remote_request(
+            tmp_path, design, "fpga_pack", flow_settings=node_settings("fpga_pack", settings)
+        )
+    )
     assert _identity(document) == _local_hash(design, "fpga_pack", settings, tmp_path)
     assert [node["name"] for node in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
     recorded = _results(document)["outputs"]["bitstream"]
@@ -268,7 +281,9 @@ def test_a_failed_remote_run_reports_its_failure(tmp_path, remote_host):
         tmp_path,
         design,
         "vivado_alt_synth",
-        flow_settings=[*SQRT_SETTINGS, "write_netlist=true", "write_timing_netlist=true"],
+        flow_settings=node_settings(
+            "vivado_alt_synth", [*SQRT_SETTINGS, "write_netlist=true", "write_timing_netlist=true"]
+        ),
     )
     assert outcome.error is None and not outcome.success, outcome.document
     results = _results(outcome.document)
@@ -290,7 +305,7 @@ def test_a_failed_remote_run_does_not_fetch_an_output_it_never_wrote(tmp_path, r
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit"],
+        flow_settings=node_settings("vivado_synth", [*SQRT_SETTINGS, "bitstream=top.bit"]),
     )
     assert outcome.error is None and not outcome.success, outcome.document
     assert "bitstream" not in _results(outcome.document)["artifacts"]
@@ -308,7 +323,9 @@ def test_a_failed_remote_run_records_no_artifact_it_never_wrote(tmp_path, remote
         tmp_path,
         design,
         "vivado_synth",
-        flow_settings=[*SQRT_SETTINGS, "bitstream=top.bit", "write_netlist=true"],
+        flow_settings=node_settings(
+            "vivado_synth", [*SQRT_SETTINGS, "bitstream=top.bit", "write_netlist=true"]
+        ),
     )
     assert outcome.error is None and not outcome.success, outcome.document
     mirror = _run_dir(outcome.document)
@@ -390,7 +407,10 @@ def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     )
     document = _succeeded(
         remote_request(
-            tmp_path, design_root / "sqrt.yaml", "ghdl_synth", flow_settings=["verilog_output=vout"]
+            tmp_path,
+            design_root / "sqrt.yaml",
+            "ghdl_synth",
+            flow_settings=node_settings("ghdl_synth", ["verilog_output=vout"]),
         )
     )
     run_path = _run_dir(document)
@@ -437,7 +457,9 @@ def test_a_platform_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_
         "clocks.main_clock.period=2ns",
         "pdk_root=elsewhere",
     ]
-    document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
+    document = _succeeded(
+        remote_request(tmp_path, design, "yosys", flow_settings=node_settings("yosys", settings))
+    )
     results = _results(document)
     assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
     remote_dir = remote_host.workspace() / "xeda_run" / "mac" / "yosys"
@@ -465,7 +487,9 @@ def test_a_liberty_file_s_remote_run_has_this_side_s_identity(tmp_path, remote_h
         f"liberty={library}",
         "clocks.main_clock.period=2ns",
     ]
-    document = _succeeded(remote_request(tmp_path, design, "yosys", flow_settings=settings))
+    document = _succeeded(
+        remote_request(tmp_path, design, "yosys", flow_settings=node_settings("yosys", settings))
+    )
     results = _results(document)
     assert _identity(document) == _local_hash(design, "yosys", settings, tmp_path)
     remote_dir = remote_host.workspace() / "xeda_run" / "mac" / "yosys"
@@ -512,7 +536,12 @@ def test_the_files_a_liberty_file_includes_travel_with_it(tmp_path, remote_host,
         "clocks.main_clock.period=2ns",
     ]
     document = _succeeded(
-        remote_request(tmp_path, design_file, "openroad_place", flow_settings=settings)
+        remote_request(
+            tmp_path,
+            design_file,
+            "openroad_place",
+            flow_settings=node_settings("openroad_place", settings),
+        )
     )
     assert _identity(document) == _local_hash(design_file, "openroad_place", settings, tmp_path)
     run_dir = remote_host.workspace() / "xeda_run" / "counter" / "openroad_place"
@@ -618,32 +647,32 @@ def test_a_producers_settings_only_file_is_shipped(tmp_path, remote_host, monkey
         "external": tmp_path / "input.txt",
     }[location]
     input_path.write_text("from settings\n")
-    design = _declared_design(root, {"__input_maker": {"input_file": str(input_path)}})
-    document = _succeeded(remote_request(tmp_path, design, _InputTaker.name))
+    design = _declared_design(root, {"t_input_maker": {"input_file": str(input_path)}})
+    document = _succeeded(remote_request(tmp_path, design, TInputTaker.name))
     assert _results(document)["read"] == "from settings\n"
-    producer = remote_host.workspace() / "xeda_run" / "d" / "__input_maker"
+    producer = remote_host.workspace() / "xeda_run" / "d" / "t_input_maker"
     settings = json.loads((producer / "settings.json").read_text())
     input_file = Path(settings["flow_settings"]["input_file"])
     assert input_file.is_relative_to(remote_host.workspace())
     assert input_file.read_text() == "from settings\n"
     # the mirror's record names the file of this side
     mirror_settings = json.loads(
-        (_mirror(tmp_path) / "d" / "__input_maker" / "settings.json").read_text()
+        (_mirror(tmp_path) / "d" / "t_input_maker" / "settings.json").read_text()
     )
     assert mirror_settings["flow_settings"]["input_file"] == str(input_path.resolve()) or Path(
         mirror_settings["flow_settings"]["input_file"]
     ).samefile(input_path)
     expected = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _InputTaker, Design.load(design), {}
+        TInputTaker, Design.load(design), {}
     )
-    assert settings["flowrun_hash"] == expected.node("__input_maker").flowrun_hash
+    assert settings["flowrun_hash"] == expected.node("t_input_maker").flowrun_hash
 
 
 @pytest.mark.parametrize(
     "sections",
     [
-        {"__place": {"fpga": {"part": "LFE5U-25F-6BG256C"}}},
-        {"__synth": {"fpga": {"part": "LFE5U-25F-6BG256C"}}},
+        {"t_place": {"fpga": {"part": "LFE5U-25F-6BG256C"}}},
+        {"t_synth": {"fpga": {"part": "LFE5U-25F-6BG256C"}}},
     ],
     ids=["requested", "producer"],
 )
@@ -653,14 +682,14 @@ def test_the_remote_runs_the_nodes_planning_names(tmp_path, remote_host, section
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design", sections)
     planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Place, Design.load(design), {}
+        TPlace, Design.load(design), {}
     )
-    document = _succeeded(remote_request(tmp_path, design, _Place.name))
-    assert _identity(document) == planned.node(_Place.name).flowrun_hash
+    document = _succeeded(remote_request(tmp_path, design, TPlace.name))
+    assert _identity(document) == planned.node(TPlace.name).flowrun_hash
     producer = json.loads(
-        (remote_host.workspace() / "xeda_run" / "d" / "__synth" / "settings.json").read_text()
+        (remote_host.workspace() / "xeda_run" / "d" / "t_synth" / "settings.json").read_text()
     )
-    assert producer["flowrun_hash"] == planned.node("__synth").flowrun_hash
+    assert producer["flowrun_hash"] == planned.node("t_synth").flowrun_hash
 
 
 @pytest.mark.parametrize("source", [False, True])
@@ -674,14 +703,14 @@ def test_a_declared_graph_has_the_same_input_origin_on_the_remote(tmp_path, remo
         entries = [{"file": "given.dat", "type": "Data"}]
     design = _declared_design(root, sources=entries)
     expected = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Taker, Design.load(design), {}
+        TTaker, Design.load(design), {}
     )
-    document = _succeeded(remote_request(tmp_path, design, _Taker.name))
+    document = _succeeded(remote_request(tmp_path, design, TTaker.name))
     assert _results(document)["read"] == ("given\n" if source else "made\n")
-    remote_path = remote_host.workspace() / "xeda_run" / "d" / _Taker.name
+    remote_path = remote_host.workspace() / "xeda_run" / "d" / TTaker.name
     trace = json.loads((remote_path / "trace.json").read_text())
-    assert trace["declared_inputs"][0]["origin"] == expected.node(_Taker.name).inputs[0].origin
-    assert _identity(document) == expected.node(_Taker.name).flowrun_hash
+    assert trace["declared_inputs"][0]["origin"] == expected.node(TTaker.name).inputs[0].origin
+    assert _identity(document) == expected.node(TTaker.name).flowrun_hash
 
 
 def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp_path, remote_host):
@@ -690,7 +719,7 @@ def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design")
     out = tmp_path / "out"
-    document = _succeeded(remote_request(tmp_path, design, _Maker.name, outputs_to=out))
+    document = _succeeded(remote_request(tmp_path, design, TMaker.name, outputs_to=out))
     recorded = _results(document)["outputs"]["made"]
     mirrored = Path(recorded["path"])
     assert mirrored.is_relative_to(_mirror(tmp_path))
@@ -707,14 +736,14 @@ def test_a_declared_output_collision_is_refused_before_connecting(tmp_path, remo
 
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design")
-    first = _succeeded(remote_request(tmp_path, design, _Maker.name))
+    first = _succeeded(remote_request(tmp_path, design, TMaker.name))
     assert _results(first)["outputs"] and not _results(first).get("artifacts")
     destination = tmp_path / "out"
     destination.mkdir()
     conflict = destination / "made.txt"
     conflict.write_text("user's file\n")
     calls = len([c for c in remote_host.remote.calls("ssh") if "-M" in c])
-    outcome = remote_request(tmp_path, design, _Maker.name, outputs_to=destination)
+    outcome = remote_request(tmp_path, design, TMaker.name, outputs_to=destination)
     assert isinstance(outcome.error, OutputExistsError) and "made.txt" in str(outcome.error)
     assert len([c for c in remote_host.remote.calls("ssh") if "-M" in c]) == calls
     assert conflict.read_text() == "user's file\n"
@@ -724,7 +753,7 @@ def test_a_declared_output_collision_is_refused_before_connecting(tmp_path, remo
 def test_declared_setup_failures_return_the_failure_document(tmp_path, remote_host, stage):
     """The flow of the remote fails in `init()` or in its producer: the document says so, with
     the same keys as any failed run, and nothing is delivered."""
-    target = "_Taker.init" if stage == "init" else "_Maker.run"
+    target = "TTaker.init" if stage == "init" else "TMaker.run"
     remote_host.load_test_flows(
         after=(
             "from xeda.flow import FlowFatalError\n"
@@ -735,7 +764,7 @@ def test_declared_setup_failures_return_the_failure_document(tmp_path, remote_ho
         )
     )
     design = _declared_design(tmp_path / "design")
-    outcome = remote_request(tmp_path, design, _Taker.name, outputs_to=tmp_path / "out")
+    outcome = remote_request(tmp_path, design, TTaker.name, outputs_to=tmp_path / "out")
     assert not outcome.success
     document = outcome.document
     assert "broken setup" in document["error"]["message"]
@@ -749,7 +778,7 @@ def test_declared_setup_failures_return_the_failure_document(tmp_path, remote_ho
 def test_a_failed_declared_run_hands_over_no_partial_output(tmp_path, remote_host):
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design")
-    outcome = remote_request(tmp_path, design, _PartialMaker.name, outputs_to=tmp_path / "out")
+    outcome = remote_request(tmp_path, design, TPartialMaker.name, outputs_to=tmp_path / "out")
     assert not outcome.success
     assert outcome.document["outcome"] == "failed"
     assert outcome.document["error"]["code"] == "missing_output"
@@ -763,11 +792,11 @@ def test_declared_shared_settings_must_agree_before_connecting(tmp_path, remote_
     design = _declared_design(
         tmp_path / "design",
         {
-            "__place": {"fpga": {"part": "LFE5U-25F-6BG256C"}},
-            "__synth": {"fpga": {"part": "LFE5U-85F-6BG381C"}},
+            "t_place": {"fpga": {"part": "LFE5U-25F-6BG256C"}},
+            "t_synth": {"fpga": {"part": "LFE5U-85F-6BG381C"}},
         },
     )
-    outcome = remote_request(tmp_path, design, _Place.name)
+    outcome = remote_request(tmp_path, design, TPlace.name)
     assert isinstance(outcome.error, FlowSettingsError) and "disagree" in str(outcome.error)
     assert not connected(remote_host)
     assert not (tmp_path / "local" / "xeda_run").exists()
@@ -777,14 +806,14 @@ def test_declared_shared_settings_must_agree_before_connecting(tmp_path, remote_
 
 
 def _bound_design(root: Path) -> Path:
-    """A design whose file binds `__taker.made` to `__input_maker`, not to the default producer."""
+    """A design whose file binds `t_taker.made` to `t_input_maker`, not to the default producer."""
     root.mkdir(parents=True, exist_ok=True)
     (root / "input.txt").write_text("from the bound producer\n")
     return _declared_design(
         root,
         {
-            "__taker": {"inputs": {"made": "__input_maker.made"}},
-            "__input_maker": {"input_file": "input.txt"},
+            "t_taker": {"inputs": {"made": "t_input_maker.made"}},
+            "t_input_maker": {"input_file": "input.txt"},
         },
     )
 
@@ -793,13 +822,13 @@ def test_a_design_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
     remote_host.load_test_flows()
     design = _bound_design(tmp_path / "design")
     planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Taker, Design.load(design), {}
+        TTaker, Design.load(design), {}
     )
-    assert [node.name for node in planned.nodes] == ["__input_maker", "__taker"]
-    document = _succeeded(remote_request(tmp_path, design, _Taker.name))
+    assert [node.name for node in planned.nodes] == ["t_input_maker", "t_taker"]
+    document = _succeeded(remote_request(tmp_path, design, TTaker.name))
     assert _results(document)["read"] == "from the bound producer\n"
-    assert _identity(document) == planned.node(_Taker.name).flowrun_hash
-    assert [node["name"] for node in document["nodes"]] == ["__input_maker", "__taker"]
+    assert _identity(document) == planned.node(TTaker.name).flowrun_hash
+    assert [node["name"] for node in document["nodes"]] == ["t_input_maker", "t_taker"]
 
 
 def test_a_command_line_binding_over_a_file_binding_reaches_the_remote_plan(tmp_path, remote_host):
@@ -810,20 +839,22 @@ def test_a_command_line_binding_over_a_file_binding_reaches_the_remote_plan(tmp_
     design = _declared_design(
         root,
         {
-            "__taker": {"inputs": {"made": "__maker.made"}},
-            "__input_maker": {"input_file": "input.txt"},
+            "t_taker": {"inputs": {"made": "t_maker.made"}},
+            "t_input_maker": {"input_file": "input.txt"},
         },
     )
     document = _succeeded(
         remote_request(
             tmp_path,
             design,
-            _Taker.name,
-            flow_settings=["flows.__taker.inputs.made=__input_maker.made"],
+            TTaker.name,
+            flow_settings=node_settings(
+                TTaker.name, ["flows.t_taker.inputs.made=t_input_maker.made"]
+            ),
         )
     )
     assert _results(document)["read"] == "from the bound producer\n"
-    assert [node["name"] for node in document["nodes"]] == ["__input_maker", "__taker"]
+    assert [node["name"] for node in document["nodes"]] == ["t_input_maker", "t_taker"]
 
 
 def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
@@ -834,17 +865,17 @@ def test_two_producers_of_a_many_input_run_remotely(tmp_path, remote_host):
     design = _declared_design(
         root,
         {
-            "__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}},
-            "__input_maker": {"input_file": "input.txt"},
+            "t_join": {"inputs": {"more": ["t_maker.made", "t_input_maker.made"]}},
+            "t_input_maker": {"input_file": "input.txt"},
         },
     )
     planned = DefaultRunner(tmp_path / "plan", display_results=False).resolve(
-        _Join, Design.load(design), {}
+        TJoin, Design.load(design), {}
     )
-    document = _succeeded(remote_request(tmp_path, design, _Join.name))
+    document = _succeeded(remote_request(tmp_path, design, TJoin.name))
     assert _results(document)["more"] == ["made\n", "second\n"]
-    assert _identity(document) == planned.node(_Join.name).flowrun_hash
-    assert {node.name for node in planned.nodes} >= {"__maker", "__input_maker"}
+    assert _identity(document) == planned.node(TJoin.name).flowrun_hash
+    assert {node.name for node in planned.nodes} >= {"t_maker", "t_input_maker"}
 
 
 def test_the_record_of_a_remote_many_input_has_one_row_for_each_producer(tmp_path, remote_host):
@@ -859,18 +890,18 @@ def test_the_record_of_a_remote_many_input_has_one_row_for_each_producer(tmp_pat
     design = _declared_design(
         root,
         {
-            "__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}},
-            "__input_maker": {"input_file": "input.txt"},
+            "t_join": {"inputs": {"more": ["t_maker.made", "t_input_maker.made"]}},
+            "t_input_maker": {"input_file": "input.txt"},
         },
     )
-    document = _succeeded(remote_request(tmp_path, design, _Join.name))
+    document = _succeeded(remote_request(tmp_path, design, TJoin.name))
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
     run_dirs = {node["name"]: Path(node["run_dir"]) for node in document["nodes"]}
-    record = read_record(run_dirs[_Join.name], run_root=mirror)
+    record = read_record(run_dirs[TJoin.name], run_root=mirror)
     rows = [row for row in record.inputs if row.name == "more"]
     assert [(row.origin, row.producer, row.output) for row in rows] == [
-        ("producer", "__maker", "made"),
-        ("producer", "__input_maker", "made"),
+        ("producer", "t_maker", "made"),
+        ("producer", "t_input_maker", "made"),
     ]
     for row in rows:
         assert row.producer is not None and row.producer_run_dir == run_dirs[row.producer]

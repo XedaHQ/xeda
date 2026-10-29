@@ -134,7 +134,7 @@ openFPGALoader -b arty_a7_100t uart_echo.bit        # from a bitstream; -b ulx3s
 ```
 
 With several FTDI probes attached, select one with its serial number:
-`-s usb_serial_num=<serial>` (`--ftdi-serial` for `openFPGALoader`).
+`-s openfpgaloader.usb_serial_num=<serial>` (`--ftdi-serial` for `openFPGALoader`).
 
 ## Run the host test
 
@@ -247,7 +247,7 @@ and `echo_transform` choose which combination uses the real top `mkUartEcho`.
 
 ```bash
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml                              # Bluesim, about 45 s
-xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s simulator=verilator       # or iverilog
+xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml -s bsc_sim.simulator=verilator       # or iverilog
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --target switches
 xeda run bsc_sim examples/bluespec/uart_echo/uart_echo.yaml --design-updates tb.defines.XEDA_INJECT_BUG=true   # must fail
 ```

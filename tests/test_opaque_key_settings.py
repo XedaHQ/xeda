@@ -38,6 +38,7 @@ from xeda.utils import ConflictingKeys, settings_to_dict
 
 from .project_files import project_listing
 from .tool_utils import fake_calls, use_fake_tools
+from .scoping import node_settings
 
 PART = "xc7a12tcsg325-1"
 SYNTH_NAME = "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM"
@@ -109,11 +110,14 @@ def origin_command_line(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings=[
-            *(f"{k}={v}" for k, v in BASE_ITEMS),
-            f"set_synth_properties.{SYNTH_NAME}=0",
-            f"set_impl_properties.{IMPL_NAME}=Explore",
-        ],
+        flow_settings=node_settings(
+            VivadoSynth,
+            [
+                *(f"{k}={v}" for k, v in BASE_ITEMS),
+                f"set_synth_properties.{SYNTH_NAME}=0",
+                f"set_impl_properties.{IMPL_NAME}=Explore",
+            ],
+        ),
     )
 
 
@@ -121,11 +125,14 @@ def origin_command_line_flows_section(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings=[
-            *(f"{k}={v}" for k, v in BASE_ITEMS),
-            f"flows.vivado_synth.set_synth_properties.{SYNTH_NAME}=0",
-            f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
-        ],
+        flow_settings=node_settings(
+            VivadoSynth,
+            [
+                *(f"{k}={v}" for k, v in BASE_ITEMS),
+                f"flows.vivado_synth.set_synth_properties.{SYNTH_NAME}=0",
+                f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
+            ],
+        ),
     )
 
 
@@ -133,11 +140,14 @@ def origin_api_settings(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings={
-            **BASE,
-            "set_synth_properties": {SYNTH_NAME: 0},
-            "set_impl_properties": {IMPL_NAME: "Explore"},
-        },
+        flow_settings=node_settings(
+            VivadoSynth,
+            {
+                **BASE,
+                "set_synth_properties": {SYNTH_NAME: 0},
+                "set_impl_properties": {IMPL_NAME: "Explore"},
+            },
+        ),
     )
 
 
@@ -145,7 +155,7 @@ def origin_api_overrides(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings=[f"{k}={v}" for k, v in BASE_ITEMS],
+        flow_settings=node_settings(VivadoSynth, [f"{k}={v}" for k, v in BASE_ITEMS]),
         flow_overrides={
             "set_synth_properties": {SYNTH_NAME: 0},
             f"set_impl_properties.{IMPL_NAME}": "Explore",
@@ -292,7 +302,11 @@ def test_a_layer_over_a_layer_replaces_the_property_it_names(tmp_path):
             flows_section({SYNTH_NAME: 1, "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION": "off"}, {})
         ),
     )
-    settings = planned(tmp_path, design, flow_settings=[f"set_synth_properties.{SYNTH_NAME}=0"])
+    settings = planned(
+        tmp_path,
+        design,
+        flow_settings=node_settings(VivadoSynth, [f"set_synth_properties.{SYNTH_NAME}=0"]),
+    )
     assert properties(settings)[0] == {
         SYNTH_NAME: "0",
         "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION": "off",
@@ -326,39 +340,27 @@ def test_a_name_that_is_the_start_of_another_is_refused_within_one_origin():
         settings_to_dict(["set_synth_properties.A=1", "set_synth_properties.A.B=2"])
 
 
-QUALIFIED = "flows.vivado_synth.set_synth_properties"
+PROPERTIES = "vivado_synth.set_synth_properties"
 
 SPELLINGS = {
-    "unqualified first": ["set_synth_properties.A=1", f"{QUALIFIED}.A.B=2"],
-    "qualified first": [f"{QUALIFIED}.A.B=2", "set_synth_properties.A=1"],
-    "a name inside the other, unqualified": ["set_synth_properties.A.B=2", f"{QUALIFIED}.A=1"],
+    "a value first": [f"{PROPERTIES}.A=1", f"{PROPERTIES}.A.B=2"],
+    "a name inside it first": [f"{PROPERTIES}.A.B=2", f"{PROPERTIES}.A=1"],
 }
 
 
 @pytest.mark.parametrize("items", SPELLINGS.values(), ids=SPELLINGS.keys())
-def test_the_two_spellings_of_the_command_line_are_one_origin_for_a_name_inside_a_name(
-    tmp_path, items
-):
-    """`-s key` and `-s flows.<requested>.key` are one setting, so `A` in one and `A.B` in the
-    other are refused as `A` and `A.B` in one spelling are."""
+def test_a_value_and_a_name_inside_it_on_the_command_line_are_refused(tmp_path, items):
+    """`A` in one item and `A.B` in another are refused as they are in one spelling."""
     design = design_from(tmp_path, design_data())
-    with pytest.raises(FlowSettingsException, match=r"value, and .* inside it") as caught:
-        planned(tmp_path, design, flow_settings=[*(f"{k}={v}" for k, v in BASE_ITEMS), *items])
-    assert "set_synth_properties.A" in str(caught.value)
-
-
-def test_the_api_takes_the_two_spellings_as_one_origin_too(tmp_path):
-    design = design_from(tmp_path, design_data())
-    with pytest.raises(FlowSettingsException, match=r"value, and .* inside it"):
+    with pytest.raises(
+        (FlowSettingsException, ConflictingKeys), match=r"set_synth_properties\.A"
+    ) as caught:
         planned(
             tmp_path,
             design,
-            flow_settings={
-                **BASE,
-                "set_synth_properties": {"A": 1},
-                "flows": {"vivado_synth": {"set_synth_properties": {"A.B": 2}}},
-            },
+            flow_settings=[*(f"vivado_synth.{k}={v}" for k, v in BASE_ITEMS), *items],
         )
+    assert "set_synth_properties.A" in str(caught.value)
 
 
 def test_the_command_line_refuses_the_two_spellings_with_a_name_inside_a_name(tmp_path):
@@ -387,24 +389,28 @@ def test_the_command_line_refuses_the_two_spellings_with_a_name_inside_a_name(tm
     assert "inside it" in document["error"]["message"], document
 
 
-SPELLINGS_CLI = ["set_synth_properties.A=1", f"{QUALIFIED}.A.B=2"]
+SPELLINGS_CLI = ["vivado_synth.set_synth_properties.A=1", "vivado_synth.set_synth_properties.A.B=2"]
 
 
-def test_the_same_name_in_both_spellings_is_one_property(tmp_path):
+def test_the_same_name_twice_is_one_property(tmp_path):
     """The rule for one setting stays: the same value twice is accepted, two values are not."""
     design = design_from(tmp_path, design_data())
     base = [*(f"{k}={v}" for k, v in BASE_ITEMS)]
     settings = planned(
         tmp_path,
         design,
-        flow_settings=[*base, "set_synth_properties.A.B=2", f"{QUALIFIED}.A.B=2"],
+        flow_settings=node_settings(
+            VivadoSynth, [*base, "set_synth_properties.A.B=2", "set_synth_properties.A.B=2"]
+        ),
     )
     assert prefix_names(settings) == {"A.B": "2"}
     with pytest.raises(FlowSettingsException, match="set one setting to two values"):
         planned(
             tmp_path,
             design,
-            flow_settings=[*base, "set_synth_properties.A.B=2", f"{QUALIFIED}.A.B=3"],
+            flow_settings=node_settings(
+                VivadoSynth, [*base, "set_synth_properties.A.B=2", "set_synth_properties.A.B=3"]
+            ),
         )
 
 
@@ -417,11 +423,17 @@ def test_names_one_of_which_starts_the_other_are_both_kept_across_origins(tmp_pa
     origin replaces only the names it gives: `A` below and `A.B` above are two properties."""
     design = design_from(tmp_path, design_data(flows_section({"A": 1, SYNTH_NAME: 0}, {})))
     both = {"A": "1", "A.B": "2", SYNTH_NAME: "0"}
-    from_command_line = planned(tmp_path, design, flow_settings=["set_synth_properties.A.B=2"])
+    from_command_line = planned(
+        tmp_path, design, flow_settings=node_settings(VivadoSynth, ["set_synth_properties.A.B=2"])
+    )
     assert prefix_names(from_command_line) == both
     from_api = planned(tmp_path, design, flow_overrides={"set_synth_properties": {"A.B": 2}})
     assert prefix_names(from_api) == both
-    replaced = planned(tmp_path, design, flow_settings=[f"set_synth_properties.{SYNTH_NAME}=7"])
+    replaced = planned(
+        tmp_path,
+        design,
+        flow_settings=node_settings(VivadoSynth, [f"set_synth_properties.{SYNTH_NAME}=7"]),
+    )
     assert prefix_names(replaced) == {"A": "1", SYNTH_NAME: "7"}
 
 
@@ -458,23 +470,14 @@ def escaped_from_command_line(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings=[
-            *(f"{k}={v}" for k, v in BASE_ITEMS),
-            "set_synth_properties.A=1",
-            f"set_synth_properties.{ESCAPED}=2",
-        ],
-    )
-
-
-def escaped_from_flows_section(tmp_path):
-    return planned(
-        tmp_path,
-        design_from(tmp_path, design_data()),
-        flow_settings=[
-            *(f"{k}={v}" for k, v in BASE_ITEMS),
-            "set_synth_properties.A=1",
-            f"{QUALIFIED}.{ESCAPED}=2",
-        ],
+        flow_settings=node_settings(
+            VivadoSynth,
+            [
+                *(f"{k}={v}" for k, v in BASE_ITEMS),
+                "set_synth_properties.A=1",
+                f"set_synth_properties.{ESCAPED}=2",
+            ],
+        ),
     )
 
 
@@ -482,7 +485,9 @@ def escaped_from_api_settings(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings={**BASE, "set_synth_properties": {"A": 1, ESCAPED: 2}},
+        flow_settings=node_settings(
+            VivadoSynth, {**BASE, "set_synth_properties": {"A": 1, ESCAPED: 2}}
+        ),
     )
 
 
@@ -490,7 +495,7 @@ def escaped_from_api_overrides(tmp_path):
     return planned(
         tmp_path,
         design_from(tmp_path, design_data()),
-        flow_settings=[*(f"{k}={v}" for k, v in BASE_ITEMS)],
+        flow_settings=node_settings(VivadoSynth, [*(f"{k}={v}" for k, v in BASE_ITEMS)]),
         flow_overrides={"set_synth_properties": {"A": 1, ESCAPED: 2}},
     )
 
@@ -509,7 +514,6 @@ def escaped_from_target(tmp_path):
 
 ESCAPED_ORIGINS = [
     escaped_from_command_line,
-    escaped_from_flows_section,
     escaped_from_api_settings,
     escaped_from_api_overrides,
     escaped_from_design_file,
@@ -558,8 +562,8 @@ def test_the_command_line_reports_a_name_with_an_escaped_dot(tmp_path):
             "vivado_synth",
             str(design),
             "-s",
-            "set_synth_properties.A=1",
-            f"set_synth_properties.{ESCAPED}=2",
+            "vivado_synth.set_synth_properties.A=1",
+            f"vivado_synth.set_synth_properties.{ESCAPED}=2",
         ],
     )
     assert result.exit_code == 2, result.output
@@ -872,9 +876,9 @@ def test_the_command_line_runs_vivado_with_the_property(tmp_path, monkeypatch):
             "vivado_synth",
             str(design),
             "-s",
-            "clocks.main_clock.period=5.5ns",
-            f"set_synth_properties.{SYNTH_NAME}=0",
-            f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
+            "vivado_synth.clocks.main_clock.period=5.5ns",
+            f"vivado_synth.set_synth_properties.{SYNTH_NAME}=0",
+            f"vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
             "--json",
         ],
     )
@@ -893,11 +897,14 @@ def test_a_property_given_on_the_command_line_is_judged_like_one_in_a_file(tmp_p
         planned(
             tmp_path,
             design,
-            flow_settings=[
-                *(f"{k}={v}" for k, v in BASE_ITEMS),
-                "out_of_context=true",
-                f"set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none",
-            ],
+            flow_settings=node_settings(
+                VivadoSynth,
+                [
+                    *(f"{k}={v}" for k, v in BASE_ITEMS),
+                    "out_of_context=true",
+                    f"set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none",
+                ],
+            ),
         )
 
 
@@ -920,7 +927,10 @@ def test_the_command_line_takes_a_name_with_a_space(tmp_path, monkeypatch, desig
             }
         )
     )
-    given = [f"set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none", "out_of_context=false"]
+    given = [
+        f"vivado_synth.set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none",
+        "vivado_synth.out_of_context=false",
+    ]
     root = ["--run-root", str(tmp_path / "xeda_run"), "--json"]
     if design_first:
         arguments = ["vivado_synth", str(design), "-s", *given]

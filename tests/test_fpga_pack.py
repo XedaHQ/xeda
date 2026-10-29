@@ -19,6 +19,7 @@ from xeda.run_root import ensure_run_root
 from xeda.utils import NonZeroExitCode
 
 from . import tool_utils
+from .scoping import node_settings
 
 ECP5 = "LFE5U-25F-6BG381C"
 ICE40 = "iCE40HX1K-TQ144"
@@ -135,9 +136,13 @@ def test_the_default_graph_synthesizes_places_and_packs(
 ):
     design = _design(tmp_path, part)
     runner = _runner(tmp_path)
-    plan = runner.plan(FpgaPack, design, flow_settings={"fpga": {"part": part}})
+    plan = runner.plan(
+        FpgaPack, design, flow_settings=node_settings(FpgaPack, {"fpga": {"part": part}})
+    )
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
-    flow = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": part}})
+    flow = runner.run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": part}})
+    )
     assert flow is not None and flow.succeeded
     placed = tmp_path / "run/top/nextpnr"
     assert flow.inputs.config == placed / config
@@ -150,7 +155,9 @@ def test_the_default_graph_synthesizes_places_and_packs(
     assert flow.artifacts["log"] == f"logs/{packer}.log"
     assert not list(flow.run_path.glob(".xeda-pack-*"))
     assert len(_tools(tmp_path)) == 3
-    again = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": part}})
+    again = runner.run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": part}})
+    )
     assert again is not None and again.reused
     assert len(_tools(tmp_path)) == 3
 
@@ -160,11 +167,15 @@ def test_scratch_a_killed_run_left_is_removed_and_never_recorded(tmp_path, toolc
     and what is in a run directory after a run is recorded as that run's output."""
     design = _design(tmp_path)
     runner = _runner(tmp_path)
-    flow = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": ECP5}})
+    flow = runner.run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": ECP5}})
+    )
     left = flow.run_path / ".xeda-pack-killed0"
     left.mkdir()
     (left / "top.bit").write_bytes(PARTIAL)
-    again = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": ECP5}})
+    again = runner.run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": ECP5}})
+    )
     assert again is not None and again.succeeded and not again.reused
     assert not list(again.run_path.glob(".xeda-pack-*"))
     assert ".xeda-pack" not in (again.run_path / "trace.json").read_text()
@@ -176,7 +187,9 @@ def test_ecppack_and_icepack_are_given_their_options_then_the_configuration_and_
 ):
     design = _design(tmp_path)
     settings = {"fpga": {"part": ECP5}, "packer_args": ["--compress", "--freq", "38.8"]}
-    flow = _runner(tmp_path).run("fpga_pack", design, flow_settings=settings)
+    flow = _runner(tmp_path).run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", settings)
+    )
     argv = _calls(flow.run_path)[0]["argv"]
     assert argv[:3] == ["--compress", "--freq", "38.8"]
     assert argv[3] == str(flow.inputs.config)
@@ -203,7 +216,9 @@ def test_every_packer_is_given_all_its_options_before_its_operands(
     a third operand and ignore it. One order for every packer: options, then operands."""
     design = _design(tmp_path, part)
     flow = _runner(tmp_path).run(
-        "fpga_pack", design, flow_settings={"fpga": {"part": part}, "packer_args": args}
+        "fpga_pack",
+        design,
+        flow_settings=node_settings("fpga_pack", {"fpga": {"part": part}, "packer_args": args}),
     )
     (call,) = _calls(flow.run_path)
     assert call["tool"] == packer
@@ -262,9 +277,13 @@ def test_nexus_is_placed_on_its_own_but_refused_for_packing_before_synthesis(tmp
     design = _design(tmp_path)
     runner = _runner(tmp_path)
     with pytest.raises(FlowSettingsException, match="no bitstream packer"):
-        runner.run("fpga_pack", design, flow_settings={"fpga": {"part": NEXUS}})
+        runner.run(
+            "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": NEXUS}})
+        )
     assert not _tools(tmp_path)
-    placed = runner.run("nextpnr", design, flow_settings={"fpga": {"part": NEXUS}})
+    placed = runner.run(
+        "nextpnr", design, flow_settings=node_settings("nextpnr", {"fpga": {"part": NEXUS}})
+    )
     assert placed is not None and placed.succeeded
 
 
@@ -288,9 +307,13 @@ def test_a_typed_configuration_source_is_packed_without_building(
         flows={"nextpnr": {"fpga": {"part": NEXUS}}},
     )
     runner = _runner(tmp_path)
-    plan = runner.plan(FpgaPack, design, flow_settings={"fpga": {"part": part}})
+    plan = runner.plan(
+        FpgaPack, design, flow_settings=node_settings(FpgaPack, {"fpga": {"part": part}})
+    )
     assert [node.name for node in plan.nodes] == ["fpga_pack"]
-    flow = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": part}})
+    flow = runner.run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": part}})
+    )
     assert flow.succeeded and flow.inputs.config == routed
     assert _tools(tmp_path) == [packer]
     assert flow.outputs.bitstream.read_bytes() == BITSTREAM
@@ -301,7 +324,9 @@ def test_a_configuration_of_another_family_does_not_stand_in(tmp_path, toolchain
     design = _design(tmp_path)
     (design.root / "other.fasm").write_text("TILE.FEATURE\n")
     design = _design(tmp_path, extra=["other.fasm"])
-    plan = _runner(tmp_path).plan(FpgaPack, design, flow_settings={"fpga": {"part": ECP5}})
+    plan = _runner(tmp_path).plan(
+        FpgaPack, design, flow_settings=node_settings(FpgaPack, {"fpga": {"part": ECP5}})
+    )
     assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
 
 
@@ -311,7 +336,9 @@ def test_two_configurations_for_one_bitstream_are_an_error(tmp_path, toolchain):
         (design.root / name).write_text("routed\n")
     design = _design(tmp_path, extra=[{"file": n, "type": "EcpConfig"} for n in ("a.cfg", "b.cfg")])
     with pytest.raises(FlowSettingsException, match="one EcpConfig file.*a.cfg.*b.cfg"):
-        _runner(tmp_path).plan(FpgaPack, design, flow_settings={"fpga": {"part": ECP5}})
+        _runner(tmp_path).plan(
+            FpgaPack, design, flow_settings=node_settings(FpgaPack, {"fpga": {"part": ECP5}})
+        )
 
 
 # ----------------------------------------------------------------- the Project X-Ray database
@@ -328,10 +355,14 @@ def test_one_database_override_is_the_whole_graph_s(tmp_path, toolchain, owner):
     design = _design(tmp_path, A100T, flows={owner: {"prjxray_db": "db"}})
     other = _other_database(tmp_path, toolchain)
     runner = _runner(tmp_path)
-    plan = runner.plan(FpgaPack, design, flow_settings={"fpga": {"part": A100T}})
+    plan = runner.plan(
+        FpgaPack, design, flow_settings=node_settings(FpgaPack, {"fpga": {"part": A100T}})
+    )
     assert plan.node("fpga_pack").settings.prjxray_db == other
     assert plan.node("nextpnr").settings.prjxray_db == other
-    flow = runner.run("fpga_pack", design, flow_settings={"fpga": {"part": A100T}})
+    flow = runner.run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": A100T}})
+    )
     assert flow.succeeded
     assert _calls(flow.run_path)[0]["argv"][0] == f"--prjxray_db_path={other / 'artix7'}"
 
@@ -340,7 +371,9 @@ def test_two_database_overrides_that_differ_are_an_error(tmp_path, toolchain):
     flows = {"fpga_pack": {"prjxray_db": "db"}, "nextpnr": {"prjxray_db": "elsewhere"}}
     design = _design(tmp_path, A100T, flows=flows)
     with pytest.raises(FlowSettingsError, match="prjxray_db.*disagrees"):
-        _runner(tmp_path).plan(FpgaPack, design, flow_settings={"fpga": {"part": A100T}})
+        _runner(tmp_path).plan(
+            FpgaPack, design, flow_settings=node_settings(FpgaPack, {"fpga": {"part": A100T}})
+        )
 
 
 # -------------------------------------------------------------------------------- all or nothing
@@ -348,7 +381,9 @@ def test_two_database_overrides_that_differ_are_an_error(tmp_path, toolchain):
 
 def _built(tmp_path, part):
     design = _design(tmp_path, part)
-    first = _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": {"part": part}})
+    first = _runner(tmp_path).run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": part}})
+    )
     assert first is not None and first.succeeded
     return design, first
 
@@ -360,7 +395,7 @@ def _results(flow) -> dict:
 def _fails(runner: DefaultRunner, design: Design, settings: dict) -> None:
     """A launch that ends in failure, reported or raised."""
     try:
-        flow = runner.run("fpga_pack", design, flow_settings=settings)
+        flow = runner.run("fpga_pack", design, flow_settings=node_settings("fpga_pack", settings))
     except (NonZeroExitCode, FlowFatalError):
         return
     assert flow is None or not flow.succeeded
@@ -401,7 +436,7 @@ def test_a_configuration_nextpnr_did_not_write_again_is_never_packed(
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "no-output")
     with pytest.raises(FlowDependencyFailure):
         _runner(tmp_path, rebuild_all=True).run(
-            "fpga_pack", design, flow_settings={"fpga": {"part": ECP5}}
+            "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": ECP5}})
         )
     assert first.inputs.config.is_file()  # the earlier run's configuration is still there
     assert len(_calls(first.run_path)) == 1  # and was not packed a second time
@@ -415,7 +450,9 @@ def test_a_link_at_the_bitstream_s_name_is_replaced_never_written_through(tmp_pa
     final = ensure_run_root(tmp_path / "run") / "top/fpga_pack/outputs/top.bit"
     final.parent.mkdir(parents=True)
     final.symlink_to(outside)
-    flow = _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": {"part": ECP5}})
+    flow = _runner(tmp_path).run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": ECP5}})
+    )
     assert flow.succeeded
     assert not final.is_symlink() and final.read_bytes() == BITSTREAM
     assert outside.read_bytes() == b"the user's own file"
@@ -433,7 +470,9 @@ def test_a_bitstream_given_a_location_is_delivered_only_after_success(
     _fails(_runner(tmp_path), design, settings)
     assert not location.exists()
     monkeypatch.delenv("XEDA_FAKE_FPGA_MODE")
-    flow = _runner(tmp_path).run("fpga_pack", design, flow_settings=settings)
+    flow = _runner(tmp_path).run(
+        "fpga_pack", design, flow_settings=node_settings("fpga_pack", settings)
+    )
     assert flow.succeeded
     assert flow.outputs.bitstream == flow.run_path / "outputs/top.bit"
     assert location.read_bytes() == BITSTREAM
@@ -442,7 +481,11 @@ def test_a_bitstream_given_a_location_is_delivered_only_after_success(
 def test_a_name_for_the_bitstream_stays_in_the_run_directory(tmp_path, toolchain):
     design = _design(tmp_path)
     flow = _runner(tmp_path).run(
-        "fpga_pack", design, flow_settings={"fpga": {"part": ECP5}, "bitstream": "board.bit"}
+        "fpga_pack",
+        design,
+        flow_settings=node_settings(
+            "fpga_pack", {"fpga": {"part": ECP5}, "bitstream": "board.bit"}
+        ),
     )
     assert flow.outputs.bitstream == flow.run_path / "board.bit"
     assert flow.outputs.bitstream.read_bytes() == BITSTREAM
@@ -455,7 +498,9 @@ def test_a_changed_configuration_source_is_packed_again(tmp_path, toolchain):
 
     def launch():
         design = _design(tmp_path, extra=[{"file": "routed.cfg", "type": "EcpConfig"}])
-        return _runner(tmp_path).run("fpga_pack", design, flow_settings={"fpga": {"part": ECP5}})
+        return _runner(tmp_path).run(
+            "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": ECP5}})
+        )
 
     first = launch()
     assert launch().reused
@@ -508,7 +553,9 @@ def test_fpga_pack_ice40_end_to_end(tmp_path, monkeypatch):
         },
     )
     flow = DefaultRunner(tmp_path / "run", display_results=False).run(
-        FpgaPack, design, flow_settings={"fpga": {"part": "iCE40HX1K-TQ144"}}
+        FpgaPack,
+        design,
+        flow_settings=node_settings(FpgaPack, {"fpga": {"part": "iCE40HX1K-TQ144"}}),
     )
     assert flow is not None and flow.succeeded
     assert flow.outputs.bitstream == flow.run_path / "outputs/blink.bin"

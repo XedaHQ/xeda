@@ -41,6 +41,7 @@ from .test_yosys import _yosys_has_tcl
 from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 MAC = (
     "module mul8(input [7:0] a, b, output [15:0] p);\n"
@@ -151,12 +152,16 @@ def test_stop_after_rtl_with_a_netlist_is_refused_before_anything_runs(tmp_path)
     (`tests/test_yosys_stop_after.py` has the rule for every flow that stops)."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsError, match="netlist_verilog") as refused:
-        runner.plan(Yosys, _design(tmp_path / "design"), flow_settings=["stop_after=rtl"])
+        runner.plan(
+            Yosys,
+            _design(tmp_path / "design"),
+            flow_settings=node_settings(Yosys, ["stop_after=rtl"]),
+        )
     assert "netlist_json" in str(refused.value)
     assert runner.plan(
         Yosys,
         _design(tmp_path / "other"),
-        flow_settings=["stop_after=rtl", "netlist_verilog=", "netlist_json="],
+        flow_settings=node_settings(Yosys, ["stop_after=rtl", "netlist_verilog=", "netlist_json="]),
     )
 
 
@@ -334,9 +339,9 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
             "--run-root",
             str(run_root),
             "-s",
-            f"platform_file={TINY_RESIDUE}",
-            f"pdk_root={store}",
-            "clocks.main_clock.period=2ns",
+            f"yosys.platform_file={TINY_RESIDUE}",
+            f"yosys.pdk_root={store}",
+            "yosys.clocks.main_clock.period=2ns",
             "--json",
         ],
         cwd=design,
@@ -575,13 +580,13 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
             str(root),
             "--json",
             "-s",
-            f"platform_file={TINY_RESIDUE}",
-            f"pdk_root={tiny_store(tmp_path)}",
-            "clocks.main_clock.period=2ns",
-            "abc.driver_cell=INV_X1",
-            "abc.load=2.5 fF",
-            "black_box=mul8",
-            "post_synth_opt=false",
+            f"yosys.platform_file={TINY_RESIDUE}",
+            f"yosys.pdk_root={tiny_store(tmp_path)}",
+            "yosys.clocks.main_clock.period=2ns",
+            "yosys.abc.driver_cell=INV_X1",
+            "yosys.abc.load=2.5 fF",
+            "yosys.black_box=mul8",
+            "yosys.post_synth_opt=false",
         ],
         capture_output=True,
         text=True,
@@ -630,11 +635,11 @@ def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path
 
     with preserved_flow_registry():
 
-        class _WithOtherInputs(Yosys):
+        class TWithOtherInputs(Yosys):
             def locate_prepared_inputs(self):
                 return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
 
-    flow, script = _flow_with_script_file(tmp_path, _WithOtherInputs)
+    flow, script = _flow_with_script_file(tmp_path, TWithOtherInputs)
     flow.init()
     assert flow.settings.abc_script == str(script)
     assert flow.implicit_inputs == [script]
@@ -1123,6 +1128,8 @@ def test_a_liberty_file_that_includes_another_is_refused_before_yosys_starts(tmp
             runner.launch_flow(Yosys, design, settings)
         assert named in str(refused.value), name
         assert not list((tmp_path / "xeda_run").glob("mac/yosys*/yosys_synth.ys")), name
-        _plan, states = runner.plan_with_freshness("yosys", design, flow_settings=settings)
+        _plan, states = runner.plan_with_freshness(
+            "yosys", design, flow_settings=node_settings("yosys", settings)
+        )
         assert states["yosys"].state == "unknown", name
         assert "Liberty reader of yosys" in states["yosys"].reason, name

@@ -340,10 +340,10 @@ def test_a_refused_chain_has_its_code(request_text, code):
 
 
 def test_a_many_output_for_a_scalar_input_has_the_cardinality_code():
-    from .test_chains import _ChainAmbiguousConsumer, _ChainProducer
+    from .test_chains import TChainAmbiguousConsumer, TChainProducer
 
     with pytest.raises(ChainRefusal) as refused:
-        chains.match_required_inputs(_ChainProducer, _ChainAmbiguousConsumer, output="many_json")
+        chains.match_required_inputs(TChainProducer, TChainAmbiguousConsumer, output="many_json")
     assert "cardinality" in str(refused.value)
     assert public_error(refused.value).code == "cardinality_mismatch"
     assert pickle.loads(pickle.dumps(refused.value)).code == "cardinality_mismatch"
@@ -351,8 +351,8 @@ def test_a_many_output_for_a_scalar_input_has_the_cardinality_code():
     with pytest.raises(ChainRefusal) as refused:
         chains.validate_chain(
             (
-                chains.ChainElement(_ChainProducer, output="many_json"),
-                chains.ChainElement(_ChainAmbiguousConsumer),
+                chains.ChainElement(TChainProducer, output="many_json"),
+                chains.ChainElement(TChainAmbiguousConsumer),
             )
         )
     assert public_error(refused.value).code == "cardinality_mismatch"
@@ -411,17 +411,17 @@ def test_a_consumer_message_names_the_producer_code_not_a_dict(
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowDependencyFailure) as refused:
         runner.run_flow(
-            failing._NeedsMayFail, design, {}, all_flows_settings={"__may_fail": producer}
+            failing.TNeedsMayFail, design, {}, all_flows_settings={"t_may_fail": producer}
         )
     message = str(refused.value)
-    assert "__may_fail" in message and "(reported_failure)" in message and reason in message
+    assert "t_may_fail" in message and "(reported_failure)" in message and reason in message
     assert "{" not in message and "'type'" not in message
     # the consumer is blocked: it writes no document, and its error carries the same message
     consumer = runner.launched[-1]
     assert not (consumer.run_path / "results.json").exists()
     error = consumer.results["error"]
     assert error["code"] == "producer_failed" and error["message"] == message
-    assert error["node"] == failing._NeedsMayFail.name
+    assert error["node"] == failing.TNeedsMayFail.name
 
 
 def test_a_run_that_lacks_a_report_it_asked_for_has_the_missing_report_code(tmp_path):

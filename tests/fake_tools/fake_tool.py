@@ -99,9 +99,9 @@ proc __model {result args} {
 }
 proc __call {args} { __model 1 {*}$args }
 proc unknown {args} { __call {*}$args }
-set __no_output [expr {[info exists ::env(XEDA_FAKE_TOOL_NO_OUTPUT)] ? $::env(XEDA_FAKE_TOOL_NO_OUTPUT) ne "" : 0}]
+set t_no_output [expr {[info exists ::env(XEDA_FAKE_TOOL_NO_OUTPUT)] ? $::env(XEDA_FAKE_TOOL_NO_OUTPUT) ne "" : 0}]
 proc __output {path} {
-    if {$::__no_output} { return }
+    if {$::t_no_output} { return }
     file mkdir [file dirname $path]
     close [open $path w]
 }
@@ -146,7 +146,7 @@ TCL_EXIT = {
     "vsim": r"""proc exit {args} {
     set i [lsearch -exact $args -code]
     set code [expr {$i >= 0 ? [lindex $args [expr {$i + 1}]] : 0}]
-    if {$::__no_output && [file exists modelsim_end.txt]} {file delete modelsim_end.txt}
+    if {$::t_no_output && [file exists modelsim_end.txt]} {file delete modelsim_end.txt}
     flush $::__calls; __exit $code
 }""",
 }
@@ -164,7 +164,7 @@ set __vsim_transcript {}
 set __vsim_logfile [lindex $argv 0]
 set __vsim_batch [lindex $argv 1]
 set __vsim_enabled [expr {!$__vsim_batch || $__vsim_logfile ne ""}]
-if {$__vsim_logfile ne "" && !$__no_output} {
+if {$__vsim_logfile ne "" && !$t_no_output} {
     set __vsim_transcript [open $__vsim_logfile w]
 }
 set __vsim_state [expr {[info exists ::env(XEDA_FAKE_MODELSIM_STATE)] ? $::env(XEDA_FAKE_MODELSIM_STATE) : "finish0"}]
@@ -185,7 +185,7 @@ proc transcript {sub args} {
     __call transcript $sub {*}$args
     if {$sub eq "file"} {
         if {$::__vsim_transcript ne ""} {close $::__vsim_transcript; set ::__vsim_transcript {}}
-        if {[lindex $args 0] ne "" && $::__vsim_enabled && !$::__no_output} {
+        if {[lindex $args 0] ne "" && $::__vsim_enabled && !$::t_no_output} {
             set ::__vsim_transcript [open [lindex $args 0] w]
         }
     }
@@ -521,7 +521,7 @@ proc __head {path count} {
 # is handed the wrong one of two of them hands its tool different text.
 proc __vivado_text {path text} {
     __vivado_writes $path
-    if {$::__no_output} { return }
+    if {$::t_no_output} { return }
     set f [open $path w]; puts -nonewline $f $text; close $f
 }
 # Vivado makes no directory for a report or a file it writes, whatever the command and whatever

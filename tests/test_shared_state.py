@@ -44,6 +44,7 @@ from xeda.flows.vivado import vivado_alt_synth as alt
 from xeda.tool import Tool
 
 from . import state_snapshot as ss
+from .flow_registry import is_product_flow
 from .settings_samples import flow_classes, minimal_settings
 from .test_isolation import (
     EXTRA_SETTINGS,
@@ -351,6 +352,6 @@ def test_the_sweep_sees_a_launch_that_changes_what_the_caller_gave(tmp_path, mon
 
 
 def test_the_launches_use_the_product_flows_only() -> None:
-    assert FLOWS and all(not cls.__name__.startswith("_") for cls in FLOWS)
+    assert FLOWS and all(is_product_flow(cls) for cls in FLOWS)
     assert {"vivado_synth", "quartus", "vcs"} <= {cls.name for cls in FLOWS}
     assert VivadoSynth in FLOWS

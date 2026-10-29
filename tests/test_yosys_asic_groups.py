@@ -37,6 +37,7 @@ from .test_yosys_asic import (
 from .tiny_platform import TINY, tiny_settings, tiny_store
 from .tool_utils import require_yosys, use_fake_asic_tools
 from .yosys_format import force_script_format
+from .scoping import node_settings
 
 GROUPS = ("hierarchy", "coarse", "arithmetic", "memory", "sequential", "abc", "finish")
 
@@ -781,7 +782,11 @@ def test_the_auto_delay_target_needs_a_clock():
 def test_the_refusals_arrive_at_planning_before_any_run_directory(tmp_path):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsError, match="abc.strategy"):
-        runner.plan(Yosys, _design(tmp_path / "design"), flow_settings=["abc.strategy=speed"])
+        runner.plan(
+            Yosys,
+            _design(tmp_path / "design"),
+            flow_settings=node_settings(Yosys, ["abc.strategy=speed"]),
+        )
     assert not (tmp_path / "xeda_run").exists()
 
 
@@ -849,10 +854,14 @@ def test_editing_a_user_latch_map_makes_the_next_launch_stale(fake_yosys):
     runner = _runner(fake_yosys)
     first = runner.launch_flow(Yosys, design, given)
     assert first.succeeded
-    _, states = _runner(fake_yosys).plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = _runner(fake_yosys).plan_with_freshness(
+        Yosys, design, flow_settings=node_settings(Yosys, given)
+    )
     assert states["yosys"].state == "fresh"
     latch.write_text(latch.read_text() + "// edited\n")
-    _, states = _runner(fake_yosys).plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = _runner(fake_yosys).plan_with_freshness(
+        Yosys, design, flow_settings=node_settings(Yosys, given)
+    )
     assert states["yosys"].state == "stale"
     assert states["yosys"].reason == f"input changed: {latch.resolve()}"
 
@@ -873,10 +882,14 @@ def test_the_other_group_files_are_inputs_too(fake_yosys):
         path.write_text("module _unused(); endmodule\n")
         settings = _given(store, **given)
         assert _runner(fake_yosys).launch_flow(Yosys, design, settings).succeeded
-        _, states = _runner(fake_yosys).plan_with_freshness(Yosys, design, flow_settings=settings)
+        _, states = _runner(fake_yosys).plan_with_freshness(
+            Yosys, design, flow_settings=node_settings(Yosys, settings)
+        )
         assert states["yosys"].state == "fresh", name
         path.write_text("module _unused2(); endmodule\n")
-        _, states = _runner(fake_yosys).plan_with_freshness(Yosys, design, flow_settings=settings)
+        _, states = _runner(fake_yosys).plan_with_freshness(
+            Yosys, design, flow_settings=node_settings(Yosys, settings)
+        )
         assert states["yosys"].state == "stale", name
 
 

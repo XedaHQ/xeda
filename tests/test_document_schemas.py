@@ -44,7 +44,7 @@ from xeda.dataclass import Field
 from .conftest import PYTEST_OWN_VARIABLES
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Join, _Maker, _Reader, _Taker
+from .io_flows import TJoin, TMaker, TReader, TTaker
 from .record_documents import record_document
 
 KEYS = {
@@ -72,7 +72,7 @@ KEYS = {
 }
 
 
-class _Counts(Flow):
+class TCounts(Flow):
     """Writes metrics, and fails, is rejected or writes a bad value when its `mode` says so."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {
@@ -121,7 +121,7 @@ class _Counts(Flow):
         return True
 
 
-class _Lists(Flow):
+class TLists(Flow):
     """Writes a list output."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -136,7 +136,7 @@ class _Lists(Flow):
         self.outputs.made = paths
 
 
-class _Netlister(Flow):
+class TNetlister(Flow):
     """Writes a JSON netlist, whose type has an equivalence digest."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -150,7 +150,7 @@ class _Netlister(Flow):
         self.outputs.netlist = path
 
 
-class _Simulator(SimFlow):
+class TSimulator(SimFlow):
     """A simulator that leaves no end record."""
 
     reads_sources = frozenset({SourceType.SystemVerilog})
@@ -165,7 +165,7 @@ class _Simulator(SimFlow):
 
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
-for _cls in (_Counts, _Lists, _Netlister, _Simulator):
+for _cls in (TCounts, TLists, TNetlister, TSimulator):
     for _name in (_cls.name,):
         registered_flows.pop(_name, None)
 
@@ -200,7 +200,7 @@ def _no_constant(name: str) -> Any:
 
 
 def test_a_passed_run_writes_schema_1(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {})
     document = json.loads((flow.run_path / "results.json").read_text(), parse_constant=_no_constant)
     assert set(document) == KEYS
     assert document["schema_version"] == 1
@@ -247,7 +247,7 @@ def test_a_passed_run_writes_schema_1(tmp_path, design):
 
 
 def test_the_record_has_the_values_of_the_document(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {})
     record = flow.record
     assert isinstance(record, RunRecord) and record.passed
     assert record.metric("group.size") == 2 and record.metric("count") == 3
@@ -266,8 +266,8 @@ def test_the_record_has_the_values_of_the_document(tmp_path, design):
 
 
 def test_fresh_reused_and_loaded_records_are_equal(tmp_path, design, monkeypatch):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
-    again = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
+    again = _runner(tmp_path).launch_flow(TTaker, design, {})
     assert not first.reused and again.reused
     # reading a record needs no flow: the flows are not imported
     monkeypatch.setitem(sys.modules, "xeda.flows", None)
@@ -276,14 +276,14 @@ def test_fresh_reused_and_loaded_records_are_equal(tmp_path, design, monkeypatch
     assert hash(loaded) == hash(first.record)
     assert loaded.run_id == first.run_id == again.run_id
     (maker,) = [flow for flow in (first,)]
-    producer = read_record(tmp_path / "xeda_run" / "d" / "__maker", run_root=loaded.run_root)
+    producer = read_record(tmp_path / "xeda_run" / "d" / "t_maker", run_root=loaded.run_root)
     assert loaded.inputs[0].producer_run_id == producer.run_id
     assert loaded.inputs[0].producer_run_dir == producer.run_dir
     assert maker is first
 
 
 def test_a_loaded_record_is_the_record_of_its_document(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {})
     document = _document(flow)
     again = decode_record(document, run_dir=flow.run_path, run_root=flow.record.run_root)
     assert again == flow.record and encode_record(again) == document
@@ -303,7 +303,7 @@ def test_a_loaded_record_is_the_record_of_its_document(tmp_path, design):
     ],
 )
 def test_a_non_finite_metric_fails_the_node_with_invalid_metric(tmp_path, design, mode, path):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {"mode": mode})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {"mode": mode})
     text = (flow.run_path / "results.json").read_text()
     document = json.loads(text, parse_constant=_no_constant)  # no NaN, no Infinity
     assert document["outcome"] == "failed" and not flow.succeeded
@@ -318,7 +318,7 @@ def test_a_non_finite_metric_fails_the_node_with_invalid_metric(tmp_path, design
 
 
 def test_nest_metrics_applies_one_rule_and_names_the_metric():
-    specs = _Counts.results_description
+    specs = TCounts.results_description
     nested, info = nest_metrics({"count": 1, "group.size": 2, "_x": 1, "other": 2}, specs)
     assert nested == {"count": 1, "group": {"size": 2}}
     assert list(info) == ["count", "group.size"]
@@ -338,7 +338,7 @@ def test_nest_metrics_applies_one_rule_and_names_the_metric():
 
 
 def test_an_old_results_document_makes_the_node_run_again(tmp_path, design):
-    first = _runner(tmp_path).launch_flow(_Counts, design, {})
+    first = _runner(tmp_path).launch_flow(TCounts, design, {})
     results_json = first.run_path / "results.json"
     run_root = first.record.run_root
     # the document of an older Xeda: no `schema_version`, a `success` instead of an outcome
@@ -348,7 +348,7 @@ def test_an_old_results_document_makes_the_node_run_again(tmp_path, design):
         read_record(first.run_path, run_root=run_root)
     assert caught.value.code == "unsupported_schema" and caught.value.path == results_json
 
-    again = _runner(tmp_path).launch_flow(_Counts, design, {})
+    again = _runner(tmp_path).launch_flow(TCounts, design, {})
     assert not again.reused and again.succeeded
     assert again.run_id != first.run_id
     assert read_record(again.run_path, run_root=run_root).passed
@@ -400,7 +400,7 @@ def test_a_record_that_cannot_be_read_says_why(tmp_path, text, code):
     ],
 )
 def test_a_document_of_the_wrong_form_is_a_corrupt_record(tmp_path, design, damage):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {})
     document = _document(flow)
     damage(document)
     with pytest.raises(RecordError) as caught:
@@ -409,7 +409,7 @@ def test_a_document_of_the_wrong_form_is_a_corrupt_record(tmp_path, design, dama
 
 
 def test_an_unknown_field_and_an_unknown_error_code_are_kept_apart(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {"mode": "fail"})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {"mode": "fail"})
     document = _document(flow)
     document["added_later"] = {"x": 1}
     document["error"]["code"] = "a_code_of_the_future"
@@ -421,7 +421,7 @@ def test_an_unknown_field_and_an_unknown_error_code_are_kept_apart(tmp_path, des
 
 
 def test_a_failed_and_a_rejected_record_keep_their_metrics(tmp_path, design):
-    failed = _runner(tmp_path).launch_flow(_Counts, design, {"mode": "fail"})
+    failed = _runner(tmp_path).launch_flow(TCounts, design, {"mode": "fail"})
     document = _document(failed)
     assert document["outcome"] == "failed"
     assert document["error"]["code"] == "reported_failure"
@@ -431,7 +431,7 @@ def test_a_failed_and_a_rejected_record_keep_their_metrics(tmp_path, design):
     }
     assert not (failed.run_path / "trace.json").exists()
 
-    rejected = _runner(tmp_path).launch_flow(_Counts, design, {"mode": "reject"})
+    rejected = _runner(tmp_path).launch_flow(TCounts, design, {"mode": "reject"})
     document = _document(rejected)
     assert document["outcome"] == "rejected"
     assert (
@@ -441,14 +441,14 @@ def test_a_failed_and_a_rejected_record_keep_their_metrics(tmp_path, design):
     assert document["metrics"]["names"] == ["a", "b"]
     assert previous_trace(rejected.run_path, rejected.name).verdict == "rejected"
 
-    again = _runner(tmp_path).launch_flow(_Counts, design, {"mode": "reject"})
+    again = _runner(tmp_path).launch_flow(TCounts, design, {"mode": "reject"})
     assert again.reused and again.rejected_again
     assert again.record == rejected.record
     assert again.record.error == rejected.record.error
 
 
 def test_a_simulation_failure_error_survives_the_record(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Simulator, design, {})
+    flow = _runner(tmp_path).launch_flow(TSimulator, design, {})
     assert not flow.succeeded
     written = ErrorInfo.from_json(flow.results["error"])
     assert written.code == "reported_failure"
@@ -462,7 +462,7 @@ def test_a_simulation_failure_error_survives_the_record(tmp_path, design):
 
 
 def test_a_list_output_and_a_bsc_design_output_have_names_and_digests(tmp_path, design):
-    lister = _runner(tmp_path).launch_flow(_Lists, design, {})
+    lister = _runner(tmp_path).launch_flow(TLists, design, {})
     output = _document(lister)["outputs"]["made"]
     assert output == {
         "kind": "Data",
@@ -502,26 +502,26 @@ def test_a_list_output_and_a_bsc_design_output_have_names_and_digests(tmp_path, 
 def test_the_equivalence_digest_of_an_output_is_in_the_trace_and_not_in_the_record(
     tmp_path, design
 ):
-    first = _runner(tmp_path).launch_flow(_Netlister, design, {})
+    first = _runner(tmp_path).launch_flow(TNetlister, design, {})
     assert "equivalences" not in _document(first)["outputs"]["netlist"]
     stored = previous_trace(first.run_path, first.name).output_equivalences
     assert list(stored) == ["net.json"] and stored["net.json"]
     (written,) = handed_entries(first, "netlist")
     assert written.equivalence == stored["net.json"]
-    again = _runner(tmp_path).launch_flow(_Netlister, design, {})
+    again = _runner(tmp_path).launch_flow(TNetlister, design, {})
     assert again.reused
     (reused,) = handed_entries(again, "netlist")
     assert reused == written
 
 
 def test_a_record_holds_no_absolute_path_to_a_file_of_the_run(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Taker, design, {})
+    flow = _runner(tmp_path).launch_flow(TTaker, design, {})
     document = _document(flow)
-    producer = _document_of(tmp_path, "__maker")
+    producer = _document_of(tmp_path, "t_maker")
     for found in (document, producer):
         strings = list(_strings(found))
         assert not [text for text in strings if str(tmp_path) in text], strings
-    assert document["inputs"][0]["producer_run_dir"] == "d/__maker"
+    assert document["inputs"][0]["producer_run_dir"] == "d/t_maker"
     assert producer["artifacts"] == {} and producer["outputs"]["made"]["names"] == ["made.txt"]
 
 
@@ -548,7 +548,7 @@ def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
         root=design.root,
         rtl={"sources": [{"file": "given.dat", "type": "Data"}], "top": "t"},
     )
-    flow = _runner(tmp_path).launch_flow(_Reader, with_data, {})
+    flow = _runner(tmp_path).launch_flow(TReader, with_data, {})
     (item,) = _document(flow)["inputs"]
     assert item == {
         "name": "data",
@@ -726,52 +726,52 @@ def test_a_record_with_an_artifact_key_off_the_grammar_is_malformed(tmp_path, de
 
 
 def test_a_reused_producer_hands_over_and_delivers_from_schema_1(tmp_path, design):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
     assert first.results["read"] == "made\n"
 
     out = tmp_path / "out"
-    maker = _runner(tmp_path, outputs_to=out).launch_flow(_Maker, design, {})
+    maker = _runner(tmp_path, outputs_to=out).launch_flow(TMaker, design, {})
     assert maker.reused and maker.record.passed
     assert (out / "made.txt").read_text() == "made\n"
 
     second = _runner(tmp_path)
-    plan = second.plan_with_freshness(_Taker, design)[1]
+    plan = second.plan_with_freshness(TTaker, design)[1]
     assert {state.state for state in plan.values()} == {"fresh"}
-    taker = second.launch_flow(_Taker, design, {})
+    taker = second.launch_flow(TTaker, design, {})
     assert taker.reused and taker.inputs.made.read_text() == "made\n"
     assert taker.inputs.made == maker.run_path / "made.txt"
 
 
 @pytest.mark.parametrize("reuse", [False, True])
 def test_record_trace_and_consumer_provenance_share_one_run_id(tmp_path, design, reuse):
-    first = _runner(tmp_path).launch_flow(_Taker, design, {})
+    first = _runner(tmp_path).launch_flow(TTaker, design, {})
     flow = first
     if reuse:
-        flow = _runner(tmp_path).launch_flow(_Taker, design, {})
+        flow = _runner(tmp_path).launch_flow(TTaker, design, {})
         assert flow.reused
     run_root = flow.record.run_root
-    producer_dir = run_root / "d" / "__maker"
+    producer_dir = run_root / "d" / "t_maker"
     producer_record = read_record(producer_dir, run_root=run_root)
-    assert producer_record.run_id == previous_trace(producer_dir, "__maker").run_id
+    assert producer_record.run_id == previous_trace(producer_dir, "t_maker").run_id
     consumer_record = read_record(flow.run_path, run_root=run_root)
     assert consumer_record.run_id == previous_trace(flow.run_path, flow.name).run_id == flow.run_id
     (item,) = consumer_record.inputs
     assert item.producer_run_id == producer_record.run_id
     assert item.producer_run_dir == producer_dir
-    assert (item.origin, item.producer, item.output) == ("producer", "__maker", "made")
+    assert (item.origin, item.producer, item.output) == ("producer", "t_maker", "made")
     assert previous_trace(flow.run_path, flow.name).dependency_runs == {
-        "d/__maker": producer_record.run_id
+        "d/t_maker": producer_record.run_id
     }
 
 
 def test_a_failed_execution_has_its_own_run_id(tmp_path, design):
-    passed = _runner(tmp_path).launch_flow(_Counts, design, {})
-    failed = _runner(tmp_path).launch_flow(_Counts, design, {"mode": "fail"})
+    passed = _runner(tmp_path).launch_flow(TCounts, design, {})
+    failed = _runner(tmp_path).launch_flow(TCounts, design, {"mode": "fail"})
     assert failed.run_path == passed.run_path
     record = read_record(failed.run_path, run_root=failed.record.run_root)
     assert record.outcome == "failed"
     assert record.run_id == failed.run_id and record.run_id != passed.run_id
-    other = _runner(tmp_path).launch_flow(_Counts, design, {"mode": "fail"})
+    other = _runner(tmp_path).launch_flow(TCounts, design, {"mode": "fail"})
     assert other.run_id != failed.run_id
 
 
@@ -779,7 +779,7 @@ def test_a_failed_execution_has_its_own_run_id(tmp_path, design):
 
 
 def test_nested_values_of_a_record_cannot_be_changed(tmp_path, design):
-    record = _runner(tmp_path).launch_flow(_Counts, design, {}).record
+    record = _runner(tmp_path).launch_flow(TCounts, design, {}).record
     with pytest.raises(TypeError):
         record.metrics["group"]["size"] = 9  # type: ignore[index]
     with pytest.raises(TypeError):
@@ -795,7 +795,7 @@ def test_nested_values_of_a_record_cannot_be_changed(tmp_path, design):
 
 
 def test_a_record_is_a_copy_of_what_it_was_built_from(tmp_path, design):
-    flow = _runner(tmp_path).launch_flow(_Counts, design, {})
+    flow = _runner(tmp_path).launch_flow(TCounts, design, {})
     document = _document(flow)
     record = decode_record(document, run_dir=flow.run_path, run_root=flow.record.run_root)
     document["metrics"]["group"]["size"] = 99
@@ -807,7 +807,7 @@ def test_a_record_is_a_copy_of_what_it_was_built_from(tmp_path, design):
 
 
 def test_a_record_can_be_pickled(tmp_path, design):
-    record = _runner(tmp_path).launch_flow(_Taker, design, {}).record
+    record = _runner(tmp_path).launch_flow(TTaker, design, {}).record
     again = pickle.loads(pickle.dumps(record))
     assert again == record and hash(again) == hash(record)
     assert again.to_dict() == record.to_dict()
@@ -844,7 +844,7 @@ def test_freeze_copies_so_a_later_change_of_the_source_is_not_seen():
 
 # --- An input with several bindings ---------------------------------------------------------------
 
-JOIN_BINDINGS = {"__join": {"inputs": {"more": ["__right.out", "__left.out", "__right.out"]}}}
+JOIN_BINDINGS = {"t_join": {"inputs": {"more": ["t_right.out", "t_left.out", "t_right.out"]}}}
 
 
 def _join_design(tmp_path: Path) -> Design:
@@ -855,7 +855,7 @@ def _join_design(tmp_path: Path) -> Design:
 
 def _join_record(tmp_path: Path) -> RunRecord:
     runner = _runner(tmp_path)
-    flow = runner.run(_Join, _join_design(tmp_path))
+    flow = runner.run(TJoin, _join_design(tmp_path))
     assert flow is not None and flow.succeeded
     return read_record(flow.run_path, run_root=flow.record.run_root)
 
@@ -866,14 +866,14 @@ def test_an_input_bound_to_several_producers_has_a_row_for_each_binding(tmp_path
     assert [item.name for item in record.inputs] == ["left", "right", "more", "more", "more"]
     left, right, *rows = record.inputs
     assert [(item.origin, item.producer, item.output) for item in (left, right)] == [
-        ("producer", "__left", "out"),
-        ("producer", "__right", "out"),
+        ("producer", "t_left", "out"),
+        ("producer", "t_right", "out"),
     ]
     # the rows follow the bindings, and a binding that repeats gives a row that repeats
     assert [(item.origin, item.producer, item.output) for item in rows] == [
-        ("producer", "__right", "out"),
-        ("producer", "__left", "out"),
-        ("producer", "__right", "out"),
+        ("producer", "t_right", "out"),
+        ("producer", "t_left", "out"),
+        ("producer", "t_right", "out"),
     ]
     for item in rows:
         directory = run_root / "d" / str(item.producer)

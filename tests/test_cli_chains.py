@@ -12,6 +12,7 @@ from xeda.design import DesignFileParseError
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
 
+from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from . import io_flows  # noqa: F401 - registers the declared test flows
 
@@ -27,7 +28,7 @@ def isolate(tmp_path, monkeypatch):
 
 def _design(tmp_path, flows=None, name="design.yaml"):
     (tmp_path / "in.txt").write_text("bound\n")
-    sections = {"__input_maker": {"input_file": "$DESIGN_ROOT/in.txt"}, **(flows or {})}
+    sections = {"t_input_maker": {"input_file": "$DESIGN_ROOT/in.txt"}, **(flows or {})}
     path = tmp_path / name
     path.write_text(yaml.safe_dump({"name": "demo", "rtl": {"sources": []}, "flows": sections}))
     return path
@@ -43,8 +44,8 @@ def _json(*args):
 
 
 REQUEST = [
-    {"node": "__input_maker", "flow": "__input_maker", "output": None, "through": []},
-    {"node": "__taker", "flow": "__taker", "output": None, "through": []},
+    {"node": "t_input_maker", "flow": "t_input_maker", "output": None, "through": []},
+    {"node": "t_taker", "flow": "t_taker", "output": None, "through": []},
 ]
 
 
@@ -55,24 +56,24 @@ def _nodes(document):
     return [(n["name"], n["flow"], n["outcome"], n["disposition"]) for n in document["nodes"]]
 
 
-@pytest.mark.parametrize("spelling", ["__input_maker+__taker", "__input_maker.made+__taker"])
+@pytest.mark.parametrize("spelling", ["t_input_maker+t_taker", "t_input_maker.made+t_taker"])
 def test_a_chain_runs_its_last_flow_and_reports_every_node(tmp_path, spelling):
     design = _design(tmp_path)
     result, document = _json("run", spelling, design)
     assert result.exit_code == 0, result.output
-    assert document["outcome"] == "passed" and document["roots"] == ["__taker"]
+    assert document["outcome"] == "passed" and document["roots"] == ["t_taker"]
     assert document["spec"]["flow"] == spelling
     nodes = document["nodes"]
     assert _nodes(document) == [
-        ("__input_maker", "__input_maker", "passed", "ran"),
-        ("__taker", "__taker", "passed", "ran"),
+        ("t_input_maker", "t_input_maker", "passed", "ran"),
+        ("t_taker", "t_taker", "passed", "ran"),
     ]
     assert nodes[1]["record"]["metrics"]["read"] == "bound\n"
     (made,) = nodes[1]["record"]["inputs"]
     assert (made["name"], made["origin"], made["producer"], made["output"]) == (
         "made",
         "producer",
-        "__input_maker",
+        "t_input_maker",
         "made",
     )
     assert nodes[0]["record"]["inputs"] == []
@@ -81,36 +82,34 @@ def test_a_chain_runs_its_last_flow_and_reports_every_node(tmp_path, spelling):
 
 
 def test_a_single_flow_reports_the_producers_it_needed(tmp_path):
-    result, document = _json("run", "__taker", _design(tmp_path))
+    result, document = _json("run", "t_taker", _design(tmp_path))
     assert result.exit_code == 0, result.output
-    assert document["roots"] == ["__taker"]
+    assert document["roots"] == ["t_taker"]
     assert document["nodes"][-1]["record"]["metrics"]["read"] == "made\n"
-    assert [n["flow"] for n in document["nodes"]] == ["__maker", "__taker"]
-    assert document["nodes"][1]["record"]["inputs"][0]["producer"] == "__maker"
+    assert [n["flow"] for n in document["nodes"]] == ["t_maker", "t_taker"]
+    assert document["nodes"][1]["record"]["inputs"][0]["producer"] == "t_maker"
 
 
 def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp_path):
     (tmp_path / "other.txt").write_text("other\n")
     result, document = _json(
         "run",
-        "__input_maker+__taker",
+        "t_input_maker+t_taker",
         _design(tmp_path),
         "-s",
-        "nthreads=1",
-        f"flows.__input_maker.input_file={tmp_path / 'other.txt'}",
+        "t_taker.nthreads=1",
+        f"t_input_maker.input_file={tmp_path / 'other.txt'}",
     )
     assert result.exit_code == 0, result.output
     assert document["nodes"][-1]["record"]["metrics"]["read"] == "other\n"
-    settings = json.loads((tmp_path / "xeda_run/demo/__taker/settings.json").read_text())
+    settings = json.loads((tmp_path / "xeda_run/demo/t_taker/settings.json").read_text())
     assert settings["flow_settings"]["nthreads"] == 1
-    bad, failure = _json(
-        "run", "__input_maker+__taker", _design(tmp_path), "-s", "flows.__maker.text=x"
-    )
+    bad, failure = _json("run", "t_input_maker+t_taker", _design(tmp_path), "-s", "t_maker.text=x")
     assert bad.exit_code == 0, "a displaced default producer is addressable, and unused"
     unknown, failure = _json(
-        "run", "__input_maker+__taker", _design(tmp_path), "-s", "flows.__fork.label=x"
+        "run", "t_input_maker+t_taker", _design(tmp_path), "-s", "t_fork.label=x"
     )
-    assert unknown.exit_code == 2 and "names no flow of this run" in failure["error"]["message"]
+    assert unknown.exit_code == 2 and "names no node of this run" in failure["error"]["message"]
     assert failure["outcome"] is None and failure["nodes"] == []
 
 
@@ -131,13 +130,13 @@ def test_run_help_explains_chains_with_yaml_examples():
 
 def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
     design = _design(tmp_path)
-    dry, planned = _json("run", "__input_maker+__taker", design, "--dry-run")
+    dry, planned = _json("run", "t_input_maker+t_taker", design, "--dry-run")
     assert dry.exit_code == 0, dry.output
-    assert planned["dry_run"] and planned["flow"] == "__taker" and planned["request"] == REQUEST
+    assert planned["dry_run"] and planned["flow"] == "t_taker" and planned["request"] == REQUEST
     assert not (tmp_path / "xeda_run").exists()
-    text = _xeda("run", "__input_maker+__taker", design, "--dry-run").output
-    assert "made <- __input_maker.made (chain)" in text
-    ran, document = _json("run", "__input_maker+__taker", design)
+    text = _xeda("run", "t_input_maker+t_taker", design, "--dry-run").output
+    assert "made <- t_input_maker.made (chain)" in text
+    ran, document = _json("run", "t_input_maker+t_taker", design)
     assert [(n["name"], n["run_dir"]) for n in document["nodes"]] == [
         (n["name"], n["run_path"]) for n in planned["plan"]["nodes"]
     ]
@@ -152,13 +151,13 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
 @pytest.mark.parametrize(
     "chain, code, message",
     [
-        ("+__taker", "invalid_chain", "element 1 is empty"),
-        ("__input_maker+", "invalid_chain", "element 2 is empty"),
-        ("__input_maker++__taker", "invalid_chain", "element 2 is empty"),
-        ("__input_maker+__takr", "flow_not_found", "__takr"),
-        ("__taker+__taker", "repeated_flow", "appears more than once"),
-        ("__input_maker.nope+__taker", "unknown_output", "no output `nope`"),
-        ("__taker+__input_maker", "no_edge", "takes no required input"),
+        ("+t_taker", "invalid_chain", "element 1 is empty"),
+        ("t_input_maker+", "invalid_chain", "element 2 is empty"),
+        ("t_input_maker++t_taker", "invalid_chain", "element 2 is empty"),
+        ("t_input_maker+t_takr", "flow_not_found", "t_takr"),
+        ("t_taker+t_taker", "repeated_flow", "appears more than once"),
+        ("t_input_maker.nope+t_taker", "unknown_output", "no output `nope`"),
+        ("t_taker+t_input_maker", "no_edge", "takes no required input"),
     ],
 )
 def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(
@@ -175,33 +174,33 @@ def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(
 
 
 def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
-    """`__left` fails (it writes no output): `__join` is blocked and writes nothing, and the
-    planned node never entered, `__right`, is listed as not run."""
+    """`t_left` fails (it writes no output): `t_join` is blocked and writes nothing, and the
+    planned node never entered, `t_right`, is listed as not run."""
     design = _design(tmp_path)
-    from .io_flows import _Left
+    from .io_flows import TLeft
 
-    monkeypatch.setattr(_Left, "run", lambda self: None)
-    result, document = _json("run", "__fork.a+__left", design)
-    assert result.exit_code == 1 and document["roots"] == ["__left"]
+    monkeypatch.setattr(TLeft, "run", lambda self: None)
+    result, document = _json("run", "t_fork.a+t_left", design)
+    assert result.exit_code == 1 and document["roots"] == ["t_left"]
     assert [(n["name"], n["outcome"]) for n in document["nodes"]] == [
-        ("__fork", "passed"),
-        ("__left", "failed"),
+        ("t_fork", "passed"),
+        ("t_left", "failed"),
     ]
-    result, document = _json("run", "__join", design)
+    result, document = _json("run", "t_join", design)
     assert result.exit_code == 1, result.output
-    assert document["outcome"] == "failed" and document["roots"] == ["__join"]
-    assert document["error"]["node"] == "__left"
+    assert document["outcome"] == "failed" and document["roots"] == ["t_join"]
+    assert document["error"]["node"] == "t_left"
     states = {n["name"]: n["outcome"] for n in document["nodes"]}
     assert states == {
-        "__fork": "passed",  # another demand on its optional outputs: other settings
-        "__left": "failed",
-        "__join": "blocked",
-        "__right": "skipped",
+        "t_fork": "passed",  # another demand on its optional outputs: other settings
+        "t_left": "failed",
+        "t_join": "blocked",
+        "t_right": "skipped",
     }
     nodes = {n["name"]: n for n in document["nodes"]}
-    assert nodes["__join"]["blocked_by"] == "__left" and nodes["__join"]["record"] is None
-    assert nodes["__right"]["run_dir"].endswith("__right") and nodes["__right"]["record"] is None
-    assert not (tmp_path / "xeda_run/demo/__join/results.json").exists()
+    assert nodes["t_join"]["blocked_by"] == "t_left" and nodes["t_join"]["record"] is None
+    assert nodes["t_right"]["run_dir"].endswith("t_right") and nodes["t_right"]["record"] is None
+    assert not (tmp_path / "xeda_run/demo/t_join/results.json").exists()
     assert result.stdout.count('"launch_id"') == 1, "one document"
 
 
@@ -222,15 +221,15 @@ def test_a_chain_given_to_dse_fetches_no_git_dependency(tmp_path, monkeypatch):
     fetched = _fetches(monkeypatch)
     design = _git_dependency_design(tmp_path)
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("__input_maker+__taker", design)
+        _dse_runner(tmp_path).run("t_input_maker+t_taker", design)
     assert not fetched and not (tmp_path / "mirror").exists()
 
 
-_MADE = "__input_maker.made"
-#: how a binding of the requested node reaches a launcher: `-s`, `-s flows.<node>.`, the API
+_MADE = "t_input_maker.made"
+#: how a binding of the requested node reaches a launcher: `-s <node>.`, a table of nodes, the API
 _BINDING_SPELLINGS = {
-    "bare -s": {"flow_settings": ["inputs.made=" + _MADE]},
-    "flow-qualified -s": {"flow_settings": ["flows.__taker.inputs.made=" + _MADE]},
+    "dotted -s": {"flow_settings": ["t_taker.inputs.made=" + _MADE]},
+    "table of nodes": {"flow_settings": {"t_taker": {"inputs": {"made": _MADE}}}},
     "api": {"flow_overrides": {"inputs": {"made": _MADE}}},
 }
 
@@ -244,7 +243,7 @@ def test_a_binding_of_the_requested_node_given_to_dse_fetches_no_git_dependency(
     fetched = _fetches(monkeypatch)
     design = _git_dependency_design(tmp_path)
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("__taker", design, **_BINDING_SPELLINGS[spelling])
+        _dse_runner(tmp_path).run("t_taker", design, **_BINDING_SPELLINGS[spelling])
     assert not fetched and not (tmp_path / "mirror").exists()
 
 
@@ -257,12 +256,12 @@ def test_a_project_binding_of_the_requested_node_given_to_dse_fetches_no_git_dep
         yaml.safe_dump(
             {
                 "designs": [{"file": design.name}],
-                "flows": {"__taker": {"inputs": {"made": _MADE}}},
+                "flows": {"t_taker": {"inputs": {"made": _MADE}}},
             }
         )
     )
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("__taker", "d", xedaproject=str(tmp_path / "xedaproject.yaml"))
+        _dse_runner(tmp_path).run("t_taker", "d", xedaproject=str(tmp_path / "xedaproject.yaml"))
     assert not fetched and not (tmp_path / "mirror").exists()
 
 
@@ -270,19 +269,19 @@ def test_a_saved_binding_of_another_node_is_not_refused_before_the_design_loads(
     """Only the requested node is reached by construction; whether any other node is depends on
     the resolved graph, so a binding saved for one is left to the check that has the plan."""
     (tmp_path / "xedaproject.yaml").write_text(
-        yaml.safe_dump({"flows": {"__input_maker": {"inputs": {"made": _MADE}}}})
+        yaml.safe_dump({"flows": {"t_input_maker": {"inputs": {"made": _MADE}}}})
     )
     with pytest.raises(DesignFileParseError):
         _dse_runner(tmp_path).run(
-            "__taker",
+            "t_taker",
             tmp_path / "missing.yaml",
-            flow_settings=["flows.__input_maker.inputs.made=" + _MADE],
+            flow_settings=node_settings("t_taker", ["flows.t_input_maker.inputs.made=" + _MADE]),
         )
 
 
 def test_a_chain_given_to_dse_is_refused_even_for_a_missing_design(tmp_path):
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("__input_maker+__taker", tmp_path / "missing.yaml")
+        _dse_runner(tmp_path).run("t_input_maker+t_taker", tmp_path / "missing.yaml")
     assert not (tmp_path / "mirror").exists()
 
 
@@ -314,8 +313,8 @@ def _git_dependency_design(tmp_path):
 @pytest.mark.parametrize(
     "request_text, error",
     [
-        ("__input_maker+__input_maker", "appears more than once"),
-        ("__input_maker+", "is empty"),
+        ("t_input_maker+t_input_maker", "appears more than once"),
+        ("t_input_maker+", "is empty"),
         ("no_such_flow", "no_such_flow"),
     ],
 )
@@ -336,17 +335,17 @@ def test_a_malformed_request_is_refused_even_for_a_missing_design(tmp_path):
     from xeda.flow_runner.default_runner import FlowLauncher
 
     with pytest.raises(FlowSettingsException, match="appears more than once"):
-        FlowLauncher(tmp_path / "run").run("__input_maker+__input_maker", tmp_path / "missing.yaml")
+        FlowLauncher(tmp_path / "run").run("t_input_maker+t_input_maker", tmp_path / "missing.yaml")
     assert not (tmp_path / "run").exists()
 
 
 @pytest.mark.parametrize(
     "command",
     [
-        ("dse", "__input_maker+__taker", "design.yaml"),
-        ("scrub", "__input_maker+__taker", "demo"),
-        ("list-settings", "__input_maker+__taker"),
-        ("list-results", "__input_maker+__taker"),
+        ("dse", "t_input_maker+t_taker", "design.yaml"),
+        ("scrub", "t_input_maker+t_taker", "demo"),
+        ("list-settings", "t_input_maker+t_taker"),
+        ("list-results", "t_input_maker+t_taker"),
     ],
 )
 def test_other_commands_take_one_flow_and_say_chains_are_for_run(tmp_path, command):
@@ -367,34 +366,34 @@ def test_an_explicit_yaml_project_binds_below_the_design_and_names_its_file(tmp_
         yaml.safe_dump(
             {
                 "designs": [{"file": design.name}],
-                "flows": {"__taker": {"inputs": {"made": "__input_maker.made"}}},
+                "flows": {"t_taker": {"inputs": {"made": "t_input_maker.made"}}},
             }
         )
     )
     result, document = _json(
-        "run", "__taker", "--design-name", "demo", "--xedaproject", project, "--dry-run"
+        "run", "t_taker", "--design-name", "demo", "--xedaproject", project, "--dry-run"
     )
     assert result.exit_code == 0, result.output
     (made,) = document["plan"]["nodes"][-1]["inputs"]
-    assert made["producer"] == "__input_maker" and made["binding_origin"] == "file"
+    assert made["producer"] == "t_input_maker" and made["binding_origin"] == "file"
     assert str(project) in made["binding_location"]
     # the design's own binding wins over the project's
-    over = _design(tmp_path, {"__taker": {"inputs": {"made": "__maker"}}}, "over.yaml")
+    over = _design(tmp_path, {"t_taker": {"inputs": {"made": "t_maker"}}}, "over.yaml")
     other = tmp_path / "other_project.yaml"
     other.write_text(
         yaml.safe_dump(
             {
                 "designs": [{"file": over.name}],
-                "flows": {"__taker": {"inputs": {"made": "__input_maker.made"}}},
+                "flows": {"t_taker": {"inputs": {"made": "t_input_maker.made"}}},
             }
         )
     )
     selected = ("--design-name", "demo", "--xedaproject", other, "--dry-run")
-    result, document = _json("run", "__taker", *selected)
+    result, document = _json("run", "t_taker", *selected)
     (made,) = document["plan"]["nodes"][-1]["inputs"]
-    assert made["producer"] == "__maker" and str(over) in made["binding_location"]
+    assert made["producer"] == "t_maker" and str(over) in made["binding_location"]
     # and a chain over both, saying what it replaced
-    result, document = _json("run", "__input_maker+__taker", *selected)
+    result, document = _json("run", "t_input_maker+t_taker", *selected)
     (made,) = document["plan"]["nodes"][-1]["inputs"]
     assert made["binding_origin"] == "chain" and len(made["overridden"]) == 2
 
@@ -410,7 +409,7 @@ def _listed():
 
 def _real(edges):
     """The product's own relations: the registered test flows are not part of its graph."""
-    return [edge for edge in edges if not edge["flow"].startswith("__")]
+    return [edge for edge in edges if not edge["flow"].startswith("t_")]
 
 
 def _edge(flow, binds=(), target_dependent=False, through=(), output=None):
@@ -505,16 +504,16 @@ def test_list_flows_json_shows_an_action_and_a_flow_without_declared_io_by_their
 
 
 def test_list_flows_json_qualifies_an_ambiguous_follower():
-    producer = _listed()["__chain_producer"]
-    ambiguous = [e for e in producer["can_precede"] if e["flow"] == "__chain_ambiguous_consumer"]
+    producer = _listed()["t_chain_producer"]
+    ambiguous = [e for e in producer["can_precede"] if e["flow"] == "t_chain_ambiguous_consumer"]
     assert [e["output"] for e in ambiguous] == ["json_a", "json_b"]
     assert all(
         e["binds"]
-        == [{"flow": "__chain_ambiguous_consumer", "input": "netlist", "output": e["output"]}]
+        == [{"flow": "t_chain_ambiguous_consumer", "input": "netlist", "output": e["output"]}]
         for e in ambiguous
     )
     assert all(e["through"] == [] for e in ambiguous)
-    plain = [e for e in producer["can_precede"] if e["flow"] == "__chain_ambiguous_default"]
+    plain = [e for e in producer["can_precede"] if e["flow"] == "t_chain_ambiguous_default"]
     assert [e["output"] for e in plain] == [None]
 
 
@@ -560,14 +559,14 @@ def test_action_reason_is_class_metadata_the_dry_run_shows_apart_from_what_a_run
     override `always_runs`, so it is judged like any other)."""
     design = tmp_path / "design.yaml"
     design.write_text(yaml.safe_dump({"name": "demo", "rtl": {"sources": []}}))
-    request = "__chain_simple_producer+__chain_action"
+    request = "t_chain_simple_producer+t_chain_action"
     result, document = _json("run", request, design, "--dry-run")
     assert result.exit_code == 0, result.output
     nodes = {node["name"]: node for node in document["plan"]["nodes"]}
-    assert nodes["__chain_action"]["action_reason"] == "performs a test action"
-    assert nodes["__chain_simple_producer"]["action_reason"] is None
-    assert nodes["__chain_action"]["state"] == "stale"
-    assert nodes["__chain_action"]["reason"] == "no completed previous run"
+    assert nodes["t_chain_action"]["action_reason"] == "performs a test action"
+    assert nodes["t_chain_simple_producer"]["action_reason"] is None
+    assert nodes["t_chain_action"]["state"] == "stale"
+    assert nodes["t_chain_action"]["reason"] == "no completed previous run"
     text = _xeda("run", request, design, "--dry-run").output
     assert "always runs: performs a test action" in text
     assert text.count("always runs") == 1
@@ -582,25 +581,25 @@ def test_a_refused_chain_advertises_only_validated_requests(tmp_path):
     result, document = _json("run", "yosys_fpga.netlist_edif+fpga_pack", _design(tmp_path))
     assert result.exit_code == 2 and document["outcome"] is None
     assert "yosys_fpga.netlist+fpga_pack" in document["error"]["message"]
-    nothing = _xeda("run", "__chain_simple_consumer+__chain_producer", _design(tmp_path))
+    nothing = _xeda("run", "t_chain_simple_consumer+t_chain_producer", _design(tmp_path))
     assert nothing.exit_code == 2 and "Did you mean" not in nothing.stderr
 
 
 def test_the_request_lists_the_flows_a_link_passes_through(tmp_path):
-    result, document = _json("run", "__route_a+__route_c", _design(tmp_path), "--dry-run")
+    result, document = _json("run", "t_route_a+t_route_c", _design(tmp_path), "--dry-run")
     assert result.exit_code == 0, result.output
     assert document["request"] == [
-        {"node": "__route_a", "flow": "__route_a", "output": None, "through": ["__route_b"]},
-        {"node": "__route_c", "flow": "__route_c", "output": None, "through": []},
+        {"node": "t_route_a", "flow": "t_route_a", "output": None, "through": ["t_route_b"]},
+        {"node": "t_route_c", "flow": "t_route_c", "output": None, "through": []},
     ]
     assert [node["name"] for node in document["plan"]["nodes"]] == [
-        "__route_a",
-        "__route_b",
-        "__route_c",
+        "t_route_a",
+        "t_route_b",
+        "t_route_c",
     ]
     (bound,) = document["plan"]["nodes"][1]["inputs"]
     assert (bound["producer"], bound["output"], bound["binding_origin"]) == (
-        "__route_a",
+        "t_route_a",
         "x",
         "chain",
     )
@@ -611,67 +610,67 @@ def test_the_request_lists_the_flows_a_link_passes_through(tmp_path):
 def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command_line(tmp_path):
     result, document = _json(
         "run",
-        "__route_a+__route_c",
+        "t_route_a+t_route_c",
         _design(tmp_path),
         "-s",
-        "flows.__route_b.inputs.x=__route_a.x",
+        "t_route_b.inputs.x=t_route_a.x",
         "--dry-run",
     )
     assert result.exit_code == 2, result.output
     message = document["error"]["message"]
     assert (
-        "The chain position 1 (__route_a) -> 2 (__route_c), through __route_b, binds input 'x' "
-        "of __route_b; "
+        "The chain position 1 (t_route_a) -> 2 (t_route_c), through t_route_b, binds input 'x' "
+        "of t_route_b; "
     ) in message
-    assert "flows.__route_b.inputs.x also binds that input." in message
+    assert "t_route_b.inputs.x also binds that input." in message
 
 
 def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
     result, document = _json(
         "run",
-        "__route_a+__route_c",
+        "t_route_a+t_route_c",
         _design(tmp_path),
         "-s",
-        "flows.__route_c.inputs.y=__maker.made",
+        "t_route_c.inputs.y=t_maker.made",
         "--dry-run",
     )
     assert result.exit_code == 2, result.output
     message = document["error"]["message"]
     assert (
-        "The chain link `__route_a+__route_c` passes through `__route_b`, which the binding of "
-        "`__route_c.y` at "
+        "The chain link `t_route_a+t_route_c` passes through `t_route_b`, which the binding of "
+        "`t_route_c.y` at "
     ) in message
-    assert "flows.__route_c.inputs.y takes" in message and message.endswith("out of the plan.")
-    # the same binding without the chain plans, and leaves `__route_b` out
+    assert "t_route_c.inputs.y takes" in message and message.endswith("out of the plan.")
+    # the same binding without the chain plans, and leaves `t_route_b` out
     plain, planned = _json(
         "run",
-        "__route_c",
+        "t_route_c",
         _design(tmp_path),
         "-s",
-        "flows.__route_c.inputs.y=__maker.made",
+        "t_route_c.inputs.y=t_maker.made",
         "--dry-run",
     )
     assert plain.exit_code == 0, plain.output
-    assert [node["name"] for node in planned["plan"]["nodes"]] == ["__maker", "__route_c"]
+    assert [node["name"] for node in planned["plan"]["nodes"]] == ["t_maker", "t_route_c"]
 
 
 def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_path):
     def message(binding):
-        design = _design(tmp_path, {"__taker": {"inputs": binding}})
-        result, document = _json("run", "__taker", design, "--dry-run")
+        design = _design(tmp_path, {"t_taker": {"inputs": binding}})
+        result, document = _json("run", "t_taker", design, "--dry-run")
         assert result.exit_code == 2 and document["outcome"] is None, result.output
         return document["error"]["message"]
 
-    assert "Did you mean `made`?" in message({"mde": "__maker"})
-    assert "Did you mean `made`?" in message({"made": "__maker.mde"})
+    assert "Did you mean `made`?" in message({"mde": "t_maker"})
+    assert "Did you mean `made`?" in message({"made": "t_maker.mde"})
     # nothing close: say what is declared instead
-    assert "It declares: `made`." in message({"zzz": "__maker"})
-    assert "It declares: `made`." in message({"made": "__maker.zzz"})
+    assert "It declares: `made`." in message({"zzz": "t_maker"})
+    assert "It declares: `made`." in message({"made": "t_maker.zzz"})
 
 
 def _fan_design(tmp_path, sources=(), flows=None):
-    """A design for the fan: `__fan_head` feeds `__fan_base`, which feeds `__fan_left` and
-    `__fan_right`, and both feed `__fan_tail`."""
+    """A design for the fan: `t_fan_head` feeds `t_fan_base`, which feeds `t_fan_left` and
+    `t_fan_right`, and both feed `t_fan_tail`."""
     path = tmp_path / "fan.yaml"
     path.write_text(
         yaml.safe_dump({"name": "fan", "rtl": {"sources": list(sources)}, "flows": flows or {}})
@@ -680,64 +679,64 @@ def _fan_design(tmp_path, sources=(), flows=None):
 
 
 def test_a_link_that_binds_one_flow_lists_every_flow_it_passes_through(tmp_path):
-    result, document = _json("run", "__fan_head+__fan_tail", _fan_design(tmp_path), "--dry-run")
+    result, document = _json("run", "t_fan_head+t_fan_tail", _fan_design(tmp_path), "--dry-run")
     assert result.exit_code == 0, result.output
     head, tail = document["request"]
-    assert head["through"] == ["__fan_base", "__fan_left", "__fan_right"]
+    assert head["through"] == ["t_fan_base", "t_fan_left", "t_fan_right"]
     assert tail["through"] == []
     assert [node["name"] for node in document["plan"]["nodes"]] == [
-        "__fan_head",
-        "__fan_base",
-        "__fan_left",
-        "__fan_right",
-        "__fan_tail",
+        "t_fan_head",
+        "t_fan_base",
+        "t_fan_left",
+        "t_fan_right",
+        "t_fan_tail",
     ]
 
 
 def test_a_source_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):
     (tmp_path / "left.txt").write_text("")
     design = _fan_design(tmp_path, [{"file": "left.txt", "type": "Data"}])
-    result, document = _json("run", "__fan_head+__fan_tail", design, "--dry-run")
+    result, document = _json("run", "t_fan_head+t_fan_tail", design, "--dry-run")
     assert result.exit_code == 2, result.output
     assert (
-        "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the source "
-        "of `__fan_tail.left` takes out of the plan."
+        "The chain link `t_fan_head+t_fan_tail` passes through `t_fan_left`, which the source "
+        "of `t_fan_tail.left` takes out of the plan."
     ) in document["error"]["message"]
-    # the request for the tail alone plans without `__fan_left`
-    plain, planned = _json("run", "__fan_tail", design, "--dry-run")
+    # the request for the tail alone plans without `t_fan_left`
+    plain, planned = _json("run", "t_fan_tail", design, "--dry-run")
     assert plain.exit_code == 0, plain.output
-    assert "__fan_left" not in [node["name"] for node in planned["plan"]["nodes"]]
+    assert "t_fan_left" not in [node["name"] for node in planned["plan"]["nodes"]]
 
 
 def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):
     result, document = _json(
         "run",
-        "__fan_head+__fan_tail",
-        _fan_design(tmp_path, flows={"__maker": {}}),
+        "t_fan_head+t_fan_tail",
+        _fan_design(tmp_path, flows={"t_maker": {}}),
         "-s",
-        "flows.__fan_tail.inputs.left=__maker.made",
+        "t_fan_tail.inputs.left=t_maker.made",
         "--dry-run",
     )
     assert result.exit_code == 2, result.output
     message = document["error"]["message"]
     assert (
-        "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the binding "
-        "of `__fan_tail.left` at "
+        "The chain link `t_fan_head+t_fan_tail` passes through `t_fan_left`, which the binding "
+        "of `t_fan_tail.left` at "
     ) in message
-    assert "flows.__fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")
+    assert "t_fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")
 
 
 def test_a_failed_chain_exits_1_with_the_cause(tmp_path, monkeypatch):
     """The producer fails: the document and the exit status say `failed` with the error of the
     producer, and the consumer is `blocked` by it."""
-    from .io_flows import _Left
+    from .io_flows import TLeft
 
-    monkeypatch.setattr(_Left, "run", lambda self: None)
-    result, document = _json("run", "__join", _design(tmp_path))
+    monkeypatch.setattr(TLeft, "run", lambda self: None)
+    result, document = _json("run", "t_join", _design(tmp_path))
     assert result.exit_code == 1
-    assert document["outcome"] == "failed" and document["roots"] == ["__join"]
-    assert document["error"]["node"] == "__left"
+    assert document["outcome"] == "failed" and document["roots"] == ["t_join"]
+    assert document["error"]["node"] == "t_left"
     assert document["error"]["code"] == "missing_output"
     nodes = {n["name"]: n for n in document["nodes"]}
-    assert nodes["__left"]["record"]["error"] == document["error"]
-    assert (nodes["__join"]["outcome"], nodes["__join"]["blocked_by"]) == ("blocked", "__left")
+    assert nodes["t_left"]["record"]["error"] == document["error"]
+    assert (nodes["t_join"]["outcome"], nodes["t_join"]["blocked_by"]) == ("blocked", "t_left")

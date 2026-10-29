@@ -25,6 +25,7 @@ from xeda.platforms import PdkNotInstalled
 
 from .tiny_platform import TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, require_yosys, use_fake_asic_tools
+from .scoping import node_settings
 
 COUNTER = (
     "module top(input clk, input rst, input [3:0] a, output reg [3:0] q);\n"
@@ -319,11 +320,11 @@ def test_a_changed_platform_file_makes_the_run_stale_in_a_dry_run(fake_yosys):
     flow, store = _launch(fake_yosys)
     runner, design = _runner(fake_yosys), _design(fake_yosys / "design")
     given = tiny_settings(store, **CLOCK)
-    _, states = runner.plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(Yosys, design, flow_settings=node_settings(Yosys, given))
     assert states["yosys"].state == "fresh"
     library = store / "tiny" / "tiny.lib"
     library.write_text(library.read_text() + "\n/* edited */\n")
-    _, states = runner.plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(Yosys, design, flow_settings=node_settings(Yosys, given))
     assert states["yosys"].state == "stale"
     assert states["yosys"].reason == f"input changed: {library.resolve()}"
     again = _runner(fake_yosys).launch_flow(Yosys, design, given)
@@ -333,13 +334,17 @@ def test_a_changed_platform_file_makes_the_run_stale_in_a_dry_run(fake_yosys):
 def test_a_map_file_of_the_platform_is_an_input_too(fake_yosys):
     flow, store = _launch(fake_yosys)
     _, states = _runner(fake_yosys).plan_with_freshness(
-        Yosys, _design(fake_yosys / "design"), flow_settings=tiny_settings(store, **CLOCK)
+        Yosys,
+        _design(fake_yosys / "design"),
+        flow_settings=node_settings(Yosys, tiny_settings(store, **CLOCK)),
     )
     assert states["yosys"].state == "fresh"
     adders = store / "tiny" / "cells_adders.v"
     adders.write_text(adders.read_text() + "// edited\n")
     _, states = _runner(fake_yosys).plan_with_freshness(
-        Yosys, _design(fake_yosys / "design"), flow_settings=tiny_settings(store, **CLOCK)
+        Yosys,
+        _design(fake_yosys / "design"),
+        flow_settings=node_settings(Yosys, tiny_settings(store, **CLOCK)),
     )
     assert states["yosys"].state == "stale"
 
@@ -415,7 +420,7 @@ def test_a_dry_run_shows_a_missing_pdk_as_unknown_with_the_same_message(fake_yos
     runner = _runner(fake_yosys)
     design = _design(fake_yosys / "design")
     given = tiny_settings(empty, **CLOCK)
-    _, states = runner.plan_with_freshness(Yosys, design, flow_settings=given)
+    _, states = runner.plan_with_freshness(Yosys, design, flow_settings=node_settings(Yosys, given))
     assert states["yosys"].state == "unknown"
     with pytest.raises(PdkNotInstalled) as refused:
         runner.launch_flow(Yosys, design, given)
@@ -443,7 +448,9 @@ def test_a_bundled_platform_that_is_not_installed_names_the_install_command(
 def test_a_platform_file_alone_passes_planning(fake_yosys):
     store = tiny_store(fake_yosys)
     plan = _runner(fake_yosys).plan(
-        Yosys, _design(fake_yosys / "design"), flow_settings=tiny_settings(store, **CLOCK)
+        Yosys,
+        _design(fake_yosys / "design"),
+        flow_settings=node_settings(Yosys, tiny_settings(store, **CLOCK)),
     )
     (node,) = plan.nodes
     assert node.settings.platform is None
@@ -461,7 +468,7 @@ def test_the_platform_and_the_file_must_name_the_same_platform(fake_yosys):
         _runner(fake_yosys).plan(
             Yosys,
             _design(fake_yosys / "design"),
-            flow_settings=tiny_settings(store, platform="nangate45", **CLOCK),
+            flow_settings=node_settings(Yosys, tiny_settings(store, platform="nangate45", **CLOCK)),
         )
 
 
@@ -471,7 +478,7 @@ def test_a_corner_that_the_platform_lacks_is_refused_at_planning(fake_yosys):
         _runner(fake_yosys).plan(
             Yosys,
             _design(fake_yosys / "design"),
-            flow_settings=tiny_settings(store, corner="nonexistent", **CLOCK),
+            flow_settings=node_settings(Yosys, tiny_settings(store, corner="nonexistent", **CLOCK)),
         )
 
 

@@ -15,8 +15,8 @@ simulator through the link step of bsc:
 
 ```bash
 xeda run bsc_sim examples/bluespec/gcd/gcd.yaml
-xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=verilator
-xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s bsc_sim.simulator=verilator
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s bsc_sim.simulator=iverilog
 ```
 
 All the designs follow the same conventions:
@@ -124,7 +124,7 @@ stall, so the wrapper counts credits to never start a multiplication without roo
 result. The testbench drains results slowly to exercise that backpressure.
 
 Bluesim cannot simulate imported Verilog, so the design file sets `simulator: verilator` for
-`bsc_sim`. The option `-s simulator=iverilog` works too.
+`bsc_sim`. The option `-s bsc_sim.simulator=iverilog` works too.
 
 ## ascon: standalone crypto core
 

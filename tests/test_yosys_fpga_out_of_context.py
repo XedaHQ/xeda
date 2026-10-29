@@ -27,6 +27,7 @@ from .test_yosys_fpga_clean_netlist import MAPPED_CELLS, XC7, _cells_of, _netlis
 from .test_yosys_fpga_flags import RELEASES, TARGETS
 from .test_refusals_at_planning import _design
 from .tool_utils import require_yosys
+from .scoping import node_settings
 
 #: The flags that `out_of_context` adds, by target of `test_yosys_fpga_flags.TARGETS`.
 ADDED = {
@@ -183,7 +184,11 @@ def _plan(tmp_path, part, **sides):
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     settings = [f"fpga.part={part}"]
     settings += [f"flows.{flow}.out_of_context={str(on).lower()}" for flow, on in sides.items()]
-    plan = runner.plan("yosys_fpga+nextpnr", _design(tmp_path / "design"), flow_settings=settings)
+    plan = runner.plan(
+        "yosys_fpga+nextpnr",
+        _design(tmp_path / "design"),
+        flow_settings=node_settings("yosys_fpga+nextpnr", settings),
+    )
     assert not (tmp_path / "runs").exists(), "planning writes no run directory"
     return plan
 
@@ -239,7 +244,10 @@ def test_vivado_impl_declares_no_out_of_context_and_is_left_alone(tmp_path) -> N
     runner.plan(
         "yosys_fpga+vivado_impl",
         _design(tmp_path / "design"),
-        flow_settings=["fpga.part=xc7a35tcsg324-1", "flows.yosys_fpga.out_of_context=true"],
+        flow_settings=node_settings(
+            "yosys_fpga+vivado_impl",
+            ["fpga.part=xc7a35tcsg324-1", "flows.yosys_fpga.out_of_context=true"],
+        ),
     )
 
 

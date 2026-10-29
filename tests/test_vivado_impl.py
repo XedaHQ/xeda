@@ -32,6 +32,7 @@ from xeda.flow.flow import NoReadableSource
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
+from .scoping import scoped
 from .design_edits import with_updates
 from .test_chain_documentation import FLOWS_RST, _blocks, _stage
 from .test_edif import _peak_memory, _write_large_netlist
@@ -48,6 +49,7 @@ from .tool_utils import (
     use_fake_tools,
 )
 from .tool_utils import HANG_GUARD
+from .scoping import node_settings
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="the fake Vivado runs the TCL it is handed under tclsh"
@@ -845,13 +847,19 @@ def test_a_consumer_of_the_routed_design_switches_the_outputs_on(tmp_path) -> No
     design = _power_design(tmp_path / "d")
     bind = [f"flows.vivado_postsynth_sim.inputs.{n}=vivado_impl.{n}" for n in SIM_INPUTS]
     with pytest.raises(FlowSettingsException) as error:
-        _runner(tmp_path).plan("yosys_fpga+vivado_impl+vivado_power", design, flow_settings=_DEV)
+        _runner(tmp_path).plan(
+            "yosys_fpga+vivado_impl+vivado_power",
+            design,
+            flow_settings=node_settings("yosys_fpga+vivado_impl+vivado_power", _DEV),
+        )
     message = " ".join(str(error.value).split())
     assert "checkpoint <- vivado_impl.checkpoint_route" in message
     for binding in bind:
-        assert binding in message
+        assert binding.removeprefix("flows.") in message
     plan = _runner(tmp_path).plan(
-        "yosys_fpga+vivado_impl+vivado_power", design, flow_settings=[*_DEV, *bind]
+        "yosys_fpga+vivado_impl+vivado_power",
+        design,
+        flow_settings=node_settings("yosys_fpga+vivado_impl+vivado_power", [*_DEV, *bind]),
     )
     assert [node.name for node in plan.nodes] == [
         "yosys_fpga",
@@ -872,7 +880,11 @@ def test_a_consumer_of_the_routed_design_switches_the_outputs_on(tmp_path) -> No
 def test_the_timing_simulation_reads_the_netlists_vivado_impl_wrote(tmp_path) -> None:
     design = _power_design(tmp_path / "d")
     bind = [f"flows.vivado_postsynth_sim.inputs.{n}=vivado_impl.{n}" for n in SIM_INPUTS]
-    plan = _runner(tmp_path).plan("vivado_postsynth_sim", design, flow_settings=[*_DEV, *bind])
+    plan = _runner(tmp_path).plan(
+        "vivado_postsynth_sim",
+        design,
+        flow_settings=node_settings("vivado_postsynth_sim", [*_DEV, *bind]),
+    )
     assert [node.name for node in plan.nodes] == [
         "yosys_fpga",
         "vivado_impl",
@@ -894,7 +906,9 @@ def test_the_power_report_runs_on_the_checkpoint_and_the_activity_of_one_impleme
         "flows.vivado_power.inputs.checkpoint=vivado_impl.checkpoint_route",
     ]
     runner = _runner(tmp_path)
-    flow = runner.run("vivado_power", design, flow_settings=[*_DEV, *bind])
+    flow = runner.run(
+        "vivado_power", design, flow_settings=node_settings("vivado_power", [*_DEV, *bind])
+    )
     assert flow is not None and flow.succeeded
     assert [f.name for f in runner.launched] == [
         "yosys_fpga",
@@ -1031,11 +1045,11 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
     text = FLOWS_RST.read_text(encoding="utf-8")
     section = text[text.index(".. _vivado-impl:") : text.index("\nBluespec\n========\n")]
     (line,) = [
-        line.strip() for line in section.splitlines() if line.strip().startswith("-s flows.vivado")
+        line.strip() for line in section.splitlines() if line.strip().startswith("-s vivado")
     ]
     items = shlex.split(line)[1:]
     assert items == [
-        f"flows.vivado_postsynth_sim.inputs.{name}=vivado_impl.{name}"
+        f"vivado_postsynth_sim.inputs.{name}=vivado_impl.{name}"
         for name in ("netlist", "netlist_timing", "sdf")
     ]
     root = tmp_path / "d"
@@ -1064,7 +1078,9 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
     refused = CliRunner().invoke(cli, [*base, chain, str(root / "blinky.yaml")])
     assert refused.exit_code != 0
     for request in (chain, "vivado_postsynth_sim"):
-        result = CliRunner().invoke(cli, [*base, request, str(root / "blinky.yaml"), "-s", *items])
+        result = CliRunner().invoke(
+            cli, [*base, request, str(root / "blinky.yaml"), "-s", *scoped(request, items)]
+        )
         assert result.exit_code == 0, (request, result.output)
         nodes = [node["name"] for node in json.loads(result.output)["plan"]["nodes"]]
         assert "vivado_impl" in nodes, nodes
