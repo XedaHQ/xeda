@@ -36,7 +36,8 @@ from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
 from ..local_settings import LocalSettings
-from ..plan import PlanDelivery, delivery_key, planned_destination
+from ..plan import Plan as PublicPlan
+from ..plan import PlanDelivery, dependency_commits, delivery_key, planned_destination, plan_of
 from ..spec import Spec
 from ..deliver import (
     OUTPUTS_TO,
@@ -82,7 +83,9 @@ from ..utils import (
 )
 from ..version import __version__
 from ..errors import FlowNotFoundError as PublicFlowNotFoundError
-from ..errors import ProjectError
+from ..errors import ProjectError, StalePlanError
+from ..generation import GenerationError
+from ..outcomes import Result
 from ..project import Project
 from ..types import UNSET, Unset
 from ..xedaproject import PROJECT_FILE_NAMES
@@ -112,10 +115,12 @@ from .layer_paths import anchored_sections
 from .code_digest import CodeDigests
 from .configuration import configuration_hash, design_configuration_hash
 from .environment import EnvironmentSnapshot
-from .error_codes import error_info
+from .error_codes import INTERNAL_ERROR, error_info, plain_message, public_error
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_options import LaunchOptions
+from .launch_result import launch_result
+from .plan_check import plan_difference
 from .launch_report import (
     report,
     reuse_results,
@@ -265,6 +270,7 @@ log = logging.getLogger(__name__)
 #: Launcher settings that Xeda refuses, with what to use instead. Giving one is an error that
 #: says so, in the words `Flow.Settings.removed_settings` uses for flow settings.
 _REMOVED_LAUNCHER_SETTINGS = {
+    "scrub_old_runs": "prune_variants",
     "xeda_run_dir": "run_root",
     "cached_dependencies": "the default, which reuses unchanged runs, and hashed_run_dirs=True to "
     "keep settings variants side by side",
@@ -447,7 +453,7 @@ class FlowLauncher:
         #: needs no `post_cleanup`: `_run_dir_policy` makes one imply the other.
         post_cleanup_purge: bool = False
         #: Remove the previous run directories of a flow before the run.
-        scrub_old_runs: bool = False
+        prune_variants: bool = False
         #: Copy the artifacts of the requested flow into this directory once it succeeded.
         outputs_to: Optional[Path] = None
         #: Replace a file at an output path that the user named when it is not an earlier,
@@ -523,7 +529,7 @@ class FlowLauncher:
         #: Asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts.
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
-        #: Asked whether to remove the older runs of `scrub_old_runs` (`xeda.flow_runner.scrub`).
+        #: Asked whether to remove the older runs of `prune_variants` (`xeda.flow_runner.scrub`).
         #: None: nothing is removed, and the launch logs that.
         self.confirm_scrub: Optional[ScrubConfirmation] = None
         #: Told what that scrub did, when it ends (`xeda.flow_runner.scrub.ScrubDone`).
@@ -554,6 +560,17 @@ class FlowLauncher:
         #: What the current launch holds until it ends: the shared lease of its storage.
         self._leases = ExitStack()
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
+        #: The public plan that the current launch must still match (`run_spec`), or None.
+        self._expected_plan: PublicPlan | None = None
+        self._expected_local_settings: LocalSettings | None = None
+        #: How the resolution that the launch runs with differs from `_expected_plan`, or None. The
+        #: launch judged it before it took its locks (`run_spec`); `_check_expected` raises it.
+        self._prelock_difference: str | None = None
+        #: Whether the launch removes the other run directories before it takes its locks, and
+        #: whether it did (`prune_variants`).
+        self._prune_due = False
+        self._pruned = False
+        self._stale: StalePlanError | None = None
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
         #: What the current launch reports as it goes on (`launch_result.launch_result` reads it).
         self.collector = LaunchCollector()
@@ -892,9 +909,11 @@ class FlowLauncher:
         launch runs. The requested flow checks the deliveries of every flow of the plan when the
         launch starts (`_check_deliveries_ahead`): first what no answer could allow, then the
         questions, with the questions of the requested flow last. All of it comes before the
-        launch scrubs older runs (`scrub_old_runs`) and before it takes the lock of its run
-        directory. Deliveries are noted when their flow succeeded or was found up to date. A
-        rejected flow notes none, whether it ran or its rejection was reported again. The
+        launch scrubs older runs (`prune_variants`) and before it takes the lock of its run
+        directory. A launch of a plan that the caller gave (`run_spec`) checks the plan under its
+        locks, then asks, and only then prunes, all before any generator runs
+        (`_before_generation`). Deliveries are noted when their flow succeeded or was found up to
+        date. A rejected flow notes none, whether it ran or its rejection was reported again. The
         deliveries are made once the whole launch has finished, and only when the requested flow
         succeeded or was found up to date. A launch that raised, or whose requested flow reports
         failure, delivers nothing, not even the outputs of a producer that succeeded
@@ -917,6 +936,9 @@ class FlowLauncher:
             self._generation_state = launch_generation.GenerationState()
             self._node_locks = None
             self._restarts = 0
+            # A launch of a plan that the caller gave prunes after it has checked the plan.
+            self._prune_due = self._expected_plan is None
+            self._pruned = False
             request = self._request_context
             self._environment = self._pinned_environment or EnvironmentSnapshot.take(
                 request.private_env if request is not None else {}
@@ -960,6 +982,10 @@ class FlowLauncher:
                         # A node that the launch held shared must be written. Nothing was
                         # delivered: release every lock, and start again with that node exclusive.
                         self._start_again(raised)
+                        continue
+                    if isinstance(raised, launch_locks.NeedsPruning):
+                        # The locks are released. Prune before the next acquisition.
+                        self._prune_due = True
                         continue
                     # A launch that failed delivers nothing. The failures of its clean-ups are
                     # logged, and the error of the launch propagates.
@@ -1006,13 +1032,16 @@ class FlowLauncher:
         self._leases = ExitStack()
         self._locks = None
 
-    def _scrub_old_runs(self, plan: Plan) -> None:
-        """Scrub the older sibling runs of every node of the plan (`scrub_old_runs`).
+    def _prune_variants(self, plan: Plan) -> None:
+        """Remove the other run directories of every node of the plan (`prune_variants`).
+
+        These are the directories of the same flow, design and target, hashed or plain, that
+        the plan does not use. `confirm_scrub` answers the question.
 
         This comes before the launch takes any lock: a scrub takes one lock at a time, so it
         cannot wait for a lock that this launch holds, and concurrent hashed variants do not each
         hold their directory while they wait to delete the other one."""
-        if not self._run_dir_policy().scrub_old_runs:
+        if not self._run_dir_policy().prune_variants:
             return
         for planned in plan.nodes:
             scrub_runs(
@@ -1024,7 +1053,109 @@ class FlowLauncher:
                 on_result=self.scrub_done,
             )
 
-    def _lock_graph(self, plan: Plan, design: Design, runner_cwd: Path) -> None:
+    def _difference_of(self, request: _Request, plan: Plan) -> str | None:
+        """Judge `plan` as planning does, and return its first difference from the plan that the
+        caller gave (`run_spec`), or None.
+
+        It asks nothing and keeps nothing: the state of the launcher that it touches is put
+        back."""
+        expected = self._expected_plan
+        assert expected is not None
+        saved = (self._read_inputs, self._predicted_copies)
+        try:
+            planned = self._planned(request, plan)
+            fresh = plan_of(
+                planned.plan,
+                planned.states,
+                planned.deliveries,
+                spec=expected.spec,
+                options=LaunchOptions(**expected.options),
+                workspace=expected._workspace,
+                dependencies=dependency_commits(request.design),
+            )
+            return plan_difference(expected, fresh)
+        finally:
+            self._read_inputs, self._predicted_copies = saved
+
+    def _check_expected(self) -> None:
+        """Raise `StalePlanError` if the plan that the caller gave (`run_spec`) no longer holds.
+        Without such a plan, do nothing.
+
+        The launch calls it under the locks of its graph, on every acquisition. It compares the
+        plan with two planning results. One is the resolution that the launch runs and prunes
+        with, which `run_spec` made before the locks (`_prelock_difference`). The other is a whole
+        new planning: it reads the local dependencies, merges the Git dependencies, resolves the
+        graph, and judges the nodes and the deliveries, all as they are now. An error that this
+        planning raises (a flow that is gone, settings or a design that no longer validate, a
+        delivery that is refused) is a difference too, since the caller's plan was made without
+        it. A bug of Xeda is none, and it propagates."""
+        expected = self._expected_plan
+        if expected is None:
+            return
+        spec = expected.spec
+        difference = self._prelock_difference
+        cause: Exception | None = None
+        if difference is None:
+            try:
+                request, plan = self._judged_request(
+                    spec.flow,
+                    spec.design,
+                    None,
+                    thaw(spec.settings),
+                    [],
+                    None,
+                    False,
+                    [],
+                    target=UNSET,
+                    local_settings=self._expected_local_settings,
+                )
+                self._refuse_planned(plan)
+                difference = self._difference_of(request, plan)
+            except Exception as error:  # noqa: BLE001 - judged below
+                if public_error(error).code == INTERNAL_ERROR:
+                    raise
+                difference, cause = f"planning is refused now: {plain_message(error)}", error
+        if difference is not None:
+            # The launch reports an exception of its node as a failed node, and this is none.
+            self._stale = StalePlanError(
+                f"The plan is stale: {difference}. Plan again.",
+                code="stale_plan",
+                difference=difference,
+            )
+            raise self._stale from cause
+
+    def _before_generation(
+        self,
+        plan: Plan,
+        node: PlanNode,
+        design: Design,
+        deliveries: Sequence[Delivery],
+        run_path: Path,
+        start_directory: Path,
+    ) -> None:
+        """Do under the locks of the graph, before any generator runs, what a launch of a plan
+        that the caller gave must not do earlier.
+
+        `settle` calls it after every acquisition of the locks, so the plan is checked again
+        after each retry and after the prune. First it checks that the plan still holds
+        (`_check_expected`). Then it makes the checks and asks the questions about the deliveries
+        (`_check_deliveries_ahead`). A question that the user answered is not asked again about a
+        file that has not changed. Then, once, it makes the launch release the locks and prune
+        (`NeedsPruning`). So a stale plan prunes nothing, asks nothing and generates nothing, and
+        a delivery that is refused or declined prunes nothing."""
+        self._check_expected()
+        with run_lock.callback_guard():
+            self._check_deliveries_ahead(plan, node, design, deliveries, run_path, start_directory)
+        if self.settings.prune_variants and not self._pruned:
+            raise launch_locks.NeedsPruning()
+
+    def _lock_graph(
+        self,
+        plan: Plan,
+        design: Design,
+        runner_cwd: Path,
+        before_generation: Callable[[], None] | None = None,
+    ) -> None:
         """Lock the whole graph of the launch, generate, and hold the locks until it ends.
 
         This is the acquisition stage of the requested flow, after every declarative check and
@@ -1063,17 +1194,23 @@ class FlowLauncher:
         leases = [
             record.storage for record in design.resolved_dependencies if record.storage is not None
         ]
-        settled = launch_generation.settle(
-            design,
-            run_root=run_root,
-            environ=environ,
-            rebuild_all=rebuild_all,
-            state=self._generation_state,
-            stack=self._leases,
-            participants=self._node_locks,
-            leases=leases,
-            canceled=self._canceled,
-        )
+        try:
+            settled = launch_generation.settle(
+                design,
+                run_root=run_root,
+                environ=environ,
+                rebuild_all=rebuild_all,
+                state=self._generation_state,
+                stack=self._leases,
+                participants=self._node_locks,
+                leases=leases,
+                canceled=self._canceled,
+                before_generation=before_generation,
+            )
+        except GenerationError:
+            # No lock is held here. The generator may fail only because the plan is stale.
+            self._check_expected()
+            raise
         self._locks = settled.locks
         execution = launch_generation.execution_design(design, settled.generations)
         self._generation = _LaunchGeneration(design, settled.generations, execution)
@@ -1469,17 +1606,33 @@ class FlowLauncher:
                 register_read_settings(
                     self._read_inputs, planned.settings, planned.run_path, self.run_root
                 )
-            self._check_deliveries_ahead(plan, node, design, deliveries, run_path, runner_cwd)
+            if self._expected_plan is None:
+                self._check_deliveries_ahead(plan, node, design, deliveries, run_path, runner_cwd)
         refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
         if plan_node is None:
             # Every declarative check has passed. The launch locks its whole graph now, and the
             # generators run under those locks, before the first producer. The older runs of every
-            # node are scrubbed first, while the launch holds no lock.
-            if self._restarts == 0:
-                self._scrub_old_runs(plan)
-            self._lock_graph(plan, design, runner_cwd)
+            # node are pruned first, while the launch holds no lock. A plan that the caller gave
+            # is checked under the locks, then asked about its deliveries, and only then pruned,
+            # all before any generator (`_before_generation`).
+            if self._prune_due:
+                self._prune_due = False
+                self._pruned = True
+                self._prune_variants(plan)
+            self._lock_graph(
+                plan,
+                design,
+                runner_cwd,
+                before_generation=(
+                    None
+                    if self._expected_plan is None
+                    else lambda: self._before_generation(
+                        plan, node, design, deliveries, run_path, runner_cwd
+                    )
+                ),
+            )
             self._place_generated_deliveries(plan, design, runner_cwd)
         # What the flows read: the design with the files of its generated sources in place.
         execution = self._execution_of(design)
@@ -2446,11 +2599,59 @@ class FlowLauncher:
         self._refuse_planned(plan)
         return self._planned(request, plan)
 
+    @log_context.with_launch_context
+    def run_spec(
+        self,
+        spec: Spec,
+        *,
+        local_settings: LocalSettings | None,
+        options: LaunchOptions,
+        expected: PublicPlan | None = None,
+    ) -> Result:
+        """Launch `spec` under `options` and return what it did to every node.
+
+        With `expected`, a plan that the caller made earlier, the launch compares it with its own
+        planning under the locks of its graph, and raises `StalePlanError` on a difference. That
+        covers the resolution that it runs with, which it made before it took the locks."""
+        self._apply(options)
+        self._expected_plan = expected
+        self._expected_local_settings = local_settings
+        try:
+            try:
+                request, plan = self._judged_request(
+                    spec.flow,
+                    spec.design,
+                    None,
+                    thaw(spec.settings),
+                    [],
+                    None,
+                    False,
+                    [],
+                    target=UNSET,
+                    local_settings=local_settings,
+                )
+                self._refuse_planned(plan)
+                if expected is not None:
+                    self._prelock_difference = self._difference_of(request, plan)
+            except Exception:
+                # A plan that is stale is no failed planning (no lock is held yet).
+                self._check_expected()
+                raise
+            result = launch_result(self, spec, lambda: self.run_resolved(request, plan))
+            if self._stale is not None:
+                raise self._stale
+            return result
+        finally:
+            self._expected_plan = None
+            self._expected_local_settings = None
+            self._prelock_difference = None
+            self._stale = None
+
     def _apply(self, options: LaunchOptions) -> None:
         """Take `options` as the settings of this launcher."""
         self.settings.rebuild_all = options.rebuild_all
         self.settings.clean = options.clean
-        self.settings.scrub_old_runs = options.prune_variants
+        self.settings.prune_variants = options.prune_variants
         self.settings.outputs_to = options.outputs_to
         self.settings.overwrite_outputs = options.overwrite_outputs
         self.settings.post_cleanup = options.post_cleanup

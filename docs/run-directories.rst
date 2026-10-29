@@ -782,11 +782,13 @@ taken its read lease on the directory of the producer. The consumer then fails w
 directory that is being removed. This is the intended behavior: the launch fails and reads nothing.
 Do not scrub a flow whose runs other launches are starting to use.
 
-``--scrub`` on a launch removes the other run directories of the flow in the launch's own directory.
-It never reaches the directories of another target.
+``--scrub`` on a launch (``prune_variants`` in Python) removes the other run directories of every
+flow of the plan, the producers included, and not only those of the requested flow. For each flow,
+these are the directories of the same design and target, hashed or plain, that the launch does not
+use. It never reaches the directories of another target.
 
 Only the command line asks for the confirmation. The Python functions ``scrub_design`` and
-``scrub_runs``, and a ``DefaultRunner`` launch with ``scrub_old_runs``, never prompt. They ask the
+``scrub_runs``, and a ``DefaultRunner`` launch with ``prune_variants``, never prompt. They ask the
 callback that you give them (the ``confirm`` argument, or the ``confirm_scrub`` attribute of the
 launcher). The callback gets the listed run directories and returns whether to remove them. Without
 a callback, nothing is removed, and Xeda logs a warning that names the run directories. This holds

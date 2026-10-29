@@ -595,7 +595,7 @@ def test_the_launcher_stage_names_are_looked_up_in_the_product(name: str):
 
 
 #: The launcher names a plain successful launch must go through, and `scrub_runs`, which needs
-#: `scrub_old_runs` with the hashed layout. `_drop_unwritten_artifacts` runs only on a failure,
+#: `prune_variants` with the hashed layout. `_drop_unwritten_artifacts` runs only on a failure,
 #: so it has its own cases below. They patch it through `_intercepting`, by a name in a
 #: variable that the scan of the suite cannot read, so it is not in `LAUNCHER_TARGETS`. The cases
 #: keep the lookup in the product honest.
@@ -634,7 +634,7 @@ def test_patching_a_launcher_stage_name_intercepts_a_real_launch(tmp_path, monke
     seen = _intercepting(monkeypatch, ON_A_SUCCESSFUL_LAUNCH)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(
-        tmp_path / "run", display_results=False, hashed_run_dirs=True, scrub_old_runs=True
+        tmp_path / "run", display_results=False, hashed_run_dirs=True, prune_variants=True
     )
     assert runner.launch_flow(TMaker, design, {}).succeeded
     missing = sorted(set(ON_A_SUCCESSFUL_LAUNCH) - seen)

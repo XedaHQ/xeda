@@ -434,6 +434,8 @@ def scrub_runs(
     run_root = root
     scan = _run_directories_in(flow_name, dir, exclude, run_root)
     _log_skipped(scan.skipped)
+    if not scan.candidates:
+        log.info("There is no other run directory of %s in %s to remove.", flow_name, dir)
     listed = _listed(flow_name, scan.candidates)
     done = _remove_confirmed(listed, run_root, confirm)
     if on_result is not None:

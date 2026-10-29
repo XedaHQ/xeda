@@ -1186,11 +1186,11 @@ def maker_design(tmp_path: Path, target: str) -> Design:
 
 
 def test_the_scrub_of_a_launch_stays_in_its_own_target(tmp_path, confirmations):
-    def launch(target: str, text: str, scrub_old_runs: bool):
+    def launch(target: str, text: str, prune_variants: bool):
         launcher = DefaultRunner(
             tmp_path / "xeda_run",
             hashed_run_dirs=True,
-            scrub_old_runs=scrub_old_runs,
+            prune_variants=prune_variants,
             display_results=False,
         )
         launcher.confirm_scrub = _prompt_scrub

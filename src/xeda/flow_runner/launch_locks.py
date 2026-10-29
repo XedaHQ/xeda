@@ -23,7 +23,7 @@ from .run_lock import LockRequest
 
 log = logging.getLogger(__name__)
 
-__all__ = ["NeedsExclusive", "NodeLocks"]
+__all__ = ["NeedsExclusive", "NeedsPruning", "NodeLocks"]
 
 #: The states of a node that a launch reuses without writing in its run directory.
 REUSED = ("fresh", "rejected")
@@ -38,6 +38,14 @@ class NeedsExclusive(BaseException):
     def __init__(self, nodes: Iterable[str]) -> None:
         self.nodes = frozenset(nodes)
         super().__init__(f"{', '.join(sorted(self.nodes))} must be locked exclusively")
+
+
+class NeedsPruning(BaseException):
+    """The plan that the caller gave still holds, and the launch must prune the other run
+    directories before it takes its locks again.
+
+    A prune takes one lock at a time and holds none else, so it cannot run under the locks of the
+    launch. Like `NeedsExclusive`, it is no failure and no `Exception`."""
 
 
 class NodeLocks:

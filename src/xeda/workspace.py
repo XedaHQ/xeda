@@ -11,12 +11,15 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
-from .errors import SpecError
+from .errors import SpecError, StalePlanError
+from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+from .flow_runner.plan_check import workspace_difference
 from .local_settings import LocalSettings
-from .plan import Plan, plan_of
+from .plan import Plan, dependency_commits, plan_of
 from .run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from .spec import Spec
 from .types import UNSET, PathLike, Unset
@@ -24,6 +27,24 @@ from .types import UNSET, PathLike, Unset
 __all__ = ["Workspace"]
 
 TOOL_OUTPUTS = ("log", "terminal")
+
+if TYPE_CHECKING:
+    from .deliver import Conflict
+    from .flow_runner.scrub import ScrubCandidate
+
+
+def _overwrite_question(conflicts: "Sequence[Conflict]") -> str:
+    lines = [f"Xeda would replace {len(conflicts)} file(s) at the output paths you named:"]
+    lines += [f"  {c.destination}   {c.why}" for c in conflicts]
+    return "\n".join([*lines, "Replace them?"])
+
+
+def _prune_question(candidates: "Sequence[ScrubCandidate]") -> str:
+    lines = [f"Xeda would remove these {len(candidates)} run directories:"]
+    for candidate in candidates:
+        lines.append(f"  {candidate.path}")
+        lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
+    return "\n".join([*lines, "Remove them?"])
 
 
 class Workspace:
@@ -158,12 +179,7 @@ class Workspace:
         )
         self._refuse_project_run_root(spec)
         try:
-            runner = DefaultRunner(
-                self.run_root,
-                hashed_run_dirs=self.hashed_run_dirs,
-                display_results=False,
-                run_root_start=self._start,
-            )
+            runner = self._runner(DefaultRunner)
             planned = runner.plan_spec(spec, local_settings=self.local_settings, options=options)
         except Exception as error:
             public = public_error(error)
@@ -177,4 +193,100 @@ class Workspace:
             spec=spec,
             options=options,
             workspace=self._options(),
+            dependencies=dependency_commits(planned.request.design),
         )
+
+    def _runner(self, runner_class: Any) -> Any:
+        return runner_class(
+            self.run_root,
+            hashed_run_dirs=self.hashed_run_dirs,
+            display_results=False,
+            run_root_start=self._start,
+        )
+
+    def run(
+        self,
+        what: Spec | Plan,
+        /,
+        *,
+        rebuild_all: bool | Unset = UNSET,
+        clean: bool | Unset = UNSET,
+        prune_variants: bool | Unset = UNSET,
+        outputs_to: PathLike | None | Unset = UNSET,
+        overwrite_outputs: bool | Unset = UNSET,
+        post_cleanup: bool | Unset = UNSET,
+        post_cleanup_purge: bool | Unset = UNSET,
+        cancel: Any | None = None,
+        on_event: Any | None = None,
+    ) -> Result:
+        """Run a `Spec` or a `Plan`, and return what the launch did to every node.
+
+        A launch option that is not given has the default of `plan`. A `Plan` brings its own
+        options, so giving any option with a plan is an error (`plan_options`), also one equal to
+        the plan's. Running a plan takes the locks of its graph and resolves its spec again
+        under them. It raises `StalePlanError` when the graph, an identity, a run directory, a
+        delivery, the settings, the commit of a Git dependency or an option of this workspace
+        differs from the plan. A stale plan prunes nothing, asks nothing, generates nothing and
+        runs nothing. A source edit is no difference: the launch checks freshness again.
+
+        A node that fails, is rejected or is blocked is an outcome in the `Result`, not an
+        exception. `prune_variants` removes the other run directories of every node of the plan,
+        producers included: those of the same design and target that the launch does not use.
+        It and the questions about a delivery ask `confirm`. `post_cleanup` and
+        `post_cleanup_purge` act on the nodes with the disposition `ran` only."""
+        from .flow_runner import DefaultRunner
+        from .flow_runner.error_codes import public_error
+        from .proc_utils import TOOL_OUTPUT
+
+        given = {
+            "rebuild_all": rebuild_all,
+            "clean": clean,
+            "prune_variants": prune_variants,
+            "outputs_to": outputs_to,
+            "overwrite_outputs": overwrite_outputs,
+            "post_cleanup": post_cleanup,
+            "post_cleanup_purge": post_cleanup_purge,
+        }
+        named: dict[str, Any] = {
+            name: value for name, value in given.items() if not isinstance(value, Unset)
+        }
+        expected: Plan | None = None
+        if isinstance(what, Plan):
+            if named:
+                raise SpecError(
+                    f"{', '.join(named)} given with a plan: a plan has its own launch options. "
+                    "Pass them to `plan`.",
+                    code="plan_options",
+                )
+            difference = workspace_difference(what._workspace, self._options())
+            if difference is not None:
+                raise StalePlanError(
+                    f"The plan is stale: {difference}. Plan again.",
+                    code="stale_plan",
+                    difference=difference,
+                )
+            expected, spec = what, what.spec
+            options = LaunchOptions(**what.options)
+        else:
+            spec = what
+            options = LaunchOptions(**named)
+        if self.remote is not None:
+            raise NotImplementedError("running on a remote host is not supported yet")
+        self._refuse_project_run_root(spec)
+        runner = self._runner(DefaultRunner)
+        if self.confirm is not None:
+            answer = self.confirm
+            runner.confirm_overwrite = lambda conflicts: answer(_overwrite_question(conflicts))
+            runner.confirm_scrub = lambda candidates: answer(_prune_question(candidates))
+        token = TOOL_OUTPUT.set(self.tool_output)
+        try:
+            return runner.run_spec(
+                spec, local_settings=self.local_settings, options=options, expected=expected
+            )
+        except Exception as error:
+            public = public_error(error)
+            if public is error:
+                raise
+            raise public from error
+        finally:
+            TOOL_OUTPUT.reset(token)

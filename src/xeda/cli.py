@@ -997,8 +997,9 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
 @click.option(
     "--scrub",
     is_flag=True,
-    help="Before running, remove the flow's other run directories for this design; asks for "
-    "confirmation. It cannot be used with --remote.",
+    help="Before running, remove the other run directories of every flow of the plan, the "
+    "producers included, for this design; asks for confirmation. It cannot be used with "
+    "--remote.",
 )
 @click.option(
     "--remote",
@@ -1364,7 +1365,7 @@ def run(
             launcher.confirm_overwrite = _prompt_overwrite
         launcher.settings.post_cleanup = post_cleanup
         launcher.settings.post_cleanup_purge = post_cleanup_purge
-        launcher.settings.scrub_old_runs = scrub
+        launcher.settings.prune_variants = scrub
         launcher.confirm_scrub = _prompt_scrub
         launcher.scrub_done = _print_scrub_result
         resolved, plan = launcher.resolve_run(

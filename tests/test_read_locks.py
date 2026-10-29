@@ -450,7 +450,7 @@ def checked_run(self):
     assert self.outputs.made.read_text() == sys.argv[2]
 TMaker.run = checked_run
 default_runner.scrub_runs = scrub
-runner = DefaultRunner(root / "run", hashed_run_dirs=True, scrub_old_runs=True,
+runner = DefaultRunner(root / "run", hashed_run_dirs=True, prune_variants=True,
                        display_results=False)
 runner.confirm_scrub = lambda directories: True
 flow = runner.launch_flow(

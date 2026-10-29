@@ -84,7 +84,7 @@ LAUNCHER_OPTIONS = [
     dict(post_cleanup=True, post_cleanup_purge=True),
     dict(post_cleanup_purge=True),
     dict(clean=True),
-    dict(scrub_old_runs=True),
+    dict(prune_variants=True),
 ]
 
 

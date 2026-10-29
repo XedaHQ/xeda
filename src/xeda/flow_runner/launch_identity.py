@@ -38,7 +38,7 @@ class RunDirPolicy:
     """
 
     clean: bool
-    scrub_old_runs: bool
+    prune_variants: bool
     post_cleanup: bool
     post_cleanup_purge: bool
 
@@ -52,7 +52,7 @@ class PolicySettings(Protocol):
     """The launcher settings `run_dir_policy` reads."""
 
     clean: bool
-    scrub_old_runs: bool
+    prune_variants: bool
     post_cleanup: bool
     post_cleanup_purge: bool
 
@@ -66,7 +66,7 @@ def run_dir_policy(settings: PolicySettings) -> RunDirPolicy:
     move follow it."""
     return RunDirPolicy(
         clean=settings.clean,
-        scrub_old_runs=settings.scrub_old_runs,
+        prune_variants=settings.prune_variants,
         post_cleanup=settings.post_cleanup or settings.post_cleanup_purge,
         post_cleanup_purge=settings.post_cleanup_purge,
     )

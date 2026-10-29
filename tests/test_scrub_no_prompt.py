@@ -116,14 +116,14 @@ def test_a_confirmation_that_says_no_removes_nothing(tree):
     assert _all_exist(directories)
 
 
-def _launch(tmp_path: Path, text: str, *, scrub_old_runs: bool, confirm=None) -> Path:
+def _launch(tmp_path: Path, text: str, *, prune_variants: bool, confirm=None) -> Path:
     design = tmp_path / "design"
     design.mkdir(exist_ok=True)
     (design / "d.yaml").write_text('name: d\nrtl: {sources: [], top: "t"}\n')
     launcher = DefaultRunner(
         tmp_path / "xeda_run",
         hashed_run_dirs=True,
-        scrub_old_runs=scrub_old_runs,
+        prune_variants=prune_variants,
         display_results=False,
     )
     launcher.confirm_scrub = confirm
@@ -132,20 +132,20 @@ def _launch(tmp_path: Path, text: str, *, scrub_old_runs: bool, confirm=None) ->
     return flow.run_path
 
 
-def test_a_launch_with_scrub_old_runs_and_no_confirmation_removes_nothing(
+def test_a_launch_with_prune_variants_and_no_confirmation_removes_nothing(
     tmp_path, no_terminal, caplog
 ):
-    old = _launch(tmp_path, "one\n", scrub_old_runs=False)
+    old = _launch(tmp_path, "one\n", prune_variants=False)
     with caplog.at_level(logging.INFO):
-        new = _launch(tmp_path, "two\n", scrub_old_runs=True)
+        new = _launch(tmp_path, "two\n", prune_variants=True)
     assert new != old and old.is_dir() and new.is_dir()
     assert sum("Not removing 1 run directory" in r.getMessage() for r in caplog.records) == 1
 
 
 @pytest.mark.parametrize("answer", [True, False])
-def test_a_launch_with_scrub_old_runs_follows_its_confirmation(tmp_path, answer):
-    old = _launch(tmp_path, "one\n", scrub_old_runs=False)
-    new = _launch(tmp_path, "two\n", scrub_old_runs=True, confirm=lambda listed: answer)
+def test_a_launch_with_prune_variants_follows_its_confirmation(tmp_path, answer):
+    old = _launch(tmp_path, "one\n", prune_variants=False)
+    new = _launch(tmp_path, "two\n", prune_variants=True, confirm=lambda listed: answer)
     assert new.is_dir() and old.is_dir() is (not answer)
 
 

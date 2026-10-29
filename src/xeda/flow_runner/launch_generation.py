@@ -440,6 +440,7 @@ def settle(
     participants: Participants | None = None,
     leases: Sequence[Path] = (),
     canceled: Callable[[], bool] | None = None,
+    before_generation: Callable[[], None] | None = None,
 ) -> Settled:
     """Take every lock of a launch, make the storages of its generators valid, and keep the locks
     in `stack`. The result holds the generations (None for a design with no generator) and the
@@ -462,6 +463,9 @@ def settle(
     - A storage that is still invalid after the launch generated it, or whose generator changed
       what an earlier unit reads, counts as an attempt. After `ATTEMPTS` the call fails with a
       `GenerationError`.
+
+    `before_generation` runs under every set of locks, before any judgment of a storage and so
+    before any generator runs. What it raises leaves the call with the locks released.
 
     Then the participants judge under the locks (`Participants.settled`). The call returns with
     the locks in `stack`, which the caller closes when it has delivered everything."""
@@ -495,6 +499,8 @@ def settle(
             locks = held.enter_context(acquire_all(requests, run_root=run_root, canceled=canceled))
             if any(generation_key(u.design, environ)[0] != u.key for u in units):
                 continue  # what a generator reads changed while this call waited: new keys
+            if before_generation is not None:
+                before_generation()
             judged: dict[str | None, Generation] = {}
             ran: list[Unit] = []
             promote = False
