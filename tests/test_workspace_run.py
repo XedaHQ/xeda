@@ -16,7 +16,7 @@ from xeda.deliver import Deliveries, DeliveryError
 from xeda.design import SourceType
 from xeda.errors import SpecError, StalePlanError
 from xeda.flow import Flow, MetricSpec, Out
-from xeda.flow_runner import DefaultRunner, run_lock
+from xeda.flow_runner import DefaultRunner, launch_locks, run_lock
 from xeda.flow_runner.plan_check import plan_difference
 from xeda.local_settings import LocalSettings
 from xeda.outcomes import Result
@@ -98,6 +98,25 @@ def test_a_changed_flow_registration_changes_the_graph(graph):
     assert ToyConsumer.name == "toy_consumer"
 
 
+def test_settings_that_no_longer_validate_are_a_difference(graph):
+    workspace = Workspace(graph.run_root)
+    plan = workspace.plan(_spec(graph, shout=True))
+
+    class ToyConsumer(Flow):
+        """The consumer again, without the `shout` setting."""
+
+        results_description: ClassVar[dict] = {}
+
+        def run(self) -> None:
+            pass
+
+    with pytest.raises(StalePlanError) as raised:
+        workspace.run(plan)
+    assert "shout" in raised.value.difference
+    assert raised.value.code == "stale_plan" and raised.value.__cause__ is not None
+    assert ToyConsumer.name == "toy_consumer"
+
+
 def test_editing_the_design_file_after_planning_is_no_difference(graph, tmp_path):
     (tmp_path / "d.yaml").write_text(
         "name: d\nrtl: {sources: [a.v], top: a}\nflows: {toy_producer: {suffix: one}}\n"
@@ -161,7 +180,9 @@ def test_a_changed_delivery_is_a_difference(graph, tmp_path):
     with pytest.raises(StalePlanError) as raised:
         workspace.run(plan)
     assert "deliveries" in raised.value.difference
-    assert workspace.run(plan_again := workspace.plan(spec, outputs_to=out, overwrite_outputs=True))
+    assert workspace.run(
+        plan_again := workspace.plan(spec, outputs_to=out, overwrite_outputs=True)
+    ).passed
     assert plan_again.nodes["toy_consumer"].deliveries[0].replaces
 
 
@@ -318,6 +339,49 @@ def test_a_stale_plan_prunes_nothing(tmp_path, toy):  # noqa: F811
     assert not plan.nodes[toy.name].run_dir.exists()
 
 
+def test_a_resolution_that_differs_when_the_launch_starts_is_a_difference(
+    tmp_path, toy  # noqa: F811
+):
+    """The launch runs the resolution that it made before its locks: it must be the plan."""
+    dependency = LocalDependency(tmp_path)
+    workspace = Workspace(tmp_path / "xeda_run")
+    plan = workspace.plan(dependency.spec(toy.name))
+    dependency.use("bc")
+    # The dependency is back as planned when the launch has its locks, so a check of a new
+    # planning alone would pass.
+    outcome = _run_while_waiting_for_the_locks(
+        workspace, plan, plan.nodes[toy.name].run_dir, lambda: dependency.use("b")
+    )
+    assert isinstance(outcome, StalePlanError) and "changed" in outcome.difference
+    assert not plan.nodes[toy.name].run_dir.exists(), "nothing ran"
+
+
+def test_the_plan_is_checked_again_when_the_launch_takes_its_locks_again(
+    tmp_path, toy, monkeypatch  # noqa: F811
+):
+    dependency = LocalDependency(tmp_path)
+    workspace = Workspace(tmp_path / "xeda_run")
+    assert workspace.run(dependency.spec(toy.name)).passed
+    plan = workspace.plan(dependency.spec(toy.name))
+    assert {n.state for n in plan.nodes.values()} == {"fresh"}
+    settled = launch_locks.NodeLocks.settled
+    calls: list[int] = []
+
+    def settled_late(self) -> bool:
+        # The first judgment under the locks sends the launch to take them again, and the
+        # dependency changes while it holds none.
+        calls.append(1)
+        if len(calls) == 1:
+            dependency.use("bc")
+            return False
+        return settled(self)
+
+    monkeypatch.setattr(launch_locks.NodeLocks, "settled", settled_late)
+    with pytest.raises(StalePlanError) as raised:
+        workspace.run(plan)
+    assert "changed" in raised.value.difference and len(calls) == 1
+
+
 def _suffixed(graph: ToyGraph, suffix: str) -> Spec:
     """A spec whose producer and consumer both change with `suffix`."""
     return Spec(
@@ -341,6 +405,26 @@ def test_a_plan_that_still_holds_prunes_the_other_runs_of_every_node(graph):
     assert len(questions) == 2, "one question for each flow"
     for name, node in result.nodes.items():
         assert node.run_dir.is_dir() and not old[name].run_dir.exists()
+
+
+def test_a_declined_question_about_a_delivery_prunes_nothing(graph, tmp_path):
+    out = tmp_path / "out"
+    questions: list[str] = []
+
+    def answer(question: str) -> bool:
+        questions.append(question)
+        return "remove" in question
+
+    workspace = Workspace(graph.run_root, hashed_run_dirs=True, confirm=answer)
+    old = workspace.run(_suffixed(graph, "x")).nodes
+    workspace.run(_suffixed(graph, "y"), outputs_to=out)
+    (delivered,) = [path for path in out.rglob("*") if path.is_file()]
+    delivered.write_text("yours\n")
+    plan = workspace.plan(_suffixed(graph, "y"), prune_variants=True, outputs_to=out)
+    with pytest.raises(SpecError, match="would replace"):
+        workspace.run(plan)
+    assert len(questions) == 1 and "remove" not in questions[0], "no question about the prune"
+    assert all(node.run_dir.is_dir() for node in old.values()), "nothing was pruned"
 
 
 @pytest.mark.parametrize("broken", [False, True])
@@ -374,6 +458,45 @@ def test_a_stale_plan_neither_regenerates_nor_meets_a_failing_generator(tmp_path
     assert "graph" in raised.value.difference
     assert world.runs == 1, "the generator did not run"
     assert {p: p.stat().st_mtime_ns for p in storage.rglob("*")} == before
+
+
+@pytest.mark.parametrize("stale", [True, False])
+def test_a_stale_plan_is_no_failed_generator(tmp_path, stale):
+    """A generator that cannot start fails the launch, unless the plan is stale anyway."""
+    python = tmp_path / "python"
+    python.write_text(f'#!/bin/sh\nexec {sys.executable} "$@"\n')
+    python.chmod(0o755)
+    world = World(tmp_path, generator={"executable": str(python)})
+    reader = reader_flow()
+    workspace = Workspace(world.run_root)
+    spec = Spec(reader.name, world.load())
+    assert workspace.run(spec).passed
+    plan = workspace.plan(spec, clean=True)
+
+    if stale:
+
+        class TGenReader(Flow):
+            """The reader again, with an output that the plan did not have."""
+
+            results_description: ClassVar[dict[str, MetricSpec]] = {}
+            reads_sources = frozenset({SourceType.Verilog})
+
+            class Outputs(Flow.Outputs):
+                extra: Path | None = Out(SourceType.Data, description="An output the plan lacks.")
+
+            def run(self) -> None:
+                pass
+
+        assert TGenReader.name == reader.name
+    python.unlink()
+    if stale:
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(plan)
+        assert "graph" in raised.value.difference
+    else:
+        result = workspace.run(plan)
+        assert result.outcome == "failed" and result.error.code == "generator_failed"
+    assert world.runs == 1, "the generator did not run"
 
 
 def test_a_destination_that_appears_after_planning_is_a_difference_and_no_question(graph, tmp_path):

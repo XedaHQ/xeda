@@ -464,8 +464,8 @@ def settle(
       what an earlier unit reads, counts as an attempt. After `ATTEMPTS` the call fails with a
       `GenerationError`.
 
-    `before_generation` runs once, under the first set of locks, before any judgment of a storage
-    and so before any generator runs. What it raises leaves the call with the locks released.
+    `before_generation` runs under every set of locks, before any judgment of a storage and so
+    before any generator runs. What it raises leaves the call with the locks released.
 
     Then the participants judge under the locks (`Participants.settled`). The call returns with
     the locks in `stack`, which the caller closes when it has delivered everything."""
@@ -501,7 +501,6 @@ def settle(
                 continue  # what a generator reads changed while this call waited: new keys
             if before_generation is not None:
                 before_generation()
-                before_generation = None
             judged: dict[str | None, Generation] = {}
             ran: list[Unit] = []
             promote = False
