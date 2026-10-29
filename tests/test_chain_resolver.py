@@ -524,7 +524,7 @@ def test_a_dry_run_of_a_saved_binding_shows_the_graph_that_then_runs(tmp_path, m
     assert "saved binding" in planned[1]["inputs"][0]["reason"]
     assert not (tmp_path / "xeda_run").exists()
     text = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--dry-run"])
-    assert "made <- t_input_maker.made (bound explicitly (saved binding: " in text.output
+    assert "made <- t_input_maker.made (bound by a saved binding in " in text.output
     ran = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--json"])
     assert ran.exit_code == 0, ran.output
     document = json.loads(ran.stdout)

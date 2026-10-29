@@ -389,14 +389,14 @@ def test_an_input_comes_from_a_binding_before_a_source_before_its_default(tmp_pa
     assert [n["name"] for n in chain["nodes"]] == ["yosys_fpga", "nextpnr"]
     netlist = _input(chain, "nextpnr", "netlist")
     assert (netlist["origin"], netlist["producer"]) == ("producer", "yosys_fpga")
-    assert "(chain:" in netlist["reason"]
+    assert "bound by the chain:" in netlist["reason"]
     assert netlist["sources"] == []
 
     saved = _planned("nextpnr", root / "bound_demo.yaml")
     assert [n["name"] for n in saved["nodes"]] == ["yosys_fpga", "nextpnr"]
     netlist = _input(saved, "nextpnr", "netlist")
     assert (netlist["producer"], netlist["output"]) == ("yosys_fpga", "netlist")
-    assert "(saved binding:" in netlist["reason"]
+    assert "bound by a saved binding" in netlist["reason"]
     assert str(root / "bound_demo.yaml") in netlist["reason"]
 
     # neither: the declared default producer, with no binding anywhere
@@ -454,7 +454,7 @@ def test_a_chain_replaces_the_bindings_a_design_and_a_named_project_saved(tmp_pa
     chain = _planned("yosys_fpga+nextpnr", *both)
     netlist = _input(chain, "nextpnr", "netlist")
     reason = netlist["reason"]
-    assert "(chain:" in reason and "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in reason
+    assert "bound by the chain:" in reason and "position 1 (yosys_fpga) -> 2 (nextpnr)" in reason
     replaced = reason.partition("overriding ")[2]
     assert replaced.index(str(project)) < replaced.index(str(design))
 
@@ -511,7 +511,7 @@ def test_a_chain_and_an_api_binding_of_one_input_collide(tmp_path, kind, style):
 
 def _binding_origin(plan) -> str:
     reason = _input({"nodes": plan_nodes(plan)}, "nextpnr", "netlist")["reason"]
-    return reason.partition("(")[2].partition(":")[0].partition(")")[0]
+    return "API" if reason.startswith("bound by the API") else reason
 
 
 # ----------------------------------------- the last node's settings, results and delivery
@@ -560,7 +560,7 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
     assert delivered == ["logs/ecppack.log", "outputs/routed_demo.bit"]
     deliveries = {n["name"]: n["deliveries"] for n in document["nodes"]}
     assert deliveries["yosys_fpga"] == deliveries["nextpnr"] == []
-    assert {d["key"] for d in deliveries["fpga_pack"]} == {"--outputs-to"}
+    assert {d["key"] for d in deliveries["fpga_pack"]} == {"outputs_to"}
 
 
 def test_the_saved_bindings_of_a_file_are_wiring_in_what_ran(tmp_path, toolchain):
@@ -702,7 +702,7 @@ def test_the_dry_run_of_a_pass_through_chain_lists_the_flows_between(tmp_path):
     assert document["spec"]["flow"] == "yosys_fpga+fpga_pack"
     assert [n["name"] for n in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
     reason = _input(document, "nextpnr", "netlist")["reason"]
-    assert "(chain:" in reason and "through nextpnr" in reason
+    assert "bound by the chain:" in reason and "through nextpnr" in reason
 
 
 def test_the_documented_pass_through_command_plans_the_flow_between_its_two_flows(tmp_path):

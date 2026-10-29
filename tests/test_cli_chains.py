@@ -129,7 +129,7 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
     assert planned["spec"]["flow"] == "t_input_maker+t_taker" and planned["roots"] == ["t_taker"]
     assert not (tmp_path / "xeda_run").exists()
     text = _xeda("run", "t_input_maker+t_taker", design, "--dry-run").output
-    assert "made <- t_input_maker.made (bound explicitly (chain: " in text
+    assert "made <- t_input_maker.made (bound by the chain: position 1 (" in text
     ran, document = _json("run", "t_input_maker+t_taker", design)
     assert [(n["name"], n["run_dir"]) for n in document["nodes"]] == [
         (n["name"], n["run_dir"]) for n in planned["nodes"]
@@ -389,7 +389,7 @@ def test_an_explicit_yaml_project_binds_below_the_design_and_names_its_file(tmp_
     # and a chain over both, saying what it replaced
     result, document = _json("run", "t_input_maker+t_taker", *selected)
     (made,) = document["nodes"][-1]["inputs"]
-    assert "(chain:" in made["reason"] and made["reason"].count("overriding") == 1
+    assert "bound by the chain:" in made["reason"] and made["reason"].count("overriding") == 1
     assert str(other) in made["reason"] and str(over) in made["reason"]
 
 
@@ -591,7 +591,7 @@ def test_the_request_lists_the_flows_a_link_passes_through(tmp_path):
     ]
     (bound,) = document["nodes"][1]["inputs"]
     assert (bound["producer"], bound["output"]) == ("t_route_a", "x")
-    assert "(chain:" in bound["reason"]
+    assert "bound by the chain:" in bound["reason"]
     (taken,) = document["nodes"][2]["inputs"]
     assert not taken["reason"].startswith("bound"), "the other edges stay default edges"
 

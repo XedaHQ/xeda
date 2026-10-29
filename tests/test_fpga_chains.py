@@ -429,7 +429,11 @@ def test_a_dry_run_of_the_whole_chain_selects_the_family_s_stages_and_runs_nothi
         "openfpgaloader": True,
     }
     bound = {
-        (node["name"], i["name"]): (i["producer"], i["output"], "(chain:" in i["reason"])
+        (node["name"], i["name"]): (
+            i["producer"],
+            i["output"],
+            "bound by the chain:" in i["reason"],
+        )
         for node in planned["nodes"]
         for i in node["inputs"]
         if i["producer"]
@@ -983,7 +987,9 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
         i for n in planned if n["name"] == "nextpnr" for i in n["inputs"] if i["name"] == "netlist"
     ]
     assert bound["producer"] == "yosys_fpga"
-    assert ("(chain:" if route == "chain" else "(saved binding:") in bound["reason"]
+    assert ("bound by the chain:" if route == "chain" else "bound by a saved binding") in bound[
+        "reason"
+    ]
 
 
 # ------------------------------------------------------------------------------ undeclared flows

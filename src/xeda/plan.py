@@ -196,13 +196,15 @@ def spec_document(spec: Spec) -> dict[str, Any]:
 
 def _input_reason(resolved: ResolvedInput) -> str:
     """Say why the resolver chose the producer or the source of an input."""
-    from .flow_runner.resolver import BINDING_ORIGINS
-
     if resolved.binding_origin is not None:
-        text = f"bound explicitly ({BINDING_ORIGINS[resolved.binding_origin]}"
-        if resolved.binding_location:
-            text += f": {resolved.binding_location}"
-        text += ")"
+        where = resolved.binding_location or ""
+        # A location names its place: "the chain position 1 (a) -> 2 (b)", or a file and a key.
+        text = {
+            "chain": "bound by the chain: " + where.removeprefix("the chain "),
+            "file": f"bound by a saved binding in {where}",
+            "cli": "bound by `-s` or `flow_settings`",
+            "api": "bound by the API",
+        }[resolved.binding_origin]
         if resolved.overridden:
             text += ", overriding " + ", ".join(resolved.overridden)
         return text
