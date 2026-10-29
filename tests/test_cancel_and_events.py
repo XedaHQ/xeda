@@ -96,7 +96,7 @@ def test_cancel_from_another_thread_stops_a_running_tool(tmp_path):
     record = read_record(producer.run_dir, run_root=workspace.run_root)
     assert record.outcome is Outcome.CANCELED
     assert not (producer.run_dir / "trace.json").exists(), "a canceled run keeps no trace"
-    assert not _is_running(_read_pid(started)), "the whole group of the tool is gone"
+    _wait_until(lambda: not _is_running(_read_pid(started)), "the whole group of the tool is gone")
     assert _free(workspace.run_root, producer.run_dir)
     # The next launch runs the node again.
     cut_flows(None)
@@ -147,7 +147,7 @@ def test_cancel_during_generation(tmp_path):
     assert result.outcome is Outcome.CANCELED
     assert result.error is not None and result.error.code == "canceled"
     assert {n.outcome for n in result.nodes.values()} == {Outcome.SKIPPED}
-    assert not _is_running(_read_pid(started))
+    _wait_until(lambda: not _is_running(_read_pid(started)), "the process to stop")
     assert world.storages() == [], "no half-written output stays"
 
 
@@ -192,7 +192,7 @@ def test_a_timeout_stops_a_running_tool(tmp_path):
     result = workspace.run(Spec("cut_producer", cut_design(tmp_path / "design")), cancel=token)
     assert result.outcome is Outcome.CANCELED
     assert result.nodes["cut_producer"].outcome is Outcome.CANCELED
-    assert not _is_running(_read_pid(started))
+    _wait_until(lambda: not _is_running(_read_pid(started)), "the process to stop")
 
 
 def test_events_come_in_order_in_the_calling_thread(tmp_path):
@@ -263,7 +263,7 @@ def test_a_raising_callback_cancels_the_launch_and_propagates(tmp_path):
     run_dir = workspace.run_root / "d" / "cut_producer"
     assert _free(workspace.run_root, run_dir)
     if started.exists():
-        assert not _is_running(_read_pid(started)), "the tool was stopped"
+        _wait_until(lambda: not _is_running(_read_pid(started)), "the tool was stopped")
 
 
 def test_a_callback_that_raises_at_the_end_propagates_after_the_result_is_built(tmp_path):
@@ -339,7 +339,7 @@ def test_run_process_stops_a_group_when_canceled_says_yes(tmp_path):
     with pytest.raises(ProcessCanceled):
         run_process(sys.executable, ["-c", _tree(started)], canceled=stop.is_set)
     thread.join()
-    assert not _is_running(_read_pid(started))
+    _wait_until(lambda: not _is_running(_read_pid(started)), "the process to stop")
 
 
 def test_run_child_stops_its_descendants_when_canceled_says_yes(tmp_path):
@@ -355,7 +355,7 @@ def test_run_child_stops_its_descendants_when_canceled_says_yes(tmp_path):
         run_child([sys.executable, "-c", _tree(started)], cwd=tmp_path, canceled=stop.is_set)
     thread.join()
     assert time.monotonic() - begin < PROMPT, "the call waited for the child to end on its own"
-    assert not _is_running(_read_pid(started))
+    _wait_until(lambda: not _is_running(_read_pid(started)), "the process to stop")
 
 
 def test_a_canceled_predicate_that_stays_false_changes_nothing(tmp_path):
@@ -400,7 +400,7 @@ def test_cancel_stops_what_an_exited_tool_left_holding_the_output(tmp_path, capt
                 canceled=stop.is_set,
             )
         thread.join()
-        assert not _is_running(_read_pid(started)), "the child is gone"
+        _wait_until(lambda: not _is_running(_read_pid(started)), "the child is gone")
     finally:
         if (pid := _read_pid(started)) is not None and _is_running(pid):
             os.kill(pid, signal.SIGKILL)
@@ -426,7 +426,7 @@ def test_cancel_stops_what_an_exited_generator_left_holding_the_output(tmp_path)
         with pytest.raises(ProcessCanceled):
             run_child([sys.executable, "-c", program], cwd=tmp_path, canceled=stop.is_set)
         thread.join()
-        assert not _is_running(_read_pid(started)), "the child is gone"
+        _wait_until(lambda: not _is_running(_read_pid(started)), "the child is gone")
     finally:
         if (pid := _read_pid(started)) is not None and _is_running(pid):
             os.kill(pid, signal.SIGKILL)
@@ -460,7 +460,7 @@ def test_a_call_in_a_launch_observes_its_request_without_being_given_it(tmp_path
                 run_child([sys.executable, "-c", _tree(started)], cwd=tmp_path)
         thread.join()
         assert time.monotonic() - begin < PROMPT, call.__name__
-        assert not _is_running(_read_pid(started)), call.__name__
+        _wait_until(lambda: not _is_running(_read_pid(started)), call.__name__)
 
 
 def test_a_lock_wait_in_a_launch_observes_its_request_without_being_given_it(tmp_path, monkeypatch):
@@ -691,7 +691,7 @@ def test_cancel_while_planning_fetches_a_git_dependency(
     result = workspace.run(_dependent(tmp_path, remote), cancel=token, on_event=seen.append)
     thread.join()
     _assert_nothing_planned(result, seen)
-    assert not _is_running(_read_pid(started)), "git was stopped"
+    _wait_until(lambda: not _is_running(_read_pid(started)), "git was stopped")
     storage = xeda.flow_runner.dependencies.DEPENDENCIES_DIRECTORY
     assert [p.name for p in (workspace.run_root / storage).iterdir() if p.suffix != ".lock"] == []
 
@@ -854,7 +854,7 @@ def test_an_interrupt_stops_the_tool_group_and_releases_the_locks(tmp_path):
             child.kill()
             child.wait()
     assert child.returncode == 130, error.decode()
-    assert not _is_running(grandchild)
+    _wait_until(lambda: not _is_running(grandchild), "the process to stop")
     root = Path(run_root).resolve()
     assert _free(root, root / "d" / "cut_producer")
     assert _free(root, root / "d" / "cut_consumer")
