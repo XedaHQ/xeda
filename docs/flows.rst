@@ -607,7 +607,7 @@ arguments for flags that have no setting of their own. The list is not free text
   value. ``-0.5`` is a negative number, not a flag.
 
 Xeda checks all of this when it plans the run, before any tool starts. Each item reaches the tool
-as one word, with the quoting that the tool needs. ``-s <group>.extra_args=-flag,value`` gives the
+as one word, with the quoting that the tool needs. ``-s <flow>.<group>.extra_args=-flag,value`` gives the
 list ``-flag``, ``value``, because a list takes comma-separated text.
 
 Producers and consumers
