@@ -612,9 +612,9 @@ def test_the_delivered_node_lists_its_deliveries_and_a_skipped_one_as_not_delive
         {
             "name": "b",
             "deliveries": [
-                {"key": "--outputs-to", "destination": "/o/x", "delivered": True},
-                {"key": "--outputs-to", "destination": "/o/z", "delivered": False},
-                {"key": "--outputs-to", "destination": "/o/y", "delivered": False},
+                {"key": "outputs_to", "destination": "/o/x", "delivered": True},
+                {"key": "outputs_to", "destination": "/o/z", "delivered": False},
+                {"key": "outputs_to", "destination": "/o/y", "delivered": False},
             ],
         },
     ]

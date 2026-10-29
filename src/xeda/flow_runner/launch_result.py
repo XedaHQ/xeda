@@ -21,6 +21,7 @@ from ..deliver import Delivered, Delivery, DeliveryError
 from ..flow import Flow
 from ..generation import GenerationError
 from ..log_context import launch_context, tag_launch_id
+from ..plan import delivery_key
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from ..records import CANCELED, INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
 from ..spec import Spec
@@ -200,13 +201,13 @@ def delivery_records(
     made = {(done.key, done.destination) for done in delivered if done.state != "skipped"}
     return tuple(
         DeliveryRecord(
-            key=named.key,
+            key=delivery_key(named.key),
             destination=destination,
             delivered=(named.key, _located(destination)) in made,
         )
         for named, _source, destination, _digest in pending
     ) + tuple(
-        DeliveryRecord(key=done.key, destination=done.destination, delivered=False)
+        DeliveryRecord(key=delivery_key(done.key), destination=done.destination, delivered=False)
         for done in delivered
         if done.state == "skipped"
     )

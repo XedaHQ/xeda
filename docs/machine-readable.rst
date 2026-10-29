@@ -510,8 +510,8 @@ name and meaning:
 ``deliveries``
     Every output that the node copied to a location that the settings, ``--outputs-to`` or the
     ``outputs_to`` of the design's generator named, once the whole launch finished (see "Outputs where you name them" in :doc:`run-directories`).
-    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``--outputs-to``,
-    or ``generator`` for a copy of a generated source) that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
+    Each entry is ``{key, destination, delivered}``. ``key`` is the setting (or ``outputs_to`` for
+    ``--outputs-to``, or ``generator`` for a copy of a generated source) that asked for the delivery. ``delivered`` is false when Xeda refused the delivery or it failed,
     when the launch did not pass, and for an artifact of ``--outputs-to`` that a symbolic link leads
     out of the run directory, which Xeda skips (see :doc:`run-directories`). The list is ``[]`` for
     a node with nothing to deliver. A node
