@@ -426,7 +426,7 @@ def test_a_plan_says_unknown_until_the_generator_has_run(tmp_path):
     assert state().state == "unknown", "the key changed: no storage for it yet"
     assert world.runs == 1, "planning generated nothing"
     assert state(rebuild_all=True).state == "stale"
-    assert state(clean=True).reason == "every flow runs (--clean)"
+    assert state(clean=True).reason == "clean"
 
 
 def test_a_plan_says_stale_for_a_node_that_reads_a_declaration_nothing_matched(tmp_path):

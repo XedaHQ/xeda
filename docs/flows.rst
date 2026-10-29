@@ -688,8 +688,8 @@ Planning without running
 ------------------------
 
 ``xeda run nextpnr blinky.yaml --dry-run`` prints the immutable plan that the launcher would
-execute: the producers first, the directories, the hashes, the source or producer of each declared
-input, and the optional outputs that are switched on for consumers. Add ``--json`` for a document
+execute: the producers first, the directories, the identity of each node, the source or producer of
+each declared input, the optional outputs that are switched on for consumers and the deliveries. Add ``--json`` for a document
 (see :doc:`machine-readable`). A dry run starts no tool and changes no run root, marker, lock or
 delivery, except that it fetches the Git dependencies of the design (see
 :ref:`git-dependencies`). Planning fails for invalid settings, for a device or family that a flow
@@ -700,15 +700,15 @@ Xeda first refuses a request that the declarations of the design already rule ou
 generator runs (see :ref:`generators`). A plan never runs a generator: a node that reads generated
 sources is ``unknown`` until the storage of the generator is current. A plan fetches the Git
 dependencies of the design into the run root, after the checks that need no value of a dependency
-(see :ref:`git-dependencies`). It is the one case in which a plan writes (``plan_with_freshness`` of
-the library adds what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
+(see :ref:`git-dependencies`). It is the one case in which a plan writes (``Workspace.plan`` of the
+library also says what each node would do). Planning does not call ``init()`` of a flow. With ``--remote``, the
 host makes the plan (see :doc:`remote`).
 
 The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the
 result), ``stale: <reason>`` (the flow runs, for the reason that the log would give),
-``unknown: <reason>``, ``rejected again: <message>`` (the checks rejected the last run, and the
+``unknown: <reason>``, ``rejected: <message>`` (the checks rejected the last run, and the
 launch reports that rejection and does not run the flow) or ``blocked: <reason>`` (a producer is
-``rejected again`` or blocked, so the flow does not run). For example, the state is
+``rejected`` or blocked, so the flow does not run). For example, the state is
 ``unknown: depends on yosys_fpga`` when a producer would run first, because the answer then depends
 on what that run hands over. The dry run reads the run directories and writes nothing, so after an
 edit it shows what will run and why. See :doc:`run-directories`.

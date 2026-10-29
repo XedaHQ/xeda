@@ -515,13 +515,13 @@ def test_a_dry_run_reports_the_target(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result, document = invoke("run", "vivado_synth", str(KNIGHT), "--target", "arty", "--dry-run")
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] == "arty" and document["plan"]["target"] == "arty"
+    assert document["spec"]["target"] == "arty"
 
     result, document = invoke(
         "run", "vivado_synth", str(SINGLE.parent / "knight_arty_flat.yaml"), "--dry-run"
     )
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] is None and document["plan"]["target"] is None
+    assert document["spec"]["target"] is None
 
     text = CliRunner().invoke(
         cli, ["run", "vivado_synth", str(KNIGHT), "--target", "arty", "--dry-run"]
@@ -588,7 +588,7 @@ def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(
         "run", "vivado_synth", str(SINGLE), "--run-root", "one", "--dry-run", *PART
     )
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] is None and document["plan"]["target"] is None
+    assert document["spec"]["target"] is None
 
 
 def test_a_selected_target_has_its_own_run_directory(tmp_path, monkeypatch):
@@ -615,10 +615,10 @@ def test_a_project_run_without_a_target_uses_the_design(tmp_path, monkeypatch):
     )
     result, document = invoke(*arguments, "--dry-run")
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] is None and document["plan"]["target"] is None
+    assert document["spec"]["target"] is None
     result, document = invoke(*arguments, "--target", "arty", "--dry-run")
     assert result.exit_code == 0, document.get("error")
-    assert document["target"] == "arty" and document["plan"]["target"] == "arty"
+    assert document["spec"]["target"] == "arty"
 
 
 def test_an_unknown_target_is_a_document_that_names_the_targets(tmp_path, monkeypatch):

@@ -43,12 +43,6 @@ def _json(*args):
     return result, json.loads(result.stdout)
 
 
-REQUEST = [
-    {"node": "t_input_maker", "flow": "t_input_maker", "output": None, "through": []},
-    {"node": "t_taker", "flow": "t_taker", "output": None, "through": []},
-]
-
-
 # -------------------------------------------------------------------------------------- running
 
 
@@ -132,16 +126,16 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
     design = _design(tmp_path)
     dry, planned = _json("run", "t_input_maker+t_taker", design, "--dry-run")
     assert dry.exit_code == 0, dry.output
-    assert planned["dry_run"] and planned["flow"] == "t_taker" and planned["request"] == REQUEST
+    assert planned["spec"]["flow"] == "t_input_maker+t_taker" and planned["roots"] == ["t_taker"]
     assert not (tmp_path / "xeda_run").exists()
     text = _xeda("run", "t_input_maker+t_taker", design, "--dry-run").output
-    assert "made <- t_input_maker.made (chain)" in text
+    assert "made <- t_input_maker.made (bound by the chain: position 1 (" in text
     ran, document = _json("run", "t_input_maker+t_taker", design)
     assert [(n["name"], n["run_dir"]) for n in document["nodes"]] == [
-        (n["name"], n["run_path"]) for n in planned["plan"]["nodes"]
+        (n["name"], n["run_dir"]) for n in planned["nodes"]
     ]
     assert [[i["name"] for i in n["record"]["inputs"]] for n in document["nodes"]] == [
-        [i["name"] for i in n["inputs"]] for n in planned["plan"]["nodes"]
+        [i["name"] for i in n["inputs"]] for n in planned["nodes"]
     ]
 
 
@@ -374,9 +368,9 @@ def test_an_explicit_yaml_project_binds_below_the_design_and_names_its_file(tmp_
         "run", "t_taker", "--design-name", "demo", "--xedaproject", project, "--dry-run"
     )
     assert result.exit_code == 0, result.output
-    (made,) = document["plan"]["nodes"][-1]["inputs"]
-    assert made["producer"] == "t_input_maker" and made["binding_origin"] == "file"
-    assert str(project) in made["binding_location"]
+    (made,) = document["nodes"][-1]["inputs"]
+    assert made["producer"] == "t_input_maker" and "saved binding" in made["reason"]
+    assert str(project) in made["reason"]
     # the design's own binding wins over the project's
     over = _design(tmp_path, {"t_taker": {"inputs": {"made": "t_maker"}}}, "over.yaml")
     other = tmp_path / "other_project.yaml"
@@ -390,12 +384,13 @@ def test_an_explicit_yaml_project_binds_below_the_design_and_names_its_file(tmp_
     )
     selected = ("--design-name", "demo", "--xedaproject", other, "--dry-run")
     result, document = _json("run", "t_taker", *selected)
-    (made,) = document["plan"]["nodes"][-1]["inputs"]
-    assert made["producer"] == "t_maker" and str(over) in made["binding_location"]
+    (made,) = document["nodes"][-1]["inputs"]
+    assert made["producer"] == "t_maker" and str(over) in made["reason"]
     # and a chain over both, saying what it replaced
     result, document = _json("run", "t_input_maker+t_taker", *selected)
-    (made,) = document["plan"]["nodes"][-1]["inputs"]
-    assert made["binding_origin"] == "chain" and len(made["overridden"]) == 2
+    (made,) = document["nodes"][-1]["inputs"]
+    assert "bound by the chain:" in made["reason"] and made["reason"].count("overriding") == 1
+    assert str(other) in made["reason"] and str(over) in made["reason"]
 
 
 # ------------------------------------------------------------------------- listing and follow
@@ -562,9 +557,9 @@ def test_action_reason_is_class_metadata_the_dry_run_shows_apart_from_what_a_run
     request = "t_chain_simple_producer+t_chain_action"
     result, document = _json("run", request, design, "--dry-run")
     assert result.exit_code == 0, result.output
-    nodes = {node["name"]: node for node in document["plan"]["nodes"]}
-    assert nodes["t_chain_action"]["action_reason"] == "performs a test action"
-    assert nodes["t_chain_simple_producer"]["action_reason"] is None
+    nodes = {node["name"]: node for node in document["nodes"]}
+    assert nodes["t_chain_action"]["action"] is True
+    assert nodes["t_chain_simple_producer"]["action"] is False
     assert nodes["t_chain_action"]["state"] == "stale"
     assert nodes["t_chain_action"]["reason"] == "no completed previous run"
     text = _xeda("run", request, design, "--dry-run").output
@@ -588,23 +583,17 @@ def test_a_refused_chain_advertises_only_validated_requests(tmp_path):
 def test_the_request_lists_the_flows_a_link_passes_through(tmp_path):
     result, document = _json("run", "t_route_a+t_route_c", _design(tmp_path), "--dry-run")
     assert result.exit_code == 0, result.output
-    assert document["request"] == [
-        {"node": "t_route_a", "flow": "t_route_a", "output": None, "through": ["t_route_b"]},
-        {"node": "t_route_c", "flow": "t_route_c", "output": None, "through": []},
-    ]
-    assert [node["name"] for node in document["plan"]["nodes"]] == [
+    assert document["spec"]["flow"] == "t_route_a+t_route_c"
+    assert [node["name"] for node in document["nodes"]] == [
         "t_route_a",
         "t_route_b",
         "t_route_c",
     ]
-    (bound,) = document["plan"]["nodes"][1]["inputs"]
-    assert (bound["producer"], bound["output"], bound["binding_origin"]) == (
-        "t_route_a",
-        "x",
-        "chain",
-    )
-    (taken,) = document["plan"]["nodes"][2]["inputs"]
-    assert taken["binding_origin"] is None, "the other edges of the graph stay default edges"
+    (bound,) = document["nodes"][1]["inputs"]
+    assert (bound["producer"], bound["output"]) == ("t_route_a", "x")
+    assert "bound by the chain:" in bound["reason"]
+    (taken,) = document["nodes"][2]["inputs"]
+    assert not taken["reason"].startswith("bound"), "the other edges stay default edges"
 
 
 def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command_line(tmp_path):
@@ -651,7 +640,7 @@ def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
         "--dry-run",
     )
     assert plain.exit_code == 0, plain.output
-    assert [node["name"] for node in planned["plan"]["nodes"]] == ["t_maker", "t_route_c"]
+    assert [node["name"] for node in planned["nodes"]] == ["t_maker", "t_route_c"]
 
 
 def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_path):
@@ -681,10 +670,8 @@ def _fan_design(tmp_path, sources=(), flows=None):
 def test_a_link_that_binds_one_flow_lists_every_flow_it_passes_through(tmp_path):
     result, document = _json("run", "t_fan_head+t_fan_tail", _fan_design(tmp_path), "--dry-run")
     assert result.exit_code == 0, result.output
-    head, tail = document["request"]
-    assert head["through"] == ["t_fan_base", "t_fan_left", "t_fan_right"]
-    assert tail["through"] == []
-    assert [node["name"] for node in document["plan"]["nodes"]] == [
+    assert document["spec"]["flow"] == "t_fan_head+t_fan_tail"
+    assert [node["name"] for node in document["nodes"]] == [
         "t_fan_head",
         "t_fan_base",
         "t_fan_left",
@@ -705,7 +692,7 @@ def test_a_source_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path
     # the request for the tail alone plans without `t_fan_left`
     plain, planned = _json("run", "t_fan_tail", design, "--dry-run")
     assert plain.exit_code == 0, plain.output
-    assert "t_fan_left" not in [node["name"] for node in planned["plan"]["nodes"]]
+    assert "t_fan_left" not in [node["name"] for node in planned["nodes"]]
 
 
 def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):

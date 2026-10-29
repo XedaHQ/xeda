@@ -84,9 +84,13 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
         "flow_runner/default_runner.py",
         "FlowLauncher.__init__",
     ): "the directory a launcher starts in",
+    ("flow_runner/default_runner.py", "FlowLauncher._planned"): "relative setting paths",
+    (
+        "flow_runner/default_runner.py",
+        "FlowLauncher._planned_deliveries",
+    ): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher._launch"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher._validate_plan"): "relative setting paths",
-    ("flow_runner/default_runner.py", "FlowLauncher.plan_with_freshness"): "relative setting paths",
     ("flow_runner/default_runner.py", "FlowLauncher.resolve"): "relative setting paths",
     ("proc_utils.py", "_pwd"): "the `PWD` of a process started without a directory or with a "
     "relative one",
@@ -95,6 +99,7 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("remote/packaging.py", "package_inputs.packaged_liberty"): "relative setting paths",
     ("remote/packaging.py", "package_inputs.packaged_path"): "relative setting paths",
     ("run_root.py", "ensure_run_root"): "a run root given relative to the caller",
+    ("workspace.py", "Workspace.__init__"): "the directory a workspace starts in",
     ("spec.py", "Spec.__post_init__"): "`$PWD` in the text of a setting, replaced once",
 }
 

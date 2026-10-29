@@ -845,7 +845,7 @@ def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):
     )
     assert collector.deliveries_of(flow) == (  # type: ignore[arg-type]
         DeliveryRecord("netlist", user / "net.v", True),
-        DeliveryRecord("--outputs-to", user / "got" / "link.v", False),
+        DeliveryRecord("outputs_to", user / "got" / "link.v", False),
     )
 
 

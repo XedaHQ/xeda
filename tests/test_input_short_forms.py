@@ -155,9 +155,9 @@ def test_cli_short_forms_have_the_same_hash_and_run_directory(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        plans.append(json.loads(result.output)["plan"]["nodes"])
-    assert [(n["settings_hash"], n["flowrun_hash"], n["run_path"]) for n in plans[0]] == [
-        (n["settings_hash"], n["flowrun_hash"], n["run_path"]) for n in plans[1]
+        plans.append(json.loads(result.output)["nodes"])
+    assert [(n["identity"], n["run_dir"]) for n in plans[0]] == [
+        (n["identity"], n["run_dir"]) for n in plans[1]
     ]
 
 

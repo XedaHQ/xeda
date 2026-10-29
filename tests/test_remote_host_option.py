@@ -51,4 +51,5 @@ def test_an_empty_xeda_remote_runs_the_request_locally(tmp_path, monkeypatch):
     )
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["dry_run"] is True and "remote" not in document
+    assert document["schema_version"] == 1 and "nodes" in document
+    assert "remote" not in document

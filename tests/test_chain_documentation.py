@@ -36,6 +36,7 @@ from xeda.introspect import all_flow_classes, design_schema, flow_info, settings
 
 from . import tool_utils
 from .flow_registry import is_product_flow
+from .plan_documents import plan_nodes
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -144,8 +145,7 @@ def in_scratch(tmp_path, monkeypatch):
 
 
 def _node(document: dict, name: str) -> dict:
-    nodes = document["plan"]["nodes"] if "plan" in document else document["nodes"]
-    return next(node for node in nodes if (node.get("name") or node["node"]) == name)
+    return next(node for node in document["nodes"] if node["name"] == name)
 
 
 def _input(document: dict, node: str, name: str) -> dict:
@@ -207,7 +207,7 @@ def test_the_openroad_fixture_loads_with_each_target_and_plans_its_commands(tmp_
     document = _planned(
         request, root / "openroad-gcd.yaml", *(["--target", target] if target else [])
     )
-    names = [node.get("name") or node["node"] for node in document["plan"]["nodes"]]
+    names = [node["name"] for node in document["nodes"]]
     assert names[0] == "bsc"
     assert names[-1] == request.split("+")[-1]
 
@@ -275,8 +275,8 @@ def test_the_example_of_run_help_is_the_documented_chain_and_plans(tmp_path):
     root = _stage(tmp_path, "routed_demo.yaml")
     (root / design_name).write_text((root / "routed_demo.yaml").read_text())
     document = _planned(chain, root / design_name)
-    assert [e["flow"] for e in document["request"]] == chain.split("+")
-    assert [n["name"] for n in document["plan"]["nodes"]] == chain.split("+")
+    assert document["spec"]["flow"] == chain
+    assert [n["name"] for n in document["nodes"]] == chain.split("+")
     assert not (tmp_path / "xeda_run").exists(), "a dry run changes nothing"
 
 
@@ -330,54 +330,45 @@ def _chain_json_example() -> tuple[str, dict]:
     command = re.search(r"    xeda run (.+)\n", section)
     assert command
     example = next(
-        body for language, body in _blocks(MACHINE_READABLE_RST) if '"flow": "fpga_pack"' in body
+        body for language, body in _blocks(MACHINE_READABLE_RST) if '"roots": ["fpga_pack"]' in body
     )
     return command.group(1), json.loads(example)
 
 
 def test_the_documented_chain_document_is_what_the_dry_run_prints(tmp_path):
     """The abridged chain document of machine-readable.rst is a projection of the real one:
-    `request` exactly, each node's wired inputs field for field."""
+    each node's wired inputs, key for key."""
     command, example = _chain_json_example()
     words = command.split()
     assert words[:2] == [CHAIN, "routed_demo.yaml"] and "--json" in words
     root = _stage(tmp_path, "routed_demo.yaml")
     actual = _planned(CHAIN, root / "routed_demo.yaml")
     projected = {
-        "flow": actual["flow"],
-        "success": actual["success"],
-        "dry_run": actual["dry_run"],
-        "request": actual["request"],
-        "plan": {
-            "requested": actual["plan"]["requested"],
-            "nodes": [
-                {
-                    "name": node["name"],
-                    "inputs": [
-                        {key: i[key] for key in documented}
-                        for i in node["inputs"]
-                        for documented in [
-                            next(
-                                (d for d in doc_node["inputs"] if d["name"] == i["name"]),
-                                None,
-                            )
-                        ]
-                        if documented
-                    ],
-                }
-                for node in actual["plan"]["nodes"]
-                for doc_node in [
-                    next(n for n in example["plan"]["nodes"] if n["name"] == node["name"])
-                ]
-            ],
-        },
+        "schema_version": actual["schema_version"],
+        "spec": {"flow": actual["spec"]["flow"]},
+        "roots": actual["roots"],
+        "nodes": [
+            {
+                "name": node["name"],
+                "inputs": [
+                    {key: i[key] for key in documented}
+                    for i in node["inputs"]
+                    for documented in [
+                        next((d for d in doc_node["inputs"] if d["name"] == i["name"]), None)
+                    ]
+                    if documented
+                ],
+            }
+            for node in actual["nodes"]
+            for doc_node in [next(n for n in example["nodes"] if n["name"] == node["name"])]
+        ],
     }
     assert projected == example
     # "the chain replaced both bindings the file saved", and says which
     for node, name in (("nextpnr", "netlist"), ("fpga_pack", "config")):
-        bound = _input(actual, node, name)
-        (replaced,) = bound["overridden"]
-        assert "routed_demo.yaml" in replaced and f"flows.{node}.inputs.{name}" in replaced
+        reason = _input(actual, node, name)["reason"]
+        assert "chain" in reason and "routed_demo.yaml" in reason
+        assert f"flows.{node}.inputs.{name}" in reason
 
 
 # ------------------------------------------------- precedence: binding > source > default
@@ -389,30 +380,24 @@ def test_an_input_comes_from_a_binding_before_a_source_before_its_default(tmp_pa
     synthesis anyway; with neither a source nor a binding the default producer feeds it."""
     root = _stage(tmp_path, "prebuilt_demo.yaml", "bound_demo.yaml", "routed_demo.yaml")
     source = _planned("nextpnr", root / "prebuilt_demo.yaml")
-    assert [n["name"] for n in source["plan"]["nodes"]] == ["nextpnr"]
+    assert [n["name"] for n in source["nodes"]] == ["nextpnr"]
     netlist = _input(source, "nextpnr", "netlist")
-    assert netlist["origin"] == "source" and netlist["binding_origin"] is None
+    assert netlist["origin"] == "source" and not netlist["reason"].startswith("bound")
     assert netlist["sources"] == [str(root / "top.json")]
 
     chain = _planned("yosys_fpga+nextpnr", root / "prebuilt_demo.yaml")
-    assert [n["name"] for n in chain["plan"]["nodes"]] == ["yosys_fpga", "nextpnr"]
+    assert [n["name"] for n in chain["nodes"]] == ["yosys_fpga", "nextpnr"]
     netlist = _input(chain, "nextpnr", "netlist")
-    assert (netlist["origin"], netlist["producer"], netlist["binding_origin"]) == (
-        "producer",
-        "yosys_fpga",
-        "chain",
-    )
+    assert (netlist["origin"], netlist["producer"]) == ("producer", "yosys_fpga")
+    assert "bound by the chain:" in netlist["reason"]
     assert netlist["sources"] == []
 
     saved = _planned("nextpnr", root / "bound_demo.yaml")
-    assert [n["name"] for n in saved["plan"]["nodes"]] == ["yosys_fpga", "nextpnr"]
+    assert [n["name"] for n in saved["nodes"]] == ["yosys_fpga", "nextpnr"]
     netlist = _input(saved, "nextpnr", "netlist")
-    assert (netlist["producer"], netlist["output"], netlist["binding_origin"]) == (
-        "yosys_fpga",
-        "netlist",
-        "file",
-    )
-    assert str(root / "bound_demo.yaml") in netlist["binding_location"]
+    assert (netlist["producer"], netlist["output"]) == ("yosys_fpga", "netlist")
+    assert "bound by a saved binding" in netlist["reason"]
+    assert str(root / "bound_demo.yaml") in netlist["reason"]
 
     # neither: the declared default producer, with no binding anywhere
     data = yaml.safe_load((root / "routed_demo.yaml").read_text())
@@ -422,7 +407,8 @@ def test_an_input_comes_from_a_binding_before_a_source_before_its_default(tmp_pa
     bare.write_text(yaml.safe_dump(data))
     default = _planned("nextpnr", bare)
     netlist = _input(default, "nextpnr", "netlist")
-    assert (netlist["producer"], netlist["binding_origin"]) == ("yosys_fpga", None)
+    assert netlist["producer"] == "yosys_fpga"
+    assert netlist["reason"] == "the default producer of the input"
 
 
 def test_a_binding_that_says_what_the_defaults_say_changes_nothing(tmp_path):
@@ -436,19 +422,14 @@ def test_a_binding_that_says_what_the_defaults_say_changes_nothing(tmp_path):
 
     def graph(document):
         return [
-            (
-                n["name"],
-                n["run_path"].replace("bare", "routed_demo"),
-                n["flowrun_hash"],
-                n["settings_hash"],
-            )
-            for n in document["plan"]["nodes"]
+            (n["name"], n["run_dir"].replace("bare", "routed_demo"), n["identity"])
+            for n in document["nodes"]
         ]
 
     bound = _planned("fpga_pack", root / "routed_demo.yaml", "--hashed-run-dirs")
     bare = _planned("fpga_pack", root / "bare.yaml", "--hashed-run-dirs")
-    assert _input(bound, "fpga_pack", "config")["binding_origin"] == "file"
-    assert _input(bare, "fpga_pack", "config")["binding_origin"] is None
+    assert "saved binding" in _input(bound, "fpga_pack", "config")["reason"]
+    assert not _input(bare, "fpga_pack", "config")["reason"].startswith("bound")
     assert [h[2:] for h in graph(bound)] == [h[2:] for h in graph(bare)]
     # ... and a chain spelling the same route is the same graph again
     chained = _planned(CHAIN, root / "bare.yaml", "--hashed-run-dirs")
@@ -468,14 +449,14 @@ def test_a_chain_replaces_the_bindings_a_design_and_a_named_project_saved(tmp_pa
     # alone, the design's binding is the one in force (a project's ranks below it)
     saved = _planned("nextpnr", *both)
     netlist = _input(saved, "nextpnr", "netlist")
-    assert netlist["binding_origin"] == "file" and str(design) in netlist["binding_location"]
+    assert "saved binding" in netlist["reason"] and str(design) in netlist["reason"]
     # a chain replaces both, and the plan lists what it replaced: the project's, then the design's
     chain = _planned("yosys_fpga+nextpnr", *both)
     netlist = _input(chain, "nextpnr", "netlist")
-    assert netlist["binding_origin"] == "chain"
-    assert "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in netlist["binding_location"]
-    assert [str(project) in o for o in netlist["overridden"]] == [True, False]
-    assert [str(design) in o for o in netlist["overridden"]] == [False, True]
+    reason = netlist["reason"]
+    assert "bound by the chain:" in reason and "position 1 (yosys_fpga) -> 2 (nextpnr)" in reason
+    replaced = reason.partition("overriding ")[2]
+    assert replaced.index(str(project)) < replaced.index(str(design))
 
 
 DIFFERENT = {"equal": "yosys_fpga.netlist", "different": "fpga_pack"}
@@ -525,14 +506,12 @@ def test_a_chain_and_an_api_binding_of_one_input_collide(tmp_path, kind, style):
     plan = runner.plan(
         parse_request("nextpnr"), design, flow_overrides={"inputs.netlist": "yosys_fpga.netlist"}
     )
-    assert _binding_origin(plan) == "api"
+    assert _binding_origin(plan) == "API"
 
 
 def _binding_origin(plan) -> str:
-    from xeda.introspect import plan_info
-
-    document = {"plan": plan_info(plan)}
-    return _input(document, "nextpnr", "netlist")["binding_origin"]
+    reason = _input({"nodes": plan_nodes(plan)}, "nextpnr", "netlist")["reason"]
+    return "API" if reason.startswith("bound by the API") else reason
 
 
 # ----------------------------------------- the last node's settings, results and delivery
@@ -581,7 +560,7 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
     assert delivered == ["logs/ecppack.log", "outputs/routed_demo.bit"]
     deliveries = {n["name"]: n["deliveries"] for n in document["nodes"]}
     assert deliveries["yosys_fpga"] == deliveries["nextpnr"] == []
-    assert {d["key"] for d in deliveries["fpga_pack"]} == {"--outputs-to"}
+    assert {d["key"] for d in deliveries["fpga_pack"]} == {"outputs_to"}
 
 
 def test_the_saved_bindings_of_a_file_are_wiring_in_what_ran(tmp_path, toolchain):
@@ -590,12 +569,8 @@ def test_the_saved_bindings_of_a_file_are_wiring_in_what_ran(tmp_path, toolchain
     root = _stage(tmp_path, "routed_demo.yaml")
     result, first = _xeda("run", "fpga_pack", root / "routed_demo.yaml", ok=True)
     assert [n["disposition"] for n in first["nodes"]] == ["ran"] * 3
-    assert (
-        _input(_planned("fpga_pack", root / "routed_demo.yaml"), "fpga_pack", "config")[
-            "binding_origin"
-        ]
-        == "file"
-    )
+    planned = _planned("fpga_pack", root / "routed_demo.yaml")
+    assert "saved binding" in _input(planned, "fpga_pack", "config")["reason"]
     config = next(i for i in _node(first, "fpga_pack")["record"]["inputs"] if i["name"] == "config")
     assert (config["origin"], config["producer"], config["output"]) == (
         "producer",
@@ -671,7 +646,7 @@ def test_a_chain_that_does_not_fit_suggests_the_valid_one_and_a_programmer_ends_
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
     result, document = _xeda("run", "yosys_fpga.netlist_edif+fpga_pack", design, "--dry-run")
-    assert result.exit_code == 2 and "request" not in document
+    assert result.exit_code == 2 and document["nodes"] == []
     assert (
         "Did you mean `yosys_fpga+fpga_pack` or `yosys_fpga.netlist+fpga_pack`?"
         in document["error"]["message"]
@@ -679,20 +654,21 @@ def test_a_chain_that_does_not_fit_suggests_the_valid_one_and_a_programmer_ends_
     # and each suggestion is itself a chain that plans
     for suggestion in ("yosys_fpga+fpga_pack", "yosys_fpga.netlist+fpga_pack"):
         planned = _planned(suggestion, design)
-        assert [n["name"] for n in planned["plan"]["nodes"]] == [
+        assert [n["name"] for n in planned["nodes"]] == [
             "yosys_fpga",
             "nextpnr",
             "fpga_pack",
         ]
     # a programmer ends a chain, and the packer between `nextpnr` and it is planned as usual
     planned = _planned("nextpnr+openfpgaloader", design)
-    assert [n["name"] for n in planned["plan"]["nodes"]] == [
+    assert [n["name"] for n in planned["nodes"]] == [
         "yosys_fpga",
         "nextpnr",
         "fpga_pack",
         "openfpgaloader",
     ]
-    assert _node(planned, "openfpgaloader")["action_reason"] == "it programs a device"
+    programmer = _node(planned, "openfpgaloader")
+    assert programmer["action"] is True and "it programs a device" in programmer["reason"]
     result, document = _xeda("run", "openfpgaloader+nextpnr", design, "--dry-run")
     assert result.exit_code == 2
     assert "programs a device and can only end a chain" in document["error"]["message"]
@@ -723,12 +699,10 @@ def test_a_pass_through_chain_plans_what_the_plain_request_plans(tmp_path):
 def test_the_dry_run_of_a_pass_through_chain_lists_the_flows_between(tmp_path):
     design = _stage(tmp_path, "routed_demo.yaml") / "routed_demo.yaml"
     document = _planned("yosys_fpga+fpga_pack", design)
-    assert [(e["node"], e["through"]) for e in document["request"]] == [
-        ("yosys_fpga", ["nextpnr"]),
-        ("fpga_pack", []),
-    ]
-    assert [n["name"] for n in document["plan"]["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
-    assert _input(document, "nextpnr", "netlist")["binding_origin"] == "chain"
+    assert document["spec"]["flow"] == "yosys_fpga+fpga_pack"
+    assert [n["name"] for n in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    reason = _input(document, "nextpnr", "netlist")["reason"]
+    assert "bound by the chain:" in reason and "through nextpnr" in reason
 
 
 def test_the_documented_pass_through_command_plans_the_flow_between_its_two_flows(tmp_path):
@@ -741,11 +715,8 @@ def test_the_documented_pass_through_command_plans_the_flow_between_its_two_flow
     root = _stage(tmp_path, "routed_demo.yaml")
     (root / "design.yaml").write_text((root / "routed_demo.yaml").read_text())
     document = _planned("yosys_fpga+fpga_pack", root / "design.yaml")
-    assert [n["name"] for n in document["plan"]["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
-    assert [(e["node"], e["through"]) for e in document["request"]] == [
-        ("yosys_fpga", ["nextpnr"]),
-        ("fpga_pack", []),
-    ]
+    assert [n["name"] for n in document["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    assert document["spec"]["flow"] == "yosys_fpga+fpga_pack"
 
 
 def test_a_pass_through_link_collides_with_a_cli_binding_of_its_input(tmp_path):
@@ -790,7 +761,7 @@ def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
     assert "passes through `nextpnr`" in message and "the source of `fpga_pack.config`" in message
     # the request for the flow alone plans without `nextpnr`: its config comes from the source
     document = _planned("fpga_pack", design)
-    assert [n["name"] for n in document["plan"]["nodes"]] == ["fpga_pack"]
+    assert [n["name"] for n in document["nodes"]] == ["fpga_pack"]
 
 
 # ------------------------------------------------ local only, and the undeclared flows boundary

@@ -467,11 +467,11 @@ def dry_run(project: Path, *extra: str):
 
 
 def run_path_of(document) -> Path:
-    return Path(document["plan"]["nodes"][-1]["run_path"])
+    return Path(document["nodes"][-1]["run_dir"])
 
 
 def hash_of(document) -> str:
-    return document["plan"]["nodes"][-1]["flowrun_hash"]
+    return document["nodes"][-1]["identity"]
 
 
 def test_the_cli_run_root_order(tmp_path, private_home, monkeypatch):

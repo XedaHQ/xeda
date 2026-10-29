@@ -11,7 +11,9 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.flow import Flow
 from xeda.flow_runner import DefaultRunner
+from xeda.spec import Spec
 from xeda.tool import Tool
+from xeda.workspace import Workspace
 
 from .test_cli_json_contract import json_stdout, run_xeda
 
@@ -26,9 +28,8 @@ def worktree_imports(monkeypatch):
     monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1] / "src"))
 
 
-#: what the plan says of an input no explicit binding supplies, and of one nothing supplies
-UNBOUND = {"binding_origin": None, "binding_location": None, "overridden": [], "reason": None}
-NOTHING = {"sources": [], "references": [], **UNBOUND}
+#: what the plan says of an input that nothing supplies
+NOTHING = {"sources": [], "reason": "nothing supplies the input"}
 
 
 def _design_file(root: Path, yosys_part: str | None = None) -> Path:
@@ -80,23 +81,18 @@ def test_a_dry_run_prints_the_plan_and_runs_nothing(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("hashed", [False, True])
 def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monkeypatch, hashed):
-    from xeda.introspect import plan_info
-
     monkeypatch.chdir(tmp_path)
     design = _design_file(tmp_path / "d")
-    loaded = Design.load(design)
     run_root = tmp_path / "xeda_run"
     _forbid_execution(monkeypatch)
-    runner = DefaultRunner(run_root, hashed_run_dirs=hashed)
-    plan, states = runner.plan_with_freshness("nextpnr", loaded)
-    expected = plan_info(plan, states)
-    plan_again, states_again = runner.plan_with_freshness("nextpnr", design)
-    assert plan_info(plan_again, states_again) == expected
-    # nothing has run, so every node is stale, and plan_info alone says nothing of it
+    workspace = Workspace(run_root, hashed_run_dirs=hashed)
+    expected = workspace.plan(Spec("nextpnr", Design.load(design))).to_dict()
+    # a design that was loaded again is the same plan
+    assert workspace.plan(Spec("nextpnr", Design.load(design))).to_dict() == expected
+    # nothing has run, so every node is stale
     assert [(n["state"], n["reason"]) for n in expected["nodes"]] == [
         ("stale", "no completed previous run")
     ] * 2
-    assert all("state" not in n for n in plan_info(runner.plan("nextpnr", loaded))["nodes"])
     args = ["--hashed-run-dirs"] if hashed else []
     proc = run_xeda(
         "run",
@@ -111,17 +107,15 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
     )
     document = json_stdout(proc)
     assert proc.returncode == 0, proc.stderr
-    assert document == {
+    assert document == expected
+    assert document["spec"] == {
         "flow": "nextpnr",
         "design": "blink",
         "design_file": str(design),
         "target": None,
-        "success": True,
-        "dry_run": True,
-        "request": [{"node": "nextpnr", "flow": "nextpnr", "output": None, "through": []}],
-        "plan": expected,
+        "settings": {},
     }
-    nodes = document["plan"]["nodes"]
+    nodes = document["nodes"]
     assert [node["name"] for node in nodes] == ["yosys_fpga", "nextpnr"]
     assert nodes[1]["inputs"] == [
         {
@@ -130,15 +124,14 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
             "producer": "yosys_fpga",
             "output": "netlist",
             "sources": [],
-            "references": [{"node": "yosys_fpga", "output": "netlist"}],
-            **UNBOUND,
+            "reason": "the default producer of the input",
         },
         {"name": "constraints", "origin": "none", "producer": None, "output": None, **NOTHING},
         {"name": "sdc", "origin": "none", "producer": None, "output": None, **NOTHING},
     ]
     for node in nodes:
-        suffix = "_" + node["flowrun_hash"][:16] if hashed else ""
-        assert node["run_path"] == str(run_root / "blink" / (node["name"] + suffix))
+        suffix = "_" + node["identity"][:16] if hashed else ""
+        assert node["run_dir"] == str(run_root / "blink" / (node["name"] + suffix))
     assert not run_root.exists()
 
 
@@ -153,7 +146,7 @@ def test_a_source_supplies_the_input_and_displaces_the_producer(tmp_path):
     proc = run_xeda("run", "nextpnr", str(design), "--dry-run", "--json", cwd=tmp_path)
     document = json_stdout(proc)
     assert proc.returncode == 0, proc.stderr
-    (node,) = document["plan"]["nodes"]
+    (node,) = document["nodes"]
     assert node["name"] == "nextpnr"
     assert node["inputs"] == [
         {
@@ -162,8 +155,7 @@ def test_a_source_supplies_the_input_and_displaces_the_producer(tmp_path):
             "producer": None,
             "output": None,
             "sources": [str(tmp_path / "netlist.json")],
-            "references": [],
-            **UNBOUND,
+            "reason": "a source of the design",
         },
         {"name": "constraints", "origin": "none", "producer": None, "output": None, **NOTHING},
         {"name": "sdc", "origin": "none", "producer": None, "output": None, **NOTHING},
@@ -207,7 +199,7 @@ def test_dry_run_leaves_existing_unmarked_roots_unchanged(tmp_path, root_kind, v
     document = json_stdout(proc)
     assert proc.returncode == (0 if valid_plan else 2), proc.stderr
     if valid_plan:
-        assert document["success"] is True
+        assert "error" not in document and document["schema_version"] == 1
     else:
         assert document["outcome"] is None
         assert document["error"]["code"] == "shared_setting_conflict"
@@ -263,7 +255,7 @@ def test_a_generator_is_planned_without_effect(tmp_path, kind):
     document = json_stdout(proc)
     # A generator, also one of a dependency, runs in the launch, never in a plan.
     assert proc.returncode == 0, proc.stderr
-    assert document["success"] is True
+    assert "error" not in document and document["schema_version"] == 1
     assert not sentinel.exists()
     assert not (tmp_path / "xeda_run").exists()
     assert not (tmp_path / "out").exists()
@@ -317,8 +309,8 @@ def test_a_flow_that_declares_no_io_plans_as_one_node(tmp_path, monkeypatch):
     _forbid_execution(monkeypatch)
     result = CliRunner().invoke(cli, ["run", "verilator", str(design), "--dry-run", "--json"])
     assert result.exit_code == 0, (result.output, result.exception)
-    (node,) = json.loads(result.stdout)["plan"]["nodes"]
-    assert node["flow"] == "verilator" and node["inputs"] == [] and node["switched_on"] == []
+    (node,) = json.loads(result.stdout)["nodes"]
+    assert node["flow"] == "verilator" and node["inputs"] == [] and node["outputs_enabled"] == []
     assert not (tmp_path / "xeda_run").exists()
 
 
@@ -339,9 +331,9 @@ def test_switched_on_outputs_and_cli_shared_settings_are_reported(tmp_path, json
     assert proc.returncode == 0, proc.stderr
     if json_flag:
         document = json_stdout(proc)
-        producer, consumer = document["plan"]["nodes"]
-        assert producer["switched_on"] == ["netlist"]
-        assert consumer["switched_on"] == []
+        producer, consumer = document["nodes"]
+        assert producer["outputs_enabled"] == ["netlist"]
+        assert consumer["outputs_enabled"] == []
     else:
         assert "output netlist switched on: a consumer reads it" in proc.stdout
     assert not (tmp_path / "xeda_run").exists()
@@ -379,7 +371,7 @@ def test_a_subprocess_dry_run_never_invokes_tools_or_delivers(
     document = json_stdout(proc)
     assert proc.returncode == (2 if invalid_target else 0), proc.stderr
     if not invalid_target:
-        assert document["success"] is True
+        assert "error" not in document and document["schema_version"] == 1
     else:
         assert document["outcome"] is None
         assert document["error"]["code"] == "unsupported_setting"

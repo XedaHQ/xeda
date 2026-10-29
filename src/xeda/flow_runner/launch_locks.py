@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 __all__ = ["NeedsExclusive", "NodeLocks"]
 
 #: The states of a node that a launch reuses without writing in its run directory.
-REUSED = ("fresh", "rejected again")
+REUSED = ("fresh", "rejected")
 
 
 class NeedsExclusive(BaseException):

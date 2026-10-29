@@ -28,7 +28,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.trace import as_recorded
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
-from xeda.introspect import plan_info
+from .plan_documents import plan_nodes
 from xeda.utils import LOCATION_FORMS, replacing_file
 
 from .scoping import node_settings
@@ -141,7 +141,7 @@ def test_a_chain_narrows_the_packer_s_input_to_the_family_nextpnr_selects(tmp_pa
         _design(tmp_path, part),
         flow_settings=node_settings(parse_request("nextpnr+fpga_pack"), {"fpga": {"part": part}}),
     )
-    nodes = {node["name"]: node for node in plan_info(plan)["nodes"]}
+    nodes = {node["name"]: node for node in plan_nodes(plan)}
     assert nodes["nextpnr"]["output_types"]["config"] == [config]
     assert nodes["fpga_pack"]["input_types"]["config"] == [config]
     bound = _input(plan, "fpga_pack", "config")
@@ -414,8 +414,8 @@ def test_a_dry_run_of_the_whole_chain_selects_the_family_s_stages_and_runs_nothi
 ):
     result, planned = _xeda("run", CHAIN, _stage(tmp_path, board), "--dry-run")
     assert result.exit_code == 0, result.output
-    assert [e["flow"] for e in planned["request"]] == STAGES
-    nodes = {node["name"]: node for node in planned["plan"]["nodes"]}
+    assert planned["spec"]["flow"] == CHAIN
+    nodes = {node["name"]: node for node in planned["nodes"]}
     assert list(nodes) == STAGES
     # the family selects the configuration both stages speak: textcfg for ECP5, FASM for Xilinx
     assert nodes["nextpnr"]["output_types"]["config"] == [board.config_type]
@@ -423,21 +423,25 @@ def test_a_dry_run_of_the_whole_chain_selects_the_family_s_stages_and_runs_nothi
     assert nodes["nextpnr"]["input_types"]["netlist"] == ["JsonNetlist"]
     assert nodes["openfpgaloader"]["input_types"]["bitstream"] == ["Bitstream"]
     # nextpnr always writes its configuration, so no output is switched on by a demand
-    assert all(node["switched_on"] == [] for node in nodes.values())
-    assert {name: node["action_reason"] for name, node in nodes.items()} == {
-        **dict.fromkeys(STAGES[:3]),
-        "openfpgaloader": "it programs a device",
+    assert all(node["outputs_enabled"] == [] for node in nodes.values())
+    assert {name: node["action"] for name, node in nodes.items()} == {
+        **dict.fromkeys(STAGES[:3], False),
+        "openfpgaloader": True,
     }
     bound = {
-        (node["name"], i["name"]): (i["producer"], i["output"], i["binding_origin"])
-        for node in planned["plan"]["nodes"]
+        (node["name"], i["name"]): (
+            i["producer"],
+            i["output"],
+            "bound by the chain:" in i["reason"],
+        )
+        for node in planned["nodes"]
         for i in node["inputs"]
         if i["producer"]
     }
     assert bound == {
-        ("nextpnr", "netlist"): ("yosys_fpga", "netlist", "chain"),
-        ("fpga_pack", "config"): ("nextpnr", "config", "chain"),
-        ("openfpgaloader", "bitstream"): ("fpga_pack", "bitstream", "chain"),
+        ("nextpnr", "netlist"): ("yosys_fpga", "netlist", True),
+        ("fpga_pack", "config"): ("nextpnr", "config", True),
+        ("openfpgaloader", "bitstream"): ("fpga_pack", "bitstream", True),
     }
     assert not (tmp_path / "xeda_run").exists() and not list(tmp_path.rglob("fake_fpga.calls*"))
 
@@ -667,13 +671,12 @@ def test_every_shorter_head_and_the_bare_action_are_one_executable_graph(
         [
             (
                 node["name"],
-                node["run_path"],
-                node["flowrun_hash"],
-                node["settings_hash"],
-                node["switched_on"],
+                node["run_dir"],
+                node["identity"],
+                node["outputs_enabled"],
                 [(i["name"], i["producer"], i["output"]) for i in node["inputs"]],
             )
-            for node in _xeda("run", spelling, design, "--dry-run")[1]["plan"]["nodes"]
+            for node in _xeda("run", spelling, design, "--dry-run")[1]["nodes"]
         ]
         for spelling in (CHAIN, *spellings)
     ]
@@ -979,14 +982,14 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
         "netlist",
     )
     # the plan says how the binding was made: by the chain's adjacency, or by the design file
-    planned = _xeda("run", head, design, *settings, "--dry-run")[1]["plan"]["nodes"]
+    planned = _xeda("run", head, design, *settings, "--dry-run")[1]["nodes"]
     (bound,) = [
         i for n in planned if n["name"] == "nextpnr" for i in n["inputs"] if i["name"] == "netlist"
     ]
-    assert (bound["producer"], bound["binding_origin"]) == (
-        "yosys_fpga",
-        "chain" if route == "chain" else "file",
-    )
+    assert bound["producer"] == "yosys_fpga"
+    assert ("bound by the chain:" if route == "chain" else "bound by a saved binding") in bound[
+        "reason"
+    ]
 
 
 # ------------------------------------------------------------------------------ undeclared flows
@@ -1066,9 +1069,9 @@ def test_a_vivado_synthesis_precedes_the_loader_and_has_its_bitstream_switched_o
         f"openfpgaloader.fpga.part={A100T}",
     )
     assert result.exit_code == 0, result.output
-    nodes = {node["name"]: node for node in document["plan"]["nodes"]}
+    nodes = {node["name"]: node for node in document["nodes"]}
     assert list(nodes) == [flow, "openfpgaloader"]
-    assert nodes[flow]["switched_on"] == ["bitstream"]
+    assert nodes[flow]["outputs_enabled"] == ["bitstream"]
     (bitstream,) = [i for i in nodes["openfpgaloader"]["inputs"] if i["name"] == "bitstream"]
     assert (bitstream["producer"], bitstream["output"]) == (flow, "bitstream")
     _nothing_started(tmp_path)
@@ -1110,7 +1113,7 @@ def test_a_design_binding_for_a_flow_without_a_design_input_is_refused_for_the_m
     # the control: without the binding the same request plans (and nothing is refused)
     result, planned = _xeda("run", flow, plain, "--dry-run")
     assert result.exit_code == 0, result.output
-    assert [n["name"] for n in planned["plan"]["nodes"]][-1] == flow
+    assert [n["name"] for n in planned["nodes"]][-1] == flow
 
 
 def test_an_unknown_setting_is_a_settings_error_and_a_binding_is_not(tmp_path, monkeypatch):
@@ -1281,7 +1284,7 @@ def test_the_vivado_chain_programs_the_bitstream_vivado_wrote(
     request = ("run", "vivado_synth+openfpgaloader", design, *demo.settings)
     result, planned = _xeda(*request, "--dry-run")
     assert result.exit_code == 0, result.output
-    identities = {node["name"]: node["flowrun_hash"] for node in planned["plan"]["nodes"]}
+    identities = {node["name"]: node["identity"] for node in planned["nodes"]}
     assert list(identities) == ["vivado_synth", "openfpgaloader"]
 
     result, document = _xeda(*request)

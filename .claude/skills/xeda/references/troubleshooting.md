@@ -287,7 +287,7 @@ PULLUP`.
 A run reuses `xeda_run/<design>/<flow>/` (`<design>/<target>/<flow>/` with a target), which keeps
 incremental tool state. A flow that runs logs `Running <flow>: <reason>`; an up-to-date flow logs
 that and shows its recorded results. If a result looks stale or wrong, run `xeda run ... --dry-run
---json` to see each node as `fresh`, `stale` (with the reason), `unknown`, `rejected again` or
+--json` to see each node as `fresh`, `stale` (with the reason), `unknown`, `rejected` or
 `blocked`, then use `--rebuild-all` or `--clean` (see "Rebuilds" in `SKILL.md`). A failure that is
 reported again although you changed a data file the testbench reads means that the file is not
 declared: declare it as a source, or use `--rebuild-all`.

@@ -657,7 +657,7 @@ def test_design_name_selects_a_project_design(tmp_path, monkeypatch):
     cli_project(tmp_path, monkeypatch)
     result, document = invoke("run", "vivado_synth", "--design-name", "fifo", "--dry-run")
     assert result.exit_code == 0, document
-    assert document["design"] == "fifo" and document["target"] is None
+    assert document["spec"]["design"] == "fifo" and document["spec"]["target"] is None
 
 
 def test_the_default_target_applies_unless_target_or_no_target_is_given(tmp_path, monkeypatch):
@@ -665,13 +665,13 @@ def test_the_default_target_applies_unless_target_or_no_target_is_given(tmp_path
     base = ("run", "vivado_synth", "--design-name", "inline", "--dry-run", *PART)
     result, document = invoke(*base)
     assert result.exit_code == 0, document
-    assert document["target"] == "arty"
+    assert document["spec"]["target"] == "arty"
     result, document = invoke(*base, "--target", "ulx3s")
     assert result.exit_code == 0, document
-    assert document["target"] == "ulx3s"
+    assert document["spec"]["target"] == "ulx3s"
     result, document = invoke(*base, "--no-target")
     assert result.exit_code == 0, document
-    assert document["target"] is None
+    assert document["spec"]["target"] is None
 
 
 def test_a_design_without_the_default_target_is_a_document(tmp_path, monkeypatch):
@@ -688,7 +688,7 @@ def test_a_design_file_does_not_take_the_default_target(tmp_path, monkeypatch):
     cli_project(tmp_path, monkeypatch, default_target="arty")
     result, document = invoke("run", "vivado_synth", "other.yaml", "--dry-run", *PART)
     assert result.exit_code == 0, document
-    assert document["target"] is None
+    assert document["spec"]["target"] is None
 
 
 def test_target_and_no_target_exclude_each_other(tmp_path, monkeypatch):
@@ -908,7 +908,7 @@ def test_a_project_and_a_design_in_one_directory_leave_the_paths_as_written(tmp_
 
 
 def run_path_of(document) -> Path:
-    return Path(document["plan"]["nodes"][-1]["run_path"])
+    return Path(document["nodes"][-1]["run_dir"])
 
 
 def test_the_run_root_of_the_project_is_used_from_another_directory(tmp_path, monkeypatch):
@@ -1025,7 +1025,7 @@ def test_the_only_design_of_a_project_is_selected_without_a_name_on_the_command_
     write_project(tmp_path, {"designs": [{"name": "solo", "rtl": rtl()}]})
     result, document = invoke("run", "vivado_synth", "--dry-run", *PART)
     assert result.exit_code == 0, document
-    assert document["design"] == "solo"
+    assert document["spec"]["design"] == "solo"
 
 
 def test_a_project_with_several_designs_needs_a_name_on_the_command_line(tmp_path, monkeypatch):

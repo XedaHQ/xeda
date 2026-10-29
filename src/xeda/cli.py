@@ -56,6 +56,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner import (
         DefaultRunner,
         add_file_logger,
+        get_flow_class,
         scrub_design,
     )
     from .flow_runner.chains import parse_request
@@ -77,15 +78,15 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         flows_info,
         json_safe,
         optimizers_info,
-        plan_info,
-        request_info,
         platforms_info,
         results_info,
     )
     from .errors import SpecError
     from .run_dir import RunDirectoryError
     from .run_root import RunRootError, ensure_run_root
-    from .outcomes import Outcome, run_document, spec_document, spec_document_of
+    from .outcomes import Outcome, run_document, spec_document
+    from .plan import plan_of, spec_document as spec_of
+    from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
     from .spec import Spec
     from .utils import XedaException, removeprefix, settings_to_dict
 
@@ -792,24 +793,34 @@ def _print_scrub_result(result: ScrubResult) -> None:
         _say_scrub(summary + ".")
 
 
-def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
-    """Print each planned flow, its directory, what a launch would do with it (`fresh`, or a state
-    and its reason: `stale: <reason>`, `unknown: <reason>`, `rejected again: <message>` or
-    `blocked: <reason>`), its input origins and switched-on outputs."""
-    target = f", target {plan.context.target}" if plan.context.target else ""
-    click.echo(f"Plan for {plan.requested}{target} (a dry run: nothing runs)")
-    for node in plan.nodes:
-        click.echo(f"  {node.name}  {node.run_path}")
-        if freshness is not None:
-            said = freshness[node.name]
-            click.echo(f"      {said.state}" + (f": {said.reason}" if said.reason else ""))
-        # Static class metadata, never the dynamic `always_runs()` of the flow.
-        if node.flow_class.action_reason:
-            click.echo(f"      always runs: {node.flow_class.action_reason}")
-        for resolved in node.inputs:
-            click.echo(f"      {resolved.describe()}")
-        for output in node.switched_on:
+def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None:
+    """Print each planned node of the plan `document` (`Plan.to_dict()`): its directory, what a
+    launch would do with it (`fresh`, or a state and its reason: `stale: <reason>`, `unknown:
+    <reason>`, `rejected: <message>` or `blocked: <reason>`), its input origins, the outputs that a
+    consumer switches on and its deliveries."""
+    spec = document["spec"]
+    target = f", target {spec['target']}" if spec.get("target") else ""
+    where = f" on {host}" if host else ""
+    click.echo(f"Plan for {document['roots'][0]}{target}{where} (a dry run: nothing runs)")
+    for node in document["nodes"]:
+        click.echo(f"  {node['name']}  {node['run_dir']}")
+        click.echo(f"      {node['state']}" + (f": {node['reason']}" if node["reason"] else ""))
+        if node["action"]:
+            # Static class metadata: why the flow can only end a chain.
+            click.echo(f"      always runs: {get_flow_class(node['flow']).action_reason}")
+        for item in node["inputs"]:
+            if item["origin"] == "producer":
+                made = f"{item['producer']}.{item['output']}"
+            elif item["origin"] == "source":
+                made = "source " + ", ".join(item["sources"])
+            else:
+                made = "none"
+            click.echo(f"      {item['name']} <- {made} ({item['reason']})")
+        for output in node["outputs_enabled"]:
             click.echo(f"      output {output} switched on: a consumer reads it")
+        for delivery in node["deliveries"]:
+            replaces = " (replaces a file)" if delivery["replaces"] else ""
+            click.echo(f"      delivers {delivery['key']} to {delivery['destination']}{replaces}")
 
 
 @cli.command(
@@ -1173,7 +1184,7 @@ def run(
                 assert launcher is not None
                 document = failed_result(launcher, spec, plan, info, launch_id=launch_id).to_dict()
             else:
-                spec_fields = request_spec() if spec is None else spec_document_of(spec)
+                spec_fields = request_spec() if spec is None else spec_of(spec)
                 document = run_document(
                     outcome=None if refused else Outcome.FAILED,
                     error=info,
@@ -1288,6 +1299,15 @@ def run(
         sys.exit(outcome.exit_status)
 
     if dry_run:
+        options = LaunchOptions(
+            rebuild_all=rebuild_all,
+            clean=clean,
+            prune_variants=scrub,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            post_cleanup=post_cleanup,
+            post_cleanup_purge=post_cleanup_purge,
+        )
         try:
             launcher = DefaultRunner(
                 run_root,
@@ -1296,7 +1316,7 @@ def run(
                 clean=clean,
                 outputs_to=outputs_to,
             )
-            plan, freshness = launcher.plan_with_freshness(
+            planned = launcher.plan_launch(
                 chain,
                 xedaproject=project_for_launcher,
                 design=design,
@@ -1305,25 +1325,30 @@ def run(
                 target=selected_target,
                 local_settings=local,
             )
+            spec = Spec(chain, planned.request.design, settings=_request_table(flow_settings))
+            plan_document = plan_of(
+                planned.plan,
+                planned.states,
+                planned.deliveries,
+                spec=spec,
+                options=options,
+                workspace=WorkspaceOptions(
+                    run_root=Path(os.path.realpath(run_root)),
+                    hashed_run_dirs=hashed_run_dirs,
+                    tool_output="terminal",
+                    confirm=None,
+                    remote=None,
+                    local_settings=local,
+                ),
+            ).to_dict()
         except KeyboardInterrupt:
             canceled_before_start()
         except Exception as e:
             not_started(e)
         if json_flag:
-            emit_structured(
-                {
-                    "flow": flow,
-                    **design_info(design, launcher.design_name),
-                    "target": plan.context.target,
-                    "success": True,
-                    "dry_run": True,
-                    "request": request_info(request),
-                    "plan": plan_info(plan, freshness),
-                },
-                "json",
-            )
+            emit_structured(plan_document, "json")
         else:
-            _print_plan(plan, freshness)
+            _print_plan(plan_document)
         sys.exit(0)
 
     try:
@@ -1393,26 +1418,7 @@ def run(
 def _print_remote_plan(document: Dict[str, Any]) -> None:
     """Print the plan of a remote dry run, as `_print_plan` prints a local one, and the input
     files that the dry run uploaded."""
-    plan = document.get("plan") or {}
-    target = f", target {plan['target']}" if plan.get("target") else ""
-    click.echo(
-        f"Plan for {plan.get('requested')}{target} on {document.get('remote')} "
-        "(a dry run: nothing runs)"
-    )
-    for node in plan.get("nodes", []):
-        click.echo(f"  {node['name']}  {node['run_path']}")
-        said = node.get("state")
-        if said:
-            click.echo(f"      {said}" + (f": {node['reason']}" if node.get("reason") else ""))
-        if node.get("action_reason"):
-            click.echo(f"      always runs: {node['action_reason']}")
-        for resolved in node.get("inputs", []):
-            origin = resolved["origin"] + (
-                f" {resolved['producer']}.{resolved['output']}" if resolved.get("producer") else ""
-            )
-            click.echo(f"      input {resolved['name']}: {origin}")
-        for output in node.get("switched_on", []):
-            click.echo(f"      output {output} switched on: a consumer reads it")
+    _print_plan(document, host=document.get("remote"))
     uploaded = document.get("uploaded") or []
     if uploaded:
         click.echo(f"Uploaded {len(uploaded)} input file(s) to {document.get('remote')}:")

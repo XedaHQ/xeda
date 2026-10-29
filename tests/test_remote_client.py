@@ -499,9 +499,9 @@ def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host):
     design = _design(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"
     document = _succeeded(_request(tmp_path, design, dry_run=True))
-    assert document["dry_run"] is True and document["remote"] == "somewhere"
+    assert document["remote"] == "somewhere" and "error" not in document
     assert "top.v" in document["uploaded"] and "top.xeda.json" in document["uploaded"]
-    assert [node["state"] for node in document["plan"]["nodes"]] == ["stale", "stale"]
+    assert [node["state"] for node in document["nodes"]] == ["stale", "stale"]
     workspace = remote_host.workspace()
     assert (workspace / "inputs" / "top" / "top.v").is_file()
     assert (
@@ -513,7 +513,7 @@ def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host):
 
     _succeeded(_request(tmp_path, design))
     after = _succeeded(_request(tmp_path, design, dry_run=True))
-    assert [node["state"] for node in after["plan"]["nodes"]] == ["fresh", "fresh"]
+    assert [node["state"] for node in after["nodes"]] == ["fresh", "fresh"]
 
 
 def test_dry_run_through_the_command_line(tmp_path, remote_host):
@@ -525,7 +525,7 @@ def test_dry_run_through_the_command_line(tmp_path, remote_host):
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["dry_run"] is True and document["remote"] == "somewhere"
+    assert document["roots"] == ["nextpnr"] and document["remote"] == "somewhere"
 
 
 # --- The JSON document --------------------------------------------------------------------------
@@ -958,18 +958,24 @@ def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monk
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
     assert result.exit_code == 1, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False and document["dry_run"] is True
+    assert document["error"]["message"] == "the plan is not valid"
 
 
 def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host):
-    document = _succeeded(_request(tmp_path, _design(tmp_path), dry_run=True))
+    design = _design(tmp_path, sources=("top.v", "pins.lpf"))
+    document = _succeeded(_request(tmp_path, design, dry_run=True))
     mirror = _mirror(tmp_path)
     assert document["mirror"] == str(mirror)
     workspace = remote_host.workspace()
-    for node in document["plan"]["nodes"]:
+    for node in document["nodes"]:
         name = node["name"]
-        assert node["run_path"] == str(mirror / "top" / name)
-        assert node["remote_run_path"] == str(workspace / "xeda_run" / "top" / name)
+        assert node["run_dir"] == str(mirror / "top" / name)
+        assert node["remote_run_dir"] == str(workspace / "xeda_run" / "top" / name)
+        # the sources and settings name the files here, never the copies the remote reads
+        named = json.dumps([node.get(key) for key in ("settings", "inputs", "deliveries")])
+        assert str(workspace) not in named, named
+    sources = [s for node in document["nodes"] for i in node["inputs"] for s in i["sources"]]
+    assert sources == [str(design.parent / "pins.lpf")], sources
     assert not mirror.exists(), "a dry run writes no mirror"
 
 
@@ -1422,3 +1428,56 @@ def test_items_that_conflict_give_one_json_document_and_exit_status_2(tmp_path, 
     document = json.loads(result.stdout)
     assert document["outcome"] is None
     assert document["error"]["code"] == "conflicting_keys"
+
+
+@pytest.mark.parametrize("overwrite", [True, False])
+def test_a_dry_run_plans_the_deliveries_and_asks_nothing(tmp_path, remote_host, overwrite):
+    """The dry-run document has the delivery options and the deliveries that the last fetch
+    predicts. A file of the user in the way is `replaces`, and no question is asked."""
+    design = _design(tmp_path)
+    out = tmp_path / "out"
+    _succeeded(_request(tmp_path, design, outputs_to=out))
+    (out / "config.txt").write_text("yours\n")
+    asked: list[object] = []
+
+    def refuse_to_answer(conflicts):
+        asked.append(conflicts)
+        return False
+
+    document = _succeeded(
+        _request(
+            tmp_path,
+            design,
+            dry_run=True,
+            outputs_to=out,
+            overwrite_outputs=overwrite,
+            confirm_overwrite=refuse_to_answer,
+        )
+    )
+    assert not asked
+    assert document["options"]["outputs_to"] == str(out)
+    assert document["options"]["overwrite_outputs"] is overwrite
+    assert {"key": "outputs_to", "destination": str(out / "config.txt"), "replaces": True} in (
+        _last(document)["deliveries"]
+    )
+    assert (out / "config.txt").read_text() == "yours\n"
+
+
+def test_a_path_in_a_git_dependency_checkout_of_the_remote_is_the_local_checkout(tmp_path):
+    """Planning here fetched the same checkout under the same key, into the local run root, not
+    into the mirror."""
+    remote_run_root = PurePosixPath("/w/xeda_run")
+    translate = client._translation(
+        remote_run_root=remote_run_root,
+        mirror_root=tmp_path / "xeda_run" / "@host",
+        inputs_dir=PurePosixPath("/w/inputs"),
+        files={},
+        generated=(),
+        design_root=tmp_path / "design",
+        local_root=tmp_path / "xeda_run",
+    )
+    checkout = ".dependencies/abc/checkout/lib/pins.lpf"
+    assert translate(f"{remote_run_root}/{checkout}") == str(tmp_path / "xeda_run" / checkout)
+    assert translate(f"{remote_run_root}/top/nextpnr") == str(
+        tmp_path / "xeda_run/@host/top/nextpnr"
+    )

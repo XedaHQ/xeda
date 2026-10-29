@@ -157,7 +157,7 @@ def _dry_run(tmp_path: Path, flow: str, *items: str):
 def test_the_command_line_addresses_a_setting_by_its_node(tmp_path):
     result, document = _dry_run(tmp_path, "nextpnr", "nextpnr.seed=3", f"nextpnr.fpga.part={ECP5}")
     assert result.exit_code == 0, result.output
-    assert document["plan"]["nodes"][-1]["name"] == "nextpnr"
+    assert document["nodes"][-1]["name"] == "nextpnr"
 
 
 @pytest.mark.parametrize(

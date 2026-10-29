@@ -57,7 +57,9 @@ from ..deliver import (
     split_deliveries,
 )
 from ..design import generator_of
+from ..plan import PlanDelivery, delivery_key, planned_destination
 from ..flow_runner import DefaultRunner, launch_generation
+from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
 from ..flow_runner.default_runner import PreparedRequest
@@ -561,6 +563,8 @@ class _Prepared:
     flow_class: Any
     requested: str
     deliveries: Optional[Deliveries]
+    #: The deliveries that `--outputs-to` expects, as a plan lists them.
+    planned_deliveries: tuple[PlanDelivery, ...] = ()
 
     def local(self) -> "_Local":
         return _Local(
@@ -647,8 +651,9 @@ def _plan(
     ssh_options: Sequence[str],
     profile: HostProfile,
     local_settings: LocalSettings | None,
+    dry_run: bool = False,
 ) -> _Prepared:
-    """Step 1: the checks that need no connection."""
+    """Step 1: the checks that need no connection. A dry run asks no question."""
     destination = resolve_destination(destination_text, ssh_options)
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -683,17 +688,26 @@ def _plan(
     node = plan.node(plan.requested)
     _check_deliverables(prepared, prepared.design.name)
     deliveries: Optional[Deliveries] = None
+    planned: tuple[PlanDelivery, ...] = ()
     if outputs_to is not None:
-        deliveries = _check_outputs_to(
+        deliveries, planned = _check_outputs_to(
             launcher,
             prepared,
             run,
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
+            dry_run=dry_run,
         )
     return _Prepared(
-        profile, destination, launcher, prepared, node.flow_class, plan.requested, deliveries
+        profile,
+        destination,
+        launcher,
+        prepared,
+        node.flow_class,
+        plan.requested,
+        deliveries,
+        planned,
     )
 
 
@@ -711,9 +725,13 @@ def _check_outputs_to(
     outputs_to: Path,
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
-) -> Deliveries:
+    dry_run: bool = False,
+) -> tuple[Deliveries, tuple[PlanDelivery, ...]]:
     """Check `--outputs-to` as a local launch does, before anything is connected or shipped. The
-    deliveries protect every file that this side can name as an input."""
+    deliveries protect every file that this side can name as an input.
+
+    Return the deliveries and the planned ones. A dry run, as a plan, asks no question: it
+    refuses what no answer could allow and reports a file in the way as `replaces`."""
     plan = prepared.plan
     node = plan.node(plan.requested)
     local_root = _local_run_root(launcher._run_root)  # pylint: disable=protected-access
@@ -739,9 +757,17 @@ def _check_outputs_to(
     # The directory itself, and the files that the last fetch would deliver again.
     deliveries.check_outputs_to(outputs_to)
     previous = recorded_artifacts(mirror_dir, local_root)
-    if previous:
-        deliveries.check(outputs_to_deliveries(previous, mirror_dir, outputs_to))
-    return deliveries
+    expected = outputs_to_deliveries(previous, mirror_dir, outputs_to) if previous else []
+    if not dry_run:
+        if previous:
+            deliveries.check(expected)
+        return deliveries, ()
+    deliveries.refuse(expected)
+    replaced = {id(d) for d in deliveries.replaced(expected)}
+    return deliveries, tuple(
+        PlanDelivery(delivery_key(d.key), planned_destination(d.destination), id(d) in replaced)
+        for d in expected
+    )
 
 
 # --- The steps with the connection ------------------------------------------------------------
@@ -1187,22 +1213,25 @@ def _discard_mirrors(
 
 
 def _mirror_dry_run(
-    document: Dict[str, Any], mirror_root: Path, remote_run_root: PurePosixPath
+    document: Dict[str, Any],
+    mirror_root: Path,
+    remote_run_root: PurePosixPath,
+    translate: Callable[[str], Optional[str]],
 ) -> None:
-    """Point the run directories of a dry-run document at the places they have in the mirror.
+    """Give a dry-run document the paths of this side, as the document of a run has them.
 
-    A dry run has no mirror, but the run does, and a reader of the plan wants the places on this
-    side, as the document of a run has them. `remote_run_path` keeps the place on the remote."""
-    plan = document.get("plan")
-    nodes = list(document.get("nodes") or [])
-    if isinstance(plan, dict):
-        nodes += list(plan.get("nodes") or [])
-    for node in nodes:
-        if not isinstance(node, dict) or "run_path" not in node:
+    A dry run has no mirror, but the run does: a run directory is its place in the mirror, and
+    `remote_run_dir` keeps the place on the remote. The sources, settings and deliveries of a node
+    name the files here, not the copies that the remote reads."""
+    for node in document.get("nodes") or []:
+        if not isinstance(node, dict) or "run_dir" not in node:
             continue
-        place = _place_below(remote_run_root, node["run_path"], "a run directory")
-        node["remote_run_path"] = node["run_path"]
-        node["run_path"] = str(mirror_root / place)
+        place = _place_below(remote_run_root, node["run_dir"], "a run directory")
+        node["remote_run_dir"] = node["run_dir"]
+        node["run_dir"] = str(mirror_root / place)
+        for key in ("settings", "inputs", "deliveries"):
+            if key in node:
+                node[key] = translate_paths(node[key], translate)
 
 
 def _translation(
@@ -1213,10 +1242,13 @@ def _translation(
     files: Mapping[str, str],
     generated: Collection[str],
     design_root: Path,
+    local_root: Path,
 ) -> Callable[[str], Optional[str]]:
     """Map a path on the remote to the path of the same file here, or to `None`.
 
-    A path in the run root of the remote goes to the same place in the mirror. A path in the
+    A path in the Git dependency checkouts of the remote goes to the same checkout in the local run
+    root, which planning here fetched under the same key. Any other path in the run root of the
+    remote goes to the same place in the mirror. A path in the
     inputs directory goes to the local file that was sent there, or else to the same place below
     the design root: a place that the remote makes for an output (`{path: out/trace.txt}`) has
     the same name there. The inputs directory itself goes to the design root. A file that xeda
@@ -1224,6 +1256,7 @@ def _translation(
     file here, and its path stays. So does a path elsewhere (a tool, a store of the remote)."""
     sent = {(inputs_dir / name).as_posix(): local for name, local in files.items()}
     made = {(inputs_dir / name).as_posix() for name in generated}
+    checkouts = remote_run_root / DEPENDENCIES_DIRECTORY
 
     def translate(text: str) -> Optional[str]:
         if not text.startswith("/"):
@@ -1231,6 +1264,8 @@ def _translation(
         path = PurePosixPath(text)
         if ".." in path.parts:
             return None
+        if path.is_relative_to(checkouts):
+            return str(local_root / DEPENDENCIES_DIRECTORY / path.relative_to(checkouts))
         if path == remote_run_root or path.is_relative_to(remote_run_root):
             return str(mirror_root / path.relative_to(remote_run_root))
         if path == inputs_dir:
@@ -1251,8 +1286,32 @@ def _local_design(document: Dict[str, Any], run: _Run, design_name: str) -> Dict
     """Name the design file that the user gave, and not the packaged copy on the remote."""
     from ..introspect import design_info
 
-    document.update(design_info(run.design, design_name))
+    spec = document.get("spec")
+    if isinstance(spec, dict):
+        spec.update(design_info(run.design, design_name))
+        spec.update(flow=run.chain, settings=_spec_fields(run)["settings"])
     return document
+
+
+def _plan_outputs_to(
+    document: Dict[str, Any],
+    outputs_to: Optional[Path],
+    overwrite_outputs: bool,
+    planned: Sequence[PlanDelivery],
+) -> None:
+    """Put the options of delivery and the planned deliveries into the dry-run document of the
+    host. The host delivers nothing, so only this side knows them."""
+    options = document.get("options")
+    if isinstance(options, dict):
+        options["outputs_to"] = None if outputs_to is None else os.path.abspath(outputs_to)
+        options["overwrite_outputs"] = overwrite_outputs
+    roots = document.get("roots") or []
+    for node in document.get("nodes") or []:
+        if node.get("name") in roots:
+            node["deliveries"] = [
+                {"key": d.key, "destination": str(d.destination), "replaces": d.replaces}
+                for d in planned
+            ]
 
 
 def _print_dry_run(host: str, document: Mapping[str, Any]) -> None:
@@ -1303,8 +1362,6 @@ def run_remote(
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
     the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
     one too: its document has no outcome, since no launch started, and the code `canceled`."""
-    from ..introspect import request_info
-
     request = parse_request(chain)
     try:
         table = command_line_table(flow_settings)
@@ -1317,7 +1374,7 @@ def run_remote(
         target=target,
         host=destination_text,
         debug=log_level <= logging.DEBUG,
-        request=request_info(request),
+        request=request.as_elements(),
         settings=table,
     )
     try:
@@ -1523,6 +1580,7 @@ def _run(
             ssh_options=ssh_options,
             profile=profile,
             local_settings=local_settings,
+            dry_run=dry_run,
         )
     except KeyboardInterrupt:
         raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None
@@ -1618,6 +1676,7 @@ def _run(
                     files={name: str(path) for name, path in package.files.items()},
                     generated=package.generated,
                     design_root=design.root,
+                    local_root=local_root,
                 )
                 if not dry_run:
                     run.localize = lambda: _localized(
@@ -1631,10 +1690,13 @@ def _run(
                     document = _local_design(dict(result), run, design.name)
                     document["remote"] = destination_text
                     document["mirror"] = str(mirror_root)
-                    _mirror_dry_run(document, mirror_root, remote_run_root)
+                    _mirror_dry_run(document, mirror_root, remote_run_root, translate)
                     document["uploaded"] = uploaded
+                    _plan_outputs_to(
+                        document, outputs_to, overwrite_outputs, prepared.planned_deliveries
+                    )
                     _print_dry_run(destination_text, document)
-                    outcome = RemoteOutcome(document, bool(result.get("success")))
+                    outcome = RemoteOutcome(document, result.get("error") is None)
                 else:
                     outcome = _finish(
                         agent,

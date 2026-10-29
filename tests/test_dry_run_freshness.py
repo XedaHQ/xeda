@@ -1,6 +1,6 @@
 """`--dry-run` says what a launch would do: each planned node is `fresh`, `stale` with the reason
 the launch would give, `unknown` with why nothing can be said without running something,
-`rejected again` (the launch reports the rejection of the last run again) or `blocked` (a producer
+`rejected` (the launch reports the rejection of the last run again) or `blocked` (a producer
 of the node was rejected, so the launch stops there).
 
 The oracle is the launch itself. For a matrix of changes, on a graph of two toy flows and on the
@@ -8,7 +8,7 @@ graph `yosys_fpga` -> `nextpnr`, the dry run is made and then the same request i
 the plan calls `fresh` is reused by the run, and every node it calls `stale` runs for exactly the
 reason it gave. A node it calls `unknown` is not compared, but each case has a node that is
 claimed, and the matrix holds all three states. A second matrix, on the toy flows with a producer
-that rejects its results, covers the other two: the launch replays a `rejected again` node, and a
+that rejects its results, covers the other two: the launch replays a `rejected` node, and a
 `blocked` node stops the launch. The dry run is read-only: the tree, the run root included, is as
 it was, the audit hook sees no write, and no process starts (the teeth: each of the three
 mistakes that would break that is found).
@@ -43,7 +43,7 @@ from .write_audit import writes_seen
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
 FRESH, STALE, UNKNOWN = "fresh", "stale", "unknown"
-REJECTED_AGAIN, BLOCKED = "rejected again", "blocked"
+REJECTED, BLOCKED = "rejected", "blocked"
 
 
 @pytest.fixture(autouse=True)
@@ -144,6 +144,18 @@ class Graph:
         return runner.plan_with_freshness(
             self.flow, self.design(), flow_settings=node_settings(self.flow, self.settings)
         )
+
+    def public(self, **options):
+        """The plan that a `Workspace` makes of the request."""
+        from xeda.spec import Spec
+        from xeda.utils import settings_to_dict
+        from xeda.workspace import Workspace
+
+        table = node_settings(self.flow, self.settings)
+        if isinstance(table, list):
+            table = settings_to_dict(table)
+        spec = Spec(self.flow, self.design(), settings=table)
+        return Workspace(self.run_root).plan(spec, **options)
 
     def run(self, *, tolerate: tuple[type[Exception], ...] = (), **options) -> dict[str, Flow]:
         """Run the request. A failure of a type in `tolerate` ends the launch without an error."""
@@ -303,7 +315,7 @@ def compare(
                 # A producer that runs again and is rejected stops the launch before the node
                 # is judged: the plan cannot know the result of that run.
                 assert flow.stale_reason == said.reason, node.name
-        elif said.state == REJECTED_AGAIN:
+        elif said.state == REJECTED:
             claimed += 1
             assert flow.reused and flow.rejected_again, f"{node.name}: said {said}, but it ran"
             assert flow.rejection == said.reason, node.name
@@ -364,7 +376,7 @@ def test_a_rejected_node_is_rejected_again_and_its_consumer_blocked(
     message = graph.message()
     assert message == "`toy_producer` reported failure: the text is rejected"
     assert (states["toy_producer"].state, states["toy_producer"].reason) == (
-        REJECTED_AGAIN,
+        REJECTED,
         message,
     )
     assert (states["toy_consumer"].state, states["toy_consumer"].reason) == (
@@ -372,15 +384,15 @@ def test_a_rejected_node_is_rejected_again_and_its_consumer_blocked(
         "toy_producer was rejected in its last run",
     )
     from xeda.cli import _print_plan
-    from xeda.introspect import plan_info
 
-    _print_plan(plan, states)
+    public = graph.public()
+    _print_plan(public.to_dict())
     text = capsys.readouterr().out
-    assert f"      rejected again: {message}\n" in text
+    assert f"      rejected: {message}\n" in text
     assert "      blocked: toy_producer was rejected in its last run\n" in text
-    nodes = {n["name"]: n for n in plan_info(plan, states)["nodes"]}
+    nodes = {n["name"]: n for n in public.to_dict()["nodes"]}
     assert (nodes["toy_producer"]["state"], nodes["toy_producer"]["reason"]) == (
-        REJECTED_AGAIN,
+        REJECTED,
         message,
     )
     assert nodes["toy_consumer"]["state"] == BLOCKED
@@ -410,9 +422,9 @@ def _producer_trace_missing(graph: Graph, options: Options) -> None:
 
 #: the states of (producer, consumer) for each change, when the producer was rejected
 REJECTED_CASES: dict[str, tuple[Callable[[Graph, Options], None], tuple[str, str], str | None]] = {
-    "nothing": (nothing, (REJECTED_AGAIN, BLOCKED), None),
-    "consumer setting": (consumer_setting, (REJECTED_AGAIN, BLOCKED), None),
-    "file added": (file_added, (REJECTED_AGAIN, BLOCKED), None),
+    "nothing": (nothing, (REJECTED, BLOCKED), None),
+    "consumer setting": (consumer_setting, (REJECTED, BLOCKED), None),
+    "file added": (file_added, (REJECTED, BLOCKED), None),
     "source edit": (source_edit, (STALE, STALE), "input changed: "),
     "producer setting": (producer_setting, (STALE, STALE), "settings changed: "),
     "trace removed": (_producer_trace_missing, (STALE, STALE), "no completed previous run"),
@@ -434,7 +446,7 @@ REJECTED_CASES: dict[str, tuple[Callable[[Graph, Options], None], tuple[str, str
 def test_the_dry_run_and_the_run_agree_on_a_rejected_node_and_its_consumer(
     change, tmp_path, monkeypatch, toys
 ):
-    """`rejected again` is replayed by the launch, `blocked` stops it at the producer, and a trace
+    """`rejected` is replayed by the launch, `blocked` stops it at the producer, and a trace
     and a document that disagree make the node stale, for the words the launch logs."""
     graph = RejectedProducerGraph(tmp_path, monkeypatch)
     graph.settle()
@@ -455,12 +467,12 @@ def test_a_rejected_consumer_whose_producer_is_stale_depends_on_the_producer(
     tmp_path, monkeypatch, toys
 ):
     """The trace of the consumer still matches without the new outputs of the producer, but the
-    launch runs the producer first: the answer is `unknown`, never `rejected again`."""
+    launch runs the producer first: the answer is `unknown`, never `rejected`."""
     graph = ToyGraph(tmp_path, monkeypatch)
     graph.settings.append("flows.toy_consumer.reject=true")
     graph.run()
     states = compare(graph, {})
-    assert (states["toy_producer"].state, states["toy_consumer"].state) == (FRESH, REJECTED_AGAIN)
+    assert (states["toy_producer"].state, states["toy_consumer"].state) == (FRESH, REJECTED)
     graph.edit_source()
     states = compare(graph, {})
     assert (states["toy_producer"].state, states["toy_consumer"].state) == (STALE, UNKNOWN)
@@ -516,7 +528,7 @@ def test_a_consumer_of_a_blocked_node_is_blocked(tmp_path, monkeypatch, toys):
     graph = EndGraph(tmp_path, monkeypatch)
     graph.settle()
     states = compare(graph, {}, tolerate=(FlowDependencyFailure,))
-    assert states["toy_producer"].state == REJECTED_AGAIN
+    assert states["toy_producer"].state == REJECTED
     assert (states["toy_middle"].state, states["toy_middle"].reason) == (
         BLOCKED,
         "toy_producer was rejected in its last run",
@@ -630,17 +642,17 @@ def test_the_reasons_the_plan_gives_are_the_launch_s_words(tmp_path, monkeypatch
         "depends on toy_producer",
     )
     _, states = graph.dry(rebuild_all=True)
-    assert states["toy_consumer"].reason == "every flow runs (--rebuild-all)"
+    assert states["toy_consumer"].reason == "rebuild_all"
     _, states = graph.dry(clean=True)
-    assert states["toy_consumer"].reason == "every flow runs (--clean)"
+    assert states["toy_consumer"].reason == "clean"
 
 
 def test_a_launch_records_why_every_flow_runs(tmp_path, monkeypatch, toys):
     graph = ToyGraph(tmp_path, monkeypatch)
     graph.settle()
-    for option, words in (("rebuild_all", "(--rebuild-all)"), ("clean", "(--clean)")):
+    for option in ("rebuild_all", "clean"):
         ran = graph.run(**{option: True})
-        assert {f.stale_reason for f in ran.values()} == {f"every flow runs {words}"}
+        assert {f.stale_reason for f in ran.values()} == {option}
 
 
 def test_a_node_whose_recorded_program_is_a_container_image_is_unknown(tmp_path, monkeypatch, toys):
@@ -773,18 +785,14 @@ def test_the_read_only_check_finds_each_mistake_that_would_break_it(
 
 def test_the_cli_dry_run_json_carries_state_and_reason(tmp_path, monkeypatch, toys):
 
-    from xeda.introspect import plan_info
-
     graph = ToyGraph(tmp_path, monkeypatch)
     graph.settle()
     graph.edit_source()
-    plan, states = graph.dry()
-    nodes = {n["name"]: n for n in plan_info(plan, states)["nodes"]}
+    nodes = {n["name"]: n for n in graph.public().to_dict()["nodes"]}
     assert nodes["toy_producer"]["state"] == STALE
     assert nodes["toy_producer"]["reason"].startswith("input changed: ")
     assert nodes["toy_consumer"] | {} and nodes["toy_consumer"]["state"] == UNKNOWN
     assert nodes["toy_consumer"]["reason"] == "depends on toy_producer"
-    assert "state" not in plan_info(plan)["nodes"][0]
 
 
 def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, monkeypatch):
@@ -1031,7 +1039,7 @@ def test_the_earlier_of_a_rejected_producer_and_an_invalid_record_stops_the_laun
     graph.run(tolerate=(FlowDependencyFailure,))
     _forge_record(graph, recorded, _as_a_list)
     _, states = graph.dry()
-    assert states[rejected].state == REJECTED_AGAIN and states[recorded].state == FRESH
+    assert states[rejected].state == REJECTED and states[recorded].state == FRESH
     said = states["toy_both"]
     if rejected_first:
         assert (said.state, said.reason) == (BLOCKED, "toy_other was rejected in its last run")

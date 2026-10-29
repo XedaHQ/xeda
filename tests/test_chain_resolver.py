@@ -16,7 +16,7 @@ from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.resolver import ResolvedReference
 from xeda.flow_runner.trace import as_recorded
 from xeda.flows import Nextpnr
-from xeda.introspect import plan_info
+from .plan_documents import plan_nodes
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -158,9 +158,9 @@ def test_a_chain_overrides_a_saved_binding_and_the_plan_says_so(tmp_path):
     assert made.producer == "t_input_maker" and made.binding_origin == "chain"
     assert len(made.overridden) == 1 and "flows.t_taker.inputs.made" in made.overridden[0]
     assert "(chain) overriding" in made.describe()
-    document = plan_info(plan)["nodes"][-1]["inputs"][0]
-    assert document["binding_origin"] == "chain" and document["overridden"] == list(made.overridden)
-    assert document["references"] == [{"node": "t_input_maker", "output": "made"}]
+    document = plan_nodes(plan)[-1]["inputs"][0]
+    assert (document["producer"], document["output"]) == ("t_input_maker", "made")
+    assert "chain" in document["reason"] and made.overridden[0] in document["reason"]
 
 
 def test_a_chain_and_a_command_line_binding_of_one_input_are_an_error_even_when_equal(tmp_path):
@@ -519,19 +519,19 @@ def test_a_dry_run_of_a_saved_binding_shows_the_graph_that_then_runs(tmp_path, m
     )
     dry = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--dry-run", "--json"])
     assert dry.exit_code == 0, dry.output
-    planned = json.loads(dry.stdout)["plan"]["nodes"]
+    planned = json.loads(dry.stdout)["nodes"]
     assert [node["name"] for node in planned] == ["t_input_maker", "t_taker"]
-    assert planned[1]["inputs"][0]["binding_origin"] == "file"
+    assert "saved binding" in planned[1]["inputs"][0]["reason"]
     assert not (tmp_path / "xeda_run").exists()
     text = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--dry-run"])
-    assert "made <- t_input_maker.made (saved binding)" in text.output
+    assert "made <- t_input_maker.made (bound by a saved binding in " in text.output
     ran = CliRunner().invoke(cli, ["run", "t_taker", str(design), "--json"])
     assert ran.exit_code == 0, ran.output
     document = json.loads(ran.stdout)
     assert document["outcome"] == "passed"
     assert document["nodes"][-1]["record"]["metrics"]["read"] == "bound\n"
     assert [(n["flow"], n["run_dir"]) for n in document["nodes"]] == [
-        (n["flow"], n["run_path"]) for n in planned
+        (n["flow"], n["run_dir"]) for n in planned
     ]
 
 

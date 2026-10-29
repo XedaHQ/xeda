@@ -306,7 +306,9 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..flow_runner.error_codes import public_error, request_error_info
     from ..flow_runner.launch_result import failed_result, launch_result
     from ..errors import SpecError
-    from ..introspect import design_info, plan_info, request_info
+    from ..flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from ..introspect import design_info
+    from ..plan import plan_of
     from ..log_context import launch_id_of
     from ..outcomes import Outcome, run_document, spec_document
     from ..records import CANCELED, ErrorInfo
@@ -345,17 +347,31 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             using_pinned_commits(request.dependency_commits),
         ):
             if request.dry_run:
-                plan, freshness = launcher.plan_with_freshness(request.chain, **arguments)
+                planned = launcher.plan_launch(request.chain, **arguments)
+                plan = planned.plan
                 check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)
-                return {
-                    "flow": parsed.requested.name,
-                    **design_info(design, launcher.design_name),
-                    "target": plan.context.target,
-                    "success": True,
-                    "dry_run": True,
-                    "request": request_info(parsed),
-                    "plan": plan_info(plan, freshness),
-                }, None
+                return (
+                    plan_of(
+                        plan,
+                        planned.states,
+                        planned.deliveries,
+                        spec=Spec(request.chain, loaded),
+                        options=LaunchOptions(
+                            rebuild_all=request.rebuild_all,
+                            clean=request.clean,
+                            prune_variants=request.scrub,
+                        ),
+                        workspace=WorkspaceOptions(
+                            run_root=Path(request.run_root),
+                            hashed_run_dirs=request.hashed_run_dirs,
+                            tool_output="log",
+                            confirm=None,
+                            remote=None,
+                            local_settings=None,
+                        ),
+                    ).to_dict(),
+                    None,
+                )
             plan = launcher.plan(request.chain, **arguments)
             check_identity({n.name: n.flowrun_hash for n in plan.nodes}, request.expected)
             snapshot = RunDirectorySnapshot(_node_directories(plan).values())
@@ -366,7 +382,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             )
         document = result.to_dict()
         _record_written(document, snapshot, plan, launcher.launched)
-        document["named"] = [element["node"] for element in request_info(parsed)]
+        document["named"] = [element["node"] for element in parsed.as_elements()]
         return document, None
     except BaseException as e:  # pylint: disable=broad-except
         interrupted = isinstance(e, KeyboardInterrupt)
@@ -430,7 +446,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                 document, snapshot, plan, launcher.launched if launcher is not None else ()
             )
             document["named"] = (
-                [element["node"] for element in request_info(parsed)] if parsed is not None else []
+                [element["node"] for element in parsed.as_elements()] if parsed is not None else []
             )
         return document, None if isinstance(e, Exception | KeyboardInterrupt) else e
 
@@ -439,8 +455,8 @@ def exit_status(document: Mapping[str, Any]) -> int:
     """Return the exit status of a launch with the result `document`: 0 for a launch that
     passed, 130 for one that was interrupted, 2 for a request that started no launch because it
     is invalid, and 1 for any other launch."""
-    if document.get("dry_run"):
-        return 0 if document.get("success") else 1
+    if "outcome" not in document:
+        return 0  # the plan of a dry run: a document of a launch always has an `outcome`
     error = document.get("error") or {}
     outcome = document.get("outcome")
     if outcome == "passed":

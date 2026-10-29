@@ -286,12 +286,12 @@ def test_dry_run_document(tmp_path, fake_fpga):
     design = make_inputs(tmp_path)
     process, result = launch(tmp_path, design, dry_run=True)
     assert process.returncode == 0, process.stderr
-    assert result["success"] is True and result["dry_run"] is True
+    assert result["schema_version"] == 1 and "outcome" not in result
     assert "written" not in result
-    assert [node["flowrun_hash"] for node in result["plan"]["nodes"]] == list(
+    assert [node["identity"] for node in result["nodes"]] == list(
         expected_hashes(tmp_path, design).values()
     )
-    assert {node["state"] for node in result["plan"]["nodes"]} == {"stale"}
+    assert {node["state"] for node in result["nodes"]} == {"stale"}
     assert not (tmp_path / "remote" / "xeda_run").exists()
 
 
