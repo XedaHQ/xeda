@@ -14,12 +14,13 @@ import threading
 from pathlib import Path
 
 import pytest
+import yaml
 
 from xeda.flow_runner import run_lock
 from xeda.frozen import thaw
 from xeda.flow_runner.launch_generation import generation_key
 from xeda.flow_runner.run_lock import lock_file
-from xeda.generation import RECORD_NAME
+from xeda.generation import RECORD_FORMAT, RECORD_NAME
 from xeda.outcomes import Outcome
 
 from .flow_registry import preserved_flow_registry
@@ -820,6 +821,26 @@ def test_a_generator_sees_pwd_as_its_working_directory(tmp_path):
     assert world.launch(reader_flow()).outcome is Outcome.PASSED
     cwd, _, _, pwd = world.noted
     assert pwd == cwd
+
+
+def test_an_old_record_makes_the_generator_run_again_in_the_same_storage(tmp_path):
+    """A storage that an earlier release made (another record format) is generated once more,
+    in place, so output made under other conditions (another `PWD`) is not trusted now."""
+    flow = reader_flow()
+    world = World(tmp_path)
+    assert world.launch(flow).outcome is Outcome.PASSED
+    (storage,) = world.storages()
+    record = storage / RECORD_NAME
+    data = yaml.safe_load(record.read_text())
+    assert data["format"] == RECORD_FORMAT
+    data["format"] = RECORD_FORMAT - 1
+    record.write_text(yaml.safe_dump(data))
+    assert world.launch(flow).outcome is Outcome.PASSED
+    assert world.runs == 2
+    assert world.storages() == [storage], "the same storage"
+    assert yaml.safe_load(record.read_text())["format"] == RECORD_FORMAT
+    assert world.launch(flow).outcome is Outcome.PASSED
+    assert world.runs == 2, "the new record is trusted"
 
 
 def test_a_recipe_env_may_not_set_pwd(tmp_path):

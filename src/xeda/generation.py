@@ -50,8 +50,10 @@ GENERATION_DIRECTORY = ".generated"
 #: The record in a storage, which says what the last generation left there.
 RECORD_NAME = "generation.yaml"
 
-#: The format of a record: an entry of another format is not read.
-RECORD_FORMAT = 1
+#: The format of a record: an entry of another format is not read, so the generator runs again.
+#: Format 2: a generator sees `PWD` set to the directory it runs in, so a storage that an earlier
+#: release made is generated once more.
+RECORD_FORMAT = 2
 
 #: The number of hexadecimal digits of a key.
 KEY_LENGTH = 16
