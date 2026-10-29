@@ -1464,16 +1464,6 @@ def yosys_json_attribute_holders(netlist: Path, attribute: str) -> list[str]:
 UNRECORDED_BEFORE_RUN_REASON = "input first read by the last run, on another file system"
 
 
-@contextmanager
-def one_environment() -> Iterator[None]:
-    """Run the launches of a test in one environment. pytest sets `PYTEST_CURRENT_TEST` per phase
-    (setup, call), and a changed variable makes a node stale, so a fixture launch and a launch in
-    the test body would not see the same environment. Wrap every such launch in this."""
-    with pytest.MonkeyPatch.context() as mp:
-        mp.delenv("PYTEST_CURRENT_TEST", raising=False)
-        yield
-
-
 def launch_until_fresh(runner: Any, launch: Any) -> Any:
     """`launch()`, which launches a flow through `runner` that ran before, until the flow is found
     up to date -- at most once more: a tool reporting what it read (`yosys -E`) names files of
@@ -1481,13 +1471,12 @@ def launch_until_fresh(runner: Any, launch: Any) -> Any:
     machines (a macOS volume, say), and with no record of them from before the first run, the
     next launch runs once more, saying so. The fresh flow."""
     first = len(runner.launched)
-    with one_environment():
-        flow = launch()
-        if flow.reused:
-            return flow
-        reasons = [f.stale_reason for f in runner.launched[first:]]
-        assert any(r and r.startswith(UNRECORDED_BEFORE_RUN_REASON) for r in reasons), reasons
-        flow = launch()
+    flow = launch()
+    if flow.reused:
+        return flow
+    reasons = [f.stale_reason for f in runner.launched[first:]]
+    assert any(r and r.startswith(UNRECORDED_BEFORE_RUN_REASON) for r in reasons), reasons
+    flow = launch()
     assert flow.reused, flow.stale_reason
     return flow
 

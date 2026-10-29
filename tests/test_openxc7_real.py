@@ -144,8 +144,7 @@ def built(toolchain: Path, run_root: Path, tmp_path_factory: pytest.TempPathFact
     generators = toolchain / "share/nextpnr/himbaechel"
     before = _tree_state(generators)
     runner = DefaultRunner(run_root, display_results=False)
-    with tool_utils.one_environment():
-        flow = runner.run(FpgaPack, design)
+    flow = runner.run(FpgaPack, design)
     assert flow is not None and flow.succeeded
     return runner, design, flow, before, _tree_state(generators)
 
