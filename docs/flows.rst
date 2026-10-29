@@ -87,7 +87,10 @@ the lowest to the highest precedence:
 8. the command line, with ``-s`` or ``--settings``, and then the API, with ``flow_overrides``. The
    ``flow_settings`` argument of ``run()`` and ``plan()`` is the same layer as ``-s``, so messages
    call it "the command line (``-s``) or ``flow_settings``". On the command line, every key starts
-   with the flow that it addresses: ``-s nextpnr.seed=7``.
+   with the flow that it addresses: ``-s nextpnr.seed=7``. The ``flow_settings`` of the API takes
+   the same keys, as items or as a table of nodes (``{"nextpnr": {"seed": 7}}``). A key without its
+   flow, and a key that starts with ``flows.``, is an error (``unscoped_setting``) that names the
+   address to write.
 
 The project file is a layer only for a design that you select from it with ``--design-name``. A
 design file that you give as the ``DESIGN`` argument does not get the ``flows`` of a project, nor
@@ -197,7 +200,7 @@ included.
 
 A name with a space is a quoted shell item::
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s "vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
 The same holds for a dictionary inside a settings group. The path goes on to the dictionary, and
 the rest of the key is one name::
@@ -1201,11 +1204,11 @@ both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 
 .. code-block:: bash
 
     xeda run yosys_fpga blinky.yaml -s yosys_fpga.synth_pass_only=true yosys_fpga.read_verilog_flags= \
-      systemverilog=default
+      yosys_fpga.systemverilog=default
     xeda run yosys_fpga blinky.yaml -s yosys_fpga.synth_pass_only=true yosys_fpga.read_verilog_flags= \
-      systemverilog=default abc9_script=flow2
+      yosys_fpga.systemverilog=default yosys_fpga.abc9_script=flow2
     xeda run fpga_pack blinky.yaml -s yosys_fpga.synth_pass_only=true \
-      flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
+      yosys_fpga.read_verilog_flags= yosys_fpga.systemverilog=default
 
 The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
 as the required time of the LUT mapping (the ``-D`` option of the ``&if`` command of ABC). The Yosys

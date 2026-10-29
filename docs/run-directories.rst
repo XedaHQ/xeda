@@ -908,7 +908,7 @@ waveform setting such as ``vcd`` takes ``true`` and ``false`` as a switch.
 A requested flow that writes no outputs has nothing to deliver. A programmer is such a flow, as in
 ``xeda run vivado_synth+openfpgaloader``. ``--outputs-to`` is then refused before anything runs. The
 error names the setting whose location delivers the file that the programmer reads, here ``-s
-flows.vivado_synth.bitstream=$PWD/<file>``, and it names every form of a location given above. With
+vivado_synth.bitstream=$PWD/<file>``, and it names every form of a location given above. With
 ``--remote``, that setting would deliver on the remote host, so the error names the request that
 brings the file back instead: ``xeda run --remote vivado_synth ... --outputs-to DIR``.
 

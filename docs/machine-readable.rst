@@ -1008,7 +1008,7 @@ To run a flow:
 
     design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
     runner = DefaultRunner("xeda_run")
-    flow = runner.run("vivado_synth", design, flow_settings=["clock.period=5ns"])
+    flow = runner.run("vivado_synth", design, flow_settings=["vivado_synth.clock.period=5ns"])
     if flow and flow.record and flow.record.passed:
         print(flow.record.metric("fmax"))
 
@@ -1021,7 +1021,7 @@ To inspect a plan without constructing or running flows:
 
     from xeda.introspect import plan_info
 
-    plan = runner.plan("nextpnr", design, flow_settings=["fpga.part=iCE40HX1K-TQ144"])
+    plan = runner.plan("nextpnr", design, flow_settings=["nextpnr.fpga.part=iCE40HX1K-TQ144"])
     print(plan_info(plan))
 
 ``plan_info`` returns the same plain data as the ``plan`` key of ``--dry-run --json``. A

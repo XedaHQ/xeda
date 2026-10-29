@@ -20,7 +20,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Design file schema | `xeda design-schema` |
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
 | Which PDK files of a platform are installed, and where | `xeda pdk list --json`, `xeda pdk path <platform> --json` (fails with the install command when they are missing) |
-| Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s pdk_provider=lambdapdk` then selects) |
+| Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s <flow>.pdk_provider=lambdapdk` then selects) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s <flow>.KEY=VALUE --json` |
 | Search for the highest clock frequency | `xeda dse <flow> <design> --json` |
@@ -617,7 +617,7 @@ from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
 design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
-flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
+flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["vivado_synth.clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.fmax)
 ```
