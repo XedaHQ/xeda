@@ -699,7 +699,7 @@ def test_a_bad_design_raises_a_design_error(tmp_path):
     _is_design_error(invalid.value, "invalid_design", "nonsense")
     with pytest.raises(DesignValidationError) as unknown:
         design.with_target("nope")
-    _is_design_error(unknown.value, "unknown_target", unknown.value.field)
+    _is_design_error(unknown.value, "unknown_target", "targets")
     with pytest.raises(DesignValidationError) as built:
         Design(name="a", root=tmp_path, rtl={"sources": [], "top": 3})
     _is_design_error(built.value, "invalid_design", "rtl.top")
