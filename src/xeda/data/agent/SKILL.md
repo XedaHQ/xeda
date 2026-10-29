@@ -22,7 +22,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Which PDK files of a platform are installed, and where | `xeda pdk list --json`, `xeda pdk path <platform> --json` (fails with the install command when they are missing) |
 | Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s pdk_provider=lambdapdk` then selects) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
-| Run | `xeda run <flow> <design> -s KEY=VALUE --json` |
+| Run | `xeda run <flow> <design> -s <flow>.KEY=VALUE --json` |
 | Search for the highest clock frequency | `xeda dse <flow> <design> --json` |
 | Remove a flow's old run directories | `xeda scrub <flow> <design> [--target NAME] --json` |
 
@@ -37,7 +37,7 @@ and `skipped` paths. The Python API never prompts: `scrub_design` and a launch w
 `scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
 ```
 
 The exit status of `run` is 0 for the outcome `passed`, 1 for any other outcome and 2 for a request
@@ -124,7 +124,7 @@ flows:
   (`ghdl_sim` finds a VHDL testbench's top itself).
 - Give the clock port in `rtl.clock` and the period in the flow: `clock.period` (`5 ns`) or
   `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
-- A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
+- A physical setting needs a unit: `clock.period: 5 ns`, `-s vivado_synth.clock.period=5ns` (no space, so no
   quotes), `abc.load: 3.9 fF`. A bare number fails with `` `period` needs a unit, such as `5 ns` ``:
   the message names the field and writes the example in its unit (`timeout: 180` suggests `180 s`).
   `list-settings` shows the kind (`time`, `frequency`, `capacitance`, ...) as the `type` of a
@@ -148,27 +148,28 @@ the second out of Git), have the keys `flows`, `env` and `run_root`, and are rea
 replaces the user file; `--no-config` reads neither file. A design file given as `DESIGN` gets the
 user file and no layer from the project or the project-local file, and its run root follows the
 same order. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
-project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s clock.freq=100MHz` refines a
+project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s vivado_synth.clock.freq=100MHz` refines a
 nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
-xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
-xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
+xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4.5ns vivado_synth.synth.strategy=Flow_PerfOptimized_high
+xeda run nextpnr blinky.yaml -s yosys_fpga.flatten=true
 ```
 
 - `-s` takes `KEY=VALUE` items up to the next option or the first token that is not `KEY=VALUE`.
   Put the design before `-s`, or end the options with `--`.
-- A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
-  producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
+- A dotted key reaches a nested setting. Every `-s` key starts with the flow it addresses:
+  `-s <flow>.<key>=<value>` sets any flow of the run (a producer too). A key without a flow
+  (`-s seed=2`, `-s flows.nextpnr.seed=2`) fails with `unscoped_setting` and the address to write.
   The flows of the run follow the design: the plan's nodes and the default producers that a source
   or binding displaced. A converter (`bsc`) counts only if the design has a source it converts.
 - Sections for flows outside the run differ by layer. A file (design, target, project) may keep a
   `flows.<flow>` for any known flow (a removed flow is an error): it is ignored, with the INFO line
   `<flow> is not part of this run: its settings are unused` for a default producer that a source or
-  binding displaced and no line for other flows. `-s flows.<flow>.*` must name a flow of the run,
-  else `unknown_flow`: `-s flows.bsc.<key>` on a design without Bluespec sources is refused.
+  binding displaced and no line for other flows. `-s <flow>.*` must name a flow of the run,
+  else `unknown_node`: `-s bsc.<key>` on a design without Bluespec sources is refused.
 - One setting, one value per command line: two `-s` items that set one leaf to different values
-  (also `-s k=A` with `-s flows.<requested>.k=B`) fail with `conflicting_keys`, listing every pair.
+  (`-s nextpnr.k=A -s nextpnr.k=B`) fail with `conflicting_keys`, listing every pair.
   An exact repeat is one item; compare text (`1` and `01` differ).
 - A setting of a settings group has a dotted name, such as `abc.strategy` or
   `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
@@ -179,8 +180,8 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `vivado_synth` and `vivado_project`, ISE `*_options`, and the dictionaries of `openroad` keyed by
   net or instance name: `ir_drop.nets`, `ir_drop.vsrc_files`, `ir_drop.instance_power`,
   `ndr.assignments`) takes a dotted name as one key:
-  `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
-  `-s ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
+  `-s vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` or
+  `-s openroad.ir_drop.instance_power.u_core.reg_1=1mW`. Quote a name with a space.
 - Settings every flow accepts (`"common": true`) are `nthreads`, `docker` (run the tools from
   their Docker image), `docker_image` (the image to use), `verbosity` (`quiet`, `normal`,
   `verbose` or `debug`; each level adds only its own tool options, so `debug` does not add those
@@ -202,8 +203,9 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
     limits a tool's run time. `no_console` has no replacement.
 - A setting accepts its declared type only, from Python and from files: an integer setting takes
   `4`, not `"4"`, `4.0` or `true`. `true` and `false` are the only booleans. On the command line
-  every value is text and Xeda reads it as the type of the setting (`-s seed=4`,
-  `-s timing_allow_fail=false`); a list setting is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
+  every value is text and Xeda reads it as the type of the setting (`-s nextpnr.seed=4`,
+  `-s vivado_synth.timing_allow_fail=false`); a list setting is comma-separated
+  (`-s vivado_synth.xdc_files=a.xdc,b.xdc`).
 
 ## Flows that feed each other
 
@@ -290,13 +292,13 @@ flows:
 
 `vivado_power` takes timing activity (`vivado_postsynth_sim.timing_saif`) by default. For the
 faster, less accurate activity of a functional simulation, bind it with
-`-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`; `timing_sim` is no setting of
+`-s vivado_power.inputs.activity=vivado_postsynth_sim.saif`; `timing_sim` is no setting of
 `vivado_power`.
 
 Related inputs of one flow must come from one producer (`same_producer_as`, `via` in `list-flows`):
 `vivado_postsynth_sim`'s `netlist`, `netlist_timing` and `sdf`, and `vivado_power`'s `checkpoint`
 with the synthesis behind its `activity`. A binding that splits them is refused; the message lists
-the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
+the `-s <node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
 `platform`, `corner`, `dont_use_cells`, `platform_file`, `liberty`, `pdk_provider`, `pdk_version`,
@@ -306,8 +308,7 @@ list of resolved paths in order; an unset `pdk_provider` or `pdk_version` is fil
 platform before hashing. `hierarchical` and `wire_rc` are the
 OpenROAD flows' (the database stores neither). `out_of_context` must be the same in `yosys_fpga`
 and `nextpnr`, and only ECP5 takes it in `nextpnr`. Disjoint leaves combine; two values for one leaf
-fail and name both origins. A command-line leaf (`-s fpga.part=...` or
-`-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
+fail and name both origins. A command-line leaf (`-s yosys_fpga.fpga.part=...`) wins for the connected group. A shared setting written under
 a flow that is not in the run reaches no node.
 
 A Bluespec design runs on every flow that reads Verilog sources (`yosys`, `yosys_fpga`,
@@ -440,7 +441,7 @@ file in its run directory, and Xeda copies it to the location when the whole lau
 bare name in the run directory.
 
 ```bash
-xeda run vivado_synth blinky.yaml -s bitstream=$PWD/blinky.bit
+xeda run vivado_synth blinky.yaml -s vivado_synth.bitstream=$PWD/blinky.bit
 xeda run vivado_synth blinky.yaml --outputs-to ./out
 ```
 
@@ -579,14 +580,14 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 
 | `error.code` | Do |
 | --- | --- |
-| `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
+| `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `unscoped_setting`, `unknown_node` (`error.suggestions` holds the address to write), `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
 | `invalid_local_settings` (a private file `config.yaml` or `*.local.yaml` is invalid) | The message names the file and the key. Fix the file, or pass `--no-config`. |
 | `invalid_design`, `design_file_not_found`, `unknown_target`, `target_required` (the project's `default_target` is no target of the design: pass `--target` or `--no-target`), `unknown_design`, `design_name_required`, `use_design_name` (a design file that the project lists: use `--design-name`), `several_project_files`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
-| `invalid_chain`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
+| `invalid_chain`, `several_roots_unsupported`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
-| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s docker=true`. |
+| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s <flow>.docker=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
 | `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. Check the generator, or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
 | `generator_failed` (`error.node` is null, every node `skipped`) | The generator failed or could not be judged. The message names it and its exit status; its output is in the log. |

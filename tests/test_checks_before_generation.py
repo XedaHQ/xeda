@@ -164,7 +164,15 @@ def test_the_command_line_reports_the_refusal_and_runs_no_generator(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"])
     result = CliRunner().invoke(
-        cli, ["run", "yosys_fpga", str(generated.file), "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+        cli,
+        [
+            "run",
+            "yosys_fpga",
+            str(generated.file),
+            "-s",
+            "yosys_fpga.fpga.part=xc7a12tcsg325-1",
+            "--json",
+        ],
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 2 and document["outcome"] is None, result.output

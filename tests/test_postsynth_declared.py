@@ -125,7 +125,7 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
             command.insert(command.index("--design-name") + 1, "sim")
             command.extend(["--xedaproject", str(project)])
         else:
-            command.extend(["-s", "flows.vivado_postsynth_sim.synth.write_checkpoint=true"])
+            command.extend(["-s", "vivado_postsynth_sim.synth.write_checkpoint=true"])
         proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
         assert proc.returncode == 2 and document["outcome"] is None

@@ -535,7 +535,7 @@ def test_a_private_value_and_the_same_value_on_the_command_line_give_one_identit
 ):
     path = write_project(tmp_path / "repo", {"designs": [{"name": "d", "rtl": rtl()}]})
     _, plain = dry_run(path)
-    _, on_the_line = dry_run(path, "-s", "nthreads=3")
+    _, on_the_line = dry_run(path, "-s", "vivado_synth.nthreads=3")
     assert hash_of(plain) != hash_of(on_the_line)
     user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
     _, from_user = dry_run(path)
@@ -549,7 +549,7 @@ def test_a_private_value_and_the_same_value_on_the_command_line_give_one_identit
     _, from_local = dry_run(path)
     assert hash_of(from_local) == hash_of(on_the_line)
     # The value on the command line wins over both.
-    _, over = dry_run(path, "-s", "nthreads=3")
+    _, over = dry_run(path, "-s", "vivado_synth.nthreads=3")
     assert hash_of(over) == hash_of(on_the_line)
 
 
@@ -571,7 +571,7 @@ def test_the_project_local_file_overrides_the_project_and_the_user_file_is_below
         tmp_path / "repo" / "xedaproject.local.yaml", {"flows": {"vivado_synth": {"nthreads": 9}}}
     )
     _, local_wins = dry_run(path)
-    _, nine = dry_run(path, "--no-config", "-s", "nthreads=9")
+    _, nine = dry_run(path, "--no-config", "-s", "vivado_synth.nthreads=9")
     assert hash_of(local_wins) == hash_of(nine)
 
 
@@ -779,7 +779,7 @@ def test_a_design_file_gets_the_user_file_and_no_project_or_project_local_layer(
     user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
     arguments = ("run", "vivado_synth", "--xedaproject", str(path), str(other), "--dry-run", *PART)
     _, document = invoke(*arguments)
-    _, expected = invoke(*arguments, "--no-config", "-s", "nthreads=3")
+    _, expected = invoke(*arguments, "--no-config", "-s", "vivado_synth.nthreads=3")
     assert hash_of(document) == hash_of(expected)
     assert run_path_of(document).is_relative_to((repo / "project").resolve())
 

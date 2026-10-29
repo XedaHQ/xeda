@@ -29,9 +29,10 @@
 
 | Message | Fix |
 | --- | --- |
-| `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
+| `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s <producer>.<name>=...`. |
 | `` <flow> runs Vivado in non-project mode, which has no runs to use `<setting>` on: it is a setting of vivado_synth `` | A flow refuses a setting that belongs to a related flow and names that flow. Move the setting there (`flows.vivado_synth.<setting>`). |
-| `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
+| `` `<name>` names no node of this run (<flow>) `` (`unknown_node`) | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
+| `` `seed` is not a node: write `nextpnr.seed` `` (`unscoped_setting`) | Start every `-s` key with the flow it addresses. The error gives the address. |
 | `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). For example, use `timeout` (on the simulators) for `timeout_seconds`. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
 | `` `timeout` needs a unit, such as `180 s`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit; the message names the field and suggests your number in the unit of that field: `timeout: 180 s`, `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
@@ -41,7 +42,7 @@
 | `` cannot read `fast` as a time: write one number and one unit, such as `10 ns` `` | The text is not one number and one unit (a word, `5 ns * 2`, `1_000 ns`). |
 | `must be greater than 0 ns, got -1 ns` | The value is outside the limit of the setting. |
 | `Input should be a valid number, unable to parse string as a number` | The setting takes a plain number (a count, a ratio, a size of data, or a value in the units of the library). Remove the unit. |
-| a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
+| a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s vivado_synth.xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
 | `` `true` is a switch, and `bitstream` names a file `` | Give a name or location, or leave it unset. |
 
 ### Design
@@ -58,7 +59,7 @@
 | `<flow> does not read the design's Bluespec sources, and more than one flow converts them: ...` | Two converters fit. Choose one with a chain (`bsc+<flow>`) or a binding (`flows.<flow>.inputs.design: bsc`). |
 | `... ; simulate a Bluespec testbench with bsc_sim` | A Verilog simulator cannot read a Bluespec `tb`. Run `bsc_sim`. |
 | `` the design defines `BSV_POSITIVE_RESET`, which bsc defines itself when `positive_reset` is true: remove the define, or set `positive_reset: false` `` | `bsc` and `bsc_sim` refuse a design that defines the macro while `positive_reset` is on. Remove the define, or set `positive_reset: false`. |
-| `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
+| `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s <flow>.fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
 | `<flow> cannot run cocotb tests; use one of: ghdl_sim, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
 
 ### Chains
@@ -74,7 +75,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 | `` Flow `x` appears more than once ... The link `a+b` passes through `x` `` | A flow that a link passes through cannot appear elsewhere in the chain. Remove it, or name the flows between `a` and `b` yourself. |
 | `` The chain link `a+b` passes through `x`, which the source of `b.input` takes out of the plan `` | A planning error (exit 1). A source or binding for an input of a later flow removes the flow `x` that the link passes through. Drop that source or binding, or write the chain without that link. |
 | a binding error naming the consumer, input and where it was written | `unknown input`, `unknown producer` or `declares no inputs`. A binding names a flow's output (`yosys_fpga.netlist`), never a file. A chain and a command-line or API binding of one input conflict even when equal: bind it in one place. |
-| `` vivado_power: `checkpoint` must come from the producer of the `netlist_timing` ... `` | Related inputs come from one producer. Add the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings the message lists. |
+| `` vivado_power: `checkpoint` must come from the producer of the `netlist_timing` ... `` | Related inputs come from one producer. Add the `-s <node>.inputs.<input>=<producer>.<output>` bindings the message lists. |
 
 `xeda dse` refuses chains and bindings; run them with `xeda run`. `--remote` takes them.
 
@@ -91,7 +92,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 ### Tools
 
 - `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`
-  Install the tool, or run it from a container with `-s docker=true`. For a node that ran in this
+  Install the tool, or run it from a container with `-s <flow>.docker=true`. For a node that ran in this
   launch, the log shows the executable that Xeda found.
 - `nonzero_exit` (`timeout` for a time limit): `Command '...' exited with code 1!` in the failed node's `record.error`. The
   generated script and the tool's log are in its `run_dir`.
@@ -187,7 +188,7 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
 ### Waveform settings
 
 `vcd`, `fst`, `vcdgz`, `saif` and the other waveform settings take `true` (the conventional file,
-`dump.<format>`), `false`, a file name, or a location. `-s vcd=true` is `vcd: true`. `yes`, `on`
+`dump.<format>`), `false`, a file name, or a location. `-s ghdl_sim.vcd=true` is `vcd: true`. `yes`, `on`
 and the quoted text `"true"` are refused.
 
 | Message | Fix |

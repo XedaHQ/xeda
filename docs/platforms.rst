@@ -27,7 +27,7 @@ You select a platform with the setting ``platform``, which takes the name of a b
 
 .. code-block:: bash
 
-    xeda run yosys design.yaml -s platform=nangate45
+    xeda run yosys design.yaml -s yosys.platform=nangate45
 
 Use ``platform_file`` for a platform that Xeda does not ship (see `A platform of your own`_).
 
@@ -209,7 +209,7 @@ Select it with the file alone. If you also give ``platform``, it must be the ``n
 
 .. code-block:: bash
 
-    xeda run yosys design.yaml -s platform_file=mylib.yaml -s pdk_root=/data/pdks
+    xeda run yosys design.yaml -s yosys.platform_file=mylib.yaml -s yosys.pdk_root=/data/pdks
 
 What the OpenROAD flows take from a platform
 ============================================
@@ -398,7 +398,7 @@ message says what to do:
     platform 'nangate45' needs the PDK files of flow/platforms/nangate45 (orfs 6b305a712966).
       looked in: /home/me/.ciel/xeda/orfs/6b305a712966be72d8908695c04398acdbe273ca/flow/platforms/nangate45 (missing: lib/NangateOpenCellLibrary_typical.lib, and 10 more)
       install:   xeda pdk install nangate45
-      or name another location: -s pdk_root=<directory>
+      or name another location: -s <flow>.pdk_root=<directory>
 
 Install the platform with the command in the ``install`` line, or give ``pdk_root`` the store that
 holds the files. With ``--dry-run`` the plan shows the node as unknown, with the same message,

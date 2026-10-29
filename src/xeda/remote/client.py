@@ -1314,7 +1314,7 @@ def run_remote(
         host=destination_text,
         debug=log_level <= logging.DEBUG,
         request=request_info(request),
-        settings=command_line_table(request.requested.name, flow_settings),
+        settings=command_line_table(flow_settings),
     )
     try:
         return _run(

@@ -78,7 +78,7 @@ class Dc(AsicSynthFlow):
 
     required_settings = {
         "target_libraries": "one or more target libraries (liberty `.db` files): "
-        "`-s target_libraries=<file.db>`; in the design file, as "
+        "`-s {flow}.target_libraries=<file.db>`; in the design file, as "
         "`flows.{flow}.target_libraries`"
     }
 

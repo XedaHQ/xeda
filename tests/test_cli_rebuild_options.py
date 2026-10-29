@@ -31,7 +31,7 @@ def _run(*args):
 
 
 def test_a_second_run_reuses_by_default_and_says_so(sqrt):
-    settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
+    settings = ["-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
     _run(str(sqrt), *settings, "--json")
     result, document = _run(str(sqrt), *settings, "--json")
     assert result.exit_code == 0 and document["outcome"] == "passed"
@@ -41,18 +41,22 @@ def test_a_second_run_reuses_by_default_and_says_so(sqrt):
 @pytest.mark.parametrize("option", ["--rebuild-all", "--clean"])
 def test_rebuild_all_and_clean_run_a_fresh_flow_again(sqrt, option):
     """`--clean` implies `--rebuild-all`."""
-    settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
+    settings = ["-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
     _run(str(sqrt), *settings, "--json")
     _, document = _run(str(sqrt), *settings, option, "--json")
     assert [node["disposition"] for node in document["nodes"]] == ["ran"]
 
 
 def test_hashed_run_dirs_give_each_settings_variant_its_own_directory(sqrt, tmp_path):
-    settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
+    settings = ["-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
     _, stable = _run(str(sqrt), *settings, "--json")
     _, hashed = _run(str(sqrt), *settings, "--hashed-run-dirs", "--json")
     _, other = _run(
-        str(sqrt), *settings, "clocks.main_clock.period=7ns", "--hashed-run-dirs", "--json"
+        str(sqrt),
+        *settings,
+        "vivado_synth.clocks.main_clock.period=7ns",
+        "--hashed-run-dirs",
+        "--json",
     )
     design_dir = (tmp_path / "xeda_run" / "sqrt").resolve()
     assert Path(stable["nodes"][0]["run_dir"]) == design_dir / "vivado_synth"
@@ -68,7 +72,7 @@ def test_hashed_run_dirs_give_each_settings_variant_its_own_directory(sqrt, tmp_
 def test_the_environment_sets_no_option(sqrt, monkeypatch):
     """No automatic `XEDA_<OPTION>` variables: a leftover `XEDA_CLEAN=1` would empty every run
     directory on every run, with nothing on the command line to turn it off."""
-    settings = ["-s", "fpga.part=xc7a12tcsg325-1"]
+    settings = ["-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
     # the variables are in both launches: a trace holds the digest of the environment
     for name in ("CLEAN", "REBUILD_ALL", "HASHED_RUN_DIRS", "POST_CLEANUP_PURGE"):
         monkeypatch.setenv(f"XEDA_{name}", "1")

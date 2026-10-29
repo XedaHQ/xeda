@@ -103,11 +103,17 @@ _SETTINGS_CODES = {
     "conflicting_spellings": "conflicting_keys",
     "conflicting_bindings": "conflicting_keys",
     "conflicting_keys": "conflicting_keys",
+    "unscoped_setting": "unscoped_setting",
+    "unknown_node": "unknown_node",
     "removed_setting": "removed_setting",
     "removed_alias": "removed_alias",
     "settings_group": "unsupported_setting",
     "unsupported_setting": "unsupported_setting",
 }
+
+
+#: The codes of the findings that refuse an address, and hold the addresses to use in their context.
+_ADDRESS_CODES = frozenset({"unscoped_setting", "unknown_node"})
 
 
 def failure_log(exc: BaseException, flow: Flow | None) -> str | None:
@@ -220,15 +226,18 @@ def _settings_error(exc: FlowSettingsError | ValidationError) -> errors.Settings
         codes = ["invalid_value"]
         findings = [(None, str(exc), None, None)]
     built: list[errors.SettingsError] = []
-    for (location, problem, _, _), code in zip(findings, codes):
+    for (location, problem, context, _), code in zip(findings, codes):
         setting = ".".join(location.split(" -> ")) if location else None
         problem = problem or ""
         suggestions = _close_names(model, setting) if code == "unknown_setting" and setting else ()
+        if code in _ADDRESS_CODES and context:
+            # The context of these findings holds the addresses that the message suggests.
+            suggestions = tuple(context.split(","))
         built.append(
             errors.SettingsError(
                 f"{setting}: {problem}" if setting else problem,
                 code=code,
-                node=node,
+                node=None if code in _ADDRESS_CODES else node,
                 setting=setting,
                 problem=problem,
                 suggestions=suggestions,

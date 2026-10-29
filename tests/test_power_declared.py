@@ -106,7 +106,7 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
             command.extend(["--xedaproject", str(project)])
         else:
             value = "{}" if name == "postsynthsim" else str(given).lower()
-            command.extend(["-s", f"flows.vivado_power.{name}={value}"])
+            command.extend(["-s", f"vivado_power.{name}={value}"])
         proc = subprocess.run(command, capture_output=True, text=True, timeout=HANG_GUARD)
         document = json.loads(proc.stdout)
         assert proc.returncode == 2 and document["outcome"] is None

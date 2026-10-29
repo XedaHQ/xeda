@@ -911,11 +911,11 @@ def test_a_user_file_that_is_invalid_for_its_provider_is_a_settings_error_at_pla
             *["run", "--json", "--dry-run", "yosys", str(tmp_path / "d.yaml")],
             *[
                 "-s",
-                f"platform_file={tmp_path / 'mine.yaml'}",
+                f"yosys.platform_file={tmp_path / 'mine.yaml'}",
                 "-s",
-                "clocks.main_clock.period=10ns",
+                "yosys.clocks.main_clock.period=10ns",
             ],
-            *["-s", f"pdk_provider={provider}"],
+            *["-s", f"yosys.pdk_provider={provider}"],
         ],
     )
     document = json.loads(result.stdout)

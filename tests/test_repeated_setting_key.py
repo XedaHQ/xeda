@@ -58,21 +58,29 @@ def _messages(error: FlowSettingsError) -> list[str]:
 
 
 def test_a_setting_given_twice_with_two_values_is_an_error(design_file):
-    result, document = _run(design_file, "-s", "fpga.part=A", "-s", "fpga.part=B")
+    result, document = _run(
+        design_file, "-s", "yosys_fpga.fpga.part=A", "-s", "yosys_fpga.fpga.part=B"
+    )
     assert result.exit_code == 2, result.output
     assert document["outcome"] is None and document["nodes"] == []
     assert document["error"]["code"] == "conflicting_keys"
-    assert f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}" in document["error"]["message"]
+    assert (
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=B` {TWO_VALUES}"
+        in document["error"]["message"]
+    )
     error = _refused(design_file, "fpga.part=A", "fpga.part=B")
     assert [location for location, *_rest in error.errors] == ["fpga.part"]
     assert settings_codes(error)[0] == "conflicting_keys"
 
 
 def test_the_same_setting_twice_in_one_option_is_an_error_too(design_file):
-    result, document = _run(design_file, "-s", "fpga.part=A", "fpga.part=B")
+    result, document = _run(design_file, "-s", "yosys_fpga.fpga.part=A", "yosys_fpga.fpga.part=B")
     assert result.exit_code == 2, result.output
     assert document["error"]["code"] == "conflicting_keys"
-    assert f"`-s fpga.part=A` and `-s fpga.part=B` {TWO_VALUES}" in document["error"]["message"]
+    assert (
+        f"`-s yosys_fpga.fpga.part=A` and `-s yosys_fpga.fpga.part=B` {TWO_VALUES}"
+        in document["error"]["message"]
+    )
 
 
 def test_the_error_quotes_the_items_as_written_for_a_qualified_key(design_file):

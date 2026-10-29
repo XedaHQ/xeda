@@ -272,7 +272,7 @@ def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path)
     for spelling in ("open_xc7", "openxc7", "OpenXC7"):
         proc = subprocess.run(
             [sys.executable, "-m", "xeda", "run", "yosys_fpga", str(design_file), "--json"]
-            + ["--dry-run", "-s", "fpga.part=xc7a100tcsg324-1", f"flows.{spelling}.seed=1"],
+            + ["--dry-run", "-s", "yosys_fpga.fpga.part=xc7a100tcsg324-1", f"{spelling}.seed=1"],
             capture_output=True,
             text=True,
         )

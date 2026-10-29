@@ -32,6 +32,7 @@ from xeda.flow.flow import NoReadableSource
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
+from .scoping import scoped
 from .design_edits import with_updates
 from .test_chain_documentation import FLOWS_RST, _blocks, _stage
 from .test_edif import _peak_memory, _write_large_netlist
@@ -849,7 +850,7 @@ def test_a_consumer_of_the_routed_design_switches_the_outputs_on(tmp_path) -> No
     message = " ".join(str(error.value).split())
     assert "checkpoint <- vivado_impl.checkpoint_route" in message
     for binding in bind:
-        assert binding in message
+        assert binding.removeprefix("flows.") in message
     plan = _runner(tmp_path).plan(
         "yosys_fpga+vivado_impl+vivado_power", design, flow_settings=[*_DEV, *bind]
     )
@@ -1031,11 +1032,11 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
     text = FLOWS_RST.read_text(encoding="utf-8")
     section = text[text.index(".. _vivado-impl:") : text.index("\nBluespec\n========\n")]
     (line,) = [
-        line.strip() for line in section.splitlines() if line.strip().startswith("-s flows.vivado")
+        line.strip() for line in section.splitlines() if line.strip().startswith("-s vivado")
     ]
     items = shlex.split(line)[1:]
     assert items == [
-        f"flows.vivado_postsynth_sim.inputs.{name}=vivado_impl.{name}"
+        f"vivado_postsynth_sim.inputs.{name}=vivado_impl.{name}"
         for name in ("netlist", "netlist_timing", "sdf")
     ]
     root = tmp_path / "d"
@@ -1064,7 +1065,9 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
     refused = CliRunner().invoke(cli, [*base, chain, str(root / "blinky.yaml")])
     assert refused.exit_code != 0
     for request in (chain, "vivado_postsynth_sim"):
-        result = CliRunner().invoke(cli, [*base, request, str(root / "blinky.yaml"), "-s", *items])
+        result = CliRunner().invoke(
+            cli, [*base, request, str(root / "blinky.yaml"), "-s", *scoped(request, items)]
+        )
         assert result.exit_code == 0, (request, result.output)
         nodes = [node["name"] for node in json.loads(result.output)["plan"]["nodes"]]
         assert "vivado_impl" in nodes, nodes

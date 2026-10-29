@@ -13,6 +13,8 @@ from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flows import VivadoSynth
 from xeda.introspect import settings_info
 
+from .scoping import scoped
+
 pytestmark = pytest.mark.python_compat
 
 
@@ -149,7 +151,7 @@ def test_cli_short_forms_have_the_same_hash_and_run_directory(tmp_path):
                 "--dry-run",
                 "--json",
                 "-s",
-                *settings,
+                *scoped("vivado_synth", settings),
             ],
         )
         assert result.exit_code == 0, result.output

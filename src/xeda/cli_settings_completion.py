@@ -27,7 +27,7 @@ from .flow_catalog import _builtin_flows, _walk_head
 _SETTING_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*\Z")
 #: A key that may continue with a name of a tool after the path of a setting. This test is
 #: cheap; the catalog decides (`starts_opaque_key`).
-_OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?[A-Za-z_][A-Za-z0-9_]*\.")
+_OPAQUE_KEY_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.")
 
 
 def _looks_like_setting(token: str, opaque_paths: set[str] | None = None) -> bool:
@@ -384,22 +384,24 @@ def _flow_candidates(
 
 
 def _settings_candidates(
-    flow: str, chain: list[str], prefix: str, records: dict[str, dict[str, Any]]
+    chain: list[str], prefix: str, records: dict[str, dict[str, Any]]
 ) -> list[CompletionItem[str]] | None:
-    scope_prefix = ""
-    if prefix.startswith("flows."):
-        rest = prefix[len("flows.") :]
-        if "." not in rest:
-            flow_prefix = rest
-            names = _flow_candidates(chain, flow_prefix, records)
-            return [CompletionItem(f"flows.{name}.", type="setting") for name in names]
-        spelling, key_prefix = rest.split(".", 1)
-        resolved = _resolve_record(spelling, records)
-        if resolved is None or resolved[0] not in set(_flow_candidates(chain, "", records)):
-            return []
-        flow = resolved[0]
-        scope_prefix = f"flows.{spelling}."
-        prefix = key_prefix
+    """Return the completions of the `-s` item `prefix`: the nodes of the run, then the settings of
+    the node that the item starts with (`nextpnr.seed`)."""
+    node, dot, key_prefix = prefix.partition(".")
+    if not dot:
+        if "=" in prefix:
+            return []  # a setting without a node has no value to complete
+        return [
+            CompletionItem(f"{name}.", type="setting")
+            for name in _flow_candidates(chain, prefix, records)
+        ]
+    resolved = _resolve_record(node, records)
+    if resolved is None or resolved[0] not in set(_flow_candidates(chain, "", records)):
+        return []
+    flow = resolved[0]
+    scope_prefix = f"{node}."
+    prefix = key_prefix
 
     record = records.get(flow)
     if not record:
@@ -488,7 +490,6 @@ class SettingsCompletionMixin:
             )
         ):
             items = _settings_candidates(
-                state.final_flow,
                 state.allowed_scopes,
                 state.setting_prefix,
                 _completion_records(),

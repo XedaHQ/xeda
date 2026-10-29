@@ -179,7 +179,14 @@ def test_a_run_adds_only_its_run_root_to_the_start_directory(sqrt):
     before = sorted(p.name for p in sqrt.iterdir())
     result = CliRunner().invoke(
         cli,
-        ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"],
+        [
+            "run",
+            "vivado_synth",
+            "sqrt.yaml",
+            "-s",
+            "vivado_synth.fpga.part=xc7a12tcsg325-1",
+            "--json",
+        ],
         catch_exceptions=False,
     )
     assert json.loads(result.stdout)["outcome"] == "passed", result.stdout
@@ -193,7 +200,7 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
     mine.mkdir()
     (mine / "notes.txt").write_text("mine\n")
     args = {
-        "run": ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1"],
+        "run": ["run", "vivado_synth", "sqrt.yaml", "-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"],
         "dse": [
             "dse",
             "vivado_synth",

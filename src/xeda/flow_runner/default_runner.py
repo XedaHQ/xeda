@@ -153,6 +153,7 @@ from .settings_layers import (
     merge_flow_sections,
     registered_flow,
     split_flow_sections,
+    NodeScoped,
     transitive_dependencies,
 )
 from .trace import (
@@ -339,6 +340,18 @@ def get_flow_class(
         check_flow_name(flow_name)
         raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name))
     return flow_class
+
+
+def _request_flows(request: FlowRequest) -> tuple[Type[Flow], ...]:
+    """Return the flows that a request names, and those that its links pass through."""
+    return tuple(
+        dict.fromkeys(
+            (
+                *(element.flow_class for element in request.elements),
+                *(flow for link in request.links for flow in link.through),
+            )
+        )
+    )
 
 
 def _get_flow_class_if_known(flow_name: str) -> Type[Flow] | None:
@@ -2054,7 +2067,9 @@ class FlowLauncher:
             _explicit(flow_settings) if isinstance(flow_settings, Flow.Settings) else flow_settings
         )
         cli_sections, cli_own = split_flow_sections(
-            explicit, requested.name, flow_class_for=_get_flow_class_if_known
+            explicit,
+            requested.name,
+            flow_class_for=_get_flow_class_if_known,
         )
         cli_sections = merge_flow_sections(
             cli_sections, {requested.name: cli_own}, flow_class_for=_get_flow_class_if_known
@@ -2101,6 +2116,7 @@ class FlowLauncher:
             Tuple[str, ...],
             Mapping[str, Any],
             Flow.Settings,
+            NodeScoped,
         ] = [],
         flow_overrides: Union[
             List[str],
@@ -2144,6 +2160,7 @@ class FlowLauncher:
             Tuple[str, ...],
             Mapping[str, Any],
             Flow.Settings,
+            NodeScoped,
         ] = [],
         flow_overrides: Union[
             List[str],
@@ -2202,7 +2219,9 @@ class FlowLauncher:
         flow: type[Flow] | str,
         design: str | Path | Design | dict[str, Any] | None = None,
         xedaproject: str | None = None,
-        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_settings: (
+            list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings | NodeScoped
+        ) = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
@@ -2234,7 +2253,9 @@ class FlowLauncher:
         flow: type[Flow] | str | FlowRequest,
         design: str | Path | Design | dict[str, Any] | None = None,
         xedaproject: str | None = None,
-        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_settings: (
+            list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings | NodeScoped
+        ) = [],
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
         target: str | None | Unset = UNSET,
@@ -2292,7 +2313,9 @@ class FlowLauncher:
         flow: type[Flow] | str,
         design: str | Path | Design | dict[str, Any] | None = None,
         xedaproject: str | None = None,
-        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_settings: (
+            list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings | NodeScoped
+        ) = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
@@ -2336,7 +2359,7 @@ class FlowLauncher:
         flow: type[Flow] | str,
         design: str | Path | Design | dict[str, Any] | None,
         xedaproject: str | None,
-        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings | NodeScoped,
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
         design_updates: Iterable[str] | dict[str, Any] | None,
         design_allow_extra: bool,
@@ -2389,7 +2412,7 @@ class FlowLauncher:
         flow: type[Flow] | str | FlowRequest,
         design: str | Path | Design | dict[str, Any] | None,
         xedaproject: str | None,
-        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings | NodeScoped,
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
         design_updates: Iterable[str] | dict[str, Any] | None,
         design_allow_extra: bool,
@@ -2523,7 +2546,9 @@ class FlowLauncher:
         flow: type[Flow] | str | FlowRequest,
         design: str | Path | Design | dict[str, Any] | None = None,
         xedaproject: str | None = None,
-        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_settings: (
+            list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings | NodeScoped
+        ) = [],
         flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
         design_updates: Iterable[str] | dict[str, Any] | None = None,
         design_allow_extra: bool = False,
@@ -2628,6 +2653,10 @@ class FlowLauncher:
         if isinstance(flow_settings, Flow.Settings):
             explicit_flow_settings = _explicit(flow_settings)
             flow_settings = flow_settings.model_dump()
+        elif isinstance(flow_settings, NodeScoped):
+            # The settings of each node are in the layer: the requested flow has no own ones.
+            explicit_flow_settings = flow_settings
+            flow_settings = {}
         else:
             assert isinstance(
                 flow_settings, (list, tuple, Mapping)
@@ -2691,10 +2720,14 @@ class FlowLauncher:
             local_settings.local_file if local_settings else None,
             design,
         )
-        # The `-s flows.<node>.key` items of the command line are the third origin. They may only
-        # name a flow of this run, and `-s key` is a leaf of the requested flow.
+        # The `-s` items of the command line are the third origin. They may only name a flow of
+        # this run. A `NodeScoped` layer addresses each setting by its node. Any other layer has
+        # `flows.<node>.key` for another flow, and its own keys are settings of the requested one.
         cli_sections, cli_own = split_flow_sections(
-            explicit_flow_settings, flow_class.name, flow_class_for=_get_flow_class_if_known
+            explicit_flow_settings,
+            flow_class.name,
+            flow_class_for=_get_flow_class_if_known,
+            flows=_request_flows(flow_request),
         )
         cli_sections = merge_flow_sections(
             cli_sections, {flow_class.name: cli_own}, flow_class_for=_get_flow_class_if_known

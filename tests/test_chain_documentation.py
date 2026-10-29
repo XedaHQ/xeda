@@ -486,14 +486,14 @@ def test_a_chain_and_a_command_line_binding_of_one_input_collide(tmp_path, kind)
     """Equal or not, before either is checked: an error naming the chain position and where
     the other binding was given, as the documented message does."""
     root = _stage(tmp_path, "prebuilt_demo.yaml")
-    explicit = f"flows.nextpnr.inputs.netlist={DIFFERENT[kind]}"
+    explicit = f"nextpnr.inputs.netlist={DIFFERENT[kind]}"
     result, document = _xeda(
         "run", "yosys_fpga+nextpnr", root / "prebuilt_demo.yaml", "--dry-run", "-s", explicit
     )
     assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]
     assert "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in message
-    assert f"{COMMAND_LINE_ORIGIN}: flows.nextpnr.inputs.netlist" in message
+    assert f"{COMMAND_LINE_ORIGIN}: nextpnr.inputs.netlist" in message
     assert "even when equal" in message
     # the guide quotes this very message
     quoted = next(
@@ -555,8 +555,8 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
         CHAIN,
         root / "routed_demo.yaml",
         "-s",
-        "flows.nextpnr.seed=2",
-        "flows.yosys_fpga.flatten=true",
+        "nextpnr.seed=2",
+        "yosys_fpga.flatten=true",
         "--outputs-to",
         out,
         ok=True,
@@ -568,7 +568,7 @@ def test_the_last_flow_owns_the_results_and_delivery_and_any_flow_is_set_by_name
     ]
     # the exit status is the last flow's: its checked bitstream record
     assert set(document["nodes"][-1]["record"]["outputs"]) == {"bitstream"}
-    # -s flows.<flow>.key reached that flow and no other
+    # -s <flow>.key reached that flow and no other
     run = tmp_path / "xeda_run/routed_demo"
     nextpnr = json.loads((run / "nextpnr/settings.json").read_text())["flow_settings"]
     assert nextpnr["seed"] == 2 and "inputs" not in nextpnr
@@ -638,7 +638,11 @@ def test_a_flow_that_fails_without_a_tool_error_says_what_report_was_missing(
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "yosys")
     monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "no-output")
     result, document = _xeda(
-        "run", "yosys_fpga", root / "routed_demo.yaml", "-s", "fpga.part=LFE5U-85F-6BG381C"
+        "run",
+        "yosys_fpga",
+        root / "routed_demo.yaml",
+        "-s",
+        "yosys_fpga.fpga.part=LFE5U-85F-6BG381C",
     )
     assert result.exit_code == 1 and document["outcome"] == "failed"
     assert (
@@ -751,7 +755,7 @@ def test_a_pass_through_link_collides_with_a_cli_binding_of_its_input(tmp_path):
         "yosys_fpga+fpga_pack",
         design,
         "-s",
-        "flows.nextpnr.inputs.netlist=yosys_fpga.netlist",
+        "nextpnr.inputs.netlist=yosys_fpga.netlist",
         "--dry-run",
     )
     assert result.exit_code == 2 and document["outcome"] is None
@@ -760,7 +764,7 @@ def test_a_pass_through_link_collides_with_a_cli_binding_of_its_input(tmp_path):
         "The chain position 1 (yosys_fpga) -> 2 (fpga_pack), through nextpnr, binds input "
         "'netlist' of nextpnr;"
     ) in message
-    assert "flows.nextpnr.inputs.netlist also binds that input" in message
+    assert "nextpnr.inputs.netlist also binds that input" in message
 
 
 def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
@@ -839,14 +843,16 @@ def test_flows_without_outputs_end_a_chain_and_only_a_flow_that_reads_sources_bi
     (root / "saved_design_binding.yaml").write_text(yaml.safe_dump(data))
     for args in (
         ("nextpnr", root / "saved_design_binding.yaml"),
-        ("nextpnr", design, "-s", "flows.nextpnr.inputs.design=bsc"),
+        ("nextpnr", design, "-s", "nextpnr.inputs.design=bsc"),
     ):
         result, document = _xeda("run", *args, "--dry-run")
         assert result.exit_code != 0
         message = document["error"]["message"]
         assert "unknown input 'design' of 'nextpnr'" in message
     # the guide's own suggestion for an external file is a typed source, never a path binding
-    result, document = _xeda("run", "nextpnr", design, "--dry-run", "-s", "inputs.netlist=top.json")
+    result, document = _xeda(
+        "run", "nextpnr", design, "--dry-run", "-s", "nextpnr.inputs.netlist=top.json"
+    )
     assert result.exit_code != 0 and "unknown producer 'top'" in document["error"]["message"]
     # nothing was written for any of it
     assert not (tmp_path / "xeda_run").exists()

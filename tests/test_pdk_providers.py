@@ -383,7 +383,7 @@ def test_orfs_refusal_text(tmp_path):
         "platform 'tiny' needs the PDK files of flow/platforms/tiny (orfs 6b305a712966).\n"
         f"  looked in: {store.directory} (missing: lib/tiny.lib)\n"
         f"  install:   xeda pdk install tiny --root {store.root}\n"
-        "  or name another location: -s pdk_root=<directory>"
+        "  or name another location: -s <flow>.pdk_root=<directory>"
     )
 
 
@@ -396,7 +396,7 @@ def test_ciel_refusal_text(tmp_path):
         "platform 'tiny' needs the PDK files of tinylib (ciel 8afc8346a57f).\n"
         f"  looked in: {store.directory} (missing: libs.ref/tinylib/lef/tiny.tlef)\n"
         f"  install:   xeda pdk install tiny --root {store.root}\n"
-        "  or name another location: -s pdk_root=<directory>"
+        "  or name another location: -s <flow>.pdk_root=<directory>"
     )
 
 
@@ -409,7 +409,7 @@ def test_directory_refusal_text_has_no_install_command(tmp_path):
         "platform 'tiny' needs the PDK files of orfs (directory, unpinned).\n"
         f"  looked in: {store.directory} (missing: lib/tiny.lib)\n"
         "  install:   none; the directory must hold the files of the platform in the orfs layout\n"
-        "  or name another location: -s pdk_root=<directory>"
+        "  or name another location: -s <flow>.pdk_root=<directory>"
     )
 
 
@@ -423,7 +423,7 @@ def test_open_pdks_directory_refusal_names_the_layout_and_the_pin(tmp_path):
         f"  looked in: {store.directory} (missing: libs.ref/tinylib/lib/tiny.lib)\n"
         "  install:   none; the directory must hold the files of the platform in the open_pdks"
         " layout\n"
-        "  or name another location: -s pdk_root=<directory>"
+        "  or name another location: -s <flow>.pdk_root=<directory>"
     )
 
 

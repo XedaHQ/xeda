@@ -407,7 +407,7 @@ def test_a_command_line_launch_shows_the_unit_of_the_field(tmp_path):
         "modelsim",
         str(design / "d.yaml"),
         "-s",
-        "timeout=2min",
+        "modelsim.timeout=2min",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -529,7 +529,16 @@ def test_a_bare_time_on_the_command_line_names_the_field_and_its_unit(tmp_path):
     for text, example in (("timeout=180", "180 s"), ("stop_time=5", "5 ns")):
         run_root = str(tmp_path / "xeda_run")
         proc = run_xeda(
-            *("run", "ghdl_sim", "d.yaml", "--run-root", run_root, "-s", text, "--json"),
+            *(
+                "run",
+                "ghdl_sim",
+                "d.yaml",
+                "--run-root",
+                run_root,
+                "-s",
+                f"ghdl_sim.{text}",
+                "--json",
+            ),
             cwd=tmp_path,
         )
         document = json_stdout(proc)

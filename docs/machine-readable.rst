@@ -668,8 +668,9 @@ The code of an error of the whole launch (``node`` is ``null``): ``generator_fai
 The code of an error of a request that started no launch is the code of the setting, design,
 project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
 ``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
+``unscoped_setting`` and ``unknown_node`` (a ``-s`` key that names no flow of the run; ``error.suggestions`` holds the address to write),
 ``removed_setting``, ``removed_alias`` (another spelling of a name that stays), ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
-``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
+``several_roots_unsupported``, ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
 ``design_file_not_found``, ``unknown_target``, ``target_required``, ``unknown_design``,
 ``design_name_required``, ``use_design_name``, ``several_project_files``, ``invalid_project``,
 ``invalid_local_settings`` (a private settings file is invalid; the message names the file),
@@ -802,7 +803,7 @@ top is ``blinky``. It also shows a consumer that switches an optional output of 
 
 .. code-block:: bash
 
-    xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 flows.yosys_fpga.netlist_json= --dry-run --json
+    xeda run nextpnr blinky.yaml -s nextpnr.fpga.part=iCE40HX1K-TQ144 yosys_fpga.netlist_json= --dry-run --json
 
 .. code-block:: json
 
@@ -1040,6 +1041,6 @@ Notes for coding agents
   ``.nodes[-1].record.metrics``) and the run directory of each node, so you never need to guess
   where the output landed.
 * The producers of a flow run automatically. Run the flow you want, not the chain that leads to it.
-  Set a producer through its own flow, for example ``-s flows.yosys_fpga.flatten=true``.
+  Set a producer through its own flow, for example ``-s yosys_fpga.flatten=true``.
 * ``xeda run`` is make-like by default. A run with nothing changed runs nothing, and ``nodes`` says
   so for each flow. Force everything to run with ``--rebuild-all``.

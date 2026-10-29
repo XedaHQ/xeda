@@ -574,7 +574,7 @@ def test_two_unchanged_cli_processes_reuse_both_recorded_flows(tmp_path):
     assert binding["paths"] == [str(producer / name) for name in record["names"]]
 
 
-@pytest.mark.parametrize("cli_leaf", ["fpga.part", "flows.yosys_fpga.fpga.part"])
+@pytest.mark.parametrize("cli_leaf", ["nextpnr.fpga.part", "yosys_fpga.fpga.part"])
 def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_leaf):
     import json
     import subprocess

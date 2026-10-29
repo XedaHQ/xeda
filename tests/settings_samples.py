@@ -38,7 +38,7 @@ def flow_classes() -> List[Tuple[Type[Flow], str]]:
     """Every registered flow once, as `(class, name)`, without test-only flows."""
     classes: Dict[Type[Flow], str] = {}
     for _, (_, cls) in sorted(registered_flows.items()):
-        if cls.__module__.startswith("xeda."):  # not the test-only flows of other modules
+        if not cls.name.startswith("t_"):  # not the test-only flows of other modules
             classes.setdefault(cls, cls.name)
     return sorted(classes.items(), key=lambda kv: kv[1])
 

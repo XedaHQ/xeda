@@ -385,7 +385,7 @@ def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings
     path = tmp_path / "design.yaml"
     path.write_text(yaml.safe_dump({"name": "d", "rtl": {"sources": [], "top": "t"}}))
     arguments = ["run", "t_place", str(path), "--dry-run", "--json"]
-    for item in DISAGREEING_ITEMS:
+    for item in (f"t_place.fpga.part={OTHER_PART}", f"t_synth.fpga.part={PART}"):
         arguments += ["-s", item]
     result = CliRunner().invoke(cli, arguments)
     document = json.loads(result.stdout)
@@ -405,7 +405,7 @@ def test_a_binding_in_flow_settings_is_located_in_that_layer(tmp_path, given):
     )
     (made,) = (i for i in plan.node("t_taker").inputs if i.name == "made")
     assert made.binding_origin == "cli"
-    assert made.binding_location == f"{COMMAND_LINE}: flows.t_taker.inputs.made"
+    assert made.binding_location == f"{COMMAND_LINE}: t_taker.inputs.made"
     assert "(`-s` or `flow_settings`)" in made.describe(), made.describe()
 
 

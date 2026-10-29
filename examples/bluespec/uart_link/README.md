@@ -234,8 +234,8 @@ python3 examples/bluespec/uart_link/tb/gen_frames.py
 
 ```bash
 xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml
-xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml -s simulator=verilator
-xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml -s bsc_sim.simulator=verilator
+xeda run bsc_sim examples/bluespec/uart_link/uart_link.yaml -s bsc_sim.simulator=iverilog
 ```
 
 Defining `XEDA_INJECT_BUG` makes the test endpoint count every request twice. The bench must catch

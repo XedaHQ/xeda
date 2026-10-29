@@ -553,7 +553,7 @@ def test_a_failed_remote_flow_is_a_failed_run(tmp_path, remote_host):
 
 def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_host):
     design = _design(tmp_path)
-    result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "no_such_setting=1")
+    result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "nextpnr.no_such_setting=1")
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
     assert document["outcome"] is None and document["error"]["code"] == "unknown_setting"

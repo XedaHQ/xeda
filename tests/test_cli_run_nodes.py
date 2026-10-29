@@ -166,7 +166,7 @@ def test_a_producer_reached_twice_within_a_launch_is_one_node(toys, design):
 def test_a_rejected_flow_is_rejected_and_then_rejected_again(toys, design):
     """The first launch runs the flow and the checks reject it. The next one reports the same
     rejection without running the flow. Both exit with status 1."""
-    args = ("toy_node_producer", str(design), "-s", "reject=true")
+    args = ("toy_node_producer", str(design), "-s", "toy_node_producer.reject=true")
     result, document = _run(*args)
     assert result.exit_code == 1 and document["outcome"] == "rejected"
     assert document["error"]["code"] == "rejected"
@@ -189,7 +189,7 @@ def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
         "toy_node_producer+toy_node_twice",
         str(design),
         "-s",
-        "flows.toy_node_producer.reject=true",
+        "toy_node_producer.reject=true",
     )
     result, document = _run(*args)
     assert result.exit_code == 1 and document["outcome"] == "rejected"

@@ -562,7 +562,7 @@ def test_design_updates_of_the_command_line_replace_the_sources_of_a_target(tmp_
 
 
 #: The device that a design needs for `vivado_synth` when no target supplies one.
-PART = ("-s", "fpga.part=xc7a100tcsg324-1")
+PART = ("-s", "vivado_synth.fpga.part=xc7a100tcsg324-1")
 
 
 def test_a_run_without_a_target_uses_the_design_whatever_the_number_of_targets(

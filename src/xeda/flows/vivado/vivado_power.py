@@ -36,7 +36,7 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     activity comes from a simulation of the timing-annotated netlist with the testbench
     (`timing_saif`). A simulation of the functional netlist is faster and avoids the problems of
     timing simulation, but it is less accurate. To use it, bind the input:
-    `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. A vectorless estimate
+    `-s vivado_power.inputs.activity=vivado_postsynth_sim.saif`. A vectorless estimate
     ignores the test vectors. This result follows them, so use a representative testbench.
     """
 

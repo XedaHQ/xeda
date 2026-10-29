@@ -25,7 +25,7 @@ from xeda.xedaproject import PROJECT_FILE_NAMES, find_default_xedaproject, resol
 from .project_files import PROJECT_FILE
 
 RESOURCES = Path(__file__).parent / "resources" / "targets"
-PART = ("-s", "fpga.part=xc7a100tcsg324-1")
+PART = ("-s", "vivado_synth.fpga.part=xc7a100tcsg324-1")
 
 
 def rtl(top: str = "knight") -> dict:

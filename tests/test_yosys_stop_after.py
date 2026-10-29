@@ -21,6 +21,7 @@ from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 
 from . import tool_utils
+from .scoping import scoped
 from .openroad_utils import openroad_settings, register_openroad_flows
 from .settings_samples import flow_classes
 from .tiny_platform import tiny_store
@@ -86,11 +87,16 @@ def test_a_stop_after_the_rtl_succeeds_with_the_outputs_it_wrote(
         flow,
         _design(tmp_path),
         "-s",
-        *recipe["needs"],
-        "stop_after=rtl",
-        "rtl_verilog=rtl.v",
-        "rtl_json=rtl.json",
-        *recipe["off"],
+        *scoped(
+            flow,
+            [
+                *recipe["needs"],
+                "stop_after=rtl",
+                "rtl_verilog=rtl.v",
+                "rtl_json=rtl.json",
+                *recipe["off"],
+            ],
+        ),
     )
     assert result.exit_code == 0, result.output
     assert document["outcome"] == "passed", document["error"]
@@ -187,9 +193,9 @@ def test_a_flow_that_takes_the_netlist_cannot_follow_a_stopped_synthesis(
             _design(tmp_path),
             "--dry-run",
             "-s",
-            *needs,
-            f"flows.{stopped}.stop_after=rtl",
-            f"flows.{stopped}.netlist_verilog=",
+            *scoped(consumer, needs),
+            f"{stopped}.stop_after=rtl",
+            f"{stopped}.netlist_verilog=",
         )
     assert result.exit_code == 2 and document["outcome"] is None
     message = document["error"]["message"]

@@ -88,7 +88,7 @@ LAMBDAPDK_URL = "https://github.com/siliconcompiler/lambdapdk"
 log = logging.getLogger(__name__)
 
 SHORT_HASH = 12
-CHOOSE_ANOTHER = "or name another location: -s pdk_root=<directory>"
+CHOOSE_ANOTHER = "or name another location: -s <flow>.pdk_root=<directory>"
 
 
 class PdkNotInstalled(FlowFatalError):

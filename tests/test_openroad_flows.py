@@ -20,6 +20,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
+from .scoping import scoped
 from .bluespec_sources import COUNTER_BSV
 from .launch_utils import empty_project
 from .openroad_utils import (
@@ -215,7 +216,7 @@ def test_a_database_that_is_listed_does_not_take_the_sdc_of_a_producer(tmp_path)
     assert "`odb` and `sdc` are written together" in message
     assert "odb <- source" in message and "cts.odb" in message
     assert "sdc <- openroad_cts.sdc" in message
-    assert "-s flows.openroad_grt.inputs.odb=openroad_cts.odb" in message
+    assert "-s openroad_grt.inputs.odb=openroad_cts.odb" in message
     assert "list `sdc` as a typed source of the design too" in message
 
 
@@ -224,7 +225,7 @@ def test_an_sdc_that_is_listed_does_not_take_the_database_of_a_producer(tmp_path
     assert "`odb` and `sdc` are written together" in message
     assert "odb <- openroad_cts.odb" in message
     assert "sdc <- source" in message and "cts.sdc" in message
-    assert "-s flows.openroad_grt.inputs.sdc=openroad_cts.sdc" in message
+    assert "-s openroad_grt.inputs.sdc=openroad_cts.sdc" in message
 
 
 def test_a_binding_that_replaces_one_listed_file_is_refused(tmp_path):
@@ -242,10 +243,10 @@ def test_a_binding_that_replaces_one_listed_file_is_refused(tmp_path):
 def test_the_binding_the_refusal_suggests_makes_the_plan_pass(tmp_path):
     message = refusal(tmp_path, "openroad_grt", sources=CTS_PAIR[:1])
     advice = message.partition(" add `-s ")[2].partition("`")[0]
-    assert advice.startswith("flows.openroad_grt.inputs.odb=")
+    assert advice.startswith("openroad_grt.inputs.odb=")
     other = tmp_path / "other"
     other.mkdir()
-    planned = plan(other, "openroad_grt", advice, sources=CTS_PAIR[:1])
+    planned = plan(other, "openroad_grt", f"flows.{advice}", sources=CTS_PAIR[:1])
     assert "openroad_cts" in {node.name for node in planned.nodes}
 
 
@@ -454,7 +455,7 @@ def xeda_run(tmp_path: Path, *settings: str, **named: Any) -> tuple[Any, dict]:
             "--run-root",
             str(tmp_path / "xeda_run"),
             "-s",
-            *chain_settings(tmp_path, *settings, **named),
+            *scoped("openroad", chain_settings(tmp_path, *settings, **named)),
             "--json",
         ],
     )
@@ -482,7 +483,7 @@ def test_the_command_line_plans_the_five_nodes_of_the_whole_chain(tmp_path, requ
             "--run-root",
             str(tmp_path / "xeda_run"),
             "-s",
-            *openroad_settings(store, **CLOCK),
+            *scoped("openroad", openroad_settings(store, **CLOCK)),
             "--dry-run",
             "--json",
         ],
@@ -569,7 +570,7 @@ def test_a_failed_stage_reruns_alone(tmp_path, monkeypatch, chain):
     """A stage that fails in the middle of the chain leaves the database of that moment and no
     trace. The stages after it are blocked, and the stage before it stays fresh. The next launch,
     without the failure, runs the failed stage and the two after it again and not the first."""
-    settings = ["flows.openroad.fail_timing=false"]
+    settings = ["openroad.fail_timing=false"]
     with failing_tool_commands(monkeypatch, tmp_path, "clock_tree_synthesis"):
         result, document = xeda_run(tmp_path, *settings)
     assert result.exit_code == 1 and document["outcome"] == "failed"

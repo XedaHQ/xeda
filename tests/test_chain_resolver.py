@@ -310,7 +310,7 @@ def test_command_line_settings_for_a_flow_outside_the_graph_name_its_nodes(tmp_p
             flow_settings=["inputs.made=t_input_maker", "flows.t_fork.label=x"],
         )
     message = str(raised.value)
-    assert "`-s flows.t_fork.*` names no flow of this run" in message
+    assert "names no node of this run (t_input_maker, t_maker, t_taker): t_fork" in message
     assert "t_input_maker" in message and "t_taker" in message
 
 

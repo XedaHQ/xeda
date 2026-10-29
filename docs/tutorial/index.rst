@@ -42,7 +42,7 @@ To write a waveform:
 
 .. code-block:: bash
 
-    xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml -s vcd=dump.vcd
+    xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml -s ghdl_sim.vcd=dump.vcd
 
 A simulation passes only if it ends on purpose. The testbench calls ``$finish`` (``std.env.finish``
 in VHDL), the cocotb tests complete, or the run reaches the ``stop_time`` that you set. Use
@@ -75,7 +75,7 @@ use the command line and leave the file as it is:
 
 .. code-block:: bash
 
-    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=4ns
+    xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4ns
 
 To see all the settings of the flow:
 
@@ -94,7 +94,7 @@ An open-source toolchain uses ``yosys_fpga`` to synthesize and ``nextpnr`` to pl
 
 .. code-block:: bash
 
-    xeda run nextpnr examples/vhdl/sqrt/sqrt.yaml -s fpga.part=LFE5U-85F-6BG381C clock.period=10ns
+    xeda run nextpnr examples/vhdl/sqrt/sqrt.yaml -s nextpnr.fpga.part=LFE5U-85F-6BG381C nextpnr.clock.period=10ns
 
 4. Read the results
 ===================

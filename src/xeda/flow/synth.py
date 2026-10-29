@@ -303,7 +303,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
 
 #: How to give an FPGA flow its device, for `Flow.required_settings`.
 FPGA_REQUIRED = (
-    "the FPGA device: give its part number with `-s fpga.part=<part>` on the command line, "
+    "the FPGA device: give its part number with `-s {flow}.fpga.part=<part>` on the command line, "
     "or in the design file as `flows.{flow}.fpga.part: <part>`"
 )
 

@@ -64,6 +64,7 @@ import xeda
 from xeda.records import read_record
 from xeda.units import Time
 
+from .scoping import scoped
 from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import (
     REQUIRE_TOOLS,
@@ -561,7 +562,7 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
         "--run-root",
         str(run_root),
         "-s",
-        *items,
+        *scoped(request.flow, items),
         "--json",
     ]
     proc = subprocess.run(

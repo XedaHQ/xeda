@@ -868,7 +868,7 @@ def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeyp
 def test_a_misdirected_setting_suggests_the_node_it_belongs_to(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
-    with pytest.raises(FlowSettingsError, match=r"-s flows\.yosys_fpga\.flatten"):
+    with pytest.raises(FlowSettingsError, match=r"-s yosys_fpga\.flatten"):
         DefaultRunner(tmp_path / "run").run("nextpnr", design, flow_settings=["flatten=true"])
 
 
@@ -883,12 +883,10 @@ def test_an_alias_and_its_setting_are_one_leaf_across_the_two_spellings(
         )
 
 
-def test_the_command_line_table_keeps_both_spellings_of_one_group():
-    """A qualified and an unqualified setting in one group of the requested flow are both in the
-    table that the run document shows as `spec.settings`."""
+def test_the_command_line_table_holds_the_settings_by_node():
+    """The items of `-s` are the `spec.settings` that the run document shows."""
     table = command_line_table(
-        "nextpnr",
-        ["flows.nextpnr.clock.period=5ns", "clock.port=clk", "flows.yosys_fpga.abc9=true"],
+        ["nextpnr.clock.period=5ns", "nextpnr.clock.port=clk", "yosys_fpga.abc9=true"]
     )
     assert table == {
         "nextpnr": {"clock": {"period": "5ns", "port": "clk"}},

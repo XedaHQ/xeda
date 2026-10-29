@@ -10,7 +10,7 @@ the schema leaves property sets open (dotted keys expand before validation).
   `0o17` is 15, `0x1F` is 31, `1e3` is a float. Dates, `1:30` and `1_000` are strings.
   `true`/`false` are booleans and `null`/`~` are null. Quote HDL text, bit vectors, leading-zero
   text and source paths.
-- A boolean setting accepts only `true` and `false` (also `-s key=true`). `docker: yes` fails with
+- A boolean setting accepts only `true` and `false` (also `-s <flow>.key=true`). `docker: yes` fails with
   "`yes` is text, not a boolean: write `true`".
 - Mapping keys are strings. A duplicate key fails and names the file, the key and both lines.
   Merge keys (`<<`), recursive aliases and non-core tags are refused; ordinary aliases work.
@@ -30,7 +30,7 @@ the schema leaves property sets open (dotted keys expand before validation).
 Give one table one spelling per mapping: `fpga.part` and an `fpga:` block together are a
 `ConflictingKeys` error that names both, in either order. So is a key that is a value and a table
 (`timing: true` with `timing.x: 1`). Two dotted keys under one table (`fpga.part`, `fpga.speed`)
-are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` over a design's
+are fine. Origins merge by precedence and are not one mapping (`-s nextpnr.fpga.part=P` over a design's
 `fpga:` block). The keys of `rtl` (`sources`, `top`, `clocks`, `parameters`, `defines`,
 `generator`) go in `rtl:`, never at the root.
 
@@ -157,7 +157,7 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
 | power | `nW`, `uW`, `µW` (micro sign, U+00B5), `mW`, `W` | `W` |
 
 - Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
-  `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
+  `-s vivado_synth.clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
   item).
 - `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. Xeda writes a value in
   the unit of its setting (the `unit` column of `list-settings`), as a plain decimal with no

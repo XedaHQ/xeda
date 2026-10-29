@@ -387,7 +387,7 @@ def test_the_command_line_refuses_the_two_spellings_with_a_name_inside_a_name(tm
     assert "inside it" in document["error"]["message"], document
 
 
-SPELLINGS_CLI = ["set_synth_properties.A=1", f"{QUALIFIED}.A.B=2"]
+SPELLINGS_CLI = ["vivado_synth.set_synth_properties.A=1", "vivado_synth.set_synth_properties.A.B=2"]
 
 
 def test_the_same_name_in_both_spellings_is_one_property(tmp_path):
@@ -558,8 +558,8 @@ def test_the_command_line_reports_a_name_with_an_escaped_dot(tmp_path):
             "vivado_synth",
             str(design),
             "-s",
-            "set_synth_properties.A=1",
-            f"set_synth_properties.{ESCAPED}=2",
+            "vivado_synth.set_synth_properties.A=1",
+            f"vivado_synth.set_synth_properties.{ESCAPED}=2",
         ],
     )
     assert result.exit_code == 2, result.output
@@ -872,9 +872,9 @@ def test_the_command_line_runs_vivado_with_the_property(tmp_path, monkeypatch):
             "vivado_synth",
             str(design),
             "-s",
-            "clocks.main_clock.period=5.5ns",
-            f"set_synth_properties.{SYNTH_NAME}=0",
-            f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
+            "vivado_synth.clocks.main_clock.period=5.5ns",
+            f"vivado_synth.set_synth_properties.{SYNTH_NAME}=0",
+            f"vivado_synth.set_impl_properties.{IMPL_NAME}=Explore",
             "--json",
         ],
     )
@@ -920,7 +920,10 @@ def test_the_command_line_takes_a_name_with_a_space(tmp_path, monkeypatch, desig
             }
         )
     )
-    given = [f"set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none", "out_of_context=false"]
+    given = [
+        f"vivado_synth.set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none",
+        "vivado_synth.out_of_context=false",
+    ]
     root = ["--run-root", str(tmp_path / "xeda_run"), "--json"]
     if design_first:
         arguments = ["vivado_synth", str(design), "-s", *given]

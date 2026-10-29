@@ -1768,7 +1768,14 @@ def test_the_command_line_changes_nothing_outside_the_run_root(tmp_path, monkeyp
     before = _state(world.parent, [world.root])
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
-    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    args = [
+        "run",
+        "vivado_synth",
+        "sqrt.yaml",
+        "-s",
+        "vivado_synth.fpga.part=xc7a12tcsg325-1",
+        "--json",
+    ]
     for extra in (["--clean"], ["--post-cleanup"], []):
         with watching(world) as violations:
             result = CliRunner().invoke(cli, [*args, *extra])
@@ -1790,7 +1797,14 @@ def test_a_targeted_run_and_its_scrub_change_nothing_outside_the_run_root(tmp_pa
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
     monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
-    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    args = [
+        "run",
+        "vivado_synth",
+        "sqrt.yaml",
+        "-s",
+        "vivado_synth.fpga.part=xc7a12tcsg325-1",
+        "--json",
+    ]
     for target in ("a", "b"):
         for extra in (["--clean"], ["--post-cleanup"], []):
             with watching(world) as violations:
@@ -1843,8 +1857,8 @@ def test_ise_synth_from_the_design_directory_deletes_none_of_its_files(
             "inv.toml",
             "--clean",
             "-s",
-            "fpga.part=xc6slx9-2-tqg144",
-            "clocks.main_clock.period=10ns",
+            "ise_synth.fpga.part=xc6slx9-2-tqg144",
+            "ise_synth.clocks.main_clock.period=10ns",
         ],
     )
     assert _state(work, [work / "xeda_run"]) == before, "the design directory changed"
@@ -2987,7 +3001,7 @@ def test_only_local_settings_and_the_command_line_open_the_private_settings_file
         result = CliRunner().invoke(
             cli,
             ["run", "vivado_synth", "--xedaproject", str(project_file), "--design-name", "d",
-             "--dry-run", "-s", settings[0], "--json"],
+             "--dry-run", "-s", f"vivado_synth.{settings[0]}", "--json"],
         )  # fmt: skip
         assert result.exit_code == 0, result.output
         assert {path.name for path in _PRIVATE_OPENS} == {"config.yaml", "xedaproject.local.yaml"}
@@ -2995,7 +3009,7 @@ def test_only_local_settings_and_the_command_line_open_the_private_settings_file
         result = CliRunner().invoke(
             cli,
             ["run", "vivado_synth", "--xedaproject", str(project_file), "--design-name", "d",
-             "--dry-run", "--no-config", "-s", settings[0], "--json"],
+             "--dry-run", "--no-config", "-s", f"vivado_synth.{settings[0]}", "--json"],
         )  # fmt: skip
         assert result.exit_code == 0, result.output
         assert _PRIVATE_OPENS == [], "--no-config read a private file"

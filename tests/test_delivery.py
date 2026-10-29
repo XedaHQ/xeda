@@ -2057,7 +2057,7 @@ def test_post_cleanup_purge_alone_on_the_command_line_removes_the_run_and_delive
         lambda self, source, temporary: moves.append(move_into(self, source, temporary))
         or moves[-1],
     )
-    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1"]
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
     args += ["--outputs-to", "got", "--post-cleanup-purge", "--json"]
     document = json.loads(CliRunner().invoke(cli, args).stdout)
     assert document["outcome"] == "passed"
@@ -2074,7 +2074,7 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
         "vivado_synth",
         "sqrt.yaml",
         "-s",
-        "fpga.part=xc7a12tcsg325-1",
+        "vivado_synth.fpga.part=xc7a12tcsg325-1",
         "--outputs-to",
         "got",
         "--json",

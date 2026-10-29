@@ -257,8 +257,8 @@ so the test compiles without suppressing reset-domain warnings.
 
 ```bash
 xeda run bsc_sim examples/bluespec/uart/uart.yaml                          # Bluesim
-xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=verilator
-xeda run bsc_sim examples/bluespec/uart/uart.yaml -s simulator=iverilog
+xeda run bsc_sim examples/bluespec/uart/uart.yaml -s bsc_sim.simulator=verilator
+xeda run bsc_sim examples/bluespec/uart/uart.yaml -s bsc_sim.simulator=iverilog
 xeda run bsc_sim examples/bluespec/uart/uart.yaml --design-updates tb.defines.XEDA_INJECT_BUG=true   # must fail
 xeda run bsc examples/bluespec/uart/uart.yaml                              # Verilog of mkUart
 xeda run vivado_synth examples/bluespec/uart/uart.yaml                     # Vivado, out of context

@@ -10,7 +10,7 @@ from click.testing import CliRunner
 
 from xeda.design import DesignFileParseError
 from xeda.cli import cli
-from xeda.flow import FlowSettingsException, registered_flows
+from xeda.flow import FlowSettingsException
 
 from .flow_registry import preserved_flow_registry
 from . import io_flows  # noqa: F401 - registers the declared test flows
@@ -96,21 +96,19 @@ def test_dash_s_sets_the_last_flow_and_a_qualified_one_any_node_of_the_chain(tmp
         "t_input_maker+t_taker",
         _design(tmp_path),
         "-s",
-        "nthreads=1",
-        f"flows.t_input_maker.input_file={tmp_path / 'other.txt'}",
+        "t_taker.nthreads=1",
+        f"t_input_maker.input_file={tmp_path / 'other.txt'}",
     )
     assert result.exit_code == 0, result.output
     assert document["nodes"][-1]["record"]["metrics"]["read"] == "other\n"
     settings = json.loads((tmp_path / "xeda_run/demo/t_taker/settings.json").read_text())
     assert settings["flow_settings"]["nthreads"] == 1
-    bad, failure = _json(
-        "run", "t_input_maker+t_taker", _design(tmp_path), "-s", "flows.t_maker.text=x"
-    )
+    bad, failure = _json("run", "t_input_maker+t_taker", _design(tmp_path), "-s", "t_maker.text=x")
     assert bad.exit_code == 0, "a displaced default producer is addressable, and unused"
     unknown, failure = _json(
-        "run", "t_input_maker+t_taker", _design(tmp_path), "-s", "flows.t_fork.label=x"
+        "run", "t_input_maker+t_taker", _design(tmp_path), "-s", "t_fork.label=x"
     )
-    assert unknown.exit_code == 2 and "names no flow of this run" in failure["error"]["message"]
+    assert unknown.exit_code == 2 and "names no node of this run" in failure["error"]["message"]
     assert failure["outcome"] is None and failure["nodes"] == []
 
 
@@ -410,7 +408,7 @@ def _listed():
 
 def _real(edges):
     """The product's own relations: the registered test flows are not part of its graph."""
-    return [edge for edge in edges if registered_flows[edge["flow"]][0].startswith("xeda.")]
+    return [edge for edge in edges if not edge["flow"].startswith("t_")]
 
 
 def _edge(flow, binds=(), target_dependent=False, through=(), output=None):
@@ -614,7 +612,7 @@ def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command
         "t_route_a+t_route_c",
         _design(tmp_path),
         "-s",
-        "flows.t_route_b.inputs.x=t_route_a.x",
+        "t_route_b.inputs.x=t_route_a.x",
         "--dry-run",
     )
     assert result.exit_code == 2, result.output
@@ -623,7 +621,7 @@ def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command
         "The chain position 1 (t_route_a) -> 2 (t_route_c), through t_route_b, binds input 'x' "
         "of t_route_b; "
     ) in message
-    assert "flows.t_route_b.inputs.x also binds that input." in message
+    assert "t_route_b.inputs.x also binds that input." in message
 
 
 def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
@@ -632,7 +630,7 @@ def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
         "t_route_a+t_route_c",
         _design(tmp_path),
         "-s",
-        "flows.t_route_c.inputs.y=t_maker.made",
+        "t_route_c.inputs.y=t_maker.made",
         "--dry-run",
     )
     assert result.exit_code == 2, result.output
@@ -641,14 +639,14 @@ def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
         "The chain link `t_route_a+t_route_c` passes through `t_route_b`, which the binding of "
         "`t_route_c.y` at "
     ) in message
-    assert "flows.t_route_c.inputs.y takes" in message and message.endswith("out of the plan.")
+    assert "t_route_c.inputs.y takes" in message and message.endswith("out of the plan.")
     # the same binding without the chain plans, and leaves `t_route_b` out
     plain, planned = _json(
         "run",
         "t_route_c",
         _design(tmp_path),
         "-s",
-        "flows.t_route_c.inputs.y=t_maker.made",
+        "t_route_c.inputs.y=t_maker.made",
         "--dry-run",
     )
     assert plain.exit_code == 0, plain.output
@@ -715,7 +713,7 @@ def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_pat
         "t_fan_head+t_fan_tail",
         _fan_design(tmp_path, flows={"t_maker": {}}),
         "-s",
-        "flows.t_fan_tail.inputs.left=t_maker.made",
+        "t_fan_tail.inputs.left=t_maker.made",
         "--dry-run",
     )
     assert result.exit_code == 2, result.output
@@ -724,7 +722,7 @@ def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_pat
         "The chain link `t_fan_head+t_fan_tail` passes through `t_fan_left`, which the binding "
         "of `t_fan_tail.left` at "
     ) in message
-    assert "flows.t_fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")
+    assert "t_fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")
 
 
 def test_a_failed_chain_exits_1_with_the_cause(tmp_path, monkeypatch):

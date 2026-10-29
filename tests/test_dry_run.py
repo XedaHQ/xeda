@@ -276,7 +276,7 @@ def test_an_impossible_target_fails_without_probing_tools(tmp_path, monkeypatch)
     design = _design_file(tmp_path / "d")
     _forbid_execution(monkeypatch)
     result = CliRunner().invoke(
-        cli, ["run", "nextpnr", str(design), "--dry-run", "-s", "fpga.family=unknown"]
+        cli, ["run", "nextpnr", str(design), "--dry-run", "-s", "nextpnr.fpga.family=unknown"]
     )
     assert result.exit_code == 2, result.output
     assert isinstance(result.exception, SystemExit)
@@ -332,8 +332,8 @@ def test_switched_on_outputs_and_cli_shared_settings_are_reported(tmp_path, json
         "--dry-run",
         *(["--json"] if json_flag else []),
         "-s",
-        f"flows.yosys_fpga.fpga.part={PART}",
-        "flows.yosys_fpga.netlist_json=",
+        f"yosys_fpga.fpga.part={PART}",
+        "yosys_fpga.netlist_json=",
         cwd=tmp_path,
     )
     assert proc.returncode == 0, proc.stderr
@@ -373,7 +373,7 @@ def test_a_subprocess_dry_run_never_invokes_tools_or_delivers(
         "--scrub",
         "--outputs-to",
         str(tmp_path / "out"),
-        *(["-s", "fpga.family=unknown"] if invalid_target else []),
+        *(["-s", "nextpnr.fpga.family=unknown"] if invalid_target else []),
         cwd=tmp_path,
     )
     document = json_stdout(proc)

@@ -16,22 +16,27 @@ DOCUMENT_FORMATS = ("json", "yaml")
 #: test keeps equal: this module stays free of the settings models, so that completion is fast).
 TIER_NAMES = ("common", "advanced", "expert")
 _SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
-#: The start of a key that has a prefix of setting names, from a `flows.<flow>` section or not.
-_FLOW_SECTION_START = re.compile(r"flows\.[A-Za-z_][A-Za-z0-9_-]*\.")
+#: The start of a key that names its node: `<node>.`.
+_NODE_START = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\.")
 _SETTING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def starts_opaque_key(key: str, opaque_paths: Collection[str]) -> bool:
     """Return whether `key` continues, after the dotted path of a setting whose keys are names of
     a tool (`set_synth_properties.`, `ir_drop.instance_power.`), with a name of that tool. The
-    name may hold spaces and signs, and dots. `key` may start with `flows.<flow>.`."""
-    section = _FLOW_SECTION_START.match(key)
-    parts = (key[section.end() :] if section else key).split(".")
-    for end in range(1, len(parts)):
-        if _SETTING_NAME.fullmatch(parts[end - 1]) is None:
-            return False
-        if ".".join(parts[:end]) in opaque_paths:
-            return True
+    name may hold spaces and signs, and dots. `key` starts with the node (`vivado_synth.`), or
+    does not: Xeda then refuses it as a setting without a node, which reads better than a
+    path that is not a design file."""
+    node = _NODE_START.match(key)
+    for text in (key, key[node.end() :] if node else None):
+        if text is None:
+            continue
+        parts = text.split(".")
+        for end in range(1, len(parts)):
+            if _SETTING_NAME.fullmatch(parts[end - 1]) is None:
+                break
+            if ".".join(parts[:end]) in opaque_paths:
+                return True
     return False
 
 

@@ -171,7 +171,7 @@ def generate_flows_reference() -> str:
         "alone. A refused chain says which chain would be valid, if any. The relations are "
         "declarations only: planning can still refuse a chain that "
         "passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs "
-        "`-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of "
+        "`-s vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of "
         "`netlist`, `netlist_timing` and `sdf`; the refusal lists the bindings to add. "
         "A flow with no declared I/O runs alone.",
         "",
