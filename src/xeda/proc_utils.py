@@ -356,6 +356,7 @@ class _Deadline:
                         return
                     self.stopped_on_request = True
                     self._stop_group()
+                    self._kill_all(list(seen))  # the children that it orphaned before
                 return
 
     def _stop_group(self) -> None:

@@ -559,6 +559,9 @@ def _cancel_while_fetching(
     finally:
         done.set()
         watcher.join()
+    if closed.is_set():
+        # the block ended without a read of the closed connection, as a local delivery does
+        raise _interrupted(run, destination_text, mirror_root, "on request")
 
 
 def _interrupted(

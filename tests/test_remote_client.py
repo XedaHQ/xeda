@@ -767,6 +767,33 @@ def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote
     _assert_mirror_emptied(mirror)
 
 
+def test_a_canceled_token_during_the_delivery_cancels_the_launch(
+    tmp_path, remote_host, monkeypatch
+):
+    from xeda.cancel import CancelToken, observing
+
+    design, _ = _earlier_success(tmp_path)
+    token, dropped = CancelToken(), threading.Event()
+    drop, deliver = client._Agent.drop, client.deliver_fetched
+
+    def dropping(self):
+        drop(self)
+        dropped.set()
+
+    def delivering(*args, **kwargs):
+        token.cancel()
+        assert dropped.wait(TIMEOUT), "the watch did not close the connection"
+        return deliver(*args, **kwargs)
+
+    monkeypatch.setattr(client._Agent, "drop", dropping)
+    monkeypatch.setattr(client, "deliver_fetched", delivering)
+    with observing(lambda: token.canceled):
+        outcome = _request(tmp_path, design, outputs_to=tmp_path / "out")
+    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.document["error"]["code"] == "canceled"
+    assert "on request while delivering the outputs" in outcome.document["error"]["message"]
+
+
 def test_a_canceled_token_ends_the_wait_for_the_lock_of_the_mirror(
     tmp_path, remote_host, monkeypatch
 ):
