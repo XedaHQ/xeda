@@ -121,8 +121,9 @@ class Plan:
     nodes: Mapping[str, PlanNode]
     #: The options of the workspace that made the plan. Running the plan compares them.
     _workspace: WorkspaceOptions | None = field(default=None, repr=False, compare=False)
-    #: The commit that each Git dependency resolved to, as `(repository, commit)`.
-    _dependencies: tuple[tuple[str, str], ...] = field(default=(), repr=False, compare=False)
+    #: The Git dependencies as planning resolved them, as `(path, repository, commit)`. The path
+    #: names the entry in the tree of dependencies (`DependencyRecord.path`).
+    _dependencies: tuple[tuple[str, str, str], ...] = field(default=(), repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roots", tuple(self.roots))
@@ -285,14 +286,14 @@ def plan_of(
     spec: Spec,
     options: LaunchOptions,
     workspace: WorkspaceOptions | None,
-    dependencies: Sequence[tuple[str, str]] = (),
+    dependencies: Sequence[tuple[str, str, str]] = (),
 ) -> Plan:
     """Return the public `Plan` of the plan that the launcher resolved.
 
     `states` holds what a launch would do with each node, and `deliveries` the files that each
     node would deliver, both by node name. The plan keeps `workspace` in a private field, which
-    `to_dict` leaves out: running the plan compares it. So does it the `dependencies`, the commit
-    of each Git dependency."""
+    `to_dict` leaves out: running the plan compares it. The plan keeps `dependencies`, the commit
+    of each Git dependency, in a private field for the same comparison."""
     nodes = {
         node.name: plan_node(node, states[node.name], deliveries.get(node.name, ()))
         for node in internal.nodes
@@ -319,8 +320,11 @@ def planned_destination(path: Path) -> Path:
     return Path(os.path.abspath(path))
 
 
-def dependency_commits(design: Any) -> tuple[tuple[str, str], ...]:
-    """Return `(repository, commit)` for each Git dependency that planning resolved in `design`."""
+def dependency_commits(design: Any) -> tuple[tuple[str, str, str], ...]:
+    """Return `(path, repository, commit)` for each Git dependency that planning resolved in
+    `design`. Two entries of one repository at different commits have different paths."""
     return tuple(
-        (d.repository, d.commit) for d in design.resolved_dependencies if d.commit is not None
+        (d.path, d.repository, d.commit)
+        for d in design.resolved_dependencies
+        if d.commit is not None
     )

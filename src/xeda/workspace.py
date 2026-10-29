@@ -223,14 +223,17 @@ class Workspace:
 
         A launch option that is not given has the default of `plan`. A `Plan` brings its own
         options, so giving any option with a plan is an error (`plan_options`), also one equal to
-        the plan's. Running a plan resolves its spec again under the locks of the launch. It
-        raises `StalePlanError` when the graph, an identity, a run directory, a delivery, the
-        settings, the commit of a Git dependency or an option of this workspace differs from the
-        plan. A source edit is no difference: the launch checks freshness again.
+        the plan's. Running a plan takes the locks of its graph and resolves its spec again
+        under them. It raises `StalePlanError` when the graph, an identity, a run directory, a
+        delivery, the settings, the commit of a Git dependency or an option of this workspace
+        differs from the plan. A stale plan prunes nothing, asks nothing, generates nothing and
+        runs nothing. A source edit is no difference: the launch checks freshness again.
 
         A node that fails, is rejected or is blocked is an outcome in the `Result`, not an
-        exception. `prune_variants` and the questions about a delivery ask `confirm`. `post_cleanup`
-        and `post_cleanup_purge` act on the nodes with the disposition `ran` only."""
+        exception. `prune_variants` removes the other run directories of every node of the plan,
+        producers included: those of the same design and target that the launch does not use.
+        It and the questions about a delivery ask `confirm`. `post_cleanup` and
+        `post_cleanup_purge` act on the nodes with the disposition `ran` only."""
         from .flow_runner import DefaultRunner
         from .flow_runner.error_codes import public_error
         from .proc_utils import TOOL_OUTPUT

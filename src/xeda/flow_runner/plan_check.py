@@ -62,8 +62,13 @@ def plan_difference(expected: Plan, fresh: Plan) -> str | None:
     for name, node in expected.nodes.items():
         if node.settings != fresh.nodes[name].settings:
             return f"the settings of node {name} changed"
-    now_commits = dict(fresh._dependencies)
-    for repository, commit in expected._dependencies:
-        if now_commits.get(repository) != commit:
-            return f"dependency {repository} now resolves to {now_commits.get(repository)}"
+    resolved = {path: (repository, commit) for path, repository, commit in fresh._dependencies}
+    for path, repository, commit in expected._dependencies:
+        current = resolved.pop(path, None)
+        if current is None:
+            return f"dependency {repository} was removed"
+        if current != (repository, commit):
+            return f"dependency {current[0]} now resolves to {current[1]}"
+    for repository, _commit in resolved.values():
+        return f"dependency {repository} was added"
     return None
