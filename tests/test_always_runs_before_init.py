@@ -95,8 +95,12 @@ VALUES = [None, True, False, 0, 3, "", "x", "random"]
 
 
 def test_the_sweep_covers_the_flows_that_decide():
-    assert {"nextpnr", "openfpgaloader", "verilator", "ghdl_sim"} <= {c.name for c in DECIDING}
-    assert all(issubclass(c, SimFlow) or c.name in {"nextpnr", "openfpgaloader"} for c in DECIDING)
+    assert {"nextpnr", "openfpgaloader", "sby", "verilator", "ghdl_sim"} <= {
+        c.name for c in DECIDING
+    }
+    assert all(
+        issubclass(c, SimFlow) or c.name in {"nextpnr", "openfpgaloader", "sby"} for c in DECIDING
+    )
 
 
 @pytest.mark.parametrize("cls", DECIDING, ids=lambda c: c.name)

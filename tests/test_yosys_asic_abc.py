@@ -756,8 +756,16 @@ def test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(
     """`mfs3` can stop ABC on an assertion failure with other strategies and designs (the
     multiplier of the default design with `area_2`, and the delay strategies)."""
     _real(script_format)
-    run = _run_real(tmp_path, script_format, enables=True, abc={"strategy": "area_0", "mfs3": True})
-    assert "ABC: + mfs3 -aemvz -I 4 -O 2" in (run / "yosys.log").read_text()
+    design = _enable_design(tmp_path / "design")
+    settings = _tiny(tmp_path, abc={"strategy": "area_0", "mfs3": True})
+    with contextlib.suppress(FlowException), forced_script_format(script_format):
+        DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
+    (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
+    log = (results.parent / "yosys.log").read_text()
+    if "ABC: ** cmd error: unknown command 'mfs3'" in log:
+        pytest.skip("the ABC bundled with this yosys does not provide the mfs3 command")
+    assert json.loads(results.read_text())["outcome"] == "passed", results.read_text()
+    assert "ABC: + mfs3 -aemvz -I 4 -O 2" in log
 
 
 @FORMATS_REAL

@@ -1,0 +1,43 @@
+{#- One SBY task. It keeps SBY's default `expect pass`, so the exit code names the status, and
+    the default presat check of `smtbmc`; `btor` has none. `prove` has no depth: SBY would not give
+    it to rIC3. Every word that the design supplies goes through `word`, which refuses what would
+    split it. -#}
+[options]
+mode {{ settings.mode }}
+{% if depth is not none -%}
+depth {{ depth }}
+{% endif -%}
+{% if timeout is not none -%}
+timeout {{ timeout }}
+{% endif -%}
+[engines]
+{{ engine }}
+[script]
+{% if vhdl -%}
+{#- GHDL keeps assertions and PSL without `--no-formal`; nothing turns one kind into another. -#}
+plugin -i ghdl
+ghdl{% for flag in ghdl_flags %} {{ flag|word }}{% endfor %}{% for name in units %} {{ name|word }}{% endfor %} -e {{ design.rtl.top|word }}
+{% else -%}
+{#- One compilation of every Verilog and SystemVerilog source, without `--best-effort-hierarchy`:
+    an unknown module is an error. The parameters root, if any, is a second top, and
+    `hierarchy -top` removes it. -#}
+plugin -i slang
+read_slang --no-synthesis-define -DFORMAL{% for define in defines %} {{ define|word }}{% endfor %}{% for directory in include_dirs %} -I{{ directory|word }}{% endfor %} --top {{ design.rtl.top|word }}{% if parameters_root %} --top {{ parameters_root }}{% endif %}{% for name in units %} {{ name|word }}{% endfor %}{% if parameters_root %} {{ parameters_file }}{% endif %}{% for key, value in parameters.items() %} -G {{ key|word }}={{ value|word }}{% endfor %}
+{% endif -%}
+hierarchy -check -top {{ design.rtl.top|word }}
+{#- Before `prep` can optimize anything away: refuse the constructs whose meaning no fixture has
+    shown (symbolic values, also as unlowered attributes; liveness; blackboxes), and require one
+    statement of what the mode checks. #}
+select -assert-none A:blackbox A:whitebox a:anyconst a:anyseq a:allconst a:allseq t:$anyconst t:$anyseq t:$allconst t:$allseq t:$live t:$fair t:$check r:FLAVOR=live %i t:$check r:FLAVOR=fair %i
+select -assert-any t:${{ obligation }} t:$check r:FLAVOR={{ obligation }} %i
+prep -top {{ design.rtl.top|word }}
+{% if parameters_root -%}
+{#- slang ignores a `-G` name that the top does not have, but refuses a named assignment of a
+    parameter that the top lacks. -#}
+[file {{ parameters_file }}]
+module {{ parameters_root }}; {{ design.rtl.top|word }} #({% for key, value in parameters.items() %}{{ ", " if not loop.first }}.{{ key|word }}({{ value|word }}){% endfor %}) dut(); endmodule
+{% endif -%}
+[files]
+{% for name in staged -%}
+{{ name|word }} {{ stage }}/{{ name|word }}
+{% endfor -%}

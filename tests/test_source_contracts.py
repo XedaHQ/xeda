@@ -119,6 +119,7 @@ EXPECTED_READS = {
     "vivado_postsynth_sim": "Verilog SystemVerilog Vhdl",
     "bsc": "Bluespec Verilog SystemVerilog",
     "bsc_sim": "Bluespec Verilog SystemVerilog C Cpp ObjectFile",
+    "sby": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader MemoryFile",
 }
 #: The flows that read none of the design's sources: each reads only its declared inputs.
 READS_NO_SOURCE = [

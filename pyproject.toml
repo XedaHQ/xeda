@@ -133,6 +133,7 @@ namespaces = false
     "*.lib",
     "*.mk",
     "*.sh",
+    "*.sby",
     "*.sdc",
     "*.sdf",
     "*.tcl",

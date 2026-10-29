@@ -50,7 +50,7 @@ RTL, BOTH = frozenset({"rtl"}), frozenset({"rtl", "tb"})
 #: The values every flow takes: the flows that read no testbench, and those that do.
 RTL_FLOWS = (
     "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad "
-    "openroad_cts openroad_grt openroad_place quartus vivado_alt_synth vivado_impl "
+    "openroad_cts openroad_grt openroad_place quartus sby vivado_alt_synth vivado_impl "
     "vivado_power vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (

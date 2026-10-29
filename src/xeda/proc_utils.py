@@ -232,8 +232,10 @@ class _Deadline:
     `group`, Ctrl-C forwards SIGINT, other exceptions send SIGTERM, and the leader gets
     `PROCESS_STOP_GRACE` seconds to exit without being reaped. The group then gets SIGKILL
     before the leader is reaped, so the group id cannot be recycled (the other members of the
-    group are not children of the caller, so they cannot be reaped here). `on_stop` then runs,
-    on the thread that leaves the context, as `run_process` documents.
+    group are not children of the caller, so they cannot be reaped here). So does each process
+    that descended from the leader when the stop began, in whatever group: SBY, for one, starts
+    each engine in a group of its own. `on_stop` then runs, on the thread that leaves the
+    context, as `run_process` documents.
 
     A process with a `group` runs in a session of its own, so the terminal's Ctrl-C and hangup
     do not reach it. Within the context, on the main thread, SIGTERM and SIGHUP therefore raise
@@ -270,6 +272,26 @@ class _Deadline:
             self._timer.daemon = True
             self._timer.start()
 
+    def _descendants(self) -> list[psutil.Process]:
+        """Return the processes that descend from the leader now, in any group. Once the leader
+        ends, its children belong to init, so the stop takes them while it still runs."""
+        if not self._group:
+            return []
+        try:
+            return psutil.Process(self.proc.pid).children(recursive=True)
+        except psutil.Error:
+            return []
+
+    @staticmethod
+    def _kill_all(processes: list[psutil.Process]) -> None:
+        """Send SIGKILL to each process that still runs. psutil refuses a process id that
+        another process has taken since."""
+        for process in processes:
+            try:
+                process.kill()
+            except psutil.Error:
+                pass
+
     def _stop(self, *, force: bool = False, interrupt: bool = False) -> None:
         try:
             if self._group:
@@ -302,7 +324,9 @@ class _Deadline:
             if self._cancelled or self.leader_exited():
                 return
             self.expired = True
+            descendants = self._descendants()
             self._stop(force=True)
+            self._kill_all(descendants)
 
     def cancel(self) -> None:
         with self._lock:
@@ -387,6 +411,7 @@ class _Deadline:
                 # With the leader reaped (an earlier `poll`), the group id may be free again.
                 if self.proc.returncode is None:
                     log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)
+                    descendants = self._descendants()
                     self._stop(interrupt=issubclass(exc_type, KeyboardInterrupt))
                     try:
                         # A leader that already ended is not waited for: its children get the
@@ -397,6 +422,7 @@ class _Deadline:
                         # its descendants before `wait()` releases its pid. A second Ctrl-C still
                         # kills and reaps it.
                         self._stop(force=True)
+                        self._kill_all(descendants)
                         self.proc.wait()
             elif self.proc.poll() is None:
                 log.debug("Stopping %s(pid=%s)", self.proc.args, self.proc.pid)

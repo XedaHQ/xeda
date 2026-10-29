@@ -76,6 +76,7 @@ from .tool_utils import (
     require_nvc,
     require_yosys,
     use_fake_tools,
+    use_stand_in_programs,
 )
 from .scoping import node_settings
 
@@ -91,6 +92,9 @@ PACKAGE = Path(xeda.__file__).parent
 FAKE_TOOLCHAIN = ".fake-toolchain"
 #: FPGA flows use process fakes, including an opt-in fake synthesis executable.
 FPGA_FAKED = {"yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader", "vivado_impl"}
+#: The flows that look for their programs on the file system before they start any: the sweep
+#: puts a stand-in file for each of `executables` in one directory, so no tool need be installed.
+STAND_IN_PROGRAMS = {"sby"}
 #: The flows whose tools have a fake in tests/fake_tools.
 FAKED = {
     "vivado_synth",
@@ -807,6 +811,11 @@ def _launch(
 
         ensure_run_root(world.root)
         use_fake_fpga_tools(monkeypatch, world.root / FAKE_TOOLCHAIN)
+    if flow_class.name in STAND_IN_PROGRAMS:
+        ensure_run_root(world.root)
+        use_stand_in_programs(
+            monkeypatch, world.root / FAKE_TOOLCHAIN / "bin", flow_class.executables
+        )
     seen.processes.install(monkeypatch)
     seen.processes.answers = stand_in_answers(world)
     if flow_class.name not in FAKED:

@@ -7,6 +7,7 @@
         "ise_synth",
         "modelsim",
         "quartus",
+        "sby",
         "vcs",
         "verilator",
         "vivado_alt_synth",
@@ -33,6 +34,7 @@
         "ise_synth",
         "modelsim",
         "quartus",
+        "sby",
         "vcs",
         "verilator",
         "vivado_alt_synth",
@@ -8923,6 +8925,86 @@
         "children": false,
         "assignable": true,
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
+      }
+    },
+    "default_producers": [
+      "bsc"
+    ]
+  },
+  "sby": {
+    "followers": {
+      "": []
+    },
+    "settings": {
+      "verbosity": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
+        ],
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
+      },
+      "nthreads": {
+        "children": false,
+        "assignable": true,
+        "help": "Maximum number of threads."
+      },
+      "lib_paths": {
+        "children": false,
+        "assignable": true,
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
+      "docker": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Run the tools in Docker."
+      },
+      "docker_image": {
+        "children": false,
+        "assignable": true,
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
+      },
+      "mode": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "bmc",
+          "cover",
+          "prove"
+        ],
+        "help": "The analysis: `bmc` searches for a failing assertion within `depth` steps, `prove` tries to prove every assertion for all time with IC3 (rIC3), and `cover` searches for a trace to each cover statement within `depth` steps. It has no default."
+      },
+      "depth": {
+        "children": false,
+        "assignable": true,
+        "help": "The number of steps: the search bound of `bmc` and `cover` (20 when unset). A `bmc` pass holds only up to this bound. `prove` has no bound and refuses `depth`."
+      },
+      "timeout": {
+        "children": false,
+        "assignable": true,
+        "help": "The time limit of the SBY task, a whole number of seconds such as `10 min`. A task that reaches it ends with the status TIMEOUT, and the run fails. None sets no limit, except that `prove` needs one: its proof has no bound."
       }
     },
     "default_producers": [

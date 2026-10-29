@@ -945,6 +945,22 @@ def use_fake_openroad(monkeypatch: pytest.MonkeyPatch) -> None:
     use_fake_tools(monkeypatch)
 
 
+def use_stand_in_programs(
+    monkeypatch: pytest.MonkeyPatch, directory: Path, names: Sequence[str]
+) -> None:
+    """Put an executable file for each of `names` in `directory`, first on PATH.
+
+    For a flow that looks for its programs beside each other before it starts any (`sby`), in a
+    test that stubs the start of processes: the flow needs the files, not the tools. A stand-in
+    does nothing, and the real program of the same name is never found first."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        path = directory / name
+        path.write_text("#!/bin/sh\nexit 0\n")
+        path.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ.get('PATH', '')}")
+
+
 def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
     """Install a tiny openXC7 prefix in test scratch space and select only fake FPGA tools.
 

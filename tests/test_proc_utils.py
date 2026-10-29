@@ -773,6 +773,65 @@ def test_the_time_limit_stops_the_process_tree(tmp_path):
         raise
 
 
+def _detached_tree(started: Path) -> str:
+    """A tool that starts a child in a session of its own, as SBY starts each engine. The child
+    ignores SIGTERM and SIGINT, so a signal to the group of the tool does not reach it, and
+    neither does a SIGTERM that the tool forwards."""
+    child = (
+        "import os, pathlib, signal, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "signal.signal(signal.SIGINT, signal.SIG_IGN)\n"
+        f"pathlib.Path({str(started)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n"
+    )
+    leader = (
+        "import subprocess, sys\n"
+        f"subprocess.run([sys.executable, '-c', {child!r}], start_new_session=True)\n"
+    )
+    return DEFAULT_SIGINT + leader
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_an_interrupt_stops_a_child_in_another_process_group(tmp_path, monkeypatch):
+    """Ctrl-C ends a child that the tool put in a group of its own, even one that ignores
+    SIGTERM: Xeda kills what descended from the tool when the stop began."""
+    started = tmp_path / "started"
+    child = None
+    try:
+        with (
+            _interrupting_after_the_child_ran(monkeypatch, started),
+            pytest.raises(KeyboardInterrupt),
+            _stopped_within(),
+        ):
+            run_process(sys.executable, ["-c", _detached_tree(started)])
+        child = _read_pid(started)
+        assert child is not None, "the child did not run"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child or _read_pid(started))  # a failed test leaves no sleeping process behind
+        raise
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
+def test_the_time_limit_stops_a_child_in_another_process_group(tmp_path):
+    """The time limit kills the group of the tool at once, so the tool forwards nothing: Xeda
+    kills its descendants in other groups itself."""
+    child = None
+    try:
+        for attempt, limit in enumerate(TIME_LIMITS):
+            started = tmp_path / f"started-{attempt}"
+            with pytest.raises(ProcessTimeout), _stopped_within(limit):
+                run_process(sys.executable, ["-c", _detached_tree(started)], timeout=limit)
+            child = _read_pid(started)
+            if child is not None:  # the child ran when the limit expired
+                break
+        assert child is not None, f"the child did not run within {limit} s"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child)  # a failed test leaves no sleeping process behind
+        raise
+
+
 # ---- the watchdog's lifecycle ---------------------------------------------------
 import subprocess  # noqa: E402
 import threading  # noqa: E402
