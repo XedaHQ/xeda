@@ -12,7 +12,7 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
-from .cancel import launch_canceled
+from .cancel import never_canceled
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
 from .flow import Flow
@@ -208,6 +208,7 @@ class Docker(XedaBaseModel):
                     merge_stderr=True,
                     timeout=DOCKER_KILL_TIMEOUT,
                     cwd=cwd,
+                    canceled=never_canceled,  # it runs because the launch was canceled
                 )
             except (OSError, ProcessTimeout) as e:
                 log.warning("Could not stop container %s: %s", container, e)
@@ -228,7 +229,6 @@ class Docker(XedaBaseModel):
                 on_stop=kill_container,
                 log_to=log_to,
                 log_append=log_append,
-                canceled=launch_canceled,
             )
         except FileNotFoundError as e:
             path = (client_env or os.environ).get("PATH", "")
@@ -791,7 +791,6 @@ class Tool(XedaBaseModel):
                 terminal=self.console_colors and (self.pseudo_terminal or not highlight_rules),
                 log_to=log_to,
                 log_append=log_append,
-                canceled=launch_canceled,
             )
         except FileNotFoundError as e:
             path = (env if env is not None else os.environ).get("PATH")

@@ -24,6 +24,7 @@ from typing import IO, Any, Dict, Iterator, List, Literal, Optional, TextIO, Tup
 import colorama
 import psutil
 
+from .cancel import inherited
 from .console import console_target
 from .utils import Canceled, ExecutableNotFound, NonZeroExitCode, live_log
 
@@ -139,11 +140,11 @@ def _run_stoppable(
     cwd: Union[str, os.PathLike],
     **kwargs: Any,
 ) -> "subprocess.CompletedProcess[str]":
-    """Run `command` as `subprocess.run` does (`kwargs` go to `Popen`), as the leader of a session
-    of its own on POSIX. A `KeyboardInterrupt` or a yes of `canceled` stops its whole group, and
-    the second raises `ProcessCanceled`."""
-    with subprocess.Popen(command, cwd=cwd, start_new_session=os.name == "posix", **kwargs) as proc:
-        with _Deadline(proc, None, group=os.name == "posix", canceled=canceled) as deadline:
+    """Run `command` as `subprocess.run` does (`kwargs` go to `Popen`). The child stays in the
+    session of the caller, so a terminal reaches it as it reaches Xeda. A yes of `canceled` kills
+    the child and the descendants that it has then, and raises `ProcessCanceled`."""
+    with subprocess.Popen(command, cwd=cwd, **kwargs) as proc:
+        with _Deadline(proc, None, canceled=canceled, descendants=True) as deadline:
             out, err = proc.communicate()
     if deadline.stopped_on_request:
         raise ProcessCanceled(command)
@@ -162,9 +163,10 @@ def run_child(
     """Run a child process that has no log (a design generator) in the directory `cwd` and wait
     for it. `command` and `kwargs` are those of `subprocess.Popen`, except `stdout`.
 
-    The child leads a session of its own on POSIX, as a tool does (`run_process`): Ctrl-C and
-    `canceled` stop its whole group. When `canceled` says yes (asked every `CANCEL_POLL` seconds),
-    the call raises `ProcessCanceled`.
+    The child stays in the session of the caller, so a generator may open `/dev/tty` and Ctrl-Z
+    stops it with Xeda. When `canceled` says yes (asked every `CANCEL_POLL` seconds; without it, the
+    request of the launch), Xeda kills the child and the descendants that it finds then, and the
+    call raises `ProcessCanceled`.
 
     The child writes where `child_stdout()` says (its own standard error as before). In `"log"`
     mode its output, error output included, goes to the `xeda` logger at INFO, one record for
@@ -172,6 +174,7 @@ def run_child(
     `stdout` gets it as it is. With `check`, a nonzero exit raises `NonZeroExitCode`, which says
     the last lines of the output in `"log"` mode."""
     check = kwargs.pop("check", False)
+    canceled = inherited(canceled)
     tail: list[str] = []
     if stdout is not None or TOOL_OUTPUT.get() == "terminal":
         done = _run_stoppable(
@@ -302,8 +305,12 @@ class _Deadline:
         group: bool = False,
         on_stop: Callable[[], None] | None = None,
         canceled: Callable[[], bool] | None = None,
+        descendants: bool = False,
     ) -> None:
         self.proc, self.expired = proc, False
+        #: Whether to find the descendants of a leader that leads no group (`run_child`). A leader
+        #: that ended is gone: the descendants that it left cannot be found.
+        self._follow_descendants = descendants
         #: Whether `canceled` said yes while the leader still ran, and the watch stopped it.
         self.stopped_on_request = False
         self._group = group and os.name == "posix"
@@ -326,22 +333,30 @@ class _Deadline:
 
     def _poll(self, canceled: Callable[[], bool]) -> None:
         """Ask `canceled` every `CANCEL_POLL` seconds, until the block ends. On a yes, stop the
-        process as a time limit does."""
+        process as a time limit does. Unlike a time limit, this also stops what a leader that
+        ended left behind: a child can hold the pipe that Xeda still reads, and the block does not
+        end until the pipe does. A leader that leads a group is not reaped while the block runs,
+        so its group id is still its own."""
         while not self._watch_done.wait(CANCEL_POLL):
             if canceled():
                 with self._lock:
-                    if self._cancelled or self.leader_exited():
+                    gone = self.proc.returncode is not None if self._group else self.leader_exited()
+                    if self._cancelled or gone:
                         return
                     self.stopped_on_request = True
-                    descendants = self._descendants()
-                    self._stop(force=True)
-                    self._kill_all(descendants)
+                    self._stop_group()
                 return
+
+    def _stop_group(self) -> None:
+        """Kill the leader, its group and the descendants found now. The caller holds `_lock`."""
+        descendants = self._descendants()
+        self._stop(force=True)
+        self._kill_all(descendants)
 
     def _descendants(self) -> list[psutil.Process]:
         """Return the processes that descend from the leader now, in any group. Once the leader
         ends, its children belong to init, so the stop takes them while it still runs."""
-        if not self._group:
+        if not (self._group or self._follow_descendants) or self.proc.returncode is not None:
             return []
         try:
             return psutil.Process(self.proc.pid).children(recursive=True)
@@ -390,9 +405,7 @@ class _Deadline:
             if self._cancelled or self.leader_exited():
                 return
             self.expired = True
-            descendants = self._descendants()
-            self._stop(force=True)
-            self._kill_all(descendants)
+            self._stop_group()
 
     def cancel(self) -> None:
         with self._lock:
@@ -1093,7 +1106,9 @@ def run_process(
 
     `canceled` is asked every `CANCEL_POLL` seconds while the child runs. When it says yes, Xeda
     stops the child as a time limit does (the group is killed, `on_stop` runs) and raises
-    `ProcessCanceled`.
+    `ProcessCanceled`. Without `canceled`, a call in a launch observes the request of the launch
+    (`cancel.launch_canceled`). Pass `cancel.never_canceled` where that must not apply: a
+    clean-up that runs after the request.
 
     `merge_stderr` folds the stderr of the child into stdout while capturing (`stdout=True`) or
     copying lines, so stderr diagnostics also reach the transcript.
@@ -1143,6 +1158,7 @@ def run_process(
     # then raises `KeyboardInterrupt`, and `_Deadline` signals the group of the tool. SIGTERM and
     # SIGHUP to Xeda do the same (`_Deadline`).
     new_session = os.name == "posix"
+    canceled = inherited(canceled)
     if stdout is True:
         return _run_capturing(
             command, env, cwd, check, merge_stderr, timeout, on_stop, new_session, canceled

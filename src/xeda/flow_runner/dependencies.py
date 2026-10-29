@@ -50,10 +50,10 @@ from ..design import (
     redacted_url,
 )
 from ..errors import DesignError
-from ..cancel import launch_canceled
 from ..proc_utils import run_process
 from ..run_dir import RunDirectory
-from ..utils import NonZeroExitCode, replacing_file
+from ..cancel import launch_canceled
+from ..utils import Canceled, NonZeroExitCode, replacing_file
 from .run_lock import storage_lock
 
 log = logging.getLogger(__name__)
@@ -133,6 +133,8 @@ def _git(arguments: list[str], *, repository: str, cwd: Path) -> str:
     The URL of the repository is given as the setting `remote.dependency.url` in the environment
     of the command, so it is on no command line and in no log. A failure raises `NonZeroExitCode`
     whose message holds the output of Git: the caller shows it through `redacted_url`."""
+    if launch_canceled():
+        raise Canceled("the launch was canceled before it ran `git`")
     env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_VARIABLES}
     env["GIT_TERMINAL_PROMPT"] = "0"
     count = int(env["GIT_CONFIG_COUNT"]) if env.get("GIT_CONFIG_COUNT", "").isdigit() else 0
@@ -147,7 +149,6 @@ def _git(arguments: list[str], *, repository: str, cwd: Path) -> str:
         cwd=cwd,
         stdout=True,
         merge_stderr=True,
-        canceled=launch_canceled,
     )
     assert output is not None
     return output

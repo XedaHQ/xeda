@@ -28,6 +28,7 @@ from ..digest import FileRecord, record_file, unknown_record
 from ..errors import LeaseHeldError
 from ..listing import directory_files
 from ..run_dir import RunDirectory, RunDirectoryError, refuse_link_on_way
+from ..cancel import inherited
 from ..utils import Canceled
 
 if sys.platform != "win32":
@@ -498,14 +499,17 @@ def acquire_all(
     cannot become an exclusive one: release it, then ask for the exclusive one.
 
     `canceled` is asked while the call waits. When it says yes, the call releases all it took and
-    raises `LockWaitCanceled`. With `wait_in_order`, the call waits for each lock in turn and
-    keeps the locks it took: this is for a thread that holds locks of an earlier kind already
-    (the delivery of a launch), and the order makes the waits end.
+    raises `LockWaitCanceled`. Without `canceled`, a call in a launch observes the request of the
+    launch (`cancel.launch_canceled`), and `cancel.never_canceled` opts out.
+
+    With `wait_in_order`, the call waits for each lock in turn and keeps the locks it took: this
+    is for a thread that holds locks of an earlier kind already (the delivery of a launch), and
+    the order makes the waits end.
 
     `run_root` is the run root that the locks lie in. A run directory or a storage that does not
     lie inside it, or that is reached through a link out of it, is a `RunDirectoryError` before
     anything is created."""
-    locks = _acquire_set(list(requests), run_root, canceled, wait_in_order)
+    locks = _acquire_set(list(requests), run_root, inherited(canceled), wait_in_order)
     try:
         yield locks
     finally:

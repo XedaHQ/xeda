@@ -23,8 +23,9 @@ from ..run_dir import (
     run_directory_name,
     run_directory_problem,
 )
+from ..cancel import launch_canceled
 from ..generation import GENERATION_DIRECTORY
-from ..utils import unique
+from ..utils import Canceled, unique
 from .run_lock import refuse_if_held, run_dir_lock, storage_lock
 
 log = logging.getLogger(__name__)
@@ -319,6 +320,12 @@ def _problem_now(listed: _Listed) -> Optional[str]:
         return f"it cannot be examined ({error.strerror or error})"
 
 
+def _stop_if_canceled(path: Path) -> None:
+    """Raise `Canceled` when the launch that scrubs must stop: nothing more is removed."""
+    if launch_canceled():
+        raise Canceled(f"the launch was canceled before it removed {path}")
+
+
 def _remove_confirmed(
     candidates: Sequence[_Listed],
     run_root: Path,
@@ -352,7 +359,11 @@ def _remove_confirmed(
     a launch wrote to the directory after the listing: a run ended there, or a launch found its
     run up to date and refreshed the trace. Scrub cannot tell which, and what is there is no
     longer what was confirmed, so it keeps the directory and logs it. It removes the rest. The
-    result holds three lists: the directories removed, kept and gone."""
+    result holds three lists: the directories removed, kept and gone.
+
+    A launch that scrubs (`--scrub`, `prune_variants`) stops when it is canceled
+    (`cancel.launch_canceled`): the wait for a lock ends, and no directory is removed after the
+    request. The directories removed before stay removed."""
     if not candidates:
         return _Removal([], [], [])
     if confirm is None:
@@ -373,9 +384,12 @@ def _remove_confirmed(
     done = _Removal([], [], [])
     for c in candidates:
         p = c.path
+        _stop_if_canceled(p)
         locked = _lock_path(p, run_root)
         leads_to = Path(os.path.realpath(locked))
         with run_dir_lock(locked, run_root):
+            # The wait for the lock may have ended because the lock came free, after the request.
+            _stop_if_canceled(p)
             if _is_gone(p):
                 log.info("Not removing %s: it is gone already", p)
                 done.gone.append(p)

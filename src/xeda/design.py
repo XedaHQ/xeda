@@ -73,7 +73,6 @@ from .dataclass import (
 from .digest import content_digest
 from .errors import DesignError
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
-from .cancel import launch_canceled
 from .proc_utils import run_child
 from .setting_text import SettingTextError
 from .run_dir import DIR_NAME_HASH_LEN, run_directory_name
@@ -2043,7 +2042,6 @@ class Generator(XedaBaseModel):
             stdout=stdout,
             stderr=stderr,
             env=self.process_environment(root, storage, environ),
-            canceled=launch_canceled,
         )
 
     @property

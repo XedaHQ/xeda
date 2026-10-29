@@ -382,6 +382,21 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             run_dir=node.run_path,
             flow=node.flow_class.name,
         )
+    if isinstance(error, Canceled):
+        # The launch was canceled after the node began and before its run wrote a record.
+        return NodeResult(
+            name=node.name,
+            outcome=Outcome.CANCELED,
+            disposition=Disposition.NOT_RUN,
+            reason="",
+            blocked_by=None,
+            elapsed=end.elapsed,
+            record=None,
+            error=error_info(error, node=node.name),
+            deliveries=(),
+            run_dir=node.run_path,
+            flow=node.flow_class.name,
+        )
     # An exception left the node after the run passed, or the run left no record: nothing vouches
     # for the node, and the exception says why.
     if error is not None:
@@ -440,6 +455,11 @@ def _not_reached(plan: Plan, node: PlanNode, done: Mapping[str, NodeResult]) -> 
     )
 
 
+_CANCELED_ERROR = ErrorInfo(
+    code=CANCELED, message="The launch was canceled.", node=None, exit_status=None, log=None
+)
+
+
 def _launch_error(
     collector: LaunchCollector, nodes: Mapping[str, NodeResult], roots: Sequence[str]
 ) -> ErrorInfo | None:
@@ -453,9 +473,7 @@ def _launch_error(
     delivery is the cause. A launch that was canceled has the error `canceled`, whatever stopped
     it."""
     if collector.canceled:
-        return ErrorInfo(
-            code=CANCELED, message="The launch was canceled.", node=None, exit_status=None, log=None
-        )
+        return _CANCELED_ERROR
     if collector.generation_failed is not None:
         return ErrorInfo(
             code=GENERATOR_FAILED,
@@ -516,6 +534,8 @@ def launch_result(
     # (`xeda_launch_id`). The `Result` names the same id.
     with launch_context() as launch_id:
         progress = _Progress(launch_id, cancel, on_event)
+        #: Whether the launch was canceled before it had a plan: it has no node.
+        unplanned = False
         try:
             with _watched(progress):
                 progress.emit("launch_started")
@@ -523,7 +543,11 @@ def launch_result(
                     launch()
                 except Exception as raised:
                     collector = runner.collector
-                    if collector is before or not (
+                    if isinstance(raised, Canceled) and (
+                        collector is before or collector.plan is None
+                    ):
+                        unplanned = True
+                    elif collector is before or not (
                         collector.accounts_for(raised)
                         or collector.settle(raised)
                         or (isinstance(raised, Canceled) and collector.plan is not None)
@@ -538,6 +562,19 @@ def launch_result(
                 raise
     if progress.raised is not None:
         raise progress.raised
+    if unplanned:
+        result = Result(
+            launch_id=launch_id,
+            spec=spec,
+            roots=(),
+            outcome=Outcome.CANCELED,
+            error=_CANCELED_ERROR,
+            nodes={},
+        )
+        progress.emit("launch_finished", None, result.outcome)
+        if progress.raised is not None:
+            raise progress.raised
+        return result
     collector = runner.collector
     plan = collector.plan
     if collector is before or plan is None:

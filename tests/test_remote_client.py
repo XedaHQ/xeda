@@ -739,6 +739,66 @@ def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
     _assert_mirror_emptied(mirror)
 
 
+def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote_host, monkeypatch):
+    from xeda.cancel import CancelToken, observing
+
+    design, mirror = _earlier_success(tmp_path)
+    waiting = threading.Event()
+    token = CancelToken()
+    send = client._Agent.send
+
+    def silent(self, document, step):
+        if "fetch" in document:
+            waiting.set()  # the request is not sent, so the host says nothing: the read waits
+            return
+        send(self, document, step)
+
+    monkeypatch.setattr(client._Agent, "send", silent)
+    thread = threading.Thread(target=lambda: (waiting.wait(TIMEOUT), token.cancel()), daemon=True)
+    thread.start()
+    with observing(lambda: token.canceled):
+        outcome = _request(tmp_path, design)
+    thread.join()
+    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.document["outcome"] == "canceled"
+    assert outcome.document["error"]["code"] == "canceled"
+    message = outcome.document["error"]["message"]
+    assert "on request while fetching the results" in message and "had finished" in message
+    _assert_mirror_emptied(mirror)
+
+
+def test_a_canceled_token_ends_the_wait_for_the_lock_of_the_mirror(
+    tmp_path, remote_host, monkeypatch
+):
+    from xeda.cancel import CancelToken, observing
+
+    design, mirror = _earlier_success(tmp_path)
+    run_root = tmp_path / "local" / "xeda_run"
+    held, waiting, done = threading.Event(), threading.Event(), threading.Event()
+    token = CancelToken()
+    monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
+
+    def hold() -> None:
+        with run_lock.run_dir_lock(mirror / "nextpnr", run_root):
+            held.set()
+            assert waiting.wait(TIMEOUT)
+            token.cancel()
+            # A request that is not observed leaves the client waiting: let it go after a while.
+            done.wait(10)
+
+    holder = threading.Thread(target=hold, daemon=True)
+    holder.start()
+    assert held.wait(TIMEOUT)
+    with observing(lambda: token.canceled):
+        outcome = _request(tmp_path, design)
+    done.set()
+    holder.join()
+    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.document["outcome"] == "canceled"
+    message = outcome.document["error"]["message"]
+    assert "on request while fetching the results" in message
+
+
 def test_rerun_after_late_disconnect_fetches_the_finished_result(
     tmp_path, remote_host, monkeypatch
 ):
