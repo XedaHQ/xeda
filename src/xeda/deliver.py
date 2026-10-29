@@ -1085,7 +1085,7 @@ class Deliveries:
         return entry if isinstance(entry, dict) else None
 
     def _destination_record(
-        self, destination: Path, entry: dict[str, Any]
+        self, destination: Path, entry: dict[str, Any], anchoring: bool = True
     ) -> tuple[FileRecord, FileRecord, Optional[_ClockReading]]:
         """Return what `entry` recorded of `destination`, what the file is now, and an anchor.
 
@@ -1107,6 +1107,9 @@ class Deliveries:
         anchored records, or a destination that moved), the fallback is `recorded_ns`, the change
         time of the file. The file is never settled before that time, so the method reads the
         content. It raises what `record_file` raises.
+
+        With `anchoring` false the method reads no clock, so it writes nothing (a clock read
+        makes a marker file). The returned anchor is then not meant for use.
         """
         record = FileRecord.model_validate(entry["record"])
         stored = _recorded_anchor(entry, destination)
@@ -1116,7 +1119,7 @@ class Deliveries:
         clock: list[Optional[_ClockReading]] = []
 
         def before_reading() -> None:
-            if not clock:
+            if anchoring and not clock:
                 clock.append(_destination_clock(destination))
 
         now = record_file(destination, record, trusted_before_ns, False, before_reading)
@@ -1147,7 +1150,7 @@ class Deliveries:
                 pass  # the record is unreadable: read the file
         return FileRecord.of(os.lstat(destination), content_digest(destination)), None
 
-    def _why_not_ours(self, destination: Path) -> Optional[str]:
+    def _why_not_ours(self, destination: Path, anchoring: bool = True) -> Optional[str]:
         """Return why replacing what is at `destination` needs a yes, or None.
 
         The answer is None if nothing is there, if a directory is there (the destination of a
@@ -1162,7 +1165,9 @@ class Deliveries:
         its place) or other bytes is not a copy of Xeda, and the method fails closed.
 
         After it has read the content, it anchors the record that it took (`_refresh_entry`), so a
-        later check of an unchanged delivery recognizes it by its metadata and reads nothing.
+        later check of an unchanged delivery recognizes it by its metadata and reads nothing. A
+        check without `anchoring` (a plan) neither reads a file-system clock nor anchors anything,
+        so it writes nothing.
         """
         if not os.path.lexists(destination):
             return None
@@ -1176,11 +1181,13 @@ class Deliveries:
             # (a hashed run directory, a remote mirror) is not in it.
             return f"not recorded as delivered from {self.run_path.name}: yours, or another run's"
         try:
-            record, now, reading = self._destination_record(destination, entry)
+            record, now, reading = self._destination_record(destination, entry, anchoring)
         except (KeyError, TypeError, ValueError, OSError):
             return "not known to be Xeda's (its record is unreadable)"
         if now.inode != record.inode or now.sha != record.sha:
             return "changed since Xeda wrote it"
+        if not anchoring:
+            return None
         self._refresh_entry(entry, now, reading)
         self._refreshed[str(destination)] = entry
         return None
@@ -1257,14 +1264,14 @@ class Deliveries:
             raise DeliveryError("; ".join(refusals), before_run=True)
 
     def _conflicts(
-        self, predicted: Sequence[Delivery]
+        self, predicted: Sequence[Delivery], anchoring: bool = True
     ) -> tuple[list[Conflict], dict[Path, _State]]:
         """Return the files in the way of the deliveries, and the state of every destination."""
         conflicts: list[Conflict] = []
         states: dict[Path, _State] = {}
         for delivery in [*self.named, *self.generated, *predicted]:
             destination = _located(delivery.destination)
-            why = self._why_not_ours(destination)
+            why = self._why_not_ours(destination, anchoring)
             if why is not None:
                 conflicts.append(Conflict(delivery, destination, why))
             states[destination] = _state(destination)
@@ -1273,7 +1280,7 @@ class Deliveries:
     def replaced(self, predicted: Sequence[Delivery] = ()) -> list[Delivery]:
         """Return the deliveries that would replace a file that is not an unchanged earlier
         delivery of Xeda, and ask nothing: a plan reports them (`check` asks about them)."""
-        return [conflict.delivery for conflict in self._conflicts(predicted)[0]]
+        return [conflict.delivery for conflict in self._conflicts(predicted, False)[0]]
 
     def check(self, predicted: Sequence[Delivery] = ()) -> None:
         """Check the deliveries before any tool of the node runs.

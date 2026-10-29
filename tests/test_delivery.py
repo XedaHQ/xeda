@@ -2214,3 +2214,28 @@ def test_a_loaded_private_settings_file_is_never_a_destination_even_with_overwri
             local_settings=settings,
         )
     assert private.read_text() == "flows: {}\n" and RUNS == []
+
+
+def test_a_plan_after_an_edit_of_a_delivered_file_writes_nothing(world):
+    """A plan hashes the edited file to tell whether it replaces a delivery of xeda's. It reads
+    no file-system clock, which would make a marker file next to the destination."""
+    from xeda.spec import Spec
+    from xeda.workspace import Workspace
+
+    destination = world.user / "out" / "net.v"
+    _launch(world, netlist=str(destination))
+    destination.write_text("edited\n")
+
+    def listing():
+        everything = [world.root.parent, *world.root.parent.rglob("*")]
+        return {p: (p.lstat().st_mtime_ns, p.lstat().st_size) for p in everything}
+
+    before = listing()
+    plan = Workspace(world.root).plan(
+        Spec(
+            TDeliverer.name, world.design, settings={TDeliverer.name: {"netlist": str(destination)}}
+        )
+    )
+    assert listing() == before
+    (planned,) = plan.nodes[TDeliverer.name].deliveries
+    assert planned.replaces is True
