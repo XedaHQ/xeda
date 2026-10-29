@@ -469,16 +469,26 @@ class FlowLauncher:
                 raise ValueError(f"`{name}` was removed: use {_REMOVED_LAUNCHER_SETTINGS[name]}")
             super().__setattr__(name, value)
 
-    def __init__(self, run_root: Union[str, Path, None] = None, **kwargs) -> None:
+    def __init__(
+        self,
+        run_root: Union[str, Path, None] = None,
+        *,
+        run_root_start: Optional[Path] = None,
+        **kwargs,
+    ) -> None:
+        """`run_root_start` is the directory that the rule of the run root takes as the start
+        directory (`ensure_run_root`): the current directory, unless a workspace decided it
+        earlier."""
         self.settings = self.Settings(**kwargs)
         if self.settings.outputs_to is not None:
             self.settings.outputs_to = Path(os.path.abspath(self.settings.outputs_to))
         # Refused here, before anything runs, if it is not Xeda's. Created when a flow first
         # needs it (`run_root`), so a launch that fails at its input leaves none behind.
         self._start = Path.cwd()
+        self._run_root_start = self._start if run_root_start is None else Path(run_root_start)
         self._run_root = Path(run_root or DEFAULT_RUN_ROOT).resolve()
         self._run_root_ready = (
-            ensure_run_root(self._run_root, start=self._start, create=False) is not None
+            ensure_run_root(self._run_root, start=self._run_root_start, create=False) is not None
         )
         log.debug("%s run_root=%s", self.__class__.__name__, self._run_root)
         self.debug = self.settings.debug
@@ -553,7 +563,7 @@ class FlowLauncher:
     def run_root(self) -> Path:
         """The run root (`xeda.run_root`), resolved: created and marked when first used."""
         if not self._run_root_ready:
-            root = ensure_run_root(self._run_root, start=self._start)
+            root = ensure_run_root(self._run_root, start=self._run_root_start)
             assert root is not None  # created when absent
             self._run_root, self._run_root_ready = root, True
         return self._run_root
@@ -585,7 +595,7 @@ class FlowLauncher:
         run directories. It lies strictly inside the run root and is resolved."""
         return launch_identity.run_path_of(
             self._run_root,
-            self._start,
+            self._run_root_start,
             self.settings.hashed_run_dirs,
             design_name,
             node_name,

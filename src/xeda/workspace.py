@@ -79,6 +79,7 @@ class Workspace:
         self.confirm = confirm
         self.remote = remote
         self.local_settings = local_settings
+        self._start = start
 
     def __repr__(self) -> str:
         return f"Workspace({str(self.run_root)!r})"
@@ -158,7 +159,10 @@ class Workspace:
         self._refuse_project_run_root(spec)
         try:
             runner = DefaultRunner(
-                self.run_root, hashed_run_dirs=self.hashed_run_dirs, display_results=False
+                self.run_root,
+                hashed_run_dirs=self.hashed_run_dirs,
+                display_results=False,
+                run_root_start=self._start,
             )
             planned = runner.plan_spec(spec, local_settings=self.local_settings, options=options)
         except Exception as error:

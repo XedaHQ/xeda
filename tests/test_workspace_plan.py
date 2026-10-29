@@ -290,6 +290,21 @@ def test_the_default_run_root_is_the_start_directory_s_and_is_resolved_once(tmp_
     assert not (tmp_path / "xeda_run").exists()
 
 
+def test_an_adopted_default_run_root_stays_adopted_after_a_change_of_directory(
+    tmp_path, monkeypatch
+):
+    start = tmp_path / "a"
+    (start / "xeda_run").mkdir(parents=True)
+    (start / "xeda_run" / "notes.txt").write_text("x")
+    other = tmp_path / "b"
+    other.mkdir()
+    monkeypatch.chdir(start)
+    workspace = Workspace()
+    monkeypatch.chdir(other)
+    plan = workspace.plan(_spec(tmp_path / "design"))
+    assert plan.nodes["nextpnr"].run_dir.is_relative_to((start / "xeda_run").resolve())
+
+
 def test_the_run_root_comes_from_local_settings_when_not_given(tmp_path):
     local = LocalSettings(run_root=tmp_path / "private")
     assert Workspace(local_settings=local).run_root == (tmp_path / "private").resolve()
