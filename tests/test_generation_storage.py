@@ -124,13 +124,13 @@ def test_the_design_tree_is_unchanged_by_a_launch(tmp_path):
     assert _tree(world.root) == before
 
 
-def test_the_generator_runs_in_the_storage_with_the_two_variables_set(tmp_path):
+def test_the_generator_runs_in_the_design_root_with_the_two_variables_set(tmp_path):
     world = World(tmp_path)
     assert world.launch(reader_flow()).outcome is Outcome.PASSED
     (storage,) = world.storages()
     cwd, design_root, generated = world.where
-    assert Path(cwd) == storage.resolve() == Path(generated)
-    assert Path(design_root) == world.root.resolve()
+    assert Path(cwd) == Path(design_root) == world.root.resolve()
+    assert Path(generated) == storage.resolve()
 
 
 @pytest.mark.parametrize("cwd", ["sub", "$DESIGN_ROOT/sub", "${DESIGN_DIR}/sub"])
@@ -245,6 +245,31 @@ def test_a_declared_name_the_generator_did_not_write_fails_the_node(tmp_path):
     assert node.error is not None and node.error.code == "missing_generated"
     assert "gen/other.v" in node.error.message
     assert world.runs == 1 and len(world.storages()) == 1
+
+
+def test_a_declared_name_that_exists_in_the_working_directory_gets_a_hint(tmp_path):
+    """The generator wrote the file where it runs instead of under `$XEDA_GENERATED`: the message
+    says what lies there and where Xeda reads, and does not say the generator wrote it."""
+    flow = reader_flow()
+    world = World(tmp_path)
+    script = world.root / "gen.py"
+    script.write_text(
+        script.read_text().replace('out = Path(os.environ["XEDA_GENERATED"])', "out = Path.cwd()")
+    )
+    node = world.launch(flow).nodes[flow.name]
+    assert node.error is not None and node.error.code == "missing_generated"
+    written = world.root.resolve() / "gen" / "top.v"
+    assert written.is_file()
+    assert f"A file of that name exists at `{written}`" in node.error.message
+    assert "only under `$XEDA_GENERATED`" in node.error.message
+    assert "`generated_sources`" in node.error.message, "the earlier advice stays"
+
+
+def test_a_missing_name_with_no_file_in_the_working_directory_gets_no_hint(tmp_path):
+    flow = reader_flow()
+    world = World(tmp_path, sources=["gen/top.v", "gen/other.v"])
+    node = world.launch(flow).nodes[flow.name]
+    assert node.error is not None and "exists at" not in node.error.message
 
 
 def test_a_pattern_that_matches_nothing_fails_the_node_and_names_the_declaration(tmp_path):
@@ -825,7 +850,8 @@ def test_a_generator_sees_pwd_as_its_working_directory(tmp_path):
 
 def test_an_old_record_makes_the_generator_run_again_in_the_same_storage(tmp_path):
     """A storage that an earlier release made (another record format) is generated once more,
-    in place, so output made under other conditions (another `PWD`) is not trusted now."""
+    in place, so output made under other conditions (another `PWD`, another working
+    directory) is not trusted now."""
     flow = reader_flow()
     world = World(tmp_path)
     assert world.launch(flow).outcome is Outcome.PASSED

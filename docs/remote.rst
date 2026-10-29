@@ -79,7 +79,8 @@ These limits apply to every remote run:
 * A flow that programs a board (``openfpgaloader``) cannot run with ``--remote``, because the board
   is on your machine. Run the flows before it with ``--remote``. Then run the programmer locally
   with a binding to the fetched bitstream.
-* A design generator runs on the host, into a storage under the run root of the host. Xeda sends
+* A design generator runs on the host, in its copy of the design root, and writes into a storage
+  under the run root of the host. Xeda sends
   the recipe and the files and directories that it declares in its ``sources``. A generator that
   declares none, or one whose input lies outside its design root, is refused (see
   :ref:`generators`). The generator of a dependency travels the same way. Xeda refuses the
@@ -300,7 +301,11 @@ A workspace has these parts:
 * ``inputs/<design>/`` holds your design files. Xeda sends a manifest of SHA-256 digests, and the
   host asks only for the files it lacks. A file that did not change is not touched, so the
   freshness records of the host stay valid. A file that left the design is removed. No flow writes
-  here.
+  here. A design generator starts here, in ``inputs/<design>/`` or in its ``cwd`` below it, as a
+  local generator starts in the design root. A file that a generator tool leaves there (a build
+  cache) is not part of your design, so the next sync removes it and the tool builds it again. The
+  generated sources are not lost: they lie in the storage under ``xeda_run/``, which a sync does
+  not touch.
 * ``xeda_run/`` is the run root of the host. Its layout is the layout of a local run root, so
   ``--hashed-run-dirs`` and the other launch options mean the same as for a local run.
 * ``launches/<id>/`` holds the log, the request and the result of each launch.

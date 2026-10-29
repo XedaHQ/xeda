@@ -51,9 +51,10 @@ GENERATION_DIRECTORY = ".generated"
 RECORD_NAME = "generation.yaml"
 
 #: The format of a record: an entry of another format is not read, so the generator runs again.
-#: Format 2: a generator sees `PWD` set to the directory it runs in, so a storage that an earlier
-#: release made is generated once more.
-RECORD_FORMAT = 2
+#: Format 2: a generator sees `PWD` set to the directory it runs in. Format 3: a generator starts
+#: in the design root (or its `cwd`), no longer in the storage. A storage that an earlier format
+#: describes is generated once more.
+RECORD_FORMAT = 3
 
 #: The number of hexadecimal digits of a key.
 KEY_LENGTH = 16
@@ -106,12 +107,13 @@ class MissingGenerated(XedaException):
 
     `declaration` is the entry of `rtl.sources` (a name or a pattern) that matched nothing."""
 
-    def __init__(self, declaration: str, generator: str) -> None:
+    def __init__(self, declaration: str, generator: str, hint: str = "") -> None:
         super().__init__(
             f"the generated source `{declaration}` matches no file in the output of "
             f"{generator}: check that the generator writes it, or remove it from `rtl.sources`. "
             "If you wrote the file yourself, list only the generated entries in "
             "`generated_sources` of the generator: with none, every entry is the generator's"
+            + (f". {hint}" if hint else "")
         )
         self.declaration = declaration
 
@@ -196,9 +198,9 @@ def executable_identity(
 
 def recipe_identity(generator: Generator) -> dict[str, Any]:
     """Return the recipe as it is written: the part of the generation key that the generator
-    states. Its `env` is part of it, as is its working directory. Its inputs are not: their
-    content is, in `input_digests`. The place that receives copies of its output (`outputs_to`)
-    is not: it does not change what the generator writes."""
+    states. Its `env` and its `cwd` are part of it, as written, so no absolute path is. Its
+    inputs are not: their content is, in `input_digests`. The place that receives copies of its
+    output (`outputs_to`) is not: it does not change what the generator writes."""
     return {
         "class": type(generator).__name__,
         "recipe": generator.model_dump(

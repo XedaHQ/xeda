@@ -590,7 +590,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
 | `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s <flow>.docker=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
-| `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. Check the generator, or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
+| `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. Check that the generator writes it under `$XEDA_GENERATED` (it starts in the design root, so a relative name lands there), or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
 | `generator_failed` (`error.node` is null, every node `skipped`) | The generator failed or could not be judged. The message names it and its exit status; its output is in the log. |
 | `missing_report`, `missing_output`, `invalid_metric` | A report the flow reads or a declared output was not written by this run, or a metric is not a finite value of its type. |
 | `rejected` | The checks judged the results negative. The metrics are in the record; change the design or settings. |

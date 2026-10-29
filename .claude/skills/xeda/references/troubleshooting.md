@@ -107,7 +107,8 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   Vivado setup-slack miss or a `nextpnr` timing miss, runs again.
 - `missing_generated`: a source of `rtl.sources` that the generator should write matches no file in
   the output of the generator. The message names the entry. Check what the generator writes into
-  `$XEDA_GENERATED`. A hand-written entry beside generated ones needs `generated_sources`: with it
+  `$XEDA_GENERATED`; a generator starts in the design root, so a relative output name lands there
+  (the message names a matching file it finds below the working directory). A hand-written entry beside generated ones needs `generated_sources`: with it
   empty, every entry is the generator's.
 - `generator_failed`: an error of the whole launch (`error.node` is null); every node is `skipped`.
   The generator exited with an error, could not be started, or changes what it reads while it

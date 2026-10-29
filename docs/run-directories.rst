@@ -499,7 +499,9 @@ selected direct executable. The storage holds the files that the generator wrote
 ``generation.yaml``, with the digest of every generated source that the last generation left and the
 digest of the environment that the generator inherited. The generator therefore runs again only
 when one of its inputs changed. Indirect tools and the packages that the generator uses stay
-outside this identity. The tree of the design is never written.
+outside this identity. The generator starts in the design root, or in its ``cwd`` below it, and
+writes the generated sources under ``$XEDA_GENERATED``, the storage. Xeda writes nothing into the
+tree of the design.
 
 A generation happens in the launch, after every check that needs only the declarations of the
 design, and before the first flow runs. A launch holds the exclusive lock of the storage while it

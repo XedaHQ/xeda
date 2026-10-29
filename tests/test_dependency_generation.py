@@ -207,6 +207,23 @@ def test_a_declaration_of_a_dependency_that_matches_nothing_fails_the_reader(tmp
     assert "gen/lib1.v" in node.error.message and "lib1" in node.error.message
 
 
+def test_a_dependency_generator_that_wrote_where_it_runs_gets_a_hint_also_when_reused(tmp_path):
+    """The hint names the working directory of the generator that owns the entry, the
+    dependency's, and the reused generation of a second launch has it too."""
+    chain = Chain(tmp_path)
+    script = tmp_path / "lib1" / "gen.py"
+    script.write_text(
+        script.read_text().replace('out = Path(os.environ["XEDA_GENERATED"])', "out = Path.cwd()")
+    )
+    flow = reader_flow()
+    for launch in (1, 2):
+        node = chain.launch(flow).nodes[flow.name]
+        assert node.error is not None and node.error.code == "missing_generated"
+        written = (tmp_path / "lib1").resolve() / "gen" / "lib1.v"
+        assert f"A file of that name exists at `{written}`" in node.error.message, launch
+    assert chain.ran == ["lib1"], "the second launch reused the generation"
+
+
 def test_a_plan_is_unknown_until_every_storage_is_current(tmp_path):
     chain = Chain(tmp_path, depth=2, own=True)
     flow = reader_flow()

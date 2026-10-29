@@ -1882,10 +1882,6 @@ class Generator(XedaBaseModel):
             raise ValueError(f"generator source file does not exist: {', '.join(missing)}")
         return sources
 
-    #: Whether the working directory of a generator without `cwd` is the design root. Otherwise
-    #: it is the storage that holds the output of the generator.
-    runs_in_design_root: ClassVar[bool] = False
-
     def delivery_directory(self, design_root: Path, start_directory: Path) -> Path | None:
         """Return the directory that receives the copies of the generated sources (`outputs_to`)
         with every path variable expanded, or None when the recipe names none.
@@ -1899,24 +1895,15 @@ class Generator(XedaBaseModel):
         )
 
     def lookup_directory(self, design_root: Path) -> Path:
-        """Return the directory that a relative executable and a relative `PATH` entry resolve
-        against: `cwd` below the design root, else the design root. `cwd` counts as the load
-        check reads it, normalized (`build/../work` is `work`), so no other directory on its
-        way needs to exist.
+        """Return the directory that the generator runs in: `cwd` below the design root, else the
+        design root. A relative executable and a relative `PATH` entry resolve against it too.
 
-        It does not depend on the storage, so the identity of a generation does not either."""
+        `cwd` counts as the load check reads it, normalized (`build/../work` is `work`), so no
+        other directory on its way needs to exist. The directory does not depend on the storage,
+        so the identity of a generation does not either."""
         return (
             design_root if self.cwd is None else design_root / generator_cwd(self.cwd, design_root)
         )
-
-    def working_directory(self, design_root: Path, storage: Path) -> Path:
-        """Return the directory that the generator runs in.
-
-        That is `cwd` below the design root, else the storage that holds its output. A generator
-        that needs its project (Chisel) runs in the design root unless `cwd` says otherwise."""
-        if self.cwd is not None:
-            return self.lookup_directory(design_root)
-        return design_root if self.runs_in_design_root else storage
 
     def _words(
         self, words: Sequence[str], design_root: Path | None, storage: Path | None
@@ -2009,7 +1996,7 @@ class Generator(XedaBaseModel):
         return base
 
     def run(self, design_root: Path, storage: Path, environ: Mapping[str, str]) -> None:
-        """Run the generator in its working directory, with its environment."""
+        """Run the generator in its working directory (`lookup_directory`), with its environment."""
         command = self.execution_command(design_root, storage)
         self.run_cmd(command, root=design_root, storage=storage, environ=environ)
 
@@ -2038,7 +2025,7 @@ class Generator(XedaBaseModel):
         return run_child(
             cmd,
             source=cmd[0] if cmd else "generator",
-            cwd=self.working_directory(root, storage),
+            cwd=self.lookup_directory(root),
             executable=executable,
             check=self.check if check is None else check,
             stdout=stdout,
@@ -2077,9 +2064,6 @@ class Generator(XedaBaseModel):
 
 class ChiselGenerator(Generator):
     takes_shell: ClassVar[bool] = False
-    #: mill and bloop find their build files in their working directory.
-    runs_in_design_root: ClassVar[bool] = True
-
     main: Optional[str] = None
     project: Optional[str] = None
     build_system: str = "mill"

@@ -213,8 +213,6 @@ def test_a_generator_starts_in_its_cwd_as_the_check_reads_it(tmp_path):
     design = _design(tmp_path, ["gen/top.v"], cwd="build/../work")
     generator = generator_of(design.rtl, root=design.root)
     assert generator is not None
-    storage = tmp_path / "storage"
-    assert generator.working_directory(tmp_path, storage) == tmp_path / "work"
     assert generator.lookup_directory(tmp_path) == tmp_path / "work"
 
 
