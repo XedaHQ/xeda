@@ -57,6 +57,7 @@ from ..deliver import (
     split_deliveries,
 )
 from ..design import generator_of
+from ..plan import PlanDelivery, delivery_key, planned_destination
 from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.chains import parse_request
 from ..errors import RecordError, SpecError
@@ -561,6 +562,8 @@ class _Prepared:
     flow_class: Any
     requested: str
     deliveries: Optional[Deliveries]
+    #: The deliveries that `--outputs-to` expects, as a plan lists them.
+    planned_deliveries: tuple[PlanDelivery, ...] = ()
 
     def local(self) -> "_Local":
         return _Local(
@@ -647,8 +650,9 @@ def _plan(
     ssh_options: Sequence[str],
     profile: HostProfile,
     local_settings: LocalSettings | None,
+    dry_run: bool = False,
 ) -> _Prepared:
-    """Step 1: the checks that need no connection."""
+    """Step 1: the checks that need no connection. A dry run asks no question."""
     destination = resolve_destination(destination_text, ssh_options)
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -683,17 +687,26 @@ def _plan(
     node = plan.node(plan.requested)
     _check_deliverables(prepared, prepared.design.name)
     deliveries: Optional[Deliveries] = None
+    planned: tuple[PlanDelivery, ...] = ()
     if outputs_to is not None:
-        deliveries = _check_outputs_to(
+        deliveries, planned = _check_outputs_to(
             launcher,
             prepared,
             run,
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
+            dry_run=dry_run,
         )
     return _Prepared(
-        profile, destination, launcher, prepared, node.flow_class, plan.requested, deliveries
+        profile,
+        destination,
+        launcher,
+        prepared,
+        node.flow_class,
+        plan.requested,
+        deliveries,
+        planned,
     )
 
 
@@ -711,9 +724,13 @@ def _check_outputs_to(
     outputs_to: Path,
     overwrite_outputs: bool,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
-) -> Deliveries:
+    dry_run: bool = False,
+) -> tuple[Deliveries, tuple[PlanDelivery, ...]]:
     """Check `--outputs-to` as a local launch does, before anything is connected or shipped. The
-    deliveries protect every file that this side can name as an input."""
+    deliveries protect every file that this side can name as an input.
+
+    Return the deliveries and the planned ones. A dry run, as a plan, asks no question: it
+    refuses what no answer could allow and reports a file in the way as `replaces`."""
     plan = prepared.plan
     node = plan.node(plan.requested)
     local_root = _local_run_root(launcher._run_root)  # pylint: disable=protected-access
@@ -739,9 +756,17 @@ def _check_outputs_to(
     # The directory itself, and the files that the last fetch would deliver again.
     deliveries.check_outputs_to(outputs_to)
     previous = recorded_artifacts(mirror_dir, local_root)
-    if previous:
-        deliveries.check(outputs_to_deliveries(previous, mirror_dir, outputs_to))
-    return deliveries
+    expected = outputs_to_deliveries(previous, mirror_dir, outputs_to) if previous else []
+    if not dry_run:
+        if previous:
+            deliveries.check(expected)
+        return deliveries, ()
+    deliveries.refuse(expected)
+    replaced = {id(d) for d in deliveries.replaced(expected)}
+    return deliveries, tuple(
+        PlanDelivery(delivery_key(d.key), planned_destination(d.destination), id(d) in replaced)
+        for d in expected
+    )
 
 
 # --- The steps with the connection ------------------------------------------------------------
@@ -1254,6 +1279,27 @@ def _local_design(document: Dict[str, Any], run: _Run, design_name: str) -> Dict
     return document
 
 
+def _plan_outputs_to(
+    document: Dict[str, Any],
+    outputs_to: Optional[Path],
+    overwrite_outputs: bool,
+    planned: Sequence[PlanDelivery],
+) -> None:
+    """Put the options of delivery and the planned deliveries into the dry-run document of the
+    host. The host delivers nothing, so only this side knows them."""
+    options = document.get("options")
+    if isinstance(options, dict):
+        options["outputs_to"] = None if outputs_to is None else os.path.abspath(outputs_to)
+        options["overwrite_outputs"] = overwrite_outputs
+    roots = document.get("roots") or []
+    for node in document.get("nodes") or []:
+        if node.get("name") in roots:
+            node["deliveries"] = [
+                {"key": d.key, "destination": str(d.destination), "replaces": d.replaces}
+                for d in planned
+            ]
+
+
 def _print_dry_run(host: str, document: Mapping[str, Any]) -> None:
     """The report of a dry run on the log: what was uploaded."""
     uploaded = document.get("uploaded") or []
@@ -1520,6 +1566,7 @@ def _run(
             ssh_options=ssh_options,
             profile=profile,
             local_settings=local_settings,
+            dry_run=dry_run,
         )
     except KeyboardInterrupt:
         raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None
@@ -1630,6 +1677,9 @@ def _run(
                     document["mirror"] = str(mirror_root)
                     _mirror_dry_run(document, mirror_root, remote_run_root)
                     document["uploaded"] = uploaded
+                    _plan_outputs_to(
+                        document, outputs_to, overwrite_outputs, prepared.planned_deliveries
+                    )
                     _print_dry_run(destination_text, document)
                     outcome = RemoteOutcome(document, result.get("error") is None)
                 else:

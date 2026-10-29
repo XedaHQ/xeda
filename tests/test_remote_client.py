@@ -1422,3 +1422,36 @@ def test_items_that_conflict_give_one_json_document_and_exit_status_2(tmp_path, 
     document = json.loads(result.stdout)
     assert document["outcome"] is None
     assert document["error"]["code"] == "conflicting_keys"
+
+
+@pytest.mark.parametrize("overwrite", [True, False])
+def test_a_dry_run_plans_the_deliveries_and_asks_nothing(tmp_path, remote_host, overwrite):
+    """The dry-run document has the delivery options and the deliveries that the last fetch
+    predicts. A file of the user in the way is `replaces`, and no question is asked."""
+    design = _design(tmp_path)
+    out = tmp_path / "out"
+    _succeeded(_request(tmp_path, design, outputs_to=out))
+    (out / "config.txt").write_text("yours\n")
+    asked: list[object] = []
+
+    def refuse_to_answer(conflicts):
+        asked.append(conflicts)
+        return False
+
+    document = _succeeded(
+        _request(
+            tmp_path,
+            design,
+            dry_run=True,
+            outputs_to=out,
+            overwrite_outputs=overwrite,
+            confirm_overwrite=refuse_to_answer,
+        )
+    )
+    assert not asked
+    assert document["options"]["outputs_to"] == str(out)
+    assert document["options"]["overwrite_outputs"] is overwrite
+    assert {"key": "outputs_to", "destination": str(out / "config.txt"), "replaces": True} in (
+        _last(document)["deliveries"]
+    )
+    assert (out / "config.txt").read_text() == "yours\n"
