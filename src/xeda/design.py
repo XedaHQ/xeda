@@ -71,6 +71,7 @@ from .dataclass import (
     validation_errors,
 )
 from .digest import content_digest
+from .errors import DesignError
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
 from .proc_utils import run_child
 from .setting_text import SettingTextError
@@ -143,7 +144,7 @@ def pformat(data):
     return pprint.pformat(data, compact=True, sort_dicts=False).removeprefix("{").removesuffix("}")
 
 
-class DesignFileParseError(XedaException):
+class DesignFileParseError(DesignError):
     """A design file that cannot be read as a design: it cannot be opened, is not valid
     TOML/JSON/YAML, has a suffix Xeda does not read, or does not hold a table of design fields.
 
@@ -162,10 +163,18 @@ class DesignFileParseError(XedaException):
         self.reason = reason
         self.line = line
         self.column = column
-        super().__init__(self.file, reason, line, column)  # rebuilt from `args` when unpickled
+        super().__init__(
+            self._format(),
+            code="design_file_not_found" if not Path(self.file).exists() else "invalid_design",
+            problem=reason,
+            path=Path(self.file),
+        )
 
     def __str__(self) -> str:
         """Include the file and available source location in the error message."""
+        return self.message
+
+    def _format(self) -> str:
         where = f'"{self.file}"'
         if self.line is not None:
             where += f", line {self.line}"
@@ -174,7 +183,7 @@ class DesignFileParseError(XedaException):
         return f"Cannot load design file {where}: {self.reason}"
 
 
-class AnyDesignValidationException(XedaException):
+class AnyDesignValidationException(DesignError):
     pass
 
 
@@ -189,6 +198,16 @@ class MissingFile(ValueError):
     every other (`MISSING_FILE_ERROR`)."""
 
 
+#: The code of a design error, by the type of its first finding. Any other type is an invalid
+#: design.
+_DESIGN_CODES = {
+    "removed_alias": "removed_alias",
+    "removed_key": "removed_key",
+    "unknown_target": "unknown_target",
+    "target_required": "target_required",
+}
+
+
 class DesignValidationError(AnyDesignValidationException):
     def __init__(
         self,
@@ -200,15 +219,27 @@ class DesignValidationError(AnyDesignValidationException):
         file: Optional[str] = None,
         design_in_msg: bool = False,
     ) -> None:
-        super().__init__(*args)
         self.errors = errors  # (location, message, context, type)
         self.data = data or {}
         self.root = root
         self.design_name = design_name
         self.file = file
         self.design_in_msg = design_in_msg
+        first = errors[0] if errors else None
+        location = first[0] if first else None
+        super().__init__(
+            self._format(),
+            code=_DESIGN_CODES.get((first[3] if first else None) or "", "invalid_design"),
+            field=".".join(location.split(" -> ")) if location else None,
+            problem=first[1] if first and first[1] else None,
+            path=Path(file) if file else None,
+        )
 
     def __str__(self) -> str:
+        """Format validation errors with their design name and field locations."""
+        return self.message
+
+    def _format(self) -> str:
         """Format validation errors with their design name and field locations."""
 
         def fmt_loc(loc):
@@ -217,6 +248,7 @@ class DesignValidationError(AnyDesignValidationException):
             return ""
 
         name = self.design_name or self.data.get("name")
+        name = None if name is None else str(name)  # a malformed name need not be a string
         return "{}: {} error{} validating design{}{}\n{}".format(
             self.__class__.__qualname__,
             len(self.errors),

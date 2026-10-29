@@ -15,7 +15,7 @@ from click.testing import CliRunner
 
 from xeda import Design
 from xeda.cli import cli
-from xeda.design import DesignValidationError
+from xeda.design import DesignFileParseError, DesignValidationError
 from xeda.frozen import thaw
 
 DESIGN_FILE = """\
@@ -681,3 +681,37 @@ def test_a_target_generator_classifies_written_patterns_once(tmp_path):
             "board.v",
             "extra.v",
         ]
+
+
+def _is_design_error(error: BaseException, code: str, field: str | None = None):
+    from xeda.errors import DesignError, XedaError
+
+    assert isinstance(error, XedaError) and isinstance(error, DesignError)
+    assert error.code == code and error.field == field
+
+
+def test_a_bad_design_raises_a_design_error(tmp_path):
+    import pickle
+
+    design = Design.load(_tree(tmp_path), target="ecp5")
+    with pytest.raises(DesignValidationError) as invalid:
+        design.with_updates({"nonsense": 1})
+    _is_design_error(invalid.value, "invalid_design", "nonsense")
+    with pytest.raises(DesignValidationError) as unknown:
+        design.with_target("nope")
+    _is_design_error(unknown.value, "unknown_target", unknown.value.field)
+    with pytest.raises(DesignValidationError) as built:
+        Design(name="a", root=tmp_path, rtl={"sources": [], "top": 3})
+    _is_design_error(built.value, "invalid_design", "rtl.top")
+    assert str(built.value) == built.value.message
+    assert str(pickle.loads(pickle.dumps(built.value))) == str(built.value)
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("name: [\n")
+    with pytest.raises(DesignFileParseError) as malformed:
+        Design.load(bad)
+    _is_design_error(malformed.value, "invalid_design")
+    assert malformed.value.path == bad
+    with pytest.raises(DesignFileParseError) as missing:
+        Design.load(tmp_path / "nowhere.yaml")
+    _is_design_error(missing.value, "design_file_not_found")
