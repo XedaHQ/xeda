@@ -68,15 +68,16 @@ launch stopped before its turn) and `detached` (a remote launch that keeps runni
 `cleanup_failed`, a remote failure). Otherwise it is that of the cause: the root, or the producer
 that failed or was rejected.
 
-`--dry-run --json` prints a document of its own, not the `run` document. Its keys are `flow`,
-`design`, `design_file`, `target`, `success`, `dry_run` (true), `request` and `plan` (`requested`,
-`target`, `nodes`). A plan node has `name`, `flow`, `run_path`, `flowrun_hash`, `settings_hash`,
-`inputs` (`origin`: `producer`, `source` or `none`; `binding_origin`), `switched_on`, `state`,
-`reason`, `action_reason`, `input_types` and `output_types`. `state` is `fresh` (reused), `stale`
+`--dry-run --json` prints a document of its own, not the `run` document. Its keys are
+`schema_version`, `spec` (`flow`, `design`, `design_file`, `target`, `settings`), `roots`, `options`
+(the seven launch options by name) and `nodes`. A plan node has `name`, `flow`, `run_dir`,
+`identity`, `state`, `reason`, `action`, `settings`, `inputs` (`name`, `origin`: `producer`, `source`
+or `none`; `producer`, `output`, `sources`, `reason`), `outputs_enabled`, `input_types`,
+`output_types` and `deliveries` (`key`, `destination`, `replaces`). `state` is `fresh` (reused), `stale`
 (runs; `reason` is the one the log gives), `unknown` (`reason` says why, for example `depends on
-yosys_fpga`), `rejected again` (the checks rejected the last run and nothing it consumes changed;
-`reason` is the recorded message, and the flow does not run) or `blocked` (a producer is `rejected
-again` or blocked; `reason` names it).
+yosys_fpga`), `rejected` (the checks rejected the last run and nothing it consumes changed;
+`reason` is the recorded message, and the flow does not run) or `blocked` (a producer is `rejected`
+or blocked; `reason` names it).
 
 ## Plan before you run
 
@@ -544,8 +545,8 @@ Behavior:
   but could not be fetched or delivered has `remote_fetch_failed` or `delivery_failed` and keeps its
   records; Ctrl-C gives `canceled`; `--keep-running` then Ctrl-C gives the outcome `detached` and
   `remote_detached`. A remote dry run prints the dry-run document and adds `remote`, `mirror` and
-  `uploaded` (the input files it sent), and each `plan` node has `run_path` (in the mirror) and
-  `remote_run_path`. Tool output goes to stderr.
+  `uploaded` (the input files it sent), and each node of the plan has `run_dir` (in the mirror) and
+  `remote_run_dir`. Tool output goes to stderr.
 - `--dry-run --remote HOST` plans and judges freshness on the host. It may install Xeda there and
   sync the inputs; it writes no run directory.
 - Ctrl-C asks the host to cancel (SIGINT, after 15 s SIGTERM, after 10 s more SIGKILL, to the

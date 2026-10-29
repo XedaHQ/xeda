@@ -39,7 +39,9 @@ from xeda.flow_runner.chains import (
 )
 from xeda.flow_runner.settings_layers import transitive_dependencies
 from xeda.flows import Bsc, BscSim, GhdlSim, Nextpnr, OpenroadPlace, Verilator, Yosys
-from xeda.introspect import flow_chain_cells, flow_info, plan_info
+from xeda.introspect import flow_chain_cells, flow_info
+
+from .plan_documents import plan_nodes
 
 from .derived_flows import converter_flows, design_output_flow, vhdl_converter
 from .flow_registry import preserved_flow_registry
@@ -504,8 +506,8 @@ def test_an_unbound_design_input_changes_no_plan(tmp_path) -> None:
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan("yosys", design)
     assert [node.name for node in plan.nodes] == ["yosys"]
     assert plan.node("yosys").inputs == ()
-    assert [i["name"] for node in plan_info(plan)["nodes"] for i in node["inputs"]] == []
-    assert "design" not in plan_info(plan)["nodes"][0]["input_types"]
+    assert [i["name"] for node in plan_nodes(plan) for i in node["inputs"]] == []
+    assert "design" not in plan_nodes(plan)[0]["input_types"]
 
 
 def test_a_design_input_bound_to_bsc_is_planned_through_the_binding(tmp_path) -> None:
@@ -520,7 +522,7 @@ def test_a_design_input_bound_to_bsc_is_planned_through_the_binding(tmp_path) ->
         "design",
     )
     assert bound.binding_origin == "file"
-    assert "design" not in plan_info(plan)["nodes"][1]["input_types"]
+    assert "design" not in plan_nodes(plan)[1]["input_types"]
 
 
 def test_a_chain_plans_the_converter_before_the_flow_it_binds(tmp_path) -> None:

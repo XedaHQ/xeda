@@ -130,7 +130,7 @@ def test_an_invalid_setting_exits_2_with_a_null_outcome(tmp_path):
         "run", "nextpnr", str(SQRT), "-s", "nextpnr.seed=1", "--dry-run", "--json", cwd=tmp_path
     )
     assert valid.returncode == 0, valid.stderr
-    assert json_stdout(valid)["success"] is True
+    assert json_stdout(valid)["spec"]["settings"] == {"nextpnr": {"seed": "1"}}
 
 
 def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_spelling(tmp_path):

@@ -1256,6 +1256,25 @@ class Deliveries:
         if refusals:
             raise DeliveryError("; ".join(refusals), before_run=True)
 
+    def _conflicts(
+        self, predicted: Sequence[Delivery]
+    ) -> tuple[list[Conflict], dict[Path, _State]]:
+        """Return the files in the way of the deliveries, and the state of every destination."""
+        conflicts: list[Conflict] = []
+        states: dict[Path, _State] = {}
+        for delivery in [*self.named, *self.generated, *predicted]:
+            destination = _located(delivery.destination)
+            why = self._why_not_ours(destination)
+            if why is not None:
+                conflicts.append(Conflict(delivery, destination, why))
+            states[destination] = _state(destination)
+        return conflicts, states
+
+    def replaced(self, predicted: Sequence[Delivery] = ()) -> list[Delivery]:
+        """Return the deliveries that would replace a file that is not an unchanged earlier
+        delivery of Xeda, and ask nothing: a plan reports them (`check` asks about them)."""
+        return [conflict.delivery for conflict in self._conflicts(predicted)[0]]
+
     def check(self, predicted: Sequence[Delivery] = ()) -> None:
         """Check the deliveries before any tool of the node runs.
 
@@ -1272,14 +1291,7 @@ class Deliveries:
         artifacts of the last run.
         """
         self.refuse(predicted)
-        conflicts: list[Conflict] = []
-        states: dict[Path, _State] = {}
-        for delivery in [*self.named, *self.generated, *predicted]:
-            destination = _located(delivery.destination)
-            why = self._why_not_ours(destination)
-            if why is not None:
-                conflicts.append(Conflict(delivery, destination, why))
-            states[destination] = _state(destination)
+        conflicts, states = self._conflicts(predicted)
         if conflicts and not self._confirmed(conflicts):
             raise OutputExistsError(_refused(conflicts), before_run=True)
         self.checked = states

@@ -277,9 +277,7 @@ def test_ctrl_c_while_planning_prints_one_document_without_an_outcome(
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(
-        DefaultRunner, "plan_with_freshness" if dry_run else "resolve_run", interrupted
-    )
+    monkeypatch.setattr(DefaultRunner, "plan_launch" if dry_run else "resolve_run", interrupted)
     result, document = _run("toy_node_producer", str(design), *(["--dry-run"] if dry_run else []))
     assert result.exit_code == 1
     assert document["outcome"] is None and document["error"]["code"] == "canceled"

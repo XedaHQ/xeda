@@ -36,6 +36,8 @@ from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
 from ..local_settings import LocalSettings
+from ..plan import PlanDelivery, delivery_key, planned_destination
+from ..spec import Spec
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -113,6 +115,7 @@ from .environment import EnvironmentSnapshot
 from .error_codes import error_info
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
+from .launch_options import LaunchOptions
 from .launch_report import (
     report,
     reuse_results,
@@ -309,6 +312,19 @@ class PreparedRequest:
     target: str | None
     #: The design as the caller gave it (`_Request.declared`).
     declared: Design
+
+
+@dataclass(frozen=True)
+class PlannedLaunch:
+    """A request that is planned and judged: what `plan_launch` returns.
+
+    `states` holds what a launch would do with each node, and `deliveries` the files that each
+    node would deliver, both by node name."""
+
+    request: _Request
+    plan: Plan
+    states: dict[str, NodeFreshness]
+    deliveries: dict[str, tuple[PlanDelivery, ...]]
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -1184,6 +1200,32 @@ class FlowLauncher:
         that reads them. The destinations that the declared names give are checked now, before
         the generator runs. The names that a pattern matches are known once it has run
         (`_place_generated_deliveries`)."""
+        own, predicted, ahead, _ = self._refuse_deliveries_ahead(
+            plan, requested, design, deliveries, run_path, start_directory
+        )
+        for producer in ahead.values():
+            producer.check()
+        own.check(predicted)
+        ahead[requested.node_key] = own
+        self._deliveries_ahead = ahead
+
+    def _refuse_deliveries_ahead(
+        self,
+        plan: Plan,
+        requested: PlanNode,
+        design: Design,
+        deliveries: Sequence[Delivery],
+        run_path: Path,
+        start_directory: Path,
+    ) -> tuple[
+        Deliveries, list[Delivery], dict[NodeKey, Deliveries], dict[NodeKey, list[Delivery]]
+    ]:
+        """Refuse what no answer could allow of the deliveries of every flow of the plan.
+
+        This is the first half of `_check_deliveries_ahead`, and it asks nothing. Return the
+        deliveries of the requested flow, those that `--outputs-to` is expected to make from the
+        last run, those of the other flows that deliver, and the copies of generated sources by
+        node. A plan reports them."""
         # What no answer could allow comes first, for every flow of the plan: a file that a flow
         # reads and that lies in its own run directory, which Xeda empties and rewrites. A flow
         # checks it again at its turn, for a file made since.
@@ -1201,7 +1243,9 @@ class FlowLauncher:
         own.generated = generated.get(requested.node_key, [])
         own.check_outputs_to(outputs_to)
         predicted = (
-            outputs_to_deliveries(recorded_artifacts(run_path, self.run_root), run_path, outputs_to)
+            outputs_to_deliveries(
+                recorded_artifacts(run_path, self._run_root), run_path, outputs_to
+            )
             if outputs_to is not None
             else []
         )
@@ -1227,11 +1271,7 @@ class FlowLauncher:
         for producer in ahead.values():
             producer.refuse()
         refuse_shared_destinations(copies, before_run=True)
-        for producer in ahead.values():
-            producer.check()
-        own.check(predicted)
-        ahead[requested.node_key] = own
-        self._deliveries_ahead = ahead
+        return own, predicted, ahead, generated
 
     @staticmethod
     def _generated_by_node(
@@ -1301,7 +1341,7 @@ class FlowLauncher:
         They are the deliveries for this launch."""
         return Deliveries(
             run_path,
-            self.run_root,
+            self._run_root,
             named,
             inputs=self._read_inputs,  # the launch's
             overwrite=self.settings.overwrite_outputs,
@@ -2318,10 +2358,46 @@ class FlowLauncher:
     ) -> tuple[Plan, dict[str, NodeFreshness]]:
         """Return `plan()` and what `run()` would do with each node.
 
-        The state of a node is `fresh` (reused), `stale` (run, for the reason it logs) or
-        `unknown` (it cannot be told without running a producer, running the generator of the
-        design, or looking up something that only a process can). This is read-only: nothing is created, locked, refreshed or started
-        (`plan_freshness`). `--rebuild-all` and `--clean` make every node stale."""
+        The state of a node is `fresh` (reused), `rejected` (reused, and reported rejected
+        again), `stale` (run, for the reason it logs), `unknown` (it cannot be told without
+        running a producer, running the generator of the design, or looking up something that
+        only a process can) or `blocked`. This is read-only: nothing is created, locked,
+        refreshed or started (`plan_freshness`). `--rebuild-all` and `--clean` make every node
+        stale."""
+        planned = self.plan_launch(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            design_updates,
+            design_allow_extra,
+            design_remove_fields,
+            target,
+            local_settings,
+        )
+        return planned.plan, planned.states
+
+    @log_context.with_launch_context
+    def plan_launch(
+        self,
+        flow: type[Flow] | str,
+        design: str | Path | Design | dict[str, Any] | None = None,
+        xedaproject: str | None = None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
+        design_updates: Iterable[str] | dict[str, Any] | None = None,
+        design_allow_extra: bool = False,
+        design_remove_fields: list[str] = [],
+        target: str | None | Unset = UNSET,
+        local_settings: LocalSettings | None = None,
+    ) -> PlannedLaunch:
+        """Plan what `run()` would execute, and tell what it would do with each node.
+
+        Return the request (which holds the loaded design), the resolved plan, the state of each
+        node and the deliveries that each node would make. Besides what `plan()` refuses, it
+        refuses a delivery that no answer could allow. Nothing is created, locked, refreshed or
+        started."""
         request, plan = self._plan(
             flow,
             design,
@@ -2334,6 +2410,44 @@ class FlowLauncher:
             target,
             local_settings,
         )
+        return self._planned(request, plan)
+
+    @log_context.with_launch_context
+    def plan_spec(
+        self, spec: Spec, *, local_settings: LocalSettings | None, options: LaunchOptions
+    ) -> PlannedLaunch:
+        """Plan what a launch of `spec` would do under `options`, as `plan_launch` does.
+
+        The launcher takes `options` as the settings of this launch: it is the one entry that
+        `Workspace.plan` calls."""
+        self._apply(options)
+        request, plan = self._judged_request(
+            spec.flow,
+            spec.design,
+            None,
+            thaw(spec.settings),
+            [],
+            None,
+            False,
+            [],
+            target=UNSET,
+            local_settings=local_settings,
+        )
+        self._refuse_planned(plan)
+        return self._planned(request, plan)
+
+    def _apply(self, options: LaunchOptions) -> None:
+        """Take `options` as the settings of this launcher."""
+        self.settings.rebuild_all = options.rebuild_all
+        self.settings.clean = options.clean
+        self.settings.scrub_old_runs = options.prune_variants
+        self.settings.outputs_to = options.outputs_to
+        self.settings.overwrite_outputs = options.overwrite_outputs
+        self.settings.post_cleanup = options.post_cleanup
+        self.settings.post_cleanup_purge = options.post_cleanup_purge
+
+    def _planned(self, request: _Request, plan: Plan) -> PlannedLaunch:
+        """Judge each node of `plan`, and list the deliveries that a launch of it would make."""
         states = judge_plan(
             plan,
             request.design,
@@ -2345,7 +2459,52 @@ class FlowLauncher:
             run_path=self.run_path_of,
             environment=EnvironmentSnapshot.take(request.private_env),
         )
-        return plan, states
+        return PlannedLaunch(request, plan, states, self._planned_deliveries(request.design, plan))
+
+    def _planned_deliveries(
+        self, design: Design, plan: Plan
+    ) -> dict[str, tuple[PlanDelivery, ...]]:
+        """Refuse what no answer could allow of the deliveries of `plan`, as a launch does before
+        it runs a tool, and return the deliveries of each node by name.
+
+        A delivery replaces a file when that file is not an unchanged earlier delivery of Xeda.
+        Nothing is asked and nothing is written."""
+        self._read_inputs = ReadInputs(self._launch_inputs)
+        self._read_inputs.add(design_files(design))
+        self._read_inputs.add_source_entries(design.source_entries())
+        for planned in plan.nodes:
+            register_read_settings(
+                self._read_inputs, planned.settings, planned.run_path, self._run_root
+            )
+        requested = plan.node(plan.requested)
+        start = Path.cwd()
+        input_settings = launch_input.input_settings(
+            requested.flow_class,
+            requested.settings,
+            planned_design_of(plan, requested, design, self.run_path_of),
+            start,
+            False,
+            debug=self.debug,
+        )
+        named = split_deliveries(input_settings, design.name)
+        own, predicted, ahead, _ = self._refuse_deliveries_ahead(
+            plan, requested, design, named, requested.run_path, start
+        )
+        ahead[requested.node_key] = own
+        planned_deliveries: dict[str, tuple[PlanDelivery, ...]] = {}
+        for planned in plan.nodes:
+            deliveries = ahead.get(planned.node_key)
+            if deliveries is None:
+                continue
+            expected = predicted if planned.node_key == requested.node_key else []
+            replaced = {id(d) for d in deliveries.replaced(expected)}
+            planned_deliveries[planned.name] = tuple(
+                PlanDelivery(
+                    delivery_key(d.key), planned_destination(d.destination), id(d) in replaced
+                )
+                for d in [*deliveries.named, *deliveries.generated, *expected]
+            )
+        return planned_deliveries
 
     def _plan(
         self,

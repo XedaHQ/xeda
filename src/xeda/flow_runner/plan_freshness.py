@@ -6,9 +6,9 @@ Each node is in one of five states:
 - `stale`: a launch runs the node, for the reason the launch logs.
 - `unknown`: nothing can be said without making something first. Examples are a producer that
   would run, a container image to look up and a prepared input that does not exist yet.
-- `rejected again`: the last run of the node was rejected by its own checks, and nothing it
+- `rejected`: the last run of the node was rejected by its own checks, and nothing it
   consumes changed. A launch reports that rejection again and does not run the tool.
-- `blocked`: a producer of the node is `rejected again` or `blocked`. A launch stops at that
+- `blocked`: a producer of the node is `rejected` or `blocked`. A launch stops at that
   producer, before it prepares anything for the node.
 
 The dry run uses what the launch uses. `trace_inputs.expected_run` says what a node would
@@ -36,7 +36,7 @@ A node is judged in the order the launch uses:
 2. The settings, which a launch checks against that design. If it refuses them, the node is
    `unknown`.
 3. The producers, in the order in which a launch runs them (the converter of the design first).
-   A producer that is `rejected again` or `blocked` makes the node `blocked`. The recorded
+   A producer that is `rejected` or `blocked` makes the node `blocked`. The recorded
    outputs of every producer that is `fresh`, whatever the other producers do, must be handed
    over. If one cannot be, the node is `unknown`. A producer that is not `fresh` is not read,
    because it will be rewritten. Of the two problems, the one with the earlier producer decides.
@@ -52,7 +52,7 @@ A node is judged in the order the launch uses:
 10. `results.json`, only when the trace is current and every producer is `fresh`. The record
    must agree with the verdict of the trace (`launch_report.adoptable_document`). If it does
    not, the node is `stale`. If it does, the node is `fresh` for a run that passed, and
-   `rejected again` for a run that was rejected.
+   `rejected` for a run that was rejected.
 """
 
 from __future__ import annotations
@@ -97,11 +97,11 @@ from .trace_inputs import expected_run
 
 log = logging.getLogger(__name__)
 
-State = Literal["fresh", "stale", "unknown", "rejected again", "blocked"]
+State = Literal["fresh", "rejected", "stale", "unknown", "blocked"]
 
 #: Why a node runs under `--rebuild-all` and `--clean`. The launch records these too.
-EVERY_FLOW_RUNS_REBUILD_ALL = "every flow runs (--rebuild-all)"
-EVERY_FLOW_RUNS_CLEAN = "every flow runs (--clean)"
+EVERY_FLOW_RUNS_REBUILD_ALL = "rebuild_all"
+EVERY_FLOW_RUNS_CLEAN = "clean"
 
 
 @dataclass(frozen=True)
@@ -109,7 +109,7 @@ class NodeFreshness:
     """What a launch would do with one node.
 
     `reason` is the reason that the launch itself gives for a `stale` node. For an `unknown`
-    node it says why nothing can be said. For a `rejected again` node it is the message of the
+    node it says why nothing can be said. For a `rejected` node it is the message of the
     rejection. For a `blocked` node it names the producer that blocks it. It is empty for a
     `fresh` node."""
 
@@ -405,7 +405,7 @@ def judge_node(
     for item in node.inputs:
         for ref in item.references:
             producer = plan.node(ref.node)
-            if states[ref.node].state == "rejected again":
+            if states[ref.node].state == "rejected":
                 return lacks or NodeFreshness(
                     "blocked", f"{producer.name} was rejected in its last run"
                 )
@@ -499,7 +499,7 @@ def judge_node(
         return NodeFreshness("stale", f"no completed results in {node.run_path / 'results.json'}")
     if freshness.verdict == "rejected":
         assert freshness.error is not None
-        return NodeFreshness("rejected again", freshness.error["message"])
+        return NodeFreshness("rejected", freshness.error["message"])
     return NodeFreshness("fresh")
 
 

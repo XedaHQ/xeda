@@ -125,8 +125,8 @@ def test_the_documented_command_plans(name, target, request_, flows, tmp_path):
     result = CliRunner().invoke(cli, args)
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["target"] == target
-    assert [node["name"] for node in document["plan"]["nodes"]] == flows
+    assert document["spec"]["target"] == target
+    assert [node["name"] for node in document["nodes"]] == flows
 
 
 def test_the_ascon_clock_reaches_synthesis_and_placement(tmp_path):

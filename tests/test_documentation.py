@@ -485,7 +485,7 @@ def test_documented_source_suffixes_match_the_loader(relative):
 
 
 def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
-    """Run the published planning command and check its JSON example, including switched outputs."""
+    """Run the published planning command and check its JSON example, ."""
     from click.testing import CliRunner
 
     from xeda.cli import cli
@@ -506,11 +506,11 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
     example = re.search(r"    \{\n.*?\n    \}", section, re.S)
     assert example, "the planning example needs a complete JSON document"
     expected = json.loads(textwrap.dedent(example.group()))
-    actual["design_file"] = actual["design_file"].replace(str(tmp_path), "/path/to")
-    for node in actual["plan"]["nodes"]:
-        node["run_path"] = node["run_path"].replace(str(tmp_path), "/path/to")
-        node["flowrun_hash"] = "..."
-        node["settings_hash"] = "..."
+    actual["spec"]["design_file"] = actual["spec"]["design_file"].replace(str(tmp_path), "/path/to")
+    for node in actual["nodes"]:
+        node["run_dir"] = node["run_dir"].replace(str(tmp_path), "/path/to")
+        node["identity"] = "..."
+        node["settings"] = {"...": "..."}  # the effective settings of a flow fill pages
     assert actual == expected
     assert not (tmp_path / "xeda_run").exists()
 

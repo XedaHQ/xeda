@@ -21,7 +21,6 @@ from enum import Enum, IntEnum
 from pathlib import Path
 from types import UnionType
 from typing import (
-    TYPE_CHECKING,
     Annotated,
     Any,
     Dict,
@@ -59,15 +58,12 @@ from .design import (
     names_a_design_file,
 )
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
-from .flow.io import declared_inputs, declared_outputs, selected_types
+from .flow.io import declared_inputs, declared_outputs
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
 from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit
 from .utils import json_encodable, unique, with_json_keys
-
-if TYPE_CHECKING:
-    from .flow_runner.resolver import Plan
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +76,6 @@ __all__ = [
     "flows_info",
     "json_safe",
     "optimizers_info",
-    "plan_info",
     "platforms_info",
     "provider_status",
     "results_info",
@@ -128,100 +123,6 @@ def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
         elif name is None:
             name = str(requested)
     return {"design": name, "design_file": file}
-
-
-def request_info(request: Any) -> list[dict[str, Any]]:
-    """Return the elements of a request with canonical names: one for a single flow, several for
-    a chain. `output` is the output that a chain element selects for its edge to the next
-    element, else None. `through` lists the names of the flows between the element and the next
-    one, in chain order. It is empty for a direct link and for the last element."""
-    return [
-        {
-            "node": element.node,
-            "flow": element.flow_class.name,
-            "output": element.output,
-            "through": (
-                [flow.name for flow in request.through(index)] if index < len(request.links) else []
-            ),
-        }
-        for index, element in enumerate(request.elements)
-    ]
-
-
-def inputs_info(node: Any) -> list[dict[str, Any]]:
-    """Return the resolved inputs of a plan node, as `plan_info` and the nodes of `xeda run
-    --json` give them."""
-    return [
-        {
-            "name": resolved.name,
-            "origin": resolved.origin,
-            "producer": resolved.producer,
-            "output": resolved.output,
-            "sources": [str(path) for path in resolved.sources],
-            "references": [{"node": ref.node, "output": ref.output} for ref in resolved.references],
-            "binding_origin": resolved.binding_origin,
-            "binding_location": resolved.binding_location,
-            "overridden": list(resolved.overridden),
-            "reason": resolved.reason,
-        }
-        for resolved in node.inputs
-    ]
-
-
-def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Return a resolved plan as plain data: the selected target of the design (or None) and the
-    nodes, producers first, each with its run directory, input origins and the outputs switched
-    on because a consumer reads them.
-
-    With `freshness` (from `DefaultRunner.plan_with_freshness`), each node also has `state`
-    (`fresh`, `stale` or `unknown`) and `reason`, which say what a launch would do and why. The
-    reason of a stale node is the text that the launch logs. The reason of an unknown node says
-    why nothing can be said. The reason of a fresh node is empty.
-    """
-    return json_safe(
-        {
-            "requested": plan.requested,
-            "target": plan.context.target,
-            "nodes": [
-                {
-                    "name": node.name,
-                    "flow": node.flow_class.name,
-                    "run_path": str(node.run_path),
-                    "flowrun_hash": node.flowrun_hash,
-                    "settings_hash": node.settings_hash,
-                    "inputs": inputs_info(node),
-                    "switched_on": list(node.switched_on),
-                    **(
-                        {
-                            "state": freshness[node.name].state,
-                            "reason": freshness[node.name].reason,
-                        }
-                        if freshness is not None
-                        else {}
-                    ),
-                    # Static class metadata. `always_runs()` is never called here.
-                    "action_reason": node.flow_class.action_reason,
-                    # The types of files: the design kind has none.
-                    "input_types": {
-                        name: [t.name for t in selected_types(node.flow_class, node.settings, name)]
-                        for name, declaration in declared_inputs(node.flow_class).items()
-                        if not declaration.is_design
-                    },
-                    "output_types": {
-                        name: [
-                            t.name
-                            for t in selected_types(
-                                node.flow_class, node.settings, name, output=True
-                            )
-                        ]
-                        for name, declaration in declared_outputs(node.flow_class).items()
-                        if not declaration.is_design
-                    },
-                }
-                for node in plan.nodes
-            ],
-        }
-    )
 
 
 def all_flow_classes() -> List[Type[Flow]]:

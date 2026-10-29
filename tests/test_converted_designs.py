@@ -31,7 +31,7 @@ from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.plan_freshness import NodeFreshness
 from xeda.flow_runner.resolver import Plan, planned_design_of
 from xeda.flow_runner.trace import Freshness
-from xeda.introspect import plan_info
+from .plan_documents import plan_nodes
 
 from .scoping import node_settings
 from .derived_flows import converter_flows
@@ -211,13 +211,13 @@ def test_the_plan_line_and_the_json_name_the_reason(tmp_path) -> None:
     assert item.describe() == (
         "design <- bsc.design (the design has Bluespec sources, which yosys does not read)"
     )
-    info = plan_info(plan)["nodes"]
+    info = plan_nodes(plan)
     assert [i["reason"] for node in info for i in node["inputs"]] == [
         "the design has Bluespec sources, which yosys does not read"
     ]
     chained = runner(tmp_path).plan(parse_request("bsc+yosys"), design)
     assert chained.node("yosys").inputs[0].describe() == "design <- bsc.design (chain)"
-    assert plan_info(chained)["nodes"][1]["inputs"][0]["reason"] is None
+    assert "chain" in plan_nodes(chained)[1]["inputs"][0]["reason"]
 
 
 def test_a_design_the_flow_reads_is_planned_as_it_is(tmp_path) -> None:
@@ -660,7 +660,7 @@ def test_a_dry_run_agrees_with_the_launch(tmp_path) -> None:
     # --rebuild-all makes the reader stale before it can depend on anything
     rebuilding = DefaultRunner(tmp_path / "run", display_results=False, rebuild_all=True)
     _plan, rebuilt = rebuilding.plan_with_freshness(reader, design)
-    assert rebuilt[reader.name].state == "stale" and "--rebuild-all" in rebuilt[reader.name].reason
+    assert rebuilt[reader.name] == NodeFreshness("stale", "rebuild_all")
     # a generated file that changed by hand makes the converter stale, and the reader depends on it
     (the_runner.run_path_of(design.name, converter.name) / "Top.v").write_text(
         "module x(); endmodule\n"

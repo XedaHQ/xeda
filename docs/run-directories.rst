@@ -301,9 +301,9 @@ A flow is stale, and runs again, in any of these cases:
 
 ``xeda run --dry-run`` applies these rules and runs nothing. It reports each planned flow as
 ``fresh`` (the launch reuses it), ``stale: <reason>`` (the launch runs it, for the reason that the
-log gives), ``unknown: <reason>``, ``rejected again: <message>`` (the launch reports the recorded
+log gives), ``unknown: <reason>``, ``rejected: <message>`` (the launch reports the recorded
 rejection again and does not run the flow, see `A run that its checks rejected`_) or
-``blocked: <reason>`` (a producer is rejected again or blocked, so the flow does not run). A flow
+``blocked: <reason>`` (a producer is rejected or blocked, so the flow does not run). A flow
 is unknown when the answer needs something that only a launch makes:
 
 - The flow needs the output of a producer that would run first. The launch judges the flow by the
@@ -314,8 +314,8 @@ is unknown when the answer needs something that only a launch makes:
   output of a producer.
 
 The dry run takes no lock, does not refresh a trace and starts no process. With ``--rebuild-all`` or
-``--clean``, every flow is stale once its prepared inputs pass. The reason is ``every flow runs
-(--rebuild-all)`` or ``every flow runs (--clean)``, which a launch records too. A flow that always
+``--clean``, every flow is stale once its prepared inputs pass. The reason is ``rebuild_all`` or
+``clean``, which a launch records too. A flow that always
 runs keeps its own reason (``it draws a new random seed``).
 
 A run directory is reused, so a report that the previous run left is still there when the flow runs

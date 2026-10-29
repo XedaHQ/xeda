@@ -372,14 +372,16 @@ def test_selected_producer_output_can_feed_a_narrow_static_input(tmp_path):
 
 
 def test_dry_run_exposes_selected_types_and_catalog_keeps_the_vocabulary_union(tmp_path):
-    from xeda.introspect import flow_info, plan_info
+    from xeda.introspect import flow_info
+
+    from .plan_documents import plan_nodes
 
     plan = DefaultRunner(tmp_path / "run").plan(
         Nextpnr,
         _design(tmp_path),
         flow_settings=node_settings(Nextpnr, {"fpga": {"part": FAMILIES[0][0]}}),
     )
-    node = plan_info(plan)["nodes"][-1]
+    node = plan_nodes(plan)[-1]
     assert node["input_types"]["constraints"] == ["Lpf"]
     assert node["input_types"]["sdc"] == ["Sdc"]
     assert node["output_types"]["config"] == ["EcpConfig"]

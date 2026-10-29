@@ -527,7 +527,7 @@ def test_the_host_plans_the_identity_of_a_design_that_merges_units_with_content(
     )
     if dry.error is not None:
         raise dry.error
-    planned = dry.document["plan"]["nodes"]
+    planned = dry.document["nodes"]
     assert [n["name"] for n in planned] == [n.name for n in local.nodes]
 
 

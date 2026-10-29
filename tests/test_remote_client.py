@@ -499,9 +499,9 @@ def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host):
     design = _design(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"
     document = _succeeded(_request(tmp_path, design, dry_run=True))
-    assert document["dry_run"] is True and document["remote"] == "somewhere"
+    assert document["remote"] == "somewhere" and "error" not in document
     assert "top.v" in document["uploaded"] and "top.xeda.json" in document["uploaded"]
-    assert [node["state"] for node in document["plan"]["nodes"]] == ["stale", "stale"]
+    assert [node["state"] for node in document["nodes"]] == ["stale", "stale"]
     workspace = remote_host.workspace()
     assert (workspace / "inputs" / "top" / "top.v").is_file()
     assert (
@@ -513,7 +513,7 @@ def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host):
 
     _succeeded(_request(tmp_path, design))
     after = _succeeded(_request(tmp_path, design, dry_run=True))
-    assert [node["state"] for node in after["plan"]["nodes"]] == ["fresh", "fresh"]
+    assert [node["state"] for node in after["nodes"]] == ["fresh", "fresh"]
 
 
 def test_dry_run_through_the_command_line(tmp_path, remote_host):
@@ -525,7 +525,7 @@ def test_dry_run_through_the_command_line(tmp_path, remote_host):
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["dry_run"] is True and document["remote"] == "somewhere"
+    assert document["roots"] == ["nextpnr"] and document["remote"] == "somewhere"
 
 
 # --- The JSON document --------------------------------------------------------------------------
@@ -958,7 +958,7 @@ def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monk
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
     assert result.exit_code == 1, result.output
     document = json.loads(result.stdout)
-    assert document["success"] is False and document["dry_run"] is True
+    assert document["error"]["message"] == "the plan is not valid"
 
 
 def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host):
@@ -966,10 +966,10 @@ def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host
     mirror = _mirror(tmp_path)
     assert document["mirror"] == str(mirror)
     workspace = remote_host.workspace()
-    for node in document["plan"]["nodes"]:
+    for node in document["nodes"]:
         name = node["name"]
-        assert node["run_path"] == str(mirror / "top" / name)
-        assert node["remote_run_path"] == str(workspace / "xeda_run" / "top" / name)
+        assert node["run_dir"] == str(mirror / "top" / name)
+        assert node["remote_run_dir"] == str(workspace / "xeda_run" / "top" / name)
     assert not mirror.exists(), "a dry run writes no mirror"
 
 

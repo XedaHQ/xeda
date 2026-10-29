@@ -1192,17 +1192,13 @@ def _mirror_dry_run(
     """Point the run directories of a dry-run document at the places they have in the mirror.
 
     A dry run has no mirror, but the run does, and a reader of the plan wants the places on this
-    side, as the document of a run has them. `remote_run_path` keeps the place on the remote."""
-    plan = document.get("plan")
-    nodes = list(document.get("nodes") or [])
-    if isinstance(plan, dict):
-        nodes += list(plan.get("nodes") or [])
-    for node in nodes:
-        if not isinstance(node, dict) or "run_path" not in node:
+    side, as the document of a run has them. `remote_run_dir` keeps the place on the remote."""
+    for node in document.get("nodes") or []:
+        if not isinstance(node, dict) or "run_dir" not in node:
             continue
-        place = _place_below(remote_run_root, node["run_path"], "a run directory")
-        node["remote_run_path"] = node["run_path"]
-        node["run_path"] = str(mirror_root / place)
+        place = _place_below(remote_run_root, node["run_dir"], "a run directory")
+        node["remote_run_dir"] = node["run_dir"]
+        node["run_dir"] = str(mirror_root / place)
 
 
 def _translation(
@@ -1251,7 +1247,10 @@ def _local_design(document: Dict[str, Any], run: _Run, design_name: str) -> Dict
     """Name the design file that the user gave, and not the packaged copy on the remote."""
     from ..introspect import design_info
 
-    document.update(design_info(run.design, design_name))
+    spec = document.get("spec")
+    if isinstance(spec, dict):
+        spec.update(design_info(run.design, design_name))
+        spec.update(flow=run.chain, settings=_spec_fields(run)["settings"])
     return document
 
 
@@ -1303,8 +1302,6 @@ def run_remote(
     in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
     the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
     one too: its document has no outcome, since no launch started, and the code `canceled`."""
-    from ..introspect import request_info
-
     request = parse_request(chain)
     try:
         table = command_line_table(flow_settings)
@@ -1317,7 +1314,7 @@ def run_remote(
         target=target,
         host=destination_text,
         debug=log_level <= logging.DEBUG,
-        request=request_info(request),
+        request=request.as_elements(),
         settings=table,
     )
     try:
@@ -1634,7 +1631,7 @@ def _run(
                     _mirror_dry_run(document, mirror_root, remote_run_root)
                     document["uploaded"] = uploaded
                     _print_dry_run(destination_text, document)
-                    outcome = RemoteOutcome(document, bool(result.get("success")))
+                    outcome = RemoteOutcome(document, result.get("error") is None)
                 else:
                     outcome = _finish(
                         agent,

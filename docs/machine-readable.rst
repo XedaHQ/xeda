@@ -129,7 +129,7 @@ Each entry of these two lists has these keys:
 - ``output`` is the producer output that the request must name. It is ``null`` when the unqualified
   request is valid.
 - ``through`` lists the flows that the link passes through, in chain order. It is ``[]`` for a
-  direct link. Every entry has this key, as every element of ``request`` does.
+  direct link. Every entry has this key.
 - ``binds`` lists the ``flow``, ``input`` and ``output`` of each binding that the link makes. The
   ``flow`` is the flow whose input the link binds. It is the second flow for a direct link. For a
   link that passes through flows, it can be one of those flows, such as ``nextpnr`` for ``netlist``
@@ -708,8 +708,8 @@ connection) has the outcome ``detached``, the error code ``remote_detached`` and
 in ``launch_id``. Every node is ``detached``, and the launch keeps running on the host.
 
 The document of a remote dry run is the document of a local dry run with these keys: ``remote``,
-``mirror``, and ``uploaded``, the list of input files that the dry run sent to the host. Each node
-of ``plan`` has the ``run_path`` that the run would use in the mirror, and ``remote_run_path``, the
+``mirror``, and ``uploaded``, the list of input files that the dry run sent to the host. Each
+node has the ``run_dir`` that the run would use in the mirror, and ``remote_run_dir``, the
 directory on the host.
 
 ``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run. The other
@@ -796,106 +796,121 @@ A usage error of any other command exits with status 2.
 Planning a run
 ==============
 
-``xeda run <flow> <design> --dry-run --json`` prints the resolved plan and runs nothing. Its
-document is not the run document. It has the keys ``flow``, ``design``, ``design_file``,
-``target``, ``success``, ``dry_run`` (``true``), ``request`` and ``plan``, and each plan node names
-its run directory with ``run_path``. The next command is for a design named ``blinky`` whose RTL
-top is ``blinky``. It also shows a consumer that switches an optional output of its producer on:
+``xeda run <flow> <design> --dry-run --json`` prints the plan and runs nothing. Its document is not
+the run document: it has the keys ``schema_version`` (1), ``spec``, ``roots``, ``options`` and
+``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same document. The next
+command is for a design named ``blinky`` whose RTL top is ``blinky``:
 
 .. code-block:: bash
 
-    xeda run nextpnr blinky.yaml -s nextpnr.fpga.part=iCE40HX1K-TQ144 yosys_fpga.netlist_json= --dry-run --json
+    xeda run nextpnr blinky.yaml -s nextpnr.fpga.part=iCE40HX1K-TQ144 --dry-run --json
 
 .. code-block:: json
 
     {
-      "flow": "nextpnr", "design": "blinky", "design_file": "/path/to/blinky.yaml",
-      "target": null, "success": true, "dry_run": true,
-      "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []}],
-      "plan": {
-        "requested": "nextpnr",
-        "target": null,
-        "nodes": [
-          {"name": "yosys_fpga", "flow": "yosys_fpga",
-           "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
-           "settings_hash": "...",
-           "state": "stale", "reason": "no completed previous run",
-           "inputs": [], "switched_on": ["netlist"], "action_reason": null,
-           "input_types": {}, "output_types": {"netlist": ["JsonNetlist"], "netlist_edif": []}},
-          {"name": "nextpnr", "flow": "nextpnr",
-           "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
-           "settings_hash": "...",
-           "state": "stale", "reason": "no completed previous run",
-           "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
-                       "output": "netlist", "sources": [],
-                       "references": [{"node": "yosys_fpga", "output": "netlist"}],
-                       "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
-                      {"name": "constraints", "origin": "none", "producer": null,
-                       "output": null, "sources": [], "references": [],
-                       "binding_origin": null, "binding_location": null, "overridden": [], "reason": null},
-                      {"name": "sdc", "origin": "none", "producer": null,
-                       "output": null, "sources": [], "references": [],
-                       "binding_origin": null, "binding_location": null, "overridden": [], "reason": null}],
-           "switched_on": [], "action_reason": null,
-           "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
-           "output_types": {"config": ["IceAsc"]}}
-        ]
-      }
+      "schema_version": 1,
+      "spec": {
+        "flow": "nextpnr", "design": "blinky", "design_file": "/path/to/blinky.yaml",
+        "target": null, "settings": {"nextpnr": {"fpga": {"part": "iCE40HX1K-TQ144"}}}
+      },
+      "roots": ["nextpnr"],
+      "options": {
+        "rebuild_all": false, "clean": false, "prune_variants": false, "outputs_to": null,
+        "overwrite_outputs": false, "post_cleanup": false, "post_cleanup_purge": false
+      },
+      "nodes": [
+        {"name": "yosys_fpga", "flow": "yosys_fpga",
+         "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "identity": "...",
+         "state": "stale", "reason": "no completed previous run", "action": false,
+         "settings": {"...": "..."},
+         "inputs": [], "outputs_enabled": [],
+         "input_types": {}, "output_types": {"netlist": ["JsonNetlist"], "netlist_edif": []},
+         "deliveries": []},
+        {"name": "nextpnr", "flow": "nextpnr",
+         "run_dir": "/path/to/xeda_run/blinky/nextpnr", "identity": "...",
+         "state": "stale", "reason": "no completed previous run", "action": false,
+         "settings": {"...": "..."},
+         "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
+                     "output": "netlist", "sources": [],
+                     "reason": "the default producer of the input"},
+                    {"name": "constraints", "origin": "none", "producer": null,
+                     "output": null, "sources": [], "reason": "nothing supplies the input"},
+                    {"name": "sdc", "origin": "none", "producer": null,
+                     "output": null, "sources": [], "reason": "nothing supplies the input"}],
+         "outputs_enabled": [],
+         "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
+         "output_types": {"config": ["IceAsc"]},
+         "deliveries": []}
+      ]
     }
 
-``nodes`` is ordered with the producers before the consumers and the requested flow last.
-``run_path`` and ``flowrun_hash`` identify each planned run. ``--hashed-run-dirs`` adds the usual
-16-character hash suffix. ``flowrun_hash`` is the identity of the node. It combines the settings
-(``settings_hash``, the hash of the flow name and the input settings alone), the design
-configuration (the ``configuration`` of its record) and the origin of each input, in order: the
-identity and output of a producer, or the place and type of the source files of the design. The same
-flow with the same settings therefore has another identity when the top or a parameter of the design
-is another, or when another producer, another output or another producer configuration feeds it.
-Where a binding was written (a file, the command line or a chain) changes nothing.
+``spec`` says what the launch is asked to do: the ``flow`` (the text of the chain), the ``design``
+name, the ``design_file`` that it was loaded from (or ``null``), the ``target`` and the ``settings``
+table. ``roots`` names the nodes that the spec asks for. ``options`` holds the seven launch options
+by name, with the value that the plan was made with: ``rebuild_all``, ``clean``,
+``prune_variants``, ``outputs_to`` (an absolute path or ``null``), ``overwrite_outputs``,
+``post_cleanup`` and ``post_cleanup_purge``.
+
+``nodes`` is ordered with the producers before the consumers and the requested flow last. Each node
+has these keys:
+
+- ``name`` and ``flow``: the node, and its flow.
+- ``run_dir``: the run directory that a launch would use. ``--hashed-run-dirs`` adds the usual
+  16-character hash suffix.
+- ``identity``: the identity of the node, as opaque text. Compare it for equality only. It combines
+  the settings, the configuration of the design that the node reads (the ``configuration`` of its
+  record) and the origin of each input, in order: the identity and output of a producer, or the
+  place and type of the source files of the design. The same flow with the same settings therefore
+  has another identity when the top or a parameter of the design is another, or when another
+  producer, another output or another producer configuration feeds it. Where a binding was written
+  (a file, the command line or a chain) changes nothing.
+- ``state`` and ``reason``: what a launch would do with the node, and why (below).
+- ``action``: true for an action flow, such as a programmer, which always runs and can only end a
+  chain.
+- ``settings``: the effective settings of the node.
+- ``inputs``: where each input comes from.
+- ``outputs_enabled``: the optional outputs that Xeda switched on because a consumer needs them. It
+  does not list every output that the settings already enable.
+- ``input_types`` and ``output_types``: the effective types of each declaration after the settings
+  of the nodes agree. For example, iCE40 selects ``Pcf`` pin constraints and the ``IceAsc``
+  configuration. The static flow catalog lists the full vocabulary of declared types.
+- ``deliveries``: the files that a launch would deliver, known before any tool runs. Each has a
+  ``key`` (the deliverable setting, ``outputs_to`` or ``generator``), a ``destination`` and
+  ``replaces``, which is true when a file is there that is not an unchanged earlier delivery of
+  Xeda.
 
 Each input has these keys:
 
 - ``origin`` is ``producer``, ``source`` or ``none``.
-- ``references`` lists, in order, every node and output that supplies the input. A list input can
-  have several.
-- ``producer`` and ``output`` are those of the first reference, or ``null`` for an input that comes
-  from sources or is absent.
+- ``producer`` and ``output`` name the node and the output that supply the input, or are ``null``
+  for an input that comes from sources or is absent. An input that several producers supply has
+  one entry for each of them.
 - ``sources`` is an ordered list of source paths.
-- ``binding_origin`` is ``null`` for sources and default producers. Otherwise it says where the
-  binding was given: ``"file"`` (``flows.<flow>.inputs.<input>`` in a design or a project),
-  ``"cli"``, ``"api"`` or ``"chain"``.
-- ``binding_location`` names that place, and ``overridden`` lists the saved bindings that it
-  replaced.
-- ``reason`` explains an edge that Xeda chose on its own because the design needs a conversion
-  (for example, the design has Bluespec sources, which ``yosys`` does not read). It is ``null``
-  for every other input.
+- ``reason`` says why Xeda chose this producer or source. It says where an explicit binding was
+  given (a file, ``-s``, the API or a chain) and which saved bindings it replaced. For an edge that
+  Xeda chose on its own because the design needs a conversion (for example, the design has Bluespec
+  sources, which ``yosys`` does not read), it says why.
 
 An explicit binding supplies an input first, then the sources of the design, and then the default
 producer.
 
-``switched_on`` names the optional outputs that Xeda enabled because a consumer needs them. It does
-not list every output that the settings already enable. ``input_types`` and ``output_types`` report
-the effective types of each declaration after the settings of the nodes agree. For example, iCE40
-selects ``Pcf`` pin constraints and the ``IceAsc`` configuration. The static flow catalog lists the
-full vocabulary of declared types.
-
-Each node also says what a launch would do with it. ``state`` is one of these:
+Each node says what a launch would do with it. ``state`` is one of these:
 
 - ``fresh``: the launch reuses the recorded run.
+- ``rejected``: the checks of the node rejected its last run, and nothing it consumes changed. The
+  launch reports that rejection again and does not run the tool.
 - ``stale``: the launch runs the node.
 - ``unknown``: nothing can be said without running something.
-- ``rejected again``: the checks of the node rejected its last run, and nothing it consumes
-  changed. The launch reports that rejection again and does not run the tool.
-- ``blocked``: a producer of the node is ``rejected again`` or ``blocked``. The launch stops at
-  that producer.
+- ``blocked``: a producer of the node is ``rejected`` or ``blocked``. The launch stops at that
+  producer.
 
 ``reason`` says why:
 
 - For a stale node, it is the text that the launch logs after ``Running <flow>:``. Examples are ``no
-  completed previous run``, ``input changed: <file>``, ``settings changed: <names>``, ``every flow
-  runs (--rebuild-all)`` and ``it draws a new random seed``.
+  completed previous run``, ``input changed: <file>``, ``settings changed: <names>``,
+  ``rebuild_all`` (``--rebuild-all``), ``clean`` (``--clean``) and ``it draws a new random seed``.
 - For an unknown node, it says what stops the answer.
-- For a rejected again node, it is the message of the rejection.
+- For a rejected node, it is the message of the rejection.
 - For a blocked node, it names the producer: ``<producer> was rejected in its last run``, or
   ``<producer> is blocked`` when that producer is itself blocked.
 - For a fresh node, it is empty.
@@ -909,6 +924,8 @@ A node is unknown in these cases:
 - A prepared input does not exist yet, such as a chip database that no run has generated.
 - A launch would refuse its settings in the context of the design, or could not hand over a recorded
   output of a producer.
+- It reads sources that the generator of the design writes, and the generator has not run (``the
+  generator has not run``). Its ``identity`` is still known.
 
 The dry run uses the rules of a launch. A node that it reports as ``fresh`` or ``stale`` is what the
 launch does. ``--rebuild-all`` and ``--clean`` make every node stale once its prepared inputs pass.
@@ -923,9 +940,11 @@ problems.
 Planning builds each flow as the launch does, with a run directory that it never writes, to ask
 whether the flow always runs. A flow also refuses what its settings and the design rule out alone,
 in the pure hooks ``check_settings_supported`` and ``check_design_supported``, and planning calls
-them. Invalid settings, conflicts between shared settings, missing required inputs, impossible
-targets and any other combination that these hooks refuse produce the usual run document, with
-the ``outcome`` ``null`` (no launch started) and an ``error``.
+them. Planning also refuses a delivery that no answer could allow (``delivery_refused``): a
+destination that is an input of the run, lies in a run root or in a directory that a flow reads, or
+that two deliveries name. Invalid settings, conflicts between shared settings, missing required
+inputs, impossible targets and any other combination that these hooks refuse produce the usual run
+document, with the ``outcome`` ``null`` (no launch started) and an ``error``.
 
 Planning changes no marker, lock, result or delivery, and it writes to the run root only the
 storage of the Git dependencies that it fetches (see :ref:`git-dependencies`). It refreshes no
@@ -943,46 +962,34 @@ Xeda plans and runs a chain in the same way. This example uses the ``routed_demo
 
     xeda run yosys_fpga+nextpnr+fpga_pack routed_demo.yaml --dry-run --json
 
-``request`` is the chain as a list of ``{node, flow, output, through}`` elements. It is structural
-and never the joined text. ``through`` lists the flows between an element and the next one. It is
-empty for a direct link and for the last element. Every node of ``plan.nodes`` has its resolved
-``inputs``. The next document is abridged: it shows only the wired inputs of each node, and none of
-the paths and hashes:
+``spec.flow`` is the text of the chain. Every node of ``nodes`` has its resolved ``inputs``, and the
+``reason`` of an input says that the chain bound it. The next document is abridged: it shows only
+the wired inputs of each node, and none of the paths and hashes:
 
 .. code-block:: json
 
     {
-      "flow": "fpga_pack",
-      "success": true,
-      "dry_run": true,
-      "request": [
-        {"node": "yosys_fpga", "flow": "yosys_fpga", "output": null, "through": []},
-        {"node": "nextpnr", "flow": "nextpnr", "output": null, "through": []},
-        {"node": "fpga_pack", "flow": "fpga_pack", "output": null, "through": []}
-      ],
-      "plan": {
-        "requested": "fpga_pack",
-        "nodes": [
-          {"name": "yosys_fpga", "inputs": []},
-          {"name": "nextpnr", "inputs": [
-            {"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
-             "output": "netlist", "binding_origin": "chain",
-             "references": [{"node": "yosys_fpga", "output": "netlist"}]}
-          ]},
-          {"name": "fpga_pack", "inputs": [
-            {"name": "config", "origin": "producer", "producer": "nextpnr",
-             "output": "config", "binding_origin": "chain",
-             "references": [{"node": "nextpnr", "output": "config"}]}
-          ]}
-        ]
-      }
+      "schema_version": 1,
+      "spec": {"flow": "yosys_fpga+nextpnr+fpga_pack"},
+      "roots": ["fpga_pack"],
+      "nodes": [
+        {"name": "yosys_fpga", "inputs": []},
+        {"name": "nextpnr", "inputs": [
+          {"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
+           "output": "netlist"}
+        ]},
+        {"name": "fpga_pack", "inputs": [
+          {"name": "config", "origin": "producer", "producer": "nextpnr", "output": "config"}
+        ]}
+      ]
     }
 
-In this example, the chain replaced both bindings that the file saved (``overridden`` names them and
-their sections). A request for a single flow has a one-element ``request``. In the run document of
-a launch that failed, a node that Xeda planned and never entered has the disposition ``not_run``,
-and the outcome ``blocked`` or ``skipped``. A chain that Xeda refused before it was planned (a
-usage error) has ``"spec": null`` and empty ``roots`` and ``nodes`` in its run document.
+In this example, the chain replaced both bindings that the file saved: the ``reason`` of each input
+names the chain, and the bindings that it replaced with their sections. A request for a single flow
+has a ``roots`` of that flow. In the run document of a launch that failed, a node that Xeda
+planned and never entered has the disposition ``not_run``, and the outcome ``blocked`` or
+``skipped``. A chain that Xeda refused before it was planned (a usage error) has ``"spec": null`` and
+empty ``roots`` and ``nodes`` in its run document.
 
 Using Xeda as a library
 =======================
@@ -1020,15 +1027,20 @@ To inspect a plan without constructing or running flows:
 
 .. code-block:: python
 
-    from xeda.introspect import plan_info
+    from xeda import Design
+    from xeda.spec import Spec
+    from xeda.workspace import Workspace
 
-    plan = runner.plan("nextpnr", design, flow_settings=["nextpnr.fpga.part=iCE40HX1K-TQ144"])
-    print(plan_info(plan))
+    spec = Spec(
+        "nextpnr", design, settings={"nextpnr": {"fpga": {"part": "iCE40HX1K-TQ144"}}}
+    )
+    plan = Workspace("xeda_run").plan(spec)
+    for node in plan.nodes.values():
+        print(node.name, node.state, node.reason)
+    print(plan.to_dict())
 
-``plan_info`` returns the same plain data as the ``plan`` key of ``--dry-run --json``. A
-materialized ``Design`` avoids loading and generation. The settings snapshots of a plan are private
-copies, and its captured request context is protected. A launcher validates its own internal plans,
-and a plan that you supply from outside is not a supported library interface.
+``plan.to_dict()`` returns the same plain data as ``--dry-run --json``. A materialized ``Design``
+avoids loading and generation. A ``Plan`` is read-only.
 
 Notes for coding agents
 =======================

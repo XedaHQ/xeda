@@ -232,7 +232,7 @@ def test_an_unchanged_launch_reports_the_rejection_again_without_running(
         ("settings", "settings changed: tag"),
         ("edited results.json", "output changed:"),
         ("removed output", "output missing:"),
-        ("rebuild_all", "every flow runs (--rebuild-all)"),
+        ("rebuild_all", "rebuild_all"),
     ],
 )
 def test_a_rejection_is_reported_again_only_while_everything_is_unchanged(
