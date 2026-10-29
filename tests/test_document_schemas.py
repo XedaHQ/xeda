@@ -564,6 +564,7 @@ def test_a_source_input_lists_its_file_with_its_digest(tmp_path, design):
                 "generated": False,
                 "digest": content_digest(design.root / "given.dat"),
                 "dependency": None,
+                "producer": None,
             }
         ],
     }

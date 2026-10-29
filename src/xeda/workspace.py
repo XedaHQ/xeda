@@ -15,13 +15,14 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from .cancel import CancelToken
-from .errors import SpecError, StalePlanError
+from .errors import RecordError, RunRootError, SpecError, StalePlanError
 from .events import Event
 from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.plan_check import workspace_difference
 from .local_settings import LocalSettings
 from .plan import Plan, dependency_commits, plan_of
+from .records import RecordProblem, RunListing, RunRecord, read_record, read_stored_record
 from .run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from .spec import Spec
 from .types import UNSET, PathLike, Unset
@@ -32,7 +33,7 @@ TOOL_OUTPUTS = ("log", "terminal")
 
 if TYPE_CHECKING:
     from .deliver import Conflict
-    from .flow_runner.scrub import ScrubCandidate
+    from .flow_runner.scrub import ScrubCandidate, ScrubResult
 
 
 def _overwrite_question(conflicts: "Sequence[Conflict]") -> str:
@@ -47,6 +48,24 @@ def _prune_question(candidates: "Sequence[ScrubCandidate]") -> str:
         lines.append(f"  {candidate.path}")
         lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
     return "\n".join([*lines, "Remove them?"])
+
+
+def _removal_question(candidates: "Sequence[ScrubCandidate]") -> str:
+    lines = [f"Xeda would remove these {len(candidates)} directories:"]
+    for candidate in candidates:
+        lines.append(f"  {candidate.path}")
+        lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
+    return "\n".join([*lines, "Remove them?"])
+
+
+def _checked_design_name(name: str) -> str:
+    """Return `name`, or raise `RunDirectoryError` (the CLI's refusal) if it is no design name."""
+    from .design import DESIGN_NAME
+    from .run_dir import RunDirectoryError
+
+    if not isinstance(name, str) or not DESIGN_NAME.fullmatch(name):
+        raise RunDirectoryError(f"{name!r} is not a design name")
+    return name
 
 
 class Workspace:
@@ -321,3 +340,103 @@ class Workspace:
             raise public from error
         finally:
             TOOL_OUTPUT.reset(token)
+
+    def load(self, run_dir: PathLike, /) -> RunRecord:
+        """Return the record that the run directory `run_dir` holds now.
+
+        The run root of the record follows from where the directory is: a run directory is
+        `<run root>/<design>[/<target>]/<flow>`, and the record names its design and target. It
+        reads one file and takes no lock. It may return a later run than the one that you had
+        in mind: compare `run_id`. Raise `RecordError` with the code `missing_record`,
+        `corrupt_record` or `unsupported_schema`."""
+        return read_stored_record(Path(run_dir))
+
+    def records(
+        self,
+        *,
+        design_name: str | Unset = UNSET,
+        flow: str | Unset = UNSET,
+        target: str | None | Unset = UNSET,
+    ) -> RunListing:
+        """Return the records of the run directories in the run root, sorted by run directory.
+
+        A selection that is not given matches everything: every design, every flow, every target.
+        `target=None` selects the run directories that no target holds. A run directory whose
+        record cannot be read is no error: it is a `RecordProblem` of the listing, with the code
+        `missing_record`, `corrupt_record` or `unsupported_schema`. The listing reads the disk,
+        takes no lock and imports no flow, so a `flow` that is no flow selects nothing. Raise
+        `RunRootError` when the run root cannot be read."""
+        from .flow_runner.error_codes import public_error
+        from .flow_runner.scrub import list_run_directories
+
+        try:
+            directories = list_run_directories(
+                self.run_root,
+                design_name=(
+                    None if isinstance(design_name, Unset) else _checked_design_name(design_name)
+                ),
+                flow=None if isinstance(flow, Unset) else flow,
+                target=target,
+            )
+        except OSError as error:
+            raise RunRootError(
+                f"the run root {self.run_root} cannot be read: {error}",
+                code="invalid_run_root",
+                path=self.run_root,
+            ) from error
+        except Exception as error:
+            raise public_error(error) from error
+        found: list[RunRecord] = []
+        problems: list[RecordProblem] = []
+        for directory in directories:
+            try:
+                found.append(read_record(directory, run_root=self.run_root))
+            except RecordError as error:
+                problems.append(RecordProblem(error.path, error.code, error.message))
+        return RunListing(tuple(found), tuple(problems))
+
+    def scrub(
+        self,
+        *,
+        design_name: str,
+        flow: str | Unset = UNSET,
+        target: str | None | Unset = UNSET,
+    ) -> "ScrubResult":
+        """Remove the run directories of a design, after `confirm` said yes.
+
+        Without `flow`, the run directories of every flow go, and so do the generation storages of
+        the design (`<run root>/.generated/<design>/`). With `flow`, only the run directories of
+        that flow go. `target` selects as in `records`. The disk decides what exists: no design
+        file is read. One question lists every directory. Without `confirm` the question answers
+        "no": nothing is removed, the log says so, and the result lists what was scanned. Each
+        directory goes under its exclusive lock, which waits for every launch and every open
+        record that holds it. A directory whose records changed after the listing is `kept`, and
+        one that is gone when its turn comes is `gone`. A link that is named like a run directory
+        but leads elsewhere is `skipped`, and is not followed.
+
+        Raise `FlowNotFoundError` for a `flow` that is no flow, `RunRootError` for a link where the
+        run directories or the storages lie, and `LeaseHeldError` in a thread that holds a lock of
+        Xeda (a callback of `run`)."""
+        from .flow_runner import default_runner
+        from .flow_runner.error_codes import public_error
+        from .flow_runner.run_lock import refuse_if_held
+        from .flow_runner.scrub import scrub_design
+
+        refuse_if_held()
+        if not isinstance(flow, Unset):
+            default_runner.get_flow_class(flow)
+        answer = self.confirm
+        try:
+            return scrub_design(
+                None if isinstance(flow, Unset) else flow,
+                self.run_root / _checked_design_name(design_name),
+                run_root=self.run_root,
+                target=target if isinstance(target, str) else None,
+                design_only=target is None,
+                confirm=None if answer is None else lambda found: answer(_removal_question(found)),
+            )
+        except Exception as error:
+            public = public_error(error)
+            if public is error:
+                raise
+            raise public from error

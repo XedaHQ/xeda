@@ -369,7 +369,11 @@ The record has these fields:
     One entry for each declared input: ``name``, ``origin`` (``source``,
     ``producer`` or ``none``), ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir``
     (relative to the run root), ``generation`` and the ``sources`` that the input read, each as
-    ``{path, generated, digest, dependency}``. An input of cardinality ``many`` that is bound to
+    ``{path, generated, digest, dependency, producer}``. For a generated source, ``path`` is its
+    name in the output of its producer, and ``producer`` tells which one wrote it: ``null`` for the
+    generator of the design itself, the name of the design for the generator of a dependency, and
+    the name of the node for a converter (the ``design`` input of a flow that a converter feeds
+    lists the sources that the converter generated). An input of cardinality ``many`` that is bound to
     several producer outputs has one entry for each binding. These entries have the same ``name``,
     in the order of the bindings. Each entry has its own ``producer``, ``output``, ``producer_run_id`` and
     ``producer_run_dir``. A binding that repeats gives an entry that repeats. A reader groups the
@@ -388,8 +392,12 @@ The record has these fields:
 The record names no file of the run by an absolute path. The run root and the run directory
 follow from where the file is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
 ``timestamp``, ``tools`` and ``design`` as a result key are gone. In Python,
-``xeda.records.read_record(run_dir, run_root=...)`` returns the record as an immutable
-``RunRecord``, and ``RunRecord.to_dict()`` returns the document.
+``Workspace.load(run_dir)`` returns the record as an immutable ``RunRecord``, and
+``RunRecord.to_dict()`` returns the document. ``Workspace.records()`` lists the records of a run
+root, and names the run directories whose record it cannot read. ``RunRecord.open()`` holds the
+files of a run, so that no launch, clean-up or scrub changes them, and gives their paths. A
+generated source that a later generation replaced is named in ``missing_generated``, not handed
+out.
 
 
 Validating a design file
