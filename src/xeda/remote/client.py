@@ -1306,6 +1306,10 @@ def run_remote(
     from ..introspect import request_info
 
     request = parse_request(chain)
+    try:
+        table = command_line_table(flow_settings)
+    except ValueError:  # items that cannot be read: planning reports them
+        table = {}
     run = _Run(
         chain=chain,
         flow=request.requested.name,
@@ -1314,7 +1318,7 @@ def run_remote(
         host=destination_text,
         debug=log_level <= logging.DEBUG,
         request=request_info(request),
-        settings=command_line_table(flow_settings),
+        settings=table,
     )
     try:
         return _run(

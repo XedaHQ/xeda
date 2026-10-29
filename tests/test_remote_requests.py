@@ -63,6 +63,19 @@ def _succeeded(outcome) -> dict:
 # --- What the request says ----------------------------------------------------------------------
 
 
+def test_two_items_that_conflict_give_a_document_with_no_outcome(tmp_path, remote_host):
+    """Items that cannot be read become the error of the document, never a traceback."""
+    outcome = remote_request(
+        tmp_path,
+        _nextpnr_design(tmp_path),
+        "nextpnr",
+        flow_settings=["nextpnr.seed=1", "nextpnr.seed.x=2"],
+    )
+    assert outcome.document["outcome"] is None
+    assert outcome.document["error"]["code"] == "conflicting_keys"
+    assert not connected(remote_host)
+
+
 def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
     tmp_path, remote_host, monkeypatch
 ):

@@ -1413,3 +1413,12 @@ def test_the_discard_of_a_mirror_waits_for_one_lock_while_it_holds_none(tmp_path
         thread.join(HANG_GUARD)
         assert not thread.is_alive()
     assert [(d / "results.json").exists() for d in directories] == [False, False]
+
+
+def test_items_that_conflict_give_one_json_document_and_exit_status_2(tmp_path, remote_host):
+    design = _design(tmp_path)
+    result = _cli(tmp_path, design, "nextpnr", "--json", "-s", "nextpnr.seed=1", "nextpnr.seed.x=2")
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)
+    assert document["outcome"] is None
+    assert document["error"]["code"] == "conflicting_keys"

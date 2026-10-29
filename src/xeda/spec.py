@@ -89,9 +89,13 @@ def spec_sections(spec: Spec) -> tuple[dict[str, dict[str, Any]], BindingLayer]:
     # A binding can reach a flow that no default producer or chain element names: the producer
     # it names is a node as well. The resolver checks the node against its graph.
     _, saved = split_bindings(thaw(spec.design.flows), location="the design file")
+    project = spec.design._project_layer  # pylint: disable=protected-access
+    saved_layers = [saved] + (
+        [split_bindings(thaw(project[1]), location=project[0])[1]] if project else []
+    )
     producers = {
         flow_class
-        for entry in (*layer.entries, *saved.entries)
+        for entry in (*layer.entries, *(e for item in saved_layers for e in item.entries))
         for text in (entry.value if isinstance(entry.value, (list, tuple)) else [entry.value])
         if isinstance(text, str)
         and (flow_class := registered_flow(text.partition(".")[0])) is not None

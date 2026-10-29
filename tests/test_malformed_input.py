@@ -575,3 +575,20 @@ def test_a_target_with_such_keys_is_refused_at_the_target_whichever_is_selected(
     assert "`targets.a.tb` is set to a value, and `targets.a.tb.top` sets a key" in str(
         raised.value
     )
+
+
+def test_code_may_give_a_node_section_as_key_value_text(tmp_path):
+    """The API takes the settings of a node as `KEY=VALUE` items, as the command line does."""
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    plan = runner.plan(
+        "verilator", _write_design(tmp_path), flow_settings={"verilator": ["timing=true"]}
+    )
+
+    assert plan.nodes[0].settings.timing is True
+
+
+@pytest.mark.parametrize("value", [[1], [{}], ["x", "y"], [1, "a=1"], ["a=1", None]], ids=repr)
+def test_a_node_section_that_is_a_malformed_list_is_refused(tmp_path, value):
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(XedaException, match="must be a mapping"):
+        runner.plan("verilator", _write_design(tmp_path), flow_settings={"verilator": value})

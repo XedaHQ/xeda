@@ -637,6 +637,14 @@ def _given_leaves(
         text = piece[0] if isinstance(piece, list) and isinstance(piece[0], str) else None
         for node, content, prefix in groups:
             node_settings = settings_of(node)
+            if isinstance(content, (list, tuple)):
+                # a section given as `KEY=VALUE` items; a malformed one is reported later
+                try:
+                    content = settings_to_dict(content)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    continue
+            if not isinstance(content, Mapping):
+                continue
             if node_settings is not None and (scoped or content is table):
                 # `clock` is `clocks.main_clock`, as the sections of the other spelling are.
                 content = _canonicalize_clock_input(dict(content), node_settings)[0]

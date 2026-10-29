@@ -226,3 +226,23 @@ def test_a_table_of_a_mapping_is_the_command_line_table():
     assert command_line_table(["nextpnr.seed=7"]) == {"nextpnr": {"seed": "7"}}
     with pytest.raises(ValueError):
         command_line_table(["nextpnr"])
+
+
+def test_a_binding_of_the_project_makes_its_producer_a_node_of_the_spec(tmp_path):
+    from xeda.project import Project
+
+    _design(tmp_path)
+    names = ("netlist", "netlist_timing", "sdf")
+    bound = {name: f"vivado_alt_synth.{name}" for name in names}
+    (tmp_path / "xedaproject.yaml").write_text(
+        json.dumps(
+            {
+                "designs": [{"name": "d", "rtl": {"sources": ["top.v"], "top": "top"}}],
+                "flows": {"vivado_postsynth_sim": {"inputs": bound}},
+            }
+        )
+    )
+    design = Project.load(tmp_path / "xedaproject.yaml").design("d")
+    spec = Spec("vivado_postsynth_sim", design, settings={"vivado_alt_synth.nthreads": 4})
+    sections, _layer = spec_sections(spec)
+    assert sections["vivado_alt_synth"] == {"nthreads": 4}
