@@ -5,7 +5,7 @@ for a design of a project. `design_file` is the design file the request named, a
 path, and `null` when the request named none (a design of a project, or no design). A failure
 that comes before the design is loaded has no name to report for a design file: `design` is then
 `null`, and `design_file` still says which file was named. The two keys are in every document:
-success, failure, dry run and `--remote`. A run puts them in `spec`; a dry run and `dse` keep
+success, failure, dry run and `--remote`. A run and a dry run put them in `spec`; `dse` keeps
 them at the top level.
 """
 
@@ -91,9 +91,8 @@ def test_a_dry_run_reports_the_same_two_keys(world):
     status, document = _json("run", "verilator", "blink.toml", "--dry-run")
 
     assert status == 0, document
-    assert document["dry_run"] is True
-    assert document["design"] == "blink"
-    assert _is(document["design_file"], world / "blink.toml")
+    assert document["spec"]["design"] == "blink"
+    assert _is(document["spec"]["design_file"], world / "blink.toml")
 
 
 def test_a_design_of_a_project_has_a_name_and_no_file(world):
@@ -103,8 +102,8 @@ def test_a_design_of_a_project_has_a_name_and_no_file(world):
     status, document = _json("run", "verilator", "--design-name", "blink", "--dry-run")
 
     assert status == 0, document
-    assert document["design"] == "blink"
-    assert document["design_file"] is None
+    assert document["spec"]["design"] == "blink"
+    assert document["spec"]["design_file"] is None
 
 
 def test_a_design_of_a_project_that_is_not_there_is_named_as_asked(world):

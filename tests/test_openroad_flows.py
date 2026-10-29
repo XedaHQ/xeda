@@ -492,8 +492,8 @@ def test_the_command_line_plans_the_five_nodes_of_the_whole_chain(tmp_path, requ
         ],
     )
     document = json.loads(result.stdout)
-    assert result.exit_code == 0 and document["success"] is True, document.get("error")
-    nodes = document["plan"]["nodes"]
+    assert result.exit_code == 0 and document["nodes"], document.get("error")
+    nodes = document["nodes"]
     assert [node["flow"] for node in nodes] == ["yosys", *NAMES]
     assert [(node["name"], [item["name"] for item in node["inputs"]]) for node in nodes] == [
         ("yosys", []),

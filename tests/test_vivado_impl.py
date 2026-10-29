@@ -1082,5 +1082,5 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
             cli, [*base, request, str(root / "blinky.yaml"), "-s", *scoped(request, items)]
         )
         assert result.exit_code == 0, (request, result.output)
-        nodes = [node["name"] for node in json.loads(result.output)["plan"]["nodes"]]
+        nodes = [node["name"] for node in json.loads(result.output)["nodes"]]
         assert "vivado_impl" in nodes, nodes

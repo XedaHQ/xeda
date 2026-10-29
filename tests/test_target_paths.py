@@ -337,7 +337,7 @@ def test_a_dry_run_plans_the_target_s_directories_and_writes_nothing(tmp_path, t
     result, document = xeda("run", CHAIN, design, "--target", "b", "--dry-run")
     assert result.exit_code == 0, result.output
     base = tmp_path / "xeda_run" / "chain_ulx3s" / "b"
-    assert [Path(n["run_path"]) for n in document["plan"]["nodes"]] == [base / s for s in STAGES]
+    assert [Path(n["run_dir"]) for n in document["nodes"]] == [base / s for s in STAGES]
     assert not (tmp_path / "xeda_run").exists()
 
 
