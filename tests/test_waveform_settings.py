@@ -598,9 +598,7 @@ def test_ghdl_writes_the_waveform_the_command_line_asks_for(tmp_path, setting, w
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(
-        GhdlSim, design, flow_settings=node_settings(GhdlSim, [f"{setting}=true"])
-    )
+    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"{setting}=true"])
     assert flow is not None and flow.succeeded
     assert (flow.run_path / written).stat().st_size > 0
     assert not list(flow.run_path.glob("true*"))
@@ -615,9 +613,7 @@ def test_ghdl_writes_a_compressed_vcd_for_the_vcdgz_setting(tmp_path, value, wri
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(
-        GhdlSim, design, flow_settings=node_settings(GhdlSim, [f"vcdgz={value}"])
-    )
+    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcdgz={value}"])
     assert flow is not None and flow.succeeded
     data = (flow.run_path / written).read_bytes()
     assert data[:2] == b"\x1f\x8b"
@@ -629,9 +625,7 @@ def test_ghdl_delivers_a_compressed_vcd_to_a_location_as_a_copy(tmp_path):
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     target = tmp_path / "out" / "waves.vcd.gz"
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(
-        GhdlSim, design, flow_settings=node_settings(GhdlSim, [f"vcdgz={target}"])
-    )
+    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcdgz={target}"])
     assert flow is not None and flow.succeeded
     assert (flow.run_path / "dump.vcd.gz").read_bytes()[:2] == b"\x1f\x8b"
     assert b"$var" in gzip.decompress(target.read_bytes())
@@ -641,7 +635,7 @@ def test_ghdl_vcd_is_plain_whatever_the_case_of_the_name(tmp_path):
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(GhdlSim, design, flow_settings=node_settings(GhdlSim, ["vcd=w.VCD"]))
+    flow = runner.run_flow(GhdlSim, design, flow_settings=["vcd=w.VCD"])
     assert flow is not None and flow.succeeded
     assert b"$var" in (flow.run_path / "w.VCD").read_bytes()
     with pytest.raises(FlowSettingsException, match="give the name to `vcdgz`"):
@@ -662,7 +656,7 @@ def test_nvc_writes_the_waveform_through_its_own_option(tmp_path, setting, value
     require_nvc_evidence()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(Nvc, design, flow_settings=node_settings(Nvc, [f"{setting}={value}"]))
+    flow = runner.run_flow(Nvc, design, flow_settings=[f"{setting}={value}"])
     assert flow is not None and flow.succeeded
     wave = flow.run_path / written
     assert wave.stat().st_size > 0
@@ -699,9 +693,7 @@ def test_nvc_filters_the_waveform_with_the_globs(tmp_path):
     flow = runner.run_flow(
         Nvc,
         design,
-        flow_settings=node_settings(
-            Nvc, ["vcd=f.vcd", "wave_include_glob=*:keep", "wave_exclude_glob=*:drop"]
-        ),
+        flow_settings=["vcd=f.vcd", "wave_include_glob=*:keep", "wave_exclude_glob=*:drop"],
     )
     assert flow is not None and flow.succeeded
     text = (flow.run_path / "f.vcd").read_text()
