@@ -118,8 +118,9 @@ def test_a_generator_cwd_that_a_link_leads_out_of_the_design_root_cannot_be_sent
         with pytest.raises(DesignValidationError, match=r"`cwd` 'link'.*outside the design root"):
             _document(tmp_path, design)
     else:
+        # the host gets the directory the link leads to, where the generator runs locally
         document, package = _document(tmp_path, design)
-        assert document["rtl"]["generator"]["cwd"] == "link"
+        assert document["rtl"]["generator"]["cwd"] == "work"
     assert world.runs == 0
 
 
@@ -465,20 +466,21 @@ def test_the_host_plans_the_identity_of_a_design_that_merges_units_with_content(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
-def test_a_working_directory_that_is_a_link_is_made_under_its_own_name_on_the_host(
+def test_a_working_directory_that_is_a_link_is_where_the_link_leads_on_the_host(
     tmp_path, remote_host
 ):
+    # the package holds no links: the host runs the generator where the local run does
     world = _world(tmp_path, generator={"cwd": "link"})
     (world.root / "real" / "work").mkdir(parents=True)
     (world.root / "link").symlink_to("real/work", target_is_directory=True)
     document, package = _document(tmp_path, world.load())
-    assert "link" in package.directories and "real/work" not in package.directories
+    assert "real/work" in package.directories and "link" not in package.directories
     outcome = remote_request(tmp_path, world.design_file, "vivado_synth", flow_settings=SETTINGS)
     if outcome.error is not None:
         raise outcome.error
     assert outcome.success, outcome.document
     cwd, _design_root, _storage = world.where
-    assert cwd.endswith("/link")
+    assert cwd.endswith("/real/work")
 
 
 # ----------------------------------------- what is refused before a Git dependency is fetched

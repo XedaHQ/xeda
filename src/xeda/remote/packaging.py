@@ -25,7 +25,6 @@ from ..design import (
     Generator,
     GitReference,
     Source,
-    generator_cwd,
     generator_of,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
@@ -400,10 +399,11 @@ def package_inputs(
             rtl["generator"] = recipe
             if generator.cwd is not None:
                 # The generator starts there, so the directory exists on the host even when no
-                # file of the package lies in it. It is the directory the recipe names, as the
-                # recipe spells it: a link is not resolved. The design refuses a `cwd` that
-                # leaves its root when it loads, and `_unsendable` one that a link leads out of.
-                named = generator_cwd(generator.cwd, unit.root)
+                # file of the package lies in it. The package holds no links, so it names where
+                # a link leads, as the local run does. The design refuses a `cwd` that leaves
+                # its root when it loads, and `_unsendable` one that a link leads out of.
+                named = generator.lookup_directory(unit.root).resolve()
+                named = named.relative_to(unit.root.resolve())
                 recipe["cwd"] = named.as_posix()
                 if named != Path(".") and (unit.root / named).is_dir():
                     directories.add((base / named).as_posix())
