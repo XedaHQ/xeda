@@ -997,8 +997,9 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
 @click.option(
     "--scrub",
     is_flag=True,
-    help="Before running, remove the flow's other run directories for this design; asks for "
-    "confirmation. It cannot be used with --remote.",
+    help="Before running, remove the other run directories of every flow of the plan, the "
+    "producers included, for this design; asks for confirmation. It cannot be used with "
+    "--remote.",
 )
 @click.option(
     "--remote",
