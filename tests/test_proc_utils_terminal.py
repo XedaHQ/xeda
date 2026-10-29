@@ -65,6 +65,12 @@ sys.stderr.write("\x1b[31mFAIL\x1b[0m\n")
 """
 
 
+@pytest.fixture(autouse=True)
+def _colors_are_not_turned_off(monkeypatch):
+    """Xeda honors `NO_COLOR`, which the person who runs the tests may have set."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+
 class Terminal:
     """xeda's own terminal: the stream the tool output goes to, a pseudo-terminal in raw mode (so
     that the bytes written to it are the bytes read from it), and what was written to it."""

@@ -52,6 +52,12 @@ DONE_HIGH = "ir: 1 isc_done 1 isc_ena 0 init 1 done 1"
 DONE_LOW = "ir: 1 isc_done 0 isc_ena 0 init 1 done 0"
 
 
+@pytest.fixture(autouse=True)
+def _colors_are_not_turned_off(monkeypatch):
+    """Xeda honors `NO_COLOR`, which the person who runs the tests may have set."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+
 @pytest.fixture
 def fake_loader(tmp_path, monkeypatch):
     """The fake toolchain first on `PATH`, and a check that `openFPGALoader` is the fake."""
