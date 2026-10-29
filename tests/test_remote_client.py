@@ -962,7 +962,8 @@ def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monk
 
 
 def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host):
-    document = _succeeded(_request(tmp_path, _design(tmp_path), dry_run=True))
+    design = _design(tmp_path, sources=("top.v", "pins.lpf"))
+    document = _succeeded(_request(tmp_path, design, dry_run=True))
     mirror = _mirror(tmp_path)
     assert document["mirror"] == str(mirror)
     workspace = remote_host.workspace()
@@ -970,6 +971,11 @@ def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host
         name = node["name"]
         assert node["run_dir"] == str(mirror / "top" / name)
         assert node["remote_run_dir"] == str(workspace / "xeda_run" / "top" / name)
+        # the sources and settings name the files here, never the copies the remote reads
+        named = json.dumps([node.get(key) for key in ("settings", "inputs", "deliveries")])
+        assert str(workspace) not in named, named
+    sources = [s for node in document["nodes"] for i in node["inputs"] for s in i["sources"]]
+    assert sources == [str(design.parent / "pins.lpf")], sources
     assert not mirror.exists(), "a dry run writes no mirror"
 
 

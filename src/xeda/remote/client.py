@@ -1212,18 +1212,25 @@ def _discard_mirrors(
 
 
 def _mirror_dry_run(
-    document: Dict[str, Any], mirror_root: Path, remote_run_root: PurePosixPath
+    document: Dict[str, Any],
+    mirror_root: Path,
+    remote_run_root: PurePosixPath,
+    translate: Callable[[str], Optional[str]],
 ) -> None:
-    """Point the run directories of a dry-run document at the places they have in the mirror.
+    """Give a dry-run document the paths of this side, as the document of a run has them.
 
-    A dry run has no mirror, but the run does, and a reader of the plan wants the places on this
-    side, as the document of a run has them. `remote_run_dir` keeps the place on the remote."""
+    A dry run has no mirror, but the run does: a run directory is its place in the mirror, and
+    `remote_run_dir` keeps the place on the remote. The sources, settings and deliveries of a node
+    name the files here, not the copies that the remote reads."""
     for node in document.get("nodes") or []:
         if not isinstance(node, dict) or "run_dir" not in node:
             continue
         place = _place_below(remote_run_root, node["run_dir"], "a run directory")
         node["remote_run_dir"] = node["run_dir"]
         node["run_dir"] = str(mirror_root / place)
+        for key in ("settings", "inputs", "deliveries"):
+            if key in node:
+                node[key] = translate_paths(node[key], translate)
 
 
 def _translation(
@@ -1675,7 +1682,7 @@ def _run(
                     document = _local_design(dict(result), run, design.name)
                     document["remote"] = destination_text
                     document["mirror"] = str(mirror_root)
-                    _mirror_dry_run(document, mirror_root, remote_run_root)
+                    _mirror_dry_run(document, mirror_root, remote_run_root, translate)
                     document["uploaded"] = uploaded
                     _plan_outputs_to(
                         document, outputs_to, overwrite_outputs, prepared.planned_deliveries
