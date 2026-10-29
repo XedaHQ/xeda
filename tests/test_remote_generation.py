@@ -107,6 +107,22 @@ def test_a_dependency_generator_input_outside_its_root_cannot_be_sent(tmp_path):
         _chain_document(tmp_path, chain)
 
 
+@pytest.mark.parametrize("outside", [False, True])
+def test_a_generator_cwd_that_a_link_leads_out_of_the_design_root_cannot_be_sent(tmp_path, outside):
+    world = _world(tmp_path, generator={"cwd": "link"})
+    target = (tmp_path if outside else world.root) / "work"
+    target.mkdir()
+    (world.root / "link").symlink_to(target, target_is_directory=True)
+    design = world.load()
+    if outside:
+        with pytest.raises(DesignValidationError, match=r"`cwd` 'link'.*outside the design root"):
+            _document(tmp_path, design)
+    else:
+        document, package = _document(tmp_path, design)
+        assert document["rtl"]["generator"]["cwd"] == "link"
+    assert world.runs == 0
+
+
 def test_a_generator_without_sources_cannot_be_sent(tmp_path):
     world = _world(tmp_path, generator={"sources": []})
     with pytest.raises(DesignValidationError) as error:

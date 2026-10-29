@@ -81,6 +81,16 @@ def _unsendable(unit: Design, generator: Generator) -> str | None:
             "and `--remote` sends only what lies below the design root: place it below the "
             "design root (a copy or a link inside it) and name it in `sources`"
         )
+    if generator.cwd is not None:
+        directory = generator.lookup_directory(unit.root).resolve()
+        if not directory.is_relative_to(unit.root.resolve()):
+            # the package carries the directory under its name, not where a link leads
+            return (
+                f"{name} has `cwd` {generator.cwd!r}, which resolves to {directory}, outside the "
+                f"design root {unit.root}, and `--remote` runs the generator in a directory of "
+                "that name below the design root on the host: give a `cwd` that resolves below "
+                "the design root"
+            )
     return None
 
 
@@ -392,7 +402,7 @@ def package_inputs(
                 # The generator starts there, so the directory exists on the host even when no
                 # file of the package lies in it. It is the directory the recipe names, as the
                 # recipe spells it: a link is not resolved. The design refuses a `cwd` that
-                # leaves its root when it loads.
+                # leaves its root when it loads, and `_unsendable` one that a link leads out of.
                 named = generator_cwd(generator.cwd, unit.root)
                 recipe["cwd"] = named.as_posix()
                 if named != Path(".") and (unit.root / named).is_dir():
