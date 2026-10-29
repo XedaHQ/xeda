@@ -757,7 +757,12 @@ Rules for chains
 
 * ``+`` is the only separator, and each flow may appear once. Name a flow as anywhere else.
   ``FLOW.OUTPUT`` names one output of a producer that has
-  several: ``nextpnr.config+fpga_pack``.
+  several: ``nextpnr.config+fpga_pack``. An output name matches ``[a-z][a-z0-9_]*``. A name that
+  is no flow name is an error that names the flow to use, so ``vivado-synth`` suggests
+  ``vivado_synth``.
+* ``,`` and ``@`` are reserved for later and are errors now: ``,`` for several chains
+  (``several_roots_unsupported``) and ``@`` after a flow (``invalid_chain``). So are an empty
+  element (``yosys_fpga+``) and a malformed output name.
 * A flow supplies every compatible required input of the next one, or the inputs that it feeds in
   the plan of the next one when the link passes through flows. Optional inputs are not bound. An
   output that fits no such input, or two outputs that fit, is an error that names the choices. When
@@ -765,7 +770,9 @@ Rules for chains
   ``yosys_fpga.netlist_edif+fpga_pack`` suggests ``yosys_fpga+fpga_pack`` and
   ``yosys_fpga.netlist+fpga_pack``. Nothing searches all flows, so a refusal with no such output has
   no suggestion.
-* A flow that programs a device (``openfpgaloader``) can only end a chain.
+* A flow that programs a device (``openfpgaloader``) can only end a chain. An action may come
+  before another flow only if it declares an output and the next flow reads that output. No
+  built-in action declares an output, so each of them ends a chain.
 * Only flows that declare their outputs can start a link: those with a nonempty ``outputs`` in
   ``xeda list-flows --json``. Today these are ``bsc``, ``ghdl_synth``, ``yosys_fpga``, ``nextpnr``,
   ``fpga_pack``, ``yosys``, the OpenROAD stages, ``vivado_synth``, ``vivado_alt_synth``,

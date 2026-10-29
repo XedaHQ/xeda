@@ -932,3 +932,121 @@ def test_the_graph_of_the_fpga_packer_passes_through_nextpnr():
         yosys_fpga,
         "netlist",
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# The grammar of a request and of a flow name
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, code",
+    [
+        ("yosys_fpga,nextpnr", "several_roots_unsupported"),
+        ("yosys_fpga+nextpnr,fpga_pack", "several_roots_unsupported"),
+        ("yosys_fpga@x+nextpnr", "invalid_chain"),
+        ("yosys_fpga+nextpnr@x", "invalid_chain"),
+        ("yosys_fpga+", "invalid_chain"),
+        ("+nextpnr", "invalid_chain"),
+        ("yosys_fpga.Net-list+nextpnr", "invalid_chain"),
+        ("yosys_fpga.1st+nextpnr", "invalid_chain"),
+        ("yosys_fpga.nosuch+nextpnr", "unknown_output"),
+    ],
+)
+def test_reserved_chain_syntax_and_a_malformed_output_are_refused_with_their_codes(text, code):
+    from xeda.flow_runner.chains import ChainRefusal
+    from xeda.flow_runner.error_codes import public_error
+
+    with pytest.raises(ChainRefusal) as refused:
+        parse_request(text)
+    error = public_error(refused.value)
+    assert (error.code, error.chain) == (code, text)
+
+
+def test_a_qualified_output_parses():
+    request = parse_request("yosys_fpga.netlist+nextpnr")
+    assert [(e.node, e.output) for e in request.elements] == [
+        ("yosys_fpga", "netlist"),
+        ("nextpnr", None),
+    ]
+
+
+@pytest.mark.parametrize(
+    "text, suggestion",
+    [("vivado-synth", ("vivado_synth",)), ("Nextpnr", ("nextpnr",)), ("nosuchflow", ())],
+)
+def test_a_name_that_is_no_flow_is_flow_not_found_and_no_spelling_is_accepted(text, suggestion):
+    with pytest.raises(FlowNotFoundError) as raised:
+        parse_request(text)
+    assert raised.value.suggestions[: len(suggestion)] == suggestion
+    with pytest.raises(FlowNotFoundError):
+        parse_request(f"yosys_fpga+{text}")
+
+
+def test_every_builtin_flow_name_fits_the_grammar():
+    from xeda.flow_runner.chains import FLOW_NAME, RESERVED_FLOW_NAMES
+
+    names = [cls.name for cls in _product_classes()]
+    assert len(names) >= 29
+    assert all(FLOW_NAME.fullmatch(name) and name not in RESERVED_FLOW_NAMES for name in names)
+
+
+@pytest.mark.parametrize("class_name", ["_Hidden", "Flows", "Design", "Settings"])
+def test_a_flow_name_outside_the_grammar_or_reserved_is_refused_at_registration(class_name):
+    from xeda.flow import registered_flows
+
+    before = dict(registered_flows)
+    with pytest.raises(TypeError, match="flow name"):
+        type(class_name, (Flow,), {"__module__": __name__, "run": lambda self: None})
+    assert registered_flows == before
+
+
+def _action_with_a_receipt():
+    class TProgram(Flow):
+        """An action that declares the receipt of what it did."""
+
+        action_reason = "programs a device"
+
+        class Outputs(Flow.Outputs):
+            receipt: Path = Out(SourceType.Data, description="What the action did.")
+
+        def run(self) -> None:
+            pass
+
+    class TFlash(Flow):
+        """An action that declares no output."""
+
+        action_reason = "flashes a device"
+
+        def run(self) -> None:
+            pass
+
+    class TCheck(Flow):
+        """Reads the receipt of an action."""
+
+        class Inputs(Flow.Inputs):
+            receipt: Path = In(SourceType.Data, description="The receipt.")
+
+        def run(self) -> None:
+            pass
+
+    return TProgram, TFlash, TCheck
+
+
+def test_an_action_may_precede_a_reader_of_its_declared_output_and_no_other():
+    from xeda.flow_runner.chains import ChainRefusal
+
+    program, flash, check = _action_with_a_receipt()
+    request = parse_request("t_program+t_check")
+    assert request.requested is check
+    assert request.links[0].binds == ((check, "receipt", "receipt"),)
+    assert [e.node for e in parse_request("t_program.receipt+t_check").elements] == [
+        program.name,
+        check.name,
+    ]
+    with pytest.raises(ChainRefusal, match="can only end a chain") as refused:
+        parse_request("t_flash+t_check")
+    assert refused.value.code == "action_not_last"
+    with pytest.raises(ChainRefusal) as refused:
+        parse_request("t_program+t_flash")
+    assert refused.value.code == "action_not_last"

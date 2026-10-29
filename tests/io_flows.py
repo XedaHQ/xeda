@@ -1,7 +1,7 @@
 """Test-only flows that declare their inputs and outputs (`xeda.flow.io`), for the resolver, the
-launcher's hand-over and the read locks. Their class names start with `_`, so the sweeps over
-every flow (`settings_samples.flow_classes`) leave them out; they are registered as `t_maker`,
-`t_taker`, ... (`camelcase_to_snakecase`)."""
+launcher's hand-over and the read locks. Their class names start with `T`, so they are
+registered as `t_maker`, `t_taker`, ... (`camelcase_to_snakecase`). The sweeps over every flow
+(`settings_samples.flow_classes`) leave them out, since they are not in a module of Xeda."""
 
 from pathlib import Path
 from typing import ClassVar, Optional

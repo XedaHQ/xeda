@@ -18,6 +18,7 @@ second element's own included. An explicit binding of a `design` input follows t
 from __future__ import annotations
 
 import difflib
+import re
 from collections import deque
 from functools import cache, lru_cache
 from dataclasses import dataclass
@@ -26,11 +27,15 @@ from typing import Any
 
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..flow import Flow, FlowSettingsException, registered_flows
+from ..flow.flow import FLOW_NAME, RESERVED_FLOW_NAMES
 from ..flow.derived import DesignConversion
 from ..flow.io import declared_inputs, declared_outputs, kinds_text
 from ..utils import restore_exception
 
 __all__ = [
+    "FLOW_NAME",
+    "OUTPUT_NAME",
+    "RESERVED_FLOW_NAMES",
     "ChainEdge",
     "ChainElement",
     "ChainLink",
@@ -59,6 +64,9 @@ __all__ = [
 
 #: The most corrected requests an error advertises.
 MAX_SUGGESTIONS = 4
+
+#: The form of the name of an output after a dot.
+OUTPUT_NAME = re.compile(r"[a-z][a-z0-9_]*")
 
 
 @dataclass(frozen=True)
@@ -121,6 +129,13 @@ def parse_request(text: str) -> FlowRequest:
     """
     from .default_runner import FlowNotFoundError, get_flow_class
 
+    if "," in text:
+        raise ChainRefusal(
+            "A request is one chain. `,` is reserved for several chains, which Xeda does not "
+            "support yet.",
+            code="several_roots_unsupported",
+            chain=text,
+        )
     parts = text.split("+")
     elements: list[ChainElement] = []
     seen: set[str] = set()
@@ -129,6 +144,13 @@ def parse_request(text: str) -> FlowRequest:
         if not part:
             raise ChainRefusal(
                 f"Flow chain element {position} is empty; use FLOW[.OUTPUT][+FLOW[.OUTPUT]...].",
+                code="invalid_chain",
+                chain=text,
+            )
+        if "@" in part:
+            raise ChainRefusal(
+                f"Flow chain element {position} has an `@`, which is reserved: "
+                "use FLOW[.OUTPUT][+FLOW[.OUTPUT]...].",
                 code="invalid_chain",
                 chain=text,
             )
@@ -144,6 +166,13 @@ def parse_request(text: str) -> FlowRequest:
             raise ChainRefusal(
                 f"Flow chain element {position} has an empty output qualifier; "
                 "use an exact output key after the dot.",
+                code="invalid_chain",
+                chain=text,
+            )
+        if separator and not OUTPUT_NAME.fullmatch(output):
+            raise ChainRefusal(
+                f"Flow chain element {position} has the output name {output!r}. An output name "
+                "matches [a-z][a-z0-9_]*.",
                 code="invalid_chain",
                 chain=text,
             )
@@ -252,13 +281,21 @@ def _check_chain(elements: Sequence[ChainElement]) -> tuple[ChainLink, ...]:
     for index, producer in enumerate(elements[:-1]):
         consumer = elements[index + 1]
         reason = getattr(producer.flow_class, "action_reason", None)
-        if reason:
+        # An action precedes a flow only through a declared output that the flow reads.
+        declared = bool(declared_outputs(producer.flow_class))
+        try:
+            if reason and not declared:
+                raise _EdgeFailure(index, "", code="no_edge")
+            link = _link(index, producer, consumer)
+        except _EdgeFailure:
+            if not reason:
+                raise
             raise ChainRefusal(
-                f"Flow `{producer.node}` {reason.removeprefix('it ')} and can only end a chain.",
+                f"Flow `{producer.node}` {reason.removeprefix('it ')} and can only end a chain"
+                + (", or precede a flow that reads one of its outputs." if declared else "."),
                 code="action_not_last",
                 chain=request_text(elements),
-            )
-        link = _link(index, producer, consumer)
+            ) from None
         for flow in link.through:
             if flow.name in seen or flow in passed:
                 raise ChainRefusal(
