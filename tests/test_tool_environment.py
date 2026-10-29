@@ -562,3 +562,31 @@ def test_the_session_variables_are_the_ones_the_generators_leave_out():
     from xeda.generation import SESSION_VARIABLES as GENERATOR_SESSION_VARIABLES
 
     assert SESSION_VARIABLES == GENERATOR_SESSION_VARIABLES
+
+
+def test_the_session_variables_are_exactly_the_ruled_list():
+    ruled = {
+        "COLUMNS",
+        "ITERM_SESSION_ID",
+        "LINES",
+        "OLDPWD",
+        "PWD",
+        "SHLVL",
+        "SSH_AGENT_PID",
+        "SSH_AUTH_SOCK",
+        "SSH_CLIENT",
+        "SSH_CONNECTION",
+        "SSH_TTY",
+        "STY",
+        "TERM_SESSION_ID",
+        "TMUX",
+        "TMUX_PANE",
+        "WINDOWID",
+        "XDG_SESSION_ID",
+        "XEDA_DETAILED_LOGS",
+        "XEDA_LOG_LEVEL",
+        "XEDA_REMOTE",
+        "XEDA_RUN_ROOT",
+        "_",
+    }
+    assert SESSION_VARIABLES == frozenset(ruled)

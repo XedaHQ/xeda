@@ -64,7 +64,8 @@ class Build:
 
     def launch(self):
         self.runner = DefaultRunner(self.run_root, display_results=False)
-        flow = self.runner.run(REQUEST, self.design)
+        with tool_utils.one_environment():
+            flow = self.runner.run(REQUEST, self.design)
         assert flow is not None and flow.succeeded
         return flow
 
@@ -144,12 +145,14 @@ def test_the_dry_run_agrees_with_the_run_on_the_real_tools(build):
     """Programs, a depfile of yosys's own files and the declared outputs of three real flows:
     the dry run says fresh, then, after an edit, which flow runs and why; the run agrees."""
     runner = build.runner.__class__(build.run_root, display_results=False)
-    plan, states = runner.plan_with_freshness(REQUEST, build.design)
+    with tool_utils.one_environment():
+        plan, states = runner.plan_with_freshness(REQUEST, build.design)
     assert {s.state for s in states.values()} == {"fresh"}, states
     old = "// a comment"
     build.source.write_text(build.source.read_text() + f"\n{old}\n")
     runner = build.runner.__class__(build.run_root, display_results=False)
-    plan, states = runner.plan_with_freshness(REQUEST, build.design)
+    with tool_utils.one_environment():
+        plan, states = runner.plan_with_freshness(REQUEST, build.design)
     assert states["yosys_fpga"].state == "stale"
     assert states["yosys_fpga"].reason.startswith("input changed: ")
     assert states["nextpnr"].state == states["fpga_pack"].state == "unknown"
