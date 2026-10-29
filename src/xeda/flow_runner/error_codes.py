@@ -18,7 +18,6 @@ from pydantic import ValidationError
 from .. import errors
 from ..dataclass import input_names, validation_errors
 from ..deliver import DeliveryError
-from ..design import DesignFileParseError, DesignValidationError
 from ..flow import (
     FlowDependencyFailure,
     FlowSettingsError,
@@ -244,31 +243,6 @@ def _chain_refusal(exc: ChainRefusal) -> errors.ChainError:
     return errors.ChainError(str(exc), code=exc.code, chain=exc.chain or "", problem=str(exc))
 
 
-#: The code of a design error, by the type of its first finding. Any other type is an invalid
-#: design.
-_DESIGN_CODES = {
-    "removed_alias": "removed_alias",
-    "removed_key": "removed_key",
-    "unknown_target": "unknown_target",
-    "target_required": "target_required",
-}
-
-
-def _design_error(exc: DesignValidationError) -> errors.DesignError:
-    location = exc.errors[0][0] if exc.errors else None
-    return errors.DesignError(
-        str(exc),
-        code=(
-            _DESIGN_CODES.get(exc.errors[0][3] or "", "invalid_design")
-            if exc.errors
-            else "invalid_design"
-        ),
-        field=".".join(location.split(" -> ")) if location else None,
-        problem=exc.errors[0][1] if exc.errors and exc.errors[0][1] else None,
-        path=Path(exc.file) if exc.file else None,
-    )
-
-
 def _remote_error(exc: Exception) -> errors.RemoteError | None:
     """Return the public error for a failure of the host or its setup, or None.
 
@@ -318,16 +292,6 @@ def public_error(exc: BaseException) -> errors.XedaError:
         return errors.SettingsError(str(exc), code="conflicting_keys", setting=exc.value_key)
     if isinstance(exc, GenerationError):
         return errors.XedaError(str(exc), code=GENERATOR_FAILED)
-    if isinstance(exc, DesignValidationError):
-        return _design_error(exc)
-    if isinstance(exc, DesignFileParseError):
-        missing = not Path(exc.file).exists()
-        return errors.DesignError(
-            str(exc),
-            code="design_file_not_found" if missing else "invalid_design",
-            problem=exc.reason,
-            path=Path(exc.file),
-        )
     if isinstance(exc, Exception):
         remote = _remote_error(exc)
         if remote is not None:
