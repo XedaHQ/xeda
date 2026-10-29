@@ -641,7 +641,7 @@ def _selected_project(xedaproject: Any, design: Any) -> Project | None:
                 path=project.path,
             )
     if design is not None and not Path(design).exists():
-        raise DesignFileParseError(design, "no such file")
+        raise DesignFileParseError(design, "no such file", missing=True)
     return project
 
 

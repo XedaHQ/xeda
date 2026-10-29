@@ -157,15 +157,18 @@ class DesignFileParseError(DesignError):
         reason: str,
         line: int | None = None,
         column: int | None = None,
+        *,
+        missing: bool = False,
     ) -> None:
-        """Record the design file and source location of a load failure."""
+        """Record the design file and source location of a load failure; `missing` says that
+        the file was not there."""
         self.file = str(Path(file).absolute())
         self.reason = reason
         self.line = line
         self.column = column
         super().__init__(
             self._format(),
-            code="design_file_not_found" if not Path(self.file).exists() else "invalid_design",
+            code="design_file_not_found" if missing else "invalid_design",
             problem=reason,
             path=Path(self.file),
         )
@@ -351,7 +354,8 @@ def _read_design_file(path: Path) -> dict[str, Any]:
         else:
             data = load_yaml(path)
     except OSError as e:
-        raise DesignFileParseError(path, e.strerror or str(e)) from None
+        missing = isinstance(e, FileNotFoundError)
+        raise DesignFileParseError(path, e.strerror or str(e), missing=missing) from None
     except UnicodeDecodeError as e:
         raise DesignFileParseError(path, f"not UTF-8 text: {e.reason} at byte {e.start}") from None
     except yaml.reader.ReaderError as e:
