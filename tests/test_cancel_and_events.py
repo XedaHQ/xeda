@@ -406,6 +406,32 @@ def test_cancel_stops_what_an_exited_tool_left_holding_the_output(tmp_path, capt
             os.kill(pid, signal.SIGKILL)
 
 
+def test_cancel_stops_what_an_exited_generator_left_holding_the_output(tmp_path):
+    started, wrapper = tmp_path / "started", tmp_path / "wrapper"
+    stop = threading.Event()
+
+    def work() -> None:
+        _wait_until(lambda: _read_pid(started), "the child")
+        pid = _wait_until(lambda: _read_pid(wrapper), "the wrapper")
+        _wait_until(lambda: not _is_running(pid), "the wrapper to exit")
+        stop.set()  # the generator is gone, and its child holds the pipe that Xeda reads
+
+    # the generator lives for many polls after its child starts, so the watch sees the child
+    program = _leaves_a_child(started, wrapper).replace(
+        "pathlib.Path(" + repr(str(wrapper)), "time.sleep(1)\npathlib.Path(" + repr(str(wrapper))
+    )
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(ProcessCanceled):
+            run_child([sys.executable, "-c", program], cwd=tmp_path, canceled=stop.is_set)
+        thread.join()
+        assert not _is_running(_read_pid(started)), "the child is gone"
+    finally:
+        if (pid := _read_pid(started)) is not None and _is_running(pid):
+            os.kill(pid, signal.SIGKILL)
+
+
 def test_run_child_keeps_the_session_and_the_group_of_the_caller(tmp_path):
     where = tmp_path / "where"
     program = (

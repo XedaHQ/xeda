@@ -142,7 +142,7 @@ def _run_stoppable(
 ) -> "subprocess.CompletedProcess[str]":
     """Run `command` as `subprocess.run` does (`kwargs` go to `Popen`). The child stays in the
     session of the caller, so a terminal reaches it as it reaches Xeda. A yes of `canceled` kills
-    the child and the descendants that it has then, and raises `ProcessCanceled`."""
+    the child and the descendants seen while it ran, and raises `ProcessCanceled`."""
     with subprocess.Popen(command, cwd=cwd, **kwargs) as proc:
         with _Deadline(proc, None, canceled=canceled, descendants=True) as deadline:
             out, err = proc.communicate()
@@ -165,8 +165,8 @@ def run_child(
 
     The child stays in the session of the caller, so a generator may open `/dev/tty` and Ctrl-Z
     stops it with Xeda. When `canceled` says yes (asked every `CANCEL_POLL` seconds; without it, the
-    request of the launch), Xeda kills the child and the descendants that it finds then, and the
-    call raises `ProcessCanceled`.
+    request of the launch), Xeda kills the child and the descendants that it saw while the child
+    ran, and the call raises `ProcessCanceled`.
 
     The child writes where `child_stdout()` says (its own standard error as before). In `"log"`
     mode its output, error output included, goes to the `xeda` logger at INFO, one record for
@@ -337,11 +337,22 @@ class _Deadline:
         ended left behind: a child can hold the pipe that Xeda still reads, and the block does not
         end until the pipe does. A leader that leads a group is not reaped while the block runs,
         so its group id is still its own."""
+        # A leader without a group leaves no trace of the children it orphans, so remember them
+        seen: set[psutil.Process] = set()
         while not self._watch_done.wait(CANCEL_POLL):
+            if self._follow_descendants and not self._group:
+                seen.update(self._descendants())
             if canceled():
                 with self._lock:
                     gone = self.proc.returncode is not None if self._group else self.leader_exited()
-                    if self._cancelled or gone:
+                    if self._cancelled:
+                        return
+                    if gone:
+                        # what the leader left behind may hold the pipe that Xeda still reads
+                        left = [process for process in seen if process.is_running()]
+                        if left:
+                            self.stopped_on_request = True
+                            self._kill_all(left)
                         return
                     self.stopped_on_request = True
                     self._stop_group()
