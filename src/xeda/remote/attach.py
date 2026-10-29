@@ -130,6 +130,7 @@ def _attach(
                 files=record.files,
                 generated=record.generated,
                 design_root=Path(record.design_root),
+                local_root=local_root,
             )
             run.localize = lambda: _localized(
                 result,
