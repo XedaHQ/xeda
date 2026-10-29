@@ -76,7 +76,8 @@ from ..outcomes import (
     run_document,
     spec_document,
 )
-from ..proc_utils import TOOL_OUTPUT, tool_output_stream
+from ..cancel import launch_canceled
+from ..proc_utils import CANCEL_POLL, TOOL_OUTPUT, tool_output_stream
 from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..types import Unset
@@ -251,6 +252,8 @@ class _Agent:
         self.launching = False
         #: Set by the first Ctrl-C during the launch.
         self.canceled = threading.Event()
+        #: Whether a `CancelToken`, and not Ctrl-C, canceled the launch.
+        self.by_request = False
         #: Set by the second Ctrl-C: the connection is closed.
         self.closed = False
         #: Whether the launch keeps running: Ctrl-C and a lost connection only stop the local
@@ -303,13 +306,15 @@ class _Agent:
             self._wake.wait(HEARTBEAT)
             self._wake.clear()
 
-    def interrupt(self) -> None:
-        """The reaction to Ctrl-C during the launch. It runs in a signal handler: it takes no lock
-        that the main thread may hold, and it does not log."""
+    def interrupt(self, *, quiet: bool = False) -> None:
+        """The reaction to Ctrl-C during the launch, and to a `CancelToken` (`quiet`: the library
+        says nothing). It runs in a signal handler: it takes no lock that the main thread may
+        hold, and it does not log."""
         if self.keep_running:
             if not self.closed:
                 self.closed = True
-                os.write(2, f"\nLeaving the launch on {self.host} running.\n".encode())
+                if not quiet:
+                    os.write(2, f"\nLeaving the launch on {self.host} running.\n".encode())
                 try:
                     self.process.kill()  # the agent sees the end of its input and leaves
                 except OSError:
@@ -317,11 +322,13 @@ class _Agent:
         elif not self.canceled.is_set():
             self.canceled.set()
             self._wake.set()
-            os.write(
-                2,
-                f"\nCanceling the launch on {self.host}. Press Ctrl-C again to close the "
-                "connection.\n".encode(),
-            )
+            self.by_request = quiet
+            if not quiet:
+                os.write(
+                    2,
+                    f"\nCanceling the launch on {self.host}. Press Ctrl-C again to close the "
+                    "connection.\n".encode(),
+                )
         elif not self.closed:
             self.closed = True
             try:
@@ -491,7 +498,28 @@ class _Agent:
 @contextmanager
 def _cancel_on_interrupt(agent: _Agent) -> Iterator[None]:
     """Send a cancel request to the agent on Ctrl-C, for the time of the block. A second Ctrl-C
-    closes the connection. Outside the main thread no handler is installed."""
+    closes the connection. Outside the main thread no handler is installed. The request of the
+    launch to stop (`cancel.launch_canceled`) does the same as the first Ctrl-C, in any thread."""
+    done = threading.Event()
+
+    def watch() -> None:
+        while not done.wait(CANCEL_POLL):
+            if launch_canceled():
+                agent.interrupt(quiet=True)
+                return
+
+    watcher = threading.Thread(target=contextvars.copy_context().run, args=(watch,), daemon=True)
+    watcher.start()
+    try:
+        with _interrupt_handler(agent):
+            yield
+    finally:
+        done.set()
+        watcher.join()
+
+
+@contextmanager
+def _interrupt_handler(agent: _Agent) -> Iterator[None]:
     if threading.current_thread() is not threading.main_thread():
         yield
         return
@@ -950,7 +978,8 @@ def _launch_result(agent: _Agent, document: Dict[str, Any]) -> Dict[str, Any]:
             else ""
         )
         if agent.canceled.is_set():
-            raise RemoteCanceled(f"The launch on {agent.host} was canceled by Ctrl-C.{warning}")
+            by = "" if agent.by_request else " by Ctrl-C"
+            raise RemoteCanceled(f"The launch on {agent.host} was canceled{by}.{warning}")
         if agent.keep_running:
             raise RemoteCanceled(f"The launch on {agent.host} was canceled.{warning}")
         raise RemoteCanceled(

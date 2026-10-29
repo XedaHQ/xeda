@@ -714,6 +714,31 @@ def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
     _assert_mirror_emptied(mirror)
 
 
+def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
+    from xeda.cancel import CancelToken, observing
+
+    design, mirror = _earlier_success(tmp_path)
+    ready = Ready(tmp_path, remote_host)
+    token = CancelToken()
+    pids: list[int] = []
+
+    def cancel() -> None:
+        pids.append(ready.wait())
+        token.cancel()  # from another thread, while the tool runs on the host
+
+    thread = threading.Thread(target=cancel, daemon=True)
+    thread.start()
+    with observing(lambda: token.canceled):
+        outcome = _request(tmp_path, design)
+    thread.join()
+    assert isinstance(outcome.error, RemoteCanceled), outcome.document
+    assert outcome.document["outcome"] == "canceled"
+    assert outcome.document["error"]["code"] == "canceled"
+    assert "Ctrl-C" not in outcome.document["error"]["message"]
+    _assert_gone(pids[0])
+    _assert_mirror_emptied(mirror)
+
+
 def test_rerun_after_late_disconnect_fetches_the_finished_result(
     tmp_path, remote_host, monkeypatch
 ):

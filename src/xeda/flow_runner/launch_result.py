@@ -4,6 +4,11 @@ A launch reports the end of each node to a `LaunchCollector` while it goes on. `
 runs a launch, and then builds the `Result` from the collector and the plan: the nodes that
 ended, and, from the plan, the nodes that did not start. The module is made of free functions and
 never imports `default_runner`: `LaunchRunner` types the part of the launcher that it reads.
+
+The same call carries the two requests of the caller: a `CancelToken` that stops the launch, and
+`on_event`, which gets the events of the launch in the calling thread. The collector emits the
+events as it hears of the steps. A callback that raises cancels the launch, and the call raises
+that exception again once the launch has released everything.
 """
 
 from __future__ import annotations
@@ -13,9 +18,15 @@ import os
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Iterator, Protocol
+
+from ..cancel import CancelToken, observing
+from ..events import Event
 
 from ..deliver import Delivered, Delivery, DeliveryError
 from ..flow import Flow
@@ -25,17 +36,78 @@ from ..plan import delivery_key
 from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result, aggregate
 from ..records import CANCELED, INTERNAL_ERROR, PRODUCER_FAILED, ErrorInfo
 from ..spec import Spec
+from ..utils import Canceled
 from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, GENERATOR_FAILED, error_info
 from .resolver import Plan, PlanNode
+from .run_lock import callback_guard
 
 log = logging.getLogger(__name__)
 
 __all__ = ["LaunchCollector", "LaunchRunner", "failed_result", "launch_result"]
 
-#: The outcomes of a producer that stop its consumers.
-_STOPS_CONSUMERS = frozenset(
-    {Outcome.FAILED, Outcome.REJECTED, Outcome.BLOCKED, Outcome.CANCELED, Outcome.DETACHED}
-)
+#: The outcomes of a producer that stop its consumers. A canceled producer is not one of them: the
+#: launch stopped, and a consumer that it never started is skipped.
+_STOPS_CONSUMERS = frozenset({Outcome.FAILED, Outcome.REJECTED, Outcome.BLOCKED, Outcome.DETACHED})
+
+
+class _Progress:
+    """The requests of the caller for one launch, and what the launch told it.
+
+    It answers whether the launch must stop (the token, or a callback that raised) and calls
+    `on_event`. An event that a restart of the acquisition would repeat is told once: a node
+    starts and finishes once in a launch."""
+
+    def __init__(
+        self, launch_id: str, cancel: CancelToken | None, on_event: Callable[[Event], None] | None
+    ) -> None:
+        self.launch_id = launch_id
+        self._cancel = cancel
+        self._on_event = on_event
+        #: The exception that a callback raised. The launch stops, and the call raises it.
+        self.raised: Exception | None = None
+        self._told: set[tuple[str, str | None]] = set()
+
+    def canceled(self) -> bool:
+        return self.raised is not None or (self._cancel is not None and self._cancel.canceled)
+
+    def emit(
+        self,
+        kind: str,
+        node: str | None = None,
+        outcome: Outcome | None = None,
+        disposition: Disposition | None = None,
+        *,
+        locked: bool = False,
+    ) -> None:
+        """Tell `on_event` about a step. `locked` says that the launch holds locks, so the callback
+        may reuse them and take no other (`run_lock.callback_guard`)."""
+        if self._on_event is None or self.raised is not None or (kind, node) in self._told:
+            return
+        self._told.add((kind, node))
+        event = Event(kind, self.launch_id, node, outcome, disposition, datetime.now(timezone.utc))
+        try:
+            if locked:
+                with callback_guard():
+                    self._on_event(event)
+            else:
+                self._on_event(event)
+        except Exception as error:  # noqa: BLE001 - the launch stops, and the call raises it
+            self.raised = error
+
+
+#: The requests of the launch that runs in this context. The collector of the launch reads it.
+_PROGRESS: ContextVar[_Progress | None] = ContextVar("xeda_launch_progress", default=None)
+
+
+@contextmanager
+def _watched(progress: _Progress) -> Iterator[None]:
+    """Make `progress` the requests of the launch that runs in this context, for the block."""
+    token = _PROGRESS.set(progress)
+    try:
+        with observing(progress.canceled):
+            yield
+    finally:
+        _PROGRESS.reset(token)
 
 
 @dataclass(frozen=True)
@@ -86,6 +158,9 @@ class LaunchCollector:
         #: the requested flow passed.
         self.finish_raised: Exception | None = None
         self._deliveries: dict[int, tuple[DeliveryRecord, ...]] = {}
+        #: Whether the launch stopped because it was canceled (`Canceled`).
+        self.canceled = False
+        self._progress = _PROGRESS.get()
 
     def planned(self, plan: Plan) -> None:
         """Note the plan that the launch follows."""
@@ -99,6 +174,8 @@ class LaunchCollector:
     def producers_done(self, node: PlanNode) -> None:
         """Note that `node` has its producers and begins its own execution."""
         self._own_start[node.name] = time.monotonic()
+        if self._progress is not None:
+            self._progress.emit("node_started", node.name, locked=True)
 
     def depth(self) -> int:
         """Return how many nodes have begun and not closed, to hand to `attempt_closed`."""
@@ -113,6 +190,10 @@ class LaunchCollector:
         interrupt is no outcome: neither is noted."""
         node = self._attempts[depth] if len(self._attempts) > depth else None
         del self._attempts[depth:]
+        if isinstance(error, Canceled):
+            # The launch stopped. A node that has no end yet did not run: it stays unreached.
+            self.canceled = True
+            return
         if isinstance(error, GenerationError):
             # A failure of the whole launch, before any node ran: no node ended with it.
             if self.generation_failed is None:
@@ -140,7 +221,18 @@ class LaunchCollector:
         execution, after its producers."""
         started = self._own_start.get(node.name)
         elapsed = 0.0 if started is None else time.monotonic() - started
-        self.ended[node.name] = _Ended(flow, error, elapsed)
+        end = self.ended[node.name] = _Ended(flow, error, elapsed)
+        if isinstance(error, Canceled):
+            self.canceled = True
+        progress = self._progress
+        if progress is not None and (error is None or isinstance(error, Exception)):
+            # An exception that is no `Exception` (an interrupt, the restart of the acquisition)
+            # is no end of the node.
+            progress.emit("node_started", node.name, locked=True)
+            result = _ended_node(node, end, self)
+            progress.emit(
+                "node_finished", node.name, result.outcome, result.disposition, locked=True
+            )
 
     def deliveries_noted(
         self,
@@ -159,6 +251,8 @@ class LaunchCollector:
         """Note a failure of the end of the launch, in the stage `stage`, for the flow whose run
         directory is `run_dir`."""
         self.finish_failures.append(_FinishFailure(stage, error, run_dir))
+        if isinstance(error, Canceled):
+            self.canceled = True
 
     def accounts_for(self, error: Exception) -> bool:
         """Return whether `error`, which left the launch, is an outcome of a node of the plan or
@@ -356,7 +450,12 @@ def _launch_error(
     (`cleanup_failed`), when every root passed. The nodes stay as they were. A failure of the end
     of the launch never takes the place of an earlier cause: when a root did not pass, its own
     error stays, and the clean-up failure is only logged. When a delivery failed first, the
-    delivery is the cause."""
+    delivery is the cause. A launch that was canceled has the error `canceled`, whatever stopped
+    it."""
+    if collector.canceled:
+        return ErrorInfo(
+            code=CANCELED, message="The launch was canceled.", node=None, exit_status=None, log=None
+        )
     if collector.generation_failed is not None:
         return ErrorInfo(
             code=GENERATOR_FAILED,
@@ -386,16 +485,28 @@ def _launch_error(
     )
 
 
-def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]) -> Result:
+def launch_result(
+    runner: LaunchRunner,
+    spec: Spec,
+    launch: Callable[[], object],
+    *,
+    cancel: CancelToken | None = None,
+    on_event: Callable[[Event], None] | None = None,
+) -> Result:
     """Run `launch`, a launch on `runner`, and return what it did to every node of its plan.
 
     A node that fails, is rejected or is blocked is an outcome in the `Result`, not an exception.
-    So is a failure to deliver the outputs at the end. An exception that left the launch before
+    So is a failure to deliver the outputs at the end, and so is a cancel: when `cancel` says so
+    the launch stops what it does (a wait for a lock, a generator, a tool), and the nodes that did
+    not run are `skipped`. An exception that left the launch before
     it reported anything propagates: a request that was refused before the plan, a refusal of a
     delivery before the run of its first node, a bug. A refusal at the turn of a later node is the
     failure of that node (`LaunchCollector.settle`). So does `KeyboardInterrupt`: an interrupt is
     no outcome, and the node that it interrupted left no record to read (`results.json` is
     replaced as a whole).
+
+    `on_event` gets the events of the launch, in this thread. An exception of `on_event` cancels
+    the launch, which releases everything first. The call then raises that exception, unchanged.
 
     The launch id is made here, once, as the launch starts; a call made inside another launch of the
     same thread keeps the id of the outer one. An exception that leaves the launch carries it
@@ -404,18 +515,29 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
     # The launch runs under an id of its own, and each log record of the launch carries it
     # (`xeda_launch_id`). The `Result` names the same id.
     with launch_context() as launch_id:
+        progress = _Progress(launch_id, cancel, on_event)
         try:
-            launch()
-        except Exception as raised:
-            collector = runner.collector
-            if collector is before or not (
-                collector.accounts_for(raised) or collector.settle(raised)
-            ):
-                tag_launch_id(raised, launch_id)
+            with _watched(progress):
+                progress.emit("launch_started")
+                try:
+                    launch()
+                except Exception as raised:
+                    collector = runner.collector
+                    if collector is before or not (
+                        collector.accounts_for(raised)
+                        or collector.settle(raised)
+                        or (isinstance(raised, Canceled) and collector.plan is not None)
+                    ):
+                        tag_launch_id(raised, launch_id)
+                        raise
+                except BaseException as raised:
+                    tag_launch_id(raised, launch_id)
+                    raise
+        except Exception:
+            if progress.raised is None:
                 raise
-        except BaseException as raised:
-            tag_launch_id(raised, launch_id)
-            raise
+    if progress.raised is not None:
+        raise progress.raised
     collector = runner.collector
     plan = collector.plan
     if collector is before or plan is None:
@@ -431,7 +553,7 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
     roots = (plan.nodes[-1].name,)
     launch_error = _launch_error(collector, nodes, roots)
     outcome, error = aggregate(nodes, roots, launch_error)
-    return Result(
+    result = Result(
         launch_id=launch_id,
         spec=spec,
         roots=roots,
@@ -439,6 +561,10 @@ def launch_result(runner: LaunchRunner, spec: Spec, launch: Callable[[], object]
         error=error,
         nodes=nodes,
     )
+    progress.emit("launch_finished", None, outcome)
+    if progress.raised is not None:
+        raise progress.raised
+    return result
 
 
 def failed_result(

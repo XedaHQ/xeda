@@ -69,6 +69,8 @@ from ..flow import (
 )
 from ..flow import flowrun_hash as flow_run_hash
 from .. import log_context
+from ..cancel import CancelToken, launch_canceled
+from ..events import Event
 from ..proc_utils import recording_programs
 from ..run_dir import (
     DIR_NAME_HASH_LEN,
@@ -76,6 +78,7 @@ from ..run_dir import (
 )
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..utils import (
+    Canceled,
     backup_existing,
     dump_json,
     settings_to_dict,
@@ -1015,6 +1018,11 @@ class FlowLauncher:
                 warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
         return flow
 
+    def _canceled_now(self) -> bool:
+        """Return whether the launch must stop: the hook of this runner or the request of the
+        caller (`cancel.launch_canceled`) says so."""
+        return (self._canceled is not None and self._canceled()) or launch_canceled()
+
     def _start_again(self, need: launch_locks.NeedsExclusive) -> None:
         """Release every lock of the launch and forget what the attempt did, so that the launch
         starts again with the nodes of `need` locked exclusively.
@@ -1204,7 +1212,7 @@ class FlowLauncher:
                 stack=self._leases,
                 participants=self._node_locks,
                 leases=leases,
-                canceled=self._canceled,
+                canceled=self._canceled_now,
                 before_generation=before_generation,
             )
         except GenerationError:
@@ -1269,7 +1277,7 @@ class FlowLauncher:
                 with acquire_all(
                     [r for _flow, delivery in deliveries for r in delivery.lock_requests()],
                     run_root=self.run_root,
-                    canceled=self._canceled,
+                    canceled=self._canceled_now,
                     wait_in_order=True,
                 ):
                     for flow, delivery in deliveries:
@@ -1575,6 +1583,9 @@ class FlowLauncher:
         )
         if plan_node is None:
             self.collector.planned(plan)
+        if self._canceled_now():
+            # Before the node begins: it is not attempted, and the launch starts no later node.
+            raise Canceled("the launch was canceled before this node began")
         producer_launch = depender is not None or consumer is not None
         if not producer_launch and self.settings.outputs_to is not None:
             # Before the run root, a lock or a producer.
@@ -1821,6 +1832,11 @@ class FlowLauncher:
                         # flow did not run, and the launch does not list it as launched.
                         untouched = True
                         raise
+                    if isinstance(e, Canceled):
+                        # The launch was canceled while this node waited for its producers: it did
+                        # not run, and writes nothing.
+                        untouched = True
+                        raise
                     if isinstance(e, FlowDependencyFailure) and e.producer:
                         # A producer did not pass, so this flow is blocked: it does not run and
                         # writes nothing. Its run directory keeps its last record and trace.
@@ -2003,6 +2019,8 @@ class FlowLauncher:
                                 programs.before[name] = execution_programs.before[name]
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     flow.results.success = False
+                    if isinstance(e, Canceled):
+                        flow.outcome = "canceled"
                     flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
                     if flow.init_time is not None:
                         flow.results.runtime = time.monotonic() - flow.init_time
@@ -2607,12 +2625,17 @@ class FlowLauncher:
         local_settings: LocalSettings | None,
         options: LaunchOptions,
         expected: PublicPlan | None = None,
+        cancel: CancelToken | None = None,
+        on_event: Callable[[Event], None] | None = None,
     ) -> Result:
         """Launch `spec` under `options` and return what it did to every node.
 
         With `expected`, a plan that the caller made earlier, the launch compares it with its own
         planning under the locks of its graph, and raises `StalePlanError` on a difference. That
-        covers the resolution that it runs with, which it made before it took the locks."""
+        covers the resolution that it runs with, which it made before it took the locks.
+
+        `cancel` stops the launch when it says so, and `on_event` gets the events of the launch
+        (`launch_result`)."""
         self._apply(options)
         self._expected_plan = expected
         self._expected_local_settings = local_settings
@@ -2637,7 +2660,13 @@ class FlowLauncher:
                 # A plan that is stale is no failed planning (no lock is held yet).
                 self._check_expected()
                 raise
-            result = launch_result(self, spec, lambda: self.run_resolved(request, plan))
+            result = launch_result(
+                self,
+                spec,
+                lambda: self.run_resolved(request, plan),
+                cancel=cancel,
+                on_event=on_event,
+            )
             if self._stale is not None:
                 raise self._stale
             return result

@@ -25,7 +25,7 @@ import colorama
 import psutil
 
 from .console import console_target
-from .utils import ExecutableNotFound, NonZeroExitCode, live_log
+from .utils import Canceled, ExecutableNotFound, NonZeroExitCode, live_log
 
 log = logging.getLogger(__name__)
 
@@ -132,16 +132,39 @@ def child_stdout() -> Union[None, int, TextIO]:
     return stream if _stream_has_fileno(stream) else subprocess.DEVNULL
 
 
+def _run_stoppable(
+    command: Any,
+    canceled: Callable[[], bool] | None,
+    *,
+    cwd: Union[str, os.PathLike],
+    **kwargs: Any,
+) -> "subprocess.CompletedProcess[str]":
+    """Run `command` as `subprocess.run` does (`kwargs` go to `Popen`), as the leader of a session
+    of its own on POSIX. A `KeyboardInterrupt` or a yes of `canceled` stops its whole group, and
+    the second raises `ProcessCanceled`."""
+    with subprocess.Popen(command, cwd=cwd, start_new_session=os.name == "posix", **kwargs) as proc:
+        with _Deadline(proc, None, group=os.name == "posix", canceled=canceled) as deadline:
+            out, err = proc.communicate()
+    if deadline.stopped_on_request:
+        raise ProcessCanceled(command)
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
 def run_child(
     command: Any,
     *,
     cwd: Union[str, os.PathLike],
     source: str = "child",
     stdout: Any = None,
+    canceled: Callable[[], bool] | None = None,
     **kwargs: Any,
 ) -> "subprocess.CompletedProcess[str]":
     """Run a child process that has no log (a design generator) in the directory `cwd` and wait
-    for it. `command` and `kwargs` are those of `subprocess.run`, except `stdout`.
+    for it. `command` and `kwargs` are those of `subprocess.Popen`, except `stdout`.
+
+    The child leads a session of its own on POSIX, as a tool does (`run_process`): Ctrl-C and
+    `canceled` stop its whole group. When `canceled` says yes (asked every `CANCEL_POLL` seconds),
+    the call raises `ProcessCanceled`.
 
     The child writes where `child_stdout()` says (its own standard error as before). In `"log"`
     mode its output, error output included, goes to the `xeda` logger at INFO, one record for
@@ -151,20 +174,24 @@ def run_child(
     check = kwargs.pop("check", False)
     tail: list[str] = []
     if stdout is not None or TOOL_OUTPUT.get() == "terminal":
-        done = subprocess.run(
-            command, cwd=cwd, stdout=child_stdout() if stdout is None else stdout, **kwargs
+        done = _run_stoppable(
+            command,
+            canceled,
+            cwd=cwd,
+            stdout=child_stdout() if stdout is None else stdout,
+            **kwargs,
         )
     else:
         if kwargs.get("stderr") is None:
             kwargs["stderr"] = subprocess.STDOUT
-        done = subprocess.run(
+        done = _run_stoppable(
             command,
+            canceled,
             cwd=cwd,
             stdout=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            check=False,
             **kwargs,
         )
         # The lines are logged before a failure is raised: they say why the child failed.
@@ -209,6 +236,21 @@ class ProcessTimeout(NonZeroExitCode):
         what = self.command_args.split(" ")[0] if self.command_args else "process"
         return f"{what} ran past its time limit of {self.timeout} s and was stopped"
 
+
+class ProcessCanceled(Canceled):
+    """A process was stopped because its launch was canceled."""
+
+    def __init__(self, command_args: Any) -> None:
+        if isinstance(command_args, (list, tuple)):
+            command_args = " ".join(map(str, command_args))
+        super().__init__(
+            f"{command_args.split(' ')[0] if command_args else 'process'} was stopped: "
+            "the launch was canceled"
+        )
+
+
+#: How long a watch on a process waits between two questions to its `canceled` predicate.
+CANCEL_POLL = 0.1
 
 #: The signals that stop Xeda from outside (a `kill`, a CI cancel, a closed terminal or ssh
 #: session) and that Xeda would not survive. While a tool runs, they stop the tool as Ctrl-C does.
@@ -259,8 +301,11 @@ class _Deadline:
         *,
         group: bool = False,
         on_stop: Callable[[], None] | None = None,
+        canceled: Callable[[], bool] | None = None,
     ) -> None:
         self.proc, self.expired = proc, False
+        #: Whether `canceled` said yes while the leader still ran, and the watch stopped it.
+        self.stopped_on_request = False
         self._group = group and os.name == "posix"
         self._on_stop = on_stop
         self._lock = threading.Lock()
@@ -271,6 +316,27 @@ class _Deadline:
         if self._timer is not None:
             self._timer.daemon = True
             self._timer.start()
+        self._watch_done = threading.Event()
+        self._watch: threading.Thread | None = None
+        if canceled is not None:
+            self._watch = threading.Thread(
+                target=contextvars.copy_context().run, args=(self._poll, canceled), daemon=True
+            )
+            self._watch.start()
+
+    def _poll(self, canceled: Callable[[], bool]) -> None:
+        """Ask `canceled` every `CANCEL_POLL` seconds, until the block ends. On a yes, stop the
+        process as a time limit does."""
+        while not self._watch_done.wait(CANCEL_POLL):
+            if canceled():
+                with self._lock:
+                    if self._cancelled or self.leader_exited():
+                        return
+                    self.stopped_on_request = True
+                    descendants = self._descendants()
+                    self._stop(force=True)
+                    self._kill_all(descendants)
+                return
 
     def _descendants(self) -> list[psutil.Process]:
         """Return the processes that descend from the leader now, in any group. Once the leader
@@ -335,6 +401,9 @@ class _Deadline:
             self._timer.cancel()
             if self._timer is not threading.current_thread():
                 self._timer.join()
+        self._watch_done.set()
+        if self._watch is not None and self._watch is not threading.current_thread():
+            self._watch.join()
 
     def __enter__(self) -> "_Deadline":
         if self._group and threading.current_thread() is threading.main_thread():
@@ -388,7 +457,11 @@ class _Deadline:
             self._hold_stop_signals()
             self.cancel()
             # Decided before anything is signaled: the hook is for a process that Xeda stopped.
-            stopped = self.expired or (exc_type is not None and not self.leader_exited())
+            stopped = (
+                self.expired
+                or self.stopped_on_request
+                or (exc_type is not None and not self.leader_exited())
+            )
             try:
                 self._stop_and_reap(exc_type)
             finally:
@@ -431,7 +504,7 @@ class _Deadline:
                     self.proc.wait(PROCESS_STOP_GRACE)
                 except subprocess.TimeoutExpired:
                     self._stop(force=True)
-        if exc_type is not None or self.expired:
+        if exc_type is not None or self.expired or self.stopped_on_request:
             self.proc.wait()
 
 
@@ -584,6 +657,7 @@ def _run_in_terminal(
     logs: _Fanout,
     on_stop: Callable[[], None] | None,
     new_session: bool,
+    canceled: Callable[[], bool] | None,
 ) -> None:
     """Run a child as `run_process` does, with a pseudo-terminal in place of the pipe. Stdout and,
     with `merge_stderr`, stderr are the terminal, so the logs hold both. The time limit, the stop
@@ -605,7 +679,9 @@ def _run_in_terminal(
                     os.close(slave)
                     slave = -1
 
-            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+            with _Deadline(
+                proc, timeout, group=new_session, on_stop=on_stop, canceled=canceled
+            ) as deadline:
                 _copy_from_terminal(
                     master,
                     logs,
@@ -614,6 +690,8 @@ def _run_in_terminal(
                     release_slave,
                 )
                 ret = proc.wait()
+            if deadline.stopped_on_request:
+                raise ProcessCanceled(command)
             if deadline.expired:
                 assert timeout is not None
                 raise ProcessTimeout(command, timeout)
@@ -634,7 +712,10 @@ def _finish(
     tail: Sequence[str] = (),
 ) -> None:
     """Raise what the end of a tool means: its time limit, or its exit status when `check`. The
-    `tail` is the last lines of the output of a tool that has no log: the error says them."""
+    `tail` is the last lines of the output of a tool that has no log: the error says them. A tool
+    that Xeda stopped because its launch was canceled raises `ProcessCanceled`."""
+    if deadline.stopped_on_request:
+        raise ProcessCanceled(command)
     if deadline.expired:
         assert timeout is not None
         raise ProcessTimeout(command, timeout)
@@ -660,6 +741,7 @@ def _run_inherited(
     timeout: float | None,
     on_stop: Callable[[], None] | None,
     new_session: bool,
+    canceled: Callable[[], bool] | None,
 ) -> None:
     """Run a child that has no log, in `"terminal"` mode. The child writes to the terminal itself:
     it inherits the stream of the tool output (`tool_output_redirect()`) and its error output.
@@ -672,7 +754,9 @@ def _run_inherited(
         start_new_session=new_session,
     ) as proc:
         log.debug("Started %s[%d]", command[0], proc.pid)
-        with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+        with _Deadline(
+            proc, timeout, group=new_session, on_stop=on_stop, canceled=canceled
+        ) as deadline:
             proc.wait()
         _finish(command, proc, deadline, check, timeout)
 
@@ -691,6 +775,7 @@ def _run_copying(
     on_stop: Callable[[], None] | None,
     terminal: bool,
     new_session: bool,
+    canceled: Callable[[], bool] | None,
 ) -> None:
     """Run a child whose output is not captured. The output goes to the logs (`tee` and `log_to`)
     as it arrives. It goes to the terminal too, when `TOOL_OUTPUT` is `"terminal"`.
@@ -707,7 +792,7 @@ def _run_copying(
         and not highlight_rules
         and (redirect is None or _stream_has_fileno(redirect))
     ):
-        _run_inherited(command, env, cwd, check, timeout, on_stop, new_session)
+        _run_inherited(command, env, cwd, check, timeout, on_stop, new_session, canceled)
         return
     # The logs are made before the tool starts: a log that cannot be made must not start it.
     with contextlib.ExitStack() as stack:
@@ -747,6 +832,7 @@ def _run_copying(
                 logs,
                 on_stop,
                 new_session,
+                canceled,
             )
             return
         # Compile the regex keys once, to improve performance.
@@ -780,7 +866,9 @@ def _run_copying(
                 pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
                 pump.start()
             terminal_fd = _stdout_terminal_fd() if show else None
-            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+            with _Deadline(
+                proc, timeout, group=new_session, on_stop=on_stop, canceled=canceled
+            ) as deadline:
                 with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
                     for line in proc_stdout:
                         logs.write(line)
@@ -842,6 +930,7 @@ def _run_to_file(
     timeout: float | None,
     on_stop: Callable[[], None] | None,
     new_session: bool,
+    canceled: Callable[[], bool] | None,
     log_to: Path | None,
     log_append: bool,
 ) -> None:
@@ -874,7 +963,9 @@ def _run_to_file(
             assert proc.stderr is not None
             pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
             pump.start()
-            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+            with _Deadline(
+                proc, timeout, group=new_session, on_stop=on_stop, canceled=canceled
+            ) as deadline:
                 log.info("Standard output is redirected to: %s", os.path.abspath(stdout))
                 proc.wait()
             pump.join(PROCESS_STOP_GRACE)
@@ -890,6 +981,7 @@ def _run_capturing(
     timeout: float | None,
     on_stop: Callable[[], None] | None,
     new_session: bool,
+    canceled: Callable[[], bool] | None,
 ) -> str:
     """Run a child and return its output. The error output joins the output with `merge_stderr`.
     Without it, the error output goes to the standard error in `"terminal"` mode and to the
@@ -909,7 +1001,9 @@ def _run_capturing(
         start_new_session=new_session,
     ) as proc:
         log.debug("Started %s[%d]", command[0], proc.pid)
-        with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+        with _Deadline(
+            proc, timeout, group=new_session, on_stop=on_stop, canceled=canceled
+        ) as deadline:
             out, err = proc.communicate(timeout=None)
     for line in (err or "").splitlines():
         log.debug("%s: %s", Path(command[0]).name, line)
@@ -951,6 +1045,7 @@ def run_process(
     terminal: bool = False,
     log_to: Path | None = None,
     log_append: bool = False,
+    canceled: Callable[[], bool] | None = None,
 ) -> Union[None, str]:
     """Run `executable`, and return its captured stdout when `stdout` is True.
 
@@ -995,6 +1090,10 @@ def run_process(
     Nothing bounds its run time from outside, and the caller waits for it. A hook that can block
     must carry its own time limit, such as a `run_process(..., timeout=...)` of its own (the
     `docker kill` of `Docker.run` is bounded by `tool.DOCKER_KILL_TIMEOUT`).
+
+    `canceled` is asked every `CANCEL_POLL` seconds while the child runs. When it says yes, Xeda
+    stops the child as a time limit does (the group is killed, `on_stop` runs) and raises
+    `ProcessCanceled`.
 
     `merge_stderr` folds the stderr of the child into stdout while capturing (`stdout=True`) or
     copying lines, so stderr diagnostics also reach the transcript.
@@ -1045,7 +1144,9 @@ def run_process(
     # SIGHUP to Xeda do the same (`_Deadline`).
     new_session = os.name == "posix"
     if stdout is True:
-        return _run_capturing(command, env, cwd, check, merge_stderr, timeout, on_stop, new_session)
+        return _run_capturing(
+            command, env, cwd, check, merge_stderr, timeout, on_stop, new_session, canceled
+        )
     if isinstance(stdout, (str, os.PathLike)):
         _run_to_file(
             command,
@@ -1056,6 +1157,7 @@ def run_process(
             timeout,
             on_stop,
             new_session,
+            canceled,
             log_to,
             log_append,
         )
@@ -1074,6 +1176,7 @@ def run_process(
         on_stop,
         terminal,
         new_session,
+        canceled,
     )
     return None
 

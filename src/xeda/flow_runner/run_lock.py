@@ -28,7 +28,7 @@ from ..digest import FileRecord, record_file, unknown_record
 from ..errors import LeaseHeldError
 from ..listing import directory_files
 from ..run_dir import RunDirectory, RunDirectoryError, refuse_link_on_way
-from ..utils import XedaException
+from ..utils import Canceled
 
 if sys.platform != "win32":
     import fcntl
@@ -67,7 +67,7 @@ acquired_hook: Callable[[Path], None] | None = None
 _MAX_PAUSE = 0.05
 
 
-class LockWaitCanceled(XedaException):
+class LockWaitCanceled(Canceled):
     """The `canceled` predicate of a wait for a lock became true. The call holds no lock."""
 
 

@@ -1682,9 +1682,9 @@ class Flow(metaclass=ABCMeta):
         self.rejection: Optional[str] = None
         #: Set by the launcher after the run: "passed", "rejected" (the tool steps completed, the
         #: reports were read, the declared outputs are valid and `reject()` was called) or
-        #: "failed" (anything else). Only a "passed" or a "rejected" run keeps a trace. It is
+        #: "failed" (anything else), or "canceled" (the launch stopped it). Only a "passed" or a "rejected" run keeps a trace. It is
         #: None for a run that raised out of the launcher and for a flow that never started.
-        self.outcome: Optional[Literal["passed", "rejected", "failed"]] = None
+        self.outcome: Optional[Literal["passed", "rejected", "failed", "canceled"]] = None
         #: Set by the launcher: the recorded rejection of the last run was reported again.
         self.rejected_again: bool = False
         #: Set by the launcher: the producer whose failure or rejection stopped this flow.

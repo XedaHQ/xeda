@@ -50,6 +50,7 @@ from ..design import (
     redacted_url,
 )
 from ..errors import DesignError
+from ..cancel import launch_canceled
 from ..proc_utils import run_process
 from ..run_dir import RunDirectory
 from ..utils import NonZeroExitCode, replacing_file
@@ -140,7 +141,13 @@ def _git(arguments: list[str], *, repository: str, cwd: Path) -> str:
     env[f"GIT_CONFIG_VALUE_{count}"] = repository
     settings = [word for setting in _GIT_SETTINGS for word in ("-c", setting)]
     output = run_process(
-        "git", [*settings, *arguments], env=env, cwd=cwd, stdout=True, merge_stderr=True
+        "git",
+        [*settings, *arguments],
+        env=env,
+        cwd=cwd,
+        stdout=True,
+        merge_stderr=True,
+        canceled=launch_canceled,
     )
     assert output is not None
     return output

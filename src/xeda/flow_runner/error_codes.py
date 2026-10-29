@@ -46,6 +46,7 @@ from ..records import (
     ErrorInfo,
 )
 from ..utils import (
+    Canceled,
     ConflictingKeys,
     EscapedName,
     ExecutableNotFound,
@@ -140,7 +141,9 @@ def error_info(
     raised it, if there is one: the error then names the log to read (`failure_log`). `log` is the
     artifact key of that log, when the caller knows it better."""
     exit_status: int | None = None
-    if isinstance(exc, ProcessTimeout):
+    if isinstance(exc, Canceled):
+        code = CANCELED
+    elif isinstance(exc, ProcessTimeout):
         code = TIMEOUT
     elif isinstance(exc, NonZeroExitCode):
         code = NONZERO_EXIT
