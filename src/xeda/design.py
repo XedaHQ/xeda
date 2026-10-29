@@ -1648,8 +1648,9 @@ class Clock(XedaBaseModel):
 #: on a POSIX system (`subprocess` with `shell=True` runs it too).
 POSIX_SHELL = "/bin/sh"
 
-#: The variables that Xeda sets in the environment of every generator.
-GENERATOR_VARIABLES = frozenset({"DESIGN_ROOT", "XEDA_GENERATED"})
+#: The variables that Xeda sets in the environment of every generator. `PWD` is the directory the
+#: generator runs in (`run_child` sets it).
+GENERATOR_VARIABLES = frozenset({"DESIGN_ROOT", "XEDA_GENERATED", "PWD"})
 
 
 def generator_cwd(value: str, design_root: Path | None) -> Path:
@@ -1792,7 +1793,7 @@ class Generator(XedaBaseModel):
     @field_validator("env")
     @classmethod
     def _env_leaves_the_names_xeda_sets(cls, value):
-        """Xeda sets `DESIGN_ROOT` and `XEDA_GENERATED` for every generator: `env` may not."""
+        """Xeda sets `DESIGN_ROOT`, `XEDA_GENERATED` and `PWD` for every generator: `env` may not."""
         if value is not None:
             clash = sorted(set(value) & GENERATOR_VARIABLES)
             if clash:
@@ -2000,7 +2001,8 @@ class Generator(XedaBaseModel):
         """Return the environment of the generator process.
 
         That is `env` when the recipe has one (the generator inherits nothing then), else
-        `environ`. Xeda sets `DESIGN_ROOT` and `XEDA_GENERATED` in both cases."""
+        `environ`. Xeda sets `DESIGN_ROOT` and `XEDA_GENERATED` in both cases, and `run_child` sets
+        `PWD`."""
         base = dict(self.env) if self.env is not None else dict(environ)
         base["DESIGN_ROOT"] = str(design_root)
         base["XEDA_GENERATED"] = str(storage)

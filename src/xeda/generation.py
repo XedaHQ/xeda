@@ -210,7 +210,8 @@ def environment_evidence(generator: Generator, environ: Mapping[str, str]) -> di
 
     A generator whose recipe has an `env` inherits nothing (`env` is its whole environment), so
     its evidence is empty. Otherwise the generator inherits `environ`, less the variables of a
-    session (`SESSION_VARIABLES`) and the two that Xeda sets. No value is kept, only the digest."""
+    session (`SESSION_VARIABLES`) and the ones that Xeda sets (`GENERATOR_VARIABLES`). No value is kept, only the digest.
+    """
     if generator.env is not None:
         items: list[tuple[str, str]] = []
     else:

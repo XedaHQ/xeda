@@ -172,9 +172,15 @@ def run_child(
     mode its output, error output included, goes to the `xeda` logger at INFO, one record for
     each line, with `source` in front, and `stdout` of the result is empty. A caller that gives
     `stdout` gets it as it is. With `check`, a nonzero exit raises `NonZeroExitCode`, which says
-    the last lines of the output in `"log"` mode."""
+    the last lines of the output in `"log"` mode. The child gets `kwargs["env"]` (Xeda's
+    environment if none) with `PWD` set to `cwd`, as `run_process` does; the caller's mapping is
+    not changed."""
     check = kwargs.pop("check", False)
     canceled = inherited(canceled)
+    kwargs["env"] = {
+        **(os.environ if kwargs.get("env") is None else kwargs["env"]),
+        "PWD": _pwd(cwd),
+    }
     tail: list[str] = []
     if stdout is not None or TOOL_OUTPUT.get() == "terminal":
         done = _run_stoppable(

@@ -813,3 +813,18 @@ def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_pat
         )
     assert seen[0] == seen[1]
     assert seen[0][2] == Path("gen/top.v") and str(tmp_path) not in seen[0][0]
+
+
+def test_a_generator_sees_pwd_as_its_working_directory(tmp_path):
+    world = World(tmp_path)
+    assert world.launch(reader_flow()).outcome is Outcome.PASSED
+    cwd, _, _, pwd = world.noted
+    assert pwd == cwd
+
+
+def test_a_recipe_env_may_not_set_pwd(tmp_path):
+    from xeda.design import DesignValidationError
+
+    world = World(tmp_path, generator={"env": {"PWD": "/elsewhere"}})
+    with pytest.raises(DesignValidationError, match="PWD"):
+        world.load()
