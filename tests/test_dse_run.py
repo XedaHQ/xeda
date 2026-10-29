@@ -32,16 +32,16 @@ from xeda.units import Time
 from xeda.utils import replacing_file
 from xeda.flow import FpgaSynthFlow, MetricSpec
 from .design_edits import design_from_dump
-from .io_flows import _Place
+from .io_flows import TPlace
 from .tool_utils import HANG_GUARD
 
 
-class _DsePlace(_Place):
+class TDsePlace(TPlace):
     """A declared placer with one independent search setting."""
 
     results_description = {}
 
-    class Settings(_Place.Settings):
+    class Settings(TPlace.Settings):
         tag: str = Field("base", description="The search variant.")
 
     def run(self):
@@ -98,7 +98,7 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DsePlace,
+        TDsePlace,
         design,
         flow_settings={
             "fpga": {"part": "LFE5U-25F-6BG256C"},
@@ -119,7 +119,7 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
         )
 
 
-class _DseLeaf(FpgaSynthFlow):
+class TDseLeaf(FpgaSynthFlow):
     """A synthesis flow that declares no inputs and no outputs."""
 
     results_description = {}
@@ -137,7 +137,7 @@ def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_pa
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DseLeaf,
+        TDseLeaf,
         design,
         flow_settings={
             "fpga": {"part": "LFE5U-25F-6BG256C"},
@@ -166,7 +166,7 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
         post_cleanup_purge=True,
     )
     runner.run(
-        _DseLeaf,
+        TDseLeaf,
         design,
         flow_settings={
             "fpga": {"part": "LFE5U-25F-6BG256C"},
@@ -186,7 +186,7 @@ def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, mo
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     with pytest.raises(FlowSettingsError, match="disagree"):
         runner.run(
-            _DsePlace,
+            TDsePlace,
             "d",
             flow_overrides={},
             flow_settings={},
@@ -210,13 +210,13 @@ def test_declared_dse_adjustments_are_resolved_before_any_write(tmp_path, monkey
         return plan
 
     def before_logging(*args):
-        assert plans[-1].node(_DsePlace.name).settings == runner.optimizer.base_settings
+        assert plans[-1].node(TDsePlace.name).settings == runner.optimizer.base_settings
         raise RuntimeError("checked before writing logs")
 
     monkeypatch.setattr(runner, "resolve", resolved)
     monkeypatch.setattr(dse_runner, "add_file_logger", before_logging)
     with pytest.raises(RuntimeError, match="checked before writing logs"):
-        runner.run_flow(_DsePlace, design, {"fpga": {"part": "LFE5U-25F-6BG256C"}})
+        runner.run_flow(TDsePlace, design, {"fpga": {"part": "LFE5U-25F-6BG256C"}})
 
 
 def _write_dse_project(tmp_path):
@@ -224,8 +224,8 @@ def _write_dse_project(tmp_path):
     path = tmp_path / "project.toml"
     path.write_text(
         "[[designs]]\nname = 'd'\n[designs.rtl]\nsources = []\ntop = 't'\n"
-        "[designs.flows.__synth]\nfpga.part = 'LFE5U-85F-6BG381C'\n"
-        '[flows.__dse_place]\nfpga.part = "LFE5U-25F-6BG256C"\n'
+        "[designs.flows.t_synth]\nfpga.part = 'LFE5U-85F-6BG381C'\n"
+        '[flows.t_dse_place]\nfpga.part = "LFE5U-25F-6BG256C"\n'
     )
     return path
 
@@ -449,7 +449,7 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_PromotingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert runner.run(
-        _DsePlace,
+        TDsePlace,
         design,
         flow_settings={
             "fpga": {"part": "LFE5U-25F-6BG256C"},
@@ -461,7 +461,7 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     assert [o.settings.tag for o in runner.optimizer.outcomes] == ["promoted", "promoted"]
 
 
-class _FmaxPlace(_DsePlace):
+class TFmaxPlace(TDsePlace):
     """A declared placer that reports a maximum frequency."""
 
     results_description = {}
@@ -497,7 +497,7 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
         max_failed_iters_with_best=1,
     )
     assert runner.run(
-        _FmaxPlace,
+        TFmaxPlace,
         design,
         flow_settings={
             "fpga": {"part": "LFE5U-25F-6BG256C"},
@@ -647,7 +647,7 @@ def test_the_default_runtime_limit_of_a_search_is_twelve_hours():
     assert Dse.Settings().max_runtime_minutes == 12 * 60
 
 
-class _TimingJudged(FpgaSynthFlow):
+class TTimingJudged(FpgaSynthFlow):
     """A synthesis flow that reports the Fmax its period suggests and rejects a short period.
 
     It counts its runs in a file of its run directory, which a worker process of the search can
@@ -729,7 +729,7 @@ def _search_timing_judged(tmp_path) -> Dse:
         max_workers=2,
     )
     assert runner.run(
-        _TimingJudged,
+        TTimingJudged,
         design,
         flow_settings={
             "fpga": {"part": "LFE5U-25F-6BG256C"},
@@ -762,7 +762,7 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
     before, after = by_period(first.optimizer), by_period(second.optimizer)
     assert sorted(before) == sorted(after) == sorted(_OneBatchFmax.PERIODS)
     for period, outcome in after.items():
-        rejected = period < _TimingJudged.MIN_PERIOD
+        rejected = period < TTimingJudged.MIN_PERIOD
         assert outcome.results.success is (not rejected)
         assert outcome.results["fmax"] == round(1000.0 / period, 4), "a rejection keeps its Fmax"
         assert outcome.results.get("error", {}).get("code") == ("rejected" if rejected else None)
@@ -877,7 +877,7 @@ def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monke
     runner = Dse(_ClockWritingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert (
         runner.run(
-            _DseLeaf,
+            TDseLeaf,
             design,
             flow_settings={
                 "fpga": {"part": "LFE5U-25F-6BG256C"},

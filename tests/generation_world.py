@@ -48,7 +48,7 @@ def reader_flow() -> type[Flow]:
 
     Call it inside `preserved_flow_registry`: the class registers itself."""
 
-    class _GenReader(Flow):
+    class TGenReader(Flow):
         """Reads the Verilog sources of the design, for the tests of generation."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {
@@ -59,7 +59,7 @@ def reader_flow() -> type[Flow]:
         def run(self) -> None:
             self.results["seen"] = "".join(src.path.read_text() for src in self.sources_read())
 
-    return _GenReader
+    return TGenReader
 
 
 def input_reader_flow() -> type[Flow]:
@@ -67,7 +67,7 @@ def input_reader_flow() -> type[Flow]:
 
     Call it inside `preserved_flow_registry`: the class registers itself."""
 
-    class _GenInputReader(Flow):
+    class TGenInputReader(Flow):
         """Reads its declared input, which the design supplies, for the tests of generation."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {
@@ -80,7 +80,7 @@ def input_reader_flow() -> type[Flow]:
         def run(self) -> None:
             self.results["seen"] = self.inputs.netlist.read_text()
 
-    return _GenInputReader
+    return TGenInputReader
 
 
 def blocking_reader_flow(started: Path, gate: Path) -> type[Flow]:
@@ -89,7 +89,7 @@ def blocking_reader_flow(started: Path, gate: Path) -> type[Flow]:
 
     Call it inside `preserved_flow_registry`: the class registers itself."""
 
-    class _GenBlockingReader(Flow):
+    class TGenBlockingReader(Flow):
         """Holds the generated sources for as long as the test wants, for the tests of leases."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {
@@ -104,7 +104,7 @@ def blocking_reader_flow(started: Path, gate: Path) -> type[Flow]:
             last = "".join(src.path.read_text() for src in self.sources_read())
             self.results["seen"] = first + "|" + last
 
-    return _GenBlockingReader
+    return TGenBlockingReader
 
 
 class World:

@@ -41,7 +41,7 @@ from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, reader_flow
-from .io_flows import _Maker, _Taker
+from .io_flows import TMaker, TTaker
 from .test_storage_locks import PROBE, _probe
 from .test_target_scrub import FLOW as SCRUB_FLOW
 from .test_target_scrub import Tree
@@ -487,7 +487,7 @@ def test_a_locks_directory_that_is_a_link_is_refused_before_anything_is_made(tmp
 def test_a_launch_whose_locks_directory_is_a_link_delivers_nothing(tmp_path):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     outside = tmp_path / "outside"
     outside.mkdir()
     (root / ".locks").symlink_to(outside, target_is_directory=True)
@@ -495,7 +495,7 @@ def test_a_launch_whose_locks_directory_is_a_link_delivers_nothing(tmp_path):
     user.mkdir()
     runner = DefaultRunner(root, display_results=False, outputs_to=user)
     with pytest.raises(RunDirectoryError, match="symbolic link"):
-        runner.launch_flow(_Maker, design, {})
+        runner.launch_flow(TMaker, design, {})
     assert list(outside.iterdir()) == [], "nothing is made where the link leads"
     assert not (user / "made.txt").exists()
 
@@ -624,7 +624,7 @@ def test_a_launch_takes_every_lock_of_its_graph_once_before_any_flow_runs(
     root = tmp_path / "xeda_run"
     events: list[str] = []
     monkeypatch.setattr(run_lock, "acquired_hook", lambda path: events.append(path.name))
-    for flow in (_Maker, _Taker):
+    for flow in (TMaker, TTaker):
         run = flow.run
 
         def noted(self, run=run):
@@ -633,14 +633,14 @@ def test_a_launch_takes_every_lock_of_its_graph_once_before_any_flow_runs(
 
         monkeypatch.setattr(flow, "run", noted)
     runner = DefaultRunner(root, display_results=False)
-    assert runner.launch_flow(_Taker, _design(tmp_path), {}).succeeded
+    assert runner.launch_flow(TTaker, _design(tmp_path), {}).succeeded
     assert events == [
-        "__maker.lock",
-        "__taker.lock",
-        "run __maker",
-        "run __taker",
+        "t_maker.lock",
+        "t_taker.lock",
+        "run t_maker",
+        "run t_taker",
     ], "the producer takes no lock inside the lock of its consumer"
-    assert acquisitions == [[("run_dir", "__maker", True), ("run_dir", "__taker", True)]]
+    assert acquisitions == [[("run_dir", "t_maker", True), ("run_dir", "t_taker", True)]]
 
 
 def test_a_node_that_is_stale_under_its_shared_lock_makes_the_launch_start_again(
@@ -648,30 +648,30 @@ def test_a_node_that_is_stale_under_its_shared_lock_makes_the_launch_start_again
 ):
     root = tmp_path / "xeda_run"
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TTaker, design, {}).succeeded
     acquisitions.clear()
     ran: list[str] = []
-    run = _Maker.run
+    run = TMaker.run
 
     def noted(self):
         ran.append(self.name)
         run(self)
 
-    monkeypatch.setattr(_Maker, "run", noted)
+    monkeypatch.setattr(TMaker, "run", noted)
     hint = launch_locks.NodeLocks.hint
 
     def hint_then_spoil(self):
         hint(self)  # both nodes are up to date: shared
-        (root / "d" / "__maker" / "results.json").unlink()  # not any more, when the locks are held
+        (root / "d" / "t_maker" / "results.json").unlink()  # not any more, when the locks are held
 
     monkeypatch.setattr(launch_locks.NodeLocks, "hint", hint_then_spoil)
     runner = DefaultRunner(root, display_results=False)
-    assert runner.launch_flow(_Taker, design, {}).succeeded
+    assert runner.launch_flow(TTaker, design, {}).succeeded
     assert acquisitions == [
-        [("run_dir", "__maker", False), ("run_dir", "__taker", False)],
-        [("run_dir", "__maker", True), ("run_dir", "__taker", True)],
+        [("run_dir", "t_maker", False), ("run_dir", "t_taker", False)],
+        [("run_dir", "t_maker", True), ("run_dir", "t_taker", True)],
     ]
-    assert ran == ["__maker"]
+    assert ran == ["t_maker"]
 
 
 def test_the_launch_holds_the_storage_exclusively_to_generate_and_shared_while_flows_run(
@@ -817,26 +817,26 @@ def test_a_storage_that_another_launch_replaced_in_the_gap_is_accepted_when_it_i
 def test_a_node_reused_under_a_shared_lock_is_neither_prepared_nor_refreshed(tmp_path, monkeypatch):
     root = tmp_path / "xeda_run"
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TTaker, design, {}).succeeded
     before = {
         str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns, p.stat().st_ino)
         for p in sorted((root / "d").rglob("*"))
         if p.is_file() and p.suffix != ".lock"
     }
     prepared: list[str] = []
-    for flow in (_Maker, _Taker):
+    for flow in (TMaker, TTaker):
         monkeypatch.setattr(flow, "prepare_inputs", lambda self: prepared.append(self.name))
     held: list[tuple[str, str]] = []
     place = DefaultRunner._place_generated_deliveries
 
     def seen_held(self, *args):
         # Called when the launch has taken its locks, before it runs anything.
-        for name in ("__maker", "__taker"):
+        for name in ("t_maker", "t_taker"):
             held.append((_probe(root / "d" / name, "shared"), _probe(root / "d" / name)))
         return place(self, *args)
 
     monkeypatch.setattr(DefaultRunner, "_place_generated_deliveries", seen_held)
-    outcome = DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {})
+    outcome = DefaultRunner(root, display_results=False).launch_flow(TTaker, design, {})
     assert outcome.reused and prepared == []
     after = {
         str(p.relative_to(root)): (p.stat().st_size, p.stat().st_mtime_ns, p.stat().st_ino)
@@ -858,8 +858,8 @@ def test_a_shared_node_reads_no_clock_and_a_rewritten_file_is_refreshed_exclusiv
     monkeypatch.setattr(digest, "RACY_NS", 0)
     root = tmp_path / "xeda_run"
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).succeeded
-    results = root / "d" / "__taker" / "results.json"
+    assert DefaultRunner(root, display_results=False).launch_flow(TTaker, design, {}).succeeded
+    results = root / "d" / "t_taker" / "results.json"
     stat = results.stat()
     results.write_bytes(results.read_bytes())  # the same bytes in a newer file
     os.utime(results, ns=(stat.st_atime_ns, stat.st_mtime_ns - 5_000_000_000))
@@ -867,11 +867,11 @@ def test_a_shared_node_reads_no_clock_and_a_rewritten_file_is_refreshed_exclusiv
     seen: list[str] = []
 
     def clock(directory):
-        seen.append(_probe(root / "d" / "__taker", "shared"))
+        seen.append(_probe(root / "d" / "t_taker", "shared"))
         return real(directory)
 
     monkeypatch.setattr(trace, "filesystem_time_ns", clock)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Taker, design, {}).reused
+    assert DefaultRunner(root, display_results=False).launch_flow(TTaker, design, {}).reused
     assert seen and set(seen) == {"blocked"}, "the clock is read while the node is exclusive"
 
 
@@ -885,18 +885,18 @@ def test_a_launch_that_waits_for_its_first_lock_observes_cancellation(tmp_path, 
     monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())
     runner = DefaultRunner(root, display_results=False)
     runner._canceled = waiting.is_set
-    monkeypatch.setattr(_Maker, "run", lambda self: pytest.fail("it ran"))
-    with run_lock.run_dir_lock(root / "d" / "__maker", root):
-        launch, outcome = _in_thread(lambda: runner.launch_flow(_Maker, design, {}))
+    monkeypatch.setattr(TMaker, "run", lambda self: pytest.fail("it ran"))
+    with run_lock.run_dir_lock(root / "d" / "t_maker", root):
+        launch, outcome = _in_thread(lambda: runner.launch_flow(TMaker, design, {}))
         _join(launch)
     assert isinstance(outcome[0], LockWaitCanceled)
-    assert _probe(root / "d" / "__maker") == "free", "the launch holds nothing"
+    assert _probe(root / "d" / "t_maker") == "free", "the launch holds nothing"
 
 
 def test_a_delivery_that_waits_for_a_destination_observes_cancellation(tmp_path, monkeypatch):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     destination = tmp_path / "user"
     destination.mkdir()
     waiting = threading.Event()
@@ -904,11 +904,11 @@ def test_a_delivery_that_waits_for_a_destination_observes_cancellation(tmp_path,
     runner = DefaultRunner(root, display_results=False, outputs_to=destination)
     runner._canceled = waiting.is_set
     with destination_lock(destination / "made.txt", root):
-        launch, outcome = _in_thread(lambda: runner.launch_flow(_Maker, design, {}))
+        launch, outcome = _in_thread(lambda: runner.launch_flow(TMaker, design, {}))
         _join(launch)
     assert isinstance(outcome[0], LockWaitCanceled)
     assert not (destination / "made.txt").exists()
-    assert _probe(root / "d" / "__maker") == "free", "the launch released its node locks"
+    assert _probe(root / "d" / "t_maker") == "free", "the launch released its node locks"
 
 
 # --------------------------------------------------------------------------------- delivery
@@ -919,7 +919,7 @@ def test_a_delivery_keeps_the_node_locks_and_holds_each_destination_in_one_order
 ):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     user = tmp_path / "user"
     user.mkdir()
     taken: list[Path] = []
@@ -931,7 +931,7 @@ def test_a_delivery_keeps_the_node_locks_and_holds_each_destination_in_one_order
         locks = sorted((root / ".locks" / "deliveries").glob("*.lock"))
         held.append(
             (
-                _probe(root / "d" / "__maker", "exclusive"),
+                _probe(root / "d" / "t_maker", "exclusive"),
                 *(_probe_file(lock) for lock in locks),
             )
         )
@@ -939,7 +939,7 @@ def test_a_delivery_keeps_the_node_locks_and_holds_each_destination_in_one_order
 
     monkeypatch.setattr(Deliveries, "_remember", checked)
     runner = DefaultRunner(root, display_results=False, outputs_to=user)
-    assert runner.launch_flow(_Maker, design, {}).succeeded
+    assert runner.launch_flow(TMaker, design, {}).succeeded
     assert (user / "made.txt").read_text() == "made\n"
     # The node is reused: shared. Its destination and its record are exclusive.
     assert held == [("blocked", "blocked", "blocked")]
@@ -972,7 +972,7 @@ def test_two_launches_that_reuse_one_node_write_both_deliveries_in_its_record(
 ):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     users = [tmp_path / "one", tmp_path / "two"]
     for user in users:
         user.mkdir()
@@ -980,14 +980,14 @@ def test_two_launches_that_reuse_one_node_write_both_deliveries_in_its_record(
 
     def deliver(user: Path):
         return DefaultRunner(root, display_results=False, outputs_to=user).launch_flow(
-            _Maker, design, {}
+            TMaker, design, {}
         )
 
     threads = [_in_thread(lambda user=user: deliver(user)) for user in users]
     for thread, _outcome in threads:
         _join(thread)
     assert [out[0].succeeded for _thread, out in threads] == [True, True]
-    record = json.loads((root / "d" / "__maker.delivered.json").read_text())
+    record = json.loads((root / "d" / "t_maker.delivered.json").read_text())
     assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
 
 
@@ -996,12 +996,12 @@ def test_a_destination_keeps_its_lock_while_the_directory_above_it_is_made(tmp_p
     destination is the same one after the copy."""
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     user = tmp_path / "user" / "out"
     taken: list[Path] = []
     monkeypatch.setattr(run_lock, "acquired_hook", taken.append)
     runner = DefaultRunner(root, display_results=False, outputs_to=user)
-    assert runner.launch_flow(_Maker, design, {}).succeeded
+    assert runner.launch_flow(TMaker, design, {}).succeeded
     assert (user / "made.txt").read_text() == "made\n"
     assert run_lock._destination_lock_file(user / "made.txt", root) in taken
 
@@ -1012,16 +1012,16 @@ def test_a_destination_whose_directory_cannot_be_made_gets_no_lock(tmp_path, mon
     lock, and its delivery raises the error."""
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     blocker = tmp_path / "blocker"
     blocker.write_text("a file, not a directory\n")
     taken: list[Path] = []
     monkeypatch.setattr(run_lock, "acquired_hook", taken.append)
     runner = DefaultRunner(root, display_results=False, outputs_to=blocker / "out")
     with pytest.raises(NotADirectoryError):
-        runner.launch_flow(_Maker, design, {})
+        runner.launch_flow(TMaker, design, {})
     assert blocker.read_text() == "a file, not a directory\n"
-    record = root / "d" / "__maker.delivered.json"
+    record = root / "d" / "t_maker.delivered.json"
     destinations = [lock for lock in taken if "deliveries" in lock.parts]
     assert set(destinations) == {run_lock._destination_lock_file(record, root)}
 
@@ -1029,13 +1029,13 @@ def test_a_destination_whose_directory_cannot_be_made_gets_no_lock(tmp_path, mon
 def test_two_launches_that_deliver_into_a_missing_directory_both_complete(tmp_path, monkeypatch):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     users = [tmp_path / "out" / "one", tmp_path / "out" / "two"]
     _delivering_after_both_read_the_record(monkeypatch)
 
     def deliver(user: Path):
         return DefaultRunner(root, display_results=False, outputs_to=user).launch_flow(
-            _Maker, design, {}
+            TMaker, design, {}
         )
 
     threads = [_in_thread(lambda user=user: deliver(user)) for user in users]
@@ -1043,7 +1043,7 @@ def test_two_launches_that_deliver_into_a_missing_directory_both_complete(tmp_pa
         _join(thread)
     assert [out[0].succeeded for _thread, out in threads] == [True, True]
     assert [(user / "made.txt").read_text() for user in users] == ["made\n", "made\n"]
-    record = json.loads((root / "d" / "__maker.delivered.json").read_text())
+    record = json.loads((root / "d" / "t_maker.delivered.json").read_text())
     assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
 
 
@@ -1054,14 +1054,14 @@ def test_two_launches_that_deliver_one_output_to_one_destination_ask_the_second(
     check out of date under the lock of the destination, and replaces nothing."""
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
-    assert DefaultRunner(root, display_results=False).launch_flow(_Maker, design, {}).succeeded
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
     user = tmp_path / "user"
     user.mkdir()
     _delivering_after_both_read_the_record(monkeypatch)
     threads = [
         _in_thread(
             lambda: DefaultRunner(root, display_results=False, outputs_to=user).launch_flow(
-                _Maker, design, {}
+                TMaker, design, {}
             )
         )
         for _ in range(2)
@@ -1088,7 +1088,7 @@ def test_a_sweep_is_refused_by_a_thread_that_holds_a_lock(tmp_path):
     )
     with run_lock.run_dir_read_lock(root / "d" / "flow", root):
         with pytest.raises(LeaseHeldError) as caught:
-            sweep.run_flow(_Maker, _design(tmp_path), {})
+            sweep.run_flow(TMaker, _design(tmp_path), {})
     assert caught.value.code == "lease_held"
 
 

@@ -630,11 +630,11 @@ def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path
 
     with preserved_flow_registry():
 
-        class _WithOtherInputs(Yosys):
+        class TWithOtherInputs(Yosys):
             def locate_prepared_inputs(self):
                 return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
 
-    flow, script = _flow_with_script_file(tmp_path, _WithOtherInputs)
+    flow, script = _flow_with_script_file(tmp_path, TWithOtherInputs)
     flow.init()
     assert flow.settings.abc_script == str(script)
     assert flow.implicit_inputs == [script]

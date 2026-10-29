@@ -26,7 +26,7 @@ from xeda.flow_runner.settings_layers import (
 from xeda.units import Time
 
 from .flow_registry import preserved_flow_registry
-from .io_flows import _ChainUndeclared, _Maker, _Place, _Reader, _Taker
+from .io_flows import TChainUndeclared, TMaker, TPlace, TReader, TTaker
 
 PART = "LFE5U-25F-6BG256C"
 OTHER = "LFE5U-85F-6BG381C"
@@ -56,47 +56,47 @@ def _plan(tmp_path: Path, flow_cls, settings=None, sections=None, sources=(), **
 
 
 def test_the_default_producer_is_planned_before_its_consumer(tmp_path):
-    plan = _plan(tmp_path, _Taker)
-    assert plan.requested == "__taker"
-    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
-    (made,) = plan.node("__taker").inputs
-    assert (made.origin, made.producer, made.output) == ("producer", "__maker", "made")
-    assert made.describe() == "made <- __maker.made"
+    plan = _plan(tmp_path, TTaker)
+    assert plan.requested == "t_taker"
+    assert [node.name for node in plan.nodes] == ["t_maker", "t_taker"]
+    (made,) = plan.node("t_taker").inputs
+    assert (made.origin, made.producer, made.output) == ("producer", "t_maker", "made")
+    assert made.describe() == "made <- t_maker.made"
 
 
 def test_a_design_source_of_an_accepted_type_replaces_the_default_producer(tmp_path):
-    plan = _plan(tmp_path, _Taker, sources=[{"file": "given.dat", "type": "Data"}])
-    assert [node.name for node in plan.nodes] == ["__taker"]
-    (made,) = plan.node("__taker").inputs
+    plan = _plan(tmp_path, TTaker, sources=[{"file": "given.dat", "type": "Data"}])
+    assert [node.name for node in plan.nodes] == ["t_taker"]
+    (made,) = plan.node("t_taker").inputs
     assert made.origin == "source" and made.sources == (tmp_path / "d" / "given.dat",)
 
 
 def test_two_sources_for_a_singular_input_are_an_error_naming_them(tmp_path):
     sources = [{"file": "a.dat", "type": "Data"}, {"file": "b.dat", "type": "Data"}]
     with pytest.raises(FlowSettingsException, match="takes one Data file") as raised:
-        _plan(tmp_path, _Taker, sources=sources)
+        _plan(tmp_path, TTaker, sources=sources)
     assert "a.dat" in str(raised.value) and "b.dat" in str(raised.value)
 
 
 def test_a_required_input_nothing_supplies_is_an_error_naming_it(tmp_path):
-    with pytest.raises(FlowSettingsException, match=r"__reader needs its input `data`.*Data"):
-        _plan(tmp_path, _Reader)
+    with pytest.raises(FlowSettingsException, match=r"t_reader needs its input `data`.*Data"):
+        _plan(tmp_path, TReader)
 
 
 def test_an_output_a_consumer_needs_is_switched_on(tmp_path):
-    plan = _plan(tmp_path, _Taker, sections={"__maker": {"write": False}})
-    maker = plan.node("__maker")
+    plan = _plan(tmp_path, TTaker, sections={"t_maker": {"write": False}})
+    maker = plan.node("t_maker")
     assert maker.settings.write is True and maker.switched_on == ("made",)
 
 
 def test_a_flow_that_declares_nothing_is_one_node(tmp_path):
-    plan = _plan(tmp_path, _ChainUndeclared)
+    plan = _plan(tmp_path, TChainUndeclared)
     (node,) = plan.nodes
-    assert node.name == "__chain_undeclared" and node.inputs == ()
+    assert node.name == "t_chain_undeclared" and node.inputs == ()
 
 
 def test_each_node_s_identity_is_what_the_launcher_hashes(tmp_path):
-    plan = _plan(tmp_path, _Taker, sections={"__maker": {"text": "other\n"}})
+    plan = _plan(tmp_path, TTaker, sections={"t_maker": {"text": "other\n"}})
     maker, taker = plan.nodes
     assert maker.origins == () and taker.origins == (("made", ((maker.flowrun_hash, "made"),)),)
     for node in plan.nodes:
@@ -108,48 +108,48 @@ def test_each_node_s_identity_is_what_the_launcher_hashes(tmp_path):
 
 
 def test_the_plan_is_immutable(tmp_path):
-    plan = _plan(tmp_path, _Taker)
+    plan = _plan(tmp_path, TTaker)
     with pytest.raises(dataclasses.FrozenInstanceError):
         plan.requested = "other"  # type: ignore[misc]
-    saved = plan.node("__maker").settings.model_dump()
-    exposed = plan.node("__maker").settings
+    saved = plan.node("t_maker").settings.model_dump()
+    exposed = plan.node("t_maker").settings
     exposed.text = "mutated"
-    assert plan.node("__maker").settings.model_dump() == saved
+    assert plan.node("t_maker").settings.model_dump() == saved
 
 
 def test_a_shared_setting_given_for_the_consumer_reaches_its_producer(tmp_path):
     plan = _plan(
-        tmp_path, _Place, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}
+        tmp_path, TPlace, {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}}
     )
-    for name in ("__synth", "__place"):
+    for name in ("t_synth", "t_place"):
         settings = plan.node(name).settings
         assert settings.fpga.part == PART and settings.clocks["main_clock"].period.to("ns") == 10.0
 
 
 def test_a_shared_setting_given_only_for_the_producer_reaches_its_consumer(tmp_path):
-    sections = {"__synth": {"fpga": {"part": PART}}}
-    plan = _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
-    assert plan.node("__place").settings.fpga.part == PART  # and so its required `fpga` is met
+    sections = {"t_synth": {"fpga": {"part": PART}}}
+    plan = _plan(tmp_path, TPlace, compose_flow_settings(TPlace, [sections]), sections)
+    assert plan.node("t_place").settings.fpga.part == PART  # and so its required `fpga` is met
 
 
 def test_leaves_given_in_one_place_each_combine(tmp_path):
-    sections = {"__synth": {"fpga": {"family": "ecp5"}}}
-    settings = compose_flow_settings(_Place, [sections], {"fpga": {"part": PART}})
-    plan = _plan(tmp_path, _Place, settings, sections)
-    assert plan.node("__synth").settings.fpga.part == PART
-    assert plan.node("__synth").settings.fpga.family == "ecp5"
+    sections = {"t_synth": {"fpga": {"family": "ecp5"}}}
+    settings = compose_flow_settings(TPlace, [sections], {"fpga": {"part": PART}})
+    plan = _plan(tmp_path, TPlace, settings, sections)
+    assert plan.node("t_synth").settings.fpga.part == PART
+    assert plan.node("t_synth").settings.fpga.family == "ecp5"
 
 
 def test_conflicting_values_are_an_error_naming_both_places(tmp_path):
     """A project file's `[flows.nextpnr] fpga` must not silently win over a design file's
     `[flows.yosys_fpga] fpga`."""
-    project = {"__place": {"fpga": {"part": OTHER}}}
-    design = {"__synth": {"fpga": {"part": PART}}}
-    settings = compose_flow_settings(_Place, [project, design])
+    project = {"t_place": {"fpga": {"part": OTHER}}}
+    design = {"t_synth": {"fpga": {"part": PART}}}
+    settings = compose_flow_settings(TPlace, [project, design])
     with pytest.raises(FlowSettingsError) as raised:
         _plan(
             tmp_path,
-            _Place,
+            TPlace,
             settings,
             {**project, **design},
             origins=[("the project file", project), ("the design file", design)],
@@ -159,54 +159,54 @@ def test_conflicting_values_are_an_error_naming_both_places(tmp_path):
         PART,
         OTHER,
         "fpga.part",
-        "`flows.__place` in the project file",
-        "`flows.__synth` in the design file",
+        "`flows.t_place` in the project file",
+        "`flows.t_synth` in the design file",
     ):
         assert text in message, text
 
 
 def test_a_value_given_on_the_command_line_is_the_whole_run_s(tmp_path):
-    design = {"__synth": {"fpga": {"part": PART}}}
-    command_line = {"__place": {"fpga": {"part": OTHER}}}
-    settings = compose_flow_settings(_Place, [design], command_line["__place"])
+    design = {"t_synth": {"fpga": {"part": PART}}}
+    command_line = {"t_place": {"fpga": {"part": OTHER}}}
+    settings = compose_flow_settings(TPlace, [design], command_line["t_place"])
     plan = _plan(
         tmp_path,
-        _Place,
+        TPlace,
         settings,
         design,
         origins=[("the design file", design)],
         command_line=command_line,
     )
-    assert plan.node("__synth").settings.fpga.part == OTHER
-    assert plan.node("__place").settings.fpga.part == OTHER
+    assert plan.node("t_synth").settings.fpga.part == OTHER
+    assert plan.node("t_place").settings.fpga.part == OTHER
 
 
 def test_two_different_command_line_values_are_an_error(tmp_path):
-    command_line = {"__place": {"fpga": {"part": OTHER}}, "__synth": {"fpga": {"part": PART}}}
+    command_line = {"t_place": {"fpga": {"part": OTHER}}, "t_synth": {"fpga": {"part": PART}}}
     settings = compose_flow_settings(
-        _Place, [{"__synth": command_line["__synth"]}], command_line["__place"]
+        TPlace, [{"t_synth": command_line["t_synth"]}], command_line["t_place"]
     )
     with pytest.raises(FlowSettingsError, match=re.escape(COMMAND_LINE_ORIGIN)):
         _plan(
             tmp_path,
-            _Place,
+            TPlace,
             settings,
-            {"__synth": command_line["__synth"]},
-            origins=[(COMMAND_LINE_ORIGIN, {"__synth": command_line["__synth"]})],
+            {"t_synth": command_line["t_synth"]},
+            origins=[(COMMAND_LINE_ORIGIN, {"t_synth": command_line["t_synth"]})],
             command_line=command_line,
         )
 
 
 def test_a_missing_required_setting_names_the_requested_flow_first(tmp_path):
-    with pytest.raises(FlowSettingsException, match=r"^__place needs `fpga`"):
-        _plan(tmp_path, _Place)
+    with pytest.raises(FlowSettingsException, match=r"^t_place needs `fpga`"):
+        _plan(tmp_path, TPlace)
 
 
 def test_a_declared_producer_is_a_flow_the_command_line_may_address(tmp_path):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
-    assert set(transitive_dependencies(_Taker, design)) == {"__maker"}
-    assert set(transitive_dependencies(_Place, design)) == {"__synth"}
-    assert _Maker.name in transitive_dependencies(_Taker, design)
+    assert set(transitive_dependencies(TTaker, design)) == {"t_maker"}
+    assert set(transitive_dependencies(TPlace, design)) == {"t_synth"}
+    assert TMaker.name in transitive_dependencies(TTaker, design)
 
 
 @pytest.fixture(autouse=True)
@@ -217,17 +217,17 @@ def private_registry():
 
 
 def test_section_locations_and_origin_precedence_are_retained(tmp_path):
-    project = {"__place": {"fpga": {"part": OTHER}}}
-    design = {"__synth": {"fpga": {"part": PART}}}
+    project = {"t_place": {"fpga": {"part": OTHER}}}
+    design = {"t_synth": {"fpga": {"part": PART}}}
     with pytest.raises(FlowSettingsError) as raised:
         _plan(
             tmp_path,
-            _Place,
-            compose_flow_settings(_Place, [project, design]),
+            TPlace,
+            compose_flow_settings(TPlace, [project, design]),
             origins=[("project /p/project.toml", project), ("design /d/design.toml", design)],
         )
     message = str(raised.value)
-    for text in ("/p/project.toml", "/d/design.toml", "__place", "__synth", PART, OTHER):
+    for text in ("/p/project.toml", "/d/design.toml", "t_place", "t_synth", PART, OTHER):
         assert text in message
 
 
@@ -240,7 +240,7 @@ def test_section_locations_and_origin_precedence_are_retained(tmp_path):
 )
 def test_cli_clock_leaf_preserves_other_clocks_and_attributes(tmp_path, cli_clock):
     design = {
-        "__place": {
+        "t_place": {
             "fpga": {"part": PART},
             "clocks": {
                 "core": {"period": "10 ns", "port": "clk", "uncertainty": "100ps"},
@@ -248,9 +248,9 @@ def test_cli_clock_leaf_preserves_other_clocks_and_attributes(tmp_path, cli_cloc
             },
         }
     }
-    cli = {"__place": cli_clock}
-    given = compose_flow_settings(_Place, [design], cli_clock)
-    plan = _plan(tmp_path, _Place, given, origins=[("design.toml", design)], command_line=cli)
+    cli = {"t_place": cli_clock}
+    given = compose_flow_settings(TPlace, [design], cli_clock)
+    plan = _plan(tmp_path, TPlace, given, origins=[("design.toml", design)], command_line=cli)
     for node in plan.nodes:
         clocks = node.settings.clocks
         assert list(clocks) == ["core", "aux"]
@@ -263,17 +263,17 @@ def test_cli_clock_leaf_preserves_other_clocks_and_attributes(tmp_path, cli_cloc
 
 def test_disjoint_cli_leaves_combine_across_nodes(tmp_path):
     design = {
-        "__place": {
+        "t_place": {
             "fpga": {"part": PART},
             "clocks": {"main_clock": {"period": "10 ns", "port": "clk"}},
         }
     }
     cli = {
-        "__place": {"clocks": {"main_clock": {"freq": "250 MHz"}}},
-        "__synth": {"clocks": {"main_clock": {"uncertainty": "100ps"}}},
+        "t_place": {"clocks": {"main_clock": {"freq": "250 MHz"}}},
+        "t_synth": {"clocks": {"main_clock": {"uncertainty": "100ps"}}},
     }
-    given = compose_flow_settings(_Place, [design, cli])
-    plan = _plan(tmp_path, _Place, given, origins=[("design.toml", design)], command_line=cli)
+    given = compose_flow_settings(TPlace, [design, cli])
+    plan = _plan(tmp_path, TPlace, given, origins=[("design.toml", design)], command_line=cli)
     for node in plan.nodes:
         assert node.settings.main_clock.period.to("ns") == 4
         assert node.settings.main_clock.uncertainty.to("ns") == pytest.approx(0.1)
@@ -282,19 +282,19 @@ def test_disjoint_cli_leaves_combine_across_nodes(tmp_path):
 
 def test_conflicting_cli_clock_aliases_are_an_error(tmp_path):
     cli = {
-        "__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "4 ns"}}},
-        "__synth": {"clocks": {"main_clock": {"freq": "200 MHz"}}},
+        "t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "4 ns"}}},
+        "t_synth": {"clocks": {"main_clock": {"freq": "200 MHz"}}},
     }
     with pytest.raises(FlowSettingsError, match=re.escape(COMMAND_LINE_ORIGIN)):
-        _plan(tmp_path, _Place, compose_flow_settings(_Place, [cli]), command_line=cli)
+        _plan(tmp_path, TPlace, compose_flow_settings(TPlace, [cli]), command_line=cli)
 
 
 def test_equivalent_frequency_and_period_agree(tmp_path):
     sections = {
-        "__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5ns"}}},
-        "__synth": {"clocks": {"main_clock": {"freq": "200MHz"}}},
+        "t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5ns"}}},
+        "t_synth": {"clocks": {"main_clock": {"freq": "200MHz"}}},
     }
-    plan = _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
+    plan = _plan(tmp_path, TPlace, compose_flow_settings(TPlace, [sections]), sections)
     assert all(node.settings.main_clock.period.to("ns") == 5 for node in plan.nodes)
 
 
@@ -303,20 +303,20 @@ def test_equivalent_frequency_and_period_agree(tmp_path):
 )
 def test_the_same_clock_period_in_any_unit_agrees(tmp_path, place_period, synth_period):
     sections = {
-        "__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": place_period}}},
-        "__synth": {"clocks": {"main_clock": {"period": synth_period}}},
+        "t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": place_period}}},
+        "t_synth": {"clocks": {"main_clock": {"period": synth_period}}},
     }
-    plan = _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
+    plan = _plan(tmp_path, TPlace, compose_flow_settings(TPlace, [sections]), sections)
     assert all(node.settings.main_clock.period == Time("10 ns") for node in plan.nodes)
 
 
 def test_different_clock_periods_disagree(tmp_path):
     sections = {
-        "__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
-        "__synth": {"clocks": {"main_clock": {"period": "5 ns"}}},
+        "t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
+        "t_synth": {"clocks": {"main_clock": {"period": "5 ns"}}},
     }
     with pytest.raises(FlowSettingsError) as raised:
-        _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
+        _plan(tmp_path, TPlace, compose_flow_settings(TPlace, [sections]), sections)
     message = str(raised.value)
     assert "clocks.main_clock.period=10 ns at " in message
     assert "clocks.main_clock.period=5 ns at " in message
@@ -325,21 +325,21 @@ def test_different_clock_periods_disagree(tmp_path):
 
 def test_a_clock_period_without_a_unit_is_refused_when_flows_agree(tmp_path):
     sections = {
-        "__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
-        "__synth": {"clocks": {"main_clock": {"period": "5"}}},
+        "t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "10 ns"}}},
+        "t_synth": {"clocks": {"main_clock": {"period": "5"}}},
     }
     with pytest.raises(FlowSettingsError, match="needs a unit"):
-        _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
+        _plan(tmp_path, TPlace, compose_flow_settings(TPlace, [sections]), sections)
 
 
 def test_api_overrides_have_their_own_highest_precedence(tmp_path):
-    design = {"__place": {"fpga": {"part": PART}}}
-    cli = {"__place": {"fpga": {"part": OTHER}}}
-    api = {"__synth": {"fpga": {"part": PART}}}
+    design = {"t_place": {"fpga": {"part": PART}}}
+    cli = {"t_place": {"fpga": {"part": OTHER}}}
+    api = {"t_synth": {"fpga": {"part": PART}}}
     plan = _plan(
         tmp_path,
-        _Place,
-        compose_flow_settings(_Place, [design, cli, api]),
+        TPlace,
+        compose_flow_settings(TPlace, [design, cli, api]),
         origins=[("design.toml", design)],
         command_line=cli,
         api_overrides=api,
@@ -348,10 +348,10 @@ def test_api_overrides_have_their_own_highest_precedence(tmp_path):
     with pytest.raises(FlowSettingsError, match="the API") as raised:
         _plan(
             tmp_path,
-            _Place,
+            TPlace,
             api_overrides={
-                "__place": {"fpga": {"part": PART}},
-                "__synth": {"fpga": {"part": OTHER}},
+                "t_place": {"fpga": {"part": PART}},
+                "t_synth": {"fpga": {"part": OTHER}},
             },
         )
     assert "command line" not in str(raised.value)
@@ -359,9 +359,9 @@ def test_api_overrides_have_their_own_highest_precedence(tmp_path):
 
 def test_mappings_and_settings_agree(tmp_path):
     values = {"fpga": {"part": PART}, "nthreads": 2}
-    mapping = _plan(tmp_path, _Place, values)
-    model = _Place.Settings.from_input(values, design_root=tmp_path / "d", runner_cwd=tmp_path)
-    instance = _plan(tmp_path, _Place, model)
+    mapping = _plan(tmp_path, TPlace, values)
+    model = TPlace.Settings.from_input(values, design_root=tmp_path / "d", runner_cwd=tmp_path)
+    instance = _plan(tmp_path, TPlace, model)
     assert [n.settings for n in mapping.nodes] == [n.settings for n in instance.nodes]
     assert [n.flowrun_hash for n in mapping.nodes] == [n.flowrun_hash for n in instance.nodes]
 
@@ -372,14 +372,14 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
     root = tmp_path / "d"
     root.mkdir()
     design = Design(name="d", root=root, rtl={"sources": [], "top": "t"})
-    sections = {"__place": {"fpga": {"part": PART}}, "__synth": {"lib_paths": [("work", "lib")]}}
-    given = _Place.Settings.from_input(
-        compose_flow_settings(_Place, [sections]), design_root=root, runner_cwd=tmp_path
+    sections = {"t_place": {"fpga": {"part": PART}}, "t_synth": {"lib_paths": [("work", "lib")]}}
+    given = TPlace.Settings.from_input(
+        compose_flow_settings(TPlace, [sections]), design_root=root, runner_cwd=tmp_path
     )
     initial = given.model_dump()
     design_state = design.model_dump()
     plan = resolve(
-        _Place,
+        TPlace,
         design,
         given,
         sections,
@@ -391,11 +391,11 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
         debug=True,
     )
     saved = [(n.settings.model_dump(), n.flowrun_hash, n.run_path) for n in plan.nodes]
-    exposed = plan.node("__synth").settings
+    exposed = plan.node("t_synth").settings
     exposed.lib_paths.append(("other", Path("other")))
     exposed.fpga.part = OTHER
     given.fpga.part = OTHER
-    sections["__place"]["fpga"] = OTHER
+    sections["t_place"]["fpga"] = OTHER
     assert [(n.settings.model_dump(), n.flowrun_hash, n.run_path) for n in plan.nodes] == saved
     assert design.model_dump() == design_state
     assert initial["fpga"]["part"] == PART
@@ -412,7 +412,7 @@ def _board_place():
     from xeda.design import SourceType
     from xeda.flow import FpgaSynthFlow, In
 
-    class _BoardPlace(FpgaSynthFlow):
+    class TBoardPlace(FpgaSynthFlow):
         """A board-aware consumer of the same test synthesis producer."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -422,13 +422,13 @@ def _board_place():
 
         class Inputs(Flow.Inputs):
             netlist: Path = In(
-                SourceType.JsonNetlist, producer="__synth", description="The netlist."
+                SourceType.JsonNetlist, producer="t_synth", description="The netlist."
             )
 
         def run(self):
             pass
 
-    return _BoardPlace
+    return TBoardPlace
 
 
 def test_board_expansion_reaches_a_producer_without_board_settings(tmp_path):
@@ -472,7 +472,7 @@ def _board_edge():
     from xeda.design import SourceType
     from xeda.flow import In, Out
 
-    class _BoardMaker(Flow):
+    class TBoardMaker(Flow):
         """Board-aware producer for shared database contracts."""
 
         Settings = WithFpgaBoardSettings
@@ -484,19 +484,19 @@ def _board_edge():
         def run(self):
             pass
 
-    class _BoardTaker(Flow):
+    class TBoardTaker(Flow):
         """Board-aware consumer for shared database contracts."""
 
         Settings = WithFpgaBoardSettings
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
-            made: Path = In(SourceType.Data, producer="__board_maker", description="The file.")
+            made: Path = In(SourceType.Data, producer="t_board_maker", description="The file.")
 
         def run(self):
             pass
 
-    return _BoardTaker, _BoardMaker
+    return TBoardTaker, TBoardMaker
 
 
 def _device_relay():
@@ -505,7 +505,7 @@ def _device_relay():
     from xeda.design import SourceType
     from xeda.flow import FpgaSynthFlow, In, Out
 
-    class _DeviceMaker(FpgaSynthFlow):
+    class TDeviceMaker(FpgaSynthFlow):
         """Makes the file the relay passes on; its device is its own."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -516,14 +516,14 @@ def _device_relay():
         def run(self):
             pass
 
-    class _DeviceRelay(Flow):
+    class TDeviceRelay(Flow):
         """Passes the file on; it has no device."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             made: Path = In(
-                SourceType.JsonNetlist, producer="__device_maker", description="The file."
+                SourceType.JsonNetlist, producer="t_device_maker", description="The file."
             )
 
         class Outputs(Flow.Outputs):
@@ -532,18 +532,18 @@ def _device_relay():
         def run(self):
             pass
 
-    class _DeviceTaker(FpgaSynthFlow):
+    class TDeviceTaker(FpgaSynthFlow):
         """Reads the relay's file, and needs a device."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(FpgaSynthFlow.Inputs):
-            passed: Path = In(SourceType.Data, producer="__device_relay", description="The file.")
+            passed: Path = In(SourceType.Data, producer="t_device_relay", description="The file.")
 
         def run(self):
             pass
 
-    return _DeviceTaker, _DeviceMaker
+    return TDeviceTaker, TDeviceMaker
 
 
 def test_a_required_setting_given_where_no_edge_carries_it_is_named(tmp_path):
@@ -636,16 +636,16 @@ def test_displaced_producer_skips_launch_checks_but_checks_syntax(tmp_path, capl
 
     sources = [{"file": "net.json", "type": "JsonNetlist"}]
     caplog.set_level(logging.INFO)
-    sections = {"__synth": {"verbosity": "quiet"}}
-    plan = _plan(tmp_path, _Place, {"fpga": {"part": PART}}, sections=sections, sources=sources)
-    assert [n.name for n in plan.nodes] == ["__place"]
-    assert "__synth is not part of this run: its settings are unused" in caplog.text
+    sections = {"t_synth": {"verbosity": "quiet"}}
+    plan = _plan(tmp_path, TPlace, {"fpga": {"part": PART}}, sections=sections, sources=sources)
+    assert [n.name for n in plan.nodes] == ["t_place"]
+    assert "t_synth is not part of this run: its settings are unused" in caplog.text
     with pytest.raises(FlowSettingsError, match="unknown_setting"):
         _plan(
             tmp_path,
-            _Place,
+            TPlace,
             {"fpga": {"part": PART}},
-            sections={"__synth": {"unknown_setting": 1}},
+            sections={"t_synth": {"unknown_setting": 1}},
             sources=sources,
         )
 
@@ -654,7 +654,7 @@ def test_optional_inputs_and_source_order(tmp_path):
     from xeda.design import SourceType
     from xeda.flow import In
 
-    class _Optional(Flow):
+    class TOptional(Flow):
         """Optional files and an ordered required collection."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -670,19 +670,19 @@ def test_optional_inputs_and_source_order(tmp_path):
             pass
 
     sources = [{"file": "b.dat", "type": "Data"}, {"file": "a.dat", "type": "Data"}]
-    plan = _plan(tmp_path, _Optional, sources=sources)
-    absent, empty, data = plan.node(_Optional.name).inputs
+    plan = _plan(tmp_path, TOptional, sources=sources)
+    absent, empty, data = plan.node(TOptional.name).inputs
     assert absent.origin == empty.origin == "none"
     assert data.sources == (tmp_path / "d/b.dat", tmp_path / "d/a.dat")
     with pytest.raises(FlowSettingsException, match="needs its input `data`"):
-        _plan(tmp_path, _Optional)
+        _plan(tmp_path, TOptional)
 
 
 @pytest.mark.parametrize(
     "producer, output, types, many, message",
     [
         ("no_such_producer", None, ("Data",), False, "unknown producer"),
-        ("__maker", "missing", ("Data",), False, "compatible output"),
+        ("t_maker", "missing", ("Data",), False, "compatible output"),
         (None, "made", ("Data", "JsonNetlist"), False, "compatible output"),
         (None, "made", ("Data",), True, "produces many"),
     ],
@@ -693,7 +693,7 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
     from xeda.design import SourceType
     from xeda.flow import In, Out
 
-    class _UnsafeMaker(Flow):
+    class TUnsafeMaker(Flow):
         """A producer whose outputs are checked for cardinality and full type coverage."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -706,7 +706,7 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
         def run(self):
             pass
 
-    class _UnsafeTaker(Flow):
+    class TUnsafeTaker(Flow):
         """Consumes Data only."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -714,7 +714,7 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
         class Inputs(Flow.Inputs):
             data: Path = In(
                 SourceType.Data,
-                producer=producer or _UnsafeMaker.name,
+                producer=producer or TUnsafeMaker.name,
                 output=output,
                 description="Consumed data.",
             )
@@ -723,20 +723,20 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
             pass
 
     with pytest.raises(FlowSettingsException, match=message):
-        _plan(tmp_path, _UnsafeTaker)
+        _plan(tmp_path, TUnsafeTaker)
 
 
 def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
     from xeda.design import SourceType
     from xeda.flow import In, Out
 
-    class _CycleA(Flow):
+    class TCycleA(Flow):
         """First node of a declaration cycle."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
-            data: Path = In(SourceType.Data, producer="__cycle_b", description="B's data.")
+            data: Path = In(SourceType.Data, producer="t_cycle_b", description="B's data.")
 
         class Outputs(Flow.Outputs):
             data: Path = Out(SourceType.Data, description="A's data.")
@@ -744,13 +744,13 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
         def run(self):
             pass
 
-    class _CycleB(Flow):
+    class TCycleB(Flow):
         """Second node of a declaration cycle."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
-            data: Path = In(SourceType.Data, producer="__cycle_a", description="A's data.")
+            data: Path = In(SourceType.Data, producer="t_cycle_a", description="A's data.")
 
         class Outputs(Flow.Outputs):
             data: Path = Out(SourceType.Data, description="B's data.")
@@ -759,9 +759,9 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
             pass
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
-    assert list(transitive_dependencies(_CycleA, design)) == ["__cycle_b"]
-    with pytest.raises(FlowSettingsException, match="__cycle_a -> __cycle_b -> __cycle_a"):
-        _plan(tmp_path, _CycleA)
+    assert list(transitive_dependencies(TCycleA, design)) == ["t_cycle_b"]
+    with pytest.raises(FlowSettingsException, match="t_cycle_a -> t_cycle_b -> t_cycle_a"):
+        _plan(tmp_path, TCycleA)
 
 
 def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
@@ -769,7 +769,7 @@ def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
     from xeda.design import SourceType
     from xeda.flow import In, Out
 
-    class _TwoOutputs(Flow):
+    class TTwoOutputs(Flow):
         """Two optional outputs controlled by independent flags."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -785,25 +785,25 @@ def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
         def run(self):
             pass
 
-    class _TwoInputs(Flow):
+    class TTwoInputs(Flow):
         """Two inputs from one configured producer."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
 
         class Inputs(Flow.Inputs):
             a: Path = In(
-                SourceType.Data, producer=_TwoOutputs.name, output="a", description="First input."
+                SourceType.Data, producer=TTwoOutputs.name, output="a", description="First input."
             )
             b: Path = In(
-                SourceType.Data, producer=_TwoOutputs.name, output="b", description="Second input."
+                SourceType.Data, producer=TTwoOutputs.name, output="b", description="Second input."
             )
 
         def run(self):
             pass
 
-    plan = _plan(tmp_path, _TwoInputs)
-    assert [n.name for n in plan.nodes] == [_TwoOutputs.name, _TwoInputs.name]
-    made = plan.node(_TwoOutputs.name)
+    plan = _plan(tmp_path, TTwoInputs)
+    assert [n.name for n in plan.nodes] == [TTwoOutputs.name, TTwoInputs.name]
+    made = plan.node(TTwoOutputs.name)
     assert made.settings.first and made.settings.second
     assert made.switched_on == ("a", "b")
 
@@ -815,18 +815,18 @@ def test_no_flow_constructor_run_or_tool_probe_is_used(tmp_path, monkeypatch):
         raise AssertionError("execution during planning")
 
     monkeypatch.setattr(Flow, "__init__", forbidden)
-    monkeypatch.setattr(_Maker, "run", forbidden)
+    monkeypatch.setattr(TMaker, "run", forbidden)
     monkeypatch.setattr(Tool, "probe_stdout", forbidden)
-    plan = _plan(tmp_path, _Taker)
+    plan = _plan(tmp_path, TTaker)
     assert len(plan.nodes) == 2 and not (tmp_path / "run").exists()
 
 
 def test_validated_clock_models_keep_file_provenance(tmp_path):
-    project = {"__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "4ns"}}}}
-    design = {"__synth": {"clocks": {"main_clock": {"freq": "200MHz"}}}}
-    given = _Place.Settings.from_input(compose_flow_settings(_Place, [project, design]))
+    project = {"t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "4ns"}}}}
+    design = {"t_synth": {"clocks": {"main_clock": {"freq": "200MHz"}}}}
+    given = TPlace.Settings.from_input(compose_flow_settings(TPlace, [project, design]))
     with pytest.raises(FlowSettingsError) as raised:
-        _plan(tmp_path, _Place, given, origins=[("project.toml", project), ("design.toml", design)])
+        _plan(tmp_path, TPlace, given, origins=[("project.toml", project), ("design.toml", design)])
     message = str(raised.value)
     assert "project.toml" in message and "design.toml" in message
     assert "the API" not in message
@@ -836,7 +836,7 @@ def test_inconsistent_clock_pair_is_not_erased_by_agreement(tmp_path):
     with pytest.raises(FlowSettingsError, match="disagree"):
         _plan(
             tmp_path,
-            _Place,
+            TPlace,
             {
                 "fpga": {"part": PART},
                 "clocks": {"main_clock": {"period": "4 ns", "freq": "200 MHz"}},
@@ -848,15 +848,15 @@ def test_displaced_producer_without_nested_settings_still_validates_syntax(tmp_p
     with pytest.raises(FlowSettingsError, match="unknown_setting"):
         _plan(
             tmp_path,
-            _Taker,
+            TTaker,
             sources=[{"file": "given.dat", "type": "Data"}],
-            sections={"__maker": {"unknown_setting": True}},
+            sections={"t_maker": {"unknown_setting": True}},
         )
 
 
 def test_command_line_sections_keep_the_p1_run_flow_check(tmp_path):
     with pytest.raises(FlowSettingsError, match="no flow of this run"):
-        _plan(tmp_path, _Taker, command_line={"__reader": {}})
+        _plan(tmp_path, TTaker, command_line={"t_reader": {}})
 
 
 def test_pure_support_hook_runs_only_on_effective_settings(tmp_path, monkeypatch):
@@ -865,8 +865,8 @@ def test_pure_support_hook_runs_only_on_effective_settings(tmp_path, monkeypatch
     def supported(cls, settings):
         seen.append(settings.fpga.part)
 
-    monkeypatch.setattr(_Place, "check_settings_supported", classmethod(supported), raising=False)
-    _plan(tmp_path, _Place, sections={"__synth": {"fpga": {"part": PART}}})
+    monkeypatch.setattr(TPlace, "check_settings_supported", classmethod(supported), raising=False)
+    _plan(tmp_path, TPlace, sections={"t_synth": {"fpga": {"part": PART}}})
     assert seen == [PART]
 
 
@@ -875,7 +875,7 @@ def test_working_path_escape_is_rejected_and_deliveries_keep_hash_rules(tmp_path
     from xeda.design import SourceType
     from xeda.flow import Out
 
-    class _LocatedOutput(Flow):
+    class TLocatedOutput(Flow):
         """A declared output with existing working/delivery roles."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -897,9 +897,9 @@ def test_working_path_escape_is_rejected_and_deliveries_keep_hash_rules(tmp_path
             pass
 
     with pytest.raises(FlowSettingsError, match="scratch"):
-        _plan(tmp_path, _LocatedOutput, {"scratch": "../escape"})
-    first = _plan(tmp_path, _LocatedOutput, {"filename": tmp_path / "first.dat"})
-    second = _plan(tmp_path, _LocatedOutput, {"filename": tmp_path / "second.dat"})
+        _plan(tmp_path, TLocatedOutput, {"scratch": "../escape"})
+    first = _plan(tmp_path, TLocatedOutput, {"filename": tmp_path / "first.dat"})
+    second = _plan(tmp_path, TLocatedOutput, {"filename": tmp_path / "second.dat"})
     assert first.nodes[0].flowrun_hash == second.nodes[0].flowrun_hash
     assert first.context.input_settings["filename"] != second.context.input_settings["filename"]
 
@@ -917,24 +917,24 @@ def test_working_path_escape_is_rejected_and_deliveries_keep_hash_rules(tmp_path
 )
 def test_malformed_shared_and_nested_inputs_never_disappear_or_escape(tmp_path, values):
     with pytest.raises(FlowSettingsError):
-        _plan(tmp_path, _Place, {"fpga": {"part": PART}, **values})
+        _plan(tmp_path, TPlace, {"fpga": {"part": PART}, **values})
 
 
 def test_clock_model_defaults_are_not_new_explicit_contributions(tmp_path):
     values = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5 ns"}}}
-    mapping = _plan(tmp_path, _Place, values)
-    model = _plan(tmp_path, _Place, _Place.Settings.from_input(values))
+    mapping = _plan(tmp_path, TPlace, values)
+    model = _plan(tmp_path, TPlace, TPlace.Settings.from_input(values))
     assert [n.flowrun_hash for n in mapping.nodes] == [n.flowrun_hash for n in model.nodes]
     assert [n.settings for n in mapping.nodes] == [n.settings for n in model.nodes]
 
 
 def test_synthesized_clock_name_does_not_override_an_explicit_name(tmp_path):
     sections = {
-        "__place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5 ns"}}},
-        "__synth": {"clocks": {"main_clock": {"period": "5 ns", "name": "design_clock"}}},
+        "t_place": {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5 ns"}}},
+        "t_synth": {"clocks": {"main_clock": {"period": "5 ns", "name": "design_clock"}}},
     }
-    given = compose_flow_settings(_Place, [sections])
-    plan = _plan(tmp_path, _Place, given, origins=[("design.toml", sections)])
+    given = compose_flow_settings(TPlace, [sections])
+    plan = _plan(tmp_path, TPlace, given, origins=[("design.toml", sections)])
     assert all(n.settings.main_clock.name == "design_clock" for n in plan.nodes)
 
 
@@ -949,31 +949,31 @@ def test_direct_entry_points_share_context_and_validation(tmp_path, monkeypatch,
     design = Design(name="d", root=root, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     values = {"nthreads": 2, "lib_paths": [("work", "$DESIGN_ROOT/lib")], "text": "entry point\n"}
     given = (
-        _Maker.Settings.from_input(values, design_root=root, runner_cwd=tmp_path)
+        TMaker.Settings.from_input(values, design_root=root, runner_cwd=tmp_path)
         if model_input
         else values
     )
-    plan = _plan(tmp_path, _Maker, given)
+    plan = _plan(tmp_path, TMaker, given)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flows = [
-        runner.run(_Maker, design=design, flow_settings=values),
-        runner.run_flow(_Maker, design, given),
-        runner.launch_flow(_Maker, design, given),
+        runner.run(TMaker, design=design, flow_settings=values),
+        runner.run_flow(TMaker, design, given),
+        runner.launch_flow(TMaker, design, given),
     ]
     for flow in flows:
         assert flow is not None and flow.results.success
-        assert flow.results.flow_hash == plan.node(_Maker.name).flowrun_hash
+        assert flow.results.flow_hash == plan.node(TMaker.name).flowrun_hash
         assert flow.settings.nthreads == 2
-        assert flow.settings.lib_paths == plan.node(_Maker.name).settings.lib_paths
+        assert flow.settings.lib_paths == plan.node(TMaker.name).settings.lib_paths
     assert values["lib_paths"] == [("work", "$DESIGN_ROOT/lib")]
 
 
 def test_displaced_producer_cannot_satisfy_consumer_required_setting(tmp_path):
-    with pytest.raises(FlowSettingsException, match="__place needs `fpga`"):
+    with pytest.raises(FlowSettingsException, match="t_place needs `fpga`"):
         _plan(
             tmp_path,
-            _Place,
-            sections={"__synth": {"fpga": {"part": PART}}},
+            TPlace,
+            sections={"t_synth": {"fpga": {"part": PART}}},
             sources=[{"file": "net.json", "type": "JsonNetlist"}],
         )
 
@@ -981,18 +981,18 @@ def test_displaced_producer_cannot_satisfy_consumer_required_setting(tmp_path):
 @pytest.mark.parametrize("bad_clock", [5, "5ns"])
 def test_bad_individual_clock_is_a_settings_error(tmp_path, bad_clock):
     with pytest.raises(FlowSettingsError):
-        _plan(tmp_path, _Place, {"fpga": {"part": PART}, "clocks": {"core": bad_clock}})
+        _plan(tmp_path, TPlace, {"fpga": {"part": PART}, "clocks": {"core": bad_clock}})
 
 
 def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
     design = {
-        "__place": {"fpga": {"part": PART}},
-        "__synth": {
+        "t_place": {"fpga": {"part": PART}},
+        "t_synth": {
             "clocks": {"main_clock": {"period": "10 ns", "port": "clk", "uncertainty": "0.1 ns"}}
         },
     }
-    api = {"__place": {"clocks": {"main_clock": {"port": None, "uncertainty": None}}}}
-    plan = _plan(tmp_path, _Place, origins=[("design.toml", design)], api_overrides=api)
+    api = {"t_place": {"clocks": {"main_clock": {"port": None, "uncertainty": None}}}}
+    plan = _plan(tmp_path, TPlace, origins=[("design.toml", design)], api_overrides=api)
     for node in plan.nodes:
         assert node.settings.main_clock.port is None
         assert node.settings.main_clock.uncertainty is None
@@ -1009,7 +1009,7 @@ def _asic_taker():
     from xeda.flow import In
     from xeda.flow.asic import AsicPlatformFlow, AsicPlatformSettings
 
-    class _AsicTaker(AsicPlatformFlow, Flow):
+    class TAsicTaker(AsicPlatformFlow, Flow):
         """Reads yosys's gate-level netlist for one platform, as a place and route would."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -1028,7 +1028,7 @@ def _asic_taker():
         def run(self):
             pass
 
-    return _AsicTaker
+    return TAsicTaker
 
 
 def _asic_plan(tmp_path, taker, **kwargs):

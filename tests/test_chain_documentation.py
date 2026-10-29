@@ -35,6 +35,7 @@ from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
 from xeda.introspect import all_flow_classes, design_schema, flow_info, settings_info
 
 from . import tool_utils
+from .flow_registry import is_product_flow
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -310,7 +311,7 @@ def test_every_command_the_chain_chapter_shows_runs_or_is_refused_as_it_says(tmp
 
 
 def test_completion_examples_are_what_completion_returns():
-    candidates = [cls for cls in all_flow_classes() if not cls.__name__.startswith("_")]
+    candidates = [cls for cls in all_flow_classes() if is_product_flow(cls)]
     examples = re.findall(
         r"^    xeda run (\S*)<TAB>\s+->\s+(.+)$", _section(FLOWS_RST, *CHAIN_SECTION), re.M
     )

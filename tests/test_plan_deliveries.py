@@ -37,7 +37,7 @@ RUNS: List[str] = []
 DURING_RUN: List[Callable[[], object]] = []
 
 
-class _ReadsDir(Flow):
+class TReadsDir(Flow):
     """A producer that reads a directory and writes `a.txt`."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -67,7 +67,7 @@ class _ReadsDir(Flow):
             action()
 
 
-class _Delivers(Flow):
+class TDelivers(Flow):
     """A producer that delivers a netlist to the location its setting names."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -92,7 +92,7 @@ class _Delivers(Flow):
         self.outputs.b = netlist
 
 
-class _Both(Flow):
+class TBoth(Flow):
     """Reads what both producers write: two producers launched before it, in plan order."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -105,8 +105,8 @@ class _Both(Flow):
         )
 
     class Inputs(Flow.Inputs):
-        a: Path = In(SourceType.Data, producer="__reads_dir", output="a", description="A.")
-        b: Path = In(SourceType.Data, producer="__delivers", output="b", description="B.")
+        a: Path = In(SourceType.Data, producer="t_reads_dir", output="a", description="A.")
+        b: Path = In(SourceType.Data, producer="t_delivers", output="b", description="B.")
 
     def run(self) -> None:
         RUNS.append(self.name)
@@ -121,7 +121,7 @@ class _Both(Flow):
 # sweep over every registered flow collected after this module finds them.
 _REGISTERED = {
     name: registered_flows[name]
-    for cls in (_ReadsDir, _Delivers, _Both)
+    for cls in (TReadsDir, TDelivers, TBoth)
     for name in (cls.name,)
     if name in registered_flows
 }
@@ -157,19 +157,19 @@ def _runner(tmp_path: Path, **settings) -> DefaultRunner:
 
 
 def _launch(world, runner=None, own=None, **sections):
-    """Launch `_Both` with `own` as its settings, and the settings the design says for each
+    """Launch `TBoth` with `own` as its settings, and the settings the design says for each
     producer."""
     runner = runner or world.runner
     return runner.launch_flow(
-        _Both,
+        TBoth,
         world.design,
         own or {},
-        all_flows_settings={f"__{name}": values for name, values in sections.items()},
+        all_flows_settings={f"t_{name}": values for name, values in sections.items()},
     )
 
 
 def _directory(world) -> Path:
-    return world.root / "d" / "__both"
+    return world.root / "d" / "t_both"
 
 
 def test_a_destination_in_a_directory_a_sibling_producer_reads_is_refused_before_any_tool(world):
@@ -234,7 +234,7 @@ def test_a_refusal_a_producer_makes_at_its_turn_is_its_own_and_the_requested_flo
     seen: list[Path] = []
 
     def check_again(self, predicted=()):
-        if self.run_path.name == "__delivers":
+        if self.run_path.name == "t_delivers":
             seen.append(self.run_path)
             if len(seen) == 2:  # the producer's own turn, after the one made ahead
                 raise DeliveryError("changed since it was first checked", before_run=True)
@@ -272,8 +272,8 @@ def test_a_file_changed_after_the_question_was_answered_is_asked_about_again(wor
         with pytest.raises(OutputExistsError):
             _launch(world, delivers={"netlist": "$PWD/n.v"})
         assert destination.read_text() == edited, "not replaced"
-        assert RUNS == [_ReadsDir.name], "the producer that would replace it did not run"
-    assert asked == [([], "the user's file\n"), ([_ReadsDir.name], edited)]
+        assert RUNS == [TReadsDir.name], "the producer that would replace it did not run"
+    assert asked == [([], "the user's file\n"), ([TReadsDir.name], edited)]
 
 
 def _delivers_meanwhile(world, tmp_path, destination: Path, monkeypatch) -> None:
@@ -286,7 +286,7 @@ def _delivers_meanwhile(world, tmp_path, destination: Path, monkeypatch) -> None
     def other_launch_first(self):
         if not once:
             once.append(True)
-            _runner(tmp_path).launch_flow(_Delivers, world.design, {"netlist": str(destination)})
+            _runner(tmp_path).launch_flow(TDelivers, world.design, {"netlist": str(destination)})
         return hint(self)
 
     monkeypatch.setattr(launch_locks.NodeLocks, "hint", other_launch_first)
@@ -302,7 +302,7 @@ def test_a_file_another_launch_delivered_meanwhile_is_still_xeda_s_own_at_its_tu
     _delivers_meanwhile(world, tmp_path, destination, monkeypatch)
     flow = _launch(world, delivers={"netlist": str(destination)})
     assert flow.succeeded and destination.read_text() == "net\n"
-    assert RUNS.count(_Delivers.name) == 1, "the other launch ran it, and this one found it fresh"
+    assert RUNS.count(TDelivers.name) == 1, "the other launch ran it, and this one found it fresh"
 
 
 def test_a_record_another_launch_wrote_meanwhile_is_not_lost_when_this_launch_writes_it(
@@ -314,7 +314,7 @@ def test_a_record_another_launch_wrote_meanwhile_is_not_lost_when_this_launch_wr
     _delivers_meanwhile(world, tmp_path, theirs, monkeypatch)
     assert _launch(world, delivers={"netlist": str(ours)}).succeeded
     RUNS.clear()
-    again = _runner(tmp_path).launch_flow(_Delivers, world.design, {"netlist": str(theirs)})
+    again = _runner(tmp_path).launch_flow(TDelivers, world.design, {"netlist": str(theirs)})
     assert again.succeeded, "its file is xeda's own: no question, no refusal"
     assert theirs.read_text() == "net\n" and ours.read_text() == "net\n"
 
@@ -414,10 +414,10 @@ def test_a_destination_two_flows_of_the_plan_name_is_refused_before_any_tool(wor
     same = world.user / "same.out"
     if sharers == "two producers":
         own, sections = {}, dict(reads_dir={"copy": str(same)}, delivers={"netlist": str(same)})
-        first, second = "__reads_dir.copy", "__delivers.netlist"
+        first, second = "t_reads_dir.copy", "t_delivers.netlist"
     else:
         own, sections = {"report": str(same)}, dict(delivers={"netlist": str(same)})
-        first, second = "__delivers.netlist", "__both.report"
+        first, second = "t_delivers.netlist", "t_both.report"
     with pytest.raises(DeliveryError) as refused:
         _launch(world, own=own, **sections)
     # in the order the flows run
@@ -447,7 +447,7 @@ def test_a_directory_that_becomes_a_link_during_the_run_is_caught_before_anythin
     DURING_RUN.append(link)
     with pytest.raises(FlowDependencyFailure, match="both name") as refused:
         _launch(world, reads_dir={"copy": str(a / "x.out")}, delivers={"netlist": str(b / "x.out")})
-    assert "`flows.__reads_dir.copy` and `flows.__delivers.netlist`" in str(refused.value)
+    assert "`flows.t_reads_dir.copy` and `flows.t_delivers.netlist`" in str(refused.value)
     assert not (a / "x.out").exists(), "nothing was delivered"
 
 
@@ -463,7 +463,7 @@ def test_two_names_of_one_file_that_only_delivery_can_tell_are_reported_as_two_d
 
     def deliver_then_link(self, **kwargs):
         made = deliver(self, **kwargs)
-        if self.run_path.name == "__reads_dir":
+        if self.run_path.name == "t_reads_dir":
             link()
         return made
 
@@ -471,8 +471,8 @@ def test_two_names_of_one_file_that_only_delivery_can_tell_are_reported_as_two_d
     with pytest.raises(DeliveryError) as refused:
         _launch(world, reads_dir={"copy": str(a / "x.out")}, delivers={"netlist": str(b / "x.out")})
     message = str(refused.value)
-    assert "`flows.__delivers.netlist` names" in message
-    assert "which `flows.__reads_dir.copy` delivered" in message
+    assert "`flows.t_delivers.netlist` names" in message
+    assert "which `flows.t_reads_dir.copy` delivered" in message
     assert "changed while the run went on" not in message
     assert not refused.value.before_run, "only delivery could tell"
     assert (a / "x.out").read_text() == "a\n", "what the first delivered stays"
@@ -512,7 +512,7 @@ def test_an_outputs_to_file_the_last_run_predicts_is_compared_before_any_questio
             delivers={"netlist": str(destination)},
         )
     message = str(refused.value)
-    assert "`flows.__delivers.netlist`" in message and "`--outputs-to` (outputs/d.rpt)" in message
+    assert "`flows.t_delivers.netlist`" in message and "`--outputs-to` (outputs/d.rpt)" in message
     assert type(refused.value) is DeliveryError and refused.value.before_run
     assert asked == [] and RUNS == [], "a question was asked, or a tool ran, before the refusal"
     assert predicted.read_text() == "the user's file\n"
@@ -530,13 +530,13 @@ def test_a_destination_two_flows_name_is_refused_before_the_question_about_a_fil
 
 
 def _refusal_at_a_producers_turn(world, monkeypatch):
-    """Run `__both`, whose producer `__delivers` refuses its delivery at its own turn, after the
-    producer `__reads_dir` ran. Return the result of the command and its document."""
+    """Run `t_both`, whose producer `t_delivers` refuses its delivery at its own turn, after the
+    producer `t_reads_dir` ran. Return the result of the command and its document."""
     check = Deliveries.check
     seen: list[Path] = []
 
     def check_again(self, predicted=()):
-        if self.run_path.name == "__delivers":
+        if self.run_path.name == "t_delivers":
             seen.append(self.run_path)
             if len(seen) == 2:  # the producer's own turn, after the one made ahead
                 raise DeliveryError("changed since it was first checked", before_run=True)
@@ -549,12 +549,12 @@ def _refusal_at_a_producers_turn(world, monkeypatch):
             {
                 "name": "d",
                 "rtl": {"sources": [], "top": "t"},
-                "flows": {"__delivers": {"netlist": str(world.user / "n.v")}},
+                "flows": {"t_delivers": {"netlist": str(world.user / "n.v")}},
             }
         )
     )
     result = CliRunner().invoke(
-        cli, ["run", "__both", str(design), "--run-root", str(world.root), "--json"]
+        cli, ["run", "t_both", str(design), "--run-root", str(world.root), "--json"]
     )
     return result, json.loads(result.stdout)
 
@@ -567,14 +567,14 @@ def test_a_refusal_at_a_producer_s_turn_fails_that_node_in_a_launch_that_started
     blocked."""
     result, document = _refusal_at_a_producers_turn(world, monkeypatch)
     assert result.exit_code == 1 and document["outcome"] == "failed"
-    assert RUNS == [_ReadsDir.name]
-    assert document["error"]["node"] == "__delivers"
+    assert RUNS == [TReadsDir.name]
+    assert document["error"]["node"] == "t_delivers"
     assert document["error"]["code"] == "reported_failure"
     states = {node["name"]: (node["outcome"], node["disposition"]) for node in document["nodes"]}
     assert states == {
-        "__reads_dir": ("passed", "ran"),
-        "__delivers": ("failed", "ran"),
-        "__both": ("blocked", "not_run"),
+        "t_reads_dir": ("passed", "ran"),
+        "t_delivers": ("failed", "ran"),
+        "t_both": ("blocked", "not_run"),
     }
 
 
@@ -617,7 +617,7 @@ def _an_older_variant(world) -> Path:
     """A run directory of another variant of the requested flow, as a hashed layout leaves one: a
     launch with `--scrub` removes it, once it is confirmed."""
     ensure_run_root(world.root)
-    old = world.root / "d" / "__both_0123456789abcdef"
+    old = world.root / "d" / "t_both_0123456789abcdef"
     old.mkdir(parents=True)
     (old / "results.json").write_text("{}\n")
     return old
@@ -687,7 +687,7 @@ def test_the_replacement_is_asked_about_while_no_run_directory_lock_is_held(worl
     held: list[bool] = []
 
     def confirm(conflicts):
-        held.append(_lock_is_held(world.root / "d" / "__both"))
+        held.append(_lock_is_held(world.root / "d" / "t_both"))
         return True
 
     runner = _runner(tmp_path)
@@ -747,14 +747,14 @@ def _in_the_run_directory_of(world, flow: str, name: str = "in.txt") -> Path:
 def test_a_design_file_in_the_requested_flow_s_run_directory_is_refused_before_any_question(
     world, tmp_path
 ):
-    source = _in_the_run_directory_of(world, "__both", "top.v")
+    source = _in_the_run_directory_of(world, "t_both", "top.v")
     design = Design(name="d", root=world.root, rtl={"sources": [str(source)], "top": "t"})
     (world.user / "r.rpt").write_text("the user's report\n")
     asked = _asking(world.runner)
 
-    with pytest.raises(RunDirectoryError, match=r"lies in .*__both.*own run directory"):
+    with pytest.raises(RunDirectoryError, match=r"lies in .*t_both.*own run directory"):
         world.runner.launch_flow(
-            _Both, design, {"report": str(world.user / "r.rpt")}, all_flows_settings={}
+            TBoth, design, {"report": str(world.user / "r.rpt")}, all_flows_settings={}
         )
 
     assert asked == [], "a launch that will be refused asked a question"
@@ -765,12 +765,12 @@ def test_a_design_file_in_the_requested_flow_s_run_directory_is_refused_before_a
 def test_a_file_a_producer_reads_in_its_run_directory_is_refused_before_any_question_or_tool(
     world,
 ):
-    read = _in_the_run_directory_of(world, "__reads_dir")
+    read = _in_the_run_directory_of(world, "t_reads_dir")
     (world.user / "r.rpt").write_text("the user's report\n")
     (world.user / "n.v").write_text("the user's netlist\n")
     asked = _asking(world.runner)
 
-    with pytest.raises(RunDirectoryError, match=r"lies in .*__reads_dir.*own run directory"):
+    with pytest.raises(RunDirectoryError, match=r"lies in .*t_reads_dir.*own run directory"):
         _launch(
             world,
             own={"report": str(world.user / "r.rpt")},
@@ -785,10 +785,10 @@ def test_a_file_a_producer_reads_in_its_run_directory_is_refused_before_any_ques
 def test_a_file_a_later_producer_reads_in_its_run_directory_is_refused_before_an_earlier_one_runs(
     world,
 ):
-    """The plan holds the producers in the order they run: `__delivers` after `__reads_dir`. The
+    """The plan holds the producers in the order they run: `t_delivers` after `t_reads_dir`. The
     refusal for the second does not wait for the first to finish."""
-    read = _in_the_run_directory_of(world, "__delivers")
-    with pytest.raises(RunDirectoryError, match=r"lies in .*__delivers.*own run directory"):
+    read = _in_the_run_directory_of(world, "t_delivers")
+    with pytest.raises(RunDirectoryError, match=r"lies in .*t_delivers.*own run directory"):
         _launch(world, delivers={"reads": str(read), "netlist": "$PWD/n.v"})
 
     assert RUNS == []

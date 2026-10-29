@@ -148,7 +148,7 @@ def test_a_chain_narrows_the_packer_s_input_to_the_family_nextpnr_selects(tmp_pa
     assert plan.node("yosys_fpga").settings.fpga.part == plan.node("nextpnr").settings.fpga.part
 
 
-class _AscMaker(Flow):
+class TAscMaker(Flow):
     """Makes an iCE40 configuration, whatever device the packer targets."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -160,7 +160,7 @@ class _AscMaker(Flow):
         pass
 
 
-class _AscWriter(Flow):
+class TAscWriter(Flow):
     """Makes an iCE40 configuration and really writes it, whatever device the packer targets."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -176,15 +176,15 @@ class _AscWriter(Flow):
 
 
 def test_a_configuration_of_another_family_is_refused_for_the_packer(tmp_path):
-    flows = {"fpga_pack": {"fpga": {"part": ECP5}, "inputs": {"config": "__asc_maker.config"}}}
+    flows = {"fpga_pack": {"fpga": {"part": ECP5}, "inputs": {"config": "t_asc_maker.config"}}}
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).plan(FpgaPack, _design(tmp_path, flows=flows))
     message = str(raised.value)
-    assert "fpga_pack.config: __asc_maker.config has no compatible output" in message
+    assert "fpga_pack.config: t_asc_maker.config has no compatible output" in message
     assert "takes EcpConfig, makes IceAsc" in message
-    ice = {"fpga_pack": {"fpga": {"part": ICE40}, "inputs": {"config": "__asc_maker"}}}
+    ice = {"fpga_pack": {"fpga": {"part": ICE40}, "inputs": {"config": "t_asc_maker"}}}
     plan = _runner(tmp_path).plan(FpgaPack, _design(tmp_path, ICE40, flows=ice))
-    assert [node.name for node in plan.nodes] == ["__asc_maker", "fpga_pack"]
+    assert [node.name for node in plan.nodes] == ["t_asc_maker", "fpga_pack"]
 
 
 # ------------------------------------------------------ shared leaves agree along explicit edges
@@ -742,13 +742,13 @@ def _assert_never_programmed(tmp_path: Path, design: str) -> None:
 
 
 def test_a_configuration_of_the_wrong_family_never_reaches_the_programmer(tmp_path, toolchain):
-    chain = "__asc_writer+fpga_pack+openfpgaloader"
+    chain = "t_asc_writer+fpga_pack+openfpgaloader"
     design = _write_design(tmp_path)
     # the control: an iCE40 configuration for an iCE40 device is packed, and programmed
     result, document = _xeda("run", chain, design, "-s", f"fpga.part={ICE40_PART}")
     assert result.exit_code == 0, result.output
     assert _states(document) == {
-        "__asc_writer": "ran",
+        "t_asc_writer": "ran",
         "fpga_pack": "ran",
         "openfpgaloader": "ran",
     }
@@ -772,27 +772,27 @@ def test_a_configuration_of_the_wrong_family_never_reaches_the_programmer(tmp_pa
 def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
     tmp_path, toolchain
 ):
-    """`__asc_maker` declares a configuration and writes none: its output record is refused, the
+    """`t_asc_maker` declares a configuration and writes none: its output record is refused, the
     packer is not entered and the programmer never starts."""
     design = _write_design(tmp_path)
     result, document = _xeda(
-        "run", "__asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga.part={ICE40_PART}"
+        "run", "t_asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga.part={ICE40_PART}"
     )
     assert result.exit_code == 1 and document["outcome"] == "failed"
     # the failure is the producer's: each consumer is blocked by it and does not run
     assert _states(document) == {
-        "__asc_maker": "failed",
+        "t_asc_maker": "failed",
         "fpga_pack": "blocked",
         "openfpgaloader": "blocked",
     }
-    maker = _results(tmp_path, "top", "__asc_maker")
+    maker = _results(tmp_path, "top", "t_asc_maker")
     assert maker["outcome"] == "failed" and maker["error"]["code"] == "missing_output"
     assert "did not produce its output `config`" in maker["error"]["message"]
     for consumer in ("fpga_pack", "openfpgaloader"):  # blocked: they did not run
         assert not (tmp_path / "xeda_run" / "top" / consumer / "results.json").exists()
     # the verdict of the launch is the producer's own failure
     assert document["error"]["code"] == "missing_output"
-    assert document["error"]["node"] == "__asc_maker"
+    assert document["error"]["node"] == "t_asc_maker"
     assert "did not produce its output `config`" in document["error"]["message"]
     assert not _every_call(tmp_path), "a tool started"
     _assert_never_programmed(tmp_path, "top")

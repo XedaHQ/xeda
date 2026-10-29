@@ -25,7 +25,7 @@ Three checks, because source reachability alone is not proof:
 - `test_a_patched_module_name_is_looked_up_through_that_module` -- the general class, over every
   target the scan finds. The lookup may be anywhere: a function of the module itself, another
   xeda module, or a flow or helper the suite defines (`test_prepare_inputs.py`'s
-  `_ChipdbTaker.prepare_inputs` calls `xilinx.prepare_chipdb(...)` through the module, so
+  `TChipdbTaker.prepare_inputs` calls `xilinx.prepare_chipdb(...)` through the module, so
   patching it there is live even though `nextpnr.py` calls the name it imported).
 - `test_the_launcher_stage_names_are_looked_up_in_the_product` -- for the names the stage split
   moves, the lookup must be in `src/xeda`: a patch meant to intercept the launcher's own
@@ -430,7 +430,7 @@ def _read_in_the_product(module: str, name: str) -> str | None:
 def _read_in_the_suite(module: str, name: str) -> str | None:
     """Where the suite's own code reads `name` as an attribute of the `module` object.
 
-    A flow or helper a test defines is code too: `_ChipdbTaker.prepare_inputs` calls
+    A flow or helper a test defines is code too: `TChipdbTaker.prepare_inputs` calls
     `xilinx.prepare_chipdb(...)` through the module, so patching it there is a live target.
     """
     for path, source in _sources(TESTS):
@@ -629,14 +629,14 @@ def test_patching_a_launcher_stage_name_intercepts_a_real_launch(tmp_path, monke
     from xeda import Design
     from xeda.flow_runner import DefaultRunner
 
-    from .io_flows import _Maker
+    from .io_flows import TMaker
 
     seen = _intercepting(monkeypatch, ON_A_SUCCESSFUL_LAUNCH)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(
         tmp_path / "run", display_results=False, hashed_run_dirs=True, scrub_old_runs=True
     )
-    assert runner.launch_flow(_Maker, design, {}).succeeded
+    assert runner.launch_flow(TMaker, design, {}).succeeded
     missing = sorted(set(ON_A_SUCCESSFUL_LAUNCH) - seen)
     assert not missing, (
         "a launch did not go through default_runner."
@@ -654,18 +654,18 @@ def _a_flow_whose_run_raises():
     """
     from xeda.flow import registered_flows
 
-    from .io_flows import _Maker
+    from .io_flows import TMaker
 
-    class _FailingRun(_Maker):
+    class TFailingRun(TMaker):
         """Its run raises, so the launcher drops the artifacts it did not write."""
 
         def run(self) -> None:
             raise RuntimeError("as the oracle asked")
 
     try:
-        yield _FailingRun
+        yield TFailingRun
     finally:
-        for registered in (_FailingRun.name, _FailingRun.__name__):
+        for registered in (TFailingRun.name, TFailingRun.__name__):
             registered_flows.pop(registered, None)
 
 

@@ -39,7 +39,7 @@ class Launch:
         self.design = openroad_design(tmp_path / "design")
 
     def run_directory(self) -> Path:
-        (found,) = self.root.glob("*/__openroad_probe")
+        (found,) = self.root.glob("*/t_openroad_probe")
         return found
 
     def runner(self) -> DefaultRunner:
@@ -131,7 +131,7 @@ def test_a_link_at_the_name_of_the_failed_database_is_replaced_by_a_regular_file
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "report_tns_metric")
     flow = launched.launch()  # the process fails, as the script re-raises the error
     assert flow is None or not flow.succeeded
-    failed = launched.run_directory() / "__openroad_probe-failed.odb"
+    failed = launched.run_directory() / "t_openroad_probe-failed.odb"
     assert failed.is_file() and not failed.is_symlink()
     assert "write_db" in failed.read_text()
     assert target.read_text() == "outside\n"

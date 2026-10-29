@@ -14,7 +14,7 @@ from xeda.flow import FlowSettingsException
 from xeda.remote.manifest import apply_sync, build_manifest, plan_sync, write_tar
 from xeda.remote.packaging import InputPackage, package_inputs
 
-from .io_flows import _ReadsInstalled, _ReadsInstalledNested  # noqa: F401  (registers the flows)
+from .io_flows import TReadsInstalled, TReadsInstalledNested  # noqa: F401  (registers the flows)
 from .test_git_dependencies import git_log, remote
 from .tiny_platform import TINY_OPENROAD_RESIDUE
 
@@ -23,8 +23,8 @@ FIXTURES = (git_log, remote)
 pytestmark = pytest.mark.python_compat
 
 REMOTE_INPUTS = PurePosixPath("/remote/xeda/v1/ws/key/inputs/d")
-STORE_KEY = "__reads_installed"
-NESTED_KEY = "__reads_installed_nested"
+STORE_KEY = "t_reads_installed"
+NESTED_KEY = "t_reads_installed_nested"
 
 
 def _design(tmp_path: Path, **kwargs) -> Design:
@@ -339,8 +339,8 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
             settings=["clocks.main_clock.period=8 ns"],
             project=True,
         ),
-        dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory=True),
-        dict(flow="__input_maker", target=None, settings=["input_file=@data"], directory="inside"),
+        dict(flow="t_input_maker", target=None, settings=["input_file=@data"], directory=True),
+        dict(flow="t_input_maker", target=None, settings=["input_file=@data"], directory="inside"),
     ],
     ids=[
         "target",
@@ -397,9 +397,9 @@ def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
 
     data = _directory_input(tmp_path)
     design = _design(tmp_path)
-    package = _package(design, {"__input_maker": {"input_file": str(data)}}, tmp_path)
+    package = _package(design, {"t_input_maker": {"input_file": str(data)}}, tmp_path)
     assert all(path.is_file() for path in package.files.values())
-    (setting,) = _shipped(package)["flows"]["__input_maker"].values()
+    (setting,) = _shipped(package)["flows"]["t_input_maker"].values()
     relative = setting.removeprefix("$DESIGN_ROOT/")
     assert set(package.files) >= {f"{relative}/top.txt", f"{relative}/deep/deeper/x.txt"}
     assert package.directories == [f"{relative}/empty/inner"]
@@ -694,73 +694,73 @@ def _write_project(root: Path, flows: dict, design_flows: dict | None) -> str:
     return str(path)
 
 
-MADE_BY_INPUT_MAKER = {"made": "__input_maker.made"}
-BOUND_PRODUCER = {"__input_maker": {"input_file": "input.txt"}}
+MADE_BY_INPUT_MAKER = {"made": "t_input_maker.made"}
+BOUND_PRODUCER = {"t_input_maker": {"input_file": "input.txt"}}
 
 #: name -> (flow, settings of the design file, settings of the project file, `-s` items,
 #: nodes that the plan has, as `(node, input, producers of it)`).
 BINDING_CASES = {
     "design-file": dict(
-        flow="__taker",
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "project-file": dict(
-        flow="__taker",
-        project={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        project={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "command-line": dict(
-        flow="__taker",
+        flow="t_taker",
         design=BOUND_PRODUCER,
-        settings=["flows.__taker.inputs.made=__input_maker.made"],
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        settings=["flows.t_taker.inputs.made=t_input_maker.made"],
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "command-line-over-file": dict(
-        flow="__taker",
-        design={"__taker": {"inputs": {"made": "__maker.made"}}, **BOUND_PRODUCER},
-        settings=["flows.__taker.inputs.made=__input_maker.made"],
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        design={"t_taker": {"inputs": {"made": "t_maker.made"}}, **BOUND_PRODUCER},
+        settings=["flows.t_taker.inputs.made=t_input_maker.made"],
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "file-over-project": dict(
-        flow="__taker",
-        project={"__taker": {"inputs": {"made": "__maker.made"}}},
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__input_maker", "made")])],
+        flow="t_taker",
+        project={"t_taker": {"inputs": {"made": "t_maker.made"}}},
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_input_maker", "made")])],
     ),
     "chain-over-file": dict(
-        flow="__maker+__taker",
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
-        edges=[("__taker", "made", [("__maker", "made")])],
+        flow="t_maker+t_taker",
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}, **BOUND_PRODUCER},
+        edges=[("t_taker", "made", [("t_maker", "made")])],
         shipped_inputs=False,
     ),
     "inputs-of-a-producer": dict(
-        flow="__left",
+        flow="t_left",
         design={
-            "__left": {"inputs": {"json_netlist": "__relay.netlist"}},
-            "__relay": {"inputs": {"data": "__maker.made"}},
-            "__fork": {"first": True},
+            "t_left": {"inputs": {"json_netlist": "t_relay.netlist"}},
+            "t_relay": {"inputs": {"data": "t_maker.made"}},
+            "t_fork": {"first": True},
         },
         edges=[
-            ("__left", "json_netlist", [("__relay", "netlist")]),
-            ("__relay", "data", [("__maker", "made")]),
+            ("t_left", "json_netlist", [("t_relay", "netlist")]),
+            ("t_relay", "data", [("t_maker", "made")]),
         ],
     ),
     "two-producers-of-a-many-input": dict(
-        flow="__join",
-        design={"__join": {"inputs": {"more": ["__maker.made", "__input_maker.made"]}}}
+        flow="t_join",
+        design={"t_join": {"inputs": {"more": ["t_maker.made", "t_input_maker.made"]}}}
         | BOUND_PRODUCER,
-        edges=[("__join", "more", [("__maker", "made"), ("__input_maker", "made")])],
+        edges=[("t_join", "more", [("t_maker", "made"), ("t_input_maker", "made")])],
     ),
     "many-input-in-the-other-order": dict(
-        flow="__join",
-        design={"__join": {"inputs": {"more": ["__input_maker.made", "__maker.made"]}}}
+        flow="t_join",
+        design={"t_join": {"inputs": {"more": ["t_input_maker.made", "t_maker.made"]}}}
         | BOUND_PRODUCER,
-        edges=[("__join", "more", [("__input_maker", "made"), ("__maker", "made")])],
+        edges=[("t_join", "more", [("t_input_maker", "made"), ("t_maker", "made")])],
     ),
     "binding-of-a-flow-the-plan-leaves-out": dict(
-        flow="__maker",
-        design={"__taker": {"inputs": MADE_BY_INPUT_MAKER}},
+        flow="t_maker",
+        design={"t_taker": {"inputs": MADE_BY_INPUT_MAKER}},
         edges=[],
         shipped_inputs=True,
     ),
@@ -796,7 +796,7 @@ def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
     if case.get("shipped_inputs") is False:
         assert not holding  # the chain binds the input, and the remote gets the chain
     else:
-        assert holding and all(name not in ("__maker",) for name in holding)
+        assert holding and all(name not in ("t_maker",) for name in holding)
 
 
 # --- The identity of a node is the same on both ends -------------------------------------------

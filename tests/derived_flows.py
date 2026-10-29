@@ -23,12 +23,12 @@ MODULE_TEXT = "module {name}(); endmodule\n"
 def converter_flows() -> tuple[type[Flow], type[Flow], type[Flow]]:
     """Define three converters and return them.
 
-    The first one, `_FakeBsc`, converts Bluespec into Verilog like bsc: it writes a module named
-    like each Bluespec source, and passes every other source through. The second one, `_Rival`,
+    The first one, `TFakeBsc`, converts Bluespec into Verilog like bsc: it writes a module named
+    like each Bluespec source, and passes every other source through. The second one, `TRival`,
     is the same flow under another name, so that two converters fit the same input. The third,
-    `_ToVhdl`, converts Bluespec into VHDL, which a Verilog tool cannot read."""
+    `TToVhdl`, converts Bluespec into VHDL, which a Verilog tool cannot read."""
 
-    class _FakeBsc(Flow):
+    class TFakeBsc(Flow):
         """Converts each Bluespec source into a module of the same name, for the tests."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -55,15 +55,15 @@ def converter_flows() -> tuple[type[Flow], type[Flow], type[Flow]]:
             assert isinstance(self.outputs, self.Outputs)
             self.outputs.design = DerivedSources(self.design.rtl.top, tuple(entries))
 
-    class _Rival(_FakeBsc):
+    class TRival(TFakeBsc):
         """The same converter under another name."""
 
-    class _ToVhdl(_FakeBsc):
+    class TToVhdl(TFakeBsc):
         """A converter whose output a Verilog tool cannot read."""
 
         written = SourceType.Vhdl
 
-    return _FakeBsc, _Rival, _ToVhdl
+    return TFakeBsc, TRival, TToVhdl
 
 
 def vhdl_converter() -> type[Flow]:
@@ -72,7 +72,7 @@ def vhdl_converter() -> type[Flow]:
     Bsc reads Bluespec and Verilog, so a design with VHDL beside Bluespec gives a second converter
     something to convert for the first one: the case of two conversions in a row."""
 
-    class _VhdlToVerilog(Flow):
+    class TVhdlToVerilog(Flow):
         """Converts each VHDL source into a module of the same name, for the tests."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -98,7 +98,7 @@ def vhdl_converter() -> type[Flow]:
             assert isinstance(self.outputs, self.Outputs)
             self.outputs.design = DerivedSources(self.design.rtl.top, tuple(entries))
 
-    return _VhdlToVerilog
+    return TVhdlToVerilog
 
 
 def design_output_flow() -> type[Flow]:
@@ -107,7 +107,7 @@ def design_output_flow() -> type[Flow]:
     It stands for a flow that writes a design for others to read, such as a netlist for gate-level
     simulation, which converts nothing of the design it reads."""
 
-    class _Netlister(Flow):
+    class TNetlister(Flow):
         """Writes a design and converts none, for the tests."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -120,4 +120,4 @@ def design_output_flow() -> type[Flow]:
             assert isinstance(self.outputs, self.Outputs)
             self.outputs.design = DerivedSources(self.design.rtl.top, ())
 
-    return _Netlister
+    return TNetlister

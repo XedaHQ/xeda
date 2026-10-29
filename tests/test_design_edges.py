@@ -121,10 +121,10 @@ def test_a_flow_that_reads_no_design_source_has_no_design_input() -> None:
 
 
 def test_a_nonreader_can_inherit_the_hidden_base_design_input() -> None:
-    class _NonReader(Flow):
+    class TNonReader(Flow):
         reads_sources = None
 
-    assert "design" not in declared_inputs(_NonReader)
+    assert "design" not in declared_inputs(TNonReader)
 
 
 def test_the_design_input_is_the_only_input_a_flow_never_reads() -> None:
@@ -172,9 +172,9 @@ def test_a_declaration_of_files_stays_what_it_was() -> None:
     ],
 )
 def test_a_design_input_takes_no_argument_of_a_file_input(argument, reads) -> None:
-    with pytest.raises(TypeError, match="_Refused"):
+    with pytest.raises(TypeError, match="TRefused"):
 
-        class _Refused(Flow):
+        class TRefused(Flow):
             reads_sources = reads
 
             class Inputs(Flow.Inputs):
@@ -187,7 +187,7 @@ def test_a_design_input_takes_no_argument_of_a_file_input(argument, reads) -> No
 def test_a_design_input_is_a_design_or_none(reads) -> None:
     with pytest.raises(TypeError, match="Design"):
 
-        class _Refused(Flow):
+        class TRefused(Flow):
             reads_sources = reads
 
             class Inputs(Flow.Inputs):
@@ -197,7 +197,7 @@ def test_a_design_input_is_a_design_or_none(reads) -> None:
 def test_a_design_output_is_always_written() -> None:
     with pytest.raises(TypeError, match="enabled_by"):
 
-        class _Refused(Flow):
+        class TRefused(Flow):
             reads_sources = frozenset({SourceType.Verilog})
 
             class Settings(Flow.Settings):
@@ -216,7 +216,7 @@ def test_a_design_output_is_always_written() -> None:
 def test_a_flow_derives_one_design() -> None:
     with pytest.raises(TypeError, match="two design outputs|2 design outputs"):
 
-        class _Refused(Flow):
+        class TRefused(Flow):
             reads_sources = frozenset({SourceType.Verilog})
 
             class Outputs(Flow.Outputs):
@@ -231,7 +231,7 @@ def test_a_flow_derives_one_design() -> None:
 def test_a_design_output_is_derived_sources() -> None:
     with pytest.raises(TypeError, match="DerivedSources"):
 
-        class _Refused(Flow):
+        class TRefused(Flow):
             reads_sources = frozenset({SourceType.Verilog})
 
             class Outputs(Flow.Outputs):
@@ -754,7 +754,7 @@ def test_a_flow_that_defines_a_conversion_declares_one_design_output() -> None:
     the output that carries the derived design."""
     with pytest.raises(TypeError, match="exactly one design output"):
 
-        class _NoOutput(Flow):
+        class TNoOutput(Flow):
             reads_sources = frozenset({SourceType.Verilog})
 
             @classmethod
@@ -773,7 +773,7 @@ def _switched_converter(
     """A converter of `converts` into Verilog whose `convert` setting switches the conversion on:
     under the default settings it converts nothing. It reads `reads`."""
 
-    class _Switched(Flow):
+    class TSwitched(Flow):
         """Converts Bluespec when its setting says so."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -794,7 +794,7 @@ def _switched_converter(
         def run(self) -> None:
             pass
 
-    return _Switched
+    return TSwitched
 
 
 def test_a_conversion_that_the_settings_switch_on_makes_a_converter() -> None:
@@ -872,7 +872,7 @@ def test_a_converter_that_a_file_dependency_reaches_may_take_a_converted_design(
         reads=frozenset({SourceType.Verilog, SourceType.Vhdl}), converts=SourceType.Vhdl
     )
 
-    class _Reader(Flow):
+    class TReader(Flow):
         """Takes a file from the converter, for the test."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -885,9 +885,9 @@ def test_a_converter_that_a_file_dependency_reaches_may_take_a_converted_design(
         def run(self) -> None:
             pass
 
-    graph = default_graph(_Reader)
+    graph = default_graph(TReader)
     assert [(e.consumer, e.input, e.producer) for e in graph.edges] == [
-        (_Reader, "extra", switched),
+        (TReader, "extra", switched),
         (switched, "design", Bsc),
     ]
     assert graph.between(Bsc) == (switched,)

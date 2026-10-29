@@ -485,7 +485,7 @@ def groups(tmp_path):
     from the synthesis whose `net` the flow that makes its `act` reads."""
     from xeda.flow import Out
 
-    class _SynthA(Flow):
+    class TSynthA(Flow):
         """First synthesis."""
 
         results_description = {}
@@ -498,18 +498,18 @@ def groups(tmp_path):
         def run(self) -> None:
             pass
 
-    class _SynthB(_SynthA):
+    class TSynthB(TSynthA):
         """Second synthesis."""
 
         results_description = {}
 
-    class _Sim(Flow):
+    class TSim(Flow):
         """Reads a netlist."""
 
         results_description = {}
 
         class Inputs(Flow.Inputs):
-            net: Path = In(SourceType.Data, producer=_SynthA.name, output="net", description="x")
+            net: Path = In(SourceType.Data, producer=TSynthA.name, output="net", description="x")
 
         class Outputs(Flow.Outputs):
             act: Path = Out(SourceType.Data, description="x")
@@ -517,16 +517,16 @@ def groups(tmp_path):
         def run(self) -> None:
             pass
 
-    class _Report(Flow):
+    class TReport(Flow):
         """Reports on two checkpoints of the synthesis behind an activity."""
 
         results_description = {}
 
         class Inputs(Flow.Inputs):
-            act: Path = In(SourceType.Data, producer=_Sim.name, output="act", description="x")
+            act: Path = In(SourceType.Data, producer=TSim.name, output="act", description="x")
             ck1: Path = In(
                 SourceType.Data,
-                producer=_SynthA.name,
+                producer=TSynthA.name,
                 output="ck1",
                 same_producer_as="act",
                 via="net",
@@ -534,7 +534,7 @@ def groups(tmp_path):
             )
             ck2: Path = In(
                 SourceType.Data,
-                producer=_SynthA.name,
+                producer=TSynthA.name,
                 output="ck2",
                 same_producer_as="act",
                 via="net",
@@ -550,9 +550,9 @@ def groups(tmp_path):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
 
     def plan_(*settings):
-        return runner.plan(_Report, design, flow_settings=list(settings))
+        return runner.plan(TReport, design, flow_settings=list(settings))
 
-    return _SynthA.name, _SynthB.name, _Sim.name, _Report.name, plan_
+    return TSynthA.name, TSynthB.name, TSim.name, TReport.name, plan_
 
 
 def test_the_advice_moves_every_member_of_a_via_group(groups):
@@ -584,13 +584,13 @@ def test_the_advice_never_overrides_a_binding_in_a_via_group(groups):
 
 @pytest.fixture
 def relations(tmp_path):
-    """Flows with two kinds of relation to one anchor. `_Report.ck` follows its activity to the
+    """Flows with two kinds of relation to one anchor. `TReport.ck` follows its activity to the
     synthesis behind `net` of the simulation (`via`). On the simulation, `net2` is tied to `net`
     (same producer), while `aux` is tied to `net` only through `src` (`via`): it has to come from
     the producer of the `src` that the synthesis behind `net` reads."""
     from xeda.flow import Out
 
-    class _Src(Flow):
+    class TSrc(Flow):
         """Makes a source."""
 
         results_description = {}
@@ -601,13 +601,13 @@ def relations(tmp_path):
         def run(self) -> None:
             pass
 
-    class _SynthA(Flow):
+    class TSynthA(Flow):
         """First synthesis."""
 
         results_description = {}
 
         class Inputs(Flow.Inputs):
-            src: Path = In(SourceType.Data, producer=_Src.name, output="src", description="x")
+            src: Path = In(SourceType.Data, producer=TSrc.name, output="src", description="x")
 
         class Outputs(Flow.Outputs):
             net: Path = Out(SourceType.Data, description="x")
@@ -618,33 +618,33 @@ def relations(tmp_path):
         def run(self) -> None:
             pass
 
-    class _SynthB(_SynthA):
+    class TSynthB(TSynthA):
         """Second synthesis."""
 
         results_description = {}
 
-    class _Src2(_Src):
+    class TSrc2(TSrc):
         """Makes another source."""
 
         results_description = {}
 
-    class _Sim(Flow):
+    class TSim(Flow):
         """Reads a netlist, a second one made with it and a file made from its source."""
 
         results_description = {}
 
         class Inputs(Flow.Inputs):
-            net: Path = In(SourceType.Data, producer=_SynthA.name, output="net", description="x")
+            net: Path = In(SourceType.Data, producer=TSynthA.name, output="net", description="x")
             net2: Path = In(
                 SourceType.Data,
-                producer=_SynthA.name,
+                producer=TSynthA.name,
                 output="net2",
                 same_producer_as="net",
                 description="x",
             )
             aux: Path = In(
                 SourceType.Data,
-                producer=_Src.name,
+                producer=TSrc.name,
                 output="src",
                 same_producer_as="net",
                 via="src",
@@ -657,16 +657,16 @@ def relations(tmp_path):
         def run(self) -> None:
             pass
 
-    class _Report(Flow):
+    class TReport(Flow):
         """Reports on the checkpoint of the synthesis behind an activity."""
 
         results_description = {}
 
         class Inputs(Flow.Inputs):
-            act: Path = In(SourceType.Data, producer=_Sim.name, output="act", description="x")
+            act: Path = In(SourceType.Data, producer=TSim.name, output="act", description="x")
             ck: Path = In(
                 SourceType.Data,
-                producer=_SynthA.name,
+                producer=TSynthA.name,
                 output="ck",
                 same_producer_as="act",
                 via="net",
@@ -685,14 +685,14 @@ def relations(tmp_path):
         return runner.plan(flow, design, flow_settings=list(settings))
 
     return types.SimpleNamespace(
-        src=_Src.name,
-        src2=_Src2.name,
-        a=_SynthA.name,
-        b=_SynthB.name,
-        sim=_Sim.name,
-        report=_Report.name,
-        plan_report=lambda *settings: plan_(_Report, *settings),
-        plan_sim=lambda *settings: plan_(_Sim, *settings),
+        src=TSrc.name,
+        src2=TSrc2.name,
+        a=TSynthA.name,
+        b=TSynthB.name,
+        sim=TSim.name,
+        report=TReport.name,
+        plan_report=lambda *settings: plan_(TReport, *settings),
+        plan_sim=lambda *settings: plan_(TSim, *settings),
     )
 
 

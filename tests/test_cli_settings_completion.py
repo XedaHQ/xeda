@@ -413,57 +413,57 @@ def test_runtime_completion_does_not_mutate_cached_builtin_records(monkeypatch) 
 def test_loaded_extension_chain_uses_runtime_route_validation() -> None:
     state = _parse_request_words(
         cli,
-        ["run", "__chain_producer.json_a+__chain_aliased", "DESIGN", "-s"],
+        ["run", "t_chain_producer.json_a+t_chain_aliased", "DESIGN", "-s"],
         "",
     )
     assert state is not None
-    assert "__chain_producer" in state.allowed_scopes
-    assert "__chain_aliased" in state.allowed_scopes
+    assert "t_chain_producer" in state.allowed_scopes
+    assert "t_chain_aliased" in state.allowed_scopes
 
 
 def test_runtime_override_uses_runtime_output_qualifiers(monkeypatch) -> None:
     from tests import io_flows
     from xeda.flow import registered_flows
 
-    original_name = io_flows._ChainProducer.name
-    original_class_name = io_flows._ChainProducer.__name__
-    io_flows._ChainProducer.name = "vivado_synth"
-    io_flows._ChainProducer.__name__ = "VivadoSynth"
+    original_name = io_flows.TChainProducer.name
+    original_class_name = io_flows.TChainProducer.__name__
+    io_flows.TChainProducer.name = "vivado_synth"
+    io_flows.TChainProducer.__name__ = "VivadoSynth"
     monkeypatch.setitem(
         registered_flows,
         "vivado_synth",
-        (io_flows.__name__, io_flows._ChainProducer),
+        (io_flows.__name__, io_flows.TChainProducer),
     )
     try:
         state = _parse_request_words(
             cli,
-            ["run", "vivado_synth.json_a+__chain_ambiguous_consumer", "DESIGN", "-s"],
+            ["run", "vivado_synth.json_a+t_chain_ambiguous_consumer", "DESIGN", "-s"],
             "",
         )
         assert state is not None
-        assert "__chain_ambiguous_consumer" in state.allowed_scopes
+        assert "t_chain_ambiguous_consumer" in state.allowed_scopes
     finally:
-        io_flows._ChainProducer.name = original_name
-        io_flows._ChainProducer.__name__ = original_class_name
+        io_flows.TChainProducer.name = original_name
+        io_flows.TChainProducer.__name__ = original_class_name
 
 
 def test_runtime_override_does_not_use_stale_catalog_default_scopes(monkeypatch) -> None:
     from tests import io_flows
     from xeda.flow import registered_flows
 
-    original_name = io_flows._ChainProducer.name
-    io_flows._ChainProducer.name = "fpga_pack"
+    original_name = io_flows.TChainProducer.name
+    io_flows.TChainProducer.name = "fpga_pack"
     monkeypatch.setitem(
         registered_flows,
         "fpga_pack",
-        (io_flows.__name__, io_flows._ChainProducer),
+        (io_flows.__name__, io_flows.TChainProducer),
     )
     try:
         state = _parse_request_words(cli, ["run", "fpga_pack", "DESIGN", "-s"], "")
         assert state is not None
         assert state.allowed_scopes == ["fpga_pack"]
     finally:
-        io_flows._ChainProducer.name = original_name
+        io_flows.TChainProducer.name = original_name
 
 
 def test_settings_completion_matches_multiple_wildcard_segments() -> None:

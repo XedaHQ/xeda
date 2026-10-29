@@ -25,6 +25,7 @@ from xeda.flow_runner.bindings import INPUTS_KEY, BindingEntry, BindingLayer, No
 from xeda.remote.packaging import package_inputs
 
 from . import io_flows
+from .flow_registry import is_product_flow
 from .settings_samples import PROBES, flow_classes, minimal_settings
 from .test_remote_packaging import (
     REMOTE_INPUTS,
@@ -44,7 +45,7 @@ def _test_flows() -> list[type[Flow]]:
     found = {
         cls
         for _name, (module, cls) in registered_flows.items()
-        if module == io_flows.__name__ and cls.__name__.startswith("_")
+        if module == io_flows.__name__ and not is_product_flow(cls)
     }
     return sorted(found, key=lambda cls: cls.name)
 
@@ -328,7 +329,7 @@ def _planned(tmp_path: Path, consumer: str, name: str, producer: str, output: st
                 "rtl": {"sources": [], "top": "t"},
                 "flows": {
                     consumer: {"inputs": {name: f"{producer}.{output}"}},
-                    "__input_maker": {"input_file": "input.txt"},
+                    "t_input_maker": {"input_file": "input.txt"},
                 },
             }
         )

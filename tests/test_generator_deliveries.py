@@ -367,7 +367,7 @@ def test_the_record_of_the_node_that_delivered_remembers_the_copy(tmp_path):
 def test_only_the_first_flow_that_reads_the_sources_delivers_them(tmp_path):
     """Two flows of a plan read the generated sources, and each file is copied once."""
 
-    class _First(Flow):
+    class TFirst(Flow):
         """Reads the Verilog sources of the design and writes a file for the next flow."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -380,7 +380,7 @@ def test_only_the_first_flow_that_reads_the_sources_delivers_them(tmp_path):
             self.outputs.made = self.run_path / "made.txt"
             self.outputs.made.write_text("made\n")
 
-    class _Second(Flow):
+    class TSecond(Flow):
         """Reads the Verilog sources of the design, and the file of the first flow."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -388,7 +388,7 @@ def test_only_the_first_flow_that_reads_the_sources_delivers_them(tmp_path):
 
         class Inputs(Flow.Inputs):
             made: Path = In(
-                SourceType.Data, producer=_First.name, output="made", description="The file."
+                SourceType.Data, producer=TFirst.name, output="made", description="The file."
             )
 
         def run(self) -> None:
@@ -398,11 +398,11 @@ def test_only_the_first_flow_that_reads_the_sources_delivers_them(tmp_path):
     runner = world.runner()
     design = world.design()
     result = launch_result(
-        runner, Spec(_Second.name, design), lambda: runner.run_flow(_Second, design, {})
+        runner, Spec(TSecond.name, design), lambda: runner.run_flow(TSecond, design, {})
     )
     assert result.outcome is Outcome.PASSED, result.error
-    assert [r.key for r in result.nodes[_First.name].deliveries] == ["generator"]
-    assert result.nodes[_Second.name].deliveries == ()
+    assert [r.key for r in result.nodes[TFirst.name].deliveries] == ["generator"]
+    assert result.nodes[TSecond.name].deliveries == ()
     assert (world.root / "out" / "gen" / "top.v").is_file()
 
 
@@ -450,7 +450,7 @@ def test_a_copy_of_a_generated_source_and_a_named_output_never_share_a_destinati
 
     from xeda.dataclass import Field, deliverable
 
-    class _Reports(Flow):
+    class TReports(Flow):
         """Reads the Verilog sources and writes a report to a location."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -471,7 +471,7 @@ def test_a_copy_of_a_generated_source_and_a_named_output_never_share_a_destinati
     world = Delivering(tmp_path, ["gen/top.v"])
     shared = world.root / "out" / "gen" / "top.v"
     with pytest.raises(DeliveryError, match="both name") as refused:
-        world.runner().launch_flow(_Reports, world.design(), {"report": str(shared)})
+        world.runner().launch_flow(TReports, world.design(), {"report": str(shared)})
     assert "rtl.generator.outputs_to" in str(refused.value) and "report" in str(refused.value)
     assert world.runs == 0
 
@@ -482,7 +482,7 @@ def test_a_copy_that_a_pattern_reveals_is_compared_with_the_files_of_outputs_to(
     and before the flow does."""
     runs: list[str] = []
 
-    class _Writer(Flow):
+    class TWriter(Flow):
         """Reads the Verilog sources and reports a file."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -497,7 +497,7 @@ def test_a_copy_that_a_pattern_reveals_is_compared_with_the_files_of_outputs_to(
 
     world = Delivering(tmp_path, ["outputs/d.v"], outputs_to=None, sources=["outputs/*.v"])
     destination = tmp_path / "got"
-    assert world.runner(outputs_to=destination).launch_flow(_Writer, world.design(), {}).succeeded
+    assert world.runner(outputs_to=destination).launch_flow(TWriter, world.design(), {}).succeeded
     assert len(runs) == 1
     document = json.loads(world.file.read_text())
     document["rtl"]["generator"]["outputs_to"] = str(destination)
@@ -505,5 +505,5 @@ def test_a_copy_that_a_pattern_reveals_is_compared_with_the_files_of_outputs_to(
     runs.clear()
     runner = world.runner(outputs_to=destination, rebuild_all=True)
     with pytest.raises(DeliveryError, match="both name"):
-        runner.launch_flow(_Writer, world.design(), {})
+        runner.launch_flow(TWriter, world.design(), {})
     assert not runs, "the flow did not run"

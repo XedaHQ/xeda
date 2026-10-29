@@ -114,7 +114,7 @@ def test_running_in_a_container_records_the_image(monkeypatch, tmp_path):
     assert names == [f"{DOCKER_IMAGE_PREFIX}hdlc/ghdl:yosys", f"{DOCKER_IMAGE_PREFIX}alpine:latest"]
 
 
-class _RunsTool(Flow):
+class TRunsTool(Flow):
     """Runs `probe-tool`, whatever PATH finds."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -140,20 +140,20 @@ def test_an_earlier_match_on_the_child_path_makes_the_node_stale(
     settings = {"env": {"PATH": f"{preferred}{os.pathsep}{fallback}"}}
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    runner.launch_flow(_RunsTool, design, settings)
-    assert runner.launch_flow(_RunsTool, design, settings).reused
-    _, states = runner.plan_with_freshness(_RunsTool, design, flow_settings=settings)
-    assert states[_RunsTool.name].state == "fresh"
+    runner.launch_flow(TRunsTool, design, settings)
+    assert runner.launch_flow(TRunsTool, design, settings).reused
+    _, states = runner.plan_with_freshness(TRunsTool, design, flow_settings=settings)
+    assert states[TRunsTool.name].state == "fresh"
 
     program = preferred / "probe-tool"
     program.write_text("#!/bin/sh\necho preferred\n")
     program.chmod(0o755)
-    _, states = runner.plan_with_freshness(_RunsTool, design, flow_settings=settings)
-    assert states[_RunsTool.name].state == "stale"
-    assert states[_RunsTool.name].reason == "probe-tool changed"
-    again = runner.launch_flow(_RunsTool, design, settings)
+    _, states = runner.plan_with_freshness(TRunsTool, design, flow_settings=settings)
+    assert states[TRunsTool.name].state == "stale"
+    assert states[TRunsTool.name].reason == "probe-tool changed"
+    again = runner.launch_flow(TRunsTool, design, settings)
     assert not again.reused and again.stale_reason == "probe-tool changed"
-    assert runner.launch_flow(_RunsTool, design, settings).reused
+    assert runner.launch_flow(TRunsTool, design, settings).reused
     recorded = trace.read_trace(again.run_path)[0].programs
     assert set(recorded) == {"probe-tool"}
     assert recorded["probe-tool"].path == str(program.resolve())
@@ -171,15 +171,15 @@ def test_a_program_edited_with_its_size_and_mtime_put_back_makes_the_run_stale(
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     try:
-        runner.launch_flow(_RunsTool, design, {})
-        assert runner.launch_flow(_RunsTool, design, {}).reused
+        runner.launch_flow(TRunsTool, design, {})
+        assert runner.launch_flow(TRunsTool, design, {}).reused
         st = program.stat()
         program.write_text("#!/bin/sh\necho two\n")  # the same size
         os.utime(program, ns=(st.st_atime_ns, st.st_mtime_ns))
-        again = runner.launch_flow(_RunsTool, design, {})
+        again = runner.launch_flow(TRunsTool, design, {})
         assert not again.reused and again.stale_reason == "probe-tool changed"
     finally:
-        for name in (_RunsTool.name, _RunsTool.__name__):
+        for name in (TRunsTool.name, TRunsTool.__name__):
             registered_flows.pop(name, None)
 
 
@@ -198,7 +198,7 @@ def _count_reads(monkeypatch) -> "Counter[Path]":
 
 @pytest.fixture
 def probe_tool(tmp_path, monkeypatch) -> Path:
-    """`probe-tool` first on PATH, the flow `_RunsTool` registered by name, and records that are
+    """`probe-tool` first on PATH, the flow `TRunsTool` registered by name, and records that are
     conclusive at once, as they are two seconds later: no wait."""
     program = tmp_path / "bin" / "probe-tool"
     program.parent.mkdir()
@@ -207,14 +207,14 @@ def probe_tool(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setattr(digest, "RACY_NS", 0)
     yield program.resolve()
-    for name in (_RunsTool.name, _RunsTool.__name__):
+    for name in (TRunsTool.name, TRunsTool.__name__):
         registered_flows.pop(name, None)
 
 
 def _launch(tmp_path, **settings) -> Flow:
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
-    return runner.launch_flow(_RunsTool, design, {})
+    return runner.launch_flow(TRunsTool, design, {})
 
 
 def _recorded(flow: Flow) -> dict:

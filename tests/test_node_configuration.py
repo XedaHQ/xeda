@@ -33,7 +33,7 @@ from xeda.utils import location_free
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker
+from .io_flows import TMaker
 from .generation_world import World
 
 PART = "LFE5U-25F-6BG381C"
@@ -94,7 +94,7 @@ def source_reader() -> type[Flow]:
     """Define a flow that reads Verilog and VHDL sources and is judged on Verilog only, unless
     its `wide` setting widens the scope (as the Python hooks of nextpnr do)."""
 
-    class _SourceReader(Flow):
+    class TSourceReader(Flow):
         """Reads the Verilog and VHDL sources of the design, for the tests."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -112,7 +112,7 @@ def source_reader() -> type[Flow]:
         def run(self) -> None:
             self.results["sources"] = len(self.sources_read())
 
-    return _SourceReader
+    return TSourceReader
 
 
 def mixed_design(root: Path, *vhdl: str) -> Design:
@@ -284,19 +284,19 @@ def test_an_old_hashed_directory_is_left_alone(tmp_path):
     the old names. A launch makes its directory beside them and does not touch them."""
     design = verilog_design(tmp_path / "d")
     launcher = runner(tmp_path)
-    old = launcher.run_root / "d" / "__maker_0123456789abcdef"
+    old = launcher.run_root / "d" / "t_maker_0123456789abcdef"
     old.mkdir(parents=True)
     (old / "results.json").write_text('{"old": true}\n')
     (old / "made.txt").write_text("from an older xeda\n")
     snapshot = {path: path.read_bytes() for path in sorted(old.iterdir())}
 
-    flow = launcher.run(_Maker, design)
+    flow = launcher.run(TMaker, design)
 
     assert flow is not None and flow.succeeded
     assert flow.run_path != old and flow.run_path.parent == old.parent
     assert {path: path.read_bytes() for path in sorted(old.iterdir())} == snapshot
 
-    again = runner(tmp_path).run(_Maker, design)
+    again = runner(tmp_path).run(TMaker, design)
     assert again is not None and again.reused and again.run_path == flow.run_path
     assert {path: path.read_bytes() for path in sorted(old.iterdir())} == snapshot
 
@@ -546,9 +546,9 @@ def test_the_configuration_is_immutable(tmp_path):
 
 
 def _plan_join(tmp_path):
-    from .io_flows import _Join
+    from .io_flows import TJoin
 
-    return runner(tmp_path).plan(_Join, verilog_design(tmp_path / "d"))
+    return runner(tmp_path).plan(TJoin, verilog_design(tmp_path / "d"))
 
 
 def _plan_fpga_chain(tmp_path):
@@ -705,23 +705,23 @@ def _stale_reason(launcher: DefaultRunner, flow: Any, design: Design) -> str:
 def test_a_changed_design_configuration_is_the_reason_a_node_runs_again(tmp_path, change):
     """With plain run directories the run directory is the same, and the trace says what moved."""
     launcher = runner(tmp_path, hashed_run_dirs=False)
-    first = launcher.run(_Maker, verilog_design(tmp_path / "d", parameters={"W": 8}))
+    first = launcher.run(TMaker, verilog_design(tmp_path / "d", parameters={"W": 8}))
     assert first is not None and first.succeeded
     assert (
-        launcher.plan_with_freshness(_Maker, verilog_design(tmp_path / "d", parameters={"W": 8}))[
+        launcher.plan_with_freshness(TMaker, verilog_design(tmp_path / "d", parameters={"W": 8}))[
             1
-        ]["__maker"].state
+        ]["t_maker"].state
         == "fresh"
     )
 
     moved = verilog_design(tmp_path / "d", **{"parameters": {"W": 8}, **change})
-    reason = _stale_reason(launcher, _Maker, moved)
+    reason = _stale_reason(launcher, TMaker, moved)
 
     assert reason.startswith("the design configuration changed")
     assert "settings changed" not in reason
 
     # the launch itself gives the reason and runs the node again
-    second = runner(tmp_path, hashed_run_dirs=False).run(_Maker, moved)
+    second = runner(tmp_path, hashed_run_dirs=False).run(TMaker, moved)
     assert second is not None and second.succeeded and not second.reused
     assert second.run_path == first.run_path
     assert second.flow_hash != first.flow_hash
@@ -730,18 +730,18 @@ def test_a_changed_design_configuration_is_the_reason_a_node_runs_again(tmp_path
 def test_a_consumer_reports_the_change_of_its_own_design_configuration(tmp_path):
     """Both flows of the chain read the top of the design. The consumer says so itself, and does
     not only name the producer that ran again."""
-    from .io_flows import _Taker
+    from .io_flows import TTaker
 
     launcher = runner(tmp_path, hashed_run_dirs=False)
-    first = launcher.run(_Taker, verilog_design(tmp_path / "d", top="a"))
+    first = launcher.run(TTaker, verilog_design(tmp_path / "d", top="a"))
     assert first is not None and first.succeeded
 
-    plan, freshness = launcher.plan_with_freshness(_Taker, verilog_design(tmp_path / "d", top="b"))
+    plan, freshness = launcher.plan_with_freshness(TTaker, verilog_design(tmp_path / "d", top="b"))
 
-    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
-    assert freshness["__maker"].reason == "the design configuration changed"
-    assert freshness["__taker"].state == "stale"
-    assert freshness["__taker"].reason == "the design configuration changed"
+    assert [node.name for node in plan.nodes] == ["t_maker", "t_taker"]
+    assert freshness["t_maker"].reason == "the design configuration changed"
+    assert freshness["t_taker"].state == "stale"
+    assert freshness["t_taker"].reason == "the design configuration changed"
 
 
 def test_a_changed_source_is_not_a_changed_configuration(tmp_path):

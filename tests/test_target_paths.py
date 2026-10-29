@@ -30,7 +30,7 @@ from xeda.run_dir import RunDirectoryError
 from .design_edits import design_of_target
 from .flow_registry import preserved_flow_registry
 from . import tool_utils
-from .io_flows import _Join, _Maker, _Taker
+from .io_flows import TJoin, TMaker, TTaker
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
 from .test_fpga_chains import RESOURCES as CHAINS
 from .test_openfpgaloader import assert_fake_loader
@@ -104,8 +104,8 @@ def parent_of(tmp_path: Path, layout: str, name: str = "d") -> Path:
 def test_every_planned_node_lies_under_its_target(tmp_path, layout, hashed):
     design = loaded(tmp_path, layout)
     assert design.target == SELECTED[layout]
-    plan = runner(tmp_path, hashed_run_dirs=hashed).plan(_Taker, design)
-    assert [node.name for node in plan.nodes] == ["__maker", "__taker"]
+    plan = runner(tmp_path, hashed_run_dirs=hashed).plan(TTaker, design)
+    assert [node.name for node in plan.nodes] == ["t_maker", "t_taker"]
     for node in plan.nodes:
         basename = f"{node.name}_{node.flowrun_hash[:16]}" if hashed else node.name
         assert node.run_path == parent_of(tmp_path, layout) / basename
@@ -118,8 +118,8 @@ def test_every_planned_node_lies_under_its_target(tmp_path, layout, hashed):
 def test_a_launch_enters_exactly_the_planned_directories(tmp_path, layout, hashed):
     design = loaded(tmp_path, layout)
     launcher = runner(tmp_path, hashed_run_dirs=hashed)
-    plan = launcher.plan(_Taker, design)
-    flow = launcher.run(_Taker, design)
+    plan = launcher.plan(TTaker, design)
+    flow = launcher.run(TTaker, design)
     assert flow.succeeded
     assert [f.run_path for f in launcher.launched] == [n.run_path for n in plan.nodes]
     # a producer is a sibling of its consumer *within the target*, never nested under it
@@ -134,7 +134,7 @@ def test_equal_targets_have_equal_hashes_and_separate_directories(tmp_path):
     path = write_design(tmp_path, {"a": {}, "b": {}})
     a, b = (Design.load(path, target=t) for t in "ab")
     launcher = runner(tmp_path, hashed_run_dirs=True)
-    plan_a, plan_b = launcher.plan(_Taker, a), launcher.plan(_Taker, b)
+    plan_a, plan_b = launcher.plan(TTaker, a), launcher.plan(TTaker, b)
     assert [n.flowrun_hash for n in plan_a.nodes] == [n.flowrun_hash for n in plan_b.nodes]
     assert plan_a.context.design_hash == plan_b.context.design_hash
     for node_a, node_b in zip(plan_a.nodes, plan_b.nodes):
@@ -149,10 +149,10 @@ def test_a_b_a_b_builds_each_target_once_and_keeps_each_fresh(tmp_path):
     for target in "abab":
         launcher = runner(tmp_path)
         design = Design.load(path, target=target)
-        flow = launcher.run(_Taker, design)
+        flow = launcher.run(TTaker, design)
         assert flow.succeeded
         outcomes.append((target, [f.reused for f in launcher.launched]))
-        assert flow.run_path == tmp_path / "xeda_run" / "d" / target / "__taker"
+        assert flow.run_path == tmp_path / "xeda_run" / "d" / target / "t_taker"
     assert outcomes == [
         ("a", [False, False]),
         ("b", [False, False]),  # B does not find A's finished runs
@@ -172,7 +172,7 @@ def test_a_source_edit_makes_a_target_stale_and_never_moves_its_hashed_directory
 
     def build(target):
         launcher = runner(tmp_path, hashed_run_dirs=True)
-        flow = launcher.run(_Taker, Design.load(path, target=target))
+        flow = launcher.run(TTaker, Design.load(path, target=target))
         return flow, [f.run_path for f in launcher.launched]
 
     first, paths = build("a")
@@ -192,42 +192,42 @@ def test_the_direct_apis_name_the_designs_target(tmp_path, hashed):
     path = write_design(tmp_path, {"a": {}, "b": {}})
     design = Design.load(path, target="b")
     launcher = runner(tmp_path, hashed_run_dirs=hashed)
-    plan = launcher.resolve(_Taker, design, {})
-    suffix = f"_{plan.node('__taker').flowrun_hash[:16]}" if hashed else ""
-    taker_path = tmp_path / "xeda_run" / "d" / "b" / f"__taker{suffix}"
-    assert plan.node("__taker").run_path == taker_path
-    assert launcher.run_path_of("d", "__taker", plan.node("__taker").flowrun_hash, target="b") == (
+    plan = launcher.resolve(TTaker, design, {})
+    suffix = f"_{plan.node('t_taker').flowrun_hash[:16]}" if hashed else ""
+    taker_path = tmp_path / "xeda_run" / "d" / "b" / f"t_taker{suffix}"
+    assert plan.node("t_taker").run_path == taker_path
+    assert launcher.run_path_of("d", "t_taker", plan.node("t_taker").flowrun_hash, target="b") == (
         taker_path
     )
     assert launcher.get_flow_run_path(
-        "d", "__taker", plan.node("__taker").flowrun_hash, target="b"
+        "d", "t_taker", plan.node("t_taker").flowrun_hash, target="b"
     ) == (taker_path)
-    flow = launcher.launch_flow(_Taker, design, {})  # no plan: identity names the path itself
+    flow = launcher.launch_flow(TTaker, design, {})  # no plan: identity names the path itself
     assert flow.run_path == taker_path and flow.succeeded
-    flow = launcher.run_flow(_Taker, design, {}, plan=plan)
+    flow = launcher.run_flow(TTaker, design, {}, plan=plan)
     assert flow.run_path == taker_path
 
 
 def test_no_target_keeps_the_direct_path(tmp_path):
     launcher = runner(tmp_path)
-    assert launcher.run_path_of("d", "__taker") == tmp_path / "xeda_run" / "d" / "__taker"
-    assert launcher.run_path_of("d", "__taker", target=None) == (
-        tmp_path / "xeda_run" / "d" / "__taker"
+    assert launcher.run_path_of("d", "t_taker") == tmp_path / "xeda_run" / "d" / "t_taker"
+    assert launcher.run_path_of("d", "t_taker", target=None) == (
+        tmp_path / "xeda_run" / "d" / "t_taker"
     )
-    assert launcher.run_path_of("d", "__taker", "0123456789abcdef0123", target="t") == (
-        tmp_path / "xeda_run" / "d" / "t" / "__taker"
+    assert launcher.run_path_of("d", "t_taker", "0123456789abcdef0123", target="t") == (
+        tmp_path / "xeda_run" / "d" / "t" / "t_taker"
     )
 
 
 def test_a_diamond_runs_each_node_once_in_the_target_in_plan_order(tmp_path):
-    """`__join` takes a fork's outputs through two branches: one node per producer, all in the
+    """`t_join` takes a fork's outputs through two branches: one node per producer, all in the
     target's directory, entered exactly as planned."""
     design = Design.load(write_design(tmp_path, {"a": {}, "b": {}}), target="b")
     launcher = runner(tmp_path, hashed_run_dirs=True)
-    plan = launcher.plan(_Join, design)
+    plan = launcher.plan(TJoin, design)
     assert len(plan.nodes) > 3
     assert {node.run_path.parent for node in plan.nodes} == {tmp_path / "xeda_run" / "d" / "b"}
-    assert launcher.run(_Join, design).succeeded
+    assert launcher.run(TJoin, design).succeeded
     assert [f.run_path for f in launcher.launched] == [n.run_path for n in plan.nodes]
     assert len({f.run_path for f in launcher.launched}) == len(plan.nodes)
 
@@ -348,14 +348,14 @@ def test_a_launcher_keeps_each_design_s_paths_however_it_is_reused(tmp_path):
     path = write_design(tmp_path, {"a": {}, "b": {}})
     a, b = (Design.load(path, target=t) for t in "ab")
     launcher = runner(tmp_path)
-    plan_a, plan_b = launcher.resolve(_Taker, a, {}), launcher.resolve(_Taker, b, {})
-    flow = launcher.launch_flow(_Taker, a, {}, plan=plan_a)
-    assert flow.run_path == tmp_path / "xeda_run" / "d" / "a" / "__taker"
-    flow = launcher.launch_flow(_Taker, b, {}, plan=plan_b)
-    assert flow.run_path == tmp_path / "xeda_run" / "d" / "b" / "__taker"
+    plan_a, plan_b = launcher.resolve(TTaker, a, {}), launcher.resolve(TTaker, b, {})
+    flow = launcher.launch_flow(TTaker, a, {}, plan=plan_a)
+    assert flow.run_path == tmp_path / "xeda_run" / "d" / "a" / "t_taker"
+    flow = launcher.launch_flow(TTaker, b, {}, plan=plan_b)
+    assert flow.run_path == tmp_path / "xeda_run" / "d" / "b" / "t_taker"
     # the last-loaded target is reporting metadata: naming a path never reads it
     launcher.target = "a"
-    assert launcher.plan(_Taker, b).node("__taker").run_path.parent.name == "b"
+    assert launcher.plan(TTaker, b).node("t_taker").run_path.parent.name == "b"
 
 
 @pytest.mark.parametrize("through", ["plan", "resolve"])
@@ -363,12 +363,12 @@ def test_a_plan_of_one_target_is_refused_for_an_equal_design_of_another(tmp_path
     path = write_design(tmp_path, {"a": {}, "b": {}})
     a, b = (Design.load(path, target=t) for t in "ab")
     launcher = runner(tmp_path)
-    plan = launcher.plan(_Taker, a) if through == "plan" else launcher.resolve(_Taker, a, {})
-    assert launcher.plan(_Taker, b).context.design_hash == plan.context.design_hash
+    plan = launcher.plan(TTaker, a) if through == "plan" else launcher.resolve(TTaker, a, {})
+    assert launcher.plan(TTaker, b).context.design_hash == plan.context.design_hash
     with pytest.raises(FlowFatalError, match="does not match this request's context"):
-        launcher.launch_flow(_Taker, b, {}, plan=plan)
+        launcher.launch_flow(TTaker, b, {}, plan=plan)
     with pytest.raises(FlowFatalError, match="does not match this request's context"):
-        launcher.run_flow(_Taker, b, {}, plan=plan)
+        launcher.run_flow(TTaker, b, {}, plan=plan)
     assert not (tmp_path / "xeda_run").exists(), "refused before the run root, a lock, a run"
 
 
@@ -377,30 +377,30 @@ def test_a_plan_of_a_target_is_refused_for_the_same_design_without_one(tmp_path)
     flat = Design.load(write_design(tmp_path, None, file="flat.yaml"))
     launcher = runner(tmp_path)
     assert targeted.target == "a" and flat.target is None
-    plan = launcher.resolve(_Taker, targeted, {})
-    flat_plan = launcher.resolve(_Taker, flat, {})
+    plan = launcher.resolve(TTaker, targeted, {})
+    flat_plan = launcher.resolve(TTaker, flat, {})
     assert plan.context.design_hash == flat_plan.context.design_hash
     with pytest.raises(FlowFatalError, match="does not match this request's context"):
-        launcher.launch_flow(_Taker, flat, {}, plan=plan)
+        launcher.launch_flow(TTaker, flat, {}, plan=plan)
     with pytest.raises(FlowFatalError, match="does not match this request's context"):
-        launcher.launch_flow(_Taker, targeted, {}, plan=flat_plan)
+        launcher.launch_flow(TTaker, targeted, {}, plan=flat_plan)
 
 
 @pytest.mark.parametrize("target", ["../out", "a/b", "", "has space", "1st", ".", "..", "a\0b"])
 def test_a_target_that_is_no_name_is_refused_at_the_path_boundary(tmp_path, target):
     launcher = runner(tmp_path)
     with pytest.raises(RunDirectoryError, match="not a target name"):
-        launcher.run_path_of("d", "__taker", target=target)
+        launcher.run_path_of("d", "t_taker", target=target)
     with pytest.raises(RunDirectoryError, match="not a target name"):
-        launcher.get_flow_run_path("d", "__taker", target=target)
+        launcher.get_flow_run_path("d", "t_taker", target=target)
     # a design that carries one (a model is built with any `target`) cannot plan or launch
     root = tmp_path / "design"
     root.mkdir(exist_ok=True)
     design = design_of_target(target, root, name="d", rtl={"sources": [], "top": "t"})
     with pytest.raises(RunDirectoryError, match="not a target name"):
-        launcher.plan(_Taker, design)
+        launcher.plan(TTaker, design)
     with pytest.raises(RunDirectoryError, match="not a target name"):
-        launcher.launch_flow(_Taker, design, {})
+        launcher.launch_flow(TTaker, design, {})
     assert not (tmp_path / "xeda_run").exists()
 
 
@@ -438,9 +438,9 @@ def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     (plan_root / "d").mkdir()
     (plan_root / "d" / "a").symlink_to(outside, target_is_directory=True)
     with pytest.raises(RunDirectoryError, match="xeda_run/d/a is a symbolic link"):
-        launcher.plan(_Taker, design)
+        launcher.plan(TTaker, design)
     with pytest.raises(RunDirectoryError, match="xeda_run/d/a is a symbolic link"):
-        launcher.launch_flow(_Taker, design, {})
+        launcher.launch_flow(TTaker, design, {})
     assert list(outside.iterdir()) == []
 
 
@@ -451,43 +451,43 @@ def test_a_run_without_a_target_is_neither_reused_nor_touched_by_a_target(tmp_pa
     """No migration, no fallback: `<design>/<flow>` holds a run no board was recorded for."""
     flat = Design.load(write_design(tmp_path, None, file="flat.yaml"))
     launcher = runner(tmp_path)
-    assert launcher.run(_Taker, flat).succeeded
-    direct = [tmp_path / "xeda_run" / "d" / name for name in ("__maker", "__taker")]
+    assert launcher.run(TTaker, flat).succeeded
+    direct = [tmp_path / "xeda_run" / "d" / name for name in ("t_maker", "t_taker")]
     before = tool_utils.run_outputs_state(*direct)
 
     targeted = Design.load(write_design(tmp_path, {"a": {}}), target="a")
     launcher = runner(tmp_path)
-    flow = launcher.run(_Taker, targeted)
+    flow = launcher.run(TTaker, targeted)
     assert flow.succeeded and not flow.reused
     assert [f.reused for f in launcher.launched] == [False, False]
-    assert flow.run_path == tmp_path / "xeda_run" / "d" / "a" / "__taker"
+    assert flow.run_path == tmp_path / "xeda_run" / "d" / "a" / "t_taker"
     assert tool_utils.run_outputs_state(*direct) == before
 
     # and a request without a target goes on using the direct runs
     launcher = runner(tmp_path)
-    assert launcher.run(_Taker, flat).reused
+    assert launcher.run(TTaker, flat).reused
     assert tool_utils.run_outputs_state(*direct) == before
 
 
 def test_a_target_run_directory_is_not_a_run_of_the_flat_layout(tmp_path):
     targeted = Design.load(write_design(tmp_path, {"a": {}}), target="a")
-    assert runner(tmp_path).run(_Taker, targeted).succeeded
+    assert runner(tmp_path).run(TTaker, targeted).succeeded
     base = tmp_path / "xeda_run" / "d"
     assert sorted(p.name for p in base.iterdir() if p.is_dir()) == ["a"]
     flat = Design.load(write_design(tmp_path, None, file="flat.yaml"))
     launcher = runner(tmp_path)
-    assert not launcher.run(_Taker, flat).reused
-    assert sorted(p.name for p in base.iterdir() if p.is_dir()) == ["__maker", "__taker", "a"]
+    assert not launcher.run(TTaker, flat).reused
+    assert sorted(p.name for p in base.iterdir() if p.is_dir()) == ["a", "t_maker", "t_taker"]
 
 
 def test_the_maker_alone_is_not_reached_through_the_taker_s_target(tmp_path):
     """A producer requested by itself lives in the same target parent as when it is a producer."""
     design = Design.load(write_design(tmp_path, {"a": {}}), target="a")
     launcher = runner(tmp_path)
-    assert launcher.run(_Maker, design).succeeded
-    assert launcher.launched[-1].run_path == tmp_path / "xeda_run" / "d" / "a" / "__maker"
+    assert launcher.run(TMaker, design).succeeded
+    assert launcher.launched[-1].run_path == tmp_path / "xeda_run" / "d" / "a" / "t_maker"
     taker = runner(tmp_path)
-    assert taker.run(_Taker, design).succeeded
+    assert taker.run(TTaker, design).succeeded
     assert [f.reused for f in taker.launched] == [True, False]
 
 
@@ -502,12 +502,12 @@ def test_the_local_mirror_of_a_remote_run_lies_in_the_designs_target(tmp_path, r
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere"
     hashes = {}
     for target in "ab":
-        outcome = remote_request(tmp_path, path, _Taker.name, target=target)
+        outcome = remote_request(tmp_path, path, TTaker.name, target=target)
         assert outcome.error is None and outcome.success, outcome.document
         assert outcome.document["spec"]["target"] == target
         last = outcome.document["nodes"][-1]
-        assert Path(last["run_dir"]) == mirror / "d" / target / "__taker"
-        assert (remote_host.workspace() / "xeda_run" / "d" / target / "__taker").is_dir()
+        assert Path(last["run_dir"]) == mirror / "d" / target / "t_taker"
+        assert (remote_host.workspace() / "xeda_run" / "d" / target / "t_taker").is_dir()
         hashes[target] = last["record"]["identity"]
     assert hashes["a"] == hashes["b"], "one identity: the target is no part of it"
     assert sorted(p.name for p in (mirror / "d").iterdir() if p.is_dir()) == ["a", "b"]

@@ -468,7 +468,7 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
                     entries.append(Passed(index))
             self.outputs.design = DerivedSources(self.design.rtl.top, tuple(entries))  # type: ignore[union-attr]
 
-    class _Reader(Flow):
+    class TReader(Flow):
         """Reads Verilog, and notes each step of its launch."""
 
         results_description: dict[str, MetricSpec] = {}
@@ -494,7 +494,7 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
         def run(self) -> None:
             events.append(("reader runs", [s.file.name for s in self.design.rtl.sources]))
 
-    return _Converter, _Reader
+    return _Converter, TReader
 
 
 def launch(tmp_path: Path, classes: tuple[type[Flow], type[Flow]], **options: Any):

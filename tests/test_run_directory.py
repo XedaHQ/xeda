@@ -25,7 +25,7 @@ pytestmark = pytest.mark.python_compat
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
 
-class _Probe(Flow):
+class TProbe(Flow):
     """Does nothing: what matters is where it would run."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -34,7 +34,7 @@ class _Probe(Flow):
         pass
 
 
-class _Reads(Flow):
+class TReads(Flow):
     """Reads the constraints its setting names."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -49,7 +49,7 @@ class _Reads(Flow):
 @pytest.fixture(autouse=True, scope="module")
 def _unregister_probe():
     yield
-    for cls in (_Probe, _Reads):
+    for cls in (TProbe, TReads):
         for name in (cls.name,):
             registered_flows.pop(name, None)
 
@@ -163,8 +163,8 @@ def test_every_launched_run_directory_is_xedas(tmp_path, monkeypatch):
     monkeypatch.chdir(work)
     design = Design(name="d", root=work, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.run_flow(_Probe, design, {})
-    assert flow.run_path == (tmp_path / "xeda_run" / "d" / _Probe.name).resolve()
+    flow = runner.run_flow(TProbe, design, {})
+    assert flow.run_path == (tmp_path / "xeda_run" / "d" / TProbe.name).resolve()
     assert flow.run_directory.run_root == (tmp_path / "xeda_run").resolve()
 
 
@@ -201,7 +201,7 @@ def test_a_run_directory_led_out_of_the_run_root_is_refused(tmp_path, monkeypatc
     (run_root / "d").symlink_to(elsewhere, target_is_directory=True)
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     with pytest.raises(RunDirectoryError, match="xeda_run/d is a symbolic link"):
-        runner.run_flow(_Probe, design, {})
+        runner.run_flow(TProbe, design, {})
     assert _files(elsewhere) == before
     assert not list(elsewhere.glob("*.lock"))
 
@@ -247,24 +247,24 @@ def test_delete_refuses_a_link_that_lies_outside_the_run_root_and_removes_nothin
 def test_a_design_file_in_the_flow_s_own_run_directory_is_refused(tmp_path):
     """Xeda empties and rewrites a run directory; a source kept there would be lost."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    own = runner.run_root / "d" / _Probe.name
+    own = runner.run_root / "d" / TProbe.name
     own.mkdir(parents=True)
     (own / "src.v").write_text("module d; endmodule\n")
     design = Design(name="d", root=own, rtl={"sources": ["src.v"], "top": "d"})
     with pytest.raises(RunDirectoryError, match="own run directory"):
-        runner.run_flow(_Probe, design, {})
+        runner.run_flow(TProbe, design, {})
     assert (own / "src.v").read_text() == "module d; endmodule\n"
 
 
 def test_a_file_a_setting_reads_in_the_flow_s_own_run_directory_is_refused(tmp_path):
     """The same for settings: refused before anything runs, the file kept."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    own = runner.run_root / "d" / _Reads.name
+    own = runner.run_root / "d" / TReads.name
     own.mkdir(parents=True)
     (own / "c.xdc").write_text("period 5\n")
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     with pytest.raises(RunDirectoryError, match="own run directory"):
-        runner.run_flow(_Reads, design, {"constraints": str(own / "c.xdc")})
+        runner.run_flow(TReads, design, {"constraints": str(own / "c.xdc")})
     assert (own / "c.xdc").read_text() == "period 5\n"
 
 
@@ -294,11 +294,11 @@ def test_a_generated_file_goes_through_writable(tmp_path):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     # made and marked now, while empty: an unmarked directory holding files is refused
     run_root = runner.run_root
-    run_dir = run_root / "d" / _Probe.name
+    run_dir = run_root / "d" / TProbe.name
     run_dir.mkdir(parents=True)
     for name in ("settings.json", "results.json"):
         (run_dir / name).symlink_to(tmp_path / "mine.txt")
-    runner.run_flow(_Probe, Design(name="d", root=tmp_path, rtl={"sources": []}), {})
+    runner.run_flow(TProbe, Design(name="d", root=tmp_path, rtl={"sources": []}), {})
     assert (tmp_path / "mine.txt").read_text() == "mine\n"
     assert not (run_dir / "settings.json").is_symlink()
 

@@ -39,7 +39,7 @@ from xeda.run_root import ensure_run_root
 from xeda.utils import replacing_file
 
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker
+from .io_flows import TMaker
 from .scrub_utils import ask_scrub_design, ask_scrub_runs
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
@@ -1194,7 +1194,7 @@ def test_the_scrub_of_a_launch_stays_in_its_own_target(tmp_path, confirmations):
             display_results=False,
         )
         launcher.confirm_scrub = _prompt_scrub
-        flow = launcher.launch_flow(_Maker, maker_design(tmp_path, target), {"text": text})
+        flow = launcher.launch_flow(TMaker, maker_design(tmp_path, target), {"text": text})
         assert flow.succeeded
         return flow.run_path
 

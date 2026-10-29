@@ -183,7 +183,7 @@ def test_completion_lists_the_direct_followers_before_the_ones_through_other_flo
     offered = [
         value
         for value in _complete(shell, "xeda run yosys_fpga+")
-        if not value.startswith("yosys_fpga+__")
+        if not value.startswith("yosys_fpga+t_")
     ]
     assert offered == [
         "yosys_fpga+nextpnr",
@@ -229,35 +229,35 @@ def only_the_product_and_chain_fixture_flows():
     ("words", "expected"),
     [
         # an output-qualified element completes to the outputs that lead somewhere
-        ("xeda run __chain_producer.j", ["__chain_producer.json_a", "__chain_producer.json_b"]),
+        ("xeda run t_chain_producer.j", ["t_chain_producer.json_a", "t_chain_producer.json_b"]),
         # a qualified prefix filters the followers through that output; its ambiguity is gone
         (
-            "xeda run __chain_producer.json_a+__chain_a",
+            "xeda run t_chain_producer.json_a+t_chain_a",
             [
-                "__chain_producer.json_a+__chain_aliased",
-                "__chain_producer.json_a+__chain_ambiguous_consumer",
-                "__chain_producer.json_a+__chain_ambiguous_default",
+                "t_chain_producer.json_a+t_chain_aliased",
+                "t_chain_producer.json_a+t_chain_ambiguous_consumer",
+                "t_chain_producer.json_a+t_chain_ambiguous_default",
             ],
         ),
         # an unqualified prefix offers only the followers that need no qualification
         (
-            "xeda run __chain_producer+__chain_a",
-            ["__chain_producer+__chain_action", "__chain_producer+__chain_ambiguous_default"],
+            "xeda run t_chain_producer+t_chain_a",
+            ["t_chain_producer+t_chain_action", "t_chain_producer+t_chain_ambiguous_default"],
         ),
         # the prefix typed before is kept verbatim
         (
-            "xeda run __chain_simple_producer+__chain_al",
-            ["__chain_simple_producer+__chain_aliased"],
+            "xeda run t_chain_simple_producer+t_chain_al",
+            ["t_chain_simple_producer+t_chain_aliased"],
         ),
-        ("xeda run __chain_producer+__chain_al", []),  # json_a/json_b is ambiguous: qualify first
+        ("xeda run t_chain_producer+t_chain_al", []),  # json_a/json_b is ambiguous: qualify first
         (
-            "xeda run __chain_producer.json_a+__chain_al",
-            ["__chain_producer.json_a+__chain_aliased"],
+            "xeda run t_chain_producer.json_a+t_chain_al",
+            ["t_chain_producer.json_a+t_chain_aliased"],
         ),
         # a flow cannot repeat, an action ends a chain, an undeclared flow runs alone
-        ("xeda run __chain_simple_producer+__chain_simple_p", []),
-        ("xeda run __chain_simple_producer+__chain_action+", []),
-        ("xeda run __chain_undeclared+", []),
+        ("xeda run t_chain_simple_producer+t_chain_simple_p", []),
+        ("xeda run t_chain_simple_producer+t_chain_action+", []),
+        ("xeda run t_chain_undeclared+", []),
     ],
 )
 def test_completion_of_chains_of_declared_test_flows(shell, words, expected):

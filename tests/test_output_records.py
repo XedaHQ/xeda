@@ -20,7 +20,7 @@ from xeda.flow_runner import launch_report
 from xeda.flow_runner import outputs as output_module
 from xeda.flow_runner.outputs import handed_over
 
-from .io_flows import _Maker
+from .io_flows import TMaker
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def design(tmp_path, monkeypatch):
 
 def _launch(tmp_path: Path, design: Design, settings: dict, **launcher):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **launcher)
-    return runner.launch_flow(_Maker, design, settings)
+    return runner.launch_flow(TMaker, design, settings)
 
 
 def test_a_run_records_each_declared_output_with_its_digest(tmp_path, design):
@@ -56,7 +56,7 @@ def test_a_run_records_each_declared_output_with_its_digest(tmp_path, design):
 
 
 def test_an_enabled_output_the_run_did_not_produce_fails_the_run(tmp_path, design, monkeypatch):
-    monkeypatch.setattr(_Maker, "run", lambda self: None)
+    monkeypatch.setattr(TMaker, "run", lambda self: None)
     maker = _launch(tmp_path, design, {})
     assert not maker.succeeded
     assert maker.results["error"]["code"] == "missing_output"
@@ -69,7 +69,7 @@ def test_an_output_an_earlier_run_left_is_not_this_run_s(tmp_path, design, monke
     def claims_without_writing(self):
         self.outputs.made = self.run_path / "made.txt"
 
-    monkeypatch.setattr(_Maker, "run", claims_without_writing)
+    monkeypatch.setattr(TMaker, "run", claims_without_writing)
     again = _launch(tmp_path, design, {}, rebuild_all=True)
     assert not again.succeeded
     assert "was not written by this run" in again.results["error"]["message"]
@@ -82,7 +82,7 @@ def test_an_output_outside_the_run_directory_fails_the_run(tmp_path, design, mon
         elsewhere.write_text("x\n")
         self.outputs.made = elsewhere
 
-    monkeypatch.setattr(_Maker, "run", writes_elsewhere)
+    monkeypatch.setattr(TMaker, "run", writes_elsewhere)
     maker = _launch(tmp_path, design, {})
     assert not maker.succeeded
     assert "is not inside its run directory" in maker.results["error"]["message"]
@@ -116,12 +116,12 @@ def test_an_output_nothing_recorded_is_never_handed_over(tmp_path, design):
         handed_over(maker, "made")
 
 
-class _ManyMaker(_Maker):
+class TManyMaker(TMaker):
     """Writes an ordered list of declared files."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
-    class Outputs(_Maker.Outputs):
+    class Outputs(TMaker.Outputs):
         made: list[Path] = Out(SourceType.Data, description="The ordered files.")
 
     def run(self):
@@ -131,21 +131,21 @@ class _ManyMaker(_Maker):
         self.outputs.made = paths
 
 
-class _RequiredMaker(_Maker):
+class TRequiredMaker(TMaker):
     """Requires exactly one declared file."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
-    class Outputs(_Maker.Outputs):
+    class Outputs(TMaker.Outputs):
         made: Path = Out(SourceType.Data, description="The required file.")
 
 
-class _OptionalMaker(_Maker):
+class TOptionalMaker(TMaker):
     """May omit a declared file without a switch."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
-    class Outputs(_Maker.Outputs):
+    class Outputs(TMaker.Outputs):
         made: Path | None = Out(SourceType.Data, description="An optional file.")
 
 
@@ -156,7 +156,7 @@ def _launch_class(tmp_path, design, cls, **launcher):
 
 
 def test_many_outputs_preserve_order_in_records_and_hand_over(tmp_path, design):
-    maker = _launch_class(tmp_path, design, _ManyMaker)
+    maker = _launch_class(tmp_path, design, TManyMaker)
     assert maker.succeeded
     entries = maker.results["outputs"]["made"]
     assert [Path(entry["path"]).name for entry in entries] == ["second.txt", "first.txt"]
@@ -166,10 +166,10 @@ def test_many_outputs_preserve_order_in_records_and_hand_over(tmp_path, design):
     ]
 
 
-@pytest.mark.parametrize("cls", [_ManyMaker, _RequiredMaker])
+@pytest.mark.parametrize("cls", [TManyMaker, TRequiredMaker])
 def test_required_outputs_cannot_be_absent(tmp_path, design, monkeypatch, cls):
     def no_output(self):
-        if cls is _ManyMaker:
+        if cls is TManyMaker:
             self.outputs.made = []
 
     monkeypatch.setattr(cls, "run", no_output)
@@ -180,14 +180,14 @@ def test_required_outputs_cannot_be_absent(tmp_path, design, monkeypatch, cls):
 
 
 def test_an_unswitched_optional_output_may_be_absent(tmp_path, design, monkeypatch):
-    monkeypatch.setattr(_OptionalMaker, "run", lambda self: None)
-    maker = _launch_class(tmp_path, design, _OptionalMaker)
+    monkeypatch.setattr(TOptionalMaker, "run", lambda self: None)
+    maker = _launch_class(tmp_path, design, TOptionalMaker)
     assert maker.succeeded and maker.results["outputs"] == {}
 
 
 @pytest.mark.parametrize(
     "cls, value",
-    [(_Maker, []), (_Maker, [Path("a"), Path("b")]), (_ManyMaker, Path("a")), (_Maker, 42)],
+    [(TMaker, []), (TMaker, [Path("a"), Path("b")]), (TManyMaker, Path("a")), (TMaker, 42)],
 )
 def test_invalid_output_values_fail_usefully(tmp_path, design, monkeypatch, cls, value):
     def invalid(self):
@@ -224,7 +224,7 @@ def test_malformed_records_are_never_handed_over(tmp_path, design, records):
 
 @pytest.mark.parametrize("record", [[], {}, [None], [{"path": 42, "sha": "bad"}]])
 def test_many_output_records_require_a_nonempty_list_of_entries(tmp_path, design, record):
-    maker = _launch_class(tmp_path, design, _ManyMaker)
+    maker = _launch_class(tmp_path, design, TManyMaker)
     maker.results["outputs"]["made"] = record
     with pytest.raises(FlowDependencyFailure, match="output `made`"):
         handed_over(maker, "made")
@@ -262,7 +262,7 @@ def test_recording_checks_the_target_of_a_final_symlink(tmp_path, design, monkey
         link.symlink_to(target)
         self.outputs.made = link
 
-    monkeypatch.setattr(_Maker, "run", writes_link)
+    monkeypatch.setattr(TMaker, "run", writes_link)
     maker = _launch(tmp_path, design, {})
     if external:
         assert not maker.succeeded
@@ -282,14 +282,14 @@ def test_a_new_link_to_an_old_internal_file_is_not_a_new_output(tmp_path, design
         link.symlink_to(first.run_path / "made.txt")
         self.outputs.made = link
 
-    monkeypatch.setattr(_Maker, "run", old_target)
+    monkeypatch.setattr(TMaker, "run", old_target)
     maker = _launch(tmp_path, design, {}, rebuild_all=True)
     assert not maker.succeeded
     assert "was not written by this run" in maker.results["error"]["message"]
 
 
 def test_a_disabled_output_is_ignored_even_when_assigned(tmp_path, design, monkeypatch):
-    monkeypatch.setattr(_Maker, "run", lambda self: setattr(self.outputs, "made", tmp_path / "bad"))
+    monkeypatch.setattr(TMaker, "run", lambda self: setattr(self.outputs, "made", tmp_path / "bad"))
     maker = _launch(tmp_path, design, {"write": False})
     assert maker.succeeded and maker.results["outputs"] == {}
     maker.results["outputs"]["made"] = {"path": str(tmp_path / "bad"), "sha": "0" * 32}
@@ -317,7 +317,7 @@ def test_a_missing_output_replaces_old_success_and_keeps_failure_identity(
     tmp_path, design, monkeypatch
 ):
     first = _launch(tmp_path, design, {})
-    monkeypatch.setattr(_Maker, "run", lambda self: None)
+    monkeypatch.setattr(TMaker, "run", lambda self: None)
     again = _launch(tmp_path, design, {}, rebuild_all=True)
     assert not again.succeeded
     document = json.loads((again.run_path / "results.json").read_text())
@@ -360,7 +360,7 @@ def test_output_records_are_skipped_in_the_results_table(tmp_path, design, monke
 def test_a_failed_rerun_cannot_retain_a_handoff_record(tmp_path, design, monkeypatch):
     first = _launch(tmp_path, design, {})
     record = first.results["outputs"]["made"]
-    monkeypatch.setattr(_Maker, "parse_reports", lambda self: False)
+    monkeypatch.setattr(TMaker, "parse_reports", lambda self: False)
     again = _launch(tmp_path, design, {}, rebuild_all=True)
     assert not again.succeeded
     document = json.loads((again.run_path / "results.json").read_text())
@@ -378,21 +378,21 @@ def test_a_partly_written_required_list_is_not_recorded(tmp_path, design, monkey
         written.write_text("first\n")
         self.outputs.made = [written, self.run_path / "missing.txt"]
 
-    monkeypatch.setattr(_ManyMaker, "run", partial)
-    maker = _launch_class(tmp_path, design, _ManyMaker)
+    monkeypatch.setattr(TManyMaker, "run", partial)
+    maker = _launch_class(tmp_path, design, TManyMaker)
     assert not maker.succeeded
     assert maker.results["outputs"] == {}
     assert "missing.txt" in maker.results["error"]["message"]
 
 
 def test_relative_output_paths_are_recorded_absolute(tmp_path, design, monkeypatch):
-    original = _Maker.run
+    original = TMaker.run
 
     def relative(self):
         original(self)
         self.outputs.made = Path("made.txt")
 
-    monkeypatch.setattr(_Maker, "run", relative)
+    monkeypatch.setattr(TMaker, "run", relative)
     maker = _launch(tmp_path, design, {})
     assert maker.succeeded
     assert handed_over(maker, "made") == [maker.run_path / "made.txt"]

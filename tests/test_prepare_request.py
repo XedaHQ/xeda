@@ -16,7 +16,7 @@ from xeda.flow_runner.dse import Dse
 from xeda.flow_runner.settings_layers import HOST_PROFILE_ORIGIN, host_profile_origin
 
 from .test_dse_run import _DeclaredOptimizer
-from .io_flows import _Maker, _Place, _Taker
+from .io_flows import TMaker, TPlace, TTaker
 from .test_checks_before_generation import REFUSALS, XILINX, Generated
 from .test_checks_before_generation import _design as declared_design
 
@@ -39,7 +39,7 @@ def _runner(tmp_path) -> DefaultRunner:
 
 
 def _project(tmp_path, flows) -> str:
-    """A project with the design `plain` and the design `own`, whose own `__maker` section says
+    """A project with the design `plain` and the design `own`, whose own `t_maker` section says
     `design`."""
     # not in the current directory, where a project file is found by itself
     path = tmp_path / "project" / "xedaproject.yaml"
@@ -47,37 +47,37 @@ def _project(tmp_path, flows) -> str:
     rtl = {"sources": [], "top": "t"}
     designs = [
         {"name": "plain", "rtl": rtl},
-        {"name": "own", "rtl": rtl, "flows": {"__maker": {"text": "design\n"}}},
+        {"name": "own", "rtl": rtl, "flows": {"t_maker": {"text": "design\n"}}},
     ]
     path.write_text(yaml.safe_dump({"designs": designs, "flows": flows}))
     return str(path)
 
 
 def _text(prepared: PreparedRequest) -> str:
-    return prepared.plan.node("__maker").settings.text
+    return prepared.plan.node("t_maker").settings.text
 
 
 def test_host_layer_is_the_lowest(tmp_path):
     """Each higher layer wins over the host: the project file, the design, the command line."""
-    host = {"__maker": {"text": "host\n"}}
-    project = _project(tmp_path, {"__maker": {"text": "project\n"}})
+    host = {"t_maker": {"text": "host\n"}}
+    project = _project(tmp_path, {"t_maker": {"text": "project\n"}})
     runner = _runner(tmp_path)
 
-    only_host = runner.prepare_request(_Taker, _design(tmp_path), host_flows=host, host=HOST)
+    only_host = runner.prepare_request(TTaker, _design(tmp_path), host_flows=host, host=HOST)
     assert _text(only_host) == "host\n"
-    assert only_host.sections["__maker"]["text"] == "host\n"
+    assert only_host.sections["t_maker"]["text"] == "host\n"
 
-    with_project = runner.prepare_request(_Taker, "plain", project, host_flows=host, host=HOST)
+    with_project = runner.prepare_request(TTaker, "plain", project, host_flows=host, host=HOST)
     assert _text(with_project) == "project\n"
 
-    with_design = runner.prepare_request(_Taker, "own", project, host_flows=host, host=HOST)
+    with_design = runner.prepare_request(TTaker, "own", project, host_flows=host, host=HOST)
     assert _text(with_design) == "design\n"
 
     on_command_line = runner.prepare_request(
-        _Taker,
+        TTaker,
         "own",
         project,
-        ["flows.__maker.text=cli"],
+        ["flows.t_maker.text=cli"],
         host_flows=host,
         host=HOST,
     )
@@ -85,34 +85,34 @@ def test_host_layer_is_the_lowest(tmp_path):
 
 
 def test_host_layer_merges_key_by_key_with_the_layers_above(tmp_path):
-    host = {"__maker": {"text": "host\n", "nthreads": 8}}
-    project = _project(tmp_path, {"__maker": {"text": "project\n"}})
+    host = {"t_maker": {"text": "host\n", "nthreads": 8}}
+    project = _project(tmp_path, {"t_maker": {"text": "project\n"}})
 
     prepared = _runner(tmp_path).prepare_request(
-        _Taker, "plain", project, host_flows=host, host=HOST
+        TTaker, "plain", project, host_flows=host, host=HOST
     )
 
-    assert prepared.plan.node("__maker").settings.nthreads == 8
+    assert prepared.plan.node("t_maker").settings.nthreads == 8
     assert _text(prepared) == "project\n"
 
 
 def test_host_layer_reaches_the_settings_of_a_producer_and_the_requested_flow(tmp_path):
-    host = {"__synth": {"fpga": {"part": PART}}}
+    host = {"t_synth": {"fpga": {"part": PART}}}
 
     prepared = _runner(tmp_path).prepare_request(
-        _Place, _design(tmp_path), host_flows=host, host=HOST
+        TPlace, _design(tmp_path), host_flows=host, host=HOST
     )
 
-    assert [n.name for n in prepared.plan.nodes] == ["__synth", "__place"]
-    assert prepared.plan.node("__place").settings.fpga.part == PART
+    assert [n.name for n in prepared.plan.nodes] == ["t_synth", "t_place"]
+    assert prepared.plan.node("t_place").settings.fpga.part == PART
 
 
 def test_no_host_layer_changes_nothing(tmp_path):
-    design = _design(tmp_path, __maker={"text": "design\n"})
+    design = _design(tmp_path, t_maker={"text": "design\n"})
     runner = _runner(tmp_path)
 
-    plain = runner.prepare_request(_Taker, design)
-    empty = runner.prepare_request(_Taker, design, host_flows={}, host=HOST)
+    plain = runner.prepare_request(TTaker, design)
+    empty = runner.prepare_request(TTaker, design, host_flows={}, host=HOST)
 
     assert _text(plain) == _text(empty) == "design\n"
     assert [(n.name, n.flowrun_hash) for n in plain.plan.nodes] == [
@@ -124,22 +124,22 @@ def test_prepared_request_holds_what_the_launch_would_use(tmp_path):
     design = _design(tmp_path)
     runner = _runner(tmp_path)
 
-    prepared = runner.prepare_request(_Taker, design)
+    prepared = runner.prepare_request(TTaker, design)
 
     assert isinstance(prepared, PreparedRequest)
     assert prepared.design.name == "d" and prepared.target is None
-    assert [e.flow_class for e in prepared.flow_request.elements] == [_Taker]
-    assert prepared.plan.requested == "__taker"
-    assert set(prepared.sections) <= {"__maker", "__taker"}
+    assert [e.flow_class for e in prepared.flow_request.elements] == [TTaker]
+    assert prepared.plan.requested == "t_taker"
+    assert set(prepared.sections) <= {"t_maker", "t_taker"}
     assert [n.flowrun_hash for n in prepared.plan.nodes] == [
-        n.flowrun_hash for n in runner.plan(_Taker, design).nodes
+        n.flowrun_hash for n in runner.plan(TTaker, design).nodes
     ]
 
 
 def test_prepare_request_runs_no_flow_and_refuses_what_run_refuses(tmp_path):
     runner = _runner(tmp_path)
-    prepared = runner.prepare_request("__maker+__taker", _design(tmp_path))
-    assert [n.name for n in prepared.plan.nodes] == ["__maker", "__taker"]
+    prepared = runner.prepare_request("t_maker+t_taker", _design(tmp_path))
+    assert [n.name for n in prepared.plan.nodes] == ["t_maker", "t_taker"]
     assert len(prepared.flow_request.elements) == 2
     assert runner.launched == []
     assert not (tmp_path / "run").exists()
@@ -181,23 +181,23 @@ def test_prepare_request_refuses_outputs_to_for_a_programmer(tmp_path):
     runner = DefaultRunner(tmp_path / "run", display_results=False, outputs_to=tmp_path / "out")
 
     with pytest.raises(Exception, match="writes no outputs"):
-        runner.prepare_request("__chain_simple_producer+__chain_action", _design(tmp_path))
+        runner.prepare_request("t_chain_simple_producer+t_chain_action", _design(tmp_path))
 
 
 def test_message_names_the_host_profile_layer(tmp_path):
     """Two flows of the host profile that disagree on a shared leaf: the message names the
     layer, and the host."""
-    host = {"__place": {"fpga": {"part": OTHER_PART}}, "__synth": {"fpga": {"part": PART}}}
+    host = {"t_place": {"fpga": {"part": OTHER_PART}}, "t_synth": {"fpga": {"part": PART}}}
     with pytest.raises(FlowSettingsException) as raised:
-        _runner(tmp_path).prepare_request(_Place, _design(tmp_path), host_flows=host, host=HOST)
+        _runner(tmp_path).prepare_request(TPlace, _design(tmp_path), host_flows=host, host=HOST)
     assert f"in {host_profile_origin(HOST)}" in str(raised.value), raised.value
     assert f"in the host profile of {HOST}" in str(raised.value)
 
 
 def test_message_names_the_host_profile_without_a_host_name(tmp_path):
-    host = {"__place": {"fpga": {"part": OTHER_PART}}, "__synth": {"fpga": {"part": PART}}}
+    host = {"t_place": {"fpga": {"part": OTHER_PART}}, "t_synth": {"fpga": {"part": PART}}}
     with pytest.raises(FlowSettingsException) as raised:
-        _runner(tmp_path).prepare_request(_Place, _design(tmp_path), host_flows=host)
+        _runner(tmp_path).prepare_request(TPlace, _design(tmp_path), host_flows=host)
     assert f"in {HOST_PROFILE_ORIGIN}" in str(raised.value), raised.value
     assert "host profile of" not in str(raised.value)
 
@@ -205,7 +205,7 @@ def test_message_names_the_host_profile_without_a_host_name(tmp_path):
 def test_a_malformed_host_table_names_the_host_profile(tmp_path):
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).prepare_request(
-            _Maker, _design(tmp_path), host_flows={"__maker": 5}, host=HOST  # type: ignore[dict-item]
+            TMaker, _design(tmp_path), host_flows={"t_maker": 5}, host=HOST  # type: ignore[dict-item]
         )
     assert host_profile_origin(HOST) in str(raised.value), raised.value
 
@@ -214,7 +214,7 @@ def test_a_host_value_a_higher_layer_replaces_is_still_judged(tmp_path):
     """The host layer is a real layer: a value no higher layer replaces is validated."""
     with pytest.raises(FlowSettingsException) as raised:
         _runner(tmp_path).prepare_request(
-            _Maker, _design(tmp_path), host_flows={"__maker": {"no_such_setting": 1}}, host=HOST
+            TMaker, _design(tmp_path), host_flows={"t_maker": {"no_such_setting": 1}}, host=HOST
         )
     assert "no_such_setting" in str(raised.value)
 
@@ -227,4 +227,4 @@ def test_the_label_of_the_host_profile():
 def test_a_launcher_that_takes_no_chain_refuses_before_it_loads_anything(tmp_path):
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     with pytest.raises(FlowSettingsException, match="local"):
-        runner.prepare_request("__maker+__taker", tmp_path / "missing.yaml")
+        runner.prepare_request("t_maker+t_taker", tmp_path / "missing.yaml")

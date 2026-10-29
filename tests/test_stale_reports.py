@@ -320,7 +320,7 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
     assert passed and len(read) == len(files)
 
 
-class _ReadsReport(Flow):
+class TReadsReport(Flow):
     """Writes its report only when told to, and succeeds only when it can read one."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -343,24 +343,24 @@ def test_the_reports_a_run_read_are_removed_before_the_next_run(tmp_path):
     design = Design(name="d", root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     try:
-        first = runner.launch_flow(_ReadsReport, design, {"write": True})
+        first = runner.launch_flow(TReadsReport, design, {"write": True})
         trace = json.loads((first.run_path / "trace.json").read_text())
         assert first.succeeded and trace["reports"] == ["reports/r.txt"]
         future = time.time_ns() + 3600 * 10**9
         os.utime(first.run_path / "reports" / "r.txt", ns=(future, future))
-        second = runner.launch_flow(_ReadsReport, design, {"write": False})
+        second = runner.launch_flow(TReadsReport, design, {"write": False})
         assert not second.succeeded
         assert not (second.run_path / "reports" / "r.txt").exists()
     finally:
-        for name in (_ReadsReport.name, _ReadsReport.__name__):
+        for name in (TReadsReport.name, TReadsReport.__name__):
             registered_flows.pop(name, None)
 
 
-#: while set, `_ReportsWhenTold` writes its report
+#: while set, `TReportsWhenTold` writes its report
 WRITE_REPORT = "XEDA_TEST_WRITE_REPORT"
 
 
-class _ReportsWhenTold(Flow):
+class TReportsWhenTold(Flow):
     """Writes its report only while `WRITE_REPORT` is set (the environment is no input of a
     run), and succeeds only when it can read one."""
 
@@ -395,7 +395,7 @@ def test_a_previous_trace_s_reports_are_removed_before_every_run(tmp_path, monke
     monkeypatch.setenv(WRITE_REPORT, "1")
     try:
         first = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-            _ReportsWhenTold, design, {}
+            TReportsWhenTold, design, {}
         )
         report = first.run_path / "reports" / "r.txt"
         assert first.succeeded and report.exists()
@@ -413,10 +413,10 @@ def test_a_previous_trace_s_reports_are_removed_before_every_run(tmp_path, monke
         runner = DefaultRunner(
             tmp_path / "xeda_run", display_results=False, rebuild_all=why == "rebuild_all"
         )
-        second = runner.launch_flow(_ReportsWhenTold, design, settings)
+        second = runner.launch_flow(TReportsWhenTold, design, settings)
         assert second.run_path == first.run_path and not second.reused
         assert not second.succeeded, "a previous run's report was read as this run's"
         assert not report.exists()
     finally:
-        for name in (_ReportsWhenTold.name, _ReportsWhenTold.__name__):
+        for name in (TReportsWhenTold.name, TReportsWhenTold.__name__):
             registered_flows.pop(name, None)

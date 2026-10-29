@@ -452,7 +452,7 @@ def _reads_nextpnr_and_the_netlist():
     """A test flow with two inputs: `nextpnr`'s configuration, which it takes from the default
     producer, and a netlist that has no default and that a saved binding takes from `yosys_fpga`."""
 
-    class _ReadsNextpnrAndTheNetlist(Flow):
+    class TReadsNextpnrAndTheNetlist(Flow):
         """Read a configuration from nextpnr and a netlist from yosys_fpga."""
 
         results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -473,7 +473,7 @@ def _reads_nextpnr_and_the_netlist():
         def run(self):
             self.results["read"] = self.inputs.netlist.read_text()
 
-    return _ReadsNextpnrAndTheNetlist
+    return TReadsNextpnrAndTheNetlist
 
 
 def _own_refusal(flow: str, design: Design) -> str:

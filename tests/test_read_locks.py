@@ -21,7 +21,7 @@ from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 
-from .io_flows import _Maker, _Taker
+from .io_flows import TMaker, TTaker
 from .tool_utils import producers_of
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
@@ -94,9 +94,9 @@ def test_a_consumer_holds_its_producer_for_its_whole_run(tmp_path, monkeypatch):
         seen.append(_probe(self.inputs.made.parent))
         self.results["read"] = self.inputs.made.read_text()
 
-    monkeypatch.setattr(_Taker, "run", run)
+    monkeypatch.setattr(TTaker, "run", run)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    taker = runner.launch_flow(_Taker, _design(tmp_path, monkeypatch), {})
+    taker = runner.launch_flow(TTaker, _design(tmp_path, monkeypatch), {})
     assert taker.succeeded and seen == ["blocked"]
     (maker,) = producers_of(runner, taker)
     assert _probe(maker.run_path) == "free", "released when the consumer's launch ended"
@@ -124,7 +124,7 @@ def test_a_launch_made_while_a_consumer_holds_its_producer_is_refused(tmp_path, 
             yield producer
 
     monkeypatch.setattr(runner, "_producer_read_lease", meanwhile)
-    outcome = runner.launch_flow(_Taker, design, {})
+    outcome = runner.launch_flow(TTaker, design, {})
     assert outcome.succeeded and outcome.results["read"] == "made\n"
     assert refused == ["lease_held"]
 
@@ -140,12 +140,12 @@ def test_a_changed_completed_run_is_refused_before_hand_over(tmp_path, monkeypat
     )
     design = _design(tmp_path, monkeypatch)
     if untraced:
-        monkeypatch.setattr(_Taker, "always_runs", lambda self: "untraced test producer")
-        monkeypatch.setattr(_Maker, "always_runs", lambda self: "untraced test producer")
+        monkeypatch.setattr(TTaker, "always_runs", lambda self: "untraced test producer")
+        monkeypatch.setattr(TMaker, "always_runs", lambda self: "untraced test producer")
     original = runner._producer_read_lease
-    target = "__maker"
+    target = "t_maker"
     ran = []
-    monkeypatch.setattr(_Taker, "run", lambda self: ran.append(self.name))
+    monkeypatch.setattr(TTaker, "run", lambda self: ran.append(self.name))
 
     @contextmanager
     def gap(producer):
@@ -157,8 +157,8 @@ def test_a_changed_completed_run_is_refused_before_hand_over(tmp_path, monkeypat
 
     monkeypatch.setattr(runner, "_producer_read_lease", gap)
     with pytest.raises(FlowDependencyFailure, match="changed.*read lease"):
-        runner.launch_flow(_Taker, design, {})
-    assert _Taker.name not in ran
+        runner.launch_flow(TTaker, design, {})
+    assert TTaker.name not in ran
     assert _probe(tmp_path / "xeda_run" / "d" / target) == "free"
 
 
@@ -167,12 +167,12 @@ def test_dependency_leases_release_when_consumer_raises(tmp_path, monkeypatch):
         assert _probe(self.inputs.made.parent) == "blocked"
         raise RuntimeError("consumer failed")
 
-    monkeypatch.setattr(_Taker, "run", fail)
+    monkeypatch.setattr(TTaker, "run", fail)
     with pytest.raises(RuntimeError, match="consumer failed"):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-            _Taker, _design(tmp_path, monkeypatch), {}
+            TTaker, _design(tmp_path, monkeypatch), {}
         )
-    assert _probe(tmp_path / "xeda_run" / "d" / "__maker") == "free"
+    assert _probe(tmp_path / "xeda_run" / "d" / "t_maker") == "free"
 
 
 # Children announce the lock attempt before entering the blocking flock; stdout is only a
@@ -182,15 +182,15 @@ import sys
 from pathlib import Path
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
-from tests.io_flows import _Taker
+from tests.io_flows import TTaker
 root = Path(sys.argv[1])
 def read(self):
     print("reading", flush=True)
     sys.stdin.readline()
     assert self.inputs.made.read_text() == "made\\n"
-_Taker.run = read
+TTaker.run = read
 DefaultRunner(root / "run", display_results=False).launch_flow(
-    _Taker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
+    TTaker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 print("done", flush=True)
 """
 WRITER = """
@@ -201,10 +201,10 @@ from xeda.console import console
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import scrub_runs
 from xeda.flow_runner import run_lock
-from tests.io_flows import _Maker
+from tests.io_flows import TMaker
 root = Path(sys.argv[1])
 action = sys.argv[2]
-p = root / "run" / "d" / "__maker"
+p = root / "run" / "d" / "t_maker"
 original = run_lock.fcntl.flock
 told = []
 def flock(fd, mode):
@@ -215,11 +215,11 @@ def flock(fd, mode):
 run_lock.fcntl.flock = flock
 if action == "rebuild":
     DefaultRunner(root / "run", display_results=False, clean=True).launch_flow(
-        _Maker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
+        TMaker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 else:
     # Keep the actual scrub confirmation/ownership/deletion path, suppressing its display.
     console.print = lambda *a, **kw: None
-    assert scrub_runs("__maker", p.parent, run_root=root / "run", confirm=lambda directories: True)
+    assert scrub_runs("t_maker", p.parent, run_root=root / "run", confirm=lambda directories: True)
 print("done", flush=True)
 """
 
@@ -267,7 +267,7 @@ def test_a_writer_waits_while_a_consumer_reads(tmp_path, action):
         )
         _message(writer, "waiting")
         assert not select.select([writer.stdout], [], [], 0.2)[0], "writer proceeded under a reader"
-        producer = tmp_path / "run" / "d" / "__maker"
+        producer = tmp_path / "run" / "d" / "t_maker"
         assert (producer / "made.txt").read_text() == "made\n"
         assert reader.stdin is not None
         reader.stdin.write("release\n")
@@ -302,14 +302,14 @@ def test_a_parent_alias_uses_the_same_lock(tmp_path):
 
 
 def test_a_rebuild_under_this_threads_read_lease_is_refused(tmp_path, monkeypatch):
-    from .io_flows import _Maker
+    from .io_flows import TMaker
 
     design = _design(tmp_path, monkeypatch)
     runner = DefaultRunner(tmp_path / "run", display_results=False, clean=True)
-    producer = runner.get_flow_run_path("d", _Maker.name)
+    producer = runner.get_flow_run_path("d", TMaker.name)
     with run_dir_read_lock(producer):
         with pytest.raises(LeaseHeldError) as refused:
-            runner.launch_flow(_Maker, design, {})
+            runner.launch_flow(TMaker, design, {})
         assert refused.value.code == "lease_held"
         assert not producer.exists(), "rebuild wrote before acquiring an exclusive lock"
 
@@ -408,7 +408,7 @@ def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_pat
 
     design = _design(tmp_path, monkeypatch)
     ran = []
-    original = _Maker.run
+    original = TMaker.run
 
     def leave_unreadable(self):
         original(self)
@@ -417,15 +417,15 @@ def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_pat
         (locked / "output.txt").write_text("cannot vouch for this output")
         locked.chmod(0)
 
-    monkeypatch.setattr(_Maker, "run", leave_unreadable)
-    monkeypatch.setattr(_Taker, "run", lambda self: ran.append(self.name))
+    monkeypatch.setattr(TMaker, "run", leave_unreadable)
+    monkeypatch.setattr(TTaker, "run", lambda self: ran.append(self.name))
     try:
         with pytest.raises(FlowDependencyFailure, match="read lease"):
-            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(_Taker, design, {})
+            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(TTaker, design, {})
         assert ran == []
-        assert _probe(tmp_path / "run" / "d" / _Maker.name) == "free"
+        assert _probe(tmp_path / "run" / "d" / TMaker.name) == "free"
     finally:
-        locked = tmp_path / "run" / "d" / _Maker.name / "locked"
+        locked = tmp_path / "run" / "d" / TMaker.name / "locked"
         if locked.exists():
             locked.chmod(0o755)
 
@@ -436,7 +436,7 @@ from pathlib import Path
 from xeda import Design
 from xeda.console import console
 from xeda.flow_runner import DefaultRunner, default_runner
-from tests.io_flows import _Maker
+from tests.io_flows import TMaker
 root = Path(sys.argv[1])
 console.print = lambda *a, **kw: None
 original = default_runner.scrub_runs
@@ -444,17 +444,17 @@ def scrub(*args, **kwargs):
     print("scrubbing", flush=True)
     sys.stdin.readline()
     return original(*args, **kwargs)
-original_run = _Maker.run
+original_run = TMaker.run
 def checked_run(self):
     original_run(self)
     assert self.outputs.made.read_text() == sys.argv[2]
-_Maker.run = checked_run
+TMaker.run = checked_run
 default_runner.scrub_runs = scrub
 runner = DefaultRunner(root / "run", hashed_run_dirs=True, scrub_old_runs=True,
                        display_results=False)
 runner.confirm_scrub = lambda directories: True
 flow = runner.launch_flow(
-    _Maker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}),
+    TMaker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}),
     {"text": sys.argv[2]})
 assert flow.succeeded
 print("done", flush=True)
@@ -462,13 +462,13 @@ print("done", flush=True)
 
 
 def _launch_variants_scrubbing_at_once(tmp_path: Path, texts: tuple[str, ...], timeout: float):
-    """Make one hashed variant of `_Maker` for each of `texts`, then launch every variant again,
+    """Make one hashed variant of `TMaker` for each of `texts`, then launch every variant again,
     each as its own process with `--scrub`, all released together: each one removes the others'
     run directories and then makes its own. Every launch must succeed."""
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", hashed_run_dirs=True, display_results=False)
     for text in texts:
-        assert runner.launch_flow(_Maker, design, {"text": text}).succeeded
+        assert runner.launch_flow(TMaker, design, {"text": text}).succeeded
     children = []
     try:
         for text in texts:
@@ -516,7 +516,7 @@ from pathlib import Path
 from xeda import Design
 from xeda.console import console
 from xeda.flow_runner import DefaultRunner
-from tests.io_flows import _Maker, _Taker
+from tests.io_flows import TMaker, TTaker
 root, control = Path(sys.argv[1]), Path(sys.argv[2])
 console.print = lambda *a, **kw: None
 def wait_for(name):
@@ -524,12 +524,12 @@ def wait_for(name):
     while not (control / name).exists():
         assert time.time() < deadline, "no " + name
         time.sleep(0.01)
-original_run = _Maker.run
+original_run = TMaker.run
 def run(self):
     original_run(self)
     (control / "running").write_text("x")
     wait_for("go")
-_Maker.run = run
+TMaker.run = run
 original_lease = DefaultRunner._producer_read_lease
 def lease(self, producer):
     (control / "completed").write_text("x")  # the producer is complete, not yet read
@@ -537,7 +537,7 @@ def lease(self, producer):
     return original_lease(self, producer)
 DefaultRunner._producer_read_lease = lease
 flow = DefaultRunner(root / "run", hashed_run_dirs=True, display_results=False).launch_flow(
-    _Taker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
+    TTaker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 assert flow.succeeded
 print("done", flush=True)
 """
@@ -579,7 +579,7 @@ def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_wa
         root = ensure_run_root(tmp_path / "run")
         try:
             outcome["result"] = default_runner.scrub_design(
-                _Maker.name, root / "d", run_root=root, confirm=confirm
+                TMaker.name, root / "d", run_root=root, confirm=confirm
             )
         except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
             outcome["error"] = error
@@ -615,7 +615,7 @@ def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path,
     monkeypatch.chdir(tmp_path)
     design = tmp_path / "d.toml"
     design.write_text('name="d"\n[rtl]\nsources=[]\ntop="t"\n')
-    assert CliRunner().invoke(cli, ["run", _Taker.name, str(design)]).exit_code == 0
+    assert CliRunner().invoke(cli, ["run", TTaker.name, str(design)]).exit_code == 0
     # Both flows are up to date now: the next launch asks for shared locks.
     original = run_lock.fcntl.flock
 
@@ -625,10 +625,10 @@ def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path,
         return original(fd, mode)
 
     monkeypatch.setattr(run_lock.fcntl, "flock", no_shared_locks)
-    result = CliRunner().invoke(cli, ["run", _Taker.name, str(design)])
+    result = CliRunner().invoke(cli, ["run", TTaker.name, str(design)])
     assert result.exit_code == 1, result.output
     assert isinstance(result.exception, SystemExit), repr(result.exception)
-    assert "__maker" in result.output
-    assert str(tmp_path / "xeda_run" / "d" / "__maker") in result.output
+    assert "t_maker" in result.output
+    assert str(tmp_path / "xeda_run" / "d" / "t_maker") in result.output
     assert "shared" in result.output and "No locks available" in result.output
     assert "Traceback" not in result.output

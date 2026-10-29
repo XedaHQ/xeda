@@ -15,7 +15,7 @@ from xeda.flow_runner.trace_inputs import registered_input_files
 from xeda.flows import xilinx
 
 from . import tool_utils
-from .io_flows import _Taker
+from .io_flows import TTaker
 from .test_read_locks import _probe
 from .test_xilinx_chipdb import _binary, generation as chipdb_generation, prefix  # noqa: F401
 
@@ -23,10 +23,10 @@ from .test_xilinx_chipdb import _binary, generation as chipdb_generation, prefix
 generation = chipdb_generation
 
 
-class _ChipdbTaker(_Taker):
+class TChipdbTaker(TTaker):
     """Exercise shared cache preparation without activating the Xilinx nextpnr target."""
 
-    class Settings(_Taker.Settings):
+    class Settings(TTaker.Settings):
         nextpnr: Path | None = Field(None, description="The installed nextpnr binary.")
         chipdb: Path | None = Field(None, description="An explicit read-only chip database.")
 
@@ -57,7 +57,7 @@ def _launch_cache(tmp_path, generation, *, name="d", settings=None):
     design = Design(name=name, root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(generation[1].run_root, display_results=False)
     return runner.launch_flow(
-        _ChipdbTaker,
+        TChipdbTaker,
         design,
         {"nextpnr": generation[0] / "bin/nextpnr-himbaechel", **(settings or {})},
     )
@@ -71,7 +71,7 @@ def test_cache_preparation_is_snapshotted_and_second_launch_is_fresh(
 
     def snapshot(expected, *args):
         result = original(expected, *args)
-        if expected.flow == _ChipdbTaker.name:
+        if expected.flow == TChipdbTaker.name:
             chipdb = next(p for p in result.records if p.endswith("xc7a100t.bin"))
             assert Path(chipdb).is_file() and not result.records[chipdb].unknown
             snapshots.append(chipdb)
@@ -151,7 +151,7 @@ def test_corrupt_cache_never_starts_consumer(tmp_path, generation, monkeypatch, 
     def refuse_run(self):
         pytest.fail("consumer ran with an invalid chip database")
 
-    monkeypatch.setattr(_ChipdbTaker, "run", refuse_run)
+    monkeypatch.setattr(TChipdbTaker, "run", refuse_run)
     with pytest.raises(FlowFatalError, match="Corrupt Xilinx chipdb cache"):
         _launch_cache(tmp_path, generation)
     assert not (first.run_path / "trace.json").exists()
@@ -159,14 +159,14 @@ def test_corrupt_cache_never_starts_consumer(tmp_path, generation, monkeypatch, 
 
 
 def test_preparation_program_changed_after_start_is_unknown(tmp_path, generation, monkeypatch):
-    original = _ChipdbTaker.run
+    original = TChipdbTaker.run
 
     def mutate(self):
         assembler = generation[0] / "bin/bbasm"
         assembler.write_text(assembler.read_text() + "\n# changed after preparation\n")
         original(self)
 
-    monkeypatch.setattr(_ChipdbTaker, "run", mutate)
+    monkeypatch.setattr(TChipdbTaker, "run", mutate)
     first = _launch_cache(tmp_path, generation)
     trace = json.loads((first.run_path / "trace.json").read_text())
     assert trace["programs"][str(generation[0] / "bin/bbasm")]["file"]["sha"].startswith("unknown:")
@@ -180,7 +180,7 @@ def test_cache_planning_has_no_preparation_or_tools(tmp_path, generation, monkey
     monkeypatch.setattr(xilinx, "prepare_chipdb", fail, raising=False)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     DefaultRunner(generation[1].run_root, display_results=False).plan(
-        _ChipdbTaker, design, flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"}
+        TChipdbTaker, design, flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"}
     )
     assert not (generation[1].run_root / ".cache").exists()
 
@@ -268,10 +268,10 @@ def test_program_merge_keeps_first_preparation_state(tmp_path, monkeypatch):
     def run(self):
         run_process(str(tool))
 
-    monkeypatch.setattr(_Taker, "prepare_inputs", prepare)
-    monkeypatch.setattr(_Taker, "run", run)
+    monkeypatch.setattr(TTaker, "prepare_inputs", prepare)
+    monkeypatch.setattr(TTaker, "run", run)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
-    first = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(_Taker, design, {})
+    first = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(TTaker, design, {})
     trace = json.loads((first.run_path / "trace.json").read_text())
     assert list(trace["programs"]) == [str(tool)]
     assert trace["programs"][str(tool)]["file"]["sha"].startswith("unknown:")
@@ -288,24 +288,24 @@ def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypa
         seen.append("prepare")
 
     def expectation(flow, *args, **kwargs):
-        if isinstance(flow, _Taker):
+        if isinstance(flow, TTaker):
             seen.append("expectation")
         return original(flow, *args, **kwargs)
 
-    monkeypatch.setattr(_Taker, "prepare_inputs", prepare, raising=False)
+    monkeypatch.setattr(TTaker, "prepare_inputs", prepare, raising=False)
     monkeypatch.setattr(default_runner, "expectation", expectation)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.launch_flow(_Taker, design, {})
+    first = runner.launch_flow(TTaker, design, {})
     before = tool_utils.run_outputs_state(first.run_path)
     # A launch that reuses the node holds it shared and writes nothing: it finds the prepared
     # inputs where they are, without preparing, and judges the node by them.
-    again = runner.launch_flow(_Taker, design, {})
+    again = runner.launch_flow(TTaker, design, {})
     assert again.reused
     assert seen == ["prepare", "expectation", "expectation"]
     # A refresh of the trace is a write: the launch holds the node exclusively for it, so the
     # inputs are prepared again, still before the node is judged.
     tool_utils.check_after_the_racy_window(monkeypatch)  # the check refreshes the trace
-    refreshed = runner.launch_flow(_Taker, design, {})
+    refreshed = runner.launch_flow(TTaker, design, {})
     assert refreshed.reused
     assert seen[3:] == ["expectation", "prepare", "expectation"]
     assert tool_utils.run_outputs_state(first.run_path) == before
@@ -314,17 +314,17 @@ def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypa
 def test_preparation_failure_invalidates_success_and_releases_lease(tmp_path, monkeypatch):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.launch_flow(_Taker, design, {})
+    first = runner.launch_flow(TTaker, design, {})
 
     def fail(self):
         assert _probe(self.inputs.made.parent) == "blocked"
         raise FlowFatalError("broken preparation")
 
-    monkeypatch.setattr(_Taker, "prepare_inputs", fail, raising=False)
+    monkeypatch.setattr(TTaker, "prepare_inputs", fail, raising=False)
     # A node that is only reused is not prepared. A run that must prepare holds it exclusively.
     rebuilding = DefaultRunner(tmp_path / "run", display_results=False, rebuild_all=True)
     with pytest.raises(FlowFatalError, match="broken preparation"):
-        rebuilding.launch_flow(_Taker, design, {})
+        rebuilding.launch_flow(TTaker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
     assert recorded["error"]["message"] == "broken preparation"
@@ -338,9 +338,9 @@ def test_planning_does_not_prepare_inputs(tmp_path, monkeypatch):
     def fail(self):
         pytest.fail("dry-run prepared inputs")
 
-    monkeypatch.setattr(_Taker, "prepare_inputs", fail, raising=False)
+    monkeypatch.setattr(TTaker, "prepare_inputs", fail, raising=False)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
-    DefaultRunner(tmp_path / "run", display_results=False).plan(_Taker, design)
+    DefaultRunner(tmp_path / "run", display_results=False).plan(TTaker, design)
     assert not (tmp_path / "run").exists()
 
 
@@ -352,7 +352,7 @@ def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, m
     original_expectation = default_runner.expectation
     original_snapshot = default_runner.snapshot_inputs
     original_start = Flow.start_run
-    original_run = _Taker.run
+    original_run = TTaker.run
 
     def init(self):
         events.append("init")
@@ -363,17 +363,17 @@ def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, m
         events.append("hand-over and prepare")
 
     def expectation(flow, *args, **kwargs):
-        if isinstance(flow, _Taker):
+        if isinstance(flow, TTaker):
             events.append("expectation")
         return original_expectation(flow, *args, **kwargs)
 
     def snapshot(expected, *args):
-        if expected.flow == _Taker.name:
+        if expected.flow == TTaker.name:
             events.append("snapshot")
         return original_snapshot(expected, *args)
 
     def start(self, *args, **kwargs):
-        if isinstance(self, _Taker):
+        if isinstance(self, TTaker):
             events.append("start")
         return original_start(self, *args, **kwargs)
 
@@ -381,13 +381,13 @@ def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, m
         events.append("run")
         return original_run(self)
 
-    monkeypatch.setattr(_Taker, "init", init)
-    monkeypatch.setattr(_Taker, "prepare_inputs", prepare)
+    monkeypatch.setattr(TTaker, "init", init)
+    monkeypatch.setattr(TTaker, "prepare_inputs", prepare)
     monkeypatch.setattr(default_runner, "expectation", expectation)
     monkeypatch.setattr(default_runner, "snapshot_inputs", snapshot)
     monkeypatch.setattr(Flow, "start_run", start)
-    monkeypatch.setattr(_Taker, "run", run)
-    DefaultRunner(tmp_path / "run", display_results=False).launch_flow(_Taker, design, {})
+    monkeypatch.setattr(TTaker, "run", run)
+    DefaultRunner(tmp_path / "run", display_results=False).launch_flow(TTaker, design, {})
     assert events == ["init", "hand-over and prepare", "expectation", "snapshot", "start", "run"]
 
 
@@ -399,7 +399,7 @@ def _dry(tmp_path, generation, settings=None):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(generation[1].run_root, display_results=False)
     return runner.plan_with_freshness(
-        _ChipdbTaker,
+        TChipdbTaker,
         design,
         flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel", **(settings or {})},
     )[1]
@@ -428,14 +428,14 @@ def test_a_dry_run_judges_a_node_by_its_located_prepared_input(tmp_path, generat
     first = _launch_cache(tmp_path, generation)
     assert _launch_cache(tmp_path, generation).reused
     states = _dry(tmp_path, generation)
-    assert states[_ChipdbTaker.name].state == "fresh", states
+    assert states[TChipdbTaker.name].state == "fresh", states
     (generation[0] / "share/nextpnr/himbaechel/uarch/xilinx/constids.inc").write_text("new content")
-    said = _dry(tmp_path, generation)[_ChipdbTaker.name]
+    said = _dry(tmp_path, generation)[TChipdbTaker.name]
     assert said.state == "unknown" and "not made yet" in said.reason, said
     # the launch makes it, and runs
     second = _launch_cache(tmp_path, generation)
     assert not second.reused and second.results["chipdb"] != first.results["chipdb"]
-    assert _dry(tmp_path, generation)[_ChipdbTaker.name].state == "fresh"
+    assert _dry(tmp_path, generation)[TChipdbTaker.name].state == "fresh"
 
 
 def test_a_flow_whose_preparation_registers_other_than_it_locates_is_refused(
@@ -443,7 +443,7 @@ def test_a_flow_whose_preparation_registers_other_than_it_locates_is_refused(
 ):
     """A dry run judges by the located inputs, so a launch checks that preparation registered
     exactly those."""
-    monkeypatch.setattr(_ChipdbTaker, "locate_prepared_inputs", lambda self: [])
+    monkeypatch.setattr(TChipdbTaker, "locate_prepared_inputs", lambda self: [])
     with pytest.raises(FlowFatalError, match="locate_prepared_inputs"):
         _launch_cache(tmp_path, generation)
 
@@ -453,7 +453,7 @@ def test_a_corrupt_cache_entry_is_unknown_to_a_dry_run_and_refused_by_a_launch(
 ):
     first = _launch_cache(tmp_path, generation)
     (Path(first.results["chipdb"]).parent / "manifest.yaml").unlink()
-    said = _dry(tmp_path, generation)[_ChipdbTaker.name]
+    said = _dry(tmp_path, generation)[TChipdbTaker.name]
     assert said.state == "unknown" and "Corrupt Xilinx chipdb cache entry" in said.reason, said
     with pytest.raises(FlowFatalError, match="Corrupt Xilinx chipdb cache entry"):
         _launch_cache(tmp_path, generation)
@@ -470,12 +470,12 @@ def test_a_corrupt_cache_entry_is_unknown_even_when_every_flow_is_forced_to_run(
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(generation[1].run_root, display_results=False, **forced)
     _, states = runner.plan_with_freshness(
-        _ChipdbTaker,
+        TChipdbTaker,
         design,
         flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"},
     )
-    assert states[_ChipdbTaker.name].state == "unknown"
-    assert "Corrupt Xilinx chipdb cache entry" in states[_ChipdbTaker.name].reason
+    assert states[TChipdbTaker.name].state == "unknown"
+    assert "Corrupt Xilinx chipdb cache entry" in states[TChipdbTaker.name].reason
 
 
 def test_a_cached_board_file_is_what_the_package_holds_or_it_is_refused(tmp_path):

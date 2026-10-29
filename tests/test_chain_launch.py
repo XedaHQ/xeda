@@ -18,7 +18,7 @@ from xeda.flow_runner.trace import as_recorded
 
 from .flow_registry import preserved_flow_registry
 from . import tool_utils
-from .io_flows import _Join, _Taker
+from .io_flows import TJoin, TTaker
 from .test_read_locks import _probe
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
@@ -41,19 +41,19 @@ def _runner(tmp_path, **kwargs):
 
 
 def _bound(tmp_path, text="bound\n"):
-    """A design whose `__taker` reads the alternate producer `__input_maker`."""
+    """A design whose `t_taker` reads the alternate producer `t_input_maker`."""
     source = tmp_path / "in.txt"
     source.write_text(text)
     return _design(
         tmp_path,
         {
-            "__taker": {"inputs": {"made": "__input_maker.made"}},
-            "__input_maker": {"input_file": str(source)},
+            "t_taker": {"inputs": {"made": "t_input_maker.made"}},
+            "t_input_maker": {"input_file": str(source)},
         },
     )
 
 
-MORE = {"__join": {"inputs": {"more": ["__right.out", "__left.out", "__right.out"]}}}
+MORE = {"t_join": {"inputs": {"more": ["t_right.out", "t_left.out", "t_right.out"]}}}
 
 # --------------------------------------------------------------------------------- the oracle
 
@@ -61,9 +61,9 @@ MORE = {"__join": {"inputs": {"more": ["__right.out", "__left.out", "__right.out
 def test_the_launch_follows_the_plan_node_for_node_and_reference_for_reference(tmp_path):
     runner = _runner(tmp_path, hashed_run_dirs=True)
     design = _design(tmp_path, MORE)
-    plan = runner.plan(_Join, design)
+    plan = runner.plan(TJoin, design)
     frozen = [(n.name, as_recorded(n.settings), n.flowrun_hash, n.inputs) for n in plan.nodes]
-    flow = runner.run(_Join, design)
+    flow = runner.run(TJoin, design)
     assert flow.succeeded
     # one launch per node, producers before consumers, in the plan's order and directories
     assert [(f.name, f.flow_hash, f.run_path) for f in runner.launched] == [
@@ -74,11 +74,11 @@ def test_the_launch_follows_the_plan_node_for_node_and_reference_for_reference(t
     fork = runner.launched[0]
     assert fork.settings.first and fork.settings.second
     # the ordered many input: each reference's files, in reference order, duplicates kept
-    left, right = (plan.node(name).run_path / "out.txt" for name in ("__left", "__right"))
+    left, right = (plan.node(name).run_path / "out.txt" for name in ("t_left", "t_right"))
     assert flow.inputs.more == [right, left, right]
     assert flow.results["more"] == ["b\n", "a\n", "b\n"]
     record = json.loads((flow.run_path / "trace.json").read_text())["declared_inputs"][2]
-    assert [ref["producer"] for ref in record["references"]] == ["__right", "__left", "__right"]
+    assert [ref["producer"] for ref in record["references"]] == ["t_right", "t_left", "t_right"]
     assert record["paths"] == [str(right), str(left), str(right)]
     assert [ref["producer_hash"] for ref in record["references"]] == [
         plan.node(ref["producer"]).flowrun_hash for ref in record["references"]
@@ -87,18 +87,18 @@ def test_the_launch_follows_the_plan_node_for_node_and_reference_for_reference(t
     assert frozen == [
         (n.name, as_recorded(n.settings), n.flowrun_hash, n.inputs) for n in plan.nodes
     ]
-    again = runner.run(_Join, design)
+    again = runner.run(TJoin, design)
     assert again.reused and all(f.reused for f in runner.launched[-4:])
 
 
 def test_an_alternate_producer_is_launched_once_and_then_reused(tmp_path):
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
-    first = runner.run(_Taker, design)
+    first = runner.run(TTaker, design)
     assert first.succeeded and first.results["read"] == "bound\n"
-    assert [f.name for f in runner.launched] == ["__input_maker", "__taker"]
-    assert not (tmp_path / "run" / "d" / "__maker").exists(), "the default producer never ran"
-    again = runner.run(_Taker, design)
+    assert [f.name for f in runner.launched] == ["t_input_maker", "t_taker"]
+    assert not (tmp_path / "run" / "d" / "t_maker").exists(), "the default producer never ran"
+    again = runner.run(TTaker, design)
     assert again.reused and tool_utils.producers_of(runner, again)[0].reused
     assert again.inputs.made == first.inputs.made
 
@@ -132,7 +132,7 @@ def test_a_bound_producer_s_record_is_checked_at_hand_over(tmp_path, monkeypatch
     hand-over, and the consumer's directory then holds a failure document and no trace."""
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
-    first = runner.run(_Taker, design)
+    first = runner.run(TTaker, design)
     assert first.succeeded
     original = runner._producer_read_lease
 
@@ -156,12 +156,12 @@ def test_a_bound_producer_s_record_is_checked_at_hand_over(tmp_path, monkeypatch
     monkeypatch.setattr(runner, "_producer_read_lease", lease)
     (tmp_path / "in.txt").write_text("changed\n")  # the producer runs again
     with pytest.raises(FlowDependencyFailure):
-        runner.run(_Taker, _bound(tmp_path, "changed\n"))
+        runner.run(TTaker, _bound(tmp_path, "changed\n"))
     failure = json.loads((first.run_path / "results.json").read_text())
     assert failure["outcome"] == "failed" and failure["error"]["code"] == "producer_failed"
     assert failure["identity"] == first.flow_hash, "the failure keeps the run's identity"
     assert not (first.run_path / "trace.json").exists()
-    assert _probe(tmp_path / "run" / "d" / "__input_maker") == "free"
+    assert _probe(tmp_path / "run" / "d" / "t_input_maker") == "free"
 
 
 @TAMPERS
@@ -170,10 +170,10 @@ def test_a_bound_producer_s_edited_record_makes_it_run_again(tmp_path, tamper):
     run: the producer runs again and hands over what it then records."""
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
-    first = runner.run(_Taker, design)
+    first = runner.run(TTaker, design)
     (producer,) = tool_utils.producers_of(runner, first)
     _tamper(producer.run_path, tmp_path, tamper)
-    again = runner.run(_Taker, design)
+    again = runner.run(TTaker, design)
     assert again.succeeded and again.results["read"] == "bound\n"
     (rerun,) = tool_utils.producers_of(runner, again)
     assert not rerun.reused and "results.json" in rerun.stale_reason
@@ -184,7 +184,7 @@ def test_every_bound_producer_is_held_through_the_consumer_s_results_and_trace(
     tmp_path, monkeypatch
 ):
     seen: dict[str, list[str]] = {}
-    producers = [tmp_path / "run" / "d" / name for name in ("__left", "__right")]
+    producers = [tmp_path / "run" / "d" / name for name in ("t_left", "t_right")]
 
     def probe(stage):
         seen[stage] = [_probe(path) for path in producers] + [
@@ -198,13 +198,13 @@ def test_every_bound_producer_is_held_through_the_consumer_s_results_and_trace(
     write_trace = runner_module.write_trace
 
     def writing(run_path, trace):
-        if run_path.name == "__join":
+        if run_path.name == "t_join":
             probe("trace")
         return write_trace(run_path, trace)
 
-    monkeypatch.setattr(_Join, "run", run)
+    monkeypatch.setattr(TJoin, "run", run)
     monkeypatch.setattr(runner_module, "write_trace", writing)
-    flow = _runner(tmp_path).run(_Join, _design(tmp_path, MORE))
+    flow = _runner(tmp_path).run(TJoin, _design(tmp_path, MORE))
     assert flow.succeeded
     # The producers ran in this launch: it holds them exclusively, so no other launch, writer
     # or reader, enters before the consumer's results and trace are written.
@@ -221,20 +221,20 @@ def test_a_bound_producer_changed_after_it_completed_is_refused(tmp_path, monkey
     design = _bound(tmp_path)
     original = runner._producer_read_lease
     ran = []
-    monkeypatch.setattr(_Taker, "run", lambda self: ran.append(self.name))
+    monkeypatch.setattr(TTaker, "run", lambda self: ran.append(self.name))
 
     @contextmanager
     def gap(producer):
-        if producer.name == "__input_maker":
+        if producer.name == "t_input_maker":
             (producer.run_path / "another-output.txt").write_text("changed generation")
         with original(producer):
             yield producer
 
     monkeypatch.setattr(runner, "_producer_read_lease", gap)
     with pytest.raises(FlowDependencyFailure, match="changed.*read lease"):
-        runner.run(_Taker, design)
+        runner.run(TTaker, design)
     assert not ran
-    assert _probe(tmp_path / "run" / "d" / "__input_maker") == "free"
+    assert _probe(tmp_path / "run" / "d" / "t_input_maker") == "free"
 
 
 def test_a_failing_bound_producer_blocks_the_consumer_and_leaves_its_earlier_record(tmp_path):
@@ -242,22 +242,22 @@ def test_a_failing_bound_producer_blocks_the_consumer_and_leaves_its_earlier_rec
     nothing, so its directory keeps the record and the trace of its earlier success."""
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
-    first = runner.run(_Taker, design)
+    first = runner.run(TTaker, design)
     assert first.succeeded
     (tmp_path / "in.txt").unlink()
     broken = _design(
         tmp_path,
         {
-            "__taker": {"inputs": {"made": "__input_maker.made"}},
-            "__input_maker": {"input_file": str(tmp_path / "in.txt"), "text": "again"},
+            "t_taker": {"inputs": {"made": "t_input_maker.made"}},
+            "t_input_maker": {"input_file": str(tmp_path / "in.txt"), "text": "again"},
         },
     )
-    with pytest.raises(FlowDependencyFailure, match="__input_maker"):
-        runner.run(_Taker, broken)
+    with pytest.raises(FlowDependencyFailure, match="t_input_maker"):
+        runner.run(TTaker, broken)
     kept = json.loads((first.run_path / "results.json").read_text())
     assert kept["outcome"] == "passed" and kept["run_id"] == first.run_id
     assert (first.run_path / "trace.json").exists()
-    assert [f.name for f in runner.launched[-2:]] == ["__input_maker", "__taker"]
+    assert [f.name for f in runner.launched[-2:]] == ["t_input_maker", "t_taker"]
 
 
 # ------------------------------------------------------------------------------------ delivery

@@ -23,7 +23,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.tool import NonZeroExitCode
 
 
-class _Judged(Flow):
+class TJudged(Flow):
     """Writes a report and an output, and judges them as its settings say."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -77,15 +77,15 @@ class _Judged(Flow):
         return not self.settings.bare_false
 
 
-class _NeedsJudged(Flow):
-    """Reads the output of `_Judged`."""
+class TNeedsJudged(Flow):
+    """Reads the output of `TJudged`."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     class Inputs(Flow.Inputs):
         out: Path = In(
             SourceType.Data,
-            producer=_Judged.name,
+            producer=TJudged.name,
             output="out",
             description="The output of the judged flow.",
         )
@@ -97,7 +97,7 @@ class _NeedsJudged(Flow):
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow collected after this module finds them.
 _REGISTERED = {
-    _name: registered_flows[_name] for _cls in (_Judged, _NeedsJudged) for _name in (_cls.name,)
+    _name: registered_flows[_name] for _cls in (TJudged, TNeedsJudged) for _name in (_cls.name,)
 }
 for _name in _REGISTERED:
     registered_flows.pop(_name, None)
@@ -106,7 +106,7 @@ for _name in _REGISTERED:
 @pytest.fixture
 def judged_registered():
     registered_flows.update(_REGISTERED)
-    _Judged.runs = 0
+    TJudged.runs = 0
     yield
     for name in _REGISTERED:
         registered_flows.pop(name, None)
@@ -140,7 +140,7 @@ def _design(tmp_path):
 )
 def test_the_outcome_names_what_failed(tmp_path, judged_registered, settings, outcome):
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _Judged, _design(tmp_path), settings
+        TJudged, _design(tmp_path), settings
     )
     assert flow.outcome == outcome
     assert flow.succeeded is (outcome == "passed")
@@ -148,7 +148,7 @@ def test_the_outcome_names_what_failed(tmp_path, judged_registered, settings, ou
 
 def test_a_rejection_is_the_error_of_the_document(tmp_path, judged_registered):
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _Judged, _design(tmp_path), {"reject": True}
+        TJudged, _design(tmp_path), {"reject": True}
     )
     assert flow.rejection == "slack is negative"
     document = json.loads((flow.run_path / "results.json").read_text())
@@ -166,7 +166,7 @@ def test_a_rejection_is_the_error_of_the_document(tmp_path, judged_registered):
 
 def test_a_passed_run_records_its_outputs(tmp_path, judged_registered):
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _Judged, _design(tmp_path), {}
+        TJudged, _design(tmp_path), {}
     )
     document = json.loads((flow.run_path / "results.json").read_text())
     assert set(document["outputs"]) == {"out"}
@@ -177,7 +177,7 @@ def test_a_rejection_with_a_missing_output_keeps_the_rejection_as_its_error(
     tmp_path, judged_registered
 ):
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _Judged, _design(tmp_path), {"reject": True, "skip_output": True}
+        TJudged, _design(tmp_path), {"reject": True, "skip_output": True}
     )
     document = json.loads((flow.run_path / "results.json").read_text())
     assert document["error"]["code"] == "rejected"
@@ -186,7 +186,7 @@ def test_a_rejection_with_a_missing_output_keeps_the_rejection_as_its_error(
 
 def test_a_missing_output_is_the_error_of_a_run_that_would_pass(tmp_path, judged_registered):
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _Judged, _design(tmp_path), {"skip_output": True}
+        TJudged, _design(tmp_path), {"skip_output": True}
     )
     document = json.loads((flow.run_path / "results.json").read_text())
     assert flow.outcome == "failed"
@@ -196,12 +196,12 @@ def test_a_missing_output_is_the_error_of_a_run_that_would_pass(tmp_path, judged
 def test_a_raising_run_is_failed_not_rejected(tmp_path, judged_registered):
     with pytest.raises(FlowFatalError):
         DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-            _Judged, _design(tmp_path), {"raise_in_run": True, "reject": True}
+            TJudged, _design(tmp_path), {"raise_in_run": True, "reject": True}
         )
 
 
 def test_a_rejection_keeps_the_error_of_the_tool():
-    flow = Flow.__new__(_Judged)
+    flow = Flow.__new__(TJudged)
     flow.__dict__.update(rejection=None, results={"error": {"code": "nonzero_exit"}})
     flow.reject("slack is negative")
     assert flow.rejection == "slack is negative"
@@ -212,13 +212,13 @@ def test_an_unchanged_launch_reports_the_rejection_again_without_running(
     tmp_path, judged_registered
 ):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
+    first = runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
     document = json.loads((first.run_path / "results.json").read_text())
     trace = json.loads((first.run_path / "trace.json").read_text())
     assert trace["verdict"] == "rejected" and trace["error"] == document["error"]
-    calls = _Judged.runs
-    again = runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
-    assert _Judged.runs == calls  # the tool did not run
+    calls = TJudged.runs
+    again = runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
+    assert TJudged.runs == calls  # the tool did not run
     assert again.reused and again.rejected_again and not again.succeeded
     assert again.outcome == "rejected" and again.rejection == document["error"]["message"]
     assert again.results["error"] == document["error"]
@@ -240,7 +240,7 @@ def test_a_rejection_is_reported_again_only_while_everything_is_unchanged(
 ):
     design = _design(tmp_path)
     first = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        _Judged, design, {"reject": True}
+        TJudged, design, {"reject": True}
     )
     settings = {"reject": True}
     if change == "settings":
@@ -255,24 +255,24 @@ def test_a_rejection_is_reported_again_only_while_everything_is_unchanged(
     runner = DefaultRunner(
         tmp_path / "run", display_results=False, rebuild_all=change == "rebuild_all"
     )
-    calls = _Judged.runs
-    again = runner.run_flow(_Judged, design, settings)
-    assert _Judged.runs == calls + 1 and not again.reused
+    calls = TJudged.runs
+    again = runner.run_flow(TJudged, design, settings)
+    assert TJudged.runs == calls + 1 and not again.reused
     assert again.stale_reason.startswith(reason)
 
 
 def test_a_rejected_run_that_always_runs_keeps_no_trace(tmp_path, judged_registered):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run_flow(_Judged, _design(tmp_path), {"reject": True, "always": True})
+    first = runner.run_flow(TJudged, _design(tmp_path), {"reject": True, "always": True})
     assert first.outcome == "rejected" and not (first.run_path / "trace.json").exists()
-    calls = _Judged.runs
-    runner.run_flow(_Judged, _design(tmp_path), {"reject": True, "always": True})
-    assert _Judged.runs == calls + 1
+    calls = TJudged.runs
+    runner.run_flow(TJudged, _design(tmp_path), {"reject": True, "always": True})
+    assert TJudged.runs == calls + 1
 
 
 def test_without_a_results_document_a_rejection_keeps_no_trace(tmp_path, judged_registered):
     runner = DefaultRunner(tmp_path / "run", display_results=False, dump_results_json=False)
-    first = runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
+    first = runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
     assert first.outcome == "rejected" and not (first.run_path / "trace.json").exists()
 
 
@@ -284,15 +284,15 @@ def test_a_consumer_of_a_rejected_producer_is_blocked_and_handed_nothing(
     for _launch in range(2):  # the first run, then the replay
         with pytest.raises(FlowDependencyFailure) as error:
             runner.run_flow(
-                _NeedsJudged, design, {}, all_flows_settings={_Judged.name: {"reject": True}}
+                TNeedsJudged, design, {}, all_flows_settings={TJudged.name: {"reject": True}}
             )
-        assert error.value.producer == _Judged.name
+        assert error.value.producer == TJudged.name
         consumer = runner.launched[-1]
-        assert consumer.name == _NeedsJudged.name and consumer.blocked_by == _Judged.name
+        assert consumer.name == TNeedsJudged.name and consumer.blocked_by == TJudged.name
         assert consumer.inputs.out is None  # nothing was handed over
         assert not (consumer.run_path / "results.json").exists()  # it did not run
         assert not (consumer.run_path / "trace.json").exists()
-    producers = [f for f in runner.launched if f.name == _Judged.name]
+    producers = [f for f in runner.launched if f.name == TJudged.name]
     assert not producers[0].rejected_again and producers[-1].rejected_again  # the second replayed
 
 
@@ -300,29 +300,29 @@ def test_a_rejected_requested_flow_delivers_nothing_first_or_again(tmp_path, jud
     target = tmp_path / "out" / "x.txt"
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     for _launch in range(2):
-        flow = runner.run_flow(_Judged, _design(tmp_path), {"reject": True, "report_copy": target})
+        flow = runner.run_flow(TJudged, _design(tmp_path), {"reject": True, "report_copy": target})
         assert not flow.succeeded
         assert not target.exists()
 
 
 def test_a_trace_that_disagrees_with_its_document_is_not_reused(tmp_path, judged_registered):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
+    first = runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
     path = first.run_path / "trace.json"
     trace = json.loads(path.read_text())
     trace["verdict"] = "passed"
     path.write_text(json.dumps(trace))
-    calls = _Judged.runs
-    again = runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
-    assert _Judged.runs == calls + 1 and not again.reused
+    calls = TJudged.runs
+    again = runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
+    assert TJudged.runs == calls + 1 and not again.reused
 
 
 def test_replayed_failure_names_rebuild_all(tmp_path, judged_registered, caplog):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
+    runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
     caplog.clear()
     with caplog.at_level(logging.WARNING):
-        runner.run_flow(_Judged, _design(tmp_path), {"reject": True})
+        runner.run_flow(TJudged, _design(tmp_path), {"reject": True})
     (record,) = [r for r in caplog.records if "rejected" in r.getMessage()]
     assert "--rebuild-all" in record.getMessage() and "declare" in record.getMessage()
     assert "slack is negative" in record.getMessage()
@@ -330,12 +330,12 @@ def test_replayed_failure_names_rebuild_all(tmp_path, judged_registered, caplog)
 
 def test_a_passed_run_is_reused_as_before(tmp_path, judged_registered):
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.run_flow(_Judged, _design(tmp_path), {})
+    first = runner.run_flow(TJudged, _design(tmp_path), {})
     trace = json.loads((first.run_path / "trace.json").read_text())
     assert trace["verdict"] == "passed" and trace["error"] is None
-    calls = _Judged.runs
-    again = runner.run_flow(_Judged, _design(tmp_path), {})
-    assert _Judged.runs == calls
+    calls = TJudged.runs
+    again = runner.run_flow(TJudged, _design(tmp_path), {})
+    assert TJudged.runs == calls
     assert again.reused and again.succeeded and not again.rejected_again
     assert again.outcome == "passed"
     assert again.run_id == trace["run_id"]

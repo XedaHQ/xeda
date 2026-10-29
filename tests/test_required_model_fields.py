@@ -22,7 +22,7 @@ from xeda.flow_runner import DefaultRunner
 pytestmark = pytest.mark.python_compat
 
 
-class _RequiredLeaf(Flow):
+class TRequiredLeaf(Flow):
     """Declares nothing, and cannot run without one setting."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {"foo": MetricSpec("The text.", "text")}
@@ -35,7 +35,7 @@ class _RequiredLeaf(Flow):
         self.results["foo"] = self.settings.foo
 
 
-class _RequiredChecked(Flow):
+class TRequiredChecked(Flow):
     """Needs a path and a label, each checked by a validator written for its type."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -99,12 +99,12 @@ def design(tmp_path):
 
 
 GIVEN = {"where": "a/b", "label": "ok"}
-NAME = _RequiredChecked.name
+NAME = TRequiredChecked.name
 
 
 def _launch(how: str, runner: DefaultRunner, design: Design, root: Path) -> Flow:
-    """Launch `_RequiredChecked` with `GIVEN` given the way `how` says."""
-    cls = _RequiredChecked
+    """Launch `TRequiredChecked` with `GIVEN` given the way `how` says."""
+    cls = TRequiredChecked
     if how == "design file":
         return runner.run(cls, _design_file(root, {NAME: GIVEN}))
     if how == "project file":
@@ -162,7 +162,7 @@ def test_a_value_its_model_validator_refuses_is_refused_by_the_complete_settings
     complete settings are, once every part is composed."""
     from xeda.flow import FlowSettingsError
 
-    cls = _RequiredChecked
+    cls = TRequiredChecked
     bad = {"where": "a/b", "label": "very bad"}
     with pytest.raises(FlowSettingsError, match="may not end with `bad`") as refused:
         if how == "API dict":
@@ -178,7 +178,7 @@ def test_a_value_its_model_validator_refuses_is_refused_by_the_complete_settings
 def test_a_setting_given_nowhere_is_a_clear_error_naming_it_and_the_flow(
     how, runner, design, tmp_path
 ):
-    cls = _RequiredChecked
+    cls = TRequiredChecked
     given = {"note": "only an optional one"}
     with pytest.raises(FlowSettingsException) as refused:
         if how == "API dict":
@@ -198,11 +198,11 @@ def test_a_setting_given_nowhere_is_a_clear_error_naming_it_and_the_flow(
 
 def test_a_required_text_setting_is_launched_by_dict_by_instance_and_by_a_section(runner, design):
     for flow in (
-        runner.launch_flow(_RequiredLeaf, design, {"foo": "x"}),
-        runner.launch_flow(_RequiredLeaf, design, _RequiredLeaf.Settings(foo="x")),
-        runner.run_flow(_RequiredLeaf, design, {"foo": "x"}),
+        runner.launch_flow(TRequiredLeaf, design, {"foo": "x"}),
+        runner.launch_flow(TRequiredLeaf, design, TRequiredLeaf.Settings(foo="x")),
+        runner.run_flow(TRequiredLeaf, design, {"foo": "x"}),
         runner.launch_flow(
-            _RequiredLeaf, design, {}, all_flows_settings={_RequiredLeaf.name: {"foo": "x"}}
+            TRequiredLeaf, design, {}, all_flows_settings={TRequiredLeaf.name: {"foo": "x"}}
         ),
     ):
         assert flow.succeeded and flow.results["foo"] == "x"
@@ -211,4 +211,4 @@ def test_a_required_text_setting_is_launched_by_dict_by_instance_and_by_a_sectio
 @pytest.mark.parametrize("empty", [None, ""])
 def test_a_required_text_setting_that_says_nothing_is_still_refused(runner, design, empty):
     with pytest.raises(FlowSettingsException, match="needs `foo`"):
-        runner.launch_flow(_RequiredLeaf, design, {"foo": empty})
+        runner.launch_flow(TRequiredLeaf, design, {"foo": empty})

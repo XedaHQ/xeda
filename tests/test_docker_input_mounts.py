@@ -27,7 +27,7 @@ CONSUMER_INIT: List[Callable[[Flow], None]] = []
 CONSUMER_RUN: List[Callable[[Flow], None]] = []
 
 
-class _Producer(Flow):
+class TProducer(Flow):
     """Writes two files in its own run directory."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -47,7 +47,7 @@ class _Producer(Flow):
         return True
 
 
-class _Consumer(Flow):
+class TConsumer(Flow):
     """Reads both files through a dockerized tool."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -66,13 +66,13 @@ class _Consumer(Flow):
     class Inputs(Flow.Inputs):
         made: Path = In(
             SourceType.Data,
-            producer="__producer",
+            producer="t_producer",
             output="made",
             description="The producer's first file.",
         )
         extra: Optional[Path] = In(
             SourceType.Data,
-            producer="__producer",
+            producer="t_producer",
             output="extra",
             description="The producer's second file.",
         )
@@ -95,7 +95,7 @@ class _Consumer(Flow):
         return True
 
 
-class _Alone(Flow):
+class TAlone(Flow):
     """Declares no input."""
 
     results_description: ClassVar[dict[str, MetricSpec]] = {}
@@ -112,7 +112,7 @@ class _Alone(Flow):
 
 # Test-only flows, launched by class and out of the registry once defined, so that no sweep over
 # every registered flow finds them. The consumer's producer is found by name.
-_FLOWS = (_Producer, _Consumer, _Alone)
+_FLOWS = (TProducer, TConsumer, TAlone)
 _REGISTERED = {
     name: registered_flows[name]
     for cls in _FLOWS
@@ -165,7 +165,7 @@ def _read_only(volumes: List[str]) -> List[str]:
 
 def test_a_consumer_mounts_the_directory_of_its_input_read_only(world):
     tmp_path, design, commands = world
-    consumer = _launch(tmp_path, design, _Consumer)
+    consumer = _launch(tmp_path, design, TConsumer)
     producer_outputs = consumer.inputs.made.parent
     assert producer_outputs != consumer.run_path
     volumes = _volumes(commands)
@@ -175,7 +175,7 @@ def test_a_consumer_mounts_the_directory_of_its_input_read_only(world):
 
 def test_two_inputs_in_one_directory_make_one_mount(world):
     tmp_path, design, commands = world
-    consumer = _launch(tmp_path, design, _Consumer)
+    consumer = _launch(tmp_path, design, TConsumer)
     assert consumer.inputs.extra is not None
     assert consumer.inputs.made.parent == consumer.inputs.extra.parent
     read_only = _read_only(_volumes(commands))
@@ -184,7 +184,7 @@ def test_two_inputs_in_one_directory_make_one_mount(world):
 
 def test_a_flow_with_no_input_mounts_only_the_design_and_its_run_directory(world):
     tmp_path, design, commands = world
-    alone = _launch(tmp_path, design, _Alone)
+    alone = _launch(tmp_path, design, TAlone)
     root = design.root
     assert _volumes(commands) == [
         f"--volume={alone.run_path}:{alone.run_path}",
@@ -194,7 +194,7 @@ def test_a_flow_with_no_input_mounts_only_the_design_and_its_run_directory(world
 
 def test_nothing_but_the_run_directory_is_mounted_writable(world):
     tmp_path, design, commands = world
-    consumer = _launch(tmp_path, design, _Consumer)
+    consumer = _launch(tmp_path, design, TConsumer)
     writable = [v for v in _volumes(commands) if not v.endswith(":ro")]
     assert writable == [f"--volume={consumer.run_path}:{consumer.run_path}"]
     (command,) = [c for c in commands if "arg" in c]
@@ -210,7 +210,7 @@ def test_a_file_the_flow_registered_is_mounted_by_its_directory(world):
     registered.parent.mkdir()
     registered.write_text("db\n")
     CONSUMER_RUN.append(lambda flow: flow.implicit_inputs.append(registered))
-    _launch(tmp_path, design, _Consumer)
+    _launch(tmp_path, design, TConsumer)
     assert f"{registered.parent}:{registered.parent}" in _read_only(_volumes(commands))
 
 
@@ -228,7 +228,7 @@ def test_a_directory_that_is_already_mounted_is_not_mounted_again(world):
         flow.implicit_inputs.extend([in_design, inside])
 
     CONSUMER_RUN.append(register)
-    _launch(tmp_path, design, _Consumer)
+    _launch(tmp_path, design, TConsumer)
     mounted = [v.removeprefix("--volume=").split(":")[0] for v in _volumes(commands)]
     assert str(consumer_dir[0]) not in mounted, "a subdirectory of the run directory"
     assert mounted.count(str(design.root)) == 1
@@ -238,14 +238,14 @@ def test_a_missing_directory_is_not_mounted(world):
     tmp_path, design, commands = world
     gone = tmp_path / "gone" / "file.bin"
     CONSUMER_RUN.append(lambda flow: flow.implicit_inputs.append(gone))
-    _launch(tmp_path, design, _Consumer)
+    _launch(tmp_path, design, TConsumer)
     assert str(gone.parent) not in " ".join(_volumes(commands))
 
 
 def test_a_derived_tool_mounts_the_inputs_too(world):
     tmp_path, design, commands = world
     CONSUMER_RUN.append(lambda flow: flow.tool.derive("other-tool").run("arg", stdout=True))
-    consumer = _launch(tmp_path, design, _Consumer)
+    consumer = _launch(tmp_path, design, TConsumer)
     # the tool of the flow and its sibling each started one command
     for command in [c for c in commands if "arg" in c]:
         assert f"--volume={consumer.inputs.made.parent}:{consumer.inputs.made.parent}:ro" in command
@@ -261,7 +261,7 @@ def test_a_configured_mount_holds_an_input_only_at_the_same_path(world, target, 
         lambda flow: flow.tool.docker.mounts.update({str(cache): target.format(host=cache)})
     )
     CONSUMER_RUN.append(lambda flow: flow.implicit_inputs.append(cache / "db.bin"))
-    _launch(tmp_path, design, _Consumer)
+    _launch(tmp_path, design, TConsumer)
     assert (f"{cache}:{cache}" in _read_only(_volumes(commands))) is mounted_again
 
 
@@ -274,7 +274,7 @@ def test_nested_input_directories_make_one_mount(world):
     CONSUMER_RUN.append(
         lambda flow: flow.implicit_inputs.extend([outer / "inner" / "b.bin", outer / "a.bin"])
     )
-    _launch(tmp_path, design, _Consumer)
+    _launch(tmp_path, design, TConsumer)
     read_only = _read_only(_volumes(commands))
     assert f"{outer}:{outer}" in read_only
     assert f"{outer / 'inner'}:{outer / 'inner'}" not in read_only
@@ -289,7 +289,7 @@ def test_a_linked_input_mounts_the_directory_of_its_target_too(world):
     link.parent.mkdir()
     link.symlink_to(target)
     CONSUMER_RUN.append(lambda flow: flow.implicit_inputs.append(link))
-    _launch(tmp_path, design, _Consumer)
+    _launch(tmp_path, design, TConsumer)
     read_only = _read_only(_volumes(commands))
     assert f"{link.parent}:{link.parent}" in read_only
     assert f"{target.parent.resolve()}:{target.parent.resolve()}" in read_only
@@ -309,14 +309,14 @@ def _outside(tmp_path: Path) -> Path:
 def test_the_directory_of_a_file_a_setting_names_is_mounted_read_only(world):
     tmp_path, design, commands = world
     outside = _outside(tmp_path)
-    _launch(tmp_path, design, _Consumer, constraints=str(outside / "pins.xdc"))
+    _launch(tmp_path, design, TConsumer, constraints=str(outside / "pins.xdc"))
     assert f"{outside}:{outside}" in _read_only(_volumes(commands))
 
 
 def test_a_directory_a_setting_names_is_mounted_read_only(world):
     tmp_path, design, commands = world
     outside = _outside(tmp_path)
-    _launch(tmp_path, design, _Consumer, include=str(outside / "include"))
+    _launch(tmp_path, design, TConsumer, include=str(outside / "include"))
     read_only = _read_only(_volumes(commands))
     assert f"{outside / 'include'}:{outside / 'include'}" in read_only
     assert f"{outside}:{outside}" not in read_only
@@ -325,7 +325,7 @@ def test_a_directory_a_setting_names_is_mounted_read_only(world):
 def test_the_path_half_of_a_library_entry_is_mounted_and_its_name_is_not(world):
     tmp_path, design, commands = world
     outside = _outside(tmp_path)
-    _launch(tmp_path, design, _Consumer, libs=[["cells", str(outside / "lib" / "cells.lib")]])
+    _launch(tmp_path, design, TConsumer, libs=[["cells", str(outside / "lib" / "cells.lib")]])
     read_only = _read_only(_volumes(commands))
     assert f"{outside / 'lib'}:{outside / 'lib'}" in read_only
     assert not any(v.startswith("cells") for v in read_only)
@@ -335,7 +335,7 @@ def test_a_relative_setting_is_mounted_where_it_is_found(world):
     tmp_path, design, commands = world
     (design.root / "rtl").mkdir()
     (design.root / "rtl" / "extra.v").write_text("x\n")
-    _launch(tmp_path, design, _Consumer, constraints="rtl/extra.v")
+    _launch(tmp_path, design, TConsumer, constraints="rtl/extra.v")
     mounted = [v.removeprefix("--volume=").split(":")[0] for v in _volumes(commands)]
     # the design root holds it already
     assert mounted.count(str(design.root)) == 1
@@ -346,7 +346,7 @@ def test_a_working_or_deliverable_setting_is_not_mounted(world):
     tmp_path, design, commands = world
     destination = tmp_path / "destination"
     destination.mkdir()
-    _launch(tmp_path, design, _Consumer, scratch="scratch", report=str(destination / "r.txt"))
+    _launch(tmp_path, design, TConsumer, scratch="scratch", report=str(destination / "r.txt"))
     volumes = " ".join(_volumes(commands))
     assert str(destination) not in volumes
     assert "scratch" not in volumes
@@ -361,7 +361,7 @@ def test_every_file_and_directory_the_trace_records_from_a_setting_is_held(world
     consumer = _launch(
         tmp_path,
         design,
-        _Consumer,
+        TConsumer,
         constraints=str(outside / "pins.xdc"),
         include=str(outside / "include"),
         libs=[["cells", str(outside / "lib" / "cells.lib")]],

@@ -305,7 +305,7 @@ def _is_the_instance(name: str, scope: tuple[_Function, ...]) -> bool:
     return name == "self" and owner is not None and owner.bound and owner.params[0] == "self"
 
 
-class _Reads(ast.NodeVisitor):
+class TReads(ast.NodeVisitor):
     """The reads of state attributes in some code, and its functions and calls."""
 
     def __init__(self, label: str) -> None:
@@ -429,7 +429,7 @@ def analyze(units: list[tuple[str, ast.AST]]) -> tuple[list[str], set[str]]:
     problems: list[str] = []
     visits = []
     for label, tree in units:
-        visit = _Reads(label)
+        visit = TReads(label)
         visit.visit(tree)
         visits.append(visit)
     for visit in visits:
@@ -736,7 +736,7 @@ def test_a_reader_of_a_flow_s_state_that_nothing_calls_is_found(source: str) -> 
 def test_a_stand_in_flow_that_reads_a_producer_through_a_helper_is_found() -> None:
     from xeda.flow import registered_flows
 
-    class _Spying(Flow):
+    class TSpying(Flow):
         """Reads its producer's results through a module-level helper."""
 
         results_description: dict[str, MetricSpec] = {}
@@ -748,10 +748,10 @@ def test_a_stand_in_flow_that_reads_a_producer_through_a_helper_is_found() -> No
         return flow.results
 
     # the stand-in's helper is local to this test, so the check runs on its source text
-    source = textwrap.dedent(inspect.getsource(_Spying)) + textwrap.dedent(
+    source = textwrap.dedent(inspect.getsource(TSpying)) + textwrap.dedent(
         inspect.getsource(_read_results)
     )
-    for name in (_Spying.name, _Spying.__name__):
+    for name in (TSpying.name, TSpying.__name__):
         registered_flows.pop(name, None)
     assert any("passes `self.producer_flow` as `flow`" in p for p in _problems(source))
 
@@ -889,7 +889,7 @@ def test_no_flow_registers_a_dependency_or_nests_another_flow_s_settings(cls) ->
 
 
 def test_a_flow_that_registers_a_dependency_is_found() -> None:
-    class _Registering(Flow):
+    class TRegistering(Flow):
         """Registers a dependency in its init()."""
 
         results_description: dict[str, MetricSpec] = {}
@@ -901,11 +901,11 @@ def test_a_flow_that_registers_a_dependency_is_found() -> None:
             pass
 
     try:
-        problems = registration_problems(_Registering)
+        problems = registration_problems(TRegistering)
     finally:
         from xeda.flow import registered_flows
 
-        for name in (_Registering.name, _Registering.__name__):
+        for name in (TRegistering.name, TRegistering.__name__):
             registered_flows.pop(name, None)
     assert any("calls add_dependency" in p for p in problems), problems
 

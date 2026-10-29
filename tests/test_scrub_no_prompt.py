@@ -21,7 +21,7 @@ from xeda.flow_runner import DefaultRunner, scrub_design, scrub_runs
 from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
-from .io_flows import _Maker
+from .io_flows import TMaker
 
 FLOW = "vivado_synth"
 SRC = Path(__file__).parent.parent / "src" / "xeda"
@@ -127,7 +127,7 @@ def _launch(tmp_path: Path, text: str, *, scrub_old_runs: bool, confirm=None) ->
         display_results=False,
     )
     launcher.confirm_scrub = confirm
-    flow = launcher.launch_flow(_Maker, Design.load(design / "d.yaml"), {"text": text})
+    flow = launcher.launch_flow(TMaker, Design.load(design / "d.yaml"), {"text": text})
     assert flow.succeeded
     return flow.run_path
 

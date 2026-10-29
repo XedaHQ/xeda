@@ -733,7 +733,7 @@ def _helper():
     raise ValueError("in a helper")
 
 
-class _Probe:
+class TProbe:
     Settings = _Settings
 
     def __init__(self):
@@ -746,12 +746,12 @@ class _Probe:
         _helper()
 
 
-class _Direct(_Probe):
+class TDirect(TProbe):
     def init(self):
         raise ValueError("direct")
 
 
-class _Hooked(_Probe):
+class THooked(TProbe):
     @classmethod
     def check_settings_supported(cls, settings):
         settings.judge()
@@ -761,30 +761,30 @@ class _Hooked(_Probe):
 
 
 def test_the_scan_sees_a_raise_in_init_a_settings_method_and_a_helper():
-    assert run_time_refusals(_Direct) == {f"{__name__}:_Direct.init": 1, f"{__name__}:_helper": 1}
-    assert run_time_refusals(_Probe) == {f"{__name__}:_Settings.judge": 1, f"{__name__}:_helper": 1}
+    assert run_time_refusals(TDirect) == {f"{__name__}:TDirect.init": 1, f"{__name__}:_helper": 1}
+    assert run_time_refusals(TProbe) == {f"{__name__}:_Settings.judge": 1, f"{__name__}:_helper": 1}
 
 
 this_module = sys.modules[__name__]
 
 
-class _ThroughAModule(_Probe):
+class TThroughAModule(TProbe):
     def init(self):
         this_module._helper()
 
 
 def test_the_scan_follows_a_function_called_through_a_module():
-    assert f"{__name__}:_helper" in run_time_refusals(_ThroughAModule)
+    assert f"{__name__}:_helper" in run_time_refusals(TThroughAModule)
 
 
-class _ThroughAnotherModule(_Probe):
+class TThroughAnotherModule(TProbe):
     def init(self):
         convert_unit("1 parsec", "ns")  # a helper of `xeda.units`, which raises on a bad unit
 
 
 def test_the_scan_follows_a_helper_in_another_xeda_module():
-    assert any(key.startswith("xeda.units:") for key in run_time_refusals(_ThroughAnotherModule))
+    assert any(key.startswith("xeda.units:") for key in run_time_refusals(TThroughAnotherModule))
 
 
 def test_the_scan_leaves_alone_what_a_hook_judges():
-    assert run_time_refusals(_Hooked) == {f"{__name__}:_helper": 1}
+    assert run_time_refusals(THooked) == {f"{__name__}:_helper": 1}

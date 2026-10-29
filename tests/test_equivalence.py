@@ -168,7 +168,7 @@ def test_a_type_without_a_normalizer_has_no_digest(tmp_path):
 
 
 def test_an_input_that_opts_in_needs_a_type_that_has_a_normalizer():
-    class _Ok(Flow):
+    class TOk(Flow):
         """Opts in on a JSON netlist."""
 
         results_description: dict[str, MetricSpec] = {}
@@ -182,7 +182,7 @@ def test_an_input_that_opts_in_needs_a_type_that_has_a_normalizer():
     try:
         with pytest.raises(TypeError, match="equivalence"):
 
-            class _Bad(Flow):
+            class TBad(Flow):
                 """Opts in on a type that has no normalizer."""
 
                 results_description: dict[str, MetricSpec] = {}
@@ -194,7 +194,7 @@ def test_an_input_that_opts_in_needs_a_type_that_has_a_normalizer():
                     pass
 
     finally:
-        for name in (_Ok.name, _Ok.__name__):
+        for name in (TOk.name, TOk.__name__):
             registered_flows.pop(name, None)
 
 
