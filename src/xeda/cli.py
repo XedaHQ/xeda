@@ -1364,7 +1364,7 @@ def run(
             launcher.confirm_overwrite = _prompt_overwrite
         launcher.settings.post_cleanup = post_cleanup
         launcher.settings.post_cleanup_purge = post_cleanup_purge
-        launcher.settings.scrub_old_runs = scrub
+        launcher.settings.prune_variants = scrub
         launcher.confirm_scrub = _prompt_scrub
         launcher.scrub_done = _print_scrub_result
         resolved, plan = launcher.resolve_run(

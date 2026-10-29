@@ -641,7 +641,7 @@ def questions(monkeypatch) -> list[str]:
 def test_a_declined_replacement_scrubs_nothing(world, questions, tmp_path):
     old = _an_older_variant(world)
     (world.user / "r.rpt").write_text("the user's report\n")
-    runner = _runner(tmp_path, scrub_old_runs=True)
+    runner = _runner(tmp_path, prune_variants=True)
     runner.confirm_overwrite = lambda conflicts: questions.append("replace") or False
 
     with pytest.raises(OutputExistsError, match="r.rpt") as refused:
@@ -664,7 +664,7 @@ def test_the_replacement_is_asked_about_before_the_older_runs_are_removed(
 ):
     old = _an_older_variant(world)
     (world.user / "r.rpt").write_text("the user's report\n")
-    runner = _runner(tmp_path, scrub_old_runs=True)
+    runner = _runner(tmp_path, prune_variants=True)
     runner.confirm_overwrite = lambda conflicts: questions.append("replace") or True
 
     flow = _launch(
@@ -706,7 +706,7 @@ def test_a_file_changed_while_the_scrub_waited_is_asked_about_again(world, tmp_p
     _an_older_variant(world)
     destination = world.user / "r.rpt"
     destination.write_text("the user's report\n")
-    runner = _runner(tmp_path, scrub_old_runs=True)
+    runner = _runner(tmp_path, prune_variants=True)
     shown: list[str] = []
 
     def confirm(conflicts):

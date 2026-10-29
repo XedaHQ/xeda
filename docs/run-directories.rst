@@ -786,7 +786,7 @@ Do not scrub a flow whose runs other launches are starting to use.
 It never reaches the directories of another target.
 
 Only the command line asks for the confirmation. The Python functions ``scrub_design`` and
-``scrub_runs``, and a ``DefaultRunner`` launch with ``scrub_old_runs``, never prompt. They ask the
+``scrub_runs``, and a ``DefaultRunner`` launch with ``prune_variants``, never prompt. They ask the
 callback that you give them (the ``confirm`` argument, or the ``confirm_scrub`` attribute of the
 launcher). The callback gets the listed run directories and returns whether to remove them. Without
 a callback, nothing is removed, and Xeda logs a warning that names the run directories. This holds

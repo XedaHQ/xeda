@@ -144,7 +144,7 @@ def test_an_exploration_has_one_default_run_root(start):
 
 #: `xeda run` options configuring the launcher under another name than a setting of theirs
 LAUNCHER_NAME_EXCEPTIONS = {
-    "--scrub": {"scrub_old_runs"},
+    "--scrub": {"prune_variants"},
     "--cwd": {"run_path", "dump_settings_json"},
 }
 #: options with which `xeda run` launches nothing locally, and `--design-name`, which cannot be

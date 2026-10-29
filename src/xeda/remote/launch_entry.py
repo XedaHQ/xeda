@@ -336,7 +336,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             rebuild_all=request.rebuild_all,
             hashed_run_dirs=request.hashed_run_dirs,
             clean=request.clean,
-            scrub_old_runs=request.scrub,
+            prune_variants=request.scrub,
             display_results=False,
             debug=debug,
         )

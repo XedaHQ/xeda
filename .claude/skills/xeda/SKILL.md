@@ -34,7 +34,7 @@ width, so parse JSON.
 `xeda scrub` and `run --scrub` prompt on stdin and remove nothing unless you type `yes`:
 `echo yes | xeda scrub vivado_synth sqrt --json`. `scrub --json` reports `scrubbed`, `kept`, `gone`
 and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
-`scrub_old_runs` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
+`prune_variants` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
