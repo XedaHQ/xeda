@@ -990,15 +990,16 @@ def _open_run(
     generated: dict[str, Path] = {}
     missing: list[str] = []
     for key, (_kind, directory, source) in places.items():
-        file = None if directory is None else directory / source.path
+        if directory is None:
+            missing.append(key)
+            continue
         try:
             if (
-                file is not None
-                and name_in(directory, source.path) is not None  # type: ignore[arg-type]
+                name_in(directory, source.path) is not None
                 and source.digest
-                and content_digest(file) == source.digest
+                and content_digest(directory / source.path) == source.digest
             ):
-                generated[key] = file
+                generated[key] = directory / source.path
                 continue
         except (OSError, ValueError):
             pass
