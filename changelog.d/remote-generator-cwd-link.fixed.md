@@ -1,2 +1,2 @@
-- `--remote` runs a generator whose `cwd` is a link in the directory the link leads to, as a local
-  run does, and refuses a `cwd` that a link leads outside the design root.
+- `--remote` refuses a generator `cwd` that goes through a link, instead of running the generator
+  in a directory that holds none of its files on the host: give the directory itself.
