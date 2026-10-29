@@ -41,6 +41,7 @@ from xeda.records import (
 )
 from xeda.dataclass import Field
 
+from .conftest import PYTEST_OWN_VARIABLES
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .io_flows import _Join, _Maker, _Reader, _Taker
@@ -237,8 +238,10 @@ def test_a_passed_run_writes_schema_1(tmp_path, design):
     for name in ("started", "finished"):
         assert datetime.fromisoformat(document[name]).utcoffset() == timezone.utc.utcoffset(None)
     assert document["runtime"] >= 0
-    # the names of the inherited variables, sorted, never a value
-    assert document["inherited_variables"] == sorted(os.environ.keys() - SESSION_VARIABLES)
+    # the names of the inherited variables, sorted, never a value; the tests' snapshots leave
+    # out what pytest sets per phase
+    inherited = os.environ.keys() - SESSION_VARIABLES - set(PYTEST_OWN_VARIABLES)
+    assert document["inherited_variables"] == sorted(inherited)
     assert document["dependencies"] == []
     assert document["artifacts"] == {} and document["outputs"] == {} and document["inputs"] == []
 
