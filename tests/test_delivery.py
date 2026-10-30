@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import stat
+import time
 from dataclasses import replace
 from pathlib import Path, PurePath
 from types import SimpleNamespace
@@ -32,7 +33,7 @@ from xeda.deliver import (
 )
 from xeda.digest import RACY_NS
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner import DefaultRunner, trace
 from xeda.local_settings import LocalSettings
 from xeda.run_root import ensure_run_root
 from xeda.utils import PATH_VARIABLES
@@ -296,7 +297,19 @@ def test_the_delivery_record_lies_beside_the_run_directory_and_survives_clean(wo
 
 
 @pytest.fixture
-def hashed(monkeypatch):
+def one_attempt(monkeypatch):
+    """The freshness check of a reused node never asks for a refresh of its trace.
+
+    A node that the launch holds shared is never written. When its trace has settled since it was
+    recorded (`trace.Freshness.would_refresh`: the wall clock is more than `RACY_NS` past the
+    files), the launch starts again with the node exclusive, and its deliveries are checked
+    twice again. A slow machine does that by itself between two launches. A test that counts the
+    reads of a destination needs one attempt, so the wall clock of that check stands still."""
+    monkeypatch.setattr(trace, "wall_clock_ns", lambda: 0)
+
+
+@pytest.fixture
+def hashed(monkeypatch, one_attempt):
     """Every file whose content was read to digest it, in order: delivery's own reads and those
     of the records it takes (`digest.record_file`), both patched -- `deliver` imported the name,
     so patching one module catches only half the calls."""
@@ -387,6 +400,25 @@ def test_an_unchanged_delivery_reads_the_destination_once_not_at_every_launch(
     assert destination.read_text() == "net\n"
 
 
+def test_a_slow_machine_does_not_add_a_second_read_of_the_destination(
+    world, hashed, later_clock, monkeypatch
+):
+    """A launch that comes more than the racy window after the run of its node would start again
+    (`one_attempt`), and read the destination in each attempt. The reads of a launch are counted
+    for one attempt, however late the launch is."""
+    destination = world.user / "net.v"
+    _launch(world, netlist="$PWD/net.v")
+    real = time.time_ns
+    monkeypatch.setattr(time, "time_ns", lambda: real() + 100 * RACY_NS)
+    hashed.clear()
+    runner = DefaultRunner(world.root, display_results=False)
+    assert [d.state for d in _launch(world, runner, netlist="$PWD/net.v").deliveries] == [
+        "unchanged"
+    ]
+    assert runner._restarts == 0
+    assert _reads(hashed, destination) == 1, "read once, to anchor its record"
+
+
 def test_an_unchanged_delivery_of_a_producer_reads_the_destination_once_a_launch(
     world, hashed, later_clock, monkeypatch
 ):
@@ -415,7 +447,9 @@ def test_an_unchanged_delivery_of_a_producer_reads_the_destination_once_a_launch
         assert _reads(hashed, destination) == 0 and markers == [], "its metadata vouches for it"
 
 
-def test_the_anchor_is_the_clock_of_the_destination_read_before_its_content(world, monkeypatch):
+def test_the_anchor_is_the_clock_of_the_destination_read_before_its_content(
+    world, monkeypatch, one_attempt
+):
     """What anchors a record is a time the destination's own file system reported, read just
     before that content was, and nothing else. Arithmetic on the record already held -- its own
     change time plus the racy window -- would make every record look settled the moment it was
