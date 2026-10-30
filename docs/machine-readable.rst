@@ -811,10 +811,14 @@ outcome ``failed``, an ``error`` with the keys of the ``error`` of a run documen
 ``message``, ``node``, ``exit_status`` and ``log``), ``null`` for ``run_root`` when scrub did not get
 to use one, and empty lists. The exit status is 1. The ``error.code`` is ``invalid_run_root`` for a
 design or target name that is not a name, for a run directory that scrub refuses to remove (one that
-is no longer a directory, for example) and for a run root that scrub cannot use. A usage error (a
-missing argument or a removed option) writes ``{"success": false, "error": {"type": ..., "message":
-...}}`` and exits with status 2, as it does for every command but ``run``. In Python,
-``Workspace.scrub`` does the same removal and returns the five lists.
+is no longer a directory, for example) and for a run root that scrub cannot use.
+
+A usage error (a missing argument, an unknown flow or a removed option) is a failure before scrub
+scanned anything. The document has the same keys, ``"outcome": null``, an ``error`` with the code
+``usage_error`` (or ``flow_not_found`` for a flow that does not exist), empty lists, and the exit
+status 2. ``flow``, ``design``, ``target`` and ``run_root`` hold what the command line gave, as
+text, and are ``null`` when it gave nothing. In Python, ``Workspace.scrub`` does the same removal
+and returns the five lists.
 
 Exit status
 ===========
@@ -825,7 +829,7 @@ when the ``outcome`` is ``passed`` and with 1 for every other outcome (``rejecte
 setting, design, project or chain, a mistake in the command line, and a remote host that Xeda cannot
 reach or set up. ``xeda dse`` fails when the
 exploration found no successful run. A failed exploration and a failed ``scrub`` exit with status 1.
-A usage error of any other command exits with status 2.
+A usage error of any other command, ``scrub`` included, exits with status 2.
 
 Planning a run
 ==============

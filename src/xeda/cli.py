@@ -48,6 +48,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         print_results,
         print_run_tables,
         resolve_format,
+        scrub_document,
     )
     from .console import console
     from .design import Design, DesignFileParseError, target_name_problem
@@ -1713,20 +1714,15 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
         """Print the document of the command: what the scrub did, or the error that ended it."""
         if json_flag:
             emit_structured(
-                {
-                    "schema_version": 1,
-                    "outcome": (Outcome.PASSED if error is None else Outcome.FAILED).value,
-                    "error": None if error is None else request_error_info(error).as_json_value(),
-                    "flow": flow,
-                    "design": design_name,
-                    "target": target,
-                    "run_root": None if workspace is None else str(workspace.run_root),
-                    "scanned": [str(d) for d in result.scanned] if result else [],
-                    "removed": [str(d) for d in result.removed] if result else [],
-                    "kept": [str(d) for d in result.kept] if result else [],
-                    "gone": [str(d) for d in result.gone] if result else [],
-                    "skipped": [str(d) for d in result.skipped] if result else [],
-                },
+                scrub_document(
+                    outcome=Outcome.PASSED if error is None else Outcome.FAILED,
+                    error=None if error is None else request_error_info(error),
+                    flow=flow,
+                    design=design_name,
+                    target=target,
+                    run_root=None if workspace is None else str(workspace.run_root),
+                    result=result,
+                ),
                 "json",
             )
 

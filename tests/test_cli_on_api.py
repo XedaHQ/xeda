@@ -668,6 +668,39 @@ def test_a_scrub_that_cannot_run_prints_a_failed_document_with_exit_status_1(tmp
     ] * 5
 
 
+@pytest.mark.parametrize(
+    "arguments, given, message",
+    [
+        ([], (None, None, None, None), "Missing argument 'FLOW_NAME'"),
+        ([FLOW], (FLOW, None, None, None), "Missing argument 'DESIGN_NAME'"),
+        ([FLOW, "demo", "--bogus"], (FLOW, "demo", None, None), "No such option '--bogus'"),
+        (["nosuch_flow", "demo"], ("nosuch_flow", "demo", None, None), "nosuch_flow"),
+        (
+            [FLOW, "demo", "--target", "fast", "--run-root", "{root}", "--incremental"],
+            (FLOW, "demo", "fast", "{root}"),
+            "`--incremental` was removed",
+        ),
+    ],
+    ids=["no-arguments", "no-design", "unknown-option", "unknown-flow", "removed-option"],
+)
+def test_a_usage_error_of_scrub_prints_the_scrub_document(tmp_path, arguments, given, message):
+    """The document has the keys of every scrub document. A failure before anything is scanned has
+    no outcome, the fields that the command line gave, empty lists and the exit status 2."""
+    root = tmp_path / "root"
+    arguments = [argument.replace("{root}", str(root)) for argument in arguments]
+    answer = invoke("scrub", *arguments, "--json")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 2 and list(document) == SCRUB_KEYS
+    assert (document["schema_version"], document["outcome"]) == (1, None)
+    assert document["error"]["code"] in ("usage_error", "flow_not_found")
+    assert message in document["error"]["message"]
+    expected = tuple(item and item.replace("{root}", str(root)) for item in given)
+    assert tuple(document[key] for key in ("flow", "design", "target", "run_root")) == expected
+    assert [document[name] for name in ("scanned", "removed", "kept", "gone", "skipped")] == [
+        []
+    ] * 5
+
+
 def test_a_second_interrupt_while_the_launch_runs_names_the_launch(world, monkeypatch):
     from xeda.log_context import tag_launch_id
 

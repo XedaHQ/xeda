@@ -331,6 +331,9 @@ class XedaHelpGroup(ColorizedGroup):
                     fmt,
                 )
                 sys.exit(e.exit_code)
+            if _is_command(e.ctx, "scrub"):
+                argv = list(sys.argv[1:] if args is None else args)
+                self._report_scrub_usage_error(e, fmt, argv[argv.index("scrub") + 1 :])
             self._report_click_error(e, fmt)
         except click.ClickException as e:
             self._report_click_error(e, fmt)
@@ -339,6 +342,38 @@ class XedaHelpGroup(ColorizedGroup):
                 {"success": False, "error": {"type": "Abort", "message": "Aborted."}}, fmt
             )
             sys.exit(1)
+
+    @staticmethod
+    def _report_scrub_usage_error(e: click.UsageError, fmt: str, arguments: List[str]) -> NoReturn:
+        """Write the scrub document of a scrub that did not start. It has what the command line
+        gave (`arguments`, those after `scrub`) and no outcome, as the document of a launch that
+        did not start has no outcome."""
+        ctx = e.ctx
+        assert ctx is not None
+        # The arguments are read again without any conversion, since a conversion (the flow
+        # name) or a check of an option may be what failed.
+        ctx.ignore_unknown_options = True
+        try:
+            given, _, _ = ctx.command.make_parser(ctx).parse_args(args=arguments)
+        except click.UsageError:
+            given = {}
+
+        def text(name: str) -> Optional[str]:
+            value = given.get(name)
+            return value if isinstance(value, str) else None  # not given: None or click's sentinel
+
+        emit_structured(
+            scrub_document(
+                outcome=None,
+                error=_usage_error_info(e),
+                flow=text("flow"),
+                design=text("design_name"),
+                target=text("target"),
+                run_root=text("run_root"),
+            ),
+            fmt,
+        )
+        sys.exit(e.exit_code)
 
     @staticmethod
     def _report_click_error(e: click.ClickException, fmt: str) -> NoReturn:
@@ -384,10 +419,47 @@ def _usage_error_info(error: click.UsageError) -> Any:
     )
 
 
+def _is_command(ctx: Optional[click.Context], name: str) -> bool:
+    """Return whether `ctx` is the context of the command `name` of `xeda`."""
+    return ctx is not None and ctx.parent is not None and ctx.command.name == name
+
+
 def _is_run_command(ctx: Optional[click.Context]) -> bool:
     """Return whether `ctx` is the context of `xeda run`, the command whose `--json` document is
     the document of a launch."""
-    return ctx is not None and ctx.parent is not None and ctx.command.name == "run"
+    return _is_command(ctx, "run")
+
+
+def scrub_document(
+    *,
+    outcome: Any,
+    error: Any,
+    flow: Optional[str],
+    design: Optional[str],
+    target: Optional[str],
+    run_root: Optional[str],
+    result: Any = None,
+) -> Dict[str, Any]:
+    """Return the document that `xeda scrub --json` prints (schema 1).
+
+    `outcome` is an `Outcome`, or `None` when the command line was refused before anything was
+    scanned. `error` is an `ErrorInfo` or `None`. `flow`, `design`, `target` and `run_root` are
+    what the command line gave, `None` for what it did not give. `result` is the `ScrubResult`; the
+    lists are empty without it."""
+
+    def paths(name: str) -> List[str]:
+        return [str(path) for path in getattr(result, name)] if result else []
+
+    return {
+        "schema_version": 1,
+        "outcome": None if outcome is None else outcome.value,
+        "error": None if error is None else error.as_json_value(),
+        "flow": flow,
+        "design": design,
+        "target": target,
+        "run_root": run_root,
+        **{name: paths(name) for name in ("scanned", "removed", "kept", "gone", "skipped")},
+    }
 
 
 def info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Table:

@@ -1,3 +1,3 @@
 - `xeda scrub --json` prints `schema_version`, `outcome` and `error`, as `xeda run` does, and
   `removed` replaces `scrubbed`. A failed scrub has the outcome `failed` and an `error` with a
-  `code`.
+  `code`. A usage error has the outcome `null` and exits with status 2.
