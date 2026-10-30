@@ -1171,22 +1171,31 @@ def run(
             settings=_request_table(flow_settings),
         )
 
-    def canceled_before_start() -> NoReturn:
-        """Report a Ctrl-C that came while the command loaded the design or planned, before the
-        launch started. With `--json`, the document has no outcome, since no launch started, and
-        the error `canceled`; the exit status is 1. Without `--json`, the interrupt propagates.
-        Call it while the `KeyboardInterrupt` is handled."""
+    def canceled_before_start(launch_id: Optional[str] = None) -> NoReturn:
+        """Report a Ctrl-C that ended the command without a result: while it loaded the design or
+        planned, before the launch started, or (with a `launch_id`) as a second Ctrl-C while the
+        launch ran. With `--json`, the document has no outcome and the error `canceled`; the exit
+        status is 1. Without `--json`, the interrupt propagates. Call it while the
+        `KeyboardInterrupt` is handled."""
         if not json_flag:
             raise  # pylint: disable=misplaced-bare-raise
         canceled = ErrorInfo(
-            CANCELED, "Ctrl-C canceled the command before the launch started.", None, None, None
+            CANCELED,
+            (
+                "Ctrl-C canceled the command before the launch started."
+                if launch_id is None
+                else "A second Ctrl-C ended the command while the launch was running."
+            ),
+            None,
+            None,
+            None,
         )
         log.critical("%s", canceled.message)
         emit_structured(
             run_document(
                 outcome=None,
                 error=canceled,
-                launch_id=None,
+                launch_id=launch_id,
                 spec=request_spec(),
                 roots=(),
                 nodes=(),
@@ -1308,8 +1317,8 @@ def run(
     try:
         with _cancel_on_interrupt(token):
             result = workspace.run(spec, **options, cancel=token)
-    except KeyboardInterrupt:
-        canceled_before_start()
+    except KeyboardInterrupt as interrupt:
+        canceled_before_start(launch_id_of(interrupt))
     except Exception as e:
         not_started(e, spec)
     if remote:

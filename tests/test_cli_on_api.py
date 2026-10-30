@@ -647,3 +647,19 @@ def test_a_scrub_that_cannot_run_prints_a_failed_document_with_exit_status_1(tmp
     assert [document[name] for name in ("scanned", "removed", "kept", "gone", "skipped")] == [
         []
     ] * 5
+
+
+def test_a_second_interrupt_while_the_launch_runs_names_the_launch(world, monkeypatch):
+    from xeda.log_context import tag_launch_id
+
+    def interrupted(self, what, /, **options):
+        interrupt = KeyboardInterrupt()
+        tag_launch_id(interrupt, "abc123")
+        raise interrupt
+
+    monkeypatch.setattr(Workspace, "run", interrupted)
+    answer = invoke("run", FLOW, world["design"], "--json")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 1 and document["outcome"] is None
+    assert document["launch_id"] == "abc123" and document["error"]["code"] == "canceled"
+    assert "while the launch was running" in document["error"]["message"]
