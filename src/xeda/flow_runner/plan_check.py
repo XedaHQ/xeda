@@ -39,6 +39,16 @@ def _graph_difference(expected: PlanNode, fresh: PlanNode) -> str | None:
     return None
 
 
+def _git_dependencies(plan: Plan) -> dict[int, tuple[str | None, str | None]]:
+    """The `(repository, commit)` of each Git dependency of `plan`, by its index in the entries.
+    Two entries of one repository at different commits have different indexes."""
+    return {
+        index: (entry["repository"], entry["commit"])
+        for index, entry in enumerate(plan._dependencies)
+        if entry["commit"] is not None
+    }
+
+
 def plan_difference(expected: Plan, fresh: Plan) -> str | None:
     """Return the first difference between `expected` and `fresh`, a new planning of its spec."""
     if tuple(expected.nodes) != tuple(fresh.nodes) or expected.roots != fresh.roots:
@@ -62,9 +72,9 @@ def plan_difference(expected: Plan, fresh: Plan) -> str | None:
     for name, node in expected.nodes.items():
         if node.settings != fresh.nodes[name].settings:
             return f"the settings of node {name} changed"
-    resolved = {path: (repository, commit) for path, repository, commit in fresh._dependencies}
-    for path, repository, commit in expected._dependencies:
-        current = resolved.pop(path, None)
+    resolved = _git_dependencies(fresh)
+    for index, (repository, commit) in _git_dependencies(expected).items():
+        current = resolved.pop(index, None)
         if current is None:
             return f"dependency {repository} was removed"
         if current != (repository, commit):

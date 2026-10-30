@@ -85,7 +85,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .run_dir import RunDirectoryError
     from .run_root import RunRootError, ensure_run_root
     from .outcomes import Outcome, run_document, spec_document
-    from .plan import plan_of, spec_document as spec_of
+    from .plan import dependency_entries, plan_of, spec_document as spec_of
     from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
     from .spec import Spec
     from .utils import XedaException, removeprefix, settings_to_dict
@@ -1398,6 +1398,7 @@ def run(
                     remote=None,
                     local_settings=local,
                 ),
+                dependencies=dependency_entries(planned.request.design),
             ).to_dict()
         except KeyboardInterrupt:
             canceled_before_start()

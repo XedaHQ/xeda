@@ -809,8 +809,9 @@ Planning a run
 ==============
 
 ``xeda run <flow> <design> --dry-run --json`` prints the plan and runs nothing. Its document is not
-the run document: it has the keys ``schema_version`` (1), ``spec``, ``roots``, ``options`` and
-``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same document. The next
+the run document: it has the keys ``schema_version`` (1), ``spec``, ``roots``, ``options``,
+``dependencies`` and ``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same
+document. The next
 command is for a design named ``blinky`` whose RTL top is ``blinky``:
 
 .. code-block:: bash
@@ -830,6 +831,7 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
         "rebuild_all": false, "clean": false, "prune_variants": false, "outputs_to": null,
         "overwrite_outputs": false, "post_cleanup": false, "post_cleanup_purge": false
       },
+      "dependencies": [],
       "nodes": [
         {"name": "yosys_fpga", "flow": "yosys_fpga",
          "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "identity": "...",
@@ -862,6 +864,11 @@ table. ``roots`` names the nodes that the spec asks for. ``options`` holds the s
 by name, with the value that the plan was made with: ``rebuild_all``, ``clean``,
 ``prune_variants``, ``outputs_to`` (an absolute path or ``null``), ``overwrite_outputs``,
 ``post_cleanup`` and ``post_cleanup_purge``.
+
+``dependencies`` lists the dependencies of the design as planning resolved them, with the entries of
+``dependencies`` in a run record: ``repository`` (with no user name and no password), ``reference``,
+``commit`` and ``design_file``. A local dependency has only its ``design_file``. A plan that was
+made earlier is stale when a Git dependency now resolves to another commit.
 
 ``nodes`` is ordered with the producers before the consumers and the requested flow last. Each node
 has these keys:

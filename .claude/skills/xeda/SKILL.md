@@ -70,7 +70,8 @@ that failed or was rejected.
 
 `--dry-run --json` prints a document of its own, not the `run` document. Its keys are
 `schema_version`, `spec` (`flow`, `design`, `design_file`, `target`, `settings`), `roots`, `options`
-(the seven launch options by name) and `nodes`. A plan node has `name`, `flow`, `run_dir`,
+(the seven launch options by name), `dependencies` (the entries of `dependencies` in a run record)
+and `nodes`. A plan node has `name`, `flow`, `run_dir`,
 `identity`, `state`, `reason`, `action`, `settings`, `inputs` (`name`, `origin`: `producer`, `source`
 or `none`; `producer`, `output`, `sources`, `reason`), `outputs_enabled`, `input_types`,
 `output_types` and `deliveries` (`key`, `destination`, `replaces`). `state` is `fresh` (reused), `stale`

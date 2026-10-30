@@ -413,7 +413,10 @@ holds the entries of the file, so a script that wants the profile of the file pa
     plan = workspace.plan(spec)  # the host plans; nothing is written in the mirror
     result = workspace.run(spec)  # a Result, as for a local run
 
-``Remote(host)`` with no ``profile`` uses the default profile. ``Workspace.run`` returns a
+``Remote(host)`` with no ``profile`` uses the default profile. ``workspace.run(plan)`` first plans
+the spec on the host again, and compares the new plan with ``plan`` as a local workspace does. If
+they differ (for example, a Git dependency now resolves to another commit), it raises
+``StalePlanError`` and starts no launch. ``Workspace.run`` returns a
 ``Result`` for every launch that was sent to the host. A failure of this side after that is the
 launch-level error ``remote_failed`` or ``remote_fetch_failed``, and a launch that Xeda stopped
 following has the outcome ``detached`` (with ``keep_running=True``). A failure before raises a

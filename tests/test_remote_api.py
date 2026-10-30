@@ -17,7 +17,7 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.design import Design
-from xeda.errors import RemoteError
+from xeda.errors import RemoteError, StalePlanError
 from xeda.events import Event
 from xeda.outcomes import Outcome
 from xeda.plan import Plan, plan_from_dict
@@ -27,6 +27,7 @@ from xeda.spec import Spec
 from xeda.workspace import Workspace
 
 from .remote_fixtures import fake_remote, fake_ssh, host_profile_of, remote_host
+from .test_git_dependencies import git_log, remote
 from .test_remote_client import TIMEOUT, _design
 from .test_remote_keep_running import (
     Connections,
@@ -39,7 +40,7 @@ from .test_remote_keep_running import (
     watch,
 )
 
-FIXTURES = (fake_ssh, fake_remote, remote_host, cleanup, leftovers, watch)
+FIXTURES = (fake_ssh, fake_remote, remote_host, cleanup, leftovers, watch, git_log, remote)
 
 pytestmark = [pytest.mark.python_compat, pytest.mark.skipif(os.name != "posix", reason="POSIX")]
 
@@ -57,6 +58,31 @@ def _remote(**options: Any) -> Remote:
 
 def _workspace(tmp_path: Path, **remote_options: Any) -> Workspace:
     return Workspace(tmp_path / "local" / "xeda_run", remote=_remote(**remote_options))
+
+
+def _with_dependencies(tmp_path: Path, *entries: str) -> Spec:
+    """The spec of `_design` with the dependencies `entries` (a design file or a Git URI)."""
+    design = _design(tmp_path)
+    design.write_text(
+        design.read_text() + "dependencies:\n" + "".join(f"  - {entry}\n" for entry in entries)
+    )
+    return Spec("nextpnr", Design.load(design))
+
+
+def _local_dependency(tmp_path: Path, *sources: str) -> Path:
+    """A design file in a directory of the design, with the Verilog `sources`."""
+    root = tmp_path / "design" / "dep"
+    root.mkdir(exist_ok=True)
+    for source in sources or ("lib.v",):
+        (root / source).write_text(f"module {Path(source).stem}; endmodule\n")
+    file = root / "dep.yaml"
+    file.write_text(f"name: dep\nrtl:\n  sources: [{', '.join(sources or ('lib.v',))}]\n")
+    return file
+
+
+def _host_requests(remote_host) -> list[dict[str, Any]]:
+    """The requests that the host received, in the order of their launches."""
+    return [json.loads((d / "request.json").read_text()) for d in _launch_dirs(remote_host)]
 
 
 def _files(root: Path) -> set[Path]:
@@ -276,6 +302,72 @@ def test_a_plan_with_keep_running_writes_no_record_and_keeps_nothing_running(tmp
     assert _files(tmp_path / "local") == before, "the plan wrote in the local run root"
     (directory,) = _launch_dirs(remote_host)
     assert _launch_state(directory)["keep_running"] is False, "the host would keep the plan running"
+
+
+def test_a_remote_plan_runs_when_nothing_changed(tmp_path, remote_host):
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _local_dependency(tmp_path)
+    plan = workspace.plan(spec)
+    result = workspace.run(plan)
+    assert result.outcome is Outcome.PASSED and result.spec is spec
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True, False]
+
+
+def test_a_remote_plan_that_the_host_would_plan_differently_is_stale(tmp_path, remote_host):
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _local_dependency(tmp_path)
+    plan = workspace.plan(spec)
+    _local_dependency(tmp_path, "lib.v", "more.v")
+    events: list[Event] = []
+    with pytest.raises(StalePlanError) as raised:
+        workspace.run(plan, on_event=events.append)
+    assert raised.value.code == "stale_plan"
+    assert raised.value.difference == "the identity of node yosys_fpga changed"
+    assert events == []
+    assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True]
+    assert _files(remote_host.workspace() / "xeda_run") == set(), "the host ran nothing"
+
+
+def test_a_refusal_now_is_a_difference_and_an_unreachable_host_is_not(
+    tmp_path, remote_host, monkeypatch
+):
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    dependency = _local_dependency(tmp_path)
+    plan = workspace.plan(spec)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
+    with pytest.raises(RemoteError) as unreachable:
+        workspace.run(plan)
+    assert unreachable.value.code == "remote_unreachable"
+    monkeypatch.delenv("XEDA_FAKE_TOOL_FAIL")
+    dependency.unlink()
+    with pytest.raises(StalePlanError) as raised:
+        workspace.run(plan)
+    assert raised.value.difference.startswith("planning is refused now: ")
+    assert raised.value.__cause__ is not None
+
+
+def test_a_dependency_that_moved_makes_a_remote_plan_stale(tmp_path, remote_host, remote):
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, f"git+{remote.url}?branch=main#dep.yaml")
+    plan = workspace.plan(spec)
+    (entry,) = plan.to_dict()["dependencies"]
+    assert (entry["repository"], entry["reference"], entry["commit"]) == (
+        remote.url,
+        "main",
+        remote.first,
+    )
+    restored = plan_from_dict(plan.to_dict(), spec=spec, workspace=workspace._options())
+    assert workspace.run(restored).passed  # the commit is the same: no difference
+    moved = remote.advance()
+    for stale in (plan, restored):
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(stale)
+        assert raised.value.code == "stale_plan"
+    assert workspace.plan(spec).to_dict()["dependencies"][0]["commit"] == moved
 
 
 @pytest.mark.parametrize("option", ["prune_variants", "post_cleanup", "post_cleanup_purge"])

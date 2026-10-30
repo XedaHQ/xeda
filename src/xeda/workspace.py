@@ -22,7 +22,7 @@ from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.plan_check import workspace_difference
 from .local_settings import LocalSettings
-from .plan import Plan, dependency_commits, plan_of
+from .plan import Plan, dependency_entries, plan_of
 from .remote_value import Remote
 from .records import RecordProblem, RunListing, RunRecord, read_record, read_stored_record
 from .run_root import DEFAULT_RUN_ROOT, ensure_run_root
@@ -217,7 +217,7 @@ class Workspace:
             spec=spec,
             options=options,
             workspace=self._options(),
-            dependencies=dependency_commits(planned.request.design),
+            dependencies=dependency_entries(planned.request.design),
         )
 
     def _runner(self, runner_class: Any) -> Any:
@@ -251,7 +251,9 @@ class Workspace:
         under them. It raises `StalePlanError` when the graph, an identity, a run directory, a
         delivery, the settings, the commit of a Git dependency or an option of this workspace
         differs from the plan. A stale plan prunes nothing, asks nothing, generates nothing and
-        runs nothing. A source edit is no difference: the launch checks freshness again.
+        runs nothing. A source edit is no difference: the launch checks freshness again. With a
+        `remote`, the host plans the spec again before the launch, and the same rule compares the
+        two plans.
 
         A node that fails, is rejected or is blocked is an outcome in the `Result`, not an
         exception. `prune_variants` removes the other run directories of every node of the plan,
@@ -310,7 +312,7 @@ class Workspace:
             options = LaunchOptions(**named)
         self._refuse_project_run_root(spec)
         if self.remote is not None:
-            return self._run_remote(spec, options, cancel, on_event)
+            return self._run_remote(spec, options, expected, cancel, on_event)
         runner = self._runner(DefaultRunner)
         if self.confirm is not None:
             answer = self.confirm
@@ -348,14 +350,16 @@ class Workspace:
         self,
         spec: Spec,
         options: LaunchOptions,
+        expected: Plan | None,
         cancel: CancelToken | None,
         on_event: Callable[[Event], None] | None,
     ) -> Result:
-        """Run `spec` on the remote host. A plan has no effect here: the host checks the
-        identities of its own plan, so a stale plan is no error."""
-        from .flow_runner.error_codes import public_error
+        """Run `spec` on the remote host. With the plan `expected`, the host plans `spec` again
+        first, and a difference raises `StalePlanError` before any launch starts."""
+        from .flow_runner.error_codes import plain_message, public_error
+        from .flow_runner.plan_check import plan_difference
         from .proc_utils import TOOL_OUTPUT
-        from .remote.client import run_remote
+        from .remote.client import plan_remote, run_remote
 
         from_callback: list[Exception] = []
 
@@ -369,6 +373,26 @@ class Workspace:
 
         token = TOOL_OUTPUT.set(self.tool_output)
         try:
+            if expected is not None:
+                cause: Exception | None = None
+                difference: str | None
+                try:
+                    fresh = plan_remote(spec, workspace=self._options(), options=options)
+                except Exception as error:
+                    # A request that the host refuses now is a difference. Any other failure (a
+                    # host that cannot be reached) is no statement about the plan.
+                    if not isinstance(public_error(error), SpecError):
+                        raise
+                    difference = f"planning is refused now: {plain_message(error)}"
+                    cause = error
+                else:
+                    difference = plan_difference(expected, fresh)
+                if difference is not None:
+                    raise StalePlanError(
+                        f"The plan is stale: {difference}. Plan again.",
+                        code="stale_plan",
+                        difference=difference,
+                    ) from cause
             return run_remote(
                 spec,
                 workspace=self._options(),

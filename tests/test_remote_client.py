@@ -532,6 +532,7 @@ def test_dry_run_through_the_command_line(tmp_path, remote_host):
         "spec",
         "roots",
         "options",
+        "dependencies",
         "nodes",
     }
 
