@@ -807,6 +807,15 @@ def test_a_design_level_scrub_removes_the_generation_storages_a_flow_scrub_keeps
     assert scrubbing.scrub(design_name="generated").removed == []
 
 
+def test_a_target_scrub_keeps_the_generation_storages_that_every_target_reads(tmp_path):
+    world, _workspace, record = generated_world(tmp_path)
+    (storage,) = world.storages()
+    scrubbing = Workspace(world.run_root, confirm=lambda _question: True)
+    result = scrubbing.scrub(design_name="generated", target="a")
+    assert storage.is_dir() and record.run_dir.is_dir()
+    assert storage not in result.removed and storage.parent not in result.scanned
+
+
 def test_a_design_level_scrub_refuses_a_link_where_the_storages_lie(tmp_path):
     world, _workspace, record = generated_world(tmp_path)
     base = world.run_root / ".generated" / "generated"

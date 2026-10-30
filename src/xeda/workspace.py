@@ -404,9 +404,10 @@ class Workspace:
     ) -> "ScrubResult":
         """Remove the run directories of a design, after `confirm` said yes.
 
-        Without `flow`, the run directories of every flow go, and so do the generation storages of
-        the design (`<run root>/.generated/<design>/`). With `flow`, only the run directories of
-        that flow go. `target` selects as in `records`. The disk decides what exists: no design
+        Without `flow`, the run directories of every flow go. Without `flow` and `target`, so do
+        the generation storages of the design (`<run root>/.generated/<design>/`), which every
+        target reads. With `flow`, only the run directories of that flow go. `target` selects as
+        in `records`. The disk decides what exists: no design
         file is read. One question lists every directory. Without `confirm` the question answers
         "no": nothing is removed, the log says so, and the result lists what was scanned. Each
         directory goes under its exclusive lock, which waits for every launch and every open

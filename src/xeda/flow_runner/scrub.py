@@ -530,9 +530,10 @@ def scrub_design(
     the error names it. A link found at a target below the design is not followed: it is logged
     and returned as `skipped`.
 
-    Without `flow_name`, the run directories of every flow are removed, and so are the generation
-    storages of the design (`<run root>/.generated/<design>/<key>`, see `scrub_generations`),
-    under the same confirmation. A link where the storages lie is a `RunDirectoryError` before
+    Without `flow_name`, the run directories of every flow are removed. Without `flow_name`,
+    `target` and `design_only`, so are the generation storages of the design, under the same
+    confirmation: `<run root>/.generated/<design>/<key>` (see `scrub_generations`). Every target
+    of the design reads them. A link where the storages lie is a `RunDirectoryError` before
     anything is removed.
 
     Scrub takes one exclusive lock at a time and waits for it, so a thread that holds a lock of
@@ -557,7 +558,9 @@ def scrub_design(
         targets = _target_parents(design_dir)
         found = [design_dir, *targets.candidates] if design_dir.is_dir() else []
         found_skipped = targets.skipped
-    storages = _generation_storages(design_dir.name, run_root) if flow_name is None else []
+    # a storage is shared by every target of the design, so only a whole-design scrub removes it
+    whole_design = flow_name is None and target is None and not design_only
+    storages = _generation_storages(design_dir.name, run_root) if whole_design else []
     parents = _distinct(found)
     scans = [_run_directories_in(flow_name, parent, (), run_root) for parent in parents]
     skipped = unique([*found_skipped, *(s for scan in scans for s in scan.skipped)])
@@ -567,7 +570,7 @@ def scrub_design(
     done = _remove_confirmed(listed, run_root, confirm, storages)
     base = run_root / GENERATION_DIRECTORY / design_dir.name
     return ScrubResult(
-        [*parents, base] if flow_name is None and base.is_dir() else parents,
+        [*parents, base] if whole_design and base.is_dir() else parents,
         done.removed,
         done.kept,
         done.gone,
