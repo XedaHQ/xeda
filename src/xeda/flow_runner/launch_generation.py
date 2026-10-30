@@ -343,8 +343,9 @@ def _reason(
 def generate_unit(unit: Unit, *, run_root: Path, environ: Mapping[str, str]) -> Generation:
     """Run the generator of `unit` into its storage. The caller holds the exclusive lock of it.
 
-    The generator runs in the storage, or in the directory its recipe names (`cwd`), with
-    `DESIGN_ROOT` and `XEDA_GENERATED` in its environment. The design tree is never written. A
+    The generator runs in the design root, or in the directory below it that its recipe names
+    (`cwd`), with `DESIGN_ROOT` and `XEDA_GENERATED` in its environment. It writes its generated
+    sources under `XEDA_GENERATED`, the storage. Xeda writes nothing into the design tree. A
     failure raises `GenerationError`, and leaves no storage behind. `run_root` exists. The
     result is not judged: a launch judges the storage again."""
     names = declarations(unit.design)
@@ -637,14 +638,14 @@ def _unmatched(
     generations: Generations,
     flow_class: type[Flow],
     settings: Flow.Settings,
-) -> list[tuple[str, Generation | None]]:
+) -> list[tuple[Source, Generation | None]]:
     """The declarations that a node reads, with the generation that should have written each, for
     those that matched no file."""
-    unmatched: list[tuple[str, Generation | None]] = []
+    unmatched: list[tuple[Source, Generation | None]] = []
     for source in reads_generated(design, flow_class, settings):
         generation = generations.of(source)
         if generation is None or not generation.matches.get(str(source.output_name)):
-            unmatched.append((str(source.output_name), generation))
+            unmatched.append((source, generation))
     return unmatched
 
 
@@ -655,7 +656,43 @@ def missing_declarations(
     settings: Flow.Settings,
 ) -> tuple[str, ...]:
     """Return the declarations that a node reads and that matched no file after the generation."""
-    return tuple(name for name, _ in _unmatched(design, generations, flow_class, settings))
+    return tuple(
+        str(source.output_name)
+        for source, _ in _unmatched(design, generations, flow_class, settings)
+    )
+
+
+#: How many files the hint of a missing generated source names.
+HINT_FILES = 3
+
+
+def misplaced_hint(design: Design, owner: str | None, declaration: str) -> str:
+    """Return a sentence for a generated source that matched nothing in the storage, or "".
+
+    The sentence says where a file of that name exists below the working directory of the
+    generator that owns the declaration (`owner` is None for the design's own generator). It
+    states what is there and never says the generator wrote it."""
+    for label, unit in generating_units(design):
+        if label != owner:
+            continue
+        try:
+            generator = generator_of(unit.rtl, root=unit.root)
+        except (ValidationError, ValueError):
+            return ""
+        if generator is None:
+            return ""
+        directory = generator.lookup_directory(unit.root)
+        found = matches_in(directory, declaration) if directory.is_dir() else []
+        if not found:
+            return ""
+        shown = ", ".join(f"`{directory / name}`" for name in found[:HINT_FILES])
+        more = f" and {len(found) - HINT_FILES} more" if len(found) > HINT_FILES else ""
+        return (
+            f"A file of that name exists at {shown}{more}, in the directory the generator "
+            "runs in. Xeda reads generated sources only under `$XEDA_GENERATED`: let the "
+            "generator write them there"
+        )
+    return ""
 
 
 def refuse_missing(
@@ -669,8 +706,13 @@ def refuse_missing(
         return
     unmatched = _unmatched(design, generations, flow_class, settings)
     if unmatched:
-        name, generation = unmatched[0]
-        raise MissingGenerated(name, generation.description if generation else "the generator")
+        source, generation = unmatched[0]
+        name = str(source.output_name)
+        raise MissingGenerated(
+            name,
+            generation.description if generation else "the generator",
+            misplaced_hint(design, source.owner, name),
+        )
 
 
 def located_paths(generations: Generations | None, path: Path) -> list[Path]:

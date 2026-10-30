@@ -252,7 +252,7 @@ summary = {
 
 
 @pytest.mark.parametrize("spelling", GENERATORS)
-def test_a_generator_runs_in_its_storage_whatever_the_working_directory(tmp_path, spelling):
+def test_a_generator_runs_in_the_design_root_whatever_the_working_directory(tmp_path, spelling):
     root = tmp_path / "design"
     generator = GENERATORS[spelling].replace("{python}", sys.executable)
     design_file = _write(
@@ -279,7 +279,7 @@ def test_a_generator_runs_in_its_storage_whatever_the_working_directory(tmp_path
     assert summary["declared"] == ["out/top.v"]
     assert summary["matches"] == {"out/top.v": ["out/top.v"]}
     assert (storage / "out" / "top.v").read_text() == "module top; endmodule\n"
-    assert Path((storage / "ran_in.txt").read_text()).resolve() == storage.resolve()
+    assert Path((storage / "ran_in.txt").read_text()).resolve() == root
     assert not (root / "out").exists() and not (here / "out").exists()
 
 

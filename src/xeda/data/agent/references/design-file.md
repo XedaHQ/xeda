@@ -67,12 +67,18 @@ designs; `d.to_dict()` is the effective design in the shape of a file.
 A generator runs in the launch, never when a design loads, into a storage
 `<run root>/.generated/<design>/<key>/` (with the record `generation.yaml`); the design tree is never
 written. The key hashes the recipe (its `env` too), the design configuration without content, the
-names and digests of the generator's `sources` and its executable. The generator starts in the
-storage (a Chisel generator in the design root; `cwd` below the design root overrides), with
-`DESIGN_ROOT`, `XEDA_GENERATED` and `PWD` (its directory) in its environment; the words after the executable expand both
-(`args: ["$DESIGN_ROOT/gen.py", "$XEDA_GENERATED/out"]`; a relative executable resolves against the
-design root or `cwd`; `cwd` is a directory below the design root, and an absolute one or one that
-leaves it is refused at load). It runs again when its executable, its `sources` (a directory counts as
+names and digests of the generator's `sources` and its executable. Every spelling (shell, list, table,
+`class: chisel`) starts in the design root, or in `cwd` (a directory below the design root; an
+absolute one or one that leaves it is refused at load); a relative executable (`./mill`) and a
+relative `PATH` entry resolve against that same directory. `DESIGN_ROOT`, `XEDA_GENERATED` (the
+storage) and `PWD` (its directory) are in its environment; the words after the executable expand both
+(`args: ["gen.py", "$XEDA_GENERATED/out"]`; `shell: ./mill core.runMain top.Main "$XEDA_GENERATED"`).
+Generated sources must be written under `$XEDA_GENERATED`: generated names are looked up only in
+the storage, and a file written in the working directory is not found. Declare narrow `sources`: a
+tool that writes inside a directory named there changes its own inputs, and the launch gives up
+after a few attempts. A `shell` recipe's key counts `/bin/sh`, so name `./mill` and the build files
+in `sources`. Two variants of a design share the design tree, so a tool's in-tree intermediate files
+(mill `out/`) are not separate per variant. It runs again when its executable, its `sources` (a directory counts as
 every file in it), a generated file or the digest of its inherited environment changes
 (`always_runs`, or no `sources`: every launch; `--rebuild-all` forces it). `generated_sources`
 names the entries of `rtl.sources` it writes when it writes only some (an entry is wholly generated

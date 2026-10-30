@@ -544,7 +544,7 @@ runs nothing and writes nothing.
       sources:
         - top.v
       top: top
-      generator: printf 'module top; endmodule\n' > top.v
+      generator: printf 'module top; endmodule\n' > "$XEDA_GENERATED/top.v"
     flows:
       yosys_fpga:
         fpga:
@@ -558,7 +558,7 @@ runs nothing and writes nothing.
       sources:
         - top.v
       top: top
-      generator: [touch, top.v]
+      generator: [touch, "$XEDA_GENERATED/top.v"]
     flows:
       yosys_fpga:
         fpga:
@@ -579,7 +579,7 @@ a program with its arguments in one text, and ``executable`` is a program that t
         - top.v
       top: top
       generator:
-        shell: printf 'module top; endmodule\n' > top.v
+        shell: printf 'module top; endmodule\n' > "$XEDA_GENERATED/top.v"
         always_runs: true
     flows:
       yosys_fpga:
@@ -597,38 +597,52 @@ A table can also say what the generator reads:
       top: top
       generator:
         executable: python3
-        args: ["$DESIGN_ROOT/soc.py", "--build-dir", "$XEDA_GENERATED/gen"]
+        args: ["soc.py", "--build-dir", "$XEDA_GENERATED/gen"]
         sources: ["soc.py", "../litex/litex", "../migen/migen"]
 
 Where the generator runs and what it writes
 -------------------------------------------
 
-The generator writes into its storage, a directory under the run root:
-``<run root>/.generated/<design>/<key>/``. Xeda writes nothing into the tree of the design. (A
-tool that a Chisel generator starts in the design root, ``mill`` or ``bloop``, writes its own build
-directories there.) The key
-names one configuration (see below), so two variants of a design keep their own generated files
-side by side. Xeda sets three variables in the environment of every generator:
+Every form of generator (``shell``, ``command``, a list, a table, ``class: chisel``) follows one
+rule. The generator starts in the design root, or in ``cwd`` when the recipe has one (a directory
+below the design root; an absolute ``cwd``, or one that leaves the root, is refused when the
+design loads). That same directory resolves a relative executable and a relative entry of
+``PATH``. So ``./mill`` is the ``mill`` script in the design root, in a ``shell`` command line as
+in a list. Set ``cwd`` when a build tool finds its project in another directory.
+
+A generator writes its generated sources into its storage, a directory under the run root:
+``<run root>/.generated/<design>/<key>/``. Xeda looks for generated names only there. A file that
+the generator writes elsewhere, in its working directory for example, is not a generated source.
+Xeda sets three variables in the environment of every generator:
 
 ``DESIGN_ROOT``
     The design root.
 
 ``XEDA_GENERATED``
-    The absolute path of the storage.
+    The absolute path of the storage. Write the generated sources under it.
 
 ``PWD``
     The directory the generator runs in.
 
-The generator starts in the storage, so a relative path that it writes is a path in its output.
-The words after the executable (``args``, or the words of ``command`` after the first one) expand
+Pass ``$XEDA_GENERATED`` to the tool as an argument, or let a shell command line read it. The
+words after the executable (``args``, or the words of ``command`` after the first one) expand
 ``$DESIGN_ROOT`` and ``$XEDA_GENERATED``. No other variable expands, and the executable does not.
-A shell command line (``shell``) reads both variables from its environment. A relative executable,
-and a relative entry of ``PATH``, resolve against the design root, or against ``cwd`` when the
-recipe has one. A generator that must run in another directory, for example because a build tool
-finds its project there, sets ``cwd`` (a directory below the design root; an absolute ``cwd``, or
-one that leaves the root, is refused when the design loads). A Chisel generator starts in the
-design root unless ``cwd`` says otherwise, because ``mill`` and ``bloop`` find their build files in their working directory. Pass
-the storage to it with ``args``:
+A shell command line (``shell``) reads both variables from its environment. For a tool such as
+Mill, name the output directory on the command line:
+
+.. code-block:: yaml
+
+    name: generator_mill
+    rtl:
+      sources:
+        - top.v
+      top: top
+      generator:
+        shell: ./mill core.runMain top.Main "$XEDA_GENERATED"
+        sources: ["mill", "build.mill", "core"]
+
+A Chisel generator takes the storage through ``args``. ``mill`` and ``bloop`` find their build
+files in the working directory, which is the design root:
 
 .. code-block:: yaml
 
@@ -642,6 +656,18 @@ the storage to it with ``args``:
         project: core
         args: ["--target-dir", "$XEDA_GENERATED"]
         sources: ["build.sc", "core"]
+
+Xeda writes nothing into the tree of the design. A tool may write its own build files in its
+working directory (Mill writes ``out/``). Those files are the tool's own, and Xeda does not read
+them. Two variants of one design share the design tree, so a tool's intermediate files in that
+tree are not separate for each variant. The storage is separate: the key names one configuration
+(see below), so two variants keep their own generated files side by side.
+
+Declare narrow ``sources``. A tool that writes inside a directory named in ``sources`` changes
+its own inputs while it runs. Xeda then cannot vouch for the output, and the launch gives up after
+a few attempts. For a ``shell`` recipe, the key counts ``/bin/sh``, not the program in the command
+line. Name that program and the build files in ``sources`` (``mill`` and ``build.mill`` above), or
+a change to them does not run the generator again.
 
 ``env`` is the whole environment of the generator when the recipe has one, and the generator then
 inherits nothing. A recipe may not set ``DESIGN_ROOT``, ``XEDA_GENERATED`` or ``PWD`` in ``env``.
@@ -690,7 +716,7 @@ design tree (to commit it, or to read it in an editor), give the generator ``out
       top: soc
       generator:
         executable: python3
-        args: ["$DESIGN_ROOT/soc.py", "$XEDA_GENERATED"]
+        args: ["soc.py", "$XEDA_GENERATED"]
         sources: [soc.py]
         outputs_to: $DESIGN_ROOT/rtl
 
@@ -785,7 +811,7 @@ never a value. A change of the environment makes Xeda run the generator again in
 storage, because the key does not hold the environment. The digest leaves out the variables of a
 shell session, a terminal and a login (``PWD``, ``OLDPWD``, ``SHLVL``, ``_``, ``COLUMNS``,
 ``LINES``, the session and agent variables of the terminal, ``tmux``, ``screen`` and SSH, and the
-variables of the Xeda command line), and the two variables that Xeda sets. The log says which
+variables of the Xeda command line), and the variables that Xeda sets. The log says which
 variable was added or removed.
 
 Planning
