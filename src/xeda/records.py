@@ -9,17 +9,19 @@ The module imports no flow module when it loads, so a reader needs nothing of th
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
-from .errors import RecordError
+from .errors import RecordError, RunReplacedError
 from .frozen import freeze, thaw
+from .generation import generation_storage
 from .outcomes import Outcome
 
 if TYPE_CHECKING:
@@ -33,7 +35,10 @@ __all__ = [
     "InputSource",
     "InvalidMetric",
     "MetricInfo",
+    "OpenRun",
     "OutputRecord",
+    "RecordProblem",
+    "RunListing",
     "RunRecord",
     "collect_metrics",
     "decode_record",
@@ -41,6 +46,7 @@ __all__ = [
     "name_in",
     "nest_metrics",
     "read_record",
+    "read_stored_record",
     "record_of",
     "stored_outputs",
 ]
@@ -192,13 +198,19 @@ class InputSource:
     """One source file that a run read through a declared input.
 
     `path` is relative to the design root. For a generated source, it is the name in the output of
-    the generator. `dependency` is the index of the dependency in `RunRecord.dependencies`, or
-    `None`."""
+    its producer. `dependency` is the index of the dependency in `RunRecord.dependencies`, or
+    `None`. `producer` tells which producer wrote a generated source: `None` for the generator of
+    the design itself, the name of the design for the generator of a dependency, and the name of
+    the node for a converter. It is `None` for a written source. `generation` is the key of the
+    generation storage that holds a source of a generator, `<run root>/.generated/<design>/<key>`,
+    and `None` for any other source."""
 
     path: str
     generated: bool
     digest: str
     dependency: int | None = None
+    producer: str | None = None
+    generation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -215,7 +227,6 @@ class InputRecord:
     output: str | None
     producer_run_id: str | None
     producer_run_dir: Path | None
-    generation: str | None
     sources: tuple[InputSource, ...]
 
     def __post_init__(self) -> None:
@@ -301,6 +312,127 @@ class RunRecord:
     def to_dict(self) -> dict[str, Any]:
         """Return the `results.json` document of the record (`encode_record`)."""
         return encode_record(self)
+
+    @contextlib.contextmanager
+    def open(self) -> Iterator[OpenRun]:
+        """Hold the files of the run for the length of a `with` block, and give their paths.
+
+        The block holds a shared lease on the run directory, and on each directory that holds a
+        file that the run read and a producer wrote (a generation storage, the run directory of
+        a converter). No launch, clean-up or scrub changes them until the block ends: each waits.
+        Under the leases, `results.json` must still hold this record's `run_id`.
+
+        Raise `RunReplacedError` when another run replaced this one, and `RecordError`
+        (`missing_record`, `corrupt_record`) when its record is gone or unreadable. A generated
+        source that is gone or that holds other bytes than the run read is no error: `OpenRun`
+        names it in `missing_generated`. A thread that holds a lock of Xeda only in a callback of
+        Xeda can open a record whose locks that call holds, and no other (`LeaseHeldError`)."""
+        from .flow_runner.run_lock import LockRequest, acquire_all
+
+        where = self.run_dir / RESULTS_FILE
+        if not os.path.lexists(where):
+            raise RecordError(f"{where} does not exist", code="missing_record", path=where)
+        places = _generated_places(self)
+        leased = {
+            directory: kind
+            for kind, directory, _source in places.values()
+            if directory is not None and directory.is_dir()
+        }
+        # a directory that was not there to lease hands out nothing, even if it is back now
+        places = {
+            key: (kind, directory if directory in leased else None, source)
+            for key, (kind, directory, source) in places.items()
+        }
+        leases = [
+            LockRequest("storage" if kind == "storage" else "run_dir", directory, False)
+            for directory, kind in leased.items()
+        ]
+        with acquire_all(
+            [LockRequest("run_dir", self.run_dir, False), *leases], run_root=self.run_root
+        ):
+            current = read_record(self.run_dir, run_root=self.run_root)
+            if current.run_id != self.run_id:
+                raise RunReplacedError(
+                    f"{where} holds the run {current.run_id}: the run {self.run_id} that this "
+                    "record describes was replaced",
+                    code="run_replaced",
+                    path=where,
+                    expected_run_id=self.run_id,
+                    found_run_id=current.run_id,
+                )
+            yield _open_run(self, places)
+
+
+@dataclass(frozen=True)
+class OpenRun:
+    """The files of a run, while `RunRecord.open()` holds them. It is valid only in its block.
+
+    `outputs` has an entry for each declared output: its absolute files, or `()` for an output
+    that the run did not write. `artifacts` maps each key to an absolute file. `generated_sources`
+    maps the generated sources that the run read to their files, which hold the bytes that the
+    run read. The key is the name of the source in the output of its producer for the generator of
+    the design itself, and `<producer>:<name>` for a converter (its node) or for the generator
+    of a dependency (its design). `missing_generated` holds the keys of the sources that are gone
+    or hold other bytes now, or whose place the record does not name."""
+
+    record: RunRecord
+    run_dir: Path
+    outputs: Mapping[str, tuple[Path, ...]]
+    artifacts: Mapping[str, Path]
+    generated_sources: Mapping[str, Path]
+    missing_generated: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        for name in ("outputs", "artifacts", "generated_sources"):
+            object.__setattr__(self, name, freeze(getattr(self, name)))
+        object.__setattr__(self, "missing_generated", tuple(self.missing_generated))
+
+    def output(self, name: str) -> Path:
+        """Return the one file of the output `name`.
+
+        Raise `KeyError` for a name that is no output, and `RecordError` for an output that the run
+        did not write (`not_written`) and for an output of many files (`several_files`: read
+        `outputs[name]`)."""
+        output = self.record.outputs[name]
+        where = self.run_dir / RESULTS_FILE
+        if output.cardinality == "many":
+            raise RecordError(
+                f"the output `{name}` holds many files: read `outputs[{name!r}]`",
+                code="several_files",
+                path=where,
+            )
+        files = self.outputs[name]
+        if not files:
+            raise RecordError(
+                f"the run did not write the output `{name}`", code="not_written", path=where
+            )
+        return files[0]
+
+
+@dataclass(frozen=True)
+class RecordProblem:
+    """A run directory whose record could not be read: its `results.json` and why.
+
+    `code` is `missing_record`, `corrupt_record` or `unsupported_schema`."""
+
+    path: Path
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class RunListing:
+    """The records of the run directories that a listing found, sorted by run directory, and the
+    run directories whose record could not be read."""
+
+    records: tuple[RunRecord, ...]
+    problems: tuple[RecordProblem, ...]
+
+    def __iter__(self) -> Iterator[RunRecord]:
+        return iter(self.records)
+
+    def __len__(self) -> int:
+        return len(self.records)
 
 
 # --- Metrics -----------------------------------------------------------------------------------
@@ -408,13 +540,14 @@ def _encode_input(item: InputRecord, run_root: Path) -> dict[str, Any]:
             if item.producer_run_dir is None
             else _run_dir_text(item.producer_run_dir, run_root)
         ),
-        "generation": item.generation,
         "sources": [
             {
                 "path": source.path,
                 "generated": source.generated,
                 "digest": source.digest,
                 "dependency": source.dependency,
+                "producer": source.producer,
+                "generation": source.generation,
             }
             for source in item.sources
         ],
@@ -582,6 +715,10 @@ def _decode_input(value: Any, run_root: Path) -> InputRecord:
                     if dependency is None
                     else _integer(dependency, "inputs[].sources[].dependency")
                 ),
+                producer=_optional_text(source.get("producer"), "inputs[].sources[].producer"),
+                generation=_optional_text(
+                    source.get("generation"), "inputs[].sources[].generation"
+                ),
             )
         )
     return InputRecord(
@@ -591,7 +728,6 @@ def _decode_input(value: Any, run_root: Path) -> InputRecord:
         output=_optional_text(item.get("output"), "inputs[].output"),
         producer_run_id=_optional_text(item.get("producer_run_id"), "inputs[].producer_run_id"),
         producer_run_dir=None if where is None else run_root / where,
-        generation=_optional_text(item.get("generation"), "inputs[].generation"),
         sources=tuple(sources),
     )
 
@@ -735,12 +871,9 @@ def decode_record(document: Any, *, run_dir: Path, run_root: Path) -> RunRecord:
         ) from None
 
 
-def read_record(run_dir: Path, *, run_root: Path) -> RunRecord:
-    """Return the record in the `results.json` of the run directory `run_dir`.
-
-    `run_root` is the run root that the directory lies in. Raise `RecordError` with the code
-    `missing_record` if there is no file, `corrupt_record` if it cannot be read as JSON or does not
-    hold a record, and `unsupported_schema` as `decode_record` does."""
+def _read_document(run_dir: Path) -> Any:
+    """Return the JSON value in the `results.json` of `run_dir`. Raise `RecordError` with the code
+    `missing_record` if there is no file, and `corrupt_record` if it is no JSON."""
     where = Path(run_dir) / RESULTS_FILE
     try:
         text = where.read_text(encoding="utf-8")
@@ -751,12 +884,48 @@ def read_record(run_dir: Path, *, run_root: Path) -> RunRecord:
             f"{where} cannot be read: {problem}", code="corrupt_record", path=where
         ) from None
     try:
-        document = json.loads(text, parse_constant=_refuse_constant)
+        return json.loads(text, parse_constant=_refuse_constant)
     except ValueError as problem:
         raise RecordError(
             f"{where} is not JSON: {problem}", code="corrupt_record", path=where
         ) from None
-    return decode_record(document, run_dir=Path(run_dir), run_root=Path(run_root))
+
+
+def read_record(run_dir: Path, *, run_root: Path) -> RunRecord:
+    """Return the record in the `results.json` of the run directory `run_dir`.
+
+    `run_root` is the run root that the directory lies in. Raise `RecordError` with the code
+    `missing_record` if there is no file, `corrupt_record` if it cannot be read as JSON or does not
+    hold a record, and `unsupported_schema` as `decode_record` does."""
+    return decode_record(_read_document(run_dir), run_dir=Path(run_dir), run_root=Path(run_root))
+
+
+def read_stored_record(run_dir: Path | str) -> RunRecord:
+    """Return the record in the `results.json` of the run directory `run_dir`, whose run root is
+    not known.
+
+    A run directory is `<run root>/<design>[/<target>]/<flow>`, and the record names its design and
+    target, so the run root follows from where the file is. The errors are those of `read_record`.
+    A directory that does not lie in that layout holds no record that Xeda can place: it raises
+    `RecordError` with the code `corrupt_record`."""
+    where = Path(os.path.abspath(run_dir))
+    document = _read_document(where)
+    names = []
+    if isinstance(document, Mapping):
+        names = [document.get("design"), *([document["target"]] if document.get("target") else [])]
+    above: Path | None = where.parent
+    for name in reversed(names):
+        above = above.parent if above is not None and above.name == name else None
+    # A document that is no record raises its own error first.
+    record = decode_record(document, run_dir=where, run_root=above or where.parent)
+    if above is None:
+        raise RecordError(
+            f"{where / RESULTS_FILE} is not in a run directory of its design and target "
+            "(`<run root>/<design>[/<target>]/<flow>`): its run root is unknown",
+            code="corrupt_record",
+            path=where / RESULTS_FILE,
+        )
+    return record
 
 
 def _refuse_constant(name: str) -> Any:
@@ -776,6 +945,84 @@ def stored_outputs(record: RunRecord) -> dict[str, list[tuple[Path, str]]]:
         for name, output in record.outputs.items()
         if output.names
     }
+
+
+# --- The files of a stored run ----------------------------------------------------------------
+
+
+def _generated_places(record: RunRecord) -> dict[str, tuple[str, Path | None, InputSource]]:
+    """Return where each generated source that `record` read is, by its key in `OpenRun`.
+
+    The value is the kind of the directory (`storage` or `run_dir`), the directory, and the source.
+    The directory is None when the record does not name it. A converter's source is a file of the
+    run directory of its node, which an input row that the node produced names. The source of a
+    generator is a file of its generation storage, `<run root>/.generated/<design>/<key>`."""
+    from .run_dir import RunDirectoryError
+
+    nodes = {
+        row.producer: row.producer_run_dir
+        for row in record.inputs
+        if row.origin == "producer" and row.producer_run_dir is not None
+    }
+    places: dict[str, tuple[str, Path | None, InputSource]] = {}
+    for row in record.inputs:
+        for source in row.sources:
+            if not source.generated:
+                continue
+            key = source.path if source.producer is None else f"{source.producer}:{source.path}"
+            if key in places:
+                continue
+            # only a generator's source has a storage key: a converter node of the same name as a
+            # dependency's design does not hold that dependency's sources
+            if source.generation is None and source.producer in nodes:
+                places[key] = ("run_dir", nodes[source.producer], source)
+                continue
+            directory = None
+            if source.generation is not None:
+                design = record.design if source.producer is None else source.producer
+                try:
+                    directory = generation_storage(record.run_root, design, source.generation)
+                except RunDirectoryError:
+                    pass
+            places[key] = ("storage", directory, source)
+    return places
+
+
+def _open_run(
+    record: RunRecord, places: Mapping[str, tuple[str, Path | None, InputSource]]
+) -> OpenRun:
+    """Return the `OpenRun` of `record`. The caller holds the leases of every directory in
+    `places`. A generated source is handed out when its file holds the bytes that the run read."""
+    from .digest import content_digest
+
+    generated: dict[str, Path] = {}
+    missing: list[str] = []
+    for key, (_kind, directory, source) in places.items():
+        if directory is None:
+            missing.append(key)
+            continue
+        try:
+            if (
+                name_in(directory, source.path) is not None
+                and source.digest
+                and content_digest(directory / source.path) == source.digest
+            ):
+                generated[key] = directory / source.path
+                continue
+        except (OSError, ValueError):
+            pass
+        missing.append(key)
+    return OpenRun(
+        record=record,
+        run_dir=record.run_dir,
+        outputs={
+            name: tuple(record.run_dir / file for file in output.names)
+            for name, output in record.outputs.items()
+        },
+        artifacts={key: record.run_dir / file for key, file in record.artifacts.items()},
+        generated_sources=generated,
+        missing_generated=tuple(missing),
+    )
 
 
 # --- From a flow that ran ----------------------------------------------------------------------
@@ -917,9 +1164,6 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
     return outputs
 
 
-_NO_OWNER: Any = object()
-
-
 def _design_source(flow: Flow, path: Path) -> Any:
     """Return the source of the design of `flow` that is the file at `path`, or None."""
     for part in ("rtl", "tb"):
@@ -938,6 +1182,15 @@ def _source_digest(flow: Flow, path: Path) -> str:
         return cast(str, source.content_hash) if source is not None else content_digest(path)
     except (OSError, ValueError):
         return ""
+
+
+def _generated_producer(flow: Flow, source: Any) -> str | None:
+    """Return who wrote the generated `source` of the design: None for the design's own generator,
+    else the name of the design whose generator wrote it (its owner)."""
+    if source.owner is None:
+        return None
+    names = {unit.generation_label: unit.name for unit in flow.design.generation_units}
+    return names[source.owner]
 
 
 def _input_source(flow: Flow, path: str) -> InputSource:
@@ -963,7 +1216,42 @@ def _input_source(flow: Flow, path: str) -> InputSource:
         generated=generated,
         digest=_source_digest(flow, Path(path)),
         dependency=dependency,
+        producer=_generated_producer(flow, source) if generated else None,
+        generation=(
+            flow.generation_keys.get(source.owner) if generated and source is not None else None
+        ),
     )
+
+
+def _design_sources(flow: Flow, converted: Any = None) -> tuple[InputSource, ...]:
+    """Return the sources that `flow` read of its design, for the row of its `design` input.
+
+    `converted` is the `BoundProducer` of the converter that filled the input, or None. A source
+    in the output of the converter is named by its place there and by the converter. Every other
+    source is as `_input_source` records it: a source that passed through the converter keeps its
+    own provenance."""
+    from .flow.derived import generated_name
+
+    base = None if converted is None else Path(str(converted.producer_path))
+    made = (
+        {} if base is None else {generated_name(Path(e.path), base): e for e in converted.entries}
+    )
+    sources = []
+    for source in flow.sources_read(rtl="rtl" in flow.design_parts, tb="tb" in flow.design_parts):
+        assert source.file is not None, f"the source {source} names no file"
+        try:
+            name = None if base is None else generated_name(source.file, base)
+        except ValueError:
+            name = None  # not a file of the converter
+        if name in made:
+            sources.append(
+                InputSource(
+                    path=name, generated=True, digest=made[name].sha, producer=converted.producer
+                )
+            )
+        else:
+            sources.append(_input_source(flow, str(source.file)))
+    return tuple(sources)
 
 
 def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
@@ -972,7 +1260,13 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
     An input that producers provide has one row for each producer reference, in binding order,
     so an input of cardinality `many` that is bound to several producers repeats its name. Any
     other input has one row. The resolver gives an input either design sources or producer
-    references, never both, so only a row without a producer holds sources."""
+    references, never both. A row without a producer holds the design sources that it reads.
+    The row of the `design` input holds the sources that the flow read of its design, which a
+    converter may have generated (`_design_sources`). It comes first, and a flow without a
+    `design` input has none."""
+    from .flow.io import declared_inputs
+
+    declarations = declared_inputs(type(flow))
     inputs: list[InputRecord] = []
     for declared in flow.declared_input_records:
         if declared.references:
@@ -994,22 +1288,15 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                             if producer_path is None
                             else run_root / _run_dir_text(Path(producer_path), run_root)
                         ),
-                        generation=None,
-                        sources=(),
+                        sources=(
+                            _design_sources(flow, reference)
+                            if declarations[declared.name].is_design and producer_path is not None
+                            else ()
+                        ),
                     )
                 )
             continue
         sources = tuple(_input_source(flow, path) for path in declared.paths)
-        # the key of the storage that wrote the first generated source that the input reads
-        owner = next(
-            (
-                found.owner
-                for path in declared.paths
-                if (found := _design_source(flow, Path(path))) is not None and found.generated
-            ),
-            _NO_OWNER,
-        )
-        generation = None if owner is _NO_OWNER else flow.generation_keys.get(owner)
         inputs.append(
             InputRecord(
                 name=declared.name,
@@ -1018,10 +1305,14 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
                 output=declared.output,
                 producer_run_id=None,
                 producer_run_dir=None,
-                generation=generation,
                 sources=sources,
             )
         )
+    for name, declaration in declarations.items():
+        if declaration.is_design and all(row.name != name for row in inputs):
+            inputs.insert(
+                0, InputRecord(name, "source", None, None, None, None, _design_sources(flow))
+            )
     return inputs
 
 

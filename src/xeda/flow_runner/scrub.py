@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
-from ..design import target_name_problem
+from ..design import DESIGN_NAME, target_name_problem
 from ..run_dir import (
+    DIR_NAME_HASH_LEN,
     OutputState,
     RunDirectory,
     RunDirectoryError,
@@ -25,6 +27,7 @@ from ..run_dir import (
 )
 from ..cancel import launch_canceled
 from ..generation import GENERATION_DIRECTORY
+from ..types import UNSET, Unset
 from ..utils import Canceled, unique
 from .run_lock import refuse_if_held, run_dir_lock, storage_lock
 
@@ -120,8 +123,22 @@ class _Scan(NamedTuple):
     skipped: list[_Skipped]
 
 
+#: The name of a hashed run directory: the flow, an underscore and the run hash.
+_HASHED_NAME = re.compile(r"^(?P<flow>.+)_[a-z0-9]{%d}\Z" % DIR_NAME_HASH_LEN)
+
+
+def _flow_name_of(directory_name: str) -> str:
+    """Return the flow that a run directory of this name belongs to: the name without its hash."""
+    named = _HASHED_NAME.match(directory_name)
+    return named["flow"] if named else directory_name
+
+
+def _holds_launch_documents(path: Path) -> bool:
+    return any((path / name).exists() for name in LAUNCH_DOCUMENTS)
+
+
 def _run_directories_in(
-    flow_name: str, directory: Path, exclude: Sequence[Path], run_root: Path
+    flow_name: str | None, directory: Path, exclude: Sequence[Path], run_root: Path
 ) -> _Scan:
     """Return the run directories of `flow_name` among the children of `directory`.
 
@@ -134,20 +151,27 @@ def _run_directories_in(
     the unhashed directory, which that glob can never match, is included too. A directory is
     excluded by where it resolves to, never by whether it exists now or has the same inode: the
     scrub of a sibling launch may remove the own directory of a launch while this function
-    lists, and it is still not a candidate."""
+    lists, and it is still not a candidate.
+
+    Without `flow_name`, the run directories of every flow are listed. A child is then a run
+    directory of the flow that its name says if it holds a file that a launch writes
+    (`LAUNCH_DOCUMENTS`): a directory without one may be the directory of a target."""
     if not directory.is_dir():
         return _Scan([], [])
     xr = directory.resolve()
     if not xr.is_relative_to(os.path.realpath(run_root)):
         return _Scan([], [])
     excluded = {Path(os.path.realpath(ex)) for ex in exclude}
-    named = run_directory_name(flow_name)
+    named = None if flow_name is None else run_directory_name(flow_name)
     candidates: list[Path] = []
     skipped: list[_Skipped] = []
     for p in sorted(directory.iterdir()):
-        if named.match(p.name) is None:
+        if named is not None and named.match(p.name) is None:
             continue
-        problem = run_directory_problem(p, flow_name, xr)
+        if named is None and not _holds_launch_documents(p):
+            continue
+        flow = flow_name if flow_name is not None else _flow_name_of(p.name)
+        problem = run_directory_problem(p, flow, xr)
         if problem is None:
             if Path(os.path.realpath(p)) not in excluded:
                 candidates.append(p)
@@ -235,19 +259,20 @@ def _completion_records(path: Path) -> tuple[Optional[OutputState], ...]:
     return tuple(record_output_state(path / name) for name in COMPLETION_DOCUMENTS)
 
 
-def _listed(flow_name: str, paths: Iterable[Path]) -> list[_Listed]:
+def _listed(flow_name: str | None, paths: Iterable[Path]) -> list[_Listed]:
     """Return `paths` as run directories to remove.
 
     There is one for each directory that the paths lead to, under the first of its names, with
     the other names as its `aliases`. A directory and a link to it are one candidate, so the
-    link is removed with the directory and never left leading nowhere."""
+    link is removed with the directory and never left leading nowhere. Without `flow_name`, the
+    flow of each directory is the one that its name says."""
     names: dict[str, list[Path]] = {}
     for p in paths:
         names.setdefault(os.path.realpath(p), []).append(p)
     return [
         _Listed(
             first,
-            flow_name,
+            flow_name or _flow_name_of(first.name),
             Path(os.path.realpath(first.parent)),
             _completion_records(first),
             tuple(others),
@@ -330,6 +355,7 @@ def _remove_confirmed(
     candidates: Sequence[_Listed],
     run_root: Path,
     confirm: Optional[ScrubConfirmation] = None,
+    storages: Sequence[Path] = (),
 ) -> _Removal:
     """List `candidates`, ask `confirm` once, and remove them if it says yes.
 
@@ -363,23 +389,32 @@ def _remove_confirmed(
 
     A launch that scrubs (`--scrub`, `prune_variants`) stops when it is canceled
     (`cancel.launch_canceled`): the wait for a lock ends, and no directory is removed after the
-    request. The directories removed before stay removed."""
-    if not candidates:
+    request. The directories removed before stay removed.
+
+    `storages` are generation storages (`scrub_generations`) that the same confirmation covers.
+    They are removed after the run directories, each under its exclusive lock, and they are
+    reported in `removed`, or in `gone` if another scrub removed them first."""
+    if not candidates and not storages:
         return _Removal([], [], [])
     if confirm is None:
         log.warning(
-            "Not removing %d run director%s (%s): nothing confirmed the removal, and only the "
+            "Not removing %d run director%s%s (%s): nothing confirmed the removal, and only the "
             "command line asks the user.",
             len(candidates),
             "y" if len(candidates) == 1 else "ies",
-            ", ".join(str(c.path) for c in candidates),
+            f" and {len(storages)} generation storage(s)" if storages else "",
+            ", ".join([*(str(c.path) for c in candidates), *map(str, storages)]),
         )
         return _Removal([], [], [])
-    if not confirm([ScrubCandidate(c.path, tuple(c.aliases)) for c in candidates]):
+    shown = [ScrubCandidate(c.path, tuple(c.aliases)) for c in candidates]
+    if not confirm([*shown, *(ScrubCandidate(storage, ()) for storage in storages)]):
         return _Removal([], [], [])
     log.warning(
         "Removing the following directories: %s",
-        " ".join(str(name) for c in candidates for name in (c.path, *c.aliases)),
+        " ".join(
+            str(name)
+            for name in (*(n for c in candidates for n in (c.path, *c.aliases)), *storages)
+        ),
     )
     done = _Removal([], [], [])
     for c in candidates:
@@ -407,6 +442,10 @@ def _remove_confirmed(
             # refuses. Then the directory whose lock is held, never what a link leads to by now.
             RunDirectory.claimed(locked, run_root).delete(p, *c.aliases)
         done.removed.append(p)
+    if storages:
+        removed, gone = _remove_storages(storages, run_root)
+        done.removed.extend(removed)
+        done.gone.extend(gone)
     return done
 
 
@@ -467,11 +506,12 @@ def scrub_runs(
 
 
 def scrub_design(
-    flow_name: str,
+    flow_name: str | None,
     design_dir: Path,
     *,
     run_root: Path,
     target: str | None = None,
+    design_only: bool = False,
     confirm: Optional[ScrubConfirmation] = None,
 ) -> ScrubResult:
     """Find the run directories of `flow_name` of a design under `run_root`, and remove them.
@@ -480,7 +520,8 @@ def scrub_design(
     comes from `confirm` (`ScrubConfirmation`); without it, nothing is removed.
     Without `target`, the run directories are those directly in `design_dir` (the ones made
     without a target) and in the directory of every target below it. With `target`, they
-    are only those in `<design_dir>/<target>`. What is on disk decides (`_target_parents`). No
+    are only those in `<design_dir>/<target>`. With `design_only`, they are only those directly
+    in `design_dir`. What is on disk decides (`_target_parents`). No
     design file is read, so a target that the design no longer names is found, and one that was
     never built is nothing to do. A link named like a run directory that is none
     (`run_directory_problem`) is not listed: it is logged, and returned as `skipped` with its
@@ -489,32 +530,47 @@ def scrub_design(
     the error names it. A link found at a target below the design is not followed: it is logged
     and returned as `skipped`.
 
+    Without `flow_name`, the run directories of every flow are removed. Without `flow_name`,
+    `target` and `design_only`, so are the generation storages of the design, under the same
+    confirmation: `<run root>/.generated/<design>/<key>` (see `scrub_generations`). Every target
+    of the design reads them. A link where the storages lie is a `RunDirectoryError` before
+    anything is removed.
+
     Scrub takes one exclusive lock at a time and waits for it, so a thread that holds a lock of
     Xeda is refused (`LeaseHeldError`)."""
     refuse_if_held()
     root = run_root.resolve()
     design_dir = _rooted_path(design_dir, run_root, root)
     run_root = root
+    found_skipped: list[_Skipped] = []
     if target is not None:
         problem = target_name_problem(target)
         if problem is not None:
             raise RunDirectoryError(problem)
         refuse_link_on_way(design_dir / target, run_root)
         parent = design_dir / target
-        found, found_skipped = ([parent] if parent.is_dir() else []), []
+        found = [parent] if parent.is_dir() else []
+    elif design_only:
+        refuse_link_on_way(design_dir, run_root)
+        found = [design_dir] if design_dir.is_dir() else []
     else:
         refuse_link_on_way(design_dir, run_root)
         targets = _target_parents(design_dir)
         found = [design_dir, *targets.candidates] if design_dir.is_dir() else []
         found_skipped = targets.skipped
+    # a storage is shared by every target of the design, so only a whole-design scrub removes it
+    whole_design = flow_name is None and target is None and not design_only
+    storages = _generation_storages(design_dir.name, run_root) if whole_design else []
     parents = _distinct(found)
     scans = [_run_directories_in(flow_name, parent, (), run_root) for parent in parents]
     skipped = unique([*found_skipped, *(s for scan in scans for s in scan.skipped)])
     candidates = [p for scan in scans for p in scan.candidates]
     _log_skipped(skipped)
-    done = _remove_confirmed(_listed(flow_name, candidates), run_root, confirm)
+    listed = _listed(flow_name, candidates)
+    done = _remove_confirmed(listed, run_root, confirm, storages)
+    base = run_root / GENERATION_DIRECTORY / design_dir.name
     return ScrubResult(
-        parents,
+        [*parents, base] if whole_design and base.is_dir() else parents,
         done.removed,
         done.kept,
         done.gone,
@@ -523,42 +579,25 @@ def scrub_design(
     )
 
 
-def scrub_generations(
-    design_name: str,
-    *,
-    run_root: Path,
-    confirm: Optional[ScrubConfirmation] = None,
-) -> ScrubResult:
-    """Find the generation storages of a design under `run_root`, and remove them.
+def _generation_storages(design_name: str, run_root: Path) -> list[Path]:
+    """Return the generation storages of a design under `run_root`, sorted.
 
-    A storage (`<run root>/.generated/<design>/<key>`) holds the output of the generator of the
-    design for one configuration. One confirmation covers all of them; without `confirm`, nothing
-    is removed, because the library never asks. Each storage is removed under its exclusive lock,
-    which a launch holds in the shared mode for as long as it reads the storage. So scrub waits
-    for every launch that reads a storage before it removes that storage. A storage that is gone
-    when its turn comes is reported as `gone`. A thread that holds a lock of Xeda is refused
-    (`LeaseHeldError`), because scrub waits for each lock."""
-    refuse_if_held()
-    run_root = run_root.resolve()
+    A link where they lie (`<run root>/.generated/<design>`) is a `RunDirectoryError`."""
     base = run_root / GENERATION_DIRECTORY / design_name
     refuse_link_on_way(base, run_root)
-    found = sorted(p for p in base.glob("*") if p.is_dir() and not p.is_symlink())
-    if not found:
-        return ScrubResult([base], [], [], [], [])
-    if confirm is None:
-        log.warning(
-            "Not removing %d generation storage(s) of %s: nothing confirmed the removal, and only "
-            "the command line asks the user.",
-            len(found),
-            design_name,
-        )
-        return ScrubResult([base], [], [], [], [])
-    if not confirm([ScrubCandidate(path, ()) for path in found]):
-        return ScrubResult([base], [], [], [], [])
+    return sorted(p for p in base.glob("*") if p.is_dir() and not p.is_symlink())
+
+
+def _remove_storages(storages: Sequence[Path], run_root: Path) -> tuple[list[Path], list[Path]]:
+    """Remove the generation storages, each under its exclusive lock. Return `(removed, gone)`.
+
+    The caller has the confirmation. A storage that became a link while scrub waited, or that
+    leads to another place than the one that was listed, is not removed: it is a
+    `RunDirectoryError`."""
     removed: list[Path] = []
     gone: list[Path] = []
-    places = {storage: os.path.realpath(storage) for storage in found}
-    for storage in found:
+    places = {storage: os.path.realpath(storage) for storage in storages}
+    for storage in storages:
         with storage_lock(storage, exclusive=True, run_root=run_root):
             if _is_gone(storage):
                 gone.append(storage)
@@ -580,4 +619,85 @@ def scrub_generations(
             owner.clear()
             owner.delete()
         removed.append(storage)
+    return removed, gone
+
+
+def scrub_generations(
+    design_name: str,
+    *,
+    run_root: Path,
+    confirm: Optional[ScrubConfirmation] = None,
+) -> ScrubResult:
+    """Find the generation storages of a design under `run_root`, and remove them.
+
+    A storage (`<run root>/.generated/<design>/<key>`) holds the output of the generator of the
+    design for one configuration. One confirmation covers all of them; without `confirm`, nothing
+    is removed, because the library never asks. Each storage is removed under its exclusive lock,
+    which a launch holds in the shared mode for as long as it reads the storage. So scrub waits
+    for every launch that reads a storage before it removes that storage. A storage that is gone
+    when its turn comes is reported as `gone`. A thread that holds a lock of Xeda is refused
+    (`LeaseHeldError`), because scrub waits for each lock."""
+    refuse_if_held()
+    run_root = run_root.resolve()
+    base = run_root / GENERATION_DIRECTORY / design_name
+    found = _generation_storages(design_name, run_root)
+    if not found:
+        return ScrubResult([base], [], [], [], [])
+    if confirm is None:
+        log.warning(
+            "Not removing %d generation storage(s) of %s: nothing confirmed the removal, and only "
+            "the command line asks the user.",
+            len(found),
+            design_name,
+        )
+        return ScrubResult([base], [], [], [], [])
+    if not confirm([ScrubCandidate(path, ()) for path in found]):
+        return ScrubResult([base], [], [], [], [])
+    removed, gone = _remove_storages(found, run_root)
     return ScrubResult([base], removed, [], gone, [])
+
+
+def list_run_directories(
+    run_root: Path,
+    *,
+    design_name: str | None = None,
+    flow: str | None = None,
+    target: str | None | Unset = UNSET,
+) -> list[Path]:
+    """Return the run directories under `run_root`, sorted: the ones that a selection names.
+
+    Without `design_name`, every design of the run root. Without `flow`, every flow. `target` is a
+    target name (the run directories of that target), `None` (those that no target holds), or
+    `UNSET` (both). The rule of a run directory is the one of scrub (`_run_directories_in`).
+    The function reads the disk and takes no lock; it follows no link at the level of a design or
+    a target. An error of the file system (a run root that cannot be read) is an `OSError`."""
+    root = run_root.resolve()
+    if not root.is_dir():
+        return []
+    if design_name is not None:
+        designs = [root / design_name]
+    else:
+        designs = [
+            p for p in sorted(root.iterdir()) if DESIGN_NAME.fullmatch(p.name) and _is_real_dir(p)
+        ]
+    found: list[Path] = []
+    for design in designs:
+        if not _is_real_dir(design):
+            continue
+        parents: list[Path] = [design / target] if isinstance(target, str) else [design]
+        if isinstance(target, Unset):
+            parents += [
+                p
+                for p in sorted(design.iterdir())
+                if DESIGN_NAME.fullmatch(p.name)
+                and _is_real_dir(p)
+                and not _holds_launch_documents(p)
+            ]
+        for parent in parents:
+            if _is_real_dir(parent):
+                found += _run_directories_in(flow, parent, (), root).candidates
+    return sorted(found)
+
+
+def _is_real_dir(path: Path) -> bool:
+    return path.is_dir() and not path.is_symlink()

@@ -188,6 +188,7 @@ jobs:
           tests/test_generation_storage.py
           tests/test_git_dependencies.py
           tests/test_target_scrub.py
+          tests/test_records_api.py
           tests/test_workspace_run.py
           tests/test_cancel_and_events.py
           tests/test_generator_staleness.py
