@@ -1,6 +1,6 @@
 """The locks of a launch: all of them at once, in one order, and none held while it waits.
 
-A launch locks run directories, then storages, then delivery destinations. It takes every lock or
+A launch locks run directories, then storages, then design trees, then delivery destinations. It takes every lock or
 none, and it waits only while it holds no lock. Delivery is the one phase that holds locks and
 waits.
 """
@@ -8,6 +8,7 @@ waits.
 import json
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import unicodedata
@@ -96,17 +97,21 @@ def test_the_requests_are_taken_in_the_order_of_their_kinds(tmp_path, monkeypatc
     taken: list[Path] = []
     monkeypatch.setattr(run_lock, "acquired_hook", taken.append)
     destination = tmp_path / "out" / "result.txt"
+    design_root = tmp_path / "design"
+    design_root.mkdir()
     requests = [
         LockRequest("destination", destination, True),
+        LockRequest("tree", design_root, True),
         LockRequest("storage", storage, False),
         LockRequest("run_dir", run_dir, True),
     ]
     with acquire_all(requests, run_root=root) as locks:
-        assert [r.kind for r in locks.requests] == ["run_dir", "storage", "destination"]
+        assert [r.kind for r in locks.requests] == ["run_dir", "storage", "tree", "destination"]
     assert taken == [
         lock_file(run_dir),
         lock_file(storage),
-        root / ".locks" / "deliveries" / taken[2].name,
+        root / ".locks" / "trees" / taken[2].name,
+        root / ".locks" / "deliveries" / taken[3].name,
     ]
 
 
@@ -458,6 +463,64 @@ def test_a_callback_may_use_a_lock_that_is_held_and_no_other(tmp_path):
                     pytest.fail("a callback takes no new lock")
         with run_dir_read_lock(run_dir.parent / "other", root):  # outside the callback
             pass
+
+
+# ------------------------------------------------------------------------------------ trees
+
+
+def test_the_lock_of_a_design_tree_lies_under_the_run_root(tmp_path):
+    root, _, _ = _tree(tmp_path)
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    with acquire_all([LockRequest("tree", design_root, True)], run_root=root) as locks:
+        (found,) = (root / ".locks" / "trees").glob("*.lock")
+        assert locks.mode_of("tree", design_root) == "exclusive"
+    assert list(design_root.iterdir()) == [], "the lock makes nothing in the design tree"
+    assert _probe_file(found) == "free"
+
+
+def test_two_names_of_one_design_tree_are_one_lock(tmp_path):
+    """A link to a design root and the root itself name one tree, so they share one lock."""
+    root, _, _ = _tree(tmp_path)
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(design_root, target_is_directory=True)
+    requests = [LockRequest("tree", design_root, False), LockRequest("tree", alias, True)]
+    with acquire_all(requests, run_root=root) as locks:
+        assert locks.requests == (LockRequest("tree", alias, True),)
+        assert locks.mode_of("tree", design_root) == "exclusive"
+        (found,) = (root / ".locks" / "trees").glob("*.lock")
+        assert _probe_file(found) == "blocked"
+
+
+def test_two_design_trees_have_two_locks(tmp_path):
+    root, _, _ = _tree(tmp_path)
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    requests = [LockRequest("tree", first, True), LockRequest("tree", second, True)]
+    with acquire_all(requests, run_root=root) as locks:
+        assert len(locks.requests) == 2
+        assert len(list((root / ".locks" / "trees").glob("*.lock"))) == 2
+
+
+def test_the_lock_of_a_design_tree_needs_a_run_root(tmp_path):
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    with pytest.raises(RunDirectoryError, match="run root"):
+        acquire_all([LockRequest("tree", design_root, True)], run_root=None).__enter__()
+
+
+def _probe_file(lock: Path) -> str:
+    """Whether another process could take the exclusive lock of the lock file `lock` now."""
+    found = subprocess.run(
+        [sys.executable, "-c", PROBE, str(lock), "exclusive"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return found.stdout.strip()
 
 
 # ------------------------------------------------------------------------------ destinations

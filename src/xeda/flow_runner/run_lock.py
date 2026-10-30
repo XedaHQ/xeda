@@ -1,12 +1,13 @@
 """Durable locks of Xeda, and read-only verification of the completed run of a producer.
 
-Three kinds of resource have a lock: a run directory, a storage (generation storage or dependency
-storage) and a delivery destination. A lock is shared (a reader) or exclusive (a writer). The lock
-of a run directory or of a storage is a file beside it. The lock of a destination is a file under
-`<run root>/.locks/deliveries/`.
+Four kinds of resource have a lock: a run directory, a storage (generation storage or dependency
+storage), a design tree that a generator writes into, and a delivery destination. A lock is shared
+(a reader) or exclusive (a writer). The lock of a run directory or of a storage is a file beside
+it. The lock of a design tree is a file under `<run root>/.locks/trees/`, and the lock of a
+destination is a file under `<run root>/.locks/deliveries/`.
 
 A launch takes all its locks at once (`acquire_all`), in one order: run directories, then
-storages, then destinations, each kind by resource key. Except for a delivery, a thread waits only
+storages, then design trees, then destinations, each kind by resource key. Except for a delivery, a thread waits only
 while it holds no lock of Xeda.
 """
 
@@ -52,10 +53,10 @@ __all__ = [
     "CompletedRun",
 ]
 
-Kind = Literal["run_dir", "storage", "destination"]
+Kind = Literal["run_dir", "storage", "tree", "destination"]
 
 #: The order of the kinds in an acquisition.
-_KIND_ORDER: dict[str, int] = {"run_dir": 0, "storage": 1, "destination": 2}
+_KIND_ORDER: dict[str, int] = {"run_dir": 0, "storage": 1, "tree": 2, "destination": 3}
 
 #: Seams for tests. When `wait_hook` is set, Xeda calls it with the path of a lock file just before
 #: it waits for that lock, that is, when another holder keeps the lock. A test waits on this call
@@ -76,8 +77,9 @@ class LockWaitCanceled(Canceled):
 class LockRequest:
     """One lock that `acquire_all` is asked for.
 
-    `path` is the run directory, the storage or the destination file. The lock file follows from
-    it and from the run root. A shared lock (`exclusive` false) is a lease of a reader."""
+    `path` is the run directory, the storage, the root of the design tree or the destination file.
+    The lock file follows from it and from the run root. A shared lock (`exclusive` false) is a lease of a reader.
+    """
 
     kind: Kind
     path: Path
@@ -89,7 +91,7 @@ class _Hold:
     """The open lock file of one resource, held by one thread of this process."""
 
     file: TextIO
-    path: Path  # what the request named: the run directory, the storage or the destination
+    path: Path  # what the request named: a run directory, storage, design root or destination
     exclusive: bool
     holders: int = 0
 
@@ -214,6 +216,16 @@ def _destination_lock_file(destination: Path, run_root: Path) -> Path:
     return Path(os.path.realpath(run_root)) / ".locks" / "deliveries" / f"{digest[:32]}.lock"
 
 
+def _tree_lock_file(root: Path, run_root: Path) -> Path:
+    """Return the lock file of a design tree: `<run root>/.locks/trees/<name>.lock`.
+
+    The name is a hash of the identity (device and inode) of the root of the tree, with every
+    link resolved. So every name of one design root shares one lock, in one run root."""
+    found = os.stat(os.path.realpath(root))
+    digest = hashlib.sha256(repr((found.st_dev, found.st_ino)).encode()).hexdigest()
+    return Path(os.path.realpath(run_root)) / ".locks" / "trees" / f"{digest[:32]}.lock"
+
+
 @dataclass(frozen=True)
 class _Target:
     """One lock to take: what was asked for, and the lock file and key it resolves to now."""
@@ -229,10 +241,13 @@ class _Target:
 
 def _resolve(request: LockRequest, run_root: Path | None) -> _Target:
     """Return where `request` locks now. The lock file lies in an existing directory."""
-    if request.kind == "destination":
+    if request.kind in ("destination", "tree"):
         if run_root is None:
-            raise RunDirectoryError("the lock of a destination needs a run root")
-        file = _destination_lock_file(request.path, run_root)
+            raise RunDirectoryError(f"the lock of a {request.kind} needs a run root")
+        if request.kind == "tree":
+            file = _tree_lock_file(request.path, run_root)
+        else:
+            file = _destination_lock_file(request.path, run_root)
     else:
         file = lock_file(request.path, run_root)
     if run_root is not None:
@@ -488,7 +503,7 @@ def acquire_all(
     """Take every lock of `requests` or none, and release them when the block ends.
 
     Requests for one lock merge (an exclusive request wins). The order of acquisition is: run
-    directories, then storages, then destinations, each kind by resource key. The call waits only
+    directories, then storages, then design trees, then destinations, each kind by resource key. The call waits only
     for the first lock, and holds nothing while it waits. It tries each later lock without
     waiting. When another holder keeps one, it releases every lock it took, waits until that lock
     alone is free, and starts again. After each lock, it checks that the request still resolves
