@@ -262,7 +262,7 @@ def test_scrub_still_removes_a_removed_flow_s_run_directories(name, tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     document = json.loads(proc.stdout)
-    assert document["success"] is True and document["flow"] == "open_xc7"
+    assert document["outcome"] == "passed" and document["flow"] == "open_xc7"
     assert sorted(p.name for p in (root / "blinky").iterdir() if p.is_dir()) == ["nextpnr"]
 
 

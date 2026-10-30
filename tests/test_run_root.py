@@ -217,6 +217,8 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
     assert result.exit_code != 0
     if command == "run":
         assert document["outcome"] is None and document["error"]["code"] == "invalid_run_root"
+    elif command == "scrub":
+        assert document["outcome"] == "failed" and document["error"]["code"] == "invalid_run_root"
     else:
         assert document["success"] is False and document["error"]["type"] == "RunRootError"
     assert sorted(p.name for p in mine.iterdir()) == ["notes.txt"]

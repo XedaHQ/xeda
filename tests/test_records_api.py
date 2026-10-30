@@ -39,6 +39,7 @@ from xeda.flow_runner import run_lock
 from xeda.flow_runner.run_lock import lock_file
 from xeda.flow_runner.scrub import scrub_generations
 from xeda.records import InputRecord, OpenRun, RecordProblem, RunListing, RunRecord
+from xeda.run_root import ensure_run_root
 from xeda.spec import Spec
 from xeda.utils import replacing_file
 from xeda.workspace import Workspace
@@ -846,6 +847,22 @@ def test_scrub_of_a_name_that_is_no_flow_raises(tmp_path):
     with pytest.raises(FlowNotFoundError) as raised:
         workspace.scrub(design_name="d", flow="t_stamp_typo")
     assert raised.value.name == "t_stamp_typo"
+
+
+def test_scrub_takes_the_name_of_a_removed_flow(tmp_path):
+    """The flow is gone, the directories that its runs left are not."""
+    root = ensure_run_root(tmp_path / "xeda_run")
+    for name in ("open_xc7", "open_xc7_0123456789abcdef", "nextpnr"):
+        (root / "blinky" / name).mkdir(parents=True)
+        (root / "blinky" / name / "results.json").write_text("{}\n")
+    result = Workspace(root, confirm=lambda question: True).scrub(
+        design_name="blinky", flow="open_xc7"
+    )
+    assert sorted(path.name for path in result.removed) == [
+        "open_xc7",
+        "open_xc7_0123456789abcdef",
+    ]
+    assert (root / "blinky" / "nextpnr").is_dir()
 
 
 def test_a_design_level_scrub_removes_the_generation_storages_a_flow_scrub_keeps(tmp_path):

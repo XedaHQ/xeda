@@ -11,7 +11,7 @@ import threading
 from collections.abc import Iterable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional, Tuple, Union
 
 import click
 from click.core import ParameterSource
@@ -50,7 +50,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         resolve_format,
     )
     from .console import console
-    from .design import DESIGN_NAME, Design, DesignFileParseError, target_name_problem
+    from .design import Design, DesignFileParseError, target_name_problem
     from .errors import ProjectError, SettingsError
     from .local_settings import LocalSettings, local_settings
     from .project import Project
@@ -58,7 +58,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner import (
         add_file_logger,
         get_flow_class,
-        scrub_design,
     )
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
@@ -66,7 +65,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.error_codes import public_error, request_error_info
     from .flow_runner.launch_report import results_of
     from .records import CANCELED, ErrorInfo
-    from .flow_runner.scrub import ScrubCandidate, ScrubResult
+    from .flow_runner.scrub import ScrubResult
     from .log_context import launch_id_of
     from .flow_runner.settings_layers import command_line_table
     from .introspect import (
@@ -82,7 +81,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .errors import RemoteError, SpecError
     from .run_dir import RunDirectoryError
-    from .run_root import RunRootError, ensure_run_root
     from .outcomes import Outcome, run_document, spec_document
     from .plan import spec_document as spec_of
     from .cancel import CancelToken
@@ -784,19 +782,17 @@ def _prompt_question(question: str) -> bool:
         return False
 
 
-def _prompt_scrub(candidates: Sequence[ScrubCandidate]) -> bool:
-    """Show the run directories that scrub listed and ask on the terminal (or on the input that
-    stands for it) whether to remove them. Only the word "yes" says yes. The answer is also no
-    when there is no input to read: the input is at its end, closed or unreadable. The commands
-    ask even when stdin is no terminal, so a script can pipe "yes" to them. The listing and the
-    question go to stderr with `--json`."""
-    console.print(
-        f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
-    )
-    for candidate in candidates:
-        console.print(candidate.path)
-        for alias in candidate.aliases:
-            _say_scrub(f"{alias} (another name of the same directory)")
+def _prompt_removal(question: str) -> bool:
+    """Show the directories that the question of a workspace lists and ask on the terminal (or on
+    the input that stands for it) whether to remove them. The first line of the question says what
+    the list is, and the last line is the question itself, which this prompt replaces. Only the
+    word "yes" says yes. The answer is also no when there is no input to read: the input is at its
+    end, closed or unreadable. The commands ask even when stdin is no terminal, so a script can
+    pipe "yes" to them. The listing and the question go to stderr with `--json`."""
+    header, *listing, _ = question.splitlines()
+    console.print(f"[red]{escape(header)}[/red]")
+    for line in listing:
+        _say_scrub(line)
     try:
         answer = console.input("Type 'yes' if you're sure you want to continue: ")
     except (EOFError, ValueError, OSError):
@@ -1696,60 +1692,44 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     flow beside it, and says so."""
     if json_flag:
         machine_readable_mode()
+    workspace: Workspace | None = None
 
-    def fail(error_type: str, message: str) -> NoReturn:
+    def report(error: Exception | None, result: Optional[ScrubResult] = None) -> None:
+        """Print the document of the command: what the scrub did, or the error that ended it."""
         if json_flag:
             emit_structured(
                 {
-                    "success": False,
+                    "schema_version": 1,
+                    "outcome": (Outcome.PASSED if error is None else Outcome.FAILED).value,
+                    "error": None if error is None else request_error_info(error).as_json_value(),
                     "flow": flow,
                     "design": design_name,
                     "target": target,
-                    "error": {"type": error_type, "message": message},
+                    "run_root": None if workspace is None else str(workspace.run_root),
+                    "scanned": [str(d) for d in result.scanned] if result else [],
+                    "removed": [str(d) for d in result.removed] if result else [],
+                    "kept": [str(d) for d in result.kept] if result else [],
+                    "gone": [str(d) for d in result.gone] if result else [],
+                    "skipped": [str(d) for d in result.skipped] if result else [],
                 },
                 "json",
             )
-        else:
-            log.critical("%s", message)
+
+    try:
+        if target is not None and (problem := target_name_problem(target)) is not None:
+            raise RunDirectoryError(problem)
+        workspace = Workspace(run_root, confirm=_prompt_removal)
+        result = workspace.scrub(
+            design_name=design_name, flow=flow, target=UNSET if target is None else target
+        )
+    except Exception as e:
+        log.critical("%s", _error_message(e))
+        report(e)
+        if not json_flag and not isinstance(e, XedaException):
+            raise
         sys.exit(1)
-
-    if not DESIGN_NAME.fullmatch(design_name):
-        fail("RunDirectoryError", f"{design_name!r} is not a design name")
-    if target is not None and (problem := target_name_problem(target)) is not None:
-        fail("RunDirectoryError", problem)
-    try:
-        root = ensure_run_root(run_root, create=False)
-    except RunRootError as e:
-        fail("RunRootError", str(e))
-    run_root = root if root is not None else Path(run_root).resolve()
-
-    try:
-        result = scrub_design(
-            flow,
-            run_root / design_name,
-            run_root=run_root,
-            target=target,
-            confirm=_prompt_scrub,
-        )
-    except RunDirectoryError as e:  # a run directory that cannot be removed
-        fail(type(e).__name__, _error_message(e))
     _print_scrub_result(result)
-    if json_flag:
-        emit_structured(
-            {
-                "success": True,
-                "flow": flow,
-                "design": design_name,
-                "target": target,
-                "run_root": str(run_root),
-                "scanned": [str(d) for d in result.scanned],
-                "scrubbed": [str(d) for d in result.removed],
-                "kept": [str(d) for d in result.kept],
-                "gone": [str(d) for d in result.gone],
-                "skipped": [str(d) for d in result.skipped],
-            },
-            "json",
-        )
+    report(None, result)
 
 
 @cli.group(

@@ -96,7 +96,7 @@ def _error(run: subprocess.CompletedProcess) -> dict[str, str]:
     """The error of a failed `--json` run's document."""
     assert run.returncode == 1, run.stdout + run.stderr
     document = json.loads(run.stdout)
-    assert document["success"] is False, document
+    assert document["outcome"] == "failed", document
     return document["error"]
 
 
@@ -276,7 +276,7 @@ def test_xeda_scrub_refuses_a_users_directory(tmp_path):
 
     assert run.returncode != 0, run.stdout + run.stderr
     error = _error(run)
-    assert error["type"] == "RunRootError", error
+    assert error["code"] == "invalid_run_root", error
     assert str(tmp_path / "myrundir") in error["message"], error
     assert _tree(tmp_path / "myrundir") == before and canary.is_file()
 
@@ -353,7 +353,7 @@ def test_scrub_refuses_a_design_named_dotdot(tmp_path):
     assert canary.read_text() == "the user's own file\n"
     assert run.returncode != 0, run.stdout + run.stderr
     document = json.loads(run.stdout)
-    assert document["success"] is False, document
+    assert document["outcome"] == "failed", document
     assert "'..' is not a design name" in document["error"]["message"], document
 
 

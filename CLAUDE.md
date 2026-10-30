@@ -311,8 +311,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   target, `machine_readable_mode()`), so a process started outside `run_process` must use
   `proc_utils.child_stdout()`. Every failure, usage errors too, emits an `error`. `xeda run` prints `Result.to_dict()` (`outcome`, `error`,
   `nodes`); a request that starts no launch has `outcome: null` and exits 2, and a usage error
-  also has `spec: null`. The other commands print `{"success": false, "error": ...}`
-  (`tests/test_cli_json_contract.py`).
+  also has `spec: null`. `xeda scrub` prints `outcome`, `error` and the lists of a
+  `ScrubResult`. The other commands, and the usage errors of `xeda scrub`, print
+  `{"success": false, "error": ...}` (`tests/test_cli_json_contract.py`).
 - The library never prompts: an unanswered question answers "no". Only `cli.py` asks, through a
   callback it passes (`confirm_overwrite`, `confirm_scrub` / `scrub_design(confirm=)`);
   `--remote --prune-variants` is refused at planning (`tests/test_remote_client.py`). A prompt call

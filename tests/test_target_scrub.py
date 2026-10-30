@@ -29,7 +29,7 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import _prompt_scrub, cli
+from xeda.cli import _prompt_removal, cli
 from xeda.console import console
 from xeda.flow_runner import DefaultRunner, run_lock
 from xeda.flow_runner import scrub as scrub_module
@@ -37,6 +37,7 @@ from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 from xeda.utils import replacing_file
+from xeda.workspace import _prune_question
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
@@ -160,9 +161,9 @@ def test_a_target_scrub_removes_that_target_s_runs_of_the_flow_and_nothing_else(
     tree = Tree(tmp_path)
     result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 0, result.output
-    assert document["success"] is True and document["target"] == "a"
+    assert document["outcome"] == "passed" and document["target"] == "a"
     assert document["scanned"] == [str(tree.design / "a")]
-    assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.a)
+    assert sorted(document["removed"]) == sorted(str(p) for p in tree.a)
     assert document["kept"] == [] and document["gone"] == []
     assert tree.present(tree.a) == [False, False]
     for survivor in (*tree.direct, *tree.b, *tree.ghost, *tree.keep, *tree.other_design):
@@ -183,7 +184,7 @@ def test_an_unqualified_scrub_removes_the_runs_without_a_target_and_every_target
         str(tree.design),
         *(str(tree.design / name) for name in ("a", "b", "c", "ghost")),
     ]
-    assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.everything)
+    assert sorted(document["removed"]) == sorted(str(p) for p in tree.everything)
     assert tree.present(tree.everything) == [False] * len(tree.everything)
     for survivor in (*tree.keep, *tree.other_design):
         assert survivor.exists(), survivor
@@ -197,8 +198,8 @@ def test_a_scrub_that_is_declined_removes_nothing_and_asks_once(tmp_path, confir
     tree = Tree(tmp_path)
     confirmations.answer = "no"
     result, document = scrub(tmp_path)
-    assert result.exit_code == 0 and document["success"] is True
-    assert document["scrubbed"] == [] and document["kept"] == [] and document["gone"] == []
+    assert result.exit_code == 0 and document["outcome"] == "passed"
+    assert document["removed"] == [] and document["kept"] == [] and document["gone"] == []
     assert all(p.exists() for p in (*tree.everything, *tree.keep))
     assert len(confirmations) == 1
 
@@ -221,7 +222,7 @@ def test_a_target_without_a_run_directory_is_nothing_to_do(tmp_path, confirmatio
     for target in ("c", "nothere"):
         result, document = scrub(tmp_path, "--target", target)
         assert result.exit_code == 0, result.output
-        assert document["success"] is True and document["scrubbed"] == []
+        assert document["outcome"] == "passed" and document["removed"] == []
         assert document["target"] == target
     assert confirmations == []
     assert all(p.exists() for p in (*tree.everything, *tree.keep))
@@ -230,9 +231,9 @@ def test_a_target_without_a_run_directory_is_nothing_to_do(tmp_path, confirmatio
 def test_nothing_is_scanned_for_a_design_that_has_no_directory(tmp_path, confirmations):
     Tree(tmp_path)
     result, document = scrub(tmp_path, design="nothere")
-    assert result.exit_code == 0 and document["scanned"] == [] and document["scrubbed"] == []
+    assert result.exit_code == 0 and document["scanned"] == [] and document["removed"] == []
     result, document = scrub(tmp_path, "--target", "a", design="nothere")
-    assert result.exit_code == 0 and document["scanned"] == [] and document["scrubbed"] == []
+    assert result.exit_code == 0 and document["scanned"] == [] and document["removed"] == []
     assert confirmations == []
 
 
@@ -241,7 +242,7 @@ def test_a_removed_flow_is_scrubbed_in_every_target_too(tmp_path, confirmations)
     old = [tree.keep[3], run_dir(tree.design / "a" / "open_xc7")]
     result, document = scrub(tmp_path, flow="open_xc7")
     assert result.exit_code == 0, result.output
-    assert sorted(document["scrubbed"]) == sorted(str(p) for p in old)
+    assert sorted(document["removed"]) == sorted(str(p) for p in old)
     assert not any(p.exists() for p in old)
     assert all(p.exists() for p in tree.everything)
 
@@ -287,7 +288,7 @@ def test_a_target_that_is_no_name_is_refused_before_anything_is_looked_at(
     run_dir(outside)
     result, document = scrub(tmp_path, "--target", target)
     assert result.exit_code == 1, result.output
-    assert document["success"] is False and document["error"]["type"] == "RunDirectoryError"
+    assert document["outcome"] == "failed" and document["error"]["code"] == "invalid_run_root"
     assert "target name" in document["error"]["message"] or "name of a flow" in (
         document["error"]["message"]
     )
@@ -307,7 +308,7 @@ def test_a_target_directory_that_is_a_link_out_of_the_run_root_is_never_followed
     link.symlink_to(outside, target_is_directory=True)
     result, document = scrub(tmp_path)
     assert result.exit_code == 0, result.output
-    assert str(link) not in document["scrubbed"] and document["skipped"] == [str(link)]
+    assert str(link) not in document["removed"] and document["skipped"] == [str(link)]
     result, document = scrub(tmp_path, "--target", "out")
     assert result.exit_code == 1, result.output
     assert f"{link} is a symbolic link (to {outside})" in document["error"]["message"]
@@ -326,7 +327,7 @@ def test_a_run_directory_that_is_a_link_out_of_the_run_root_is_never_followed(
     result, document = scrub(tmp_path, "--target", "b")
     assert result.exit_code == 0, result.output
     assert canary.exists() and (canary / "out.txt").exists() and link.is_symlink()
-    assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.b)
+    assert sorted(document["removed"]) == sorted(str(p) for p in tree.b)
 
 
 def test_a_run_directory_that_is_a_link_to_a_run_directory_beside_it_is_scrubbed_as_that(
@@ -359,7 +360,7 @@ def test_a_run_directory_that_is_a_link_to_a_directory_beside_it_with_another_na
     assert document["skipped"] == [str(link)]
     assert link.is_symlink() and (store / "out.txt").exists()
     assert tree.present(tree.b) == [False, False]
-    assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.b)
+    assert sorted(document["removed"]) == sorted(str(p) for p in tree.b)
 
 
 def test_two_names_of_one_directory_are_removed_once(tmp_path, confirmations):
@@ -368,7 +369,7 @@ def test_two_names_of_one_directory_are_removed_once(tmp_path, confirmations):
     result, document = scrub(tmp_path)
     assert result.exit_code == 0, result.output
     assert tree.present(tree.a) == [False, False]
-    assert len(document["scrubbed"]) == len(set(document["scrubbed"]))
+    assert len(document["removed"]) == len(set(document["removed"]))
 
 
 def test_a_directory_replaced_by_a_link_after_it_was_listed_is_not_removed(
@@ -391,7 +392,7 @@ def test_a_directory_replaced_by_a_link_after_it_was_listed_is_not_removed(
     monkeypatch.setattr(scrub_module, "run_dir_lock", swapping)
     result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 1, result.output
-    assert document["success"] is False and document["error"]["type"] == "RunDirectoryError"
+    assert document["outcome"] == "failed" and document["error"]["code"] == "invalid_run_root"
     assert canary.exists() and (canary / "out.txt").read_text() == "output\n"
     assert sorted(p.name for p in canary.parent.iterdir()) == ["other"], "no lock file outside"
 
@@ -416,7 +417,7 @@ def test_a_run_that_finished_in_a_candidate_s_place_after_the_listing_is_kept(
     monkeypatch.setattr(scrub_module, "run_dir_lock", swapping)
     result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 0, result.output
-    assert document["success"] is True and document["scrubbed"] == [str(other)]
+    assert document["outcome"] == "passed" and document["removed"] == [str(other)]
     assert document["kept"] == [str(victim)] and document["gone"] == []
     assert (victim / "out.txt").read_text() == "a newer run\n" and not other.exists()
     assert f"kept {victim}: {KEPT}" in said
@@ -439,7 +440,7 @@ def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_re
     monkeypatch.setattr(scrub_module, "run_dir_lock", swapping)
     result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 1, result.output
-    assert document["error"]["type"] == "RunDirectoryError"
+    assert document["error"]["code"] == "invalid_run_root"
     assert (other / "out.txt").exists() and victim.is_symlink()
 
 
@@ -462,7 +463,7 @@ def test_a_candidate_gone_when_its_lock_is_held_is_skipped_and_not_counted(
     with caplog.at_level(logging.INFO, logger="xeda.flow_runner.scrub"):
         result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 0, result.output
-    assert document["success"] is True and document["scrubbed"] == [str(other)]
+    assert document["outcome"] == "passed" and document["removed"] == [str(other)]
     assert document["gone"] == [str(victim)] and document["kept"] == []
     assert tree.present(tree.a) == [False, False]
     # By the message itself: the command line's log filter shortens a record's logger name in
@@ -848,7 +849,7 @@ def test_a_link_that_leads_below_its_directory_is_left_alone(tmp_path, confirmat
     result, document = scrub(tmp_path)
     assert result.exit_code == 0, result.output
     assert document["skipped"] == [str(link)]
-    assert str(link) not in document["scrubbed"] and str(tree.a[0]) in document["scrubbed"]
+    assert str(link) not in document["removed"] and str(tree.a[0]) in document["removed"]
     assert link.is_symlink() and not link.exists(), "left as it was, leading to what is now gone"
     assert tree.present(tree.everything) == [False] * len(tree.everything)
 
@@ -1193,7 +1194,7 @@ def test_the_scrub_of_a_launch_stays_in_its_own_target(tmp_path, confirmations):
             prune_variants=prune_variants,
             display_results=False,
         )
-        launcher.confirm_scrub = _prompt_scrub
+        launcher.confirm_scrub = lambda candidates: _prompt_removal(_prune_question(candidates))
         flow = launcher.launch_flow(TMaker, maker_design(tmp_path, target), {"text": text})
         assert flow.succeeded
         return flow.run_path
@@ -1275,8 +1276,8 @@ def test_scrub_json_lists_what_it_kept_and_found_gone_and_says_so_on_stderr(
     result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 0, result.output
     assert result.stdout.lstrip().startswith("{") and result.stdout.rstrip().endswith("}")
-    assert document["success"] is True
-    assert document["scrubbed"] == [str(removed)]
+    assert document["outcome"] == "passed"
+    assert document["removed"] == [str(removed)]
     assert document["kept"] == [str(kept)]
     assert document["gone"] == [str(gone)]
     assert f"kept {kept}: {KEPT}" in result.stderr
@@ -1305,7 +1306,7 @@ def test_xeda_scrub_json_writes_one_document_to_stdout_when_it_kept_and_found_go
     reader.start()
     try:
         said = [errors.get(timeout=120)]
-        while "This will remove all of the following" not in said[-1]:
+        while "Xeda would remove these" not in said[-1]:
             said.append(errors.get(timeout=120))
         # the candidates are listed, with what the listing saw of their run records: change them
         scrub_module.RunDirectory.claimed(gone, tree.root).delete()
@@ -1324,8 +1325,8 @@ def test_xeda_scrub_json_writes_one_document_to_stdout_when_it_kept_and_found_go
         said.append(errors.get())
     assert process.returncode == 0, "".join(said)
     document = json.loads(stdout)
-    assert document["success"] is True
-    assert document["scrubbed"] == [str(removed)]
+    assert document["outcome"] == "passed"
+    assert document["removed"] == [str(removed)]
     assert document["kept"] == [str(kept)]
     assert document["gone"] == [str(gone)]
     errors_text = "".join(said)
@@ -1349,7 +1350,7 @@ def test_the_scrub_of_an_unmarked_run_root_is_refused(tmp_path):
     (tmp_path / "xeda_run" / "d").mkdir(parents=True)
     (tmp_path / "xeda_run" / "d" / "keep").write_text("mine\n")
     result, document = scrub(tmp_path, "--target", "a")
-    assert result.exit_code == 1 and document["success"] is False
+    assert result.exit_code == 1 and document["outcome"] == "failed"
     assert (tmp_path / "xeda_run" / "d" / "keep").exists()
 
 

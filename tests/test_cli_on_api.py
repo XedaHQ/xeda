@@ -21,7 +21,9 @@ from xeda import errors
 from xeda.cli import cli, run
 from xeda.frozen import thaw
 from xeda.outcomes import result_from_dict
+from xeda.run_root import ensure_run_root
 from xeda.spec import Spec
+from xeda.types import UNSET
 from xeda.workspace import Workspace
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
@@ -517,3 +519,85 @@ def test_an_interrupt_before_the_launch_starts_prints_no_outcome(world, monkeypa
     assert answer.exit_code == 1 and document["outcome"] is None
     assert document["error"]["code"] == "canceled" and document["nodes"] == []
     assert document["spec"]["flow"] == FLOW
+
+
+# ------------------------------------------------------------------------------- xeda scrub
+
+
+@pytest.fixture
+def scrubs(monkeypatch) -> list[tuple[Workspace, dict[str, Any]]]:
+    """The workspaces that `xeda scrub` builds, with the arguments of their `scrub` call."""
+    seen: list[tuple[Workspace, dict[str, Any]]] = []
+
+    class Recording(Workspace):
+        def scrub(self, **arguments):
+            seen.append((self, arguments))
+            raise Stop
+
+    monkeypatch.setattr(cli_module, "Workspace", Recording)
+    return seen
+
+
+@pytest.mark.parametrize(
+    "arguments, target",
+    [([], UNSET), (["--target", "fast"], "fast")],
+    ids=["every-target", "one-target"],
+)
+def test_scrub_maps_its_arguments_to_the_workspace(scrubs, tmp_path, arguments, target):
+    invoke("scrub", FLOW, "demo", "--run-root", tmp_path / "root", *arguments)
+    ((workspace, called),) = scrubs
+    assert called == {"design_name": "demo", "flow": FLOW, "target": target}
+    assert workspace.run_root == (tmp_path / "root").resolve()
+    assert workspace.confirm is cli_module._prompt_removal
+
+
+def test_scrub_asks_even_when_nobody_can_see_the_prompt(scrubs, tmp_path):
+    """The command asks with `--json` too, so that `echo yes | xeda scrub` works."""
+    invoke("scrub", FLOW, "demo", "--json", "--run-root", tmp_path / "root")
+    assert scrubs[0][0].confirm is cli_module._prompt_removal
+
+
+SCRUB_KEYS = [
+    "schema_version",
+    "outcome",
+    "error",
+    "flow",
+    "design",
+    "target",
+    "run_root",
+    "scanned",
+    "removed",
+    "kept",
+    "gone",
+    "skipped",
+]
+
+
+def test_the_scrub_document_has_the_keys_of_the_contract(tmp_path):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    variant = root / "demo" / f"{FLOW}_0123456789abcdef"
+    variant.mkdir(parents=True)
+    (variant / "results.json").write_text("{}\n")
+    answer = invoke("scrub", FLOW, "demo", "--run-root", root, "--json", input="yes\n")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 0 and list(document) == SCRUB_KEYS
+    assert (document["schema_version"], document["outcome"], document["error"]) == (
+        1,
+        "passed",
+        None,
+    )
+    assert (document["flow"], document["design"], document["target"]) == (FLOW, "demo", None)
+    assert document["run_root"] == str(root) and document["removed"] == [str(variant)]
+    assert not variant.exists()
+
+
+def test_a_scrub_that_cannot_run_prints_a_failed_document_with_exit_status_1(tmp_path):
+    root = ensure_run_root(tmp_path / "xeda_run")
+    answer = invoke("scrub", FLOW, "a/b", "--run-root", root, "--json")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 1 and list(document) == SCRUB_KEYS
+    assert document["outcome"] == "failed" and document["error"]["code"] == "invalid_run_root"
+    assert "'a/b' is not a design name" in document["error"]["message"]
+    assert [document[name] for name in ("scanned", "removed", "kept", "gone", "skipped")] == [
+        []
+    ] * 5

@@ -33,7 +33,7 @@ width, so parse JSON.
 
 `xeda scrub` prompts on stdin and removes nothing unless you type `yes`:
 `echo yes | xeda scrub vivado_synth sqrt --json`. `run --prune-variants` asks only on a terminal: with
-`--json` or a pipe it removes nothing. `scrub --json` reports `scrubbed`, `kept`, `gone`
+`--json` or a pipe it removes nothing. `scrub --json` reports `removed`, `kept`, `gone`
 and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
 `prune_variants` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
 
@@ -578,9 +578,9 @@ A launch that does not pass exits 1 with `outcome` and `error`. A request that s
 `outcome: null`, exits 2 and has the `spec` it could read (`null` for a usage error); a Ctrl-C
 before the launch started exits 1 with the code `canceled`. Branch on
 `error.code`, a stable lower snake case text (the set is open: keep an unknown code as text).
-`references/troubleshooting.md` has the messages and fixes. `dse`, `scrub`, `pdk`, `remote check`
-and `list-*` keep their own documents: on failure they have `success: false` and
-`error.type`/`error.message`.
+`references/troubleshooting.md` has the messages and fixes. `scrub` has its own document with
+`outcome` (`passed` or `failed`) and the same `error`. `dse`, `pdk`, `remote check` and `list-*` keep
+their own documents: on failure they have `success: false` and `error.type`/`error.message`.
 
 | `error.code` | Do |
 | --- | --- |

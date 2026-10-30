@@ -21,7 +21,7 @@ from click.testing import CliRunner
 import xeda.deliver as deliver
 from xeda.flow import MetricSpec
 from xeda import Design
-from xeda.cli import _prompt_scrub, cli
+from xeda.cli import _prompt_removal, cli
 from xeda.console import console
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
@@ -30,6 +30,7 @@ from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner, launch_locks
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_dir import RunDirectoryError
+from xeda.workspace import _prune_question
 from xeda.run_root import ensure_run_root
 
 RUNS: List[str] = []
@@ -150,9 +151,9 @@ def world(tmp_path, monkeypatch):
 
 
 def _runner(tmp_path: Path, **settings) -> DefaultRunner:
-    """A launcher that asks the way the command line does (`console.input`), as `--prune-variants` does."""
+    """A launcher that asks the way `xeda scrub` does (`console.input`)."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
-    runner.confirm_scrub = _prompt_scrub
+    runner.confirm_scrub = lambda candidates: _prompt_removal(_prune_question(candidates))
     return runner
 
 

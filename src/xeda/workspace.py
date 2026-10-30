@@ -482,17 +482,23 @@ class Workspace:
         one that is gone when its turn comes is `gone`. A link that is named like a run directory
         but leads elsewhere is `skipped`, and is not followed.
 
-        Raise `FlowNotFoundError` for a `flow` that is no flow, `RunRootError` for a link where the
+        A `flow` that was removed from Xeda is a name too: the run directories that it left are
+        removed. Raise `FlowNotFoundError` for a `flow` that is no flow, `RunRootError` for a link where the
         run directories or the storages lie, and `LeaseHeldError` in a thread that holds a lock of
         Xeda (a callback of `run`)."""
         from .flow_runner import default_runner
         from .flow_runner.error_codes import public_error
         from .flow_runner.run_lock import refuse_if_held
         from .flow_runner.scrub import scrub_design
+        from .flow_runner.settings_layers import FlowRemovedError
 
         refuse_if_held()
         if not isinstance(flow, Unset):
-            default_runner.get_flow_class(flow)
+            try:
+                default_runner.get_flow_class(flow)
+            except FlowRemovedError as removed:
+                # The flow is gone and its run directories are not, and a scrub removes directories.
+                flow = removed.flow_name or flow
         answer = self.confirm
         try:
             return scrub_design(

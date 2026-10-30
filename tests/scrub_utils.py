@@ -2,14 +2,20 @@
 
 The library asks nobody. `xeda scrub` asks through `console.input`, so a test that patches
 `console.input` answers the same question the user answers, and these helpers pass that prompt as
-the confirmation.
+the confirmation. The prompt takes the question of a workspace, so the helpers word it as
+`Workspace.scrub` does.
 """
 
 from pathlib import Path
 from typing import Optional
 
-from xeda.cli import _print_scrub_result, _prompt_scrub
+from xeda.cli import _print_scrub_result, _prompt_removal
 from xeda.flow_runner import scrub as scrub_module
+from xeda.workspace import _removal_question
+
+
+def _ask(candidates) -> bool:
+    return _prompt_removal(_removal_question(candidates))
 
 
 def ask_scrub_design(
@@ -21,7 +27,7 @@ def ask_scrub_design(
 ) -> scrub_module.ScrubResult:
     """Call `scrub_design` with the prompt of the command, and show the result as it does."""
     result = scrub_module.scrub_design(
-        flow_name, design_dir, run_root=run_root, target=target, confirm=_prompt_scrub
+        flow_name, design_dir, run_root=run_root, target=target, confirm=_ask
     )
     _print_scrub_result(result)
     return result
@@ -39,6 +45,6 @@ def ask_scrub_runs(
         directory,
         exclude,
         run_root,
-        confirm=_prompt_scrub,
+        confirm=_ask,
         on_result=_print_scrub_result,
     )

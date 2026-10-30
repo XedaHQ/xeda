@@ -158,7 +158,7 @@ def _invoke_scrub(run_root: Path, text: str):
 def test_the_command_removes_on_yes(tree):
     run_root, _design_dir, directories = tree
     result = _invoke_scrub(run_root, "yes\n")
-    assert json.loads(result.stdout)["success"] is True
+    assert json.loads(result.stdout)["outcome"] == "passed"
     assert not any(directory.exists() for directory in directories)
 
 
@@ -169,7 +169,7 @@ def test_the_command_removes_nothing_without_a_yes(tree, text):
     run_root, _design_dir, directories = tree
     result = _invoke_scrub(run_root, text)
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["scrubbed"] == []
+    assert document["outcome"] == "passed" and document["removed"] == []
     assert _all_exist(directories)
 
 
@@ -186,7 +186,7 @@ def test_the_command_removes_nothing_when_the_input_cannot_be_read(tree, monkeyp
     monkeypatch.setattr(console, "input", unreadable)
     result = _invoke_scrub(run_root, "")
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["scrubbed"] == []
+    assert document["outcome"] == "passed" and document["removed"] == []
     assert _all_exist(directories)
 
 
@@ -210,7 +210,7 @@ def test_the_command_removes_nothing_when_standard_input_is_closed(tree):
         input=_ClosedInput(),
     )
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["scrubbed"] == []
+    assert document["outcome"] == "passed" and document["removed"] == []
     assert _all_exist(directories)
 
 

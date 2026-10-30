@@ -774,22 +774,26 @@ skipped go to stderr, with the rest of its output:
 .. code-block:: json
 
     {
-      "success": true,
+      "schema_version": 1,
+      "outcome": "passed",
+      "error": null,
       "flow": "vivado_synth",
       "design": "sqrt",
       "target": null,
       "run_root": "/path/to/xeda_run",
       "scanned": ["/path/to/xeda_run/sqrt"],
-      "scrubbed": ["/path/to/xeda_run/sqrt/vivado_synth_0123456789abcdef"],
+      "removed": ["/path/to/xeda_run/sqrt/vivado_synth_0123456789abcdef"],
       "kept": ["/path/to/xeda_run/sqrt/vivado_synth_fedcba9876543210"],
       "gone": [],
       "skipped": []
     }
 
-``target`` is the ``--target`` that you gave, or ``null``. The five lists hold paths:
+``outcome`` is ``passed`` when the scrub ran to its end, also when it removed nothing because you
+did not confirm. ``target`` is the ``--target`` that you gave, or ``null``. The five lists hold
+paths:
 
 * ``scanned`` holds the directories that scrub searched for run directories of the flow.
-* ``scrubbed`` holds the run directories that scrub removed. The list is empty if scrub found none,
+* ``removed`` holds the run directories that scrub removed. The list is empty if scrub found none,
   or if you did not confirm.
 * ``kept`` holds the run directories that scrub listed and did not remove, because their run records
   (``results.json`` and ``trace.json``) changed after the listing. A run finished there, or a launch
@@ -802,11 +806,15 @@ skipped go to stderr, with the rest of its output:
   :doc:`run-directories`). Scrub removed neither the link nor what it leads to. It says why on
   stderr, with one line for each link.
 
-No path is in more than one of ``scrubbed``, ``kept``, ``gone`` and ``skipped``. A failure writes
-``{"success": false, "flow": ..., "design": ..., "target": ..., "error": {"type": ..., "message":
-...}}`` and exits with status 1. The ``error.type`` is ``RunDirectoryError`` for a design or target
-name that is not a name, or for a run directory that scrub refuses to remove (one that is no longer
-a directory, for example). It is ``RunRootError`` for a run root that scrub cannot use.
+No path is in more than one of ``removed``, ``kept``, ``gone`` and ``skipped``. A failure has the
+outcome ``failed``, an ``error`` with the keys of the ``error`` of a run document (``code``,
+``message``, ``node``, ``exit_status`` and ``log``), ``null`` for ``run_root`` when scrub did not get
+to use one, and empty lists. The exit status is 1. The ``error.code`` is ``invalid_run_root`` for a
+design or target name that is not a name, for a run directory that scrub refuses to remove (one that
+is no longer a directory, for example) and for a run root that scrub cannot use. A usage error (a
+missing argument or a removed option) writes ``{"success": false, "error": {"type": ..., "message":
+...}}`` and exits with status 2, as it does for every command but ``run``. In Python,
+``Workspace.scrub`` does the same removal and returns the five lists.
 
 Exit status
 ===========

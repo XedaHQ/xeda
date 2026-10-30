@@ -591,9 +591,9 @@ def test_scrub_json_lists_the_links_it_skipped_and_says_why_on_stderr(tmp_path, 
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     assert document["skipped"] == [str(link)]
-    assert document["scrubbed"] == [str(world.sibling)]
+    assert document["removed"] == [str(world.sibling)]
     assert document["kept"] == [] and document["gone"] == []
-    assert link not in [Path(p) for p in document["scrubbed"]]
+    assert link not in [Path(p) for p in document["removed"]]
     assert (
         f"skipped {link}: it is a link to {world.other_target.resolve()}, which is not a "
         f"directory {RULE} in {world.parent.resolve()}"
