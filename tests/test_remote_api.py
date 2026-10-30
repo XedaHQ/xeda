@@ -18,6 +18,7 @@ from click.testing import CliRunner
 from xeda.cli import cli
 from xeda.design import Design
 from xeda.errors import RemoteError
+from xeda.events import Event
 from xeda.outcomes import Outcome
 from xeda.plan import Plan, plan_from_dict
 from xeda.remote import client
@@ -31,6 +32,7 @@ from .test_remote_keep_running import (
     Connections,
     Gate,
     _launch_dirs,
+    _launch_state,
     _run_in_thread,
     cleanup,
     leftovers,
@@ -170,6 +172,42 @@ def test_keep_running_and_a_lost_connection_give_detached(
     gate.release()
 
 
+def test_following_a_running_identical_launch_gives_every_event_its_id(
+    tmp_path, remote_host, monkeypatch, cleanup, watch
+):
+    gate = Gate(tmp_path, remote_host)
+    connections = Connections(monkeypatch)
+    workspace = _workspace(tmp_path, keep_running=True)
+    spec = _spec(tmp_path)
+
+    def cut() -> None:
+        cleanup.append(gate.pid())
+        connections.agents[0].kill()  # the connection goes away while the tool runs
+
+    threading.Thread(target=cut, daemon=True).start()
+    assert workspace.run(spec).outcome is Outcome.DETACHED
+    (directory,) = _launch_dirs(remote_host)
+    seen = watch("The same request runs on somewhere")
+    events: list[Event] = []
+
+    thread, again = _run_in_thread(lambda: workspace.run(spec, on_event=events.append))
+    seen.wait()
+    gate.release()
+    thread.join(TIMEOUT)
+    result = again.get(timeout=TIMEOUT)
+    assert result.outcome is Outcome.PASSED and result.launch_id == directory.name
+    assert [event.kind for event in events] == [
+        "launch_started",
+        "node_started",
+        "node_finished",
+        "node_started",
+        "node_finished",
+        "launch_finished",
+    ]
+    assert {event.launch_id for event in events} == {directory.name}
+    assert _launch_dirs(remote_host) == [directory], "no second launch"
+
+
 def test_a_canceled_token_gives_a_canceled_result_before_any_connection(tmp_path, remote_host):
     from xeda.cancel import CancelToken
 
@@ -228,6 +266,16 @@ def test_a_remote_plan_keeps_the_options_of_the_caller(tmp_path, remote_host):
     plan = _workspace(tmp_path).plan(_spec(tmp_path), outputs_to=out, overwrite_outputs=True)
     assert plan.options["outputs_to"] == out and plan.options["overwrite_outputs"] is True
     assert plan.options["rebuild_all"] is False
+
+
+def test_a_plan_with_keep_running_writes_no_record_and_keeps_nothing_running(tmp_path, remote_host):
+    spec = _spec(tmp_path)
+    before = _files(tmp_path / "local")
+    plan = _workspace(tmp_path, keep_running=True).plan(spec)
+    assert list(plan.nodes) == ["yosys_fpga", "nextpnr"]
+    assert _files(tmp_path / "local") == before, "the plan wrote in the local run root"
+    (directory,) = _launch_dirs(remote_host)
+    assert _launch_state(directory)["keep_running"] is False, "the host would keep the plan running"
 
 
 @pytest.mark.parametrize("option", ["prune_variants", "post_cleanup", "post_cleanup_purge"])

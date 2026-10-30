@@ -1717,9 +1717,6 @@ def _run(
         refuse_link_on_way(directory.parent, local_root)
     if launch_canceled():
         raise Canceled("the launch was canceled before it was sent to the host")
-    if progress is not None:
-        progress.launch_id = launch_id
-        progress.emit("launch_started")
     log.info("Connecting to %s...", destination_text)
     try:
         with SshSession(destination) as session:
@@ -1758,7 +1755,9 @@ def _run(
                 expected={node.name: node.flowrun_hash for node in plan.nodes},
             )
             agent = _start_agent(session, provisioned, key)
-            agent.keep_running = remote.keep_running
+            # A dry run has no launch to keep: it announces nothing and writes no record.
+            keep_running = remote.keep_running and not dry_run
+            agent.keep_running = keep_running
             if local_root != _local_run_root(Path.cwd() / "xeda_run"):
                 agent.attach_options = f" --run-root {shlex.quote(str(local_root))}"
             try:
@@ -1766,12 +1765,16 @@ def _run(
                     agent, package, design.name, key, launch_id, None if dry_run else launch
                 )
                 try:
+                    if progress is not None:
+                        # An identical launch that keeps running has the id of that launch.
+                        progress.launch_id = launch_id if running is None else running["id"]
+                        progress.emit("launch_started")
                     if running is not None:
                         run.launch_id = running["id"]
                         run.started = True
                         result = _follow_running(agent, running)
                     else:
-                        if remote.keep_running:
+                        if keep_running:
                             _announce_keep_running(agent, facts.kill_user_processes, launch_id)
                             _record_launch(
                                 prepared,
