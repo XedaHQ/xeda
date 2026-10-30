@@ -34,7 +34,8 @@ counter, width = sys.argv[1], sys.argv[2]
 with open(counter, "a") as stream:
     stream.write("ran\\n")
 Path(counter + ".where").write_text(
-    "\\n".join([os.getcwd(), os.environ["DESIGN_ROOT"], os.environ["XEDA_GENERATED"]]) + "\\n"
+    "\\n".join([os.getcwd(), os.environ["DESIGN_ROOT"], os.environ["XEDA_GENERATED"], os.environ["PWD"]])
+    + "\\n"
 )
 if (root / "fail").exists():
     raise SystemExit(3)
@@ -154,8 +155,16 @@ class World:
     @property
     def where(self) -> tuple[str, str, str]:
         """The working directory, `DESIGN_ROOT` and `XEDA_GENERATED` of the last run."""
-        cwd, design_root, generated = Path(str(self.counter) + ".where").read_text().splitlines()
+        cwd, design_root, generated, _ = self.noted
         return cwd, design_root, generated
+
+    @property
+    def noted(self) -> tuple[str, str, str, str]:
+        """The working directory, `DESIGN_ROOT`, `XEDA_GENERATED` and `PWD` of the last run."""
+        cwd, design_root, generated, pwd = (
+            Path(str(self.counter) + ".where").read_text().splitlines()
+        )
+        return cwd, design_root, generated, pwd
 
     def load(self) -> Design:
         return Design.load(self.design_file)

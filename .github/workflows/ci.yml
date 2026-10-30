@@ -180,6 +180,7 @@ jobs:
           python -m pytest -n logical
           tests/test_proc_utils.py
           tests/test_proc_utils_terminal.py
+          tests/test_run_child_pwd.py
           tests/test_remote_launch_entry.py
           tests/test_read_locks.py
           tests/test_graph_locks.py

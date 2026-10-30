@@ -608,13 +608,16 @@ The generator writes into its storage, a directory under the run root:
 tool that a Chisel generator starts in the design root, ``mill`` or ``bloop``, writes its own build
 directories there.) The key
 names one configuration (see below), so two variants of a design keep their own generated files
-side by side. Xeda sets two variables in the environment of every generator:
+side by side. Xeda sets three variables in the environment of every generator:
 
 ``DESIGN_ROOT``
     The design root.
 
 ``XEDA_GENERATED``
     The absolute path of the storage.
+
+``PWD``
+    The directory the generator runs in.
 
 The generator starts in the storage, so a relative path that it writes is a path in its output.
 The words after the executable (``args``, or the words of ``command`` after the first one) expand
@@ -641,7 +644,7 @@ the storage to it with ``args``:
         sources: ["build.sc", "core"]
 
 ``env`` is the whole environment of the generator when the recipe has one, and the generator then
-inherits nothing. A recipe may not set ``DESIGN_ROOT`` or ``XEDA_GENERATED`` in ``env``.
+inherits nothing. A recipe may not set ``DESIGN_ROOT``, ``XEDA_GENERATED`` or ``PWD`` in ``env``.
 
 The sources that a generator writes
 -----------------------------------
