@@ -66,6 +66,9 @@ class LocalSettings:
     #: The files that were read, for the origin of a value and for messages.
     user_file: Path | None = None
     local_file: Path | None = None
+    #: The project file that `local_settings(project)` was given. Its `run_root` counts here, so
+    #: it is a file of every launch with these settings, as the other two are.
+    project_file: Path | None = None
 
     def __post_init__(self) -> None:
         for name in ("user", "local", "env", "host_profiles"):
@@ -94,7 +97,7 @@ def local_settings(
     `project.path`. `config=PATH` reads the file `PATH` in place of the user file; a relative
     `PATH` resolves against the current directory now, once, and a `PATH` that does not exist is an
     error. `config=None` reads no private file. The host profiles are always read, from
-    `remotes.yaml` beside the default user file.
+    `remotes.yaml` beside the default user file. `project_file` of the result is `project.path`.
 
     The default user file and the project-local file may be missing: a missing one is no layer.
     Raises `ProjectError` (`invalid_local_settings`) for a file that is malformed, for a `PATH`
@@ -133,6 +136,7 @@ def local_settings(
         host_profiles=profiles,
         user_file=user.path if user is not None else None,
         local_file=local.path if local is not None else None,
+        project_file=project.path if project is not None else None,
     )
 
 

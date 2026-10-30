@@ -3203,9 +3203,14 @@ class FlowLauncher:
         launch_files: list[Path | None] = [given_file, project_path, design._source_file]
         if layer is not None:
             launch_files.append(Path(project_label))
-        # The private files that were loaded are files of the launch too.
+        # The private files that were loaded are files of the launch too, and so is the project
+        # file that `local_settings` was read with: it gives the run root, whatever design runs.
         if local_settings is not None:
-            launch_files += [local_settings.user_file, local_settings.local_file]
+            launch_files += [
+                local_settings.user_file,
+                local_settings.local_file,
+                local_settings.project_file,
+            ]
         self._launch_inputs = list(
             dict.fromkeys(
                 path.resolve() for path in launch_files if path is not None and path.is_file()

@@ -2250,6 +2250,26 @@ def test_a_loaded_private_settings_file_is_never_a_destination_even_with_overwri
     assert private.read_text() == "flows: {}\n" and RUNS == []
 
 
+def test_the_project_file_of_a_design_file_is_never_a_destination_even_with_overwrite_outputs(
+    world, tmp_path
+):
+    """`--xedaproject` with a design file gives the launch the run root of the project, so its
+    file is a file of the launch although none of its settings reach the design."""
+    project = tmp_path / "design" / "xedaproject.yaml"
+    text = "designs:\n  - name: other\n    rtl: {sources: [], top: top}\n"
+    project.write_text(text)
+    answer = CliRunner().invoke(
+        cli,
+        ["run", TDeliverer.name, str(world.design_file), "--xedaproject", str(project)]
+        + ["--run-root", str(world.root), "--overwrite-outputs", "--json"]
+        + ["-s", f"{TDeliverer.name}.netlist={project}"],
+    )
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 2 and document["error"]["code"] == "delivery_refused"
+    assert "an input of the run" in document["error"]["message"]
+    assert project.read_text() == text and RUNS == []
+
+
 def test_a_plan_after_an_edit_of_a_delivered_file_writes_nothing(world):
     """A plan hashes the edited file to tell whether it replaces a delivery of xeda's. It reads
     no file-system clock, which would make a marker file next to the destination."""
