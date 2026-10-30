@@ -431,25 +431,31 @@ def test_a_storage_that_was_gone_at_the_lease_hands_out_nothing(tmp_path, monkey
 
     monkeypatch.setattr(run_lock, "acquired_hook", hook)
     with record.open() as run:
-        assert run.generated_sources == {} and run.missing_generated == ("gen/top.v",)
+        assert run.generated_sources == {} and run.missing_generated == (
+            "$XEDA_GENERATED/gen/top.v",
+        )
 
 
 def test_the_record_names_the_generated_source_and_its_producer(tmp_path):
     world, _workspace, record = generated_world(tmp_path)
     (row,) = record.inputs
     (source,) = row.sources
-    assert (source.path, source.generated, source.producer) == ("gen/top.v", True, None)
+    assert (source.path, source.generated, source.producer) == (
+        "$XEDA_GENERATED/gen/top.v",
+        True,
+        None,
+    )
     assert source.generation == world.storages()[0].name
     assert source.digest and source.dependency is None
     document = record.to_dict()["inputs"][0]["sources"][0]
-    assert document["producer"] is None and document["path"] == "gen/top.v"
+    assert document["producer"] is None and document["path"] == "$XEDA_GENERATED/gen/top.v"
 
 
 def test_open_hands_out_a_generated_source_that_holds_the_bytes_of_the_run(tmp_path):
     world, _workspace, record = generated_world(tmp_path)
     (storage,) = world.storages()
     with record.open() as run:
-        assert run.generated_sources == {"gen/top.v": storage / "gen" / "top.v"}
+        assert run.generated_sources == {"$XEDA_GENERATED/gen/top.v": storage / "gen" / "top.v"}
         assert run.missing_generated == ()
 
 
@@ -458,7 +464,9 @@ def test_a_regenerated_source_is_missing_not_handed_out(tmp_path):
     (storage,) = world.storages()
     (storage / "gen" / "top.v").write_text("// regenerated\n")
     with record.open() as run:
-        assert run.generated_sources == {} and run.missing_generated == ("gen/top.v",)
+        assert run.generated_sources == {} and run.missing_generated == (
+            "$XEDA_GENERATED/gen/top.v",
+        )
         assert run.record == record
 
 
@@ -467,7 +475,9 @@ def test_a_scrubbed_generation_storage_makes_its_sources_missing(tmp_path):
     shutil.rmtree(world.storages()[0])
     before = sorted(workspace.run_root.rglob("*"))
     with record.open() as run:
-        assert run.generated_sources == {} and run.missing_generated == ("gen/top.v",)
+        assert run.generated_sources == {} and run.missing_generated == (
+            "$XEDA_GENERATED/gen/top.v",
+        )
     assert sorted(workspace.run_root.rglob("*")) == before
 
 
@@ -487,7 +497,7 @@ def test_an_open_record_keeps_a_scrub_from_removing_its_generation_storage(tmp_p
     with record.open() as run:
         thread.start()
         assert waits.wait(PROMPT), "the scrub must wait for the lease of the storage"
-        assert run.generated_sources["gen/top.v"].read_text().startswith("// one")
+        assert run.generated_sources["$XEDA_GENERATED/gen/top.v"].read_text().startswith("// one")
         assert storage.is_dir()
     thread.join(PROMPT)
     assert not thread.is_alive() and storage in outcome["result"].removed
@@ -513,8 +523,8 @@ def test_one_input_hands_out_the_sources_of_two_generators(tmp_path):
     (own,), (library,) = chain.storages("top"), chain.storages("lib1")
     with result.record.open() as run:
         assert run.generated_sources == {
-            "gen/top.v": own / "gen" / "top.v",
-            "lib1:gen/lib1.v": library / "gen" / "lib1.v",
+            "$XEDA_GENERATED/gen/top.v": own / "gen" / "top.v",
+            "lib1:$XEDA_GENERATED/gen/lib1.v": library / "gen" / "lib1.v",
         }
         assert run.missing_generated == ()
 
@@ -549,7 +559,9 @@ def test_a_dependency_source_is_found_in_its_storage_beside_a_converter_of_its_n
     named = dataclasses.replace(record, inputs=(converter, *record.inputs))
     (storage,) = chain.storages("lib1")
     with named.open() as run:
-        assert run.generated_sources == {"lib1:gen/lib1.v": storage / "gen" / "lib1.v"}
+        assert run.generated_sources == {
+            "lib1:$XEDA_GENERATED/gen/lib1.v": storage / "gen" / "lib1.v"
+        }
 
 
 def test_a_dependency_generator_source_is_named_by_its_design(tmp_path):
@@ -572,17 +584,21 @@ def test_a_dependency_generator_source_is_named_by_its_design(tmp_path):
     record = result.record
     (row,) = record.inputs
     assert [(s.path, s.generated, s.producer) for s in row.sources] == [
-        ("gen/lib1.v", True, "lib1"),
+        ("$XEDA_GENERATED/gen/lib1.v", True, "lib1"),
         ("top.v", False, None),
     ]
     (storage,) = chain.storages("lib1")
     assert row.sources[0].generation == storage.name
     with record.open() as run:
-        assert run.generated_sources == {"lib1:gen/lib1.v": storage / "gen" / "lib1.v"}
+        assert run.generated_sources == {
+            "lib1:$XEDA_GENERATED/gen/lib1.v": storage / "gen" / "lib1.v"
+        }
         assert run.missing_generated == ()
     (storage / "gen" / "lib1.v").write_text("// changed\n")
     with record.open() as run:
-        assert run.generated_sources == {} and run.missing_generated == ("lib1:gen/lib1.v",)
+        assert run.generated_sources == {} and run.missing_generated == (
+            "lib1:$XEDA_GENERATED/gen/lib1.v",
+        )
 
 
 def test_a_converter_source_is_named_by_its_node_and_read_from_its_run_directory(tmp_path):
@@ -622,7 +638,9 @@ def test_a_converter_source_is_named_by_its_node_and_read_from_its_run_directory
 def test_a_flow_that_reads_its_design_records_the_sources_it_read(tmp_path):
     reader = reader_flow()
     world = World(
-        tmp_path, sources=["gen/top.v", "extra.v"], generator={"generated_sources": ["gen/top.v"]}
+        tmp_path,
+        sources=["$XEDA_GENERATED/gen/top.v", "extra.v"],
+        generator={"generated_sources": ["$XEDA_GENERATED/gen/top.v"]},
     )
     (world.root / "extra.v").write_text("module extra; endmodule\n")
     workspace = Workspace(world.run_root)
@@ -638,16 +656,22 @@ def test_a_flow_that_reads_its_design_records_the_sources_it_read(tmp_path):
     )
     (storage,) = world.storages()
     generated, written = row.sources
-    assert (generated.path, generated.generated, generated.producer) == ("gen/top.v", True, None)
+    assert (generated.path, generated.generated, generated.producer) == (
+        "$XEDA_GENERATED/gen/top.v",
+        True,
+        None,
+    )
     assert generated.generation == storage.name and generated.digest
     assert (written.path, written.generated, written.producer) == ("extra.v", False, None)
     assert written.generation is None and written.digest and written.dependency is None
     with record.open() as run:
-        assert run.generated_sources == {"gen/top.v": storage / "gen" / "top.v"}
+        assert run.generated_sources == {"$XEDA_GENERATED/gen/top.v": storage / "gen" / "top.v"}
         assert run.missing_generated == ()
     (storage / "gen" / "top.v").write_text("// changed\n")
     with record.open() as run:
-        assert run.generated_sources == {} and run.missing_generated == ("gen/top.v",)
+        assert run.generated_sources == {} and run.missing_generated == (
+            "$XEDA_GENERATED/gen/top.v",
+        )
 
 
 def test_a_converter_row_lists_the_sources_that_pass_through(tmp_path):
@@ -664,8 +688,8 @@ def test_a_converter_row_lists_the_sources_that_pass_through(tmp_path):
 
     world = World(
         tmp_path,
-        sources=["A.bsv", "gen/top.v", "plain.v"],
-        generator={"generated_sources": ["gen/top.v"]},
+        sources=["A.bsv", "$XEDA_GENERATED/gen/top.v", "plain.v"],
+        generator={"generated_sources": ["$XEDA_GENERATED/gen/top.v"]},
     )
     (world.root / "A.bsv").write_text("package A; endpackage\n")
     (world.root / "plain.v").write_text("module plain; endmodule\n")
@@ -678,7 +702,7 @@ def test_a_converter_row_lists_the_sources_that_pass_through(tmp_path):
     (storage,) = world.storages()
     assert [(s.path, s.generated, s.producer) for s in row.sources] == [
         ("A.v", True, fake.name),
-        ("gen/top.v", True, None),
+        ("$XEDA_GENERATED/gen/top.v", True, None),
         ("plain.v", False, None),
     ]
     made, passed, written = row.sources
@@ -687,13 +711,13 @@ def test_a_converter_row_lists_the_sources_that_pass_through(tmp_path):
     with record.open() as run:
         assert run.generated_sources == {
             f"{fake.name}:A.v": converter.run_dir / "A.v",
-            "gen/top.v": storage / "gen" / "top.v",
+            "$XEDA_GENERATED/gen/top.v": storage / "gen" / "top.v",
         }
         assert run.missing_generated == ()
     (storage / "gen" / "top.v").write_text("// changed\n")
     with record.open() as run:
         assert set(run.generated_sources) == {f"{fake.name}:A.v"}
-        assert run.missing_generated == ("gen/top.v",)
+        assert run.missing_generated == ("$XEDA_GENERATED/gen/top.v",)
 
 
 # ---------------------------------------------------------------------- what a record holds
