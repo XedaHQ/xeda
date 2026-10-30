@@ -689,7 +689,8 @@ storage.
 A *tree entry* is a plain path below the design root, for example ``gen_rtl/top.v``: a file that the
 generator writes into the design tree. The path is relative to the design root, never to ``cwd``.
 A generator with ``cwd: build`` that writes ``gen/x.v`` has the entry ``build/gen/x.v``. A tree
-entry may not be absolute and may not leave the design root.
+entry may not leave the design root. An absolute path below the design root is accepted and
+counts as the path relative to the root.
 
 Use a storage entry when the tool takes an output directory. Variants of a design generate in
 parallel, each into its own storage. Use a tree entry when the tool writes into the tree and you
