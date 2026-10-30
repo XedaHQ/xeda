@@ -85,3 +85,12 @@ def test_setting_the_logs_up_again_does_not_shorten_twice(capsys):
     logging.getLogger("xeda.xeda.inner").info("hello")
 
     assert capsys.readouterr().err.count("[xeda.inner]") == 1
+
+
+def test_the_logging_of_the_process_says_whether_it_is_detailed():
+    from xeda.utils import logs_are_detailed
+
+    setup_logger(logging.INFO, True)
+    assert logs_are_detailed()
+    setup_logger(logging.INFO, False)
+    assert not logs_are_detailed()

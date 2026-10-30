@@ -425,6 +425,32 @@ def test_the_options_that_remove_run_directories_are_refused_with_remote(
     assert not (tmp_path / "local" / "xeda_run").exists()
 
 
+@pytest.mark.parametrize(
+    "arguments, detailed, level",
+    [
+        (["--detailed-logs", "--log-level", "30"], True, 30),
+        (["--detailed-logs"], True, 20),
+        ([], False, 20),
+    ],
+)
+def test_the_host_gets_the_logging_that_the_command_set_up(
+    tmp_path, remote_host, monkeypatch, arguments, detailed, level
+):
+    """`--log-level` and `--detailed-logs` set up the logging of this process. The host gets both
+    choices from that setup: `Workspace` and `Remote` have no parameter for them."""
+    sent = []
+    real = client._launch
+
+    def recorded(agent, request, launch_id, setup):
+        sent.append((request.detailed_logs, request.log_level))
+        return real(agent, request, launch_id, setup)
+
+    monkeypatch.setattr(client, "_launch", recorded)
+    result = _cli(tmp_path, _design(tmp_path), "nextpnr", *arguments)
+    assert result.exit_code == 0, result.output
+    assert sent == [(detailed, level)]
+
+
 def test_fetch_all_needs_remote(tmp_path):
     design = _design(tmp_path)
     result = CliRunner().invoke(cli, ["run", "nextpnr", str(design), "--fetch-all"])

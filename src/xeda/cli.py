@@ -88,7 +88,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .remote_value import Remote
     from .spec import Spec
     from .workspace import Workspace
-    from .utils import XedaException, removeprefix, settings_to_dict
+    from .utils import ShortLoggerNames, XedaException, settings_to_dict
 
     from .cli_completion import dispatch_shell_completion
 
@@ -122,21 +122,6 @@ else:
     RUN_STYLE = {}
 
 log = logging.getLogger(__name__)
-
-
-class ShortLoggerNames(logging.Formatter):
-    """A formatter that shows a log record with its logger name shortened (`xeda.flow` as `flow`).
-    It formats a copy of the record. The record itself, which every other handler of the process
-    also receives, keeps the name of its logger."""
-
-    def __init__(self, formatter: logging.Formatter) -> None:
-        super().__init__()
-        self.formatter = formatter
-
-    def format(self, record: logging.LogRecord) -> str:
-        shown = logging.makeLogRecord(record.__dict__)
-        shown.name = removeprefix(record.name, "xeda.")
-        return self.formatter.format(shown)
 
 
 def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
