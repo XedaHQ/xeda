@@ -47,9 +47,11 @@ def _invoke(args, env=None):
 
 def _refused(command, document, message):
     """Check the document of a usage error. `run` prints the document of a launch that did not
-    start, with the code `usage_error`. Every other command prints `success` and the error type."""
-    if command == "run":
-        assert document["outcome"] is None and document["spec"] is None
+    start, and `scrub` the document of a scrub that did not start, both with the code
+    `usage_error`. Every other command prints `success` and the error type."""
+    if command in ("run", "scrub"):
+        assert document["outcome"] is None
+        assert document["spec"] is None if command == "run" else document["removed"] == []
         assert document["error"]["code"] == "usage_error"
         assert document["error"]["message"] == message
     else:

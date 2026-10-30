@@ -769,7 +769,7 @@ Removing run directories
 ``xeda scrub <flow> <design> --json`` removes the previous run directories of a flow for one design
 (see :doc:`run-directories`) and writes a single JSON object to stdout. The listing, the
 confirmation prompt, the lines about the directories that scrub kept or found gone, and the links it
-skipped go to stderr, with the rest of its output:
+skipped go to stderr, with the rest of its output. ``--yes`` removes without the prompt:
 
 .. code-block:: json
 

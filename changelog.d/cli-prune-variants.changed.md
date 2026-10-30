@@ -1,2 +1,3 @@
-- `xeda run --scrub` is now `--prune-variants`. It removes the other run directories of every flow
-  of the plan, and it asks for the confirmation on a terminal only.
+- `xeda run --scrub` is now `--prune-variants`. It asks for confirmation on a terminal only:
+  without one it removes nothing and the log says so, unless you pass `--yes`, which `xeda scrub`
+  takes too.

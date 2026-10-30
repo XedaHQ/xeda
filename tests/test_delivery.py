@@ -2133,6 +2133,25 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
     assert replaced["outcome"] == "passed" and edited.read_text() != "my edit\n"
 
 
+def test_without_a_terminal_a_file_in_the_way_is_not_replaced_and_yes_does_not_answer(
+    sqrt_copy, caplog
+):
+    """`--yes` answers the question of a removal only. The log names `--overwrite-outputs`."""
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
+    args += ["--outputs-to", "got", "--json"]
+    first = json.loads(CliRunner().invoke(cli, args).stdout)
+    edited = Path(first["nodes"][0]["deliveries"][0]["destination"])
+    edited.write_text("my edit\n")
+    refused = CliRunner().invoke(cli, [*args, "--yes"])
+    assert refused.exit_code == 2
+    assert json.loads(refused.stdout)["error"]["code"] == "delivery_refused"
+    assert edited.read_text() == "my edit\n"
+    assert (
+        "Not replacing 1 file: no terminal to ask on. Run the command in a terminal, pass "
+        "--overwrite-outputs, or call Workspace(confirm=...) from Python to answer the question."
+    ) in [record.getMessage() for record in caplog.records]
+
+
 def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, capsys):
     from xeda.cli import _prompt_question
     from xeda.deliver import overwrite_question

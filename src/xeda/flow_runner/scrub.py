@@ -49,7 +49,7 @@ class ScrubCandidate(NamedTuple):
 #: unanswered question answers "no".
 ScrubConfirmation = Callable[[Sequence[ScrubCandidate]], bool]
 
-#: Told, when a scrub ends, what it did (`ScrubResult`). The command line shows it.
+#: Told, when a scrub ends, what it did (`ScrubResult`). A launch logs it (`log_removed`).
 ScrubDone = Callable[["ScrubResult"], None]
 
 
@@ -84,6 +84,14 @@ class ScrubResult(NamedTuple):
     skipped: list[Path]
     #: Why each skipped link was skipped.
     reasons: Mapping[Path, str] = MappingProxyType({})
+
+
+def log_removed(result: ScrubResult) -> None:
+    """Log how many run directories a scrub removed (a `ScrubDone`). A scrub that removed none
+    logged why already."""
+    count = len(result.removed)
+    if count:
+        log.info("%d director%s removed.", count, "y" if count == 1 else "ies")
 
 
 class _Removal(NamedTuple):

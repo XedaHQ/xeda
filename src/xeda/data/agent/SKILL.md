@@ -32,10 +32,12 @@ and `scrub`, `--json` moves tool output and logs to stderr. Table output wraps a
 width, so parse JSON.
 
 `xeda scrub` prompts on stdin and removes nothing unless you type `yes`:
-`echo yes | xeda scrub vivado_synth sqrt --json`. `run --prune-variants` asks only on a terminal: with
-`--json` or a pipe it removes nothing. `scrub --json` reports `removed`, `kept`, `gone`
+`echo yes | xeda scrub vivado_synth sqrt --json`, or pass `--yes` to remove without asking.
+`run --prune-variants` asks only on a terminal: with `--json` or a pipe it removes nothing and the
+log says so, unless you pass `--yes`. `--yes` answers no other question: replacing a file that
+`--outputs-to` names needs `--overwrite-outputs`. `scrub --json` reports `removed`, `kept`, `gone`
 and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
-`prune_variants` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
+`prune_variants` remove nothing unless the caller passes `confirm` (`Workspace(confirm=...)`).
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'

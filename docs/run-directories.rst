@@ -726,9 +726,10 @@ Cleaning up
        moved out of the directory, not copied (see `Outputs where you name them`_).
    * - ``--prune-variants``
      - Before the run, remove the other run directories of every flow of the plan, the producers
-       included, for this design and target. Xeda asks for confirmation. If the launch also has
-       to ask whether to replace a file that you named for an output, it asks that first. A
-       launch that you decline removes nothing. Xeda refuses ``--prune-variants`` with
+       included, for this design and target. Xeda asks for confirmation on a terminal, and
+       ``--yes`` answers yes. If the launch also has to ask whether to replace a file that you
+       named for an output, it asks that first. A launch that you decline removes nothing, and so
+       does one without a terminal and without ``--yes``. Xeda refuses ``--prune-variants`` with
        ``--remote``, because a remote launch cannot ask you.
 
 Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
@@ -797,14 +798,19 @@ these are the directories of the same design and target, hashed or plain, that t
 use. It never reaches the directories of another target.
 
 Only the command line asks for the confirmation. ``xeda run --prune-variants`` asks on a
-terminal. Without a terminal (a pipe, or ``--json``), it removes nothing and logs a warning that
-names the run directories. ``xeda scrub`` reads the answer from stdin, so ``echo yes | xeda scrub``
-removes them. The Python functions ``scrub_design`` and
-``scrub_runs``, and a ``DefaultRunner`` launch with ``prune_variants``, never prompt. They ask the
-callback that you give them (the ``confirm`` argument, or the ``confirm_scrub`` attribute of the
-launcher). The callback gets the listed run directories and returns whether to remove them. Without
-a callback, nothing is removed, and Xeda logs a warning that names the run directories. This holds
-when stdin is closed, in a notebook or a CI job.
+terminal: it lists the run directories and asks ``Remove them? [y/N]``. Without a terminal (a pipe,
+or ``--json``), it removes nothing and logs a warning that says why and what to do. ``--yes``
+removes them without a question, with or without a terminal. When it has removed some, the launch
+logs how many. ``xeda scrub`` asks you to type ``yes``, also from a pipe, so ``echo yes | xeda
+scrub`` removes the run directories. ``xeda scrub --yes`` does not ask.
+
+The Python functions ``scrub_design`` and ``scrub_runs``, ``Workspace.run`` with
+``prune_variants`` and ``Workspace.scrub`` never prompt. They ask the ``confirm`` callback that
+you give ``Workspace``, or the ``confirm`` argument of ``scrub_design`` and ``scrub_runs``. The
+callback of a workspace gets the question as a ``Question`` (a ``str`` that lists the run
+directories), and its ``removal`` is true when a yes removes run directories. The callback returns
+whether to go on. Without a callback, nothing is removed, and Xeda logs a warning that names the
+run directories. This holds when stdin is closed, in a notebook or a CI job.
 
 Xeda's space and yours
 -----------------------
@@ -954,7 +960,7 @@ tracks this in a delivery record that it keeps beside the run directory, in the 
 survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda overwrite a file
 that it should ask about first. Anything else needs ``--overwrite-outputs`` or a yes that you type
 at a terminal prompt. With ``--json``, or when there is no terminal on both ends, only the option
-works.
+works, and the log says so. ``--yes`` does not answer this question.
 
 Xeda checks all of this before any tool of the launch runs. The requested flow checks the deliveries
 of every flow of the plan when the launch starts. It reports every refusal first. For example, a

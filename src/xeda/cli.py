@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 import threading
-from collections.abc import Iterable, Iterator, Mapping, MutableMapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional, Tuple, Union
@@ -27,7 +27,7 @@ from .cli_types import (
 from .flow_catalog import flow_names
 from .pdk_cli import add_pdk_commands
 from .remote.commands import add_remote_commands
-from .types import UNSET, Unset
+from .types import UNSET, Question, Unset
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
 # but keep execution and help-rendering dependencies out of a completion process.
@@ -538,6 +538,13 @@ def _error_message(exc: BaseException) -> str:
     return f"{kind}: {text}"
 
 
+def _yes_option(func):
+    """Add `--yes`, which answers the question of a removal with yes."""
+    return click.option("--yes", is_flag=True, default=False, help="Do not ask before removing.")(
+        func
+    )
+
+
 def _option_names(message: str, command: click.Command) -> str:
     """Return `message` with each parameter of the API that it names in backticks (`post_cleanup`)
     written as the option of `command` that sets it (`--post-cleanup`)."""
@@ -770,13 +777,38 @@ def _prompt_question(question: str) -> bool:
         return False
 
 
+def _confirmation(json_flag: bool, yes: bool) -> Callable[[Question], bool]:
+    """Return how `xeda run` answers the questions of a workspace (the removal of run directories
+    and the replacement of a file), by one rule.
+
+    `--yes` answers the question of a removal with yes. Any question is asked on a terminal, where
+    the answer is yes only if the user types it. Without a terminal, nothing is removed or
+    replaced, and the log says why and what to do. `--yes` does not answer the replacement of a
+    file: `--overwrite-outputs` does."""
+
+    def answer(question: Question) -> bool:
+        if yes and question.removal:
+            return True
+        if _interactive(json_flag):
+            return _prompt_question(question)
+        log.warning(
+            "%s: no terminal to ask on. Run the command in a terminal, pass %s, or call "
+            "Workspace(confirm=...) from Python to answer the question.",
+            question.undone,
+            "--yes" if question.removal else "--overwrite-outputs",
+        )
+        return False
+
+    return answer
+
+
 def _prompt_removal(question: str) -> bool:
     """Show the directories that the question of a workspace lists and ask on the terminal (or on
     the input that stands for it) whether to remove them. The first line of the question says what
     the list is, and the last line is the question itself, which this prompt replaces. Only the
     word "yes" says yes. The answer is also no when there is no input to read: the input is at its
-    end, closed or unreadable. The commands ask even when stdin is no terminal, so a script can
-    pipe "yes" to them. The listing and the question go to stderr with `--json`."""
+    end, closed or unreadable. The command asks even when stdin is no terminal, so a script can
+    pipe "yes" to it. The listing and the question go to stderr with `--json`."""
     header, *listing, _ = question.splitlines()
     console.print(f"[red]{escape(header)}[/red]")
     for line in listing:
@@ -785,7 +817,10 @@ def _prompt_removal(question: str) -> bool:
         answer = console.input("Type 'yes' if you're sure you want to continue: ")
     except (EOFError, ValueError, OSError):
         console.print()
-        _say_scrub("Not confirmed. No files or folders were removed.")
+        _say_scrub(
+            "Not confirmed. No files or folders were removed. Pass --yes to remove without "
+            "asking."
+        )
         return False
     if answer.lower() != "yes":
         _say_scrub("Not confirmed. No files or folders were removed.")
@@ -1025,9 +1060,10 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
     "--prune-variants",
     is_flag=True,
     help="Before running, remove the other run directories of every flow of the plan, the "
-    "producers included, for this design and target; asks for confirmation. It cannot be used "
-    "with --remote.",
+    "producers included, for this design and target. It asks for confirmation on a terminal, "
+    "and without one it removes nothing unless you pass --yes. It cannot be used with --remote.",
 )
+@_yes_option
 @_removed_options("--prune-variants", "--scrub")
 @click.option(
     "--remote",
@@ -1115,6 +1151,7 @@ def run(
     post_cleanup: bool = False,
     post_cleanup_purge: bool = False,
     prune_variants: bool = False,
+    yes: bool = False,
     remote: Optional[str] = None,
     fetch_all: bool = False,
     keep_running: bool = False,
@@ -1264,7 +1301,7 @@ def run(
             run_root,
             hashed_run_dirs=hashed_run_dirs,
             tool_output="terminal",
-            confirm=_prompt_question if _interactive(json_flag) else None,
+            confirm=_confirmation(json_flag, yes),
             remote=(
                 Remote(
                     remote,
@@ -1672,6 +1709,7 @@ def dse(
         "the default: scrub always looks in <design>/ for <flow> and <flow>_<hash> directories"
     ),
 )
+@_yes_option
 @click.option(
     "--json",
     "json_flag",
@@ -1683,14 +1721,14 @@ def dse(
     ),
 )
 @click.pass_context
-def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
+def scrub(ctx: click.Context, flow, design_name, target, run_root, yes, json_flag):
     """Remove the previous run directories of FLOW_NAME for DESIGN_NAME.
 
     The run directories lie under <run root>/<design_name>: those directly under the design and
     those of every target (<design_name>/<target>/). With --target, only the run directories of
-    that target are removed. Xeda lists the run directories and asks once for confirmation. It
-    skips a link that is named like a run directory but does not lead to a run directory of the
-    flow beside it, and says so."""
+    that target are removed. Xeda lists the run directories and asks once for confirmation;
+    --yes answers yes. It skips a link that is named like a run directory but does not lead to a
+    run directory of the flow beside it, and says so."""
     if json_flag:
         machine_readable_mode()
     workspace: Workspace | None = None
@@ -1714,7 +1752,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     try:
         if target is not None and (problem := target_name_problem(target)) is not None:
             raise RunDirectoryError(problem)
-        workspace = Workspace(run_root, confirm=_prompt_removal)
+        workspace = Workspace(run_root, confirm=(lambda question: True) if yes else _prompt_removal)
         result = workspace.scrub(
             design_name=design_name, flow=flow, target=UNSET if target is None else target
         )

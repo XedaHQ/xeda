@@ -138,6 +138,6 @@ def test_scrub_removed_incremental_names_its_replacement(sqrt):
         catch_exceptions=False,
     )
     document = json.loads(result.stdout)
-    assert result.exit_code != 0
-    assert document["success"] is False
+    assert result.exit_code == 2
+    assert document["outcome"] is None and document["error"]["code"] == "usage_error"
     assert "scrub always looks in <design>/" in document["error"]["message"]

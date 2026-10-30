@@ -162,6 +162,26 @@ def test_the_command_removes_on_yes(tree):
     assert not any(directory.exists() for directory in directories)
 
 
+def test_the_command_removes_with_yes_and_asks_nothing(tree, no_terminal):
+    """`--yes` answers the question: no input is read, also with a closed standard input."""
+    run_root, _design_dir, directories = tree
+    result = CliRunner().invoke(
+        cli, ["scrub", FLOW, "sqrt", "--run-root", str(run_root), "--yes", "--json"]
+    )
+    document = json.loads(result.stdout)
+    assert document["outcome"] == "passed" and sorted(document["removed"]) == sorted(
+        str(directory) for directory in directories
+    )
+    assert not any(directory.exists() for directory in directories)
+
+
+def test_the_command_that_cannot_read_an_answer_says_that_yes_removes_without_asking(tree):
+    run_root, _design_dir, directories = tree
+    result = _invoke_scrub(run_root, "")
+    assert "Pass --yes to remove without asking." in result.stderr
+    assert _all_exist(directories)
+
+
 @pytest.mark.parametrize("text", ["", "no\n"])
 def test_the_command_removes_nothing_without_a_yes(tree, text):
     """No input at all (stdin at its end) is a no, not an error. The one JSON document says that

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..local_settings import LocalSettings
+from ..types import Question
 
 __all__ = ["LaunchOptions", "WorkspaceOptions"]
 
@@ -58,7 +59,7 @@ class WorkspaceOptions:
     run_root: Path
     hashed_run_dirs: bool
     tool_output: str
-    confirm: Callable[[str], bool] | None = field(compare=False)
+    confirm: Callable[[Question], bool] | None = field(compare=False)
     remote: Any | None
     local_settings: LocalSettings | None
 

@@ -21,13 +21,14 @@ from .events import Event
 from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.plan_check import workspace_difference
+from .flow_runner.scrub import log_removed
 from .local_settings import LocalSettings
 from .plan import Plan, dependency_entries, plan_of
 from .remote_value import Remote
 from .records import RecordProblem, RunListing, RunRecord, read_record, read_stored_record
 from .run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from .spec import Spec
-from .types import UNSET, PathLike, Unset
+from .types import UNSET, PathLike, Question, Unset
 
 __all__ = ["Workspace"]
 
@@ -37,20 +38,32 @@ if TYPE_CHECKING:
     from .flow_runner.scrub import ScrubCandidate, ScrubResult
 
 
-def _prune_question(candidates: "Sequence[ScrubCandidate]") -> str:
-    lines = [f"Xeda would remove these {len(candidates)} run directories:"]
+def _listing(header: str, candidates: "Sequence[ScrubCandidate]") -> list[str]:
+    lines = [header]
     for candidate in candidates:
         lines.append(f"  {candidate.path}")
         lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
-    return "\n".join([*lines, "Remove them?"])
+    return lines
 
 
-def _removal_question(candidates: "Sequence[ScrubCandidate]") -> str:
-    lines = [f"Xeda would remove these {len(candidates)} directories:"]
-    for candidate in candidates:
-        lines.append(f"  {candidate.path}")
-        lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
-    return "\n".join([*lines, "Remove them?"])
+def _prune_question(candidates: "Sequence[ScrubCandidate]") -> Question:
+    count = len(candidates)
+    lines = _listing(f"Xeda would remove these {count} run directories:", candidates)
+    return Question(
+        "\n".join([*lines, "Remove them?"]),
+        removal=True,
+        undone=f"Not removing {count} run director{'y' if count == 1 else 'ies'}",
+    )
+
+
+def _removal_question(candidates: "Sequence[ScrubCandidate]") -> Question:
+    count = len(candidates)
+    lines = _listing(f"Xeda would remove these {count} directories:", candidates)
+    return Question(
+        "\n".join([*lines, "Remove them?"]),
+        removal=True,
+        undone=f"Not removing {count} director{'y' if count == 1 else 'ies'}",
+    )
 
 
 def _checked_design_name(name: str) -> str:
@@ -76,7 +89,8 @@ class Workspace:
     `hashed_run_dirs` adds the hash of the run to the name of a run directory. `tool_output` is
     `"log"` (a tool writes only to the log files of its run directory) or `"terminal"` (it also
     writes to the output and error streams of this process). `confirm` answers the questions that
-    a launch asks, and `None` answers "no". `remote` is the host that runs the launches (a
+    a launch asks, and `None` answers "no". It gets a `Question`, which is a `str`. Its `removal`
+    is true when a yes removes run directories. `remote` is the host that runs the launches (a
     `Remote`). Planning and running then happen on that host, and the run directories of a launch
     are in the mirror `<run root>/@<host>` here. `local_settings` are the private settings layers,
     as `local_settings()` reads them."""
@@ -84,7 +98,7 @@ class Workspace:
     run_root: Path
     hashed_run_dirs: bool
     tool_output: Literal["log", "terminal"]
-    confirm: Callable[[str], bool] | None
+    confirm: Callable[[Question], bool] | None
     remote: Remote | None
     local_settings: LocalSettings | None
 
@@ -94,7 +108,7 @@ class Workspace:
         *,
         hashed_run_dirs: bool = False,
         tool_output: Literal["log", "terminal"] = "log",
-        confirm: Callable[[str], bool] | None = None,
+        confirm: Callable[[Question], bool] | None = None,
         remote: Remote | None = None,
         local_settings: LocalSettings | None = None,
     ) -> None:
@@ -314,6 +328,7 @@ class Workspace:
         if self.remote is not None:
             return self._run_remote(spec, options, expected, cancel, on_event)
         runner = self._runner(DefaultRunner)
+        runner.scrub_done = log_removed
         if self.confirm is not None:
             answer = self.confirm
             runner.confirm_overwrite = lambda conflicts: answer(overwrite_question(conflicts))

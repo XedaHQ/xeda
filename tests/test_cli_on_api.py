@@ -24,7 +24,7 @@ from xeda.frozen import thaw
 from xeda.outcomes import result_from_dict
 from xeda.run_root import ensure_run_root
 from xeda.spec import Spec
-from xeda.types import UNSET
+from xeda.types import UNSET, Question
 from xeda.workspace import Workspace
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
@@ -33,6 +33,12 @@ from .flow_registry import preserved_flow_registry
 pytestmark = pytest.mark.python_compat
 
 FLOW = "yosys_fpga"
+#: A question of a launch that removes run directories, as a workspace asks it.
+REMOVAL = Question(
+    "Xeda would remove these 1 run directories:\n  x\nRemove them?",
+    removal=True,
+    undone="Not removing 1 run directory",
+)
 LAUNCH_OPTIONS = (
     "rebuild_all",
     "clean",
@@ -116,7 +122,7 @@ class Call:
             "run_root": workspace.run_root,
             "hashed_run_dirs": workspace.hashed_run_dirs,
             "tool_output": workspace.tool_output,
-            "confirm": workspace.confirm is not None,
+            "answers.removal": workspace.confirm is not None and workspace.confirm(REMOVAL),
             "local_settings.user_file": workspace.local_settings.user_file,
             "remote.host": remote and remote.host,
             "remote.profile.root": remote and remote.profile and remote.profile["root"],
@@ -223,6 +229,7 @@ def rows(world: dict[str, Path]) -> dict[str, tuple]:
         ),
         "--fetch-all": (["--fetch-all"], {"remote.fetch_all": True}, True),
         "--keep-running": (["--keep-running"], {"remote.keep_running": True}, True),
+        "--yes": (["--yes"], {"answers.removal": True}),
         "--dry-run": (["--dry-run"], {"call": "plan"}),
     }
 
@@ -245,6 +252,7 @@ OPTIONS = [
     "--remote",
     "--fetch-all",
     "--keep-running",
+    "--yes",
     "--dry-run",
 ]
 
@@ -333,13 +341,25 @@ def test_two_items_that_set_one_setting_to_two_values_never_reach_the_workspace(
 def test_the_flow_and_the_tool_output_are_those_of_the_command(calls, world):
     given = view_of(calls, "run", "yosys_fpga+nextpnr", world["design"])
     assert given["flow"] == "yosys_fpga+nextpnr" and given["tool_output"] == "terminal"
-    assert given["call"] == "run" and given["confirm"] is False
+    assert given["call"] == "run" and given["answers.removal"] is False
 
 
-def test_a_terminal_gets_the_prompt_as_the_confirmation(calls, world, monkeypatch):
+def test_a_question_keeps_its_meaning_through_a_copy_and_a_pickle():
+    import copy
+    import pickle
+
+    for again in (copy.deepcopy(REMOVAL), pickle.loads(pickle.dumps(REMOVAL))):
+        assert again == REMOVAL and (again.removal, again.undone) == (True, REMOVAL.undone)
+
+
+def test_a_question_is_asked_on_a_terminal_and_not_with_json(calls, world, monkeypatch):
     monkeypatch.setattr(cli_module, "_interactive", lambda json_flag: not json_flag)
-    assert view_of(calls, "run", FLOW, world["design"])["confirm"] is True
-    assert view_of(calls, "run", FLOW, world["design"], "--json")["confirm"] is False
+    asked = []
+    monkeypatch.setattr(cli_module, "_prompt_question", lambda question: asked.append(1) or True)
+    assert view_of(calls, "run", FLOW, world["design"])["answers.removal"] is True
+    assert asked == [1]
+    assert view_of(calls, "run", FLOW, world["design"], "--json")["answers.removal"] is False
+    assert asked == [1], "with --json nothing is asked"
 
 
 @pytest.mark.parametrize(
@@ -571,6 +591,62 @@ def _design(path: Path):
     return Design.load(path)
 
 
+# --------------------------------------------------------------------------- the questions
+
+
+def variants_of(run_root: Path) -> list[Path]:
+    return sorted(p for p in (run_root / "demo").glob("t_maker_*") if p.is_dir())
+
+
+def variant(maker, text: str, *arguments) -> tuple[Any, list[Path]]:
+    """Run `t_maker` with its own `text` (so, in a run directory of its own) and return the answer
+    and the run directories of the flow that exist then."""
+    design, run_root = maker
+    answer = invoke(
+        "run", "t_maker", design, "--run-root", run_root, "--hashed-run-dirs", "--json",
+        "-s", f"t_maker.text={text}", *arguments,
+    )  # fmt: skip
+    return answer, variants_of(run_root)
+
+
+NO_TERMINAL = (
+    "Not removing {what}: no terminal to ask on. Run the command in a terminal, pass --yes, or "
+    "call Workspace(confirm=...) from Python to answer the question."
+)
+
+
+def test_without_a_terminal_and_without_yes_a_prune_removes_nothing_and_says_why(maker, caplog):
+    variant(maker, "one")
+    answer, directories = variant(maker, "two", "--prune-variants")
+    assert answer.exit_code == 0 and len(directories) == 2
+    assert NO_TERMINAL.format(what="1 run directory") in [r.getMessage() for r in caplog.records]
+    assert "nothing confirmed the removal" not in caplog.text
+
+
+def test_yes_prunes_without_a_terminal_and_the_log_says_how_many(maker, caplog):
+    variant(maker, "one")
+    variant(maker, "two")
+    answer, directories = variant(maker, "three", "--prune-variants", "--yes")
+    assert answer.exit_code == 0 and len(directories) == 1
+    assert "2 directories removed." in [r.getMessage() for r in caplog.records]
+    assert "no terminal" not in caplog.text
+
+
+@pytest.mark.parametrize("reply, kept", [("y\n", 1), ("n\n", 2), ("\n", 2)])
+def test_on_a_terminal_a_prune_shows_the_directories_and_asks(maker, monkeypatch, reply, kept):
+    monkeypatch.setattr(cli_module, "_interactive", lambda json_flag: True)
+    variant(maker, "one")
+    design, run_root = maker
+    answer = invoke(
+        "run", "t_maker", design, "--run-root", run_root, "--hashed-run-dirs", "--prune-variants",
+        "-s", "t_maker.text=two", input=reply,
+    )  # fmt: skip
+    text = click.unstyle(answer.output)
+    assert answer.exit_code == 0 and "Xeda would remove these 1 run directories:" in text
+    assert "Remove them? [y/N]:" in text
+    assert len(variants_of(run_root)) == kept
+
+
 # -------------------------------------------------------------------------------------- Ctrl-C
 
 
@@ -621,6 +697,11 @@ def test_scrub_asks_even_when_nobody_can_see_the_prompt(scrubs, tmp_path):
     """The command asks with `--json` too, so that `echo yes | xeda scrub` works."""
     invoke("scrub", FLOW, "demo", "--json", "--run-root", tmp_path / "root")
     assert scrubs[0][0].confirm is cli_module._prompt_removal
+
+
+def test_scrub_with_yes_answers_the_question_with_yes(scrubs, tmp_path):
+    invoke("scrub", FLOW, "demo", "--yes", "--run-root", tmp_path / "root")
+    assert scrubs[0][0].confirm(REMOVAL) is True
 
 
 @pytest.mark.parametrize("spelling", ["open_xc7", "openxc7", "OpenXC7", "open-xc7"])
