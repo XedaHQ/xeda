@@ -315,7 +315,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`tests/test_cli_json_contract.py`).
 - The library never prompts: an unanswered question answers "no". Only `cli.py` asks, through a
   callback it passes (`confirm_overwrite`, `confirm_scrub` / `scrub_design(confirm=)`);
-  `--remote --scrub` is refused at planning (`tests/test_remote_client.py`). A prompt call
+  `--remote --prune-variants` is refused at planning (`tests/test_remote_client.py`). A prompt call
   elsewhere in `src/xeda` fails `tests/test_scrub_no_prompt.py`.
 - CLI: two parameters never share a destination; commands use `XedaCommand`
   (`tests/test_hidden_options.py`); options read only declared environment variables; a behavior

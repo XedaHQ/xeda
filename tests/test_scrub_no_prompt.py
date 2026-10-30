@@ -2,7 +2,7 @@
 
 Only the command line asks the user, through the confirmation it passes (`ScrubConfirmation`).
 A caller without a terminal (a notebook, a CI job, a pipe) removes nothing, and the command line
-refuses `--scrub` with `--remote`, since the host cannot ask.
+refuses `--prune-variants` with `--remote`, since the host cannot ask.
 """
 
 import ast

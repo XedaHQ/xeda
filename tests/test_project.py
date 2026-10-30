@@ -1046,22 +1046,6 @@ def test_no_design_and_no_project_is_the_usage_error_it_was(tmp_path, monkeypatc
 # ------------------------------------------- the project file of a design file is protected
 
 
-def test_the_command_line_hands_the_launcher_the_project_of_a_design_file(tmp_path, monkeypatch):
-    """The project supplies the run root, so it is a file of the launch, whichever design runs."""
-    path = cli_project(tmp_path, monkeypatch)
-    seen = []
-
-    class Recording(DefaultRunner):
-        def resolve_run(self, flow, design=None, xedaproject=None, *args, **kwargs):
-            seen.append((design, xedaproject))
-            raise RuntimeError("recorded")
-
-    monkeypatch.setattr(xeda.cli, "DefaultRunner", Recording)
-    CliRunner().invoke(cli, ["run", "vivado_synth", "other.yaml", *PART])
-    CliRunner().invoke(cli, ["run", "vivado_synth", "--design-name", "fifo", *PART])
-    assert [Path(project) for _design, project in seen] == [path, path]
-
-
 def test_a_project_is_a_launch_input_of_a_design_file_without_a_layer(tmp_path, monkeypatch):
     path = cli_project(tmp_path, monkeypatch)
     runner = DefaultRunner(tmp_path / "run")

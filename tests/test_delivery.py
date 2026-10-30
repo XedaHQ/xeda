@@ -2134,7 +2134,8 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
 
 
 def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, capsys):
-    from xeda.cli import _prompt_overwrite
+    from xeda.cli import _prompt_question
+    from xeda.deliver import overwrite_question
 
     destination = Path("/u/sqrt.bit")
     conflict = Conflict(
@@ -2143,7 +2144,7 @@ def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, 
         "not recorded as delivered from sqrt: yours, or another run's",
     )
     monkeypatch.setattr("click.confirm", lambda text, default, err: default)
-    assert _prompt_overwrite([conflict]) is False
+    assert _prompt_question(overwrite_question([conflict])) is False
     assert "/u/sqrt.bit" in capsys.readouterr().err
 
 

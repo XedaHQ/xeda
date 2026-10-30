@@ -2,6 +2,7 @@
 directory once."""
 
 import json
+import signal
 from pathlib import Path
 from typing import ClassVar
 
@@ -11,9 +12,12 @@ import pytest
 from click.testing import CliRunner
 
 from xeda.flow import MetricSpec
+from xeda.cancel import launch_canceled
 from xeda.cli import cli
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowFatalError, In, Out, registered_flows
+from xeda.utils import Canceled
+from xeda.workspace import Workspace
 
 pytestmark = pytest.mark.python_compat
 
@@ -92,7 +96,10 @@ def toys():
             )
 
         def run(self) -> None:
-            raise KeyboardInterrupt
+            # What the terminal does on Ctrl-C: the command's handler asks the launch to stop.
+            signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+            assert launch_canceled()
+            raise Canceled("stopped by Ctrl-C")
 
     classes = (ToyNodeProducer, ToyNodeFailing, ToyNodeTwice, ToyNodeInterrupted)
     yield classes
@@ -139,8 +146,10 @@ def test_a_failed_launch_reports_the_nodes_that_ran(toys, design):
 def test_an_interrupted_launch_prints_the_run_document_of_a_canceled_launch(toys, design):
     """Ctrl-C ends the launch, and `--json` still prints one run document: the launch is
     canceled, the producer that passed keeps its record, and the node that was running is
-    canceled."""
+    canceled. The handler of the signal is the one that was there before the command."""
+    before = signal.getsignal(signal.SIGINT)
     result, document = _run("toy_node_interrupted", str(design))
+    assert signal.getsignal(signal.SIGINT) == before
     assert result.exit_code == 1 and document["outcome"] == "canceled"
     assert document["error"]["code"] == "canceled" and document["error"]["node"] is None
     assert [(node["flow"], node["outcome"]) for node in document["nodes"]] == [
@@ -213,16 +222,14 @@ def test_the_consumer_of_a_rejected_flow_is_blocked(toys, design):
 
 def test_the_cli_prints_the_document_of_the_result_it_got(toys, design, monkeypatch):
     """The command prints `Result.to_dict()` of the result of the launch, and nothing else."""
-    import xeda.cli as cli_module
-
     seen = []
-    real = cli_module.launch_result
+    real = Workspace.run
 
-    def capture(*args, **kwargs):
-        seen.append(real(*args, **kwargs))
+    def capture(self, *args, **kwargs):
+        seen.append(real(self, *args, **kwargs))
         return seen[-1]
 
-    monkeypatch.setattr(cli_module, "launch_result", capture)
+    monkeypatch.setattr(Workspace, "run", capture)
     for flow, status in (("toy_node_failing", 1), ("toy_node_twice", 0)):
         result, document = _run(flow, str(design))
         assert result.exit_code == status
@@ -230,11 +237,9 @@ def test_the_cli_prints_the_document_of_the_result_it_got(toys, design, monkeypa
     assert len(seen) == 2
 
 
-def test_a_bug_before_any_node_runs_is_a_failed_launch_with_every_node_skipped(
-    toys, design, monkeypatch
-):
+def test_a_bug_inside_the_launch_is_a_failed_launch_with_no_node(toys, design, monkeypatch):
     """An exception that is no refusal of the request ends the launch with an error of its own
-    (`internal_error`). The planned nodes did not start: they are skipped."""
+    (`internal_error`). The command knows no plan then, so the document lists no node."""
     from xeda.flow_runner import DefaultRunner
 
     def broken(self, request, plan):
@@ -245,11 +250,9 @@ def test_a_bug_before_any_node_runs_is_a_failed_launch_with_every_node_skipped(
     assert result.exit_code == 1 and document["outcome"] == "failed"
     assert document["error"]["code"] == "internal_error" and document["error"]["node"] is None
     assert document["error"]["message"] == "a bug"
-    assert [(n["name"], n["outcome"]) for n in document["nodes"]] == [
-        ("toy_node_producer", "skipped"),
-        ("toy_node_twice", "skipped"),
-    ]
-    assert document["roots"] == ["toy_node_twice"]
+    assert (document["roots"], document["nodes"]) == ([], [])
+    assert document["launch_id"], "the document names the launch of the log records"
+    assert document["spec"]["design_file"] == str(design)
 
 
 def test_a_bug_before_the_plan_is_a_failed_launch_with_no_node(toys, design, monkeypatch):
@@ -258,7 +261,7 @@ def test_a_bug_before_the_plan_is_a_failed_launch_with_no_node(toys, design, mon
     def broken(self, *args, **kwargs):
         raise RuntimeError("a bug")
 
-    monkeypatch.setattr(DefaultRunner, "resolve_run", broken)
+    monkeypatch.setattr(DefaultRunner, "_judged_request", broken)
     result, document = _run("toy_node_twice", str(design))
     assert result.exit_code == 1 and document["outcome"] == "failed"
     assert document["error"]["code"] == "internal_error"
@@ -277,7 +280,7 @@ def test_ctrl_c_while_planning_prints_one_document_without_an_outcome(
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(DefaultRunner, "plan_launch" if dry_run else "resolve_run", interrupted)
+    monkeypatch.setattr(DefaultRunner, "_judged_request", interrupted)
     result, document = _run("toy_node_producer", str(design), *(["--dry-run"] if dry_run else []))
     assert result.exit_code == 1
     assert document["outcome"] is None and document["error"]["code"] == "canceled"

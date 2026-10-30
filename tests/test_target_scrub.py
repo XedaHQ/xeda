@@ -12,7 +12,7 @@ never goes into a run directory. The oracles:
 - a refused name touches nothing, and so does a link that leads out of the run root;
 - a held read lease blocks the scrub until released, and what is at each path is judged again
   after it, by what it is then and not by whether it is the directory that was listed;
-- the `--scrub` of a launch cannot reach another target.
+- the `--prune-variants` of a launch cannot reach another target.
 """
 
 import json
@@ -493,7 +493,7 @@ def launch_writes_into(directory: Path) -> None:
 def test_a_launch_writing_into_a_candidate_while_scrub_waits_for_its_lock_does_not_stop_the_scrub(
     tmp_path, monkeypatch
 ):
-    """What the `--scrub` of one launch meets: it lists the run directory of another variant, which
+    """What the `--prune-variants` of one launch meets: it lists the run directory of another variant, which
     is being launched, and waits for its lock. A launch that finds its run fresh writes a marker in
     the directory to read the file-system clock. That changes no run record. The directory is the
     one that was listed with more files in it, and still a run directory of the flow: it is
@@ -602,7 +602,7 @@ def test_only_a_missing_name_is_gone(tmp_path):
 
 
 def test_two_scrubs_that_listed_the_same_run_directories_both_succeed(tmp_path, monkeypatch):
-    """`xeda scrub` twice at once, or a launch with `--scrub` beside another scrub, list the same
+    """`xeda scrub` twice at once, or a launch with `--prune-variants` beside another scrub, list the same
     run directories. Each one goes to the scrub that locks it first. The other finds it gone,
     which is what it wanted, and goes on: neither scrub fails, and each directory is removed once.
     """
@@ -1208,7 +1208,7 @@ def test_the_scrub_of_a_launch_stays_in_its_own_target(tmp_path, confirmations):
 
 
 def test_scrub_runs_keeps_its_one_directory_contract(tmp_path, confirmations):
-    """`--scrub` and the embedded oracles call `scrub_runs(flow, directory, exclude, run_root)`."""
+    """`--prune-variants` and the embedded oracles call `scrub_runs(flow, directory, exclude, run_root)`."""
     tree = Tree(tmp_path)
     assert ask_scrub_runs(FLOW, tree.design, [tree.direct[0]], run_root=tree.root) is True
     assert tree.present(tree.direct) == [True, False]
@@ -1218,7 +1218,7 @@ def test_scrub_runs_keeps_its_one_directory_contract(tmp_path, confirmations):
 def test_a_launch_never_lists_its_own_run_directory_when_a_sibling_removes_it_meanwhile(
     tmp_path, monkeypatch
 ):
-    """Two launches of variants of one flow, each with `--scrub`, remove each other's run
+    """Two launches of variants of one flow, each with `--prune-variants`, remove each other's run
     directory. A launch's own can go while it lists: seen as a directory, then gone. It is still
     its own, and no candidate: the listing leaves it out whether or not it exists."""
     tree = Tree(tmp_path)

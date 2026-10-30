@@ -698,7 +698,7 @@ the declared outputs under ``<run root>/@<host>/``, with the same layout as a lo
 (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
 reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
 ``--rebuild-all`` and ``--dry-run`` act on the remote run directories, as they do for a local run.
-``--scrub`` is refused: a remote launch cannot ask you to confirm it.
+``--prune-variants`` is refused: a remote launch cannot ask you to confirm it.
 ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories are not on
 your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
@@ -724,11 +724,12 @@ Cleaning up
        Every link that names the run directory beside it (see `Where it goes`_) goes with the
        directory, as with ``xeda scrub``. A file that is delivered to a location you named is
        moved out of the directory, not copied (see `Outputs where you name them`_).
-   * - ``--scrub``
-     - Before the run, remove the other run directories of the flow for this design. Xeda asks
-       for confirmation. If the launch also has to ask whether to replace a file that you named
-       for an output, it asks that first. A launch that you decline removes nothing. Xeda
-       refuses ``--scrub`` with ``--remote``, because a remote launch cannot ask you.
+   * - ``--prune-variants``
+     - Before the run, remove the other run directories of every flow of the plan, the producers
+       included, for this design and target. Xeda asks for confirmation. If the launch also has
+       to ask whether to replace a file that you named for an output, it asks that first. A
+       launch that you decline removes nothing. Xeda refuses ``--prune-variants`` with
+       ``--remote``, because a remote launch cannot ask you.
 
 Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
 therefore not reused, even though its ``settings.json`` and ``results.json`` remain.
@@ -790,12 +791,15 @@ taken its read lease on the directory of the producer. The consumer then fails w
 directory that is being removed. This is the intended behavior: the launch fails and reads nothing.
 Do not scrub a flow whose runs other launches are starting to use.
 
-``--scrub`` on a launch (``prune_variants`` in Python) removes the other run directories of every
+``--prune-variants`` on a launch (``prune_variants`` in Python) removes the other run directories of every
 flow of the plan, the producers included, and not only those of the requested flow. For each flow,
 these are the directories of the same design and target, hashed or plain, that the launch does not
 use. It never reaches the directories of another target.
 
-Only the command line asks for the confirmation. The Python functions ``scrub_design`` and
+Only the command line asks for the confirmation. ``xeda run --prune-variants`` asks on a
+terminal. Without a terminal (a pipe, or ``--json``), it removes nothing and logs a warning that
+names the run directories. ``xeda scrub`` reads the answer from stdin, so ``echo yes | xeda scrub``
+removes them. The Python functions ``scrub_design`` and
 ``scrub_runs``, and a ``DefaultRunner`` launch with ``prune_variants``, never prompt. They ask the
 callback that you give them (the ``confirm`` argument, or the ``confirm_scrub`` attribute of the
 launcher). The callback gets the listed run directories and returns whether to remove them. Without
@@ -956,7 +960,7 @@ Xeda checks all of this before any tool of the launch runs. The requested flow c
 of every flow of the plan when the launch starts. It reports every refusal first. For example, a
 file of the design, or a file that a setting reads, may lie in the run directory of the flow that
 reads it. Then it asks its questions, its own last. No refusal or question therefore comes after
-minutes of tool time. All of them come before ``--scrub`` removes anything, and while no other
+minutes of tool time. All of them come before ``--prune-variants`` removes anything, and while no other
 launch or scrub of the run directory has to wait.
 
 A yes holds for the file you were asked about. If that file changes before the launch reaches the

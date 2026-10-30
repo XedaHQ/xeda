@@ -5,8 +5,11 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import signal
 import sys
-from collections.abc import Iterable, Mapping, MutableMapping
+import threading
+from collections.abc import Iterable, Iterator, Mapping, MutableMapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional, Sequence, Tuple, Union
 
@@ -47,14 +50,12 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         resolve_format,
     )
     from .console import console
-    from .deliver import Conflict
     from .design import DESIGN_NAME, Design, DesignFileParseError, target_name_problem
     from .errors import ProjectError, SettingsError
     from .local_settings import LocalSettings, local_settings
     from .project import Project
     from .xedaproject import PROJECT_FILE_NAMES, resolve_project_file
     from .flow_runner import (
-        DefaultRunner,
         add_file_logger,
         get_flow_class,
         scrub_design,
@@ -64,9 +65,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.dse.dse_runner import RESULTS_SHOWN
     from .flow_runner.error_codes import public_error, request_error_info
     from .flow_runner.launch_report import results_of
-    from .flow_runner.launch_result import failed_result, launch_result
     from .records import CANCELED, ErrorInfo
-    from .flow_runner.resolver import Plan
     from .flow_runner.scrub import ScrubCandidate, ScrubResult
     from .log_context import launch_id_of
     from .flow_runner.settings_layers import command_line_table
@@ -85,9 +84,11 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .run_dir import RunDirectoryError
     from .run_root import RunRootError, ensure_run_root
     from .outcomes import Outcome, run_document, spec_document
-    from .plan import dependency_entries, plan_of, spec_document as spec_of
-    from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from .plan import spec_document as spec_of
+    from .cancel import CancelToken
+    from .remote_value import Remote
     from .spec import Spec
+    from .workspace import Workspace
     from .utils import XedaException, removeprefix, settings_to_dict
 
     from .cli_completion import dispatch_shell_completion
@@ -624,16 +625,11 @@ def _load_design(
     design: Path | str | None, project: Project | None, updates: Iterable[str], target: Any
 ) -> Design:
     """Return the design that the command selects: the file of the argument, else a design of the
-    project. `updates` are the `--design-updates` items. This is the way that a launcher loads
-    a design of a request."""
+    project. `updates` are the `--design-updates` items."""
     merged = settings_to_dict(list(updates)) if updates else {}
     if isinstance(design, Path):
-        return Design._load_file(
-            design,
-            updates=(merged,) if merged else (),
-            target=None if target is UNSET else target,
-        )
-    if project is None:
+        selected = Design.load(design, target=None if target is UNSET else target)
+    elif project is None:
         given = f"'{design}' is not a design file, and" if design else "No design was given, and"
         raise ProjectError(
             f"{given} there is no project file to take a design from. Give one with "
@@ -642,7 +638,8 @@ def _load_design(
             ".json).",
             code="project_file_not_found",
         )
-    selected = project.design(design if design else UNSET, target=target)
+    else:
+        selected = project.design(design if design else UNSET, target=target)
     return selected.with_updates(merged) if merged else selected
 
 
@@ -747,24 +744,32 @@ def _cli_run_root(run_root: Path, local: LocalSettings) -> Path:
     return local.run_root
 
 
+@contextmanager
+def _cancel_on_interrupt(token: CancelToken | None) -> Iterator[None]:
+    """Cancel the launch of `token` on the first Ctrl-C, for the time of the block. The launch
+    then ends as a `Result` with the outcome `canceled`. A second Ctrl-C raises
+    `KeyboardInterrupt`. Without a token, or outside the main thread, no handler is installed."""
+    if token is None or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def handler(_number: int, _frame: Any) -> None:
+        token.cancel()
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+
+    previous = signal.signal(signal.SIGINT, handler)
+    try:
+        yield
+    finally:
+        signal.signal(
+            signal.SIGINT, previous if previous is not None else signal.default_int_handler
+        )
+
+
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
     not machine-readable."""
     return not json_flag and sys.stdin.isatty() and sys.stderr.isatty()
-
-
-def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
-    """Ask on the terminal whether to replace the files that are in the way of the named outputs.
-    The default answer is no, and the answer is also no when the question cannot be answered."""
-    click.echo(
-        f"Xeda would replace {len(conflicts)} file(s) at the output paths you named:", err=True
-    )
-    for conflict in conflicts:
-        click.echo(f"  {conflict.destination}   {conflict.why}", err=True)
-    try:
-        return click.confirm("Replace them?", default=False, err=True)
-    except click.Abort:
-        return False
 
 
 def _prompt_question(question: str) -> bool:
@@ -1033,12 +1038,13 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
     "delivered to a location you named is moved there instead of copied, when it can be.",
 )
 @click.option(
-    "--scrub",
+    "--prune-variants",
     is_flag=True,
     help="Before running, remove the other run directories of every flow of the plan, the "
-    "producers included, for this design; asks for confirmation. It cannot be used with "
-    "--remote.",
+    "producers included, for this design and target; asks for confirmation. It cannot be used "
+    "with --remote.",
 )
+@_removed_options("--prune-variants", "--scrub")
 @click.option(
     "--remote",
     type=str,
@@ -1124,7 +1130,7 @@ def run(
     detailed_logs: bool = False,
     post_cleanup: bool = False,
     post_cleanup_purge: bool = False,
-    scrub: bool = False,
+    prune_variants: bool = False,
     remote: Optional[str] = None,
     fetch_all: bool = False,
     keep_running: bool = False,
@@ -1149,7 +1155,6 @@ def run(
     if log_level is None:
         log_level = logging.INFO
     setup_logger(log_level, detailed_logs)
-    # Every `-s` item starts with the node that it addresses.
 
     # The positional DESIGN argument is a design file, and --design-name names a design of the
     # project. Neither selects the only design of the project (`project.design()`).
@@ -1167,14 +1172,13 @@ def run(
             )
         remote = None
     selected_target = _selected_target(target, no_target)
-    launcher: Optional[DefaultRunner] = None
 
     def request_spec() -> Dict[str, Any]:
         """The `spec` of a document of a launch that never got its `Spec`: the request text."""
         return spec_document(
             flow=chain,
-            **design_info(design, launcher.design_name if launcher is not None else None),
-            target=(launcher.target if launcher is not None else None) or target,
+            **design_info(design, None),
+            target=target,
             settings=_request_table(flow_settings),
         )
 
@@ -1202,42 +1206,40 @@ def run(
         )
         sys.exit(1)
 
-    def not_started(
-        error: Exception,
-        spec: Optional[Spec] = None,
-        plan: Optional[Plan] = None,
-        launch_id: Optional[str] = None,
-    ) -> NoReturn:
+    def not_started(error: Exception, spec: Optional[Spec] = None) -> NoReturn:
         """Report an exception that ended the command before the launch gave an outcome.
 
         A request that is invalid started no launch: with `--json`, its document has no
         outcome, and the exit status is 2. So did a request to a host that cannot be reached or
-        set up. Any other exception ends a launch with a failure of its own: the nodes keep what
-        they did, and the exit status is 1. The log line keeps the class name of the exception."""
+        set up. Any other exception ends a launch with a failure of its own: the document has the
+        outcome `failed` and no node, and the exit status is 1. The log line keeps the class name
+        of the exception."""
         public = public_error(error)
         info = request_error_info(error)
         log.critical("%s", _error_message(error))
         refused = isinstance(public, (SpecError, RemoteError))
         if json_flag:
-            if spec is not None and not refused and launcher is not None:
-                document = failed_result(launcher, spec, plan, info, launch_id=launch_id).to_dict()
-            else:
-                spec_fields = request_spec() if spec is None else spec_of(spec)
-                document = run_document(
+            emit_structured(
+                run_document(
                     outcome=None if refused else Outcome.FAILED,
                     error=info,
-                    launch_id=None,
-                    spec=spec_fields,
+                    launch_id=(
+                        None
+                        if refused
+                        else launch_id_of(error) or launch_id_of(error.__cause__ or error)
+                    ),
+                    spec=request_spec() if spec is None else spec_of(spec),
                     roots=(),
                     nodes=(),
-                )
-            emit_structured(document, "json")
+                ),
+                "json",
+            )
         if not json_flag and not isinstance(error, XedaException):
             raise error
         sys.exit(2 if refused else 1)
 
     # The command line finds the project file (`--xedaproject`, else the one in the current
-    # directory), and the launcher gets that path. The library discovers nothing.
+    # directory). The library discovers nothing.
     try:
         project = _selected_project(xedaproject, design_file)
         local = _cli_local_settings(project, design_file, config, no_config)
@@ -1249,7 +1251,6 @@ def run(
             "--design-name.",
             ctx=ctx,
         )
-    project_for_launcher = _project_for_launcher(project)
     run_root = _cli_run_root(run_root, local)
     if fetch_all and not remote:
         raise click.UsageError("`--fetch-all` needs --remote", ctx=ctx)
@@ -1259,216 +1260,85 @@ def run(
         raise click.UsageError(
             "`--keep-running` has no launch to keep running in a dry run", ctx=ctx
         )
-    if remote:
-        for name, given in (
-            ("--post-cleanup", post_cleanup),
-            ("--post-cleanup-purge", post_cleanup_purge),
-        ):
-            if given:
-                raise click.UsageError(
-                    f"`{name}` removes run directories after delivery; with --remote, the run "
-                    "directories are on the remote: use `xeda remote clean`",
-                    ctx=ctx,
-                )
-        if scrub:
-            raise click.UsageError(
-                "`--scrub` asks you to confirm the removal of run directories, and a remote "
-                "launch cannot ask: run without --remote, or free the space on the host with "
-                "`xeda remote clean`",
-                ctx=ctx,
-            )
-        from .remote import client as remote_client
-        from .remote_value import Remote
-
-        try:
-            remote_spec = Spec(
-                chain,
-                _load_design(design, project, design_updates, selected_target),
-                settings=command_line_table(list(flow_settings or ())),
-            )
-        except KeyboardInterrupt:
-            canceled_before_start()
-        except Exception as e:
-            # An item that is no KEY=VALUE is a bad setting. Other errors are public already.
-            bad_item = type(e) is ValueError
-            not_started(SettingsError(str(e), code="invalid_value") if bad_item else e)
-        remote_options = LaunchOptions(
-            rebuild_all=rebuild_all,
-            clean=clean,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-        )
-        remote_workspace = WorkspaceOptions(
-            run_root=run_root,
+    try:
+        workspace = Workspace(
+            run_root,
             hashed_run_dirs=hashed_run_dirs,
             tool_output="terminal",
             confirm=_prompt_question if _interactive(json_flag) else None,
-            remote=Remote(
-                remote,
-                profile=local.host_profiles.get(remote),
-                fetch_all=fetch_all,
-                keep_running=keep_running,
+            remote=(
+                Remote(
+                    remote,
+                    profile=local.host_profiles.get(remote),
+                    fetch_all=fetch_all,
+                    keep_running=keep_running,
+                )
+                if remote
+                else None
             ),
             local_settings=local,
         )
-        if dry_run:
-            try:
-                remote_plan = remote_client.plan_remote(
-                    remote_spec,
-                    workspace=remote_workspace,
-                    options=remote_options,
-                    log_level=log_level,
-                    detailed_logs=detailed_logs,
-                )
-            except KeyboardInterrupt:
-                canceled_before_start()
-            except Exception as e:
-                not_started(e, remote_spec)
-            if json_flag:
-                emit_structured(remote_plan.to_dict(), "json")
-            else:
-                _print_plan(remote_plan.to_dict(), host=remote)
-            sys.exit(0)
+        spec = Spec(
+            chain,
+            _load_design(design, project, design_updates, selected_target),
+            settings=command_line_table(list(flow_settings or ())),
+        )
+    except KeyboardInterrupt:
+        canceled_before_start()
+    except Exception as e:
+        # An item that is no KEY=VALUE is a bad setting. Other errors are public already.
+        bad_item = type(e) is ValueError
+        not_started(SettingsError(str(e), code="invalid_value") if bad_item else e)
+    options: Dict[str, Any] = dict(
+        rebuild_all=rebuild_all,
+        clean=clean,
+        prune_variants=prune_variants,
+        outputs_to=outputs_to,
+        overwrite_outputs=overwrite_outputs,
+        post_cleanup=post_cleanup,
+        post_cleanup_purge=post_cleanup_purge,
+    )
+
+    if dry_run:
         try:
-            result = remote_client.run_remote(
-                remote_spec,
-                workspace=remote_workspace,
-                options=remote_options,
-                log_level=log_level,
-                detailed_logs=detailed_logs,
-            )
+            plan_document = workspace.plan(spec, **options).to_dict()
         except KeyboardInterrupt:
             canceled_before_start()
         except Exception as e:
-            not_started(e, remote_spec)
+            not_started(e, spec)
+        if json_flag:
+            emit_structured(plan_document, "json")
+        else:
+            _print_plan(plan_document, host=remote)
+        sys.exit(0)
+
+    # A launch on this machine ends on the first Ctrl-C as a canceled result. A launch on a host
+    # has the interrupt handling of its client.
+    token = None if remote else CancelToken()
+    try:
+        with _cancel_on_interrupt(token):
+            result = workspace.run(spec, **options, cancel=token)
+    except KeyboardInterrupt:
+        canceled_before_start()
+    except Exception as e:
+        not_started(e, spec)
+    if remote:
         if result.error is not None:
             log.critical("%s", result.error.message)
         shown = result.nodes[result.roots[0]] if result.roots else None
         if not json_flag and shown is not None and shown.record is not None:
             print_results(
                 results_of(result.record),
-                title=f"Results of flow:{flow} design:{remote_spec.design.name}",
+                title=f"Results of flow:{flow} design:{spec.design.name}",
                 skip_if_false={"artifacts", "reports"},
             )
         if not result.passed:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
-        if json_flag:
-            emit_structured(result.to_dict(), "json")
-        sys.exit(0 if result.passed else 1)
-
-    if dry_run:
-        options = LaunchOptions(
-            rebuild_all=rebuild_all,
-            clean=clean,
-            prune_variants=scrub,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-            post_cleanup=post_cleanup,
-            post_cleanup_purge=post_cleanup_purge,
-        )
-        try:
-            launcher = DefaultRunner(
-                run_root,
-                rebuild_all=rebuild_all,
-                hashed_run_dirs=hashed_run_dirs,
-                clean=clean,
-                outputs_to=outputs_to,
-            )
-            planned = launcher.plan_launch(
-                chain,
-                xedaproject=project_for_launcher,
-                design=design,
-                flow_settings=list(flow_settings or ()),
-                design_updates=design_updates,
-                target=selected_target,
-                local_settings=local,
-            )
-            spec = Spec(chain, planned.request.design, settings=_request_table(flow_settings))
-            plan_document = plan_of(
-                planned.plan,
-                planned.states,
-                planned.deliveries,
-                spec=spec,
-                options=options,
-                workspace=WorkspaceOptions(
-                    run_root=Path(os.path.realpath(run_root)),
-                    hashed_run_dirs=hashed_run_dirs,
-                    tool_output="terminal",
-                    confirm=None,
-                    remote=None,
-                    local_settings=local,
-                ),
-                dependencies=dependency_entries(planned.request.design),
-            ).to_dict()
-        except KeyboardInterrupt:
-            canceled_before_start()
-        except Exception as e:
-            not_started(e)
-        if json_flag:
-            emit_structured(plan_document, "json")
-        else:
-            _print_plan(plan_document)
-        sys.exit(0)
-
-    try:
-        launcher = DefaultRunner(
-            run_root,
-            rebuild_all=rebuild_all,
-            hashed_run_dirs=hashed_run_dirs,
-            clean=clean,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-        )
-        if _interactive(json_flag):
-            launcher.confirm_overwrite = _prompt_overwrite
-        launcher.settings.post_cleanup = post_cleanup
-        launcher.settings.post_cleanup_purge = post_cleanup_purge
-        launcher.settings.prune_variants = scrub
-        launcher.confirm_scrub = _prompt_scrub
-        launcher.scrub_done = _print_scrub_result
-        resolved, plan = launcher.resolve_run(
-            chain,
-            xedaproject=project_for_launcher,
-            design=design or design_name,
-            flow_settings=list(flow_settings or ()),
-            design_updates=design_updates,
-            target=selected_target,
-            local_settings=local,
-        )
-    except KeyboardInterrupt:
-        canceled_before_start()
-    except Exception as e:
-        not_started(e)
-    spec = Spec(chain, resolved.design, settings=_request_table(flow_settings))
-    try:
-        result = launch_result(launcher, spec, lambda: launcher.run_resolved(resolved, plan))
-    except KeyboardInterrupt as interrupt:
+    else:
         if not json_flag:
-            raise
-        # The launch is canceled, and `--json` still prints its one run document: the nodes that
-        # ended keep their outcomes, and the node that was running is canceled.
-        canceled = ErrorInfo(CANCELED, "The launch was canceled by Ctrl-C.", None, None, None)
-        log.critical("%s", canceled.message)
-        emit_structured(
-            failed_result(
-                launcher,
-                spec,
-                plan,
-                canceled,
-                interrupted=True,
-                launch_id=launch_id_of(interrupt),
-            ).to_dict(),
-            "json",
-        )
-        sys.exit(1)
-    except Exception as e:
-        not_started(e, spec, plan, launch_id_of(e))
-    if json_flag:
-        pass
-    elif launcher.settings.display_results:
-        print_run_tables(result, resolved.design.name)
-    if not result.passed and result.error is not None:
-        log.critical("%s", result.error.message)
+            print_run_tables(result, spec.design.name)
+        if not result.passed and result.error is not None:
+            log.critical("%s", result.error.message)
     if json_flag:
         emit_structured(result.to_dict(), "json")
     sys.exit(0 if result.passed else 1)

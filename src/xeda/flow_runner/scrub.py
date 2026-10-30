@@ -1,4 +1,4 @@
-"""Removal of the run directories of earlier runs: `xeda scrub` and `--scrub` of a launch.
+"""Removal of the run directories of earlier runs: `xeda scrub` and `--prune-variants` of a launch.
 
 Both read the disk, never a design file, and remove a run directory only under its own lock
 (`run_lock.run_dir_lock`). This module never imports `default_runner`.
@@ -387,7 +387,7 @@ def _remove_confirmed(
     longer what was confirmed, so it keeps the directory and logs it. It removes the rest. The
     result holds three lists: the directories removed, kept and gone.
 
-    A launch that scrubs (`--scrub`, `prune_variants`) stops when it is canceled
+    A launch that scrubs (`--prune-variants`, `prune_variants`) stops when it is canceled
     (`cancel.launch_canceled`): the wait for a lock ends, and no directory is removed after the
     request. The directories removed before stay removed.
 
@@ -471,11 +471,11 @@ def scrub_runs(
     `on_result` is told what scrub did, when it ends (`ScrubDone`).
 
     They are the directories named `flow_name` or `flow_name_<hash>` (`_run_directories_in`),
-    except `exclude`. The `--scrub` option of a launch scrubs its own directory this way, so it
-    never reaches the directory of another target. Each directory is removed as a run directory
-    claimed under `run_root` (default: the parent of `dir`), the real run root, so none that
-    leads out of it is ever removed. The links to it that the listing found (`_listed`) go with
-    it. A link named like a run directory that is none is logged and left alone.
+    except `exclude`. The `--prune-variants` option of a launch scrubs its own directory this way,
+    so it never reaches the directory of another target. Each directory is removed as a run
+    directory claimed under `run_root` (default: the parent of `dir`), the real run root, so none
+    that leads out of it is ever removed. The links to it that the listing found (`_listed`) go
+    with it. A link named like a run directory that is none is logged and left alone.
 
     Scrub takes one exclusive lock at a time and waits for it, so a thread that holds a lock of
     Xeda is refused (`LeaseHeldError`)."""

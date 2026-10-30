@@ -661,7 +661,7 @@ NAMES_OF_ONE_DIRECTORY = {
 
 @pytest.mark.parametrize("names", NAMES_OF_ONE_DIRECTORY.values(), ids=NAMES_OF_ONE_DIRECTORY)
 def test_a_launch_s_scrub_removes_a_directory_and_every_link_to_it(tmp_path, confirmations, names):
-    """`--scrub` lists a directory once, whatever it is called. It used to remove the directory
+    """`--prune-variants` lists a directory once, whatever it is called. It used to remove the directory
     and then fail on a link to it, which led nowhere by then, and the launch stopped."""
     world = World(tmp_path)
     links = a_directory_with_links(world, *names)

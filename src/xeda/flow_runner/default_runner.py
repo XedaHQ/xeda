@@ -1355,8 +1355,8 @@ class FlowLauncher:
         last, come last.
 
         So the launch has asked everything before any tool runs, before it scrubs older runs
-        (`--scrub`) and before it takes the lock of its run directory. A launch that the user
-        declines has removed nothing, and a question that waits for the user holds up no other
+        (`--prune-variants`) and before it takes the lock of its run directory. A launch that the
+        user declines has removed nothing, and a question that waits for the user holds up no other
         launch or scrub of that directory. Each flow keeps the object it checked, and checks
         again with it at its turn. That finds the record that this check anchored, so the
         destination is read once in the launch, and the check asks again only about a file that
@@ -3110,7 +3110,7 @@ class FlowLauncher:
         project_label, flows_settings = (layer[0], thaw(layer[1])) if layer else ("", {})
         if given_file is not None:
             design_label = str(given_file.absolute())
-        elif layer is not None and design._source_file is not None:
+        elif design._source_file is not None:
             design_label = str(design._source_file)
         elif layer is not None:
             design_label = f"{project_label}: design {design.name}"

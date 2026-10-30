@@ -392,34 +392,32 @@ def test_programmer_flow_is_refused_with_remote(tmp_path, remote_host):
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
-def test_post_cleanup_options_are_refused_with_remote(tmp_path, remote_host):
+@pytest.mark.parametrize(
+    "option, parameter",
+    [
+        ("--post-cleanup", "post_cleanup"),
+        ("--post-cleanup-purge", "post_cleanup_purge"),
+        ("--prune-variants", "prune_variants"),
+    ],
+)
+def test_the_options_that_remove_run_directories_are_refused_with_remote(
+    tmp_path, remote_host, option, parameter
+):
+    """The host holds the run directories and a remote launch cannot ask for a confirmation, so
+    planning refuses the options with `unsupported_with_remote` (exit status 2, no outcome): no ssh
+    call is made, for a run, a dry run, and `--json` (one document on stdout)."""
     design = _design(tmp_path)
-    for option in ("--post-cleanup", "--post-cleanup-purge"):
-        result = _cli(tmp_path, design, "nextpnr", option)
-        assert result.exit_code == 2, result.output
-        assert "removes run directories after delivery" in result.output
-        assert "xeda remote clean" in result.output
-
-
-def test_scrub_is_refused_with_remote_before_any_connection(tmp_path, remote_host):
-    """A remote launch cannot ask for the confirmation, so the plan refuses `--scrub`: no ssh
-    call is made, with the text output and with `--json` (one document on stdout)."""
-    design = _design(tmp_path)
-    text = _cli(tmp_path, design, "nextpnr", "--scrub")
-    assert text.exit_code == 2, text.output
-    assert "`--scrub`" in text.output and "xeda remote clean" in text.output
-    assert "without --remote" in text.output
-    document = CliRunner().invoke(
-        cli,
-        ["run", "nextpnr", str(design), "--remote", "somewhere", "--scrub", "--json"]
-        + ["--run-root", str(tmp_path / "local" / "xeda_run")],
-    )
-    assert document.exit_code != 0
+    for extra in ((), ("--dry-run",)):
+        text = _cli(tmp_path, design, "nextpnr", option, *extra)
+        assert text.exit_code == 2, text.output
+        assert f"`{parameter}` removes run directories" in text.output
+        assert "xeda remote clean" in text.output
+    document = _cli(tmp_path, design, "nextpnr", option, "--json")
+    assert document.exit_code == 2
     result = json.loads(document.stdout)
-    assert result["outcome"] is None
-    assert result["error"]["code"] == "usage_error" and "--scrub" in result["error"]["message"]
-    dry = _cli(tmp_path, design, "nextpnr", "--scrub", "--dry-run")
-    assert dry.exit_code == 2 and "`--scrub`" in dry.output
+    assert result["outcome"] is None and result["nodes"] == []
+    assert result["error"]["code"] == "unsupported_with_remote"
+    assert result["spec"]["flow"] == "nextpnr"
     assert not remote_host.remote.calls("ssh")
     assert not (tmp_path / "local" / "xeda_run").exists()
 

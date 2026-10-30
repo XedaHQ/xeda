@@ -543,7 +543,8 @@ The ``outcome`` of the document is the outcome of the cause of the launch, in th
 1. A node that is ``detached`` makes the outcome ``detached``.
 2. A node that is ``canceled``, or the launch error ``canceled``, makes it ``canceled``. Ctrl-C
    cancels a launch: the document still lists every node, a node that ended keeps its outcome,
-   and the node that was running is ``canceled``.
+   and the node that was running is ``canceled``. The first Ctrl-C asks the launch to stop. A second
+   one ends Xeda at once.
 3. A launch-level error (a failed delivery, a failed fetch of a remote launch) makes it ``failed``.
 4. Otherwise each root has a cause: the root itself, or, for a blocked root, the producer that failed
    or was rejected. The outcome is the worst of the causes, in the order ``failed``, ``rejected``,
@@ -614,9 +615,8 @@ line as a request. A flow that does not exist has the code ``flow_not_found``, a
 its chain code (``invalid_chain``, ``repeated_flow``, ``no_edge`` and others), and a design file or
 project file that does not exist has ``design_file_not_found`` or ``project_file_not_found``. Any
 other mistake of the command line has the code ``usage_error``: an unknown option, no design, and
-the options that need each other. For example, ``--remote`` refuses ``--post-cleanup``, and
-``--keep-running`` and ``--fetch-all`` need ``--remote``. Click prints the same exit status 2 without
-``--json``.
+the options that need each other. For example, ``--keep-running`` and ``--fetch-all`` need
+``--remote``. Click prints the same exit status 2 without ``--json``.
 
 With ``--remote``, a host that Xeda cannot reach has the code ``remote_unreachable``, and a host
 that Xeda cannot make ready has ``remote_setup_failed``. Both come before Xeda sends the launch, so
@@ -624,11 +624,15 @@ they have no outcome and no nodes, and the exit status is 2. A flow that program
 attached to this machine has the code ``unsupported_with_remote``. In Python, ``Workspace.plan``
 and ``Workspace.run`` raise a ``SpecError`` with that code for such a flow, and also for the options
 ``prune_variants``, ``post_cleanup`` and ``post_cleanup_purge``, which remove run directories on
-the host. The command line refuses the matching options with ``--remote`` as a usage error.
+the host. The command line passes ``--prune-variants``, ``--post-cleanup`` and
+``--post-cleanup-purge`` on, so with ``--remote`` they have the same code and the exit status 2.
 
 A Ctrl-C while Xeda loads the design or plans the request, before the launch starts, also gives a
 document with ``"outcome": null`` and no nodes. Its error code is ``canceled``, and the exit status
 is 1.
+
+An exception that is no refusal of the request (a bug of Xeda) ends the launch. The document then has
+the outcome ``failed``, the error code ``internal_error`` and no nodes, and the exit status is 1.
 
 A binding that cannot be applied (an unknown input or producer, a binding for a flow that declares
 no inputs, or a chain together with a command-line or API binding of the same input) is a settings

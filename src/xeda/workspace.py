@@ -193,10 +193,10 @@ class Workspace:
         )
         self._refuse_project_run_root(spec)
         if self.remote is not None:
-            from .remote.client import plan_remote
+            from .remote import client
 
             try:
-                return plan_remote(spec, workspace=self._options(), options=options)
+                return client.plan_remote(spec, workspace=self._options(), options=options)
             except Exception as error:
                 public = public_error(error)
                 if public is error:
@@ -359,7 +359,7 @@ class Workspace:
         from .flow_runner.error_codes import plain_message, public_error
         from .flow_runner.plan_check import plan_difference
         from .proc_utils import TOOL_OUTPUT
-        from .remote.client import plan_remote, run_remote
+        from .remote import client
 
         from_callback: list[Exception] = []
 
@@ -377,7 +377,7 @@ class Workspace:
                 cause: Exception | None = None
                 difference: str | None
                 try:
-                    fresh = plan_remote(spec, workspace=self._options(), options=options)
+                    fresh = client.plan_remote(spec, workspace=self._options(), options=options)
                 except Exception as error:
                     # A request that the host refuses now is a difference. Any other failure (a
                     # host that cannot be reached) is no statement about the plan.
@@ -393,7 +393,7 @@ class Workspace:
                         code="stale_plan",
                         difference=difference,
                     ) from cause
-            return run_remote(
+            return client.run_remote(
                 spec,
                 workspace=self._options(),
                 options=options,
