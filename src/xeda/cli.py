@@ -552,6 +552,15 @@ def _error_message(exc: BaseException) -> str:
     return f"{kind}: {text}"
 
 
+def _option_names(message: str, command: click.Command) -> str:
+    """Return `message` with each parameter of the API that it names in backticks (`post_cleanup`)
+    written as the option of `command` that sets it (`--post-cleanup`)."""
+    for param in command.params:
+        if isinstance(param, click.Option):
+            message = message.replace(f"`{param.name}`", f"`{param.opts[0]}`")
+    return message
+
+
 def _removed_run_root_option(ctx: click.Context, param: click.Parameter, value: Any) -> None:
     """Refuse `--xeda-run-dir` and `XEDA_RUN_DIR`, the former names of the run root, and name the
     one that was given. The check is explicit because click would suggest `--hashed-run-dirs`
@@ -1214,7 +1223,12 @@ def run(
         of the exception."""
         public = public_error(error)
         info = request_error_info(error)
-        log.critical("%s", _error_message(error))
+        text = _error_message(error)
+        if info.code == "unsupported_with_remote":
+            # The API names the parameter (`post_cleanup`). The user typed the option.
+            info = dataclasses.replace(info, message=_option_names(info.message, ctx.command))
+            text = _option_names(text, ctx.command)
+        log.critical("%s", text)
         refused = isinstance(public, (SpecError, RemoteError))
         if json_flag:
             emit_structured(

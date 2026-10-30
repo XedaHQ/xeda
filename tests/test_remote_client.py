@@ -405,18 +405,21 @@ def test_the_options_that_remove_run_directories_are_refused_with_remote(
 ):
     """The host holds the run directories and a remote launch cannot ask for a confirmation, so
     planning refuses the options with `unsupported_with_remote` (exit status 2, no outcome): no ssh
-    call is made, for a run, a dry run, and `--json` (one document on stdout)."""
+    call is made, for a run, a dry run, and `--json` (one document on stdout). The message names
+    the option that the user typed, where the API names the parameter."""
     design = _design(tmp_path)
     for extra in ((), ("--dry-run",)):
         text = _cli(tmp_path, design, "nextpnr", option, *extra)
         assert text.exit_code == 2, text.output
-        assert f"`{parameter}` removes run directories" in text.output
+        assert f"`{option}` removes run directories" in text.output
+        assert parameter not in text.output
         assert "xeda remote clean" in text.output
     document = _cli(tmp_path, design, "nextpnr", option, "--json")
     assert document.exit_code == 2
     result = json.loads(document.stdout)
     assert result["outcome"] is None and result["nodes"] == []
     assert result["error"]["code"] == "unsupported_with_remote"
+    assert result["error"]["message"].startswith(f"`{option}` removes run directories")
     assert result["spec"]["flow"] == "nextpnr"
     assert not remote_host.remote.calls("ssh")
     assert not (tmp_path / "local" / "xeda_run").exists()
