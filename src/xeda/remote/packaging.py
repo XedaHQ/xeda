@@ -333,15 +333,19 @@ def package_inputs(
             path = Path(value)
             relative = unit.relative_to_root(path)
             seen: str | Path = value
-            if relative is not None and not path.exists():
+            # a parameter is any text: `os.path` answers no for a name the system refuses (too
+            # long, say), where `Path.exists` and `Path.is_file` raise before Python 3.14
+            if relative is not None and not os.path.exists(path):
                 parameters[name] = {"path": relative.as_posix()}
                 seen = base / relative
             elif (
-                relative is not None and path.is_file() and archived_in_place(path, base / relative)
+                relative is not None
+                and os.path.isfile(path)
+                and archived_in_place(path, base / relative)
             ):
                 parameters[name] = {"file": relative.as_posix()}
                 seen = base / relative
-            elif path.is_file():
+            elif os.path.isfile(path):
                 seen = archived(FileResource(path), unit, base)
                 parameters[name] = {"file": inside(seen, base)}
             identified(seen, "parameter", str(location_free(value, roots)))

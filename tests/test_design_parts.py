@@ -153,6 +153,21 @@ def test_design_files_cover_the_parts_they_are_given(tmp_path: Path) -> None:
     assert design_files(design) == [a, tb]
 
 
+#: An absolute text longer than any path the system takes: on Python 3.11 to 3.13, `Path.is_file`
+#: raises `ENAMETOOLONG` for it instead of answering no.
+LONG_TEXT = "/" + "/".join(["a" * 200] * 40)
+
+
+@pytest.mark.python_compat
+def test_a_long_absolute_text_in_a_design_names_no_file(tmp_path: Path) -> None:
+    design = _small_design(tmp_path)
+    long = design.model_copy(
+        update={"rtl": design.rtl.model_copy(update={"parameters": {"P": LONG_TEXT}})}
+    )
+    long.invalidate_cached_properties()
+    assert design_files(long, RTL) == [(tmp_path / "a.v").resolve()]
+
+
 # ---------------------------------------------------------------------------------------------
 # A testbench edit, on the fake and the real tools
 # ---------------------------------------------------------------------------------------------
