@@ -49,7 +49,7 @@
 
 | Message | Fix |
 | --- | --- |
-| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is listed in `rtl.sources` as its name in the generator output (`gen/top.v`), and the design needs a `rtl.generator`. |
+| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is listed in `rtl.sources` as a path below the design root (`gen_rtl/top.v`) or as `$XEDA_GENERATED/<name>`, and the design needs a `rtl.generator`. |
 | `rtl.<key>: Extra inputs are not permitted` | Unknown design key. |
 | `` `<key>` was removed: use `rtl.<key>` `` | A key of `rtl` (`sources`, `top`, `clocks`, ...) written at the root. The code is `removed_alias`. Put the key under `rtl:`. |
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
@@ -106,9 +106,10 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   launch (outcome `rejected`, disposition `reused`); `--rebuild-all` runs it again. A tool failure, such as a
   Vivado setup-slack miss or a `nextpnr` timing miss, runs again.
 - `missing_generated`: a source of `rtl.sources` that the generator should write matches no file in
-  the output of the generator. The message names the entry. Check what the generator writes into
-  `$XEDA_GENERATED`; a generator starts in the design root, so a relative output name lands there
-  (the message names a matching file it finds below the working directory). A hand-written entry beside generated ones needs `generated_sources`: with it
+  the output of the generator. The message names the entry. A plain entry needs a file the generator
+  wrote below the design root in this generation (an old file counts for nothing; make a tool that
+  skips up-to-date outputs write them, e.g. `make -B`); a `$XEDA_GENERATED/<name>` entry needs a
+  file in the storage. The message names a matching file it finds in the other place. A hand-written entry beside generated ones needs `generated_sources`: with it
   empty, every entry is the generator's.
 - `generator_failed`: an error of the whole launch (`error.node` is null); every node is `skipped`.
   The generator exited with an error, could not be started, or changes what it reads while it

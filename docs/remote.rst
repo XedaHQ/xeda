@@ -85,7 +85,9 @@ These limits apply to every remote run:
   declares none, or one whose input lies outside its design root, is refused (see
   :ref:`generators`). The generator of a dependency travels the same way. Xeda refuses the
   generator of the design and of a local dependency before it fetches a Git dependency. It refuses
-  the generator of a Git dependency after the fetch.
+  the generator of a Git dependency after the fetch. A tree entry of ``rtl.sources`` works on the
+  host: the generator writes into the copy of the design root. Xeda sends the existing parent
+  directory of the entry, and no tree file.
 * The dependencies of the design (see :ref:`git-dependencies`) keep their order. The host merges
   them once, as Xeda does on your machine, so both plans have the same indexes and the same
   hashes. Your machine plans first, so it needs access to the Git server: it resolves each Git
@@ -303,9 +305,9 @@ A workspace has these parts:
   freshness records of the host stay valid. A file that left the design is removed. No flow writes
   here. A design generator starts here, in ``inputs/<design>/`` or in its ``cwd`` below it, as a
   local generator starts in the design root. A file that a generator tool leaves there (a build
-  cache) is not part of your design, so the next sync removes it and the tool builds it again. The
-  generated sources are not lost: they lie in the storage under ``xeda_run/``, which a sync does
-  not touch.
+  cache, or a generated file of a tree entry) is not part of your design, so the next sync removes
+  it and the tool builds it again. The generated sources are not lost: they lie in the storage under
+  ``xeda_run/`` (a tree file as its copy under ``.xeda-tree/``), which a sync does not touch.
 * ``xeda_run/`` is the run root of the host. Its layout is the layout of a local run root, so
   ``--hashed-run-dirs`` and the other launch options mean the same as for a local run.
 * ``launches/<id>/`` holds the log, the request and the result of each launch.

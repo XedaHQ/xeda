@@ -65,16 +65,25 @@ designs; `d.to_dict()` is the effective design in the shape of a file.
 | `generator` | What writes the sources, in the launch before the first flow: a shell command line (`generator: "python soc.py"`, kept as `{shell: ...}`), a list of arguments (`[python3, soc.py]`, kept as `{executable: python3, args: [soc.py]}`), or a table with one of `shell`, `command`, `executable` (two of them, or `shell` with `args`, is an error) and `sources`, `generated_sources`, `always_runs`, `outputs_to`. |
 
 A generator runs in the launch, never when a design loads, into a storage
-`<run root>/.generated/<design>/<key>/` (with the record `generation.yaml`); the design tree is never
-written. The key hashes the recipe (its `env` too), the design configuration without content, the
+`<run root>/.generated/<design>/<key>/` (with the record `generation.yaml`); Xeda never writes or
+deletes in the design tree. The key hashes the recipe (its `env` too), the design configuration without content, the
 names and digests of the generator's `sources` and its executable. Every spelling (shell, list, table,
 `class: chisel`) starts in the design root, or in `cwd` (a directory below the design root; an
 absolute one or one that leaves it is refused at load); a relative executable (`./mill`) and a
 relative `PATH` entry resolve against that same directory. `DESIGN_ROOT`, `XEDA_GENERATED` (the
 storage) and `PWD` (its directory) are in its environment; the words after the executable expand both
 (`args: ["gen.py", "$XEDA_GENERATED/out"]`; `shell: ./mill core.runMain top.Main "$XEDA_GENERATED"`).
-Generated sources must be written under `$XEDA_GENERATED`: generated names are looked up only in
-the storage, and a file written in the working directory is not found. Declare narrow `sources`: a
+A generated entry of `rtl.sources` is a tree entry or a storage entry. A tree entry is a plain path below
+the design root that the generator writes (`gen_rtl/top.v`; relative to the design root, never to `cwd`).
+A storage entry is `$XEDA_GENERATED/<name>`, a file in the storage. Use storage when the tool takes an
+output directory (variants generate in parallel); use tree when the tool writes into the tree
+(generations that write one tree run one at a time, under a lock in `<run root>/.locks/trees/`). Xeda
+copies only the tree files this generation wrote (new, or changed state or content) into the storage
+under `.xeda-tree/`, and the flows read the copy. A make-like tool that skips an up-to-date output is
+refused (`missing_generated`; make it write every time, e.g. `make -B`). Refused: a link below the
+design root on the way to a tree file, a tree entry inside the generator's own `sources`, a tree
+entry in a Git dependency, a tree entry on Windows. Include files that a tool reads must be entries
+too (only matched files are copied). Declare narrow `sources`: a
 tool that writes inside a directory named there changes its own inputs, and the launch gives up
 after a few attempts. A `shell` recipe's key counts `/bin/sh`, so name `./mill` and the build files
 in `sources`. Two variants of a design share the design tree, so a tool's in-tree intermediate files
@@ -82,13 +91,15 @@ in `sources`. Two variants of a design share the design tree, so a tool's in-tre
 every file in it), a generated file or the digest of its inherited environment changes
 (`always_runs`, or no `sources`: every launch; `--rebuild-all` forces it). `generated_sources`
 names the entries of `rtl.sources` it writes when it writes only some (an entry is wholly generated
-or wholly written; a pattern matching both is refused); empty, every entry is generated. A generated
-entry is a name or pattern in its output, typed by its extension or by `type:`; one that matches no
+or wholly written; a pattern matching both is refused); empty, every entry is generated; when it is
+not empty, a `$XEDA_GENERATED/` entry must be selected (`$XEDA_GENERATED` selects the whole storage).
+`$XEDA_GENERATED` is valid only at the start of a generated entry. A generated
+entry is a name or pattern, typed by its extension or by `type:`; one that matches no
 file fails the node that reads it (`missing_generated`). A failing generator is the launch error
 `generator_failed` (every node skipped). A plan runs nothing: a node that reads generated sources is
 `unknown` ("the generator has not run") until the storage is current. `--remote` sends the recipe and
-its declared `sources`; a generator without `sources`, or with an input outside its design root, or with `outputs_to`, is refused. `outputs_to` (a location: absolute, or below `$DESIGN_ROOT`, `$DESIGN_DIR` or `$PWD`; a relative path is refused) names a
-directory that gets a copy of each generated file under its name in the output (`gen/top.v` -> `<outputs_to>/gen/top.v`). It is a
+its declared `sources` (a tree entry works on the host, which gets the entry's existing parent directory; its next sync removes the tree files, the copy in the storage stays); a generator without `sources`, or with an input outside its design root, or with `outputs_to`, is refused. `outputs_to` (a location: absolute, or below `$DESIGN_ROOT`, `$DESIGN_DIR` or `$PWD`; a relative path is refused) names a
+directory that gets a copy of each generated file (storage entry `$XEDA_GENERATED/gen/top.v` -> `<outputs_to>/gen/top.v`; tree entry `gen_rtl/top.v` -> `<outputs_to>/gen_rtl/top.v`; a delivery onto a tree entry is refused). It is a
 delivery like a deliverable setting given a location (at the end of a passed launch, key `generator`; a changed copy needs
 `--overwrite-outputs`; never onto an input, over a directory, through a link, or where an entry of `rtl.sources`, `tb.sources` or
 the generator's `sources` would read it), and no part of any identity. A dependency with a generator is
@@ -214,7 +225,7 @@ automatic HDL frontend; a flow or the design can still read it. An invalid `type
 that names the closest types; type names are case-tolerant, suffixes are not.
 
 A source table has `file` (must exist at load time) or `path` (not checked), and `type`; a source a
-generator writes is a name in its output (see `generator`). Any other key is an error: a source has no `standard` or
+generator writes is a tree entry or a `$XEDA_GENERATED/<name>` entry (see `generator`). Any other key is an error: a source has no `standard` or
 `variant`, and `language.vhdl.standard` sets the standard of the whole design.
 
 ```yaml

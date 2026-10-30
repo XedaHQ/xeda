@@ -499,13 +499,19 @@ selected direct executable. The storage holds the files that the generator wrote
 ``generation.yaml``, with the digest of every generated source that the last generation left and the
 digest of the environment that the generator inherited. The generator therefore runs again only
 when one of its inputs changed. Indirect tools and the packages that the generator uses stay
-outside this identity. The generator starts in the design root, or in its ``cwd`` below it, and
-writes the generated sources under ``$XEDA_GENERATED``, the storage. Xeda writes nothing into the
-tree of the design.
+outside this identity. The generator starts in the design root, or in its ``cwd`` below it. It
+writes each generated source under ``$XEDA_GENERATED``, the storage, or into the design tree, as the
+entry of ``rtl.sources`` says. Xeda copies a tree file that the generation wrote into the storage,
+under ``.xeda-tree/<path>``, and the flows read that copy. Xeda never writes or deletes a file in
+the tree of the design.
 
 A generation happens in the launch, after every check that needs only the declarations of the
 design, and before the first flow runs. A launch holds the exclusive lock of the storage while it
-generates. After that it holds a shared lease of the storage until it has made its last delivery, so
+generates. A generation with tree entries also holds the exclusive lock of its design tree, a lock
+file in ``.locks/trees/`` of the run root, named by the identity of the design root. Designs that
+share a design root therefore generate one at a time. Launches with different run roots on one
+design tree do not share a lock file, so Xeda does not serialize them. After the generation, a launch
+holds a shared lease of the storage until it has made its last delivery, so
 no other launch regenerates or removes a storage that a flow reads (see `Locking`_). The lock files
 lie beside the storages, as the lock files of the run directories lie beside them. ``--rebuild-all`` and ``--clean`` regenerate, as they run every
 flow again. ``--clean``, post-cleanup and ``xeda scrub`` leave the storage alone. See
