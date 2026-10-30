@@ -406,6 +406,40 @@ def test_a_host_that_cannot_be_set_up_raises_remote_setup_failed(tmp_path, remot
     assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
 
 
+@pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry run"])
+@pytest.mark.parametrize(
+    "failure, code", [("unreachable", "remote_unreachable"), ("setup", "remote_setup_failed")]
+)
+def test_a_host_that_fails_before_the_launch_gives_no_outcome_and_exit_status_2(
+    tmp_path, remote_host, monkeypatch, failure, code, dry_run
+):
+    if failure == "unreachable":
+        monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
+    else:
+        remote_host.remote.set_platform("Darwin", "arm64")
+    design = _design(tmp_path)
+    arguments = ["run", "nextpnr", str(design), "--remote", HOST, "--json"]
+    arguments += ["--run-root", str(tmp_path / "local" / "xeda_run")]
+    result = CliRunner().invoke(cli, arguments + (["--dry-run"] if dry_run else []))
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)  # one document on stdout
+    assert list(document) == [
+        "schema_version",
+        "outcome",
+        "error",
+        "launch_id",
+        "spec",
+        "roots",
+        "nodes",
+    ]
+    assert document["outcome"] is None and document["launch_id"] is None
+    assert document["roots"] == [] and document["nodes"] == []
+    assert document["error"]["code"] == code and document["error"]["node"] is None
+    assert document["spec"]["flow"] == "nextpnr" and document["spec"]["design"] == "top"
+    assert document["spec"]["design_file"] == str(design)
+    assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
+
+
 # --- Attach -----------------------------------------------------------------------------------
 
 

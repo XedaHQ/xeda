@@ -81,7 +81,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         platforms_info,
         results_info,
     )
-    from .errors import SpecError
+    from .errors import RemoteError, SpecError
     from .run_dir import RunDirectoryError
     from .run_root import RunRootError, ensure_run_root
     from .outcomes import Outcome, run_document, spec_document
@@ -1211,13 +1211,13 @@ def run(
         """Report an exception that ended the command before the launch gave an outcome.
 
         A request that is invalid started no launch: with `--json`, its document has no
-        outcome, and the exit status is 2. Any other exception ends a launch with a failure of
-        its own: the nodes keep what they did, and the exit status is 1. The log line keeps the
-        class name of the exception."""
+        outcome, and the exit status is 2. So did a request to a host that cannot be reached or
+        set up. Any other exception ends a launch with a failure of its own: the nodes keep what
+        they did, and the exit status is 1. The log line keeps the class name of the exception."""
         public = public_error(error)
         info = request_error_info(error)
         log.critical("%s", _error_message(error))
-        refused = isinstance(public, SpecError)
+        refused = isinstance(public, (SpecError, RemoteError))
         if json_flag:
             if spec is not None and not refused and launcher is not None:
                 document = failed_result(launcher, spec, plan, info, launch_id=launch_id).to_dict()
@@ -1472,19 +1472,6 @@ def run(
     if json_flag:
         emit_structured(result.to_dict(), "json")
     sys.exit(0 if result.passed else 1)
-
-
-def _print_remote_plan(document: Dict[str, Any]) -> None:
-    """Print the plan of a remote dry run, as `_print_plan` prints a local one, and the input
-    files that the dry run uploaded."""
-    _print_plan(document, host=document.get("remote"))
-    uploaded = document.get("uploaded") or []
-    if uploaded:
-        click.echo(f"Uploaded {len(uploaded)} input file(s) to {document.get('remote')}:")
-        for path in uploaded:
-            click.echo(f"  {path}")
-    else:
-        click.echo(f"Uploaded no input file to {document.get('remote')}: it had them all.")
 
 
 def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:

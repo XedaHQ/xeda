@@ -504,9 +504,10 @@ def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overri
             )
             return RemoteRun(result, None, result.to_dict())
     except Exception as error:
-        from xeda.errors import SpecError
+        from xeda.errors import RemoteError, SpecError
 
-        refused = isinstance(public_error(error), SpecError)
+        # A request that starts no launch: it is invalid, or its host cannot be reached or set up.
+        refused = isinstance(public_error(error), (SpecError, RemoteError))
         document = run_document(
             outcome=None if refused else Outcome.FAILED,
             error=request_error_info(error),

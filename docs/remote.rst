@@ -385,11 +385,12 @@ both, the nodes keep their records. Ctrl-C gives the outcome ``canceled`` and th
 ``canceled``. A launch that Xeda stopped following has the outcome ``detached`` and the error code
 ``remote_detached``. A failure before the launch was sent starts no launch, and the document has
 no nodes: the code is ``remote_unreachable`` (OpenSSH could not connect) or
-``remote_setup_failed`` (the host could not be made ready), and the outcome is ``failed``. A
-request that Xeda refuses before it connects (a bad setting, design or chain, or a refused
-``--outputs-to``) has the outcome ``null`` and the exit status 2. A dry run prints the dry-run
-document of a local dry run, with the run directories of the mirror. :doc:`machine-readable`
-lists all keys. The output of the tools goes to stderr.
+``remote_setup_failed`` (the host could not be made ready). Like a request that Xeda refuses
+before it connects (a bad setting, design or chain, a refused ``--outputs-to``, or a flow that
+programs a device here, which has the code ``unsupported_with_remote``), it has the outcome
+``null`` and the exit status 2. A dry run prints the dry-run document of a local dry run, with the
+run directories of the mirror, and no other key. The log lists the input files that it uploaded.
+:doc:`machine-readable` lists all keys. The output of the tools goes to stderr.
 
 Python API
 ----------
@@ -422,7 +423,9 @@ launch-level error ``remote_failed`` or ``remote_fetch_failed``, and a launch th
 following has the outcome ``detached`` (with ``keep_running=True``). A failure before raises a
 ``RemoteError`` with the code ``remote_unreachable`` or ``remote_setup_failed`` and the host in
 ``.host``. The options ``prune_variants``, ``post_cleanup`` and ``post_cleanup_purge`` remove run
-directories, so a remote workspace refuses them: use ``xeda remote clean``.
+directories, so a remote workspace refuses them with a ``SpecError`` that has the code
+``unsupported_with_remote``: use ``xeda remote clean``. A flow that programs a device attached to
+this machine has the same error.
 
 Dry runs
 ========

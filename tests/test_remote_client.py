@@ -444,7 +444,7 @@ def test_a_connection_that_fails_names_the_step(tmp_path, remote_host, monkeypat
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = _request(tmp_path, _design(tmp_path))
     assert isinstance(outcome.error, PublicRemoteError)
-    assert outcome.document["outcome"] == "failed"
+    assert outcome.document["outcome"] is None and outcome.exit_status == 2
     assert outcome.document["error"]["code"] == "remote_unreachable"
     assert "cannot connect to somewhere" in outcome.document["error"]["message"]
     assert "Permission denied" in outcome.document["error"]["message"]
@@ -453,8 +453,10 @@ def test_a_connection_that_fails_names_the_step(tmp_path, remote_host, monkeypat
 def test_a_provisioning_failure_reports_its_code_in_the_json_message(tmp_path, remote_host):
     remote_host.remote.set_platform("Darwin", "arm64")
     result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--json")
-    assert result.exit_code == 1, result.output
-    error = json.loads(result.stdout)["error"]
+    assert result.exit_code == 2, result.output
+    document = json.loads(result.stdout)
+    assert document["outcome"] is None and document["nodes"] == []
+    error = document["error"]
     assert error["code"] == "remote_setup_failed"
     assert "not-linux: " in error["message"]
 
@@ -1065,15 +1067,19 @@ def _failing_dry_run(monkeypatch) -> None:
     monkeypatch.setattr(client, "_launch", failed)
 
 
-def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monkeypatch):
+def test_a_remote_dry_run_that_the_host_cannot_plan_exits_with_status_2(
+    tmp_path, remote_host, monkeypatch
+):
     design = _design(tmp_path)
     _failing_dry_run(monkeypatch)
     result = _cli(tmp_path, design, "nextpnr", "--dry-run")
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     assert "the plan is not valid" in result.output
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
+    assert document["outcome"] is None and document["nodes"] == []
+    assert document["error"]["code"] == "remote_setup_failed"
     assert "the plan is not valid" in document["error"]["message"]
 
 

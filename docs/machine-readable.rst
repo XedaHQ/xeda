@@ -581,8 +581,8 @@ A request that starts no launch
 -------------------------------
 
 Xeda refuses an invalid request before it runs any node: a bad setting, a bad design file or
-project file, an unknown design, a malformed chain, a refused delivery, or a mistake in the command
-line. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots": []`` and
+project file, an unknown design, a malformed chain, a refused delivery, a mistake in the command
+line, or a remote host that cannot be reached or set up. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots": []`` and
 ``"nodes": []``. Its ``error`` says why, and the exit status is 2:
 
 .. code-block:: json
@@ -617,6 +617,14 @@ other mistake of the command line has the code ``usage_error``: an unknown optio
 the options that need each other. For example, ``--remote`` refuses ``--post-cleanup``, and
 ``--keep-running`` and ``--fetch-all`` need ``--remote``. Click prints the same exit status 2 without
 ``--json``.
+
+With ``--remote``, a host that Xeda cannot reach has the code ``remote_unreachable``, and a host
+that Xeda cannot make ready has ``remote_setup_failed``. Both come before Xeda sends the launch, so
+they have no outcome and no nodes, and the exit status is 2. A flow that programs a device
+attached to this machine has the code ``unsupported_with_remote``. In Python, ``Workspace.plan``
+and ``Workspace.run`` raise a ``SpecError`` with that code for such a flow, and also for the options
+``prune_variants``, ``post_cleanup`` and ``post_cleanup_purge``, which remove run directories on
+the host. The command line refuses the matching options with ``--remote`` as a usage error.
 
 A Ctrl-C while Xeda loads the design or plans the request, before the launch starts, also gives a
 document with ``"outcome": null`` and no nodes. Its error code is ``canceled``, and the exit status
@@ -675,8 +683,7 @@ The code of an error of the whole launch (``node`` is ``null``): ``generator_fai
 ``delivery_failed`` (Xeda could not deliver an output that a setting, ``--outputs-to`` or the
 ``outputs_to`` of a generator named), ``cleanup_failed`` (see below), ``canceled``, and, for
 ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
-``remote_detached``. A request that fails before the launch is sent has ``remote_unreachable`` or
-``remote_setup_failed``. ``no_successful_run`` is the error of ``xeda dse``.
+``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
 
 The code of an error of a request that started no launch is the code of the setting, design,
 project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
@@ -691,7 +698,8 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
 ``dependency_cycle`` (the dependencies of a design lead back to a design on the same chain; the
 message names the chain),
-``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
+``flow_not_found``, ``invalid_run_root``, ``delivery_refused``, ``usage_error``, and, for
+``--remote``, ``remote_unreachable``, ``remote_setup_failed`` and ``unsupported_with_remote``.
 
 ``generator_failed`` says that the generator of the design failed or could not be started or
 judged. It comes before any node runs, so every node is ``skipped``, and Xeda leaves no output of
@@ -712,8 +720,8 @@ directory ``<run root>/@<host>`` that holds the fetched files. ``design_file`` i
 file, and ``launch_id`` is the id of the launch on the host. A failure of the remote step itself
 after the launch was sent gives the document of a launch with the outcome ``failed`` and the error
 code ``remote_failed``. A failure before (a host that cannot be reached or made ready) starts no
-launch: the document has no nodes, and the error code is ``remote_unreachable`` or
-``remote_setup_failed``. If the launch ended and Xeda could not
+launch: the document has the outcome ``null`` and no nodes, the error code is
+``remote_unreachable`` or ``remote_setup_failed``, and the exit status is 2. If the launch ended and Xeda could not
 fetch or deliver its result, the code is ``remote_fetch_failed`` or ``delivery_failed``, and the
 nodes keep their records. Ctrl-C gives the outcome ``canceled`` and the code ``canceled``.
 
@@ -721,8 +729,9 @@ The document of a launch that Xeda stopped following (``--keep-running``, then C
 connection) has the outcome ``detached``, the error code ``remote_detached`` and the id of the launch
 in ``launch_id``. Every node is ``detached``, and the launch keeps running on the host.
 
-The document of a remote dry run is the document of a local dry run. The ``run_dir`` of each node is
-the directory that the run would use in the mirror.
+The document of a remote dry run is the document of a local dry run, and has no other key. The
+``run_dir`` of each node is the directory that the run would use in the mirror. The log lists the
+input files that the dry run uploaded to the host.
 
 ``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run. The other
 commands of ``xeda remote`` print one document each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status
@@ -801,7 +810,8 @@ Exit status
 Every command exits with 0 on success and with another value on failure. ``xeda run`` exits with 0
 when the ``outcome`` is ``passed`` and with 1 for every other outcome (``rejected``, ``failed``,
 ``canceled`` or ``detached``). It exits with 2 for a request that started no launch: an invalid
-setting, design, project or chain, and a mistake in the command line. ``xeda dse`` fails when the
+setting, design, project or chain, a mistake in the command line, and a remote host that Xeda cannot
+reach or set up. ``xeda dse`` fails when the
 exploration found no successful run. A failed exploration and a failed ``scrub`` exit with status 1.
 A usage error of any other command exits with status 2.
 

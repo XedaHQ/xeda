@@ -1459,8 +1459,10 @@ def run_remote(
     with the outcome `detached`). A failure before raises: a `SpecError` for a request that the
     host or this side refuses, a `RemoteError` (`remote_unreachable`, `remote_setup_failed`).
     `cancel` stops the launch, and `on_event` gets its events. The host does the work, so the
-    events of the nodes come when the launch ends. An exception of `on_event` cancels the launch
-    and is raised again."""
+    events of the nodes come when the launch ends. `launch_started` comes once the host has
+    accepted the launch, with the id of the launch that runs there: the one that this call sent, or
+    an identical one that keeps running, which this call then follows. An exception of `on_event`
+    cancels the launch and is raised again."""
     level = _log_level(log_level)
     remote = _remote_of(workspace)
     run = _request_run(spec, remote.host, level)

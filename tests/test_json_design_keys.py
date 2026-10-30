@@ -130,7 +130,7 @@ def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     status, document = _json("run", "verilator", "blink.toml", "--remote", "somewhere")
 
-    assert status == 1 and document["outcome"] == "failed"
+    assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "remote_unreachable"
     assert "cannot connect to somewhere" in document["error"]["message"]
     assert document["spec"]["design"] == "blink"
