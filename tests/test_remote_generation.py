@@ -301,7 +301,7 @@ def test_the_package_carries_each_dependency_with_its_recipe_and_inputs(tmp_path
     lib1 = json.loads(package.generated[entry["uri"]])
     assert lib1["name"] == "lib1"
     assert lib1["rtl"]["generator"]["sources"] == ["gen.py", "spec.txt"]
-    assert lib1["rtl"]["sources"] == [{"path": "gen/lib1.v", "type": "Verilog"}]
+    assert lib1["rtl"]["sources"] == [{"path": "$XEDA_GENERATED/gen/lib1.v", "type": "Verilog"}]
     (nested,) = lib1["dependencies"]
     lib2 = json.loads(package.generated[os.path.normpath(f"_dependencies/0/{nested['uri']}")])
     assert lib2["name"] == "lib2"
