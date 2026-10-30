@@ -7,8 +7,8 @@ it. The lock of a design tree is a file under `<run root>/.locks/trees/`, and th
 destination is a file under `<run root>/.locks/deliveries/`.
 
 A launch takes all its locks at once (`acquire_all`), in one order: run directories, then
-storages, then design trees, then destinations, each kind by resource key. Except for a delivery, a thread waits only
-while it holds no lock of Xeda.
+storages, then design trees, then destinations, each kind by resource key. Except for a delivery,
+a thread waits only while it holds no lock of Xeda.
 """
 
 from __future__ import annotations
@@ -78,8 +78,8 @@ class LockRequest:
     """One lock that `acquire_all` is asked for.
 
     `path` is the run directory, the storage, the root of the design tree or the destination file.
-    The lock file follows from it and from the run root. A shared lock (`exclusive` false) is a lease of a reader.
-    """
+    The lock file follows from it and from the run root. A shared lock (`exclusive` false) is a
+    lease of a reader."""
 
     kind: Kind
     path: Path
@@ -503,12 +503,12 @@ def acquire_all(
     """Take every lock of `requests` or none, and release them when the block ends.
 
     Requests for one lock merge (an exclusive request wins). The order of acquisition is: run
-    directories, then storages, then design trees, then destinations, each kind by resource key. The call waits only
-    for the first lock, and holds nothing while it waits. It tries each later lock without
-    waiting. When another holder keeps one, it releases every lock it took, waits until that lock
-    alone is free, and starts again. After each lock, it checks that the request still resolves
-    to the lock it took, and starts again if not. So two calls with the same requests, in any
-    order, cannot wait for each other.
+    directories, then storages, then design trees, then destinations, each kind by resource key.
+    The call waits only for the first lock, and holds nothing while it waits. It tries each later
+    lock without waiting. When another holder keeps one, it releases every lock it took, waits
+    until that lock alone is free, and starts again. After each lock, it checks that the request
+    still resolves to the lock it took, and starts again if not. So two calls with the same
+    requests, in any order, cannot wait for each other.
 
     A lock that the calling thread holds already is held again, with no wait. A shared lock
     cannot become an exclusive one: release it, then ask for the exclusive one.

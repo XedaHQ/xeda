@@ -1724,7 +1724,7 @@ def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path)
     design_file.write_text(
         "name: generated\n"
         "rtl:\n"
-        "  sources: [gen/top.v]\n"
+        "  sources: [$XEDA_GENERATED/gen/top.v]\n"
         "  top: top\n"
         "  generator:\n"
         f"    executable: {sys.executable!r}\n"
@@ -1736,7 +1736,7 @@ def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path)
         design = Design.load(design_file)
         generate(design, run_root=world.root, environ=dict(os.environ))
         generate(design, run_root=world.root, environ=dict(os.environ))
-    assert [src.path for src in design.rtl.sources] == [Path("gen/top.v")]
+    assert [src.path for src in design.rtl.sources] == [Path("$XEDA_GENERATED/gen/top.v")]
     assert counter.read_text() == "ran\n", "the second generation generated again"
     assert violations == []
     after = _state(world.parent, [world.root])
@@ -1747,6 +1747,49 @@ def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path)
         storage.name,
         storage.name + ".lock",
     ]
+
+
+#: Writes `gen/top.v` below the design root: a tree entry.
+TREE_GENERATOR = """\
+import os
+from pathlib import Path
+
+out = Path(os.environ["DESIGN_ROOT"]) / "gen"
+out.mkdir(exist_ok=True)
+(out / "top.v").write_text("// generated\\n")
+"""
+
+
+def test_a_launch_that_copies_a_tree_entry_writes_nothing_below_the_design_root(tmp_path):
+    """The generator writes `gen/top.v` below the design root, and Xeda copies the file into the
+    storage. The audit hook sees no write of Xeda outside the run root, and the design tree
+    changes only where the generator wrote."""
+    from xeda.flow_runner.launch_generation import generate
+
+    world = _world(tmp_path)
+    ensure_run_root(world.root)
+    (world.work / "gen.py").write_text(TREE_GENERATOR)
+    (world.work / "spec.txt").write_text("one\n")
+    design_file = world.work / "generated.yaml"
+    design_file.write_text(
+        "name: generated\n"
+        "rtl:\n"
+        "  sources: [gen/top.v]\n"
+        "  top: top\n"
+        "  generator:\n"
+        f"    executable: {sys.executable!r}\n"
+        "    args: ['$DESIGN_ROOT/gen.py']\n"
+        "    sources: ['spec.txt', 'gen.py']\n"
+    )
+    written = world.work / "gen"
+    before = _state(world.parent, [world.root, written])
+    with watching(world) as violations:
+        design = Design.load(design_file)
+        generate(design, run_root=world.root, environ=dict(os.environ))
+    assert violations == []
+    assert _state(world.parent, [world.root, written]) == before, "Xeda changed the tree"
+    (storage,) = (world.root / ".generated" / "generated").glob("*/")
+    assert (storage / ".xeda-tree" / "gen" / "top.v").read_text() == "// generated\n"
 
 
 @pytest.mark.parametrize("flow, require", [("ghdl_sim", require_ghdl), ("nvc", require_nvc)])

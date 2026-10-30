@@ -250,7 +250,7 @@ def test_a_generator_writes_the_bluespec_that_bsc_converts(tmp_path) -> None:
             {
                 "name": "counter",
                 "rtl": {
-                    "sources": ["rtl/Counter.bsv"],
+                    "sources": ["$XEDA_GENERATED/rtl/Counter.bsv"],
                     "top": "mkCounter",
                     "clocks": [{"port": "CLK"}],
                     "generator": {

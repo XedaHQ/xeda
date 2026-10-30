@@ -139,7 +139,7 @@ class World:
         lines = [
             "name: generated",
             "rtl:",
-            f"  sources: {sources if sources is not None else ['gen/top.v']!r}",
+            f"  sources: {sources if sources is not None else ['$XEDA_GENERATED/gen/top.v']!r}",
             "  top: top",
             *([f"  parameters: {parameters}"] if parameters else []),
             "  generator:",

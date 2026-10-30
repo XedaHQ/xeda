@@ -61,7 +61,7 @@ def test_loading_a_design_with_a_generator_runs_nothing_and_writes_nothing(tmp_p
     design = world.load()
     assert design.rtl.generator is not None
     assert [(s.path, s.generated, s.located) for s in design.rtl.sources] == [
-        (Path("gen/top.v"), True, False)
+        (Path("$XEDA_GENERATED/gen/top.v"), True, False)
     ]
     assert world.runs == 0 and _tree(tmp_path) == before
     assert not world.run_root.exists()
@@ -215,7 +215,11 @@ def test_generated_source_paths_stay_names_before_and_after_a_launch(tmp_path):
     design = world.load()
     before = [s.path for s in design.rtl.sources if s.generated]
     assert world.launch(reader_flow(), design=design).outcome is Outcome.PASSED
-    assert [s.path for s in design.rtl.sources if s.generated] == before == [Path("gen/top.v")]
+    assert (
+        [s.path for s in design.rtl.sources if s.generated]
+        == before
+        == [Path("$XEDA_GENERATED/gen/top.v")]
+    )
     assert not design.rtl.sources[0].located
 
 
@@ -238,7 +242,7 @@ def test_a_generator_failure_is_an_error_of_the_whole_launch(tmp_path):
 
 def test_a_declared_name_the_generator_did_not_write_fails_the_node(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["gen/top.v", "gen/other.v"])
+    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/other.v"])
     result = world.launch(flow)
     assert result.outcome is Outcome.FAILED
     node = result.nodes[flow.name]
@@ -249,7 +253,7 @@ def test_a_declared_name_the_generator_did_not_write_fails_the_node(tmp_path):
 
 def test_a_declared_name_that_exists_in_the_working_directory_gets_a_hint(tmp_path):
     """The generator wrote the file where it runs instead of under `$XEDA_GENERATED`: the message
-    says what lies there and where Xeda reads, and does not say the generator wrote it."""
+    says what lies there and how to declare it, and does not say the generator wrote it."""
     flow = reader_flow()
     world = World(tmp_path)
     script = world.root / "gen.py"
@@ -261,20 +265,20 @@ def test_a_declared_name_that_exists_in_the_working_directory_gets_a_hint(tmp_pa
     written = world.root.resolve() / "gen" / "top.v"
     assert written.is_file()
     assert f"A file of that name exists at `{written}`" in node.error.message
-    assert "only under `$XEDA_GENERATED`" in node.error.message
+    assert "write the entry as `gen/top.v`" in node.error.message
     assert "`generated_sources`" in node.error.message, "the earlier advice stays"
 
 
 def test_a_missing_name_with_no_file_in_the_working_directory_gets_no_hint(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["gen/top.v", "gen/other.v"])
+    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/other.v"])
     node = world.launch(flow).nodes[flow.name]
     assert node.error is not None and "exists at" not in node.error.message
 
 
 def test_a_pattern_that_matches_nothing_fails_the_node_and_names_the_declaration(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["gen/top.v", "lib/*.v"])
+    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/lib/*.v"])
     node = world.launch(flow).nodes[flow.name]
     assert node.error is not None and node.error.code == "missing_generated"
     assert "lib/*.v" in node.error.message
@@ -282,7 +286,7 @@ def test_a_pattern_that_matches_nothing_fails_the_node_and_names_the_declaration
 
 def test_a_pattern_gives_the_flow_each_file_it_matches_in_order(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["gen/*.v"])
+    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/*.v"])
     script = (world.root / "gen.py").read_text()
     (world.root / "gen.py").write_text(
         script
@@ -296,16 +300,20 @@ def test_a_pattern_gives_the_flow_each_file_it_matches_in_order(tmp_path):
 
 def test_the_configuration_names_a_generated_source_by_its_declaration(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["gen/*.v"])
+    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/*.v"])
     runner = world.runner()
     design = world.load()
     plan = runner.plan(flow, design)
     planned = plan.nodes[0]
-    assert thaw(planned.configuration["rtl"]["sources"]) == [{"path": "gen/*.v", "type": "Verilog"}]
+    assert thaw(planned.configuration["rtl"]["sources"]) == [
+        {"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog"}
+    ]
     result = world.launch(flow, runner, design)
     assert result.outcome is Outcome.PASSED, result.error
     record = result.nodes[flow.name].record
-    assert thaw(record.configuration["rtl"]["sources"]) == [{"path": "gen/*.v", "type": "Verilog"}]
+    assert thaw(record.configuration["rtl"]["sources"]) == [
+        {"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog"}
+    ]
     assert record.identity == planned.flowrun_hash
 
 
@@ -317,7 +325,7 @@ def test_a_record_names_a_generated_input_by_its_name_and_the_key_of_its_storage
     record = result.nodes[flow.name].record
     (item,) = record.inputs
     (source,) = item.sources
-    assert (source.path, source.generated) == ("gen/top.v", True) and source.digest
+    assert (source.path, source.generated) == ("$XEDA_GENERATED/gen/top.v", True) and source.digest
     (storage,) = world.storages()
     assert source.generation == storage.name
     assert str(world.run_root) not in repr(record.to_dict())
@@ -349,7 +357,9 @@ def test_the_key_depends_on_every_part_of_the_configuration(tmp_path):
     assert variant(generator={"env": {"A": "1"}}) != reference, "the env of the recipe"
     assert variant(generator={"cwd": "sub"}) != reference, "the working directory"
     assert variant(parameters="{W: 4}") != reference, "a design parameter"
-    assert variant(sources=["gen/top.v", "gen/more.v"]) != reference, "the declarations"
+    assert (
+        variant(sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/more.v"]) != reference
+    ), "the declarations"
     assert variant(extra="tb:\n  top: tb\n") != reference, "the testbench"
     assert variant(extra="language:\n  vhdl:\n    standard: '08'\n") != reference, "the language"
     (base.root / "spec.txt").write_text("two\n")
@@ -457,7 +467,7 @@ def test_a_plan_says_unknown_until_the_generator_has_run(tmp_path):
 
 def test_a_plan_says_stale_for_a_node_that_reads_a_declaration_nothing_matched(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["gen/top.v", "gen/other.v"])
+    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/other.v"])
     assert world.launch(flow).nodes[flow.name].error.code == "missing_generated"
     state = world.runner().plan_with_freshness(flow, world.load())[1][flow.name]
     assert state.state == "stale" and "gen/other.v" in state.reason
@@ -676,7 +686,7 @@ def test_a_generated_source_passes_through_a_converter_by_its_name(tmp_path):
     converter, reader = consumer_flows(Events())
     world = World(
         tmp_path,
-        sources=["gen/Top.bsv", "gen/ext.v"],
+        sources=["$XEDA_GENERATED/gen/Top.bsv", "$XEDA_GENERATED/gen/ext.v"],
         extra=f"flows:\n  {reader.name}:\n    inputs:\n      design: {converter.name}\n",
     )
     script = (world.root / "gen.py").read_text()
@@ -690,7 +700,7 @@ def test_a_generated_source_passes_through_a_converter_by_its_name(tmp_path):
     made = result.nodes[converter.name].record.outputs["design"]
     entries = [thaw(entry) for entry in made.design["sources"]]
     passed = [entry for entry in entries if "source" in entry]
-    assert [(e["file"], e["type"]) for e in passed] == [("gen/ext.v", "Verilog")]
+    assert [(e["file"], e["type"]) for e in passed] == [("$XEDA_GENERATED/gen/ext.v", "Verilog")]
     assert str(world.run_root) not in str(made.design)
     again = world.launch(reader)
     assert again.outcome is Outcome.PASSED, again.error
@@ -731,11 +741,15 @@ def test_the_lease_is_of_the_files_the_judgment_under_it_found(tmp_path, monkeyp
 
     def stale(*args, **kwargs):
         found = real(*args, **kwargs)
-        return Generation(found.storage, found.key, {"gen/top.v": ()}, found.description)
+        return Generation(
+            found.storage, found.key, {"$XEDA_GENERATED/gen/top.v": ()}, found.description
+        )
 
     monkeypatch.setattr(launch_generation, "generate", stale)
     with generated(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ)) as g:
-        assert g is not None and dict(g.by_owner[None].matches) == {"gen/top.v": ("gen/top.v",)}
+        assert g is not None and dict(g.by_owner[None].matches) == {
+            "$XEDA_GENERATED/gen/top.v": ("gen/top.v",)
+        }
 
 
 def test_a_scrub_refuses_a_storage_that_became_a_link_after_the_confirmation(tmp_path):
@@ -838,7 +852,7 @@ def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_pat
             )
         )
     assert seen[0] == seen[1]
-    assert seen[0][2] == Path("gen/top.v") and str(tmp_path) not in seen[0][0]
+    assert seen[0][2] == Path("$XEDA_GENERATED/gen/top.v") and str(tmp_path) not in seen[0][0]
 
 
 def test_a_generator_sees_pwd_as_its_working_directory(tmp_path):

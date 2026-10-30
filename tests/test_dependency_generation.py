@@ -69,8 +69,12 @@ class Chain:
         (top / "gen.py").write_text(SCRIPT)
         (top / "spec.txt").write_text("one\n")
         self.design_file = top / "top.yaml"
-        generator = self._generator("top", "    generated_sources: [gen/top.v]\n") if own else ""
-        sources = "[top.v, gen/top.v]" if own else "[top.v]"
+        generator = (
+            self._generator("top", "    generated_sources: [$XEDA_GENERATED/gen/top.v]\n")
+            if own
+            else ""
+        )
+        sources = "[top.v, $XEDA_GENERATED/gen/top.v]" if own else "[top.v]"
         self.design_file.write_text(
             f"name: top\ndependencies: [../{self.names[0]}/{self.names[0]}.yaml]\nrtl:\n"
             f"  sources: {sources}\n  top: top\n{generator}"
@@ -87,8 +91,8 @@ class Chain:
     def _library(self, name: str, deeper: str | None) -> str:
         dependency = f"dependencies: [../{deeper}/{deeper}.yaml]\n" if deeper else ""
         return (
-            f"name: {name}\n{dependency}rtl:\n  sources: [gen/{name}.v]\n  top: {name}\n"
-            + self._generator(name)
+            f"name: {name}\n{dependency}rtl:\n"
+            f"  sources: [$XEDA_GENERATED/gen/{name}.v]\n  top: {name}\n" + self._generator(name)
         )
 
     def load(self) -> Design:
@@ -244,7 +248,7 @@ def test_two_generators_may_not_declare_one_name(tmp_path):
     (tmp_path / "top" / "top.yaml").write_text(
         (tmp_path / "top" / "top.yaml")
         .read_text()
-        .replace("sources: [top.v]", "sources: [top.v, gen/lib1.v]")
+        .replace("sources: [top.v]", "sources: [top.v, $XEDA_GENERATED/gen/lib1.v]")
         + chain._generator("top")
     )
     with pytest.raises(DesignValidationError, match="two generators declare"):

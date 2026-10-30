@@ -85,7 +85,7 @@ class World:
         self.design_file.write_text(
             "name: generated\n"
             "rtl:\n"
-            "  sources: [gen/top.v]\n"
+            "  sources: [$XEDA_GENERATED/gen/top.v]\n"
             "  top: top\n"
             "  generator:\n"
             + "".join(f"    {key}: {_yaml(value)}\n" for key, value in generator.items())
@@ -146,7 +146,7 @@ def test_a_generator_runs_once_and_not_again_while_nothing_changed(tmp_path):
     world = World(tmp_path)
     generation = world.generate()
     assert world.runs == 1
-    assert generation.matches == {"gen/top.v": ("gen/top.v",)}
+    assert generation.matches == {"$XEDA_GENERATED/gen/top.v": ("gen/top.v",)}
     assert len(world.records()) == 1
     world.generate()
     world.generate()
@@ -254,19 +254,19 @@ def test_inputs_are_rechecked_after_waiting_for_the_storage_lock(tmp_path, monke
     world = World(tmp_path)
     spec = world.root / "spec.txt"
     spec.write_text("two\n")
-    acquire = launch_generation.storage_lock
+    acquire = launch_generation.acquire_all
     changed = False
 
     @contextmanager
-    def change_after_acquire(storage, **kwargs):
+    def change_after_acquire(requests, **kwargs):
         nonlocal changed
-        with acquire(storage, **kwargs):
+        with acquire(requests, **kwargs) as locks:
             if not changed:
                 changed = True
                 spec.write_text("three\n")
-            yield
+            yield locks
 
-    monkeypatch.setattr(launch_generation, "storage_lock", change_after_acquire)
+    monkeypatch.setattr(launch_generation, "acquire_all", change_after_acquire)
     generation = world.generate()
     assert world.runs == 1
     assert (generation.storage / "gen" / "top.v").read_text() == "// three\n"
@@ -601,10 +601,12 @@ def test_run_only_if_sources_modified_true_is_to_be_deleted_never_turned_into_al
 def test_only_the_sources_the_generator_declares_it_generates_are_judged(tmp_path):
     """A design whose `rtl.sources` hold hand-written files too names what the generator writes
     in `generated_sources`; editing one of its own sources is then not a reason to generate."""
-    world = World(tmp_path, generated_sources=["gen/top.v"])
+    world = World(tmp_path, generated_sources=["$XEDA_GENERATED/gen/top.v"])
     (world.root / "mine.v").write_text("// mine\n")
     world.design_file.write_text(
-        world.design_file.read_text().replace("[gen/top.v]", "[gen/top.v, mine.v]")
+        world.design_file.read_text().replace(
+            "[$XEDA_GENERATED/gen/top.v]", "[$XEDA_GENERATED/gen/top.v, mine.v]"
+        )
     )
     world.generate()
     assert world.runs == 1
@@ -619,7 +621,9 @@ def test_only_the_sources_the_generator_declares_it_generates_are_judged(tmp_pat
 def test_a_pattern_the_generator_fills_is_judged_by_what_it_matches(tmp_path):
     world = World(tmp_path)
     world.design_file.write_text(
-        world.design_file.read_text().replace("[gen/top.v]", "['gen/*.v']")
+        world.design_file.read_text().replace(
+            "[$XEDA_GENERATED/gen/top.v]", "['$XEDA_GENERATED/gen/*.v']"
+        )
     )
     world.generate()
     assert world.runs == 1
@@ -628,7 +632,7 @@ def test_a_pattern_the_generator_fills_is_judged_by_what_it_matches(tmp_path):
     (world.storage / "gen" / "extra.v").write_text("// another file the pattern matches\n")
     generation = world.generate()
     assert world.runs == 2, "the pattern names another set of sources than the record holds"
-    assert generation.matches == {"gen/*.v": ("gen/top.v",)}
+    assert generation.matches == {"$XEDA_GENERATED/gen/*.v": ("gen/top.v",)}
 
 
 # --- the record itself ------------------------------------------------------------------------
@@ -797,7 +801,10 @@ def test_a_source_named_by_a_pattern_and_by_its_path_is_recorded_once(tmp_path):
     damaged, so the generator that just wrote it would run again on every launch."""
     world = World(tmp_path)
     world.design_file.write_text(
-        world.design_file.read_text().replace("[gen/top.v]", "['gen/*.v', 'gen/top.v']")
+        world.design_file.read_text().replace(
+            "[$XEDA_GENERATED/gen/top.v]",
+            "['$XEDA_GENERATED/gen/*.v', '$XEDA_GENERATED/gen/top.v']",
+        )
     )
     world.generate()
     assert world.runs == 1

@@ -4,9 +4,11 @@ flows a view of the design whose generated sources name their files.
 A design declares the sources that its generator writes (`Source.declaration`), and loading the
 design runs nothing. A launch generates after every declarative check and before the first
 producer. The generator writes into a storage under the run root, named by the configuration it
-serves (`generation_key`), so two variants of one design keep their own files. The design that
-the caller gave never changes. The flows get a copy (`execution_design`) whose generated sources
-are the files in the storage.
+serves (`generation_key`), so two variants of one design keep their own files. A generated entry
+can also be a path below the design root (a tree entry): Xeda then copies each tree file that the
+generation wrote into `.xeda-tree/` of the storage (`tree_outputs`). The design that the caller
+gave never changes. The flows get a copy (`execution_design`) whose generated sources are the
+files in the storage.
 
 A design may merge dependencies that have generators of their own. Each generator is a unit of
 generation (`Design.generation_units`, dependencies first, then the design itself), with a storage
@@ -14,9 +16,10 @@ and a key of its own, and a launch holds the leases of them all (`Generations`).
 dependency's generator keep that dependency as their owner (`Source.owner`).
 
 A launch locks its whole graph in one acquisition: the run directories of its nodes, then the
-storages (`settle`). A generator runs under the exclusive locks of that acquisition and takes no
-other lock. Then the launch releases the set and takes it again with the storages it generated
-shared, and judges every storage again before any node runs.
+storages, then the design trees that the generators to run write into (`settle`). A generator
+runs under the exclusive locks of that acquisition and takes no other lock. Then the launch
+releases the set and takes it again with the storages it generated shared, and judges every
+storage again before any node runs.
 
 Planning writes nothing here. `inspect_generation` reads the records of the storages, and says
 whether a launch would run a generator.
@@ -38,7 +41,17 @@ from typing import Any, Protocol
 
 from ..dataclass import ValidationError
 from ..deliver import GENERATOR, Delivery
-from ..design import Design, Generator, Source, SourceType, already_listed, generator_of
+from ..design import (
+    TREE_DIRECTORY,
+    Design,
+    Generator,
+    Source,
+    SourceType,
+    already_listed,
+    generator_of,
+    storage_name,
+    tree_declarations,
+)
 from ..flow import Flow
 from ..frozen import FrozenDict
 from ..generation import (
@@ -46,18 +59,23 @@ from ..generation import (
     REBUILD_ALL,
     GenerationError,
     MissingGenerated,
+    delivered_name,
     executable_identity,
     generation_storage,
     input_digests,
     judge,
     matches_in,
+    output_name_of,
+    outputs_in,
     recipe_identity,
+    stored_pattern,
     write_record,
 )
 from ..run_dir import RunDirectory, RunDirectoryError
+from ..tree_outputs import Observed, copy_tree_file, observe, written_names
 from ..utils import NonZeroExitCode, semantic_hash
 from .configuration import design_configuration
-from .run_lock import LockRequest, LockSet, acquire_all, storage_lock
+from .run_lock import LockRequest, LockSet, acquire_all
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +110,8 @@ class Generation:
 
     `matches` maps each declaration of a generated source (a name or a pattern, as `rtl.sources`
     states it) to the names of the files that it matches in the storage, sorted and relative to
-    it. A declaration may match nothing: a node that reads it fails (`MissingGenerated`)."""
+    it (`generation.stored_pattern`: the copy of a tree file lies under `.xeda-tree/`). A
+    declaration may match nothing: a node that reads it fails (`MissingGenerated`)."""
 
     storage: Path
     key: str
@@ -341,14 +360,18 @@ def _reason(
 
 
 def generate_unit(unit: Unit, *, run_root: Path, environ: Mapping[str, str]) -> Generation:
-    """Run the generator of `unit` into its storage. The caller holds the exclusive lock of it.
+    """Run the generator of `unit` into its storage. The caller holds the exclusive lock of the
+    storage and, for a unit with tree entries, of its design tree.
 
     The generator runs in the design root, or in the directory below it that its recipe names
-    (`cwd`), with `DESIGN_ROOT` and `XEDA_GENERATED` in its environment. It writes its generated
-    sources under `XEDA_GENERATED`, the storage. Xeda writes nothing into the design tree. A
-    failure raises `GenerationError`, and leaves no storage behind. `run_root` exists. The
-    result is not judged: a launch judges the storage again."""
+    (`cwd`), with `DESIGN_ROOT` and `XEDA_GENERATED` in its environment. It writes its storage
+    entries under `XEDA_GENERATED`, the storage, and its tree entries below the design root. Xeda
+    reads the files that the tree entries match before and after the run, and copies each file
+    that the run wrote into `.xeda-tree/` of the storage (`tree_outputs`). Xeda writes nothing
+    into the design tree. A failure raises `GenerationError`, and leaves no storage behind.
+    `run_root` exists. The result is not judged: a launch judges the storage again."""
     names = declarations(unit.design)
+    trees = [name for name in names if storage_name(name) is None]
     design, key, generator, storage = unit.design, unit.key, unit.generator, unit.storage
     description = generator.describe(design.name, design.root)
     owner = RunDirectory(run_root, run_root)
@@ -357,8 +380,11 @@ def generate_unit(unit: Unit, *, run_root: Path, environ: Mapping[str, str]) -> 
         if storage.exists():
             RunDirectory.claimed(storage, run_root).delete()
         owner.unlinked(storage).mkdir(parents=True)
+        before = observe(design.root, trees) if trees else {}
         generator.run(design.root, storage, environ)
-        matches = {name: tuple(matches_in(storage, name)) for name in names}
+        if trees:
+            _copy_tree_files(owner, design.root, storage, before, trees)
+        matches = outputs_in(storage, names)
         if generation_key(design, environ)[0] == key:
             write_record(owner, storage, key, generator, environ, matches)
         else:
@@ -377,6 +403,28 @@ def generate_unit(unit: Unit, *, run_root: Path, environ: Mapping[str, str]) -> 
     return Generation(storage, key, matches, description)
 
 
+def _copy_tree_files(
+    owner: RunDirectory,
+    root: Path,
+    storage: Path,
+    before: Mapping[str, Observed],
+    trees: Sequence[str],
+) -> None:
+    """Copy into `.xeda-tree/` of `storage` each file below `root` that `trees` match and that
+    the generation wrote: it is not in `before`, or has another state or content there."""
+    snapshot = storage / TREE_DIRECTORY
+    if os.path.lexists(snapshot):
+        raise GenerationError(
+            f"`{TREE_DIRECTORY}` is a name Xeda keeps for itself in `$XEDA_GENERATED`: the "
+            "generator must not write it"
+        )
+    after = observe(root, trees)
+    for name in written_names(before, after):
+        destination = snapshot / name
+        owner.unlinked(destination.parent).mkdir(parents=True, exist_ok=True)
+        copy_tree_file(root, name, after[name], owner.writable(destination))
+
+
 def generate(
     design: Design,
     *,
@@ -389,10 +437,11 @@ def generate(
     The result is None for a design with no generator. Otherwise the storage is current when it
     holds the record of this key, the inherited environment is the one the record names, and
     every generated source is as the last generation left it. Xeda judges that under the
-    exclusive lock of the storage, so a second launch of the same configuration waits, finds
-    the record, and generates nothing. With `rebuild_all` the generator always runs. A launch
-    does not call this: it generates the units that need it under the locks of its whole graph
-    (`settle`). `run_root` exists."""
+    exclusive lock of the storage (and of the design tree, for a design with tree entries), taken
+    in one acquisition, so a second launch of the same configuration waits, finds the record, and
+    generates nothing. With `rebuild_all` the generator always runs. A launch does not call this:
+    it generates the units that need it under the locks of its whole graph (`settle`).
+    `run_root` exists."""
     if design.rtl.generator is None:
         return None
     environ = dict(os.environ) if environ is None else environ
@@ -401,7 +450,11 @@ def generate(
         key, generator = generation_key(design, environ)
         storage = generation_storage(run_root, design.name, key)
         description = generator.describe(design.name, design.root)
-        with storage_lock(storage, exclusive=True, run_root=run_root):
+        requests = [
+            LockRequest("storage", storage, True),
+            *_tree_requests(design),
+        ]
+        with acquire_all(requests, run_root=run_root):
             if generation_key(design, environ)[0] != key:
                 # What the generator reads changed while this call waited for the lock: the
                 # output would not be that of this key. Start again with the new key.
@@ -419,6 +472,11 @@ def generate(
             return generate_unit(
                 Unit(None, design, key, generator, storage), run_root=run_root, environ=environ
             )
+
+
+def _tree_requests(design: Design) -> list[LockRequest]:
+    """The exclusive lock of the design tree of `design`, for a generator with tree entries."""
+    return [LockRequest("tree", design.root, True)] if tree_declarations(design) else []
 
 
 def _discard(storage: Path, run_root: Path) -> None:
@@ -450,7 +508,8 @@ def settle(
     One acquisition takes the locks of the `participants` (the nodes of the launch), then the
     storage of each generator and each of the `leases` (the storages of Git dependencies), shared
     for a storage that a launch only reads. A storage whose hint says it must be written is
-    requested exclusive. Under the locks, the call judges every storage again and acts on that:
+    requested exclusive, and so is the design tree of its unit when the generator has tree
+    entries. Under the locks, the call judges every storage again and acts on that:
 
     - A storage that is not valid under a shared lock makes the call release everything and
       start again with that storage exclusive.
@@ -495,6 +554,12 @@ def settle(
             *(participants.requests() if participants is not None else ()),
             *(LockRequest("storage", u.storage, u.identity in write) for u in units),
             *(LockRequest("storage", path, False) for path in leases),
+            *(
+                request
+                for u in units
+                if u.identity in write
+                for request in _tree_requests(u.design)
+            ),
         ]
         with ExitStack() as held:
             locks = held.enter_context(acquire_all(requests, run_root=run_root, canceled=canceled))
@@ -523,7 +588,10 @@ def settle(
                     state.generated.discard(unit.identity)
                     reason = found
                     attempts += 1
-                if locks.mode_of("storage", unit.storage) != "exclusive":
+                if locks.mode_of("storage", unit.storage) != "exclusive" or (
+                    tree_declarations(unit.design)
+                    and locks.mode_of("tree", unit.design.root) != "exclusive"
+                ):
                     must_write.add(unit.identity)
                     promote = True
                     break
@@ -589,9 +657,11 @@ def execution_design(design: Design, generations: Generations | None) -> Design:
     its generated sources.
 
     Each declaration of a generated source (`gen/*.v`) gives, in its place, one source for each
-    file that it matches in the storage of its owner, in sorted order and with its type. A file
-    that two declarations match is listed once. A declaration that matches nothing gives no
-    source (see `missing_declarations`). The design that the caller gave is not changed."""
+    file that it matches in the storage of its owner, in sorted order and with its type. The
+    source keeps the name in declaration form (`generation.output_name_of`): the tree path, or
+    `$XEDA_GENERATED/<name>`. A file that two declarations match is listed once. A declaration
+    that matches nothing gives no source (see `missing_declarations`). The design that the caller
+    gave is not changed."""
     if generations is None:
         return design
     listed: list[Source] = []
@@ -607,7 +677,7 @@ def execution_design(design: Design, generations: Generations | None) -> Design:
                 {"file": str(generation.storage / name)},
                 source.type,
                 generated=True,
-                output_name=name,
+                output_name=output_name_of(name),
                 owner=source.owner,
             )
             if not already_listed(listed, located):
@@ -666,33 +736,67 @@ def missing_declarations(
 HINT_FILES = 3
 
 
-def misplaced_hint(design: Design, owner: str | None, declaration: str) -> str:
-    """Return a sentence for a generated source that matched nothing in the storage, or "".
+def misplaced_hint(
+    design: Design, owner: str | None, declaration: str, storage: Path | None
+) -> str:
+    """Return a sentence for a generated source that matched nothing, or "".
 
-    The sentence says where a file of that name exists below the working directory of the
-    generator that owns the declaration (`owner` is None for the design's own generator). It
-    states what is there and never says the generator wrote it."""
-    for label, unit in generating_units(design):
-        if label != owner:
-            continue
-        try:
-            generator = generator_of(unit.rtl, root=unit.root)
-        except (ValidationError, ValueError):
-            return ""
+    `owner` names the generator of the declaration (None for the design's own generator), and
+    `storage` is the storage of its last generation (None when there is none). The sentence says
+    where a file of that name exists now. It states what is there and never says the generator
+    wrote it. It never raises: a link, or a file that cannot be read, gives "".
+
+    - A tree entry that matches a file below the design root: the generation did not write it.
+    - A tree entry that matches a file in the storage: the generator writes it there.
+    - A storage entry that matches a file below the directory the generator runs in: the
+      generator writes it there."""
+    unit = next((unit for label, unit in generating_units(design) if label == owner), None)
+    if unit is None:
+        return ""
+    try:
+        generator = generator_of(unit.rtl, root=unit.root)
         if generator is None:
             return ""
-        directory = generator.lookup_directory(unit.root)
-        found = matches_in(directory, declaration) if directory.is_dir() else []
-        if not found:
+        name = storage_name(declaration)
+        if name is None:
+            found = [unit.root / path for path in sorted(observe(unit.root, [declaration]))]
+            if found:
+                return (
+                    f"{_shown(found)} exists, but the last generation did not write it: Xeda "
+                    "takes only the files that a generation writes. A tool that skips an output "
+                    "it finds up to date must be made to write it"
+                )
+            in_storage: list[Path] = []
+            if storage is not None:  # `matches_in` leaves the record out
+                in_storage = [
+                    storage / path
+                    for path in matches_in(storage, declaration)
+                    if path.split("/")[0] != TREE_DIRECTORY
+                ]
+            if in_storage:
+                return (
+                    f"The storage of the generator holds {_shown(in_storage)}: if the generator "
+                    f"writes it there, write the entry as `$XEDA_GENERATED/{declaration}`"
+                )
             return ""
-        shown = ", ".join(f"`{directory / name}`" for name in found[:HINT_FILES])
-        more = f" and {len(found) - HINT_FILES} more" if len(found) > HINT_FILES else ""
-        return (
-            f"A file of that name exists at {shown}{more}, in the directory the generator "
-            "runs in. Xeda reads generated sources only under `$XEDA_GENERATED`: let the "
-            "generator write them there"
-        )
-    return ""
+        directory = generator.lookup_directory(unit.root)
+        found = [directory / path for path in matches_in(directory, name)]
+    except (ValidationError, ValueError, OSError, GenerationError):
+        return ""
+    if not found:
+        return ""
+    return (
+        f"A file of that name exists at {_shown(found)}, in the directory the generator runs in: "
+        "if the generator writes it there, write the entry as "
+        f"`{found[0].relative_to(unit.root).as_posix()}`"
+    )
+
+
+def _shown(files: Sequence[Path]) -> str:
+    """Name the first `HINT_FILES` of `files`, and how many more there are."""
+    shown = ", ".join(f"`{path}`" for path in files[:HINT_FILES])
+    more = f" and {len(files) - HINT_FILES} more" if len(files) > HINT_FILES else ""
+    return shown + more
 
 
 def refuse_missing(
@@ -711,7 +815,7 @@ def refuse_missing(
         raise MissingGenerated(
             name,
             generation.description if generation else "the generator",
-            misplaced_hint(design, source.owner, name),
+            misplaced_hint(design, source.owner, name, generation.storage if generation else None),
         )
 
 
@@ -766,9 +870,9 @@ def planned_deliveries(design: Design, start_directory: Path) -> dict[str | None
         if directory is None:
             continue
         planned[owner] = [
-            Delivery(GENERATOR, PurePath(name), directory / name)
-            for name in declarations(unit)
-            if "*" not in name
+            Delivery(GENERATOR, PurePath(stored), directory / delivered_name(stored))
+            for stored in map(stored_pattern, declarations(unit))
+            if "*" not in stored
         ]
     return planned
 
@@ -777,7 +881,8 @@ def generated_deliveries(
     design: Design, generations: Generations, start_directory: Path
 ) -> dict[str | None, list[Delivery]]:
     """Return the copies of generated sources to make, by owner: one for each file that a
-    declaration matched in the storage of its generator, under its name in the output."""
+    declaration matched in the storage of its generator. A copy of a tree file goes under its path
+    in the design tree, and any other file under its name in the storage (`delivered_name`)."""
     found: dict[str | None, list[Delivery]] = {}
     for owner, unit in generating_units(design):
         directory = delivery_directory(unit, start_directory)
@@ -786,7 +891,9 @@ def generated_deliveries(
             continue
         names = sorted({name for matched in generation.matches.values() for name in matched})
         found[owner] = [
-            Delivery(GENERATOR, PurePath(name), directory / name, generation.storage)
+            Delivery(
+                GENERATOR, PurePath(name), directory / delivered_name(name), generation.storage
+            )
             for name in names
         ]
     return found

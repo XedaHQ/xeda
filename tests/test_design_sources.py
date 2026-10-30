@@ -276,9 +276,9 @@ def _generated_design(root: Path, sources, generator=None) -> Design:
     ids=["relative", "design_root", "design_dir", "path_table", "scalar"],
 )
 def test_a_generated_source_is_the_same_declaration_however_it_is_spelled(generated, sources):
-    """The generator has not run when the design loads, so its output is a declaration: the name
-    that the design gives, relative to the output of the generator. Every spelling of one name is
-    one declaration, and the design has one storage key for them all."""
+    """The generator has not run when the design loads, so its output is a declaration: the path
+    below the design root that the design gives, which the generator writes. Every spelling of one
+    path is one declaration, and the design has one storage key for them all."""
     from xeda.flow_runner.launch_generation import generation_key
 
     design = _generated_design(generated, sources)
