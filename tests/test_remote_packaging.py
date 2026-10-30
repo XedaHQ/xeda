@@ -925,6 +925,14 @@ def test_a_file_that_is_a_source_and_a_parameter_has_a_text_for_each_role(tmp_pa
     assert package.path_identities[assets] == {"parameter": "$DESIGN_ROOT/assets"}
 
 
+def test_a_long_absolute_parameter_travels_as_it_is(tmp_path):
+    # longer than any path the system takes: on Python 3.11 to 3.13 `Path.exists` raises for it
+    long = "/" + "/".join(["a" * 200] * 40)
+    design = _design(tmp_path, rtl={"sources": [], "top": "t", "parameters": {"P": long}})
+    document = _shipped(_package(design, {}, tmp_path))
+    assert document["rtl"]["parameters"] == {"P": long}
+
+
 def test_two_texts_for_one_file_in_one_role_are_refused(tmp_path):
     lib = tmp_path / "lib"
     lib.mkdir()

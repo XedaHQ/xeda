@@ -149,7 +149,9 @@ def design_files(
                 visit(item)
         elif isinstance(value, (str, os.PathLike)) and os.fspath(value):
             path = Path(value)
-            if path.is_absolute() and path.is_file():
+            # any text may land here; `os.path.isfile` answers no for a name the system refuses
+            # (too long, say), where `Path.is_file` raises before Python 3.14
+            if path.is_absolute() and os.path.isfile(path):
                 _add(found, path)
 
     wanted = frozenset(parts)
