@@ -34,6 +34,7 @@ SETTINGS = ["fpga.part=xc7a12tcsg325-1", "clocks.main_clock.period=5ns"]
 
 
 def _world(tmp_path: Path, **options) -> World:
+    options.setdefault("sources", ["$XEDA_GENERATED/gen/top.v"])
     world = World(tmp_path, **options)
     text = world.design_file.read_text().replace(
         "  top: top\n", "  top: top\n  clocks: [{port: clk}]\n", 1
@@ -58,7 +59,7 @@ def test_the_package_carries_the_recipe_the_declared_inputs_and_the_declarations
     (world.root / "unrelated.txt").write_text("not declared\n")
     document, package = _document(tmp_path, world.load())
     rtl = document["rtl"]
-    assert rtl["sources"] == [{"path": "gen/top.v", "type": "Verilog"}]
+    assert rtl["sources"] == [{"path": "$XEDA_GENERATED/gen/top.v", "type": "Verilog"}]
     recipe = rtl["generator"]
     assert recipe["sources"] == ["spec.txt", "gen.py"]
     assert recipe["args"][0] == "$DESIGN_ROOT/gen.py"
@@ -246,7 +247,7 @@ def test_the_package_says_what_is_written_and_what_is_generated(tmp_path):
     document, package = _document(tmp_path, world.load())
     # the design as it was given: its own source is a declaration, and the dependency is a
     # design document of its own with the file it declares
-    assert document["rtl"]["sources"] == [{"path": "gen/top.v", "type": "Verilog"}]
+    assert document["rtl"]["sources"] == [{"path": "$XEDA_GENERATED/gen/top.v", "type": "Verilog"}]
     (entry,) = document["dependencies"]
     assert entry["uri"] == "_dependencies/0/dep.xeda.json"
     dependency = json.loads(package.generated[entry["uri"]])
@@ -300,7 +301,7 @@ def test_the_package_carries_each_dependency_with_its_recipe_and_inputs(tmp_path
     lib1 = json.loads(package.generated[entry["uri"]])
     assert lib1["name"] == "lib1"
     assert lib1["rtl"]["generator"]["sources"] == ["gen.py", "spec.txt"]
-    assert lib1["rtl"]["sources"] == [{"path": "gen/lib1.v", "type": "Verilog"}]
+    assert lib1["rtl"]["sources"] == [{"path": "$XEDA_GENERATED/gen/lib1.v", "type": "Verilog"}]
     (nested,) = lib1["dependencies"]
     lib2 = json.loads(package.generated[os.path.normpath(f"_dependencies/0/{nested['uri']}")])
     assert lib2["name"] == "lib2"
@@ -421,7 +422,7 @@ def _rich_dependency(tmp_path: Path) -> Path:
         (library / f"{name}.yaml").write_text(
             "name: lib\n"
             "rtl:\n"
-            f"  sources: [extra.v, gen/{name}.v]\n"
+            f"  sources: [extra.v, $XEDA_GENERATED/gen/{name}.v]\n"
             f"  top: {name}\n"
             f"  parameters: {{W: {width}}}\n"
             "  defines: {FAST: 1}\n"
@@ -430,7 +431,7 @@ def _rich_dependency(tmp_path: Path) -> Path:
             f"    executable: {sys.executable!r}\n"
             f"    args: ['$DESIGN_ROOT/gen.py', {name!r}, {str(tmp_path / 'order.log')!r}]\n"
             "    sources: [gen.py, spec.txt]\n"
-            "    generated_sources: [gen]\n"
+            "    generated_sources: [$XEDA_GENERATED/gen]\n"
             "language:\n  vhdl:\n    standard: '08'\n"
         )
     top = tmp_path / "top"
@@ -497,6 +498,59 @@ def test_an_empty_working_directory_of_a_generator_exists_on_the_host(tmp_path, 
     assert world.runs == 1
     cwd, _design_root, _storage = world.where
     assert cwd.endswith("/work")
+
+
+def _tree_world(tmp_path: Path, entry: str) -> World:
+    return _world(tmp_path, sources=[entry])
+
+
+def test_a_stale_tree_file_is_not_sent_and_the_declaration_is(tmp_path):
+    world = _tree_world(tmp_path, "gen_rtl/top.v")
+    (world.root / "gen_rtl").mkdir()
+    (world.root / "gen_rtl" / "top.v").write_text("// stale\n")
+    document, package = _document(tmp_path, world.load())
+    assert document["rtl"]["sources"] == [{"path": "gen_rtl/top.v", "type": "Verilog"}]
+    assert not any(name.startswith("gen_rtl") for name in (*package.files, *package.generated))
+    assert "gen_rtl" in package.directories
+
+
+@pytest.mark.parametrize(
+    ("entry", "made", "listed"),
+    [
+        ("gen_rtl/top.v", ["gen_rtl"], "gen_rtl"),
+        ("gen_rtl/top.v", [], None),
+        ("a/b/top.v", ["a"], None),
+        ("a/b/top.v", ["a/b"], "a/b"),
+        ("a/*/top.v", ["a", "a/*"], "a"),
+        ("a/b*/c/top.v", ["a", "a/b"], "a"),
+        ("*.v", [], None),
+        ("top.v", [], None),
+    ],
+)
+def test_the_literal_parent_of_a_tree_entry_is_sent_when_it_exists(tmp_path, entry, made, listed):
+    world = _tree_world(tmp_path, entry)
+    for name in made:
+        (world.root / name).mkdir(parents=True, exist_ok=True)
+    package = _document(tmp_path, world.load())[1]
+    directories = set(package.directories)
+    # the generator's own inputs are files, so a listed directory is the parent alone
+    assert directories == ({listed} if listed else set())
+    assert not any("*" in name for name in directories)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
+@pytest.mark.parametrize("where", ["leaf", "way"])
+def test_a_parent_reached_through_a_link_is_not_sent(tmp_path, where):
+    world = _tree_world(tmp_path, "a/b/top.v")
+    target = tmp_path / "elsewhere"
+    (target / "b").mkdir(parents=True)
+    if where == "leaf":
+        (world.root / "a").mkdir()
+        (world.root / "a" / "b").symlink_to(target / "b", target_is_directory=True)
+    else:
+        (world.root / "a").symlink_to(target, target_is_directory=True)
+    package = _document(tmp_path, world.load())[1]
+    assert package.directories == []
 
 
 def test_the_host_plans_the_identity_of_a_design_that_merges_units_with_content(

@@ -7,6 +7,7 @@ before any tool runs, naming the entry and its part. The rule judges names only:
 so it holds for a destination that does not exist yet. The same rule applies to every delivery.
 """
 
+import re
 import sys
 from pathlib import Path
 from typing import ClassVar, Optional
@@ -160,7 +161,7 @@ def test_a_delivery_that_a_source_entry_would_read_is_refused_before_any_tool(
     tmp_path, deliverer, entry, parts, destination, where
 ):
     if where == "generator":
-        parts["rtl"]["sources"] = ["gen/top.v"]
+        parts["rtl"]["sources"] = ["$XEDA_GENERATED/gen/top.v"]
     design = _design(tmp_path / "design", **parts)
     target = design.root / destination
     assert not target.exists()
@@ -170,6 +171,46 @@ def test_a_delivery_that_a_source_entry_would_read_is_refused_before_any_tool(
     assert f"`{entry}`" in message and "sources" in message and where in message, message
     assert not RUNS and not target.exists()
     assert not (tmp_path / "xeda_run" / ".generated").exists(), "no generator ran"
+
+
+def test_a_delivery_onto_a_tree_entry_is_refused_before_any_tool(tmp_path, deliverer):
+    """A plain generated entry is a path below the design root that the generator writes, so a
+    file delivered there would be read as the generator's output."""
+    design = _design(
+        tmp_path / "design",
+        rtl={"sources": ["gen/top.v", "gen/*.sv"], "generator": _generator("scripts/gen.py")},
+    )
+    for name, entry in (("top.v", "gen/top.v"), ("other.sv", "gen/*.sv")):
+        target = design.root / "gen" / name
+        with pytest.raises(DeliveryError, match=f"`{re.escape(entry)}` entry of `rtl.sources`"):
+            _launch(tmp_path, deliverer, design, target)
+        assert not target.exists()
+    assert not RUNS
+    assert not (tmp_path / "xeda_run" / ".generated").exists(), "no generator ran"
+
+
+def test_a_delivery_onto_the_tree_place_of_a_storage_name_is_allowed(tmp_path, deliverer):
+    """`$XEDA_GENERATED/gen/top.v` is a file in the storage of the generator. It names nothing in
+    the design tree, so `gen/top.v` there may receive a delivery."""
+    design = _design(
+        tmp_path / "design",
+        rtl={
+            "sources": ["$XEDA_GENERATED/gen/top.v"],
+            "generator": _generator("scripts/gen.py"),
+        },
+    )
+    (design.root / "scripts" / "gen.py").write_text("")
+    target = design.root / "gen" / "top.v"
+    assert [e.text for e in design.source_entries()] == ["scripts/gen.py"]
+    assert not any(e.matches(target) for e in design.source_entries())
+
+    class BlindDeliverer(deliverer):  # type: ignore[valid-type, misc]
+        """Reads no generated source: the storage need not hold one."""
+
+        design_source_types: ClassVar[frozenset[SourceType]] = frozenset({SourceType.Vhdl})
+
+    assert _launch(tmp_path, BlindDeliverer, design, target).succeeded
+    assert target.read_text() == "net\n"
 
 
 @pytest.mark.parametrize("change", ["parameters", "target", "nothing"])
@@ -337,7 +378,11 @@ def test_a_delivery_into_a_linked_directory_that_a_plain_entry_names_is_refused(
     design = Design(
         name="d",
         root=root,
-        rtl={"sources": ["gen/top.v"], "top": "top", "generator": _generator("tools")},
+        rtl={
+            "sources": ["$XEDA_GENERATED/gen/top.v"],
+            "top": "top",
+            "generator": _generator("tools"),
+        },
     )
     with pytest.raises(DeliveryError, match="entry of `rtl.generator.sources`"):
         _launch(tmp_path, deliverer, design, root / "scripts" / "new.py")

@@ -538,7 +538,7 @@ def test_a_local_dependency_that_a_generator_writes_is_refused(tmp_path):
     spec = {
         "name": "d",
         "rtl": {
-            "sources": ["gen/top.v"],
+            "sources": ["$XEDA_GENERATED/gen/top.v"],
             "generator": {
                 "executable": "python3",
                 "args": ["$DESIGN_ROOT/gen.py"],
@@ -553,6 +553,54 @@ def test_a_local_dependency_that_a_generator_writes_is_refused(tmp_path):
     assert refused.value.code == "design_file_not_found"
     assert "dep.yaml" in str(refused.value) and "gen.py" in str(refused.value)
     assert not counter.exists()
+
+
+def _generating_commit(remote: Remote, entry: str) -> str:
+    """Push a commit whose design file has a generator and the generated `entry`."""
+    (remote.work / "gen.py").write_text("print('never run')\n")
+    (remote.work / "dep.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "dep",
+                "rtl": {
+                    "sources": [entry],
+                    "top": "dep_top",
+                    "clocks": ["clk"],
+                    "generator": {
+                        "executable": "python3",
+                        "args": ["gen.py"],
+                        "sources": ["gen.py"],
+                    },
+                },
+            }
+        )
+    )
+    commit = remote.commit("generator")
+    _git("push", "--quiet", "origin", "main", cwd=remote.work)
+    return commit
+
+
+def test_a_git_dependency_whose_generator_writes_into_its_tree_is_refused(tmp_path, remote):
+    commit = _generating_commit(remote, "gen/top.v")
+    design_file = _design_file(tmp_path, _pinned(remote, commit))
+    with pytest.raises(DesignError) as refused:
+        _plan(tmp_path, design_file)
+    message = str(refused.value)
+    assert refused.value.code == "fetch_failed"
+    assert "`gen/top.v`" in message and "checkout" in message
+    assert "`$XEDA_GENERATED/gen/top.v`" in message and "local dependency" in message
+    assert SECRET not in message
+
+
+def test_a_git_dependency_may_generate_into_its_storage(tmp_path, remote):
+    commit = _generating_commit(remote, "$XEDA_GENERATED/gen/top.v")
+    design_file = _design_file(tmp_path, _pinned(remote, commit))
+    merged = xeda.flow_runner.dependencies.merged_design(
+        Design.load(design_file), run_root=tmp_path / "xeda_run"
+    )
+    assert [str(src.output_name) for src in merged.rtl.sources if src.generated] == [
+        "$XEDA_GENERATED/gen/top.v"
+    ]
 
 
 def test_no_scrub_removes_dependency_storage(tmp_path, remote):

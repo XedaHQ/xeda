@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from .errors import RecordError, RunReplacedError
 from .frozen import freeze, thaw
-from .generation import generation_storage
+from .generation import generation_storage, stored_pattern
 from .outcomes import Outcome
 
 if TYPE_CHECKING:
@@ -997,17 +997,19 @@ def _open_run(
 
     generated: dict[str, Path] = {}
     missing: list[str] = []
-    for key, (_kind, directory, source) in places.items():
+    for key, (kind, directory, source) in places.items():
         if directory is None:
             missing.append(key)
             continue
+        # a generator's source is named by its declaration; its file has its stored name
+        name = stored_pattern(source.path) if kind == "storage" else source.path
         try:
             if (
-                name_in(directory, source.path) is not None
+                name_in(directory, name) is not None
                 and source.digest
-                and content_digest(directory / source.path) == source.digest
+                and content_digest(directory / name) == source.digest
             ):
-                generated[key] = directory / source.path
+                generated[key] = directory / name
                 continue
         except (OSError, ValueError):
             pass

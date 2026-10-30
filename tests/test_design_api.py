@@ -567,12 +567,12 @@ def test_a_target_that_drops_the_generator_has_handwritten_sources(tmp_path):
     design = Design(
         name="a",
         root=tmp_path,
-        rtl={"sources": ["gen/out.v"], "generator": {"shell": "true"}},
+        rtl={"sources": ["$XEDA_GENERATED/gen/out.v"], "generator": {"shell": "true"}},
         targets={"t": {"rtl": {"generator": None, "sources": ["hand.v"]}}},
     )
     assert [s.generated for s in design.rtl.sources] == [True]
     chosen = design.with_target("t")
-    hand = [s for s in chosen.rtl.sources if s.output_name != "gen/out.v"]
+    hand = [s for s in chosen.rtl.sources if s.output_name != "$XEDA_GENERATED/gen/out.v"]
     assert [s.path.name for s in hand] == ["hand.v"] and not hand[0].generated
     assert hand[0].path == (tmp_path / "hand.v").resolve()
     # a target that says nothing of the generator still has the design's
@@ -580,8 +580,8 @@ def test_a_target_that_drops_the_generator_has_handwritten_sources(tmp_path):
     other = Design(
         name="a",
         root=tmp_path,
-        rtl={"sources": ["gen/out.v"], "generator": {"shell": "true"}},
-        targets={"t": {"rtl": {"sources": ["gen/more.v"]}}},
+        rtl={"sources": ["$XEDA_GENERATED/gen/out.v"], "generator": {"shell": "true"}},
+        targets={"t": {"rtl": {"sources": ["$XEDA_GENERATED/gen/more.v"]}}},
     ).with_target("t")
     assert [s.generated for s in other.rtl.sources] == [True, True]
 

@@ -59,7 +59,8 @@ XILINX = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period
 
 
 class Generated:
-    """A design whose generator writes `writes`, listed in `rtl.sources` as `sources`."""
+    """A design whose generator writes `writes` into its storage, listed in `rtl.sources` as
+    `sources` (by default, each of `writes` as `$XEDA_GENERATED/<name>`)."""
 
     def __init__(self, tmp_path: Path, writes: list[str], sources=None, **design) -> None:
         self.root = tmp_path / "design"
@@ -69,7 +70,9 @@ class Generated:
         spec = {
             "name": "generated",
             "rtl": {
-                "sources": writes if sources is None else sources,
+                "sources": (
+                    [f"$XEDA_GENERATED/{name}" for name in writes] if sources is None else sources
+                ),
                 "top": "top",
                 "clocks": ["clk"],
                 "generator": {
@@ -267,7 +270,9 @@ def test_a_file_a_setting_reads_to_check_it_must_exist_before_the_generator_runs
     """`custom_boards_file` is read when the setting is validated, which comes before the
     generator runs, so the generator cannot write it. With the file in place, the plan is made."""
     monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/top.v", "gen/boards.yaml"], sources=["gen/top.v"])
+    generated = Generated(
+        tmp_path, ["gen/top.v", "gen/boards.yaml"], sources=["$XEDA_GENERATED/gen/top.v"]
+    )
     settings = {"board": "mine", "custom_boards_file": "$DESIGN_ROOT/gen/boards.yaml"}
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException, match="Cannot read custom boards file"):
@@ -289,12 +294,12 @@ def test_a_file_a_setting_reads_to_check_it_must_exist_before_the_generator_runs
 
 
 def test_a_pattern_without_a_definite_type_is_refused_when_the_design_loads(tmp_path, monkeypatch):
-    """`gen/*` says nothing about its files before they exist: it needs a `type`, and the error
-    shows how to give one. Nothing runs."""
+    """`$XEDA_GENERATED/gen/*` says nothing about its files before they exist: it needs a `type`,
+    and the error shows how to give one. Nothing runs."""
     monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*"])
+    generated = Generated(tmp_path, ["gen/top.edf"], sources=["$XEDA_GENERATED/gen/*"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with pytest.raises(DesignValidationError, match=r"`gen/\*`.*type: Verilog"):
+    with pytest.raises(DesignValidationError, match=r"`\$XEDA_GENERATED/gen/\*`.*type: Verilog"):
         runner.run(
             "yosys_fpga",
             str(generated.file),
@@ -309,7 +314,7 @@ def test_a_pattern_with_a_type_is_judged_on_its_declaration_before_the_generator
     """The extension of `gen/*.edf` says what its files are, before any exists, so the launch
     refuses `yosys_fpga` (it reads none of the design's sources) without running the generator."""
     monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*.edf"])
+    generated = Generated(tmp_path, ["gen/top.edf"], sources=["$XEDA_GENERATED/gen/*.edf"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException, match="yosys_fpga reads none of the design's"):
         runner.run(
@@ -325,7 +330,7 @@ def test_a_pattern_is_one_source_in_the_plan_and_its_files_in_the_launch(tmp_pat
     the file that the pattern matched."""
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*.edf"])
+    generated = Generated(tmp_path, ["gen/top.edf"], sources=["$XEDA_GENERATED/gen/*.edf"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     flow = runner.run(
         "vivado_impl", str(generated.file), flow_settings=node_settings("vivado_impl", dict(XILINX))
@@ -337,7 +342,9 @@ def test_a_pattern_is_one_source_in_the_plan_and_its_files_in_the_launch(tmp_pat
 def test_a_pattern_that_matches_two_files_fails_a_flow_that_takes_one(tmp_path, monkeypatch):
     use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
-    generated = Generated(tmp_path, ["gen/a.edf", "gen/b.edf"], sources=["gen/*.edf"])
+    generated = Generated(
+        tmp_path, ["gen/a.edf", "gen/b.edf"], sources=["$XEDA_GENERATED/gen/*.edf"]
+    )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(Exception, match="2 paths"):
         runner.run(
@@ -355,7 +362,10 @@ def test_a_testbench_file_the_generator_writes_is_refused_when_the_design_loads(
     cannot find it says so before it runs the generator."""
     monkeypatch.chdir(tmp_path)
     generated = Generated(
-        tmp_path, ["gen/top.v", "gen/tb.v"], sources=["gen/top.v"], tb={"sources": ["gen/tb.v"]}
+        tmp_path,
+        ["gen/top.v", "gen/tb.v"],
+        sources=["$XEDA_GENERATED/gen/top.v"],
+        tb={"sources": ["gen/tb.v"]},
     )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError, match="does not exist"):
@@ -442,7 +452,7 @@ def test_a_local_dependency_the_generator_writes_is_refused_at_planning(tmp_path
     generated = Generated(
         tmp_path,
         ["gen/top.v", "gen/dep.toml"],
-        sources=["gen/top.v"],
+        sources=["$XEDA_GENERATED/gen/top.v"],
         dependencies=["gen/dep.toml"],
     )
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
@@ -463,7 +473,7 @@ def test_a_remote_launch_refuses_a_local_dependency_the_generator_writes(
     generated = Generated(
         tmp_path,
         ["gen/top.v", "gen/dep.toml"],
-        sources=["gen/top.v"],
+        sources=["$XEDA_GENERATED/gen/top.v"],
         dependencies=["gen/dep.toml"],
     )
     outcome = remote_request(
@@ -480,7 +490,10 @@ def test_a_malformed_field_beside_a_missing_file_runs_no_generator(tmp_path, mon
     """The testbench file is missing and `rtl.top` is no name: the design is refused for both."""
     monkeypatch.chdir(tmp_path)
     generated = Generated(
-        tmp_path, ["gen/top.v", "gen/tb.v"], sources=["gen/top.v"], tb={"sources": ["gen/tb.v"]}
+        tmp_path,
+        ["gen/top.v", "gen/tb.v"],
+        sources=["$XEDA_GENERATED/gen/top.v"],
+        tb={"sources": ["gen/tb.v"]},
     )
     spec = json.loads(generated.file.read_text())
     spec["rtl"]["top"] = 123

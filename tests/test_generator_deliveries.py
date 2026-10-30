@@ -1,8 +1,9 @@
 """A launch copies the generated sources into the design tree when the generator asks.
 
 `rtl.generator.outputs_to` is a delivery like the others. At the end of a launch that passed, each
-file that a declaration matched in the storage is copied to `<outputs_to>/<its name in the output
-of the generator>`, by the code that delivers deliverable settings, under the same rules: a
+file that a declaration matched in the storage is copied to `<outputs_to>/<its name>`: its path
+below the design root for a tree entry, its name in the storage for `$XEDA_GENERATED/<name>`. The
+copy is made by the code that delivers deliverable settings, under the same rules: a
 changed copy needs a yes or `overwrite_outputs`, and nothing goes onto an input, over a directory
 or through a link. The first flow that reads the generated sources delivers them, and its record
 lists each copy under the key `generator`.
@@ -11,7 +12,7 @@ lists each copy under the key `generator`.
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import ClassVar
 
 import pytest
@@ -20,6 +21,7 @@ from xeda import Design
 from xeda.deliver import DeliveryError, OutputExistsError
 from xeda.flow import Flow, In, MetricSpec, Out
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.launch_generation import planned_deliveries
 from xeda.flow_runner.launch_result import launch_result
 from xeda.outcomes import Outcome
 from xeda.design import SourceType
@@ -31,13 +33,14 @@ from .generation_world import reader_flow
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no storage locks")
 
 #: Appends a line to the counter its first argument names. Then it writes each file named after
-#: it in its storage, with the text `from <name>`. A name `link:<name>` makes a link to the file
-#: that the environment variable `LINK_TARGET` names.
+#: it in its storage (below the design root when the environment variable `INTO_TREE` is set),
+#: with the text `from <name>`. A name `link:<name>` makes a link to the file that the environment
+#: variable `LINK_TARGET` names.
 GENERATOR = r"""
 import os, sys
 from pathlib import Path
 
-root = Path(os.environ["XEDA_GENERATED"])
+root = Path(os.environ["DESIGN_ROOT" if "INTO_TREE" in os.environ else "XEDA_GENERATED"])
 with open(sys.argv[1], "a") as counter:
     counter.write("ran\n")
 for name in sys.argv[2:]:
@@ -92,7 +95,9 @@ class Delivering:
                 {
                     "name": "delivering",
                     "rtl": {
-                        "sources": sources if sources is not None else ["gen/top.v"],
+                        "sources": (
+                            sources if sources is not None else ["$XEDA_GENERATED/gen/top.v"]
+                        ),
                         "top": "top",
                         "generator": recipe,
                     },
@@ -119,9 +124,36 @@ def _delivered(flow: Flow) -> dict[str, str]:
     return {Path(d.destination).as_posix(): d.state for d in flow.deliveries}
 
 
+def test_a_tree_entry_is_delivered_under_its_path_below_the_design_root(tmp_path):
+    world = Delivering(
+        tmp_path, ["gen_rtl/top.v"], sources=["gen_rtl/top.v"], env={"INTO_TREE": "1"}
+    )
+    flow = world.launch()
+    assert flow.succeeded
+    copy = world.root / "out" / "gen_rtl" / "top.v"
+    assert copy.read_text() == "// from gen_rtl/top.v\n"
+    assert _delivered(flow) == {copy.as_posix(): "delivered"}
+
+
+def test_the_planned_copies_name_a_tree_entry_by_its_path(tmp_path):
+    """A declaration without `*` has a known destination before the generator runs: a tree entry
+    under its path, a storage entry under its name in the storage."""
+    world = Delivering(
+        tmp_path, [], sources=["gen_rtl/top.v", "$XEDA_GENERATED/gen/x.v", "gen_rtl/*.sv"]
+    )
+    planned = planned_deliveries(world.design(), tmp_path)[None]
+    out = world.root.resolve() / "out"
+    assert [(d.name, d.destination) for d in planned] == [
+        (PurePath(".xeda-tree/gen_rtl/top.v"), out / "gen_rtl" / "top.v"),
+        (PurePath("gen/x.v"), out / "gen" / "x.v"),
+    ]
+
+
 def test_a_passed_launch_copies_the_generated_sources_under_their_names(tmp_path):
     world = Delivering(
-        tmp_path, ["gen/top.v", "gen/sub/more.v"], sources=["gen/*.v", "gen/sub/*.v"]
+        tmp_path,
+        ["gen/top.v", "gen/sub/more.v"],
+        sources=["$XEDA_GENERATED/gen/*.v", "$XEDA_GENERATED/gen/sub/*.v"],
     )
     flow = world.launch()
     assert flow.succeeded
@@ -154,7 +186,9 @@ def test_a_result_lists_each_copy_under_the_key_generator(tmp_path):
 
 
 def test_a_pattern_delivers_each_file_that_it_matched(tmp_path):
-    world = Delivering(tmp_path, ["gen/a.v", "gen/b.v", "gen/c.v"], sources=["gen/*.v"])
+    world = Delivering(
+        tmp_path, ["gen/a.v", "gen/b.v", "gen/c.v"], sources=["$XEDA_GENERATED/gen/*.v"]
+    )
     assert world.launch().succeeded
     assert sorted(p.name for p in (world.root / "out" / "gen").iterdir()) == ["a.v", "b.v", "c.v"]
 
@@ -270,8 +304,8 @@ def test_a_destination_that_an_entry_of_the_sources_reads_is_refused_before_the_
         tmp_path,
         ["new.v"],
         outputs_to="$DESIGN_ROOT/lib",
-        sources=["lib/*.v", "new.v"],
-        generated_sources=["new.v"],
+        sources=["lib/*.v", "$XEDA_GENERATED/new.v"],
+        generated_sources=["$XEDA_GENERATED/new.v"],
     )
     target = world.root / "lib" / "new.v"
     assert not target.exists()
@@ -284,7 +318,9 @@ def test_a_destination_that_an_entry_of_the_generator_reads_is_refused(tmp_path)
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "inputs").mkdir()
     (tmp_path / "design" / "inputs" / "spec.txt").write_text("spec\n")
-    world = Delivering(tmp_path, ["new.v"], outputs_to="$DESIGN_ROOT/inputs", sources=["new.v"])
+    world = Delivering(
+        tmp_path, ["new.v"], outputs_to="$DESIGN_ROOT/inputs", sources=["$XEDA_GENERATED/new.v"]
+    )
     recipe = json.loads(world.file.read_text())
     recipe["rtl"]["generator"]["sources"] = ["gen.py", "inputs/*.txt"]
     world.file.write_text(json.dumps(recipe))
@@ -303,15 +339,15 @@ def test_a_star_does_not_cross_a_directory(tmp_path):
         tmp_path,
         ["gen/top.v"],
         outputs_to="$DESIGN_ROOT/src/gen",
-        sources=["src/*.v", "gen/top.v"],
-        generated_sources=["gen/top.v"],
+        sources=["src/*.v", "$XEDA_GENERATED/gen/top.v"],
+        generated_sources=["$XEDA_GENERATED/gen/top.v"],
     )
     assert world.launch().succeeded
     assert (world.root / "src" / "gen" / "gen" / "top.v").is_file()
 
 
 def test_a_delivery_that_restores_a_listed_generated_file_is_allowed(tmp_path):
-    """The design reads `gen/top.v` from the storage, never from the tree."""
+    """The design reads `$XEDA_GENERATED/gen/top.v` from the storage, never from the tree."""
     world = Delivering(tmp_path, ["gen/top.v"], outputs_to="$DESIGN_ROOT")
     first = world.launch()
     assert first.succeeded and (world.root / "gen" / "top.v").is_file()
@@ -329,7 +365,7 @@ def test_a_link_the_generator_left_to_a_file_outside_the_storage_is_skipped(tmp_
     world = Delivering(
         tmp_path,
         ["gen/top.v", "link:gen/linked.v"],
-        sources=["gen/top.v", "gen/linked.v"],
+        sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/linked.v"],
         env={"LINK_TARGET": str(outside)},
     )
     with caplog.at_level("WARNING", logger="xeda.deliver"):
@@ -418,8 +454,8 @@ def test_a_destination_that_only_a_pattern_reveals_is_refused_before_any_flow_ru
         tmp_path,
         ["new.v"],
         outputs_to="$DESIGN_ROOT/lib",
-        sources=["lib/*.v", "*.v"],
-        generated_sources=["*.v"],
+        sources=["lib/*.v", "$XEDA_GENERATED/*.v"],
+        generated_sources=["$XEDA_GENERATED/*.v"],
     )
     runner = world.runner()
     with pytest.raises(DeliveryError, match=r"`lib/\*.v` entry of `rtl.sources`"):
@@ -495,7 +531,9 @@ def test_a_copy_that_a_pattern_reveals_is_compared_with_the_files_of_outputs_to(
             report.write_text("// report\n")
             self.artifacts["report"] = "outputs/d.v"
 
-    world = Delivering(tmp_path, ["outputs/d.v"], outputs_to=None, sources=["outputs/*.v"])
+    world = Delivering(
+        tmp_path, ["outputs/d.v"], outputs_to=None, sources=["$XEDA_GENERATED/outputs/*.v"]
+    )
     destination = tmp_path / "got"
     assert world.runner(outputs_to=destination).launch_flow(TWriter, world.design(), {}).succeeded
     assert len(runs) == 1

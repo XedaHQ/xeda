@@ -130,6 +130,9 @@ jobs:
   #   file-system clocks and file metadata: test_digest, test_trace_inputs, test_trace_soundness
   #     (racy timestamps, inode change times)
   #   file copying (fcopyfile): test_utils, test_delivery
+  #   directory descriptors, links and file metadata in a design tree that a generator writes
+  #     into, and the named pipes and locks of two launches in one tree: test_tree_outputs,
+  #     test_tree_generation
   #   links, FIFOs, permissions and resolved paths (a macOS temporary directory is behind a
   #     link): test_trace_directories, test_run_directory, test_run_directory_rule,
   #     test_run_dir_safety, test_run_root, test_isolation
@@ -199,6 +202,8 @@ jobs:
           tests/test_utils.py
           tests/test_delivery.py
           tests/test_generator_deliveries.py
+          tests/test_tree_outputs.py
+          tests/test_tree_generation.py
           tests/test_trace_directories.py
           tests/test_run_directory.py
           tests/test_run_directory_rule.py

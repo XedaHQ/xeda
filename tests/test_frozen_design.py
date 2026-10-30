@@ -40,7 +40,7 @@ def _design(root: Path, **extra) -> Design:
         name="d",
         root=root,
         rtl={
-            "sources": ["top.v", {"path": "made.v"}],
+            "sources": ["top.v", {"path": "$XEDA_GENERATED/made.v"}],
             "top": "top",
             "parameters": {"W": 8, "LIST": [1, 2]},
             "clocks": [{"port": "clk"}, {"port": "clk2", "name": "slow"}],
@@ -49,7 +49,7 @@ def _design(root: Path, **extra) -> Design:
                 "command": "python gen.py",
                 "args": ["a"],
                 "sources": [str(root / "gen.py")],
-                "generated_sources": ["made.v"],
+                "generated_sources": ["$XEDA_GENERATED/made.v"],
                 "always_runs": True,
             },
         },
@@ -61,7 +61,7 @@ def _design(root: Path, **extra) -> Design:
 
 @pytest.fixture
 def design(tmp_path) -> Design:
-    # loading runs no generator: `made.v` is a declaration of its output
+    # loading runs no generator: `$XEDA_GENERATED/made.v` is a declaration of its output
     return _design(tmp_path / "d")
 
 

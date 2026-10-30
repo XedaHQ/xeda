@@ -260,7 +260,7 @@ def test_a_generator_runs_in_the_design_root_whatever_the_working_directory(tmp_
         f"""\
         name: generated
         rtl:
-          sources: [{{path: out/top.v}}]
+          sources: [{{path: $XEDA_GENERATED/out/top.v}}]
           top: top
           {generator}
         """,
@@ -276,8 +276,8 @@ def test_a_generator_runs_in_the_design_root_whatever_the_working_directory(tmp_
 
     storage = Path(summary["storage"])
     assert summary["chdirs"] == []
-    assert summary["declared"] == ["out/top.v"]
-    assert summary["matches"] == {"out/top.v": ["out/top.v"]}
+    assert summary["declared"] == ["$XEDA_GENERATED/out/top.v"]
+    assert summary["matches"] == {"$XEDA_GENERATED/out/top.v": ["out/top.v"]}
     assert (storage / "out" / "top.v").read_text() == "module top; endmodule\n"
     assert Path((storage / "ran_in.txt").read_text()).resolve() == root
     assert not (root / "out").exists() and not (here / "out").exists()
@@ -290,7 +290,7 @@ def test_a_generator_with_a_relative_cwd_runs_below_the_design_root(tmp_path):
         f"""\
         name: generated
         rtl:
-          sources: [{{path: out/top.v}}]
+          sources: [{{path: $XEDA_GENERATED/out/top.v}}]
           top: top
           generator:
             executable: '{sys.executable}'

@@ -125,6 +125,8 @@ __all__ = [
     "LanguageSettings",
     "Rtl",
     "SOURCE_SUFFIXES",
+    "STORAGE_PREFIX",
+    "TREE_DIRECTORY",
     "AMBIGUOUS_SUFFIXES",
     "TYPE_ONLY",
     "LANGUAGE_TYPES",
@@ -132,11 +134,13 @@ __all__ = [
     "source_type_named",
     "source_type_of",
     "SourceType",
+    "storage_name",
     "Testbench",
     "VhdlSettings",
     "cocotb_of",
     "generator_of",
     "language_of",
+    "tree_declarations",
 ]
 
 
@@ -1005,6 +1009,11 @@ class Source(FileResource):
     the output of a producer: the design's generator, or a converter flow. Its `output_name` is its
     name in that output, relative to the output. It is the same for both producers.
 
+    The declaration of a generated source for a generator has one of two kinds of `output_name`
+    (`storage_name` tells them apart): a path below the design root that the generator writes (a
+    tree entry), or `$XEDA_GENERATED/<name>` for a file in the storage of the generator (a storage
+    entry).
+
     A generated source is in one of two states:
 
     - A declaration (`Source.declaration`) is what a design file lists for a generator. It is a
@@ -1021,7 +1030,8 @@ class Source(FileResource):
     #: converter flow) and is no file that the design's author wrote.
     generated: bool
     #: The name (or, for a declaration, the pattern) of a generated source in the output of its
-    #: producer; None for a written source. The identity of the design counts a generated source
+    #: producer (for a declaration of a generator: the tree path, or `$XEDA_GENERATED/<name>`);
+    #: None for a written source. The identity of the design counts a generated source
     #: by this name, never by its path (`Design._source_fingerprint`), because the path into a
     #: storage or a run directory depends on where the run root is. It is no part of the table of
     #: a source in a design file.
@@ -1385,11 +1395,41 @@ class SourceEntry(NamedTuple):
         return source_entry_matches(self.text, self.root, candidate)
 
 
-def _entry_parts(entry: str, root: Path | None) -> tuple[str, ...]:
+#: A generated entry that starts with this text is a file in the storage of the generator (a
+#: storage entry). Any other generated entry is a path below the design root (a tree entry).
+STORAGE_PREFIX = "$XEDA_GENERATED/"
+#: The first part of a name that Xeda keeps for itself in the storage of a generator: it holds the
+#: copies of the tree files.
+TREE_DIRECTORY = ".xeda-tree"
+_STORAGE_VARIABLE = STORAGE_PREFIX.rstrip("/")
+_STORAGE_MENTION = re.compile(r"\$\{?XEDA_GENERATED\b")
+
+
+def storage_name(declaration: str) -> str | None:
+    """Return the name in the storage that a generated declaration (`Source.output_name`) names:
+    `gen/top.v` for `$XEDA_GENERATED/gen/top.v`. It is None for a tree entry."""
+    return (
+        declaration.removeprefix(STORAGE_PREFIX) if declaration.startswith(STORAGE_PREFIX) else None
+    )
+
+
+def _entry_parts(entry: str, root: Path | None, *, whole_storage: bool = False) -> tuple[str, ...]:
     """Return the parts of a source entry, for comparing it with another one. It reads no file.
 
     A variable that names the design root expands. An absolute entry below the root is relative
-    to it, so `$DESIGN_ROOT/gen/top.v` and `gen/top.v` are one entry."""
+    to it, so `$DESIGN_ROOT/gen/top.v` and `gen/top.v` are one entry. A storage entry
+    (`$XEDA_GENERATED/<name>`) is not expanded: its parts start with `$XEDA_GENERATED`.
+    `whole_storage` accepts the text `$XEDA_GENERATED`, which stands for the whole storage."""
+    if entry == _STORAGE_VARIABLE and whole_storage:
+        return (_STORAGE_VARIABLE,)
+    rest = entry.removeprefix(STORAGE_PREFIX)
+    if _STORAGE_MENTION.search(rest):
+        raise ValueError(
+            f"`{entry}` names `$XEDA_GENERATED` in a way Xeda does not read: write "
+            "`$XEDA_GENERATED/<name>` for a file in the storage of the generator"
+        )
+    if rest != entry:
+        return (_STORAGE_VARIABLE, *Path(os.path.normpath(rest)).parts)
     text = os.path.normpath(entry)
     if root is not None:
         text = os.path.normpath(str(_expand_design_path(entry, root)))
@@ -1403,7 +1443,11 @@ def _relation(entry: tuple[str, ...], owner: tuple[str, ...]) -> str:
     `owner` (a name, a pattern, or a directory, which stands for every file below it).
 
     The answer is `within` (every file of the entry is the owner's), `apart` (no file is), or
-    `overlap` (some are). Both are texts: no file is read."""
+    `overlap` (some are). Both are texts: no file is read. An entry of the storage and an entry
+    of the design tree are apart (a `*` part of one never matches the `$XEDA_GENERATED` of the
+    other)."""
+    if (entry[:1] == (_STORAGE_VARIABLE,)) != (owner[:1] == (_STORAGE_VARIABLE,)):
+        return "apart"
     if len(entry) < len(owner):
         return "apart"
     for mine, theirs in zip(entry, owner):
@@ -1417,17 +1461,54 @@ def _relation(entry: tuple[str, ...], owner: tuple[str, ...]) -> str:
     return "overlap"
 
 
+def _names_may_meet(first: str, second: str) -> bool:
+    """Whether one name could fit two name parts, where `*` is the only pattern character. The
+    answer is False only when the two are proved apart: two literals that differ, a literal that
+    the other part cannot match, or two patterns with a prefix (or a suffix) that no name can
+    share. It is conservative: two patterns that might share a name are taken to share one."""
+    if "*" not in first or "*" not in second:
+        literal, other = (first, second) if "*" not in first else (second, first)
+        return _pattern_part(other, literal)
+    first_head, _, _ = first.partition("*")
+    second_head, _, _ = second.partition("*")
+    first_tail, second_tail = first.rpartition("*")[2], second.rpartition("*")[2]
+    return (first_head.startswith(second_head) or second_head.startswith(first_head)) and (
+        first_tail.endswith(second_tail) or second_tail.endswith(first_tail)
+    )
+
+
+def _entries_may_meet(entry: tuple[str, ...], owner: tuple[str, ...]) -> bool:
+    """Whether some file of the source `entry` could lie among the files of the `owner` (a file, a
+    pattern, or a directory, which stands for every file below it). It is conservative, as
+    `_names_may_meet` is: a False answer is a proof, and no file is read."""
+    return len(entry) >= len(owner) and all(map(_names_may_meet, entry, owner))
+
+
 def _generated_name(entry: str, parts: tuple[str, ...]) -> str:
     """Return the declaration name of a generated source entry (`parts`: `_entry_parts`).
 
-    The name is relative to the output of the generator, so it is no absolute path and does not
-    leave the output."""
-    if not parts or Path(*parts).is_absolute() or parts[0] == "..":
+    A tree entry is a path below the design root, and its name is that path. A storage entry is a
+    name below the storage of the generator, and its name starts with `$XEDA_GENERATED/`. Neither
+    leaves the place it is relative to."""
+    if parts[:1] == (_STORAGE_VARIABLE,):
+        rest = parts[1:]
+        if not rest or os.path.isabs(os.path.join(*rest)) or rest[0] == "..":
+            raise ValueError(
+                f"`{entry}` is not a name below the storage of the generator: write "
+                "`$XEDA_GENERATED/<name>` with a relative name that stays in the storage"
+            )
+        if rest[0].startswith(".") and _pattern_part(rest[0], TREE_DIRECTORY):
+            raise ValueError(
+                f"`{entry}` starts with `{TREE_DIRECTORY}`, a name that Xeda keeps for itself in "
+                "the storage of the generator"
+            )
+        return STORAGE_PREFIX + "/".join(rest)
+    if not parts or os.path.isabs(os.path.join(*parts)) or parts[0] == "..":
         raise ValueError(
-            f"the generated source `{entry}` is a name in the output of the generator, such as "
-            "`gen/top.v`, and not a path to a place outside it. Without `generated_sources` "
-            "every entry of `rtl.sources` is the generator's: list the generated entries in it to "
-            "keep a hand-written one"
+            f"the generated entry `{entry}` is not valid: a generated entry is a path below the "
+            "design root that the generator writes, or `$XEDA_GENERATED/<name>` for a file in "
+            "its storage. Without `generated_sources` every entry of `rtl.sources` is the "
+            "generator's: list the generated entries in it to keep a hand-written one"
         )
     return "/".join(parts)
 
@@ -1455,9 +1536,17 @@ def generated_declarations(
 
     An entry is the generator's when `recipe.generated_sources` names it or a directory that
     holds it, or when that list is empty (then every entry is). A generated entry becomes the
-    declaration of a generated source (`Source.declaration`): a name or a pattern in the output of
-    the generator, typed by its extension or by the `type` that it states. It is not expanded and
-    need not exist. Any other entry is left as it is, for the sources validator.
+    declaration of a generated source (`Source.declaration`), typed by its extension or by the
+    `type` that it states. It is not expanded and need not exist. Any other entry is left as it
+    is, for the sources validator.
+
+    A generated entry is one of two kinds. A tree entry is a path or a pattern below the design
+    root that the generator writes. A storage entry, written `$XEDA_GENERATED/<name>`, is a name
+    or a pattern in the storage of the generator. An item of `generated_sources` selects the
+    entries of its own kind (`$XEDA_GENERATED` alone selects every storage entry), and a storage
+    entry that no item selects is a `ValueError`: it cannot be a written file. A tree entry that
+    lies among the `sources` of the generator is one too, since the generator would change its own
+    input.
 
     An entry is wholly the generator's or wholly written. One that would be both (a pattern that
     matches a generated file and a written one) is a `ValueError`, and so is a
@@ -1468,7 +1557,13 @@ def generated_declarations(
     entries = as_source_list(sources)
     if not isinstance(entries, (list, tuple)):
         return entries
-    owner_parts = [_entry_parts(owner, root) for owner in owners]
+    owner_parts = [_entry_parts(owner, root, whole_storage=True) for owner in owners]
+    inputs = as_source_list(recipe.get("sources", ()))
+    input_parts = [
+        (os.fspath(item), _entry_parts(os.fspath(item), root))
+        for item in (inputs if isinstance(inputs, (list, tuple)) else ())
+        if isinstance(item, (str, os.PathLike)) and not _STORAGE_MENTION.search(os.fspath(item))
+    ]
     related = [False] * len(owners)
     seen_declaration = False
     result: list[Any] = []
@@ -1513,6 +1608,11 @@ def generated_declarations(
             else:
                 generated = False
         if not generated:
+            if parts[:1] == (_STORAGE_VARIABLE,):
+                raise ValueError(
+                    f"`{text}` is a file in the storage of the generator, and `generated_sources` "
+                    "does not select it: list it (or `$XEDA_GENERATED`) in `generated_sources`"
+                )
             result.append(entry)
             continue
         if file_table:
@@ -1522,6 +1622,14 @@ def generated_declarations(
                 "generator writes it, or take it out of `generated_sources` if you wrote it"
             )
         name = _generated_name(text, parts)
+        if storage_name(name) is None:
+            for item, item_parts in input_parts:
+                if _entries_may_meet(parts, item_parts):
+                    raise ValueError(
+                        f"the generated entry `{text}` lies among the `sources` of the generator "
+                        f"(`{item}`): the generator would change its own input. Write the entry "
+                        "as `$XEDA_GENERATED/<name>` or take the file out of those `sources`"
+                    )
         declared = Source.declaration(name, _declared_type(name, stated), stated=stated is not None)
         if declared not in result:
             result.append(declared)
@@ -1535,6 +1643,20 @@ def generated_declarations(
     return result
 
 
+def tree_declarations(design: Design) -> tuple[str, ...]:
+    """Return the tree entries that the generator of `design` itself writes, in order: the
+    generated declarations that are paths below its design root. A storage entry, an entry of a
+    dependency's generator (it has an owner) and a located source are none of them."""
+    return tuple(
+        str(source.output_name)
+        for source in design.rtl.sources
+        if source.generated
+        and not source.located
+        and source.owner is None
+        and storage_name(str(source.output_name)) is None
+    )
+
+
 #: What `sources` accepts, shown by `xeda design-schema`.
 SOURCES_DESCRIPTION = (
     "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and "
@@ -1542,7 +1664,9 @@ SOURCES_DESCRIPTION = (
     "`file` for one not written yet). A path containing `*` "
     "is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is "
     "the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` "
-    "names exactly that file."
+    "names exactly that file. In `rtl.sources` of a design with a generator, an entry that the "
+    "generator writes is a path below the design root (it need not exist yet), or "
+    "`$XEDA_GENERATED/<name>` for a file in the storage of the generator."
 )
 
 
@@ -1599,6 +1723,17 @@ class DesignPart(XedaBaseModel):
                 f"'sources' must be a list of source files, got {type(value).__name__}: {value!r}"
             )
         for src in unique(list(value)):
+            if not isinstance(src, Source):
+                text = src.get("file", src.get("path")) if isinstance(src, Mapping) else src
+                if isinstance(text, (str, os.PathLike)) and _STORAGE_MENTION.search(
+                    os.fspath(text)
+                ):
+                    raise ValueError(
+                        f"`{os.fspath(text)}` names `$XEDA_GENERATED`, the storage of a generator. "
+                        "Only a generated entry of `rtl.sources` of a design with a generator can "
+                        "name it, as `$XEDA_GENERATED/<name>`; a written source is a path below "
+                        "the design root"
+                    )
             if isinstance(src, str):
                 src_type = None
                 if _is_source_pattern(src):
@@ -1714,12 +1849,17 @@ class Generator(XedaBaseModel):
         "only some of them. An entry names one of them, or a directory that holds some. Empty, "
         "every entry of `rtl.sources` is the generator's. An entry of `rtl.sources` is wholly "
         "the generator's or wholly written by hand: a pattern that would match both is an "
-        "error. A generator's entry is a name (or a pattern) in the output of the generator.",
+        "error. A generator's entry is a path (or a pattern) below the design root that the "
+        "generator writes, or `$XEDA_GENERATED/<name>` for a file in the storage of the "
+        "generator. An item selects the entries of its own kind. `$XEDA_GENERATED` alone selects "
+        "every storage entry, and a storage entry that no item selects is an error.",
     )
     outputs_to: Optional[Path] = Field(
         None,
         description="A directory that receives a copy of the generated sources, each under its "
-        "name in the output of the generator (`gen/top.v` goes to `<outputs_to>/gen/top.v`). "
+        "path (a tree entry `gen/top.v` goes to `<outputs_to>/gen/top.v`) or under its name in the "
+        "storage of the generator (`$XEDA_GENERATED/gen/top.v` goes to the same place). A copy "
+        "onto a tree entry is refused, since the next run would read it. "
         "Give a location: an absolute path, or a path below `$DESIGN_ROOT`, `$DESIGN_DIR` or "
         "`$PWD`. The copy is made at the end of a launch that passed, as every delivery is "
         "(`--overwrite-outputs` replaces a changed copy). The flows never read the copy, and it "
@@ -4015,7 +4155,39 @@ class Design(XedaBaseModel):
             }
         )
         result.invalidate_cached_properties()
+        self._check_tree_entries_apart(result)
         return result
+
+    @staticmethod
+    def _check_tree_entries_apart(merged: Design) -> None:
+        """Refuse a tree entry that lies below the root of another unit of generation that lies
+        below its own root: a file of the tree would then belong to two designs. The check reads
+        no file."""
+        units = [*merged.generation_units, *([merged] if merged.rtl.generator is not None else [])]
+        for unit in units:
+            for name in tree_declarations(unit):
+                entry = Path(os.path.normpath(unit.root / name)).parts
+                for other in units:
+                    if (
+                        other.root != unit.root
+                        and other.root.is_relative_to(unit.root)
+                        and _relation(entry, other.root.parts) != "apart"
+                    ):
+                        raise DesignValidationError(
+                            [
+                                (
+                                    "dependencies",
+                                    f"the generated entry `{name}` of design `{unit.name}` lies "
+                                    f"below the root of design `{other.name}` ({other.root}): a "
+                                    "tree file must belong to one design. Move the entry or the "
+                                    "dependency",
+                                    "",
+                                    "value_error",
+                                )
+                            ],
+                            root=merged.root,
+                            design_name=merged.name,
+                        )
 
     def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
         """Return the directory of every Verilog or SystemVerilog header that the design lists.
@@ -4232,12 +4404,24 @@ class Design(XedaBaseModel):
         )
         return "_".join(part for part in parts if part)
 
+    def tree_entries(self) -> tuple[SourceEntry, ...]:
+        """Return the generated entries that lie in a design tree: for each unit of generation
+        (the dependencies with a generator, and this design), the entries of its own generator that
+        are paths below its design root (`tree_declarations`). A storage entry is none of them.
+        The method reads no file."""
+        return tuple(
+            SourceEntry("rtl.sources", name, unit.root)
+            for unit in (*self.generation_units, self)
+            for name in tree_declarations(unit)
+        )
+
     def source_entries(self) -> tuple[SourceEntry, ...]:
-        """Return the entries of this design that name files it reads, as the files of the design
-        wrote them: the written entries of `rtl.sources` and `tb.sources`, the entries of the
-        dependencies merged into them, and the `sources` of every generator (the design's own and
-        those of its dependencies). A generated source is no entry: it names a file in the output
-        of its generator, never a file of the tree.
+        """Return the entries of this design that name files it reads or its generators write
+        into the design tree, as the files of the design wrote them: the written entries of
+        `rtl.sources` and `tb.sources`, the entries of the dependencies merged into them, the tree
+        entries of the generators (`tree_entries`), and the `sources` of every generator (the
+        design's own and those of its dependencies). A storage entry is no entry: it names a file
+        in the storage of its generator, never a file of the tree.
 
         The entries are kept as written (a pattern is not expanded), because a file that does not
         exist yet is what a pattern names for the files of the future. The method reads no file."""
@@ -4246,6 +4430,8 @@ class Design(XedaBaseModel):
             for source in getattr(self, part).sources:
                 for text, entry_root in source._entries:
                     found[(f"{part}.sources", text, entry_root)] = None
+        for entry in self.tree_entries():
+            found[(entry.part, entry.text, entry.root)] = None
         for unit in (*self.generation_units, self):
             recipe = unit.rtl.generator
             if recipe is None:

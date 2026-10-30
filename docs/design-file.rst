@@ -542,7 +542,7 @@ runs nothing and writes nothing.
     name: generator_shell
     rtl:
       sources:
-        - top.v
+        - $XEDA_GENERATED/top.v
       top: top
       generator: printf 'module top; endmodule\n' > "$XEDA_GENERATED/top.v"
     flows:
@@ -556,7 +556,7 @@ runs nothing and writes nothing.
     name: generator_list
     rtl:
       sources:
-        - top.v
+        - $XEDA_GENERATED/top.v
       top: top
       generator: [touch, "$XEDA_GENERATED/top.v"]
     flows:
@@ -576,7 +576,7 @@ a program with its arguments in one text, and ``executable`` is a program that t
     name: generator_table
     rtl:
       sources:
-        - top.v
+        - $XEDA_GENERATED/top.v
       top: top
       generator:
         shell: printf 'module top; endmodule\n' > "$XEDA_GENERATED/top.v"
@@ -593,7 +593,7 @@ A table can also say what the generator reads:
     name: generated
     rtl:
       sources:
-        - "gen/top.v"
+        - "$XEDA_GENERATED/gen/top.v"
       top: top
       generator:
         executable: python3
@@ -610,21 +610,23 @@ design loads). That same directory resolves a relative executable and a relative
 ``PATH``. So ``./mill`` is the ``mill`` script in the design root, in a ``shell`` command line as
 in a list. Set ``cwd`` when a build tool finds its project in another directory.
 
-A generator writes its generated sources into its storage, a directory under the run root:
-``<run root>/.generated/<design>/<key>/``. Xeda looks for generated names only there. A file that
-the generator writes elsewhere, in its working directory for example, is not a generated source.
-Xeda sets three variables in the environment of every generator:
+A generator writes its generated sources in one of two places. Its storage is a directory under
+the run root: ``<run root>/.generated/<design>/<key>/``. The design tree is the tree below the
+design root. Each entry of ``rtl.sources`` that the generator writes says which place it uses (see
+`The sources that a generator writes`_). A file that the generator writes anywhere else is not a
+generated source. Xeda sets three variables in the environment of every generator:
 
 ``DESIGN_ROOT``
     The design root.
 
 ``XEDA_GENERATED``
-    The absolute path of the storage. Write the generated sources under it.
+    The absolute path of the storage. A tool that takes an output directory writes under it.
 
 ``PWD``
     The directory the generator runs in.
 
-Pass ``$XEDA_GENERATED`` to the tool as an argument, or let a shell command line read it. The
+To use the storage, pass ``$XEDA_GENERATED`` to the tool as an argument, or let a shell command
+line read it. The
 words after the executable (``args``, or the words of ``command`` after the first one) expand
 ``$DESIGN_ROOT`` and ``$XEDA_GENERATED``. No other variable expands, and the executable does not.
 A shell command line (``shell``) reads both variables from its environment. For a tool such as
@@ -635,7 +637,7 @@ Mill, name the output directory on the command line:
     name: generator_mill
     rtl:
       sources:
-        - top.v
+        - $XEDA_GENERATED/top.v
       top: top
       generator:
         shell: ./mill core.runMain top.Main "$XEDA_GENERATED"
@@ -649,7 +651,7 @@ files in the working directory, which is the design root:
     name: generator_chisel
     rtl:
       sources:
-        - top.v
+        - $XEDA_GENERATED/top.v
       top: top
       generator:
         class: chisel
@@ -657,11 +659,12 @@ files in the working directory, which is the design root:
         args: ["--target-dir", "$XEDA_GENERATED"]
         sources: ["build.sc", "core"]
 
-Xeda writes nothing into the tree of the design. A tool may write its own build files in its
-working directory (Mill writes ``out/``). Those files are the tool's own, and Xeda does not read
-them. Two variants of one design share the design tree, so a tool's intermediate files in that
-tree are not separate for each variant. The storage is separate: the key names one configuration
-(see below), so two variants keep their own generated files side by side.
+Xeda never writes or deletes a file in the tree of the design. A tool may write its own build
+files in its working directory (Mill writes ``out/``). Those files are the tool's own, and Xeda
+does not read them, unless an entry of ``rtl.sources`` names them. Two variants of one design share
+the design tree, so a tool's intermediate files in that tree are not separate for each variant. The
+storage is separate: the key names one configuration (see below), so two variants keep their own
+generated files side by side.
 
 Declare narrow ``sources``. A tool that writes inside a directory named in ``sources`` changes
 its own inputs while it runs. Xeda then cannot vouch for the output, and the launch gives up after
@@ -675,44 +678,133 @@ inherits nothing. A recipe may not set ``DESIGN_ROOT``, ``XEDA_GENERATED`` or ``
 The sources that a generator writes
 -----------------------------------
 
-The entries of ``rtl.sources`` that the generator writes are names in its output. A name is
-relative to the output, and may be a pattern: ``gen/top.v``, ``gen/*.v``. Xeda does not expand a
-generated pattern and does not need the file to exist, when it loads the design. A generated
-pattern takes its type from its extension, as every source does (``gen/*.v`` is Verilog). A pattern
-whose extension does not say what its files are needs a ``type``, and the error shows the form:
+An entry of ``rtl.sources`` that the generator writes is one of two kinds. It can be a pattern.
+Xeda does not expand a generated pattern and does not need the file to exist, when it loads the
+design.
+
+A *storage entry* is ``$XEDA_GENERATED/<name>``: a file in the storage of the generator, for
+example ``$XEDA_GENERATED/gen/top.v`` or ``$XEDA_GENERATED/gen/*.v``. The name is relative to the
+storage.
+
+A *tree entry* is a plain path below the design root, for example ``gen_rtl/top.v``: a file that the
+generator writes into the design tree. The path is relative to the design root, never to ``cwd``.
+A generator with ``cwd: build`` that writes ``gen/x.v`` has the entry ``build/gen/x.v``. A tree
+entry may not leave the design root. An absolute path below the design root is accepted and
+counts as the path relative to the root.
+
+Use a storage entry when the tool takes an output directory. Variants of a design generate in
+parallel, each into its own storage. Use a tree entry when the tool writes into the tree and you
+cannot change that. Generations that write one tree run one at a time (see `Concurrency`_).
+
+A generated pattern takes its type from its extension, as every source does (``gen/*.v`` is
+Verilog). A pattern whose extension does not say what its files are needs a ``type``, and the error
+shows the form:
 
 .. code-block:: yaml
 
     rtl:
       sources:
-        - {path: "gen/*", type: Verilog}
+        - {path: "$XEDA_GENERATED/gen/*", type: Verilog}
+
+The next design uses a tree entry. The generator writes ``gen_rtl/top.v`` below the design root:
+
+.. code-block:: yaml
+
+    # generator_tree.yaml
+    name: generator_tree
+    rtl:
+      sources:
+        - gen_rtl/top.v
+      top: top
+      generator: mkdir -p gen_rtl && printf 'module top; endmodule\n' > gen_rtl/top.v
+    flows:
+      yosys_fpga:
+        fpga:
+          part: LFE5U-25F-6BG381C
+
+Mill writes its generated Verilog into the tree of the project. The entry names the file that it
+writes:
+
+.. code-block:: yaml
+
+    name: generator_mill_tree
+    rtl:
+      sources:
+        - gen_rtl/top.sv
+      top: top
+      generator:
+        shell: ./mill core.runMain top.Main
+        sources: ["mill", "build.mill", "core"]
 
 An entry is wholly the generator's or wholly written by hand. ``generated_sources`` says which are
 the generator's, when it does not write all of them:
 
 ``generated_sources``
     The entries of ``rtl.sources`` that the generator writes. An item names an entry, a pattern, or
-    a directory that holds some entries. When the list is empty, every entry of ``rtl.sources`` is
-    the generator's. A pattern that would match both a generated and a written file is an error,
-    and so is an item that no entry of ``rtl.sources`` relates to. Only ``rtl.sources`` can be
-    generated: a file of ``tb.sources`` must exist when the design loads.
+    a directory that holds some entries. An item selects the entries of its own kind: a tree item
+    selects tree entries, and a ``$XEDA_GENERATED/`` item selects storage entries. The item
+    ``$XEDA_GENERATED`` alone selects the whole storage. When the list is empty, every entry of
+    ``rtl.sources`` is the generator's. When the list is not empty, a ``$XEDA_GENERATED/`` entry
+    must be selected: it cannot be a file that you wrote. A pattern that would match both a
+    generated and a written file is an error, and so is an item that no entry of ``rtl.sources``
+    relates to. Only ``rtl.sources`` can be generated: a file of ``tb.sources`` must exist when the
+    design loads.
 
-After a generation, each generated entry must match at least one file in the output. An entry
-that matches none fails the node that reads it, with the code ``missing_generated`` and a message
-that names the entry. The flows see the files that the entries match, in sorted order, in the
-place of the entries. The design that you gave stays as it was.
+``$XEDA_GENERATED`` is a name for generated entries only. It is an error in a source that you write
+by hand, and in any place other than the start of an entry (``${XEDA_GENERATED}/x`` and
+``gen/$XEDA_GENERATED/x`` are errors).
+
+After a generation, each generated entry must match at least one file. An entry that matches none
+fails the node that reads it, with the code ``missing_generated`` and a message that names the
+entry. The flows see the files that the entries match, in sorted order, in the place of the
+entries. The design that you gave stays as it was.
+
+Generated sources in the design tree
+------------------------------------
+
+Xeda copies a tree file only when this generation wrote it. A file counts as written when it is
+new, or when its file state (inode, size or times) or its content changed during the run. The
+copies are in the storage, under ``.xeda-tree/<path>``. The flows read the copy, never the file in
+the tree. An edit of the tree file after the run changes nothing until the next generation. Xeda
+never writes or deletes a file in the design tree. It reads there only.
+
+These rules apply to tree entries:
+
+* A tool that skips an output when it finds the output up to date writes nothing, so Xeda refuses
+  the file with ``missing_generated``. The message says that the file exists but the last
+  generation did not write it. Make the tool write its outputs every time, for example with
+  ``make -B``. Xeda does not guess that an older file is still good.
+* A pattern counts only the files that this generation wrote. Designs that share a pattern, such
+  as ``gen_rtl/*.sv``, each take only their own files.
+* Only the files that an entry matches are copied. A tool that reads an include file reads it from
+  the tree, so list each include file as an entry too.
+* Xeda refuses a symbolic link below the design root on the way to a tree file, also one that the
+  generator creates. Replace the link with a directory, or write to ``$XEDA_GENERATED``.
+* A tree entry may not relate to an entry of the ``sources`` of the same generator, because the
+  generator would change its own inputs.
+* A tree entry must not lie below the root of another unit (a dependency) that lies below the root
+  of its own unit.
+* Tree entries need a POSIX system. On Windows, use storage entries.
+* A Git dependency may not have tree entries. Its tree is a shared checkout that Xeda never
+  changes. Write the entries as storage entries, or use a local clone as a local dependency.
+* The directory ``.xeda-tree`` in the storage is reserved. A storage name may not start with it,
+  and a generator that creates it fails with ``generator_failed``.
+
+A generation reads every file that a tree entry matches twice (before and after the generator), and
+copies each file that it wrote. A literal path reads one file. A pattern over a directory that
+other designs share also reads their files each time, so prefer literal paths there.
 
 Copying the generated sources into the design
 ---------------------------------------------
 
-The generated sources stay in the storage, and the flows read them there. To have a copy in your
+The generated sources stay in the storage (a tree file as its copy), and the flows read them there. To have a copy in your
 design tree (to commit it, or to read it in an editor), give the generator ``outputs_to``:
 
 .. code-block:: yaml
 
     name: soc
     rtl:
-      sources: [gen/soc.v]
+      sources: [$XEDA_GENERATED/gen/soc.v]
       top: soc
       generator:
         executable: python3
@@ -721,8 +813,9 @@ design tree (to commit it, or to read it in an editor), give the generator ``out
         outputs_to: $DESIGN_ROOT/rtl
 
 ``outputs_to``
-    A directory that receives one copy of each generated file, under its name in the output of the
-    generator: ``gen/soc.v`` goes to ``rtl/gen/soc.v``. Give a location: an absolute path, or a
+    A directory that receives one copy of each generated file. A storage entry goes to
+    ``<outputs_to>/<name>``: ``$XEDA_GENERATED/gen/soc.v`` goes to ``rtl/gen/soc.v``. A tree entry
+    goes to ``<outputs_to>/<tree path>``. Give a location: an absolute path, or a
     path below ``$DESIGN_ROOT``, ``$DESIGN_DIR`` or ``$PWD``. A relative path is an error that
     says to write ``$DESIGN_ROOT/<path>``.
 
@@ -739,9 +832,9 @@ follow the rules of every delivery:
 * Xeda never copies to a place where an entry of the design's sources would read the file: an entry
   of ``rtl.sources``, of ``tb.sources`` or of the ``sources`` of a generator (a pattern, a name or
   a directory), also through a link to a directory in the design tree. The file would be a source of
-  the next run. The error names the entry. A copy that
-  restores a generated entry is fine, because the design reads that entry from the storage and
-  never from the tree.
+  the next run. The error names the entry. This includes a tree entry: a copy onto a tree entry is
+  refused. A copy that restores a storage entry is fine, because the design reads that entry from
+  the storage and never from the tree.
 * A failed launch makes no copy.
 
 The destination is no part of any identity: it is not in the key of the storage, and a change to
@@ -834,8 +927,13 @@ and generates nothing. A launch that regenerates (``--rebuild-all``) waits until
 reads the storage. On POSIX the locks are file locks beside the storage. Windows has no
 interprocess lock.
 
-A generation holds one exclusive lock and waits for no other lock while it holds it. The leases
-come after all the generations, shared, in the order of the paths of the storages. Two launches
+A generation holds exclusive locks and waits for no other lock while it holds them. A generation
+that has tree entries holds the lock of its storage and the lock of its tree. The tree lock is a
+file under ``<run root>/.locks/trees/``, named by the identity of the design root. Designs that
+share one design root share the tree lock, so their generations run one at a time. Two launches
+with different run roots do not share a lock file, so Xeda does not serialize their generations in
+one tree. The leases come after all the generations, shared, in the order of the paths of the
+storages. Two launches
 therefore never wait for each other, also when they merge the same dependencies in another order
 and rebuild them. A launch generates before it takes the lock of any run directory.
 
@@ -858,6 +956,11 @@ on your machine names nothing on the host: name files through ``$DESIGN_ROOT``, 
 ``sources``. ``--rebuild-all`` and ``--clean`` regenerate on the host. ``--remote`` refuses ``outputs_to`` at
 planning, as it refuses a deliverable setting with a location: the host would copy to that path on
 the host, not into your design tree.
+
+A tree entry works on the host. The generator writes into the copy of the design root on the host.
+Xeda also sends the existing parent directory of the entry, so a generator that needs it finds it
+there. The next sync removes the tree files, because they are not part of your design. The copy in
+the storage stays. Xeda sends no tree file, also when an old one exists on your machine.
 
 A generator written as a command line or as a list declares nothing that it reads, so it runs in
 every launch. Write it as a table with ``sources`` to have it judged. A table with ``shell`` may

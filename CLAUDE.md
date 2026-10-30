@@ -253,8 +253,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   the remote client locks its whole mirror in one `acquire_all`; a thread that holds a lock gets
   `lease_held` from a launch, sweep or scrub (`tests/test_graph_locks.py`).
 - Loading a design runs no generator and writes nothing; its generated `rtl.sources` are
-  declarations (`Source.declaration`, a name or pattern in the generator output, never expanded; an
-  entry is wholly generated or wholly written, `tests/test_generated_declarations.py`). A launch
+  declarations (`Source.declaration`, never expanded): a tree path below the design root, or
+  `$XEDA_GENERATED/<name>` in the storage; an entry is wholly generated or wholly written
+  (`tests/test_generated_declarations.py`). A launch
   generates after the declarative checks and before the first producer
   (`tests/test_checks_before_generation.py`), into `<run root>/.generated/<design>/<key>/` with the
   record `generation.yaml` (`flow_runner/launch_generation.py`, `tests/test_generation_storage.py`).
@@ -262,16 +263,18 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   executable; the inherited environment is freshness evidence, never key. Every generator
   runs in its `cwd` below the design root, else in the design root (`Generator.lookup_directory`,
   which also resolves a relative executable), with `DESIGN_ROOT` and `XEDA_GENERATED`; it writes
-  generated sources only under `XEDA_GENERATED`, and what it writes elsewhere is its own, not a
-  write of the launch; flows get `execution_design`, and the plan,
+  generated sources into `XEDA_GENERATED` or the design tree; the tree files this generation wrote
+  are copied into `<storage>/.xeda-tree/` by `tree_outputs.py` (`tests/test_tree_generation.py`),
+  the flows read only the copy, and Xeda never writes or deletes in the tree; what it writes
+  elsewhere is its own, not a write of the launch; flows get `execution_design`, and the plan,
   the identity and the node configuration use the declared design. A launch takes the locks of its
-  whole graph in one `run_lock.acquire_all` call (run directories, then storages, then
-  destinations, each by one resource key; it waits only for the first and, on a busy later lock,
+  whole graph in one `run_lock.acquire_all` call (run directories, then storages, then trees,
+  then destinations, each by one resource key; it waits only for the first and, on a busy later lock,
   releases all and waits for that one), generates under its exclusive locks, takes the storages
   again shared, and keeps them with the node locks until the last delivery
   (`tests/test_graph_locks.py`, `tests/test_storage_locks.py`). A dependency with a generator is a
   unit of generation (`Design.generation_units`, `Source.owner`) with a storage of its own,
-  dependencies first; a generator takes no lock of its own, and the shared leases of all
+  dependencies first; a Git dependency writes no tree entry; a generator takes no lock of its own, and the shared leases of all
   storages come after all generations (`tests/test_dependency_generation.py`). Loading reads no
   dependency. Planning merges them (`flow_runner/dependencies.py`): a Git fetch runs after every
   check that reads no value a dependency supplies, into `<run root>/.dependencies/<key>/` (the one

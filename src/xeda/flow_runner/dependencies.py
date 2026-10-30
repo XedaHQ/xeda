@@ -485,6 +485,15 @@ def _merge(
         loaded = _merge(
             loaded, run_root, slots, len(slots), pins, (*where, position), active, field
         )
+        if isinstance(ref, GitReference) and (entries := loaded.tree_entries()):
+            raise _failure(
+                ref,
+                field,
+                f"its generator writes `{entries[0].text}` into its design tree, which is the "
+                f"checkout {marked[1]}, and Xeda never changes a checkout. Write "
+                f"`$XEDA_GENERATED/{entries[0].text}` and let the generator write there, or use "
+                "a local clone as a local dependency",
+            )
         merged.append(MergedDependency(ref, loaded, *marked))
     resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
     return design.merged_with(merged, resolved)
