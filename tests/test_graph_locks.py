@@ -8,7 +8,6 @@ waits.
 import json
 import os
 import shutil
-import subprocess
 import sys
 import threading
 import unicodedata
@@ -510,17 +509,6 @@ def test_the_lock_of_a_design_tree_needs_a_run_root(tmp_path):
     design_root.mkdir()
     with pytest.raises(RunDirectoryError, match="run root"):
         acquire_all([LockRequest("tree", design_root, True)], run_root=None).__enter__()
-
-
-def _probe_file(lock: Path) -> str:
-    """Whether another process could take the exclusive lock of the lock file `lock` now."""
-    found = subprocess.run(
-        [sys.executable, "-c", PROBE, str(lock), "exclusive"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return found.stdout.strip()
 
 
 # ------------------------------------------------------------------------------ destinations
