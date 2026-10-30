@@ -19,6 +19,7 @@ from click.testing import CliRunner
 import xeda.cli as cli_module
 from xeda import errors
 from xeda.cli import cli, run
+from xeda.cli_types import FlowChoice
 from xeda.frozen import thaw
 from xeda.outcomes import result_from_dict
 from xeda.run_root import ensure_run_root
@@ -620,6 +621,27 @@ def test_scrub_asks_even_when_nobody_can_see_the_prompt(scrubs, tmp_path):
     """The command asks with `--json` too, so that `echo yes | xeda scrub` works."""
     invoke("scrub", FLOW, "demo", "--json", "--run-root", tmp_path / "root")
     assert scrubs[0][0].confirm is cli_module._prompt_removal
+
+
+@pytest.mark.parametrize("spelling", ["open_xc7", "openxc7", "OpenXC7", "open-xc7"])
+def test_workspace_scrub_takes_the_name_of_a_removed_flow_as_the_command_does(tmp_path, spelling):
+    """The run directories of a removed flow still exist, and a scrub removes directories. Any
+    spelling of its name is its canonical name, as `FlowChoice(removed=True)` makes it."""
+    assert FlowChoice(removed=True).convert(spelling, None, None) == "open_xc7"
+    root = ensure_run_root(tmp_path / "xeda_run")
+    directory = root / "demo" / "open_xc7"
+    directory.mkdir(parents=True)
+    (directory / "results.json").write_text("{}\n")
+    result = Workspace(root, confirm=lambda question: True).scrub(design_name="demo", flow=spelling)
+    assert result.removed == [directory] and not directory.exists()
+
+
+@pytest.mark.parametrize("spelling", ["ghdl-sim", "GhdlSim", "ghdl", "nosuch_flow"])
+def test_workspace_scrub_refuses_a_flow_that_is_no_flow_as_the_command_does(tmp_path, spelling):
+    with pytest.raises(errors.FlowNotFoundError):
+        Workspace(tmp_path / "root").scrub(design_name="demo", flow=spelling)
+    with pytest.raises(click.BadParameter):
+        FlowChoice(removed=True).convert(spelling, None, None)
 
 
 SCRUB_KEYS = [

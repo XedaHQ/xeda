@@ -482,9 +482,11 @@ class Workspace:
         one that is gone when its turn comes is `gone`. A link that is named like a run directory
         but leads elsewhere is `skipped`, and is not followed.
 
-        A `flow` that was removed from Xeda is a name too: the run directories that it left are
-        removed. Raise `FlowNotFoundError` for a `flow` that is no flow, `RunRootError` for a link where the
-        run directories or the storages lie, and `LeaseHeldError` in a thread that holds a lock of
+        The name of a flow that was removed from Xeda is a name too, because the run directories
+        that the flow left are still there. Any spelling of that name works (`OpenXC7`, `open-xc7`),
+        as it does for `xeda scrub`. Raise `FlowNotFoundError` for a `flow` that is no flow (also
+        for another spelling of a flow that exists), `RunRootError` for a link where the run
+        directories or the storages lie, and `LeaseHeldError` in a thread that holds a lock of
         Xeda (a callback of `run`)."""
         from .flow_runner import default_runner
         from .flow_runner.error_codes import public_error
