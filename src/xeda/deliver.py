@@ -1289,7 +1289,8 @@ class Deliveries:
         `OutputExistsError` for a file that is not an unchanged earlier delivery of Xeda. A launch
         checks the deliveries of a producer ahead and again at its turn with the same object. The
         second check finds the record that the first anchored, so the launch reads a destination
-        once. At its turn, the node first reads the record again if its file changed meanwhile
+        once. A launch that starts again (a reused node that must refresh its trace) checks again
+        and reads it again. At its turn, the node first reads the record again if its file changed meanwhile
         (`reread_record`).
 
         The method takes each destination as it is when examined, and `deliver` compares with
