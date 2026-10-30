@@ -64,10 +64,10 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.dse.dse_runner import RESULTS_SHOWN
     from .flow_runner.error_codes import public_error, request_error_info
     from .flow_runner.launch_report import results_of
-    from .records import CANCELED, ErrorInfo
+    from .records import CANCELED, INTERNAL_ERROR, ErrorInfo
     from .flow_runner.scrub import ScrubResult
     from .log_context import launch_id_of
-    from .flow_runner.settings_layers import command_line_table
+    from .flow_runner.settings_layers import command_line_settings, command_line_table
     from .introspect import (
         boards_info,
         design_info,
@@ -676,13 +676,6 @@ def _selected_project(xedaproject: Any, design: Any) -> Project | None:
     return project
 
 
-def _project_for_launcher(project: Project | None) -> str | None:
-    """Return the project file that the launcher is given. A design that the project holds comes
-    from it. A design file given on its own gets no project layer, and the project is still a
-    file of the launch: it supplies the run root, and no delivery may replace it."""
-    return None if project is None else str(project.path)
-
-
 def _config_options(func):
     """Add `--config` and `--no-config`, which select the private settings files."""
     func = click.option(
@@ -1230,7 +1223,8 @@ def run(
                 ),
                 "json",
             )
-        if not json_flag and not isinstance(error, XedaException):
+        # A bug keeps its traceback.
+        if not json_flag and (info.code == INTERNAL_ERROR or not isinstance(error, XedaException)):
             raise error
         sys.exit(2 if refused else 1)
 
@@ -1277,7 +1271,7 @@ def run(
         spec = Spec(
             chain,
             _load_design(design, project, design_updates, selected_target),
-            settings=command_line_table(list(flow_settings or ())),
+            settings=command_line_settings(list(flow_settings or ()), request.requested.name),
         )
     except KeyboardInterrupt:
         canceled_before_start()
@@ -1603,10 +1597,8 @@ def dse(
         )
         best = dse.run(
             flow,
-            xedaproject=_project_for_launcher(project),
-            design=design or design_name,
+            design=_load_design(design or design_name, project, (), selected_target),
             flow_settings=list(flow_settings),
-            target=selected_target,
             local_settings=local,
         )
     except SystemExit:
@@ -1725,7 +1717,9 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     except Exception as e:
         log.critical("%s", _error_message(e))
         report(e)
-        if not json_flag and not isinstance(e, XedaException):
+        if not json_flag and (
+            request_error_info(e).code == INTERNAL_ERROR or not isinstance(e, XedaException)
+        ):
             raise
         sys.exit(1)
     _print_scrub_result(result)

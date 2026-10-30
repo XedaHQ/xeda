@@ -133,7 +133,6 @@ def _launch(
     result = _runner(tmp_path, run).run(
         flow,
         _design(tmp_path, cocotb=cocotb),
-        xedaproject=empty_project(tmp_path),
         flow_settings=node_settings(flow, settings or {}),
         local_settings=local,
     )

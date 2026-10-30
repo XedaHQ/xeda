@@ -25,7 +25,7 @@ from xeda import Design
 from xeda.flow import FlowException, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.sby import Sby
-from xeda.utils import ExecutableNotFound
+from xeda.utils import ExecutableNotFound, settings_to_dict
 
 from . import tool_utils
 
@@ -518,10 +518,9 @@ def test_a_parameter_from_the_command_line_cannot_silently_change_the_theorem(tm
     design = tmp_path / "design.yaml"
     design.write_text(json.dumps({"name": "d", "rtl": {"sources": ["top.sv"], "top": "top"}}))
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    updated = Design.load(design).with_updates(settings_to_dict(["rtl.parameters.OK=0"]))
     with pytest.raises(FlowSettingsException, match=r"`OK`.*typed YAML"):
-        runner.run(
-            Sby, design, flow_settings=["sby.mode=bmc"], design_updates=["rtl.parameters.OK=0"]
-        )
+        runner.run(Sby, updated, flow_settings=["sby.mode=bmc"])
     # The same value as a typed YAML number is the number, and a design file gives it so.
     design.write_text(
         json.dumps(

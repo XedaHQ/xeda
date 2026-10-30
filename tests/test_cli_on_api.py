@@ -293,6 +293,42 @@ def test_a_design_of_a_project_is_selected_by_name(calls, world):
     assert view_of(calls, "run", FLOW, world["design"])["design.name"] == "demo"
 
 
+def test_the_target_of_a_project_design_is_the_default_target_unless_one_is_given(calls, tmp_path):
+    """`--target` and `--no-target` are the `target` of `Project.design`; neither is its default."""
+    path = tmp_path / "p" / "xedaproject.yaml"
+    path.parent.mkdir()
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "designs": [
+                    {
+                        "name": "first",
+                        "rtl": {"sources": [], "top": "first_top"},
+                        "targets": {"fast": {"rtl": {"top": "fast_top"}}, "slow": {}},
+                    }
+                ],
+                "default_target": "fast",
+            }
+        )
+    )
+    start = ["run", FLOW, "--xedaproject", path, "--design-name", "first"]
+    assert view_of(calls, *start)["design.target"] == "fast"
+    assert view_of(calls, *start, "--target", "slow")["design.target"] == "slow"
+    assert view_of(calls, *start, "--no-target")["design.target"] is None
+
+
+def test_two_items_that_set_one_setting_to_two_values_never_reach_the_workspace(calls, world):
+    """A spec holds a table, which keeps one value for a setting, so the command refuses the
+    items. An item that repeats another is that item."""
+    items = ["-s", "yosys_fpga.flatten=true"]
+    answer = invoke("run", FLOW, world["design"], *items, "yosys_fpga.flatten=false", "--json")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 2 and calls == [] and document["outcome"] is None
+    assert document["error"]["code"] == "conflicting_keys"
+    assert "-s yosys_fpga.flatten=true" in document["error"]["message"]
+    assert view_of(calls, "run", FLOW, world["design"], *items, "yosys_fpga.flatten=true")
+
+
 def test_the_flow_and_the_tool_output_are_those_of_the_command(calls, world):
     given = view_of(calls, "run", "yosys_fpga+nextpnr", world["design"])
     assert given["flow"] == "yosys_fpga+nextpnr" and given["tool_output"] == "terminal"
@@ -405,6 +441,16 @@ def test_a_bug_in_a_launch_is_a_failed_launch_with_exit_status_1(monkeypatch, wo
     assert answer.exit_code == 1 and document["outcome"] == "failed"
     assert document["error"]["code"] == "internal_error" and document["error"]["message"] == "a bug"
     assert document["spec"]["design"] == "demo"
+
+
+def test_a_bug_in_a_launch_keeps_its_traceback_without_json(monkeypatch, world):
+    def broken(self, what, /, **options):
+        raise errors.XedaError("a bug", code="internal_error") from RuntimeError("the cause")
+
+    monkeypatch.setattr(Workspace, "run", broken)
+    answer = invoke("run", FLOW, world["design"])
+    assert answer.exit_code == 1 and isinstance(answer.exception, errors.XedaError)
+    assert isinstance(answer.exception.__cause__, RuntimeError)
 
 
 @pytest.mark.parametrize(

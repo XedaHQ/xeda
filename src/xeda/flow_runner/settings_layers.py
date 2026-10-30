@@ -709,6 +709,20 @@ def command_line_table(items: Iterable[str] | Mapping[str, Any]) -> dict[str, An
     return settings_to_dict(list(items))  # type: ignore[arg-type]
 
 
+def command_line_settings(items: Sequence[str], requested: str) -> dict[str, Any]:
+    """Return the `-s` items of a command line as the settings of a `Spec`, for the request of the
+    flow `requested`.
+
+    A table keeps one value for a setting, so two items that set one setting to different values
+    are refused here (`conflicting_keys`, naming both items). An item that repeats another is that
+    item. Items that are no `KEY=VALUE` raise a `ValueError`."""
+    table = command_line_table(items)
+    problems = _repeated_leaves(_given_leaves(items, requested, registered_flow, scoped=True))
+    if problems:
+        raise FlowSettingsError(problems, "flows")
+    return table
+
+
 def check_run_flows(
     sections: Mapping[str, Any],
     flow_cls: type[Flow],

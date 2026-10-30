@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from xeda.flow import Flow, FlowSettingsError, registered_flows
 from xeda.dataclass import SecondSpelling, removed_message
 from xeda.flows import Openroad
+from xeda.project import Project
 
 from .project_files import project_listing
 from .scoping import node_settings
@@ -145,7 +146,7 @@ def test_a_project_s_open_xc7_section_is_an_error_naming_the_replacement(tmp_pat
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowNotFoundError) as error:
-        runner.run("yosys_fpga", "d", xedaproject=str(project))
+        runner.run("yosys_fpga", Project.load(project).design("d"))
     assert str(error.value) == REMOVED_OPEN_XC7
     assert not (tmp_path / "run").exists()
 

@@ -20,6 +20,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.units import Time
+from xeda.project import Project
 
 from .scoping import node_settings
 from .project_files import PROJECT_FILE
@@ -218,6 +219,11 @@ def _project(tmp_path: Path) -> str:
     return str(tmp_path / PROJECT_FILE)
 
 
+def _blink(tmp_path: Path) -> Design:
+    """The design `blink` that the project of `tmp_path` selects."""
+    return Project.load(_project(tmp_path)).design("blink")
+
+
 def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
     """Write the design file `d/blink.toml` and the project that lists it as the design `blink`."""
     root = tmp_path / "d"
@@ -240,7 +246,7 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
     `[flows.yosys_fpga] fpga`."""
     design_file = _files(tmp_path, OTHER_PART, PART)
     with pytest.raises(FlowSettingsError) as raised:
-        _runner(tmp_path, monkeypatch).run("nextpnr", "blink", xedaproject=_project(tmp_path))
+        _runner(tmp_path, monkeypatch).run("nextpnr", _blink(tmp_path))
     message = str(raised.value)
     for text in (PART, OTHER_PART, str(tmp_path / PROJECT_FILE), str(design_file)):
         assert text in message, text
@@ -252,8 +258,7 @@ def test_a_device_given_on_the_command_line_is_the_whole_run_s(tmp_path, monkeyp
     runner = _runner(tmp_path, monkeypatch)
     nextpnr = runner.run(
         "nextpnr",
-        "blink",
-        xedaproject=_project(tmp_path),
+        _blink(tmp_path),
         flow_settings=node_settings("nextpnr", [f"fpga.part={PART}"]),
     )
     assert nextpnr is not None and nextpnr.succeeded
@@ -395,8 +400,7 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
     )
     flow = runner.run(
         "nextpnr",
-        "blink",
-        xedaproject=_project(tmp_path),
+        _blink(tmp_path),
         flow_settings=node_settings("nextpnr", [f"{cli_leaf}={PART}"]),
     )
     assert flow.succeeded

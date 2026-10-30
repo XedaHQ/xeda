@@ -846,9 +846,7 @@ def test_a_comment_edit_of_a_bluespec_source_reruns_bsc_and_nothing_after_it(tmp
 
     def launch_chain() -> dict[str, bool]:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        flow = runner.run(
-            "openroad", design, project, flow_settings=node_settings("openroad", given)
-        )
+        flow = runner.run("openroad", design, flow_settings=node_settings("openroad", given))
         assert flow is not None and flow.succeeded
         return {f.name: f.reused for f in runner.launched}
 
