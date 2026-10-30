@@ -25,6 +25,7 @@ direction when it cannot prove that something is up to date.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Mapping, Sequence
 from glob import glob
@@ -34,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from .design import STORAGE_PREFIX, TREE_DIRECTORY, storage_name
 from .digest import content_digest, record_file
 from .listing import VCS_METADATA, directory_files
 from .run_dir import RunDirectory
@@ -126,15 +128,45 @@ def generation_storage(run_root: Path, design_name: str, key: str) -> Path:
     return owner.unlinked(run_root / GENERATION_DIRECTORY / design_name / key)
 
 
+def escaped_pattern(name: str) -> str:
+    """Return the glob pattern of a name or pattern where `*` is the only pattern character: `?`
+    and `[` become literal characters."""
+    return re.sub(r"[?\[]", r"[\g<0>]", name)
+
+
 def matches_in(storage: Path, name: str) -> list[str]:
     """Return the names of the files in `storage` that the declaration `name` stands for.
 
     `name` is a name or a pattern, where `*` is the only pattern character and it never crosses a
     `/`. The names are relative to `storage`, in POSIX form and sorted. Only files match, and the
-    record of the storage is none of them."""
-    written = re.sub(r"[?\[]", r"[\g<0>]", name)
-    found = (m for m in glob(written, root_dir=storage) if isfile(storage / m))
-    return sorted(m.replace("\\", "/") for m in found if m != RECORD_NAME)
+    record of the storage is none of them. The tree scan (`tree_outputs`) matches by this rule."""
+    found = (m for m in glob(escaped_pattern(name), root_dir=storage) if isfile(storage / m))
+    # Only the separator of the system becomes `/`: a backslash is part of a name on POSIX.
+    return sorted(m.replace(os.sep, "/") for m in found if m != RECORD_NAME)
+
+
+def stored_pattern(declaration: str) -> str:
+    """Return the name or pattern in the storage that a generated declaration stands for.
+
+    A storage entry `$XEDA_GENERATED/gen/*.v` stands for `gen/*.v`. A tree entry `gen_rtl/*.sv`
+    stands for `.xeda-tree/gen_rtl/*.sv`, where Xeda keeps the copies of the tree files that a
+    generation wrote."""
+    name = storage_name(declaration)
+    return f"{TREE_DIRECTORY}/{declaration}" if name is None else name
+
+
+def output_name_of(stored: str) -> str:
+    """Return the declaration form of the name of a file in the storage: `gen_rtl/x.sv` for
+    `.xeda-tree/gen_rtl/x.sv`, and `$XEDA_GENERATED/gen/top.v` for `gen/top.v`."""
+    tree = delivered_name(stored)
+    return tree if tree != stored else STORAGE_PREFIX + stored
+
+
+def delivered_name(stored: str) -> str:
+    """Return the name under which a delivery copies a file of the storage: its path in the
+    design tree for a copy of a tree file (`gen_rtl/x.sv` for `.xeda-tree/gen_rtl/x.sv`), else
+    its name in the storage."""
+    return stored.removeprefix(f"{TREE_DIRECTORY}/")
 
 
 def _named(path: Path, root: Path) -> str:

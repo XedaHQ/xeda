@@ -56,6 +56,7 @@ from click.testing import CliRunner
 
 import xeda
 import xeda.tool as xeda_tool
+import xeda.tree_outputs
 from xeda.flow import MetricSpec
 from xeda import Design
 from xeda.cli import cli
@@ -431,8 +432,9 @@ _DIR_FD = {
     "shutil.rmtree": (1,),
 }
 #: Modules that open a path relative to a directory descriptor (`shutil.rmtree` and `os.fwalk`
-#: walk a tree that way); the `open` event does not carry the descriptor.
-_DIR_FD_OPENERS = (shutil.__file__, os.__file__, "<frozen os>")
+#: walk a tree that way, and so does the scan of the generated files in a design tree); the `open`
+#: event does not carry the descriptor.
+_DIR_FD_OPENERS = (shutil.__file__, os.__file__, "<frozen os>", xeda.tree_outputs.__file__)
 _IN_HOOK = threading.local()
 
 
@@ -2656,6 +2658,12 @@ REVIEWED_WRITES = [
         "descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o666)",
         "the lock file beside a run directory or a storage, in the run root: opened to be locked, "
         "not written, and never through a link",
+    ),
+    (
+        "tree_outputs.py",
+        "return os.open(name, flags, dir_fd=dir_fd)  # read only: no flag of this module writes",
+        "the scan and the copy of the generated files in a design tree: every flag that the module "
+        "passes opens for reading only, and follows no link",
     ),
     (
         "flow_runner/trace.py",
