@@ -27,6 +27,7 @@ from ..design import (
     Source,
     generator_cwd,
     generator_of,
+    tree_declarations,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
@@ -92,6 +93,27 @@ def _unsendable(unit: Design, generator: Generator) -> str | None:
                 "design root"
             )
     return None
+
+
+def tree_parent(root: Path, name: str) -> Path | None:
+    """Return the directory below `root` that holds the files a tree entry `name` can name, as far
+    as the entry says it, or None.
+
+    It is the literal part of the entry: the parts before the first one with `*`, without the
+    file name. The directory is returned only when it exists and no link lies on the way to it
+    below `root`, so the host has the directory when this side has it."""
+    parts = []
+    for part in Path(name).parts[:-1]:
+        if "*" in part:
+            break
+        parts.append(part)
+    place = root
+    for part in parts:
+        place = place / part
+        if place.is_symlink():
+            return None
+    parent = Path(*parts)
+    return parent if parts and place.is_dir() else None
 
 
 def refuse_unsendable_generator(design: Design) -> Generator | None:
@@ -406,6 +428,9 @@ def package_inputs(
                 recipe["cwd"] = named.as_posix()
                 if named != Path(".") and (unit.root / named).is_dir():
                     directories.add((base / named).as_posix())
+        for name in tree_declarations(unit):
+            if (parent := tree_parent(unit.root, name)) is not None:
+                directories.add((base / parent).as_posix())
         tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, unit, base)}
         tb["top"] = unit.tb.top
         tb["cocotb"] = thaw(unit.tb.cocotb)
