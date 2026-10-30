@@ -57,7 +57,7 @@ dependencies = [
     "varname           ~= 1.0.0",
     "overrides         ~= 7.7",
     "psutil            ~= 7.2.2",
-    "pyvcd             ~= 0.5.0",
+    "pyvcd             ~= 0.5.1",
     "devtools          ~= 0.13",
     "colorama          ~= 0.4",
 ]
