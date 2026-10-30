@@ -593,7 +593,7 @@ line, or a remote host that cannot be reached or set up. The document then has `
       "outcome": null,
       "error": {
         "code": "unknown_setting",
-        "message": "sed: Extra inputs are not permitted",
+        "message": "nextpnr.sed: the flow has no such setting",
         "node": "nextpnr",
         "exit_status": null,
         "log": null

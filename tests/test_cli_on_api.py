@@ -545,6 +545,25 @@ def test_an_invalid_setting_of_a_real_run_exits_with_2(maker):
     assert not run_root.exists(), "a refused request writes nothing"
 
 
+@pytest.mark.parametrize(
+    "item, reason",
+    [
+        ("yosys_fpga.nope=1", "the flow has no such setting"),
+        ("yosys_fpga.flatten=maybe", "`maybe` is text, not a boolean: write `true` or `false`"),
+    ],
+)
+def test_a_settings_error_names_the_node_and_the_setting_as_the_user_writes_them(
+    world, caplog, item, reason
+):
+    """The log line and the `--json` message are one text: `<node>.<key>: <reason>`."""
+    expected = item.split("=")[0] + ": " + reason
+    answer = invoke("run", FLOW, world["design"], "-s", item, "--json")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["message"] == expected
+    assert f"SettingsError: {expected}" in [record.getMessage() for record in caplog.records]
+
+
 def _design(path: Path):
     from xeda import Design
 

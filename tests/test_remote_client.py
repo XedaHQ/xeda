@@ -1396,7 +1396,7 @@ def test_a_request_that_only_the_host_refuses_starts_no_launch(tmp_path, remote_
         "outcome": None,
         "error": {
             "code": "unknown_setting",
-            "message": "sed: Extra inputs are not permitted",
+            "message": "nextpnr.sed: the flow has no such setting",
             "node": "nextpnr",
             "exit_status": None,
             "log": None,
@@ -1423,7 +1423,7 @@ def test_a_request_that_only_the_host_refuses_starts_no_launch(tmp_path, remote_
     assert document["outcome"] is None and document["launch_id"] is None
     assert document["error"]["code"] == "unknown_setting"
     assert document["error"]["node"] == "nextpnr"
-    assert document["error"]["message"] == "sed: Extra inputs are not permitted"
+    assert document["error"]["message"] == "nextpnr.sed: the flow has no such setting"
     assert document["spec"]["design"] == "top" and document["nodes"] == []
     result = _cli(tmp_path, design, "nextpnr", "--json")
     assert result.exit_code == 2, result.output
