@@ -256,16 +256,17 @@ def test_the_profile_comes_from_the_value_not_a_file(tmp_path, remote_host, monk
 
 
 def test_a_remote_without_a_profile_has_the_default_profile(tmp_path, remote_host):
-    """The file makes the tool fail, and a profile with the same `env` makes it fail too. A
-    `Remote` with no profile has the default profile, and ignores the file."""
-    remote_host.configure(
-        env={"XEDA_FAKE_FPGA_MODE": "fail", "XEDA_FAKE_FPGA_TOOL": "nextpnr-ecp5"}
-    )
+    """A `Remote` without a profile has the default profile and never reads the file, whose setup
+    fails. A profile given as a value is used: the same setup fails the plan. A plan runs no
+    tool, so the test needs none on the host."""
+    failing = {"setup": ["echo the setup ran >&2", "exit 3"]}
+    remote_host.profile_file.write_text(json.dumps({"hosts": {HOST: failing}}))
     root = tmp_path / "local" / "xeda_run"
     spec = _spec(tmp_path)
-    assert Workspace(root, remote=Remote(HOST)).run(spec).passed
-    failed = Workspace(root, remote=_remote()).run(spec, rebuild_all=True)
-    assert failed.outcome is Outcome.FAILED
+    assert isinstance(Workspace(root, remote=Remote(HOST)).plan(spec), Plan)
+    with pytest.raises(RemoteError) as caught:
+        Workspace(root, remote=Remote(HOST, profile=failing)).plan(spec)
+    assert caught.value.code == "remote_setup_failed" and caught.value.host == HOST
 
 
 # --- A plan ---------------------------------------------------------------------------------
