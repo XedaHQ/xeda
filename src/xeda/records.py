@@ -972,7 +972,9 @@ def _generated_places(record: RunRecord) -> dict[str, tuple[str, Path | None, In
             key = source.path if source.producer is None else f"{source.producer}:{source.path}"
             if key in places:
                 continue
-            if source.producer in nodes:
+            # only a generator's source has a storage key: a converter node of the same name as a
+            # dependency's design does not hold that dependency's sources
+            if source.generation is None and source.producer in nodes:
                 places[key] = ("run_dir", nodes[source.producer], source)
                 continue
             directory = None

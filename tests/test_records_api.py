@@ -519,6 +519,39 @@ def test_one_input_hands_out_the_sources_of_two_generators(tmp_path):
         assert run.missing_generated == ()
 
 
+def test_a_dependency_source_is_found_in_its_storage_beside_a_converter_of_its_name(tmp_path):
+    chain = Chain(tmp_path)
+
+    class TListReader(Flow):
+        """Takes all its Verilog sources through one input, for the tests of records."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Inputs(Flow.Inputs):
+            files: list[Path] = In(SourceType.Verilog, description="The Verilog sources.")
+
+        def run(self) -> None:
+            pass
+
+    result = Workspace(chain.run_root).run(Spec("t_list_reader", chain.load()))
+    assert result.passed, result.error
+    record = result.record
+    (row,) = record.inputs
+    converter = dataclasses.replace(
+        row,
+        name="design",
+        origin="producer",
+        producer="lib1",
+        output="design",
+        producer_run_dir=record.run_dir.parent / "lib1",
+        sources=(),
+    )  # a converter node that has the name of the dependency's design
+    named = dataclasses.replace(record, inputs=(converter, *record.inputs))
+    (storage,) = chain.storages("lib1")
+    with named.open() as run:
+        assert run.generated_sources == {"lib1:gen/lib1.v": storage / "gen" / "lib1.v"}
+
+
 def test_a_dependency_generator_source_is_named_by_its_design(tmp_path):
     chain = Chain(tmp_path)
 
