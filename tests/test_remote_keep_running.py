@@ -30,7 +30,7 @@ from xeda.cli import cli
 from xeda.remote import client
 from xeda.remote.attach import attach_launch, cancel_launch
 from xeda.remote.frames import CANCEL
-from xeda.remote.errors import RemoteCanceled, RemoteDetached, RemoteError
+from xeda.remote.errors import RemoteError
 from xeda.remote.ssh import SshSession
 
 from .remote_fixtures import (
@@ -40,6 +40,7 @@ from .remote_fixtures import (
     host_profile_of,
     remote_host,
     remote_request,
+    run_of,
 )
 from .test_remote_agent import (
     DESIGN,
@@ -259,11 +260,13 @@ def _keep_running(tmp_path: Path, design: Path, **overrides: Any):
 
 
 def _attach(tmp_path: Path, launch_id: Optional[str] = None):
-    return attach_launch(
-        "somewhere",
-        launch_id,
-        run_root=tmp_path / "local" / "xeda_run",
-        profile=host_profile_of("somewhere"),
+    return run_of(
+        lambda: attach_launch(
+            "somewhere",
+            launch_id,
+            run_root=tmp_path / "local" / "xeda_run",
+            profile=host_profile_of("somewhere"),
+        )
     )
 
 
@@ -310,7 +313,7 @@ def test_a_launch_that_keeps_running_survives_a_killed_session_and_finishes(
     connections = Connections(monkeypatch)
     outcome, tool = _cut_while_running(tmp_path, _design(tmp_path), gate, connections, remote_host)
     cleanup.append(tool)
-    assert isinstance(outcome.error, RemoteDetached), outcome.document
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     document = outcome.document
     assert document["outcome"] == "detached"
     assert document["error"]["code"] == "remote_detached"
@@ -353,7 +356,7 @@ def test_the_agent_leaves_a_launch_that_keeps_running_and_the_child_keeps_the_lo
     thread.start()
     outcome = _keep_running(tmp_path, _design(tmp_path))
     thread.join(TIMEOUT)
-    assert isinstance(outcome.error, RemoteDetached)
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     assert holder[0], "no agent found"
     _wait_gone(holder[0])  # the agent exits by itself, without a cancel
     assert _lock_is_held(remote_host)  # the launch child holds the lock
@@ -715,7 +718,7 @@ def test_attach_replays_the_log_waits_and_fetches(
     connections = Connections(monkeypatch)
     outcome, tool = _cut_while_running(tmp_path, _design(tmp_path), gate, connections, remote_host)
     cleanup.append(tool)
-    assert isinstance(outcome.error, RemoteDetached)
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     (directory,) = _launch_dirs(remote_host)
     capsys.readouterr()
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere" / "top"
@@ -763,7 +766,7 @@ def test_attach_delivers_nothing_and_names_the_original_command(
         tmp_path, _design(tmp_path), gate, connections, remote_host, outputs_to=outputs
     )
     cleanup.append(tool)
-    assert isinstance(outcome.error, RemoteDetached)
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     thread, attached = _run_in_thread(lambda: _attach(tmp_path))
     gate.release()
     thread.join(TIMEOUT)
@@ -779,7 +782,7 @@ def test_attach_to_a_launch_without_a_local_record_says_what_to_do(tmp_path, rem
     for record in records.glob("*.json"):
         record.unlink()
     outcome = _attach(tmp_path)
-    assert outcome.error is not None and not outcome.success
+    assert not outcome.success
     assert "no record of the launch" in outcome.document["error"]["message"]
     assert "Run the original command again" in outcome.document["error"]["message"]
 
@@ -790,7 +793,7 @@ def test_attach_refuses_the_files_of_a_launch_that_a_later_launch_replaced(tmp_p
     (first,) = _launch_dirs(remote_host)
     _succeeded(_keep_running(tmp_path, _design(tmp_path, freq="90 MHz")))
     outcome = _attach(tmp_path, first.name)
-    assert outcome.error is not None
+    assert not outcome.success
     assert "used the same inputs after launch" in outcome.document["error"]["message"]
 
 
@@ -805,7 +808,7 @@ def test_the_order_of_execution_decides_replacement_and_the_newest_launch(
     _succeeded(_keep_running(tmp_path, _design(tmp_path, freq="90 MHz")))
 
     outcome = _attach(tmp_path, "300101000000-ffffffff")
-    assert outcome.error is not None
+    assert not outcome.success
     assert "used the same inputs after launch" in outcome.document["error"]["message"]
 
     newest = _attach(tmp_path)
@@ -824,7 +827,7 @@ def test_a_second_identical_request_attaches_to_the_running_launch(
     design = _design(tmp_path)
     outcome, tool = _cut_while_running(tmp_path, design, gate, connections, remote_host)
     cleanup.append(tool)
-    assert isinstance(outcome.error, RemoteDetached)
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     (directory,) = _launch_dirs(remote_host)
     seen = watch("The same request runs on somewhere")
 
@@ -848,7 +851,7 @@ def test_a_different_request_waits_for_the_lock_of_the_launch_that_keeps_running
     connections = Connections(monkeypatch)
     outcome, tool = _cut_while_running(tmp_path, _design(tmp_path), gate, connections, remote_host)
     cleanup.append(tool)
-    assert isinstance(outcome.error, RemoteDetached)
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     (first,) = _launch_dirs(remote_host)
     waiting = watch("waiting for the workspace lock")
 
@@ -877,7 +880,7 @@ def test_cancel_stops_the_launch_and_its_descendants(tmp_path, remote_host, monk
     connections = Connections(monkeypatch)
     outcome, tool = _cut_while_running(tmp_path, _design(tmp_path), gate, connections, remote_host)
     cleanup.append(tool)
-    assert isinstance(outcome.error, RemoteDetached)
+    assert outcome.document["error"]["code"] == "remote_detached", outcome.document
     (directory,) = _launch_dirs(remote_host)
     launch = psutil.Process(_launch_state(directory)["pid"])
     assert tool in [child.pid for child in launch.children(recursive=True)]
@@ -901,7 +904,7 @@ def test_cancel_stops_the_launch_and_its_descendants(tmp_path, remote_host, monk
     assert not _lock_is_held(remote_host)
     # An attach afterwards reports the cancel.
     again = _attach(tmp_path, directory.name)
-    assert isinstance(again.error, RemoteCanceled), again.document
+    assert again.document["error"]["code"] == "canceled", again.document
 
 
 def test_cancel_reaches_a_session_that_still_follows(tmp_path, remote_host, cleanup, watch):
@@ -918,7 +921,7 @@ def test_cancel_reaches_a_session_that_still_follows(tmp_path, remote_host, clea
     assert document["success"] is True
     thread.join(TIMEOUT)
     outcome = following.get(timeout=TIMEOUT)
-    assert isinstance(outcome.error, RemoteCanceled), outcome.document
+    assert outcome.document["error"]["code"] == "canceled", outcome.document
     _assert_gone(tool)
 
 
@@ -992,11 +995,7 @@ def test_the_new_commands_report_a_failure_as_one_json_document(tmp_path, remote
     assert result.exit_code == 1
     document = json.loads(result.stdout)
     assert document["error"]["message"]
-    if command == "attach":  # the document of a launch
-        assert document["outcome"] == "failed" and document["error"]["code"] == "remote_failed"
-        assert document["spec"] is None, "no request is known before the record is read"
-    else:
-        assert document["success"] is False
+    assert document["success"] is False
 
 
 def test_a_run_that_keeps_running_prints_the_launch_in_its_json_document(tmp_path, remote_host):

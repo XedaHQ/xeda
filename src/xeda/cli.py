@@ -48,11 +48,11 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .console import console
     from .deliver import Conflict
-    from .design import DESIGN_NAME, DesignFileParseError, target_name_problem
-    from .errors import ProjectError
+    from .design import DESIGN_NAME, Design, DesignFileParseError, target_name_problem
+    from .errors import ProjectError, SettingsError
     from .local_settings import LocalSettings, local_settings
     from .project import Project
-    from .xedaproject import resolve_project_file
+    from .xedaproject import PROJECT_FILE_NAMES, resolve_project_file
     from .flow_runner import (
         DefaultRunner,
         add_file_logger,
@@ -620,6 +620,32 @@ def _request_table(items: Iterable[str] | str | None) -> dict[str, Any]:
         return {}
 
 
+def _load_design(
+    design: Path | str | None, project: Project | None, updates: Iterable[str], target: Any
+) -> Design:
+    """Return the design that the command selects: the file of the argument, else a design of the
+    project. `updates` are the `--design-updates` items. This is the way that a launcher loads
+    a design of a request."""
+    merged = settings_to_dict(list(updates)) if updates else {}
+    if isinstance(design, Path):
+        return Design._load_file(
+            design,
+            updates=(merged,) if merged else (),
+            target=None if target is UNSET else target,
+        )
+    if project is None:
+        given = f"'{design}' is not a design file, and" if design else "No design was given, and"
+        raise ProjectError(
+            f"{given} there is no project file to take a design from. Give one with "
+            f"--xedaproject, or keep one ({', '.join(PROJECT_FILE_NAMES)}) in the directory "
+            f"where you start Xeda ({Path.cwd()}). Or give a design file (.yaml, .yml, .toml or "
+            ".json).",
+            code="project_file_not_found",
+        )
+    selected = project.design(design if design else UNSET, target=target)
+    return selected.with_updates(merged) if merged else selected
+
+
 def _selected_target(target: str | None, no_target: bool) -> str | None | Unset:
     """Return what `--target` and `--no-target` select: a target, no target (`None`), or `UNSET`
     when neither was given, so that the project's `default_target` applies."""
@@ -737,6 +763,18 @@ def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
         click.echo(f"  {conflict.destination}   {conflict.why}", err=True)
     try:
         return click.confirm("Replace them?", default=False, err=True)
+    except click.Abort:
+        return False
+
+
+def _prompt_question(question: str) -> bool:
+    """Ask on the terminal the question of a workspace: its last line is the question, and the
+    lines before it say what it is about. The default answer is no."""
+    *context, ask = question.splitlines()
+    if context:
+        click.echo("\n".join(context), err=True)
+    try:
+        return click.confirm(ask, default=False, err=True)
     except click.Abort:
         return False
 
@@ -1181,8 +1219,7 @@ def run(
         log.critical("%s", _error_message(error))
         refused = isinstance(public, SpecError)
         if json_flag:
-            if spec is not None and not refused:
-                assert launcher is not None
+            if spec is not None and not refused and launcher is not None:
                 document = failed_result(launcher, spec, plan, info, launch_id=launch_id).to_dict()
             else:
                 spec_fields = request_spec() if spec is None else spec_of(spec)
@@ -1241,63 +1278,83 @@ def run(
                 ctx=ctx,
             )
         from .remote import client as remote_client
-        from .remote.profile import host_profile
+        from .remote_value import Remote
 
-        outcome = remote_client.run_remote(
-            chain,
-            design=design,
-            destination_text=remote,
-            run_root=run_root,
-            flow_settings=list(flow_settings or ()),
-            xedaproject=project_for_launcher,
-            design_updates=design_updates,
-            design_allow_extra=False,
-            target=selected_target,
-            hashed_run_dirs=hashed_run_dirs,
-            clean=clean,
+        try:
+            remote_spec = Spec(
+                chain,
+                _load_design(design, project, design_updates, selected_target),
+                settings=command_line_table(list(flow_settings or ())),
+            )
+        except KeyboardInterrupt:
+            canceled_before_start()
+        except Exception as e:
+            # An item that is no KEY=VALUE is a bad setting. Other errors are public already.
+            bad_item = type(e) is ValueError
+            not_started(SettingsError(str(e), code="invalid_value") if bad_item else e)
+        remote_options = LaunchOptions(
             rebuild_all=rebuild_all,
-            scrub=scrub,
-            dry_run=dry_run,
-            fetch_all=fetch_all,
+            clean=clean,
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
-            confirm_overwrite=_prompt_overwrite if _interactive(json_flag) else None,
-            log_level=log_level,
-            detailed_logs=detailed_logs,
-            keep_running=keep_running,
-            profile=host_profile(remote, local.host_profiles),
+        )
+        remote_workspace = WorkspaceOptions(
+            run_root=run_root,
+            hashed_run_dirs=hashed_run_dirs,
+            tool_output="terminal",
+            confirm=_prompt_question if _interactive(json_flag) else None,
+            remote=Remote(
+                remote,
+                profile=local.host_profiles.get(remote),
+                fetch_all=fetch_all,
+                keep_running=keep_running,
+            ),
             local_settings=local,
         )
-        document = outcome.document
-        if outcome.error is not None:
-            log.critical("%s", _error_message(outcome.error))
-            if json_flag:
-                emit_structured(document, "json")
-            if not json_flag and not isinstance(outcome.error, XedaException):
-                raise outcome.error
-            sys.exit(outcome.exit_status)
         if dry_run:
+            try:
+                remote_plan = remote_client.plan_remote(
+                    remote_spec,
+                    workspace=remote_workspace,
+                    options=remote_options,
+                    log_level=log_level,
+                    detailed_logs=detailed_logs,
+                )
+            except KeyboardInterrupt:
+                canceled_before_start()
+            except Exception as e:
+                not_started(e, remote_spec)
             if json_flag:
-                emit_structured(document, "json")
+                emit_structured(remote_plan.to_dict(), "json")
             else:
-                _print_remote_plan(document)
-            if not outcome.success:
-                error = document.get("error") or {}
-                if error.get("message"):
-                    log.critical("%s", error["message"])
-                log.critical("Remote dry run of flow '%s' on '%s' failed.", flow, remote)
-            sys.exit(outcome.exit_status)
-        if outcome.record is not None and not json_flag:
+                _print_plan(remote_plan.to_dict(), host=remote)
+            sys.exit(0)
+        try:
+            result = remote_client.run_remote(
+                remote_spec,
+                workspace=remote_workspace,
+                options=remote_options,
+                log_level=log_level,
+                detailed_logs=detailed_logs,
+            )
+        except KeyboardInterrupt:
+            canceled_before_start()
+        except Exception as e:
+            not_started(e, remote_spec)
+        if result.error is not None:
+            log.critical("%s", result.error.message)
+        shown = result.nodes[result.roots[0]] if result.roots else None
+        if not json_flag and shown is not None and shown.record is not None:
             print_results(
-                results_of(outcome.record),
-                title=f"Results of flow:{flow} design:{document['spec']['design']}",
+                results_of(result.record),
+                title=f"Results of flow:{flow} design:{remote_spec.design.name}",
                 skip_if_false={"artifacts", "reports"},
             )
-        if not outcome.success:
+        if not result.passed:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
-            emit_structured(document, "json")
-        sys.exit(outcome.exit_status)
+            emit_structured(result.to_dict(), "json")
+        sys.exit(0 if result.passed else 1)
 
     if dry_run:
         options = LaunchOptions(

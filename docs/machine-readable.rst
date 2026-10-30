@@ -675,7 +675,8 @@ The code of an error of the whole launch (``node`` is ``null``): ``generator_fai
 ``delivery_failed`` (Xeda could not deliver an output that a setting, ``--outputs-to`` or the
 ``outputs_to`` of a generator named), ``cleanup_failed`` (see below), ``canceled``, and, for
 ``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
-``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
+``remote_detached``. A request that fails before the launch is sent has ``remote_unreachable`` or
+``remote_setup_failed``. ``no_successful_run`` is the error of ``xeda dse``.
 
 The code of an error of a request that started no launch is the code of the setting, design,
 project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
@@ -709,8 +710,10 @@ The document of ``xeda run --remote ... --json`` is the document of a run, as ab
 ``run_dir`` of each node, and the paths in its record, name directories and files in the mirror, the
 directory ``<run root>/@<host>`` that holds the fetched files. ``design_file`` is your local design
 file, and ``launch_id`` is the id of the launch on the host. A failure of the remote step itself
-(a lost connection or an error while it makes the environment) gives the document of a launch with
-the outcome ``failed`` and the error code ``remote_failed``. If the launch ended and Xeda could not
+after the launch was sent gives the document of a launch with the outcome ``failed`` and the error
+code ``remote_failed``. A failure before (a host that cannot be reached or made ready) starts no
+launch: the document has no nodes, and the error code is ``remote_unreachable`` or
+``remote_setup_failed``. If the launch ended and Xeda could not
 fetch or deliver its result, the code is ``remote_fetch_failed`` or ``delivery_failed``, and the
 nodes keep their records. Ctrl-C gives the outcome ``canceled`` and the code ``canceled``.
 
@@ -718,10 +721,8 @@ The document of a launch that Xeda stopped following (``--keep-running``, then C
 connection) has the outcome ``detached``, the error code ``remote_detached`` and the id of the launch
 in ``launch_id``. Every node is ``detached``, and the launch keeps running on the host.
 
-The document of a remote dry run is the document of a local dry run with these keys: ``remote``,
-``mirror``, and ``uploaded``, the list of input files that the dry run sent to the host. Each
-node has the ``run_dir`` that the run would use in the mirror, and ``remote_run_dir``, the
-directory on the host.
+The document of a remote dry run is the document of a local dry run. The ``run_dir`` of each node is
+the directory that the run would use in the mirror.
 
 ``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run. The other
 commands of ``xeda remote`` print one document each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status

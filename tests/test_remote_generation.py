@@ -13,9 +13,9 @@ import sys
 from pathlib import Path, PurePosixPath
 
 import pytest
+from xeda.errors import SpecError
 
 from xeda import Design
-from xeda.deliver import DeliveryError
 from xeda.design import DesignValidationError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dependencies import merged_design
@@ -160,7 +160,7 @@ def test_a_remote_request_refuses_the_copies_of_generated_sources_before_connect
         "vivado_synth",
         flow_settings=node_settings("vivado_synth", SETTINGS),
     )
-    assert isinstance(outcome.error, DeliveryError)
+    assert isinstance(outcome.error, SpecError)
     assert "rtl.generator.outputs_to" in str(outcome.error) and "--remote" in str(outcome.error)
     assert world.runs == 0 and not connected(remote_host)
     assert not (world.root / "copies").exists()

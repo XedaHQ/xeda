@@ -14,13 +14,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from xeda.errors import SpecError
 
 from xeda.deliver import DeliveryError
-from xeda.flow import FlowException, FlowSettingsError
 from xeda.errors import ProjectError
 from xeda.flow_runner.run_lock import lock_file
 from xeda.remote import client
-from xeda.remote.errors import RemoteConnectionError
 from xeda.run_root import RunRootError, is_run_root
 
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
@@ -88,7 +87,7 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
         "nextpnr",
         flow_settings=["yosys_fpg.flatten=true"],
     )
-    assert isinstance(outcome.error, FlowSettingsError)
+    assert isinstance(outcome.error, SpecError)
     assert re.search(r"yosys_fpg.*yosys_fpga", str(outcome.error))
     assert not connected(remote_host)
 
@@ -99,7 +98,7 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(
         "nextpnr",
         flow_settings=node_settings("nextpnr", ["flows.yosys_fpga.flatten=true"]),
     )
-    assert isinstance(outcome.error, RemoteConnectionError)
+    assert outcome.document["error"]["code"] == "remote_unreachable"
 
 
 @pytest.mark.parametrize("given", ["missing.yaml", Path("missing.toml")])
@@ -119,7 +118,7 @@ def test_a_remote_run_treats_an_empty_project_name_as_none_given(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = remote_request(tmp_path, _nextpnr_design(tmp_path), "nextpnr", xedaproject="")
-    assert isinstance(outcome.error, RemoteConnectionError)
+    assert outcome.document["error"]["code"] == "remote_unreachable"
 
 
 def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connecting(
@@ -128,7 +127,7 @@ def test_a_remote_run_rejects_a_testbench_the_simulator_cannot_run_before_connec
     """Here, not on the remote: a remote on a release without the check would run a cocotb
     testbench on modelsim as an ordinary simulation, its tests silently never run."""
     outcome = remote_request(tmp_path, SQRT / "sqrt.yaml", "modelsim")
-    assert isinstance(outcome.error, FlowException)
+    assert isinstance(outcome.error, SpecError)
     assert "modelsim cannot run cocotb tests" in str(outcome.error)
     assert not connected(remote_host)
     assert not (tmp_path / "local").exists(), "nor a run root set up for it"
@@ -212,7 +211,7 @@ def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, 
         overwrite_outputs=True,
         flow_settings=node_settings("vivado_synth", [*SQRT_SETTINGS, f"xdc_files={delivered}"]),
     )
-    assert isinstance(outcome.error, DeliveryError) and "an input of the run" in str(outcome.error)
+    assert isinstance(outcome.error, SpecError) and "an input of the run" in str(outcome.error)
     assert delivered.read_bytes() == kept
 
 
@@ -245,7 +244,7 @@ def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(tmp_path, 
             "vivado_synth", [*SQRT_SETTINGS, {"lib_paths": [["work", str(got)]]}]
         ),
     )
-    assert isinstance(outcome.error, DeliveryError)
+    assert isinstance(outcome.error, SpecError)
     assert re.search(
         rf"`lib_paths\[0\]\[1\]` names {re.escape(str(got.resolve()))}", str(outcome.error)
     )
@@ -290,7 +289,7 @@ def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_
         outputs_to=new / "got",
         overwrite_outputs=True,
     )
-    assert isinstance(outcome.error, DeliveryError)
+    assert isinstance(outcome.error, SpecError)
     assert re.search(
         rf"`lib_paths\[0\]\[1\]` names {re.escape(str(new.resolve()))}", str(outcome.error)
     )
@@ -408,7 +407,7 @@ def test_a_refused_delivery_leaves_the_mirror_whole_and_unlocked(
         flow_settings=node_settings("vivado_synth", SQRT_SETTINGS),
         outputs_to=tmp_path / "got",
     )
-    assert isinstance(outcome.error, DeliveryError) and not outcome.success
+    assert outcome.error is None and not outcome.success
     assert outcome.document["outcome"] == "failed"
     assert outcome.document["error"]["code"] == "delivery_failed"
     assert outcome.document["nodes"][-1]["record"]["outcome"] == "passed"
@@ -448,7 +447,7 @@ def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_doc
         outputs_to=tmp_path / "got",
     )
     document = outcome.document
-    assert isinstance(outcome.error, OSError) and not outcome.success
+    assert outcome.error is None and not outcome.success
     assert document["outcome"] == "failed"
     assert document["error"]["code"] == "delivery_failed"
     assert "disk full" in document["error"]["message"]
@@ -477,4 +476,4 @@ def test_a_local_run_root_with_a_space_does_not_stop_a_remote_build(
         "name: d\nrtl:\n  sources: [top.v]\n  top: top\ntb:\n  sources: [top.v]\n  top: top\n"
     )
     outcome = remote_request(tmp_path, design, "verilator", run_root=tmp_path / "a b" / "xeda_run")
-    assert isinstance(outcome.error, RemoteConnectionError), outcome.document
+    assert outcome.document["error"]["code"] == "remote_unreachable", outcome.document

@@ -131,7 +131,7 @@ def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch)
     status, document = _json("run", "verilator", "blink.toml", "--remote", "somewhere")
 
     assert status == 1 and document["outcome"] == "failed"
-    assert document["error"]["code"] == "remote_failed"
+    assert document["error"]["code"] == "remote_unreachable"
     assert "cannot connect to somewhere" in document["error"]["message"]
     assert document["spec"]["design"] == "blink"
     assert _is(document["spec"]["design_file"], world / "blink.toml")

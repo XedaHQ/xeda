@@ -25,15 +25,14 @@ from xeda.cli import cli
 from xeda.flow_runner import DefaultRunner, run_lock
 from xeda.outcomes import result_from_dict
 from xeda.records import read_record
-from xeda.run_dir import RunDirectoryError
+from xeda.errors import RemoteError as PublicRemoteError
+from xeda.errors import RunRootError, SpecError
 from xeda.run_root import ensure_run_root
 from xeda.remote import client
 from xeda.remote.client import new_launch_id, workspace_key
 from xeda.remote.errors import (
     RemoteCanceled,
     RemoteConnectionError,
-    RemoteError,
-    RemoteInterrupted,
     RemoteProtocolError,
 )
 from xeda.remote.ssh import Destination, SshSession
@@ -386,9 +385,9 @@ def test_a_failed_run_delivers_nothing(tmp_path, remote_host):
 def test_programmer_flow_is_refused_with_remote(tmp_path, remote_host):
     design = _design(tmp_path)
     outcome = _request(tmp_path, design, chain="nextpnr+openfpgaloader")
-    assert isinstance(outcome.error, RemoteError) and not outcome.success
-    assert outcome.document["outcome"] == "failed"
-    assert outcome.document["error"]["code"] == "remote_failed"
+    assert isinstance(outcome.error, SpecError) and not outcome.success
+    assert outcome.document["outcome"] is None
+    assert outcome.document["error"]["code"] == "unsupported_with_remote"
     assert "programs a device" in outcome.document["error"]["message"]
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
@@ -435,8 +434,8 @@ def test_fetch_all_needs_remote(tmp_path):
 def test_windows_is_refused(tmp_path, monkeypatch, remote_host):
     monkeypatch.setattr(client, "_is_windows", lambda: True)
     outcome = _request(tmp_path, _design(tmp_path))
-    assert isinstance(outcome.error, RemoteError)
-    assert outcome.document["error"]["code"] == "remote_failed"
+    assert isinstance(outcome.error, PublicRemoteError)
+    assert outcome.document["error"]["code"] == "remote_setup_failed"
     assert "Windows" in outcome.document["error"]["message"]
     assert not remote_host.remote.calls("ssh")
 
@@ -444,9 +443,9 @@ def test_windows_is_refused(tmp_path, monkeypatch, remote_host):
 def test_a_connection_that_fails_names_the_step(tmp_path, remote_host, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = _request(tmp_path, _design(tmp_path))
-    assert isinstance(outcome.error, RemoteConnectionError)
+    assert isinstance(outcome.error, PublicRemoteError)
     assert outcome.document["outcome"] == "failed"
-    assert outcome.document["error"]["code"] == "remote_failed"
+    assert outcome.document["error"]["code"] == "remote_unreachable"
     assert "cannot connect to somewhere" in outcome.document["error"]["message"]
     assert "Permission denied" in outcome.document["error"]["message"]
 
@@ -456,7 +455,7 @@ def test_a_provisioning_failure_reports_its_code_in_the_json_message(tmp_path, r
     result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--json")
     assert result.exit_code == 1, result.output
     error = json.loads(result.stdout)["error"]
-    assert error["code"] == "remote_failed"
+    assert error["code"] == "remote_setup_failed"
     assert "not-linux: " in error["message"]
 
 
@@ -495,12 +494,14 @@ def test_names_of_the_workspace_and_the_launch(tmp_path):
 # --- Dry run ------------------------------------------------------------------------------------
 
 
-def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host):
+def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host, caplog):
+    caplog.set_level("INFO", logger="xeda.remote")
     design = _design(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"
     document = _succeeded(_request(tmp_path, design, dry_run=True))
-    assert document["remote"] == "somewhere" and "error" not in document
-    assert "top.v" in document["uploaded"] and "top.xeda.json" in document["uploaded"]
+    assert "error" not in document
+    uploaded = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Uploaded")]
+    assert len(uploaded) == 1 and "top.v" in uploaded[0] and "top.xeda.json" in uploaded[0]
     assert [node["state"] for node in document["nodes"]] == ["stale", "stale"]
     workspace = remote_host.workspace()
     assert (workspace / "inputs" / "top" / "top.v").is_file()
@@ -508,8 +509,9 @@ def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host):
         not any((workspace / "xeda_run").rglob("*")) if (workspace / "xeda_run").exists() else True
     )
     assert not run_root.exists(), "nothing is written locally"
-    again = _succeeded(_request(tmp_path, design, dry_run=True))
-    assert again["uploaded"] == []
+    caplog.clear()
+    _succeeded(_request(tmp_path, design, dry_run=True))
+    assert "Uploaded no input file to somewhere" in caplog.text
 
     _succeeded(_request(tmp_path, design))
     after = _succeeded(_request(tmp_path, design, dry_run=True))
@@ -525,7 +527,13 @@ def test_dry_run_through_the_command_line(tmp_path, remote_host):
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
-    assert document["roots"] == ["nextpnr"] and document["remote"] == "somewhere"
+    assert document["roots"] == ["nextpnr"] and set(document) == {
+        "schema_version",
+        "spec",
+        "roots",
+        "options",
+        "nodes",
+    }
 
 
 # --- The JSON document --------------------------------------------------------------------------
@@ -706,7 +714,7 @@ def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
     thread.start()
     outcome = _request(tmp_path, design)
     thread.join()
-    assert isinstance(outcome.error, RemoteCanceled), outcome.document
+    assert outcome.error is None, outcome.document
     assert outcome.document["outcome"] == "canceled"
     assert outcome.document["error"]["code"] == "canceled"
     assert "connection" in outcome.document["error"]["message"]
@@ -715,7 +723,7 @@ def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
 
 
 def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
-    from xeda.cancel import CancelToken, observing
+    from xeda.cancel import CancelToken
 
     design, mirror = _earlier_success(tmp_path)
     ready = Ready(tmp_path, remote_host)
@@ -728,10 +736,9 @@ def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
 
     thread = threading.Thread(target=cancel, daemon=True)
     thread.start()
-    with observing(lambda: token.canceled):
-        outcome = _request(tmp_path, design)
+    outcome = _request(tmp_path, design, cancel=token)
     thread.join()
-    assert isinstance(outcome.error, RemoteCanceled), outcome.document
+    assert outcome.error is None, outcome.document
     assert outcome.document["outcome"] == "canceled"
     assert outcome.document["error"]["code"] == "canceled"
     assert "Ctrl-C" not in outcome.document["error"]["message"]
@@ -740,7 +747,7 @@ def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
 
 
 def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote_host, monkeypatch):
-    from xeda.cancel import CancelToken, observing
+    from xeda.cancel import CancelToken
 
     design, mirror = _earlier_success(tmp_path)
     waiting = threading.Event()
@@ -756,10 +763,9 @@ def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote
     monkeypatch.setattr(client._Agent, "send", silent)
     thread = threading.Thread(target=lambda: (waiting.wait(TIMEOUT), token.cancel()), daemon=True)
     thread.start()
-    with observing(lambda: token.canceled):
-        outcome = _request(tmp_path, design)
+    outcome = _request(tmp_path, design, cancel=token)
     thread.join()
-    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.error is None, outcome.document
     assert outcome.document["outcome"] == "canceled"
     assert outcome.document["error"]["code"] == "canceled"
     message = outcome.document["error"]["message"]
@@ -770,7 +776,7 @@ def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote
 def test_a_canceled_token_during_the_delivery_cancels_the_launch(
     tmp_path, remote_host, monkeypatch
 ):
-    from xeda.cancel import CancelToken, observing
+    from xeda.cancel import CancelToken
 
     design, _ = _earlier_success(tmp_path)
     token, dropped = CancelToken(), threading.Event()
@@ -787,9 +793,8 @@ def test_a_canceled_token_during_the_delivery_cancels_the_launch(
 
     monkeypatch.setattr(client._Agent, "drop", dropping)
     monkeypatch.setattr(client, "deliver_fetched", delivering)
-    with observing(lambda: token.canceled):
-        outcome = _request(tmp_path, design, outputs_to=tmp_path / "out")
-    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    outcome = _request(tmp_path, design, outputs_to=tmp_path / "out", cancel=token)
+    assert outcome.error is None, outcome.document
     assert outcome.document["error"]["code"] == "canceled"
     assert "on request while delivering the outputs" in outcome.document["error"]["message"]
 
@@ -797,7 +802,7 @@ def test_a_canceled_token_during_the_delivery_cancels_the_launch(
 def test_a_canceled_token_ends_the_wait_for_the_lock_of_the_mirror(
     tmp_path, remote_host, monkeypatch
 ):
-    from xeda.cancel import CancelToken, observing
+    from xeda.cancel import CancelToken
 
     design, mirror = _earlier_success(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"
@@ -816,11 +821,10 @@ def test_a_canceled_token_ends_the_wait_for_the_lock_of_the_mirror(
     holder = threading.Thread(target=hold, daemon=True)
     holder.start()
     assert held.wait(TIMEOUT)
-    with observing(lambda: token.canceled):
-        outcome = _request(tmp_path, design)
+    outcome = _request(tmp_path, design, cancel=token)
     done.set()
     holder.join()
-    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.error is None, outcome.document
     assert outcome.document["outcome"] == "canceled"
     message = outcome.document["error"]["message"]
     assert "on request while fetching the results" in message
@@ -838,7 +842,7 @@ def test_rerun_after_late_disconnect_fetches_the_finished_result(
 
     monkeypatch.setattr(client, "_fetch", fetch_after_drop)
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RemoteConnectionError), outcome.document
+    assert outcome.error is None, outcome.document
     assert "fetching the results" in outcome.document["error"]["message"]
     # the launch ended, so the nodes keep their records, and the fetch is what failed
     assert outcome.document["outcome"] == "failed"
@@ -866,7 +870,7 @@ def test_agent_failure_names_the_step(tmp_path, remote_host, monkeypatch):
 
     monkeypatch.setattr(client, "_launch", bad_launch)
     outcome = _request(tmp_path, _design(tmp_path))
-    assert isinstance(outcome.error, RemoteError) and not outcome.success
+    assert outcome.error is None and not outcome.success
     message = outcome.document["error"]["message"]
     assert outcome.document["error"]["code"] == "remote_failed"
     assert "running the launch" in message and "run root" in message
@@ -906,7 +910,7 @@ def test_a_link_in_the_mirror_is_refused_before_the_host_runs_anything(
     _replace_with_link(link, home)
     connections = sum("-M" in call for call in remote_host.remote.calls("ssh"))
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RunDirectoryError), outcome.document
+    assert isinstance(outcome.error, RunRootError), outcome.document
     assert f"{link} is a symbolic link" in outcome.document["error"]["message"]
     now = sum("-M" in call for call in remote_host.remote.calls("ssh"))
     assert now == connections, "no connection to the host was opened"
@@ -933,7 +937,7 @@ def test_a_link_that_appears_while_the_host_runs_empties_nothing(
 
     monkeypatch.setattr(client, "_fetch", fetch_then_link)
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RunDirectoryError), outcome.document
+    assert outcome.error is None, outcome.document
     assert f"{mirror} is a symbolic link" in outcome.document["error"]["message"]
     # the launch ended on the host, so this is a failed fetch and no refusal of the request
     assert outcome.document["outcome"] == "failed"
@@ -1066,23 +1070,20 @@ def test_a_failed_remote_dry_run_exits_with_status_1(tmp_path, remote_host, monk
     result = _cli(tmp_path, design, "nextpnr", "--dry-run")
     assert result.exit_code == 1, result.output
     assert "the plan is not valid" in result.output
-    assert "Remote dry run of flow 'nextpnr' on 'somewhere' failed" in result.output
     result = _cli(tmp_path, design, "nextpnr", "--dry-run", "--json")
     assert result.exit_code == 1, result.output
     document = json.loads(result.stdout)
-    assert document["error"]["message"] == "the plan is not valid"
+    assert "the plan is not valid" in document["error"]["message"]
 
 
 def test_a_dry_run_document_names_the_places_of_the_mirror(tmp_path, remote_host):
     design = _design(tmp_path, sources=("top.v", "pins.lpf"))
     document = _succeeded(_request(tmp_path, design, dry_run=True))
     mirror = _mirror(tmp_path)
-    assert document["mirror"] == str(mirror)
     workspace = remote_host.workspace()
     for node in document["nodes"]:
         name = node["name"]
         assert node["run_dir"] == str(mirror / "top" / name)
-        assert node["remote_run_dir"] == str(workspace / "xeda_run" / "top" / name)
         # the sources and settings name the files here, never the copies the remote reads
         named = json.dumps([node.get(key) for key in ("settings", "inputs", "deliveries")])
         assert str(workspace) not in named, named
@@ -1126,7 +1127,7 @@ def test_ctrl_c_while_fetching_says_that_the_launch_finished(tmp_path, remote_ho
 
     monkeypatch.setattr(client, "_fetch", interrupted)
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.error is None, outcome.document
     assert outcome.document["outcome"] == "canceled"
     assert outcome.document["error"]["code"] == "canceled"
     message = outcome.document["error"]["message"]
@@ -1143,7 +1144,7 @@ def test_ctrl_c_while_delivering_says_that_the_launch_finished(tmp_path, remote_
 
     monkeypatch.setattr(client, "deliver_fetched", interrupted)
     outcome = _request(tmp_path, design, outputs_to=tmp_path / "out")
-    assert isinstance(outcome.error, RemoteInterrupted), outcome.document
+    assert outcome.error is None, outcome.document
     message = outcome.document["error"]["message"]
     assert outcome.document["error"]["code"] == "canceled"
     assert "while delivering the outputs" in message
@@ -1151,35 +1152,27 @@ def test_ctrl_c_while_delivering_says_that_the_launch_finished(tmp_path, remote_
     assert "--outputs-to may be partly written" in message
 
 
-def test_ctrl_c_while_planning_gives_a_document_without_an_outcome(
-    tmp_path, remote_host, monkeypatch
-):
-    """Ctrl-C while this side loads the design or plans the request starts no launch: the
-    document has no outcome and no nodes, the code is `canceled` and the exit status is 1."""
+def test_ctrl_c_while_planning_starts_no_launch_and_propagates(tmp_path, remote_host, monkeypatch):
+    """Ctrl-C while this side loads the design or plans the request starts no launch, so it is no
+    outcome: the interrupt propagates, and nothing is sent to the host."""
 
     def interrupted(*arguments, **keywords):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(client, "_plan", interrupted)
-    outcome = _request(tmp_path, _design(tmp_path))
-    assert isinstance(outcome.error, RemoteCanceled), outcome.document
-    document = outcome.document
-    assert document["outcome"] is None and document["nodes"] == [] and document["roots"] == []
-    assert document["error"]["code"] == "canceled"
-    assert document["error"]["message"] == "Ctrl-C canceled the command before the launch started."
-    assert document["spec"] is not None
-    assert outcome.exit_status == 1
-    assert not remote_host.remote.calls("ssh")
+    with pytest.raises(KeyboardInterrupt):
+        _request(tmp_path, _design(tmp_path))
+    assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
-def test_ctrl_c_before_the_launch_says_it_never_started(tmp_path, remote_host, monkeypatch):
+def test_ctrl_c_before_the_launch_is_sent_propagates(tmp_path, remote_host, monkeypatch):
     def interrupted(*arguments, **keywords):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(client, "_sync", interrupted)
-    outcome = _request(tmp_path, _design(tmp_path))
-    assert isinstance(outcome.error, RemoteCanceled), outcome.document
-    assert "never started" in outcome.document["error"]["message"]
+    with pytest.raises(KeyboardInterrupt):
+        _request(tmp_path, _design(tmp_path))
+    assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
 
 
 # --- The signal handler and the heartbeat ---------------------------------------------------------
@@ -1275,7 +1268,7 @@ def test_a_result_with_a_run_directory_outside_the_mirror_changes_nothing_there(
 
     monkeypatch.setattr(client, "_launch", crafted)
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RemoteProtocolError), outcome.document
+    assert outcome.error is None, outcome.document
     assert canary.read_text() == "the user's own file\n"
     assert not mirror.exists() or not list(mirror.rglob("results.json"))
 
@@ -1299,7 +1292,8 @@ def test_an_error_after_the_launch_started_clears_the_mirror(
 
     monkeypatch.setattr(client, "_launch", failing)
     outcome = _request(tmp_path, design)
-    assert outcome.error is error and not outcome.success
+    assert outcome.error is None and not outcome.success
+    assert outcome.document["error"]["code"] in ("remote_failed", "canceled")
     _assert_mirror_emptied(mirror)
 
 
@@ -1311,7 +1305,7 @@ def test_an_error_while_fetching_clears_the_mirror(tmp_path, remote_host, monkey
 
     monkeypatch.setattr(client, "_fetch", failing)
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RemoteConnectionError)
+    assert outcome.error is None, outcome.document
     _assert_mirror_emptied(mirror)
 
 
@@ -1328,7 +1322,7 @@ def test_a_cut_in_the_transfer_after_results_json_clears_the_mirror(
 
     monkeypatch.setattr(client, "publish_mirror", cut_after_the_files)
     outcome = _request(tmp_path, design)
-    assert isinstance(outcome.error, RemoteProtocolError) and not outcome.success
+    assert outcome.error is None and not outcome.success
     _assert_mirror_emptied(mirror)
 
 

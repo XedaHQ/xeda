@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Callable, ClassVar, List, Optional
 
 import pytest
+from xeda.errors import SpecError
 from click.testing import CliRunner
 
 import xeda.deliver as deliver
@@ -1907,7 +1908,7 @@ def test_a_remote_run_refuses_a_located_output_before_connecting(world, remote_h
             "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "bitstream=$PWD/top.bit"]
         ),
     )
-    assert isinstance(outcome.error, DeliveryError) and "--outputs-to" in str(outcome.error)
+    assert isinstance(outcome.error, SpecError) and "--outputs-to" in str(outcome.error)
     assert not connected(remote_host)
 
 
@@ -1922,9 +1923,7 @@ def test_a_remote_run_checks_its_output_names_before_connecting(world, remote_ho
             "yosys_fpga", ["fpga.part=LFE5U-25F-6BG381C", "netlist_json=results.json"]
         ),
     )
-    assert isinstance(outcome.error, FlowSettingsError) and "a name Xeda keeps" in str(
-        outcome.error
-    )
+    assert isinstance(outcome.error, SpecError) and "a name Xeda keeps" in str(outcome.error)
     assert not connected(remote_host)
 
 

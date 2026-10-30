@@ -1,8 +1,8 @@
-"""The client of a remote run: `run_remote` runs one request on a Linux host over SSH.
+"""The client of a remote run: `run_remote` runs one `Spec` on a Linux host over SSH.
 
 The steps, in order:
 
-1. Load the host profile and resolve the destination. Plan the request with the normal launcher
+1. Resolve the destination. Plan the request with the normal launcher
    (`FlowLauncher.prepare_request`), and refuse what a remote run cannot do. Nothing is
    connected yet, so a mistake in the request shows before any connection exists.
 2. Open one SSH master connection, probe the host, and provision the environment and the code
@@ -11,16 +11,18 @@ The steps, in order:
 4. Launch under the agent. The client sends heartbeats, shows the log, and sends a cancel request
    on Ctrl-C. A second Ctrl-C closes the connection.
 5. Fetch the selected files into the mirror `<run root>/@<host>/...`, rewrite the paths of the
-   result to the mirror, deliver `--outputs-to`, and say goodbye to the agent.
+   result to the mirror, deliver `outputs_to`, and say goodbye to the agent.
 
 The files of the mirror are kept as the remote wrote them and as their digests check, except the
 records of each run directory. `results.json` and `settings.json` are written again with the paths
 of this side: a path in the mirror, or the file of the local design for a path in the inputs of the
 remote. So a user who opens the mirror sees no path of the remote host there.
 
-Every failure after step 1 is a `RemoteError` that names the step. `run_remote` returns a
-`RemoteOutcome` for every outcome, a failure too, so that the caller can always print one
-document.
+`run_remote` returns a `Result` for every launch that started on the host, a failure of this side
+after that too: it is a launch-level error of the `Result`. A failure before the launch started
+raises a public error: a `SpecError` for a request that is invalid, and a `RemoteError` when the
+host is unreachable or cannot be set up. `plan_remote` asks the host to plan the request and
+returns a `Plan`. It writes no mirror.
 """
 
 import copy
@@ -46,6 +48,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Deque, Dict, List, Optional, Tuple, cast
 
+from pydantic import ValidationError
+
 from ..deliver import (
     Conflict,
     Delivered,
@@ -53,34 +57,40 @@ from ..deliver import (
     DeliveryError,
     deliverable_locations,
     outputs_to_deliveries,
+    overwrite_question,
     recorded_artifacts,
     split_deliveries,
 )
 from ..design import generator_of
-from ..plan import PlanDelivery, delivery_key, planned_destination
+from ..plan import Plan, PlanDelivery, delivery_key, plan_from_dict, planned_destination
 from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY
 from ..flow_runner.chains import parse_request
-from ..errors import RecordError, SpecError
+from ..errors import RecordError, SettingsError, SpecError
+from ..errors import RemoteError as PublicRemoteError
+from ..events import Event
 from ..flow_runner.default_runner import PreparedRequest
-from ..flow_runner.settings_layers import command_line_table
+from ..flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+from ..flow_runner.launch_result import _Progress  # pylint: disable=protected-access
 from ..flow_runner.run_lock import LockRequest, LockSet, acquire_all
-from ..local_settings import LocalSettings
+from ..frozen import thaw
 from ..outcomes import (
     Disposition,
     NodeResult,
     Outcome,
+    Result,
     aggregate,
     node_document,
     result_from_dict,
     run_document,
     spec_document,
 )
-from ..cancel import launch_canceled, never_canceled
+from ..cancel import CancelToken, launch_canceled, never_canceled, observing
 from ..proc_utils import CANCEL_POLL, TOOL_OUTPUT, tool_output_stream
-from ..records import CANCELED, ErrorInfo, RunRecord, decode_record
+from ..records import CANCELED, ErrorInfo, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
-from ..types import Unset
+from ..remote_value import Remote
+from ..spec import Spec
 from ..utils import Canceled
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
@@ -149,34 +159,6 @@ _DELIVERING = "delivering the outputs"
 
 #: The words of a message of `read_frame` that tell the stream ended in a frame.
 _ENDED_INSIDE = "the stream ended inside"
-
-
-@dataclass(frozen=True)
-class RemoteOutcome:
-    """The result of `run_remote`.
-
-    `document` is what `xeda run --json` prints: the result document of the launch with the paths
-    of the mirror, or, for a failure of this side, the document of the launch that failed
-    (`Result.to_dict`). A dry run has its own document. `success` tells whether the launch
-    passed. `error` is the exception behind a failure document, if there is one."""
-
-    document: Dict[str, Any]
-    success: bool
-    error: Optional[BaseException] = None
-    #: The record of the requested node of a launch that came back, which the caller may show.
-    record: Optional[RunRecord] = None
-
-    @property
-    def exit_status(self) -> int:
-        """The exit status of `xeda run`: 0 for a launch that passed, 2 for a request that
-        started no launch because it is invalid (the `outcome` of its document is null), else 1.
-        A Ctrl-C before the launch started also has no outcome, and its exit status is 1."""
-        if self.success:
-            return 0
-        if self.document.get("outcome", True) is not None:
-            return 1
-        error = self.document.get("error") or {}
-        return 1 if error.get("code") == CANCELED else 2
 
 
 # --- Names ------------------------------------------------------------------------------------
@@ -620,9 +602,10 @@ class _Run:
 
     chain: str
     flow: str
-    design: Any
-    #: The target as the user gave it; the plan replaces it with the target it selected.
-    target: Optional[str] | Unset
+    #: The file that the design was loaded from, if any.
+    design: Optional[str]
+    #: The target of the design; the plan replaces it with the target it selected.
+    target: Optional[str]
     host: str
     debug: bool
     launcher: Optional[DefaultRunner] = None
@@ -631,8 +614,12 @@ class _Run:
     request: List[Dict[str, Any]] = field(default_factory=list)
     #: The name of the design, once it is loaded.
     design_name: Optional[str] = None
-    #: What the command line gave for the settings, as a `flows` table.
+    #: The settings of the request, as a `flows` table.
     settings: Dict[str, Any] = field(default_factory=dict)
+    #: The request of the caller. A launch that an attach follows has none: its record does.
+    spec: Optional[Spec] = None
+    #: Whether the launch was sent to the host (or found there). A failure before is no launch.
+    started: bool = False
     #: The nodes of the local plan: the name, the flow and the run directory of each.
     nodes: List[Tuple[str, str, Path]] = field(default_factory=list)
     #: The id of the launch on the host, once it has one.
@@ -682,11 +669,12 @@ def _refuse_programmers(prepared: PreparedRequest, host: str) -> None:
     for node in prepared.plan.nodes:
         reason = node.flow_class.action_reason
         if reason:
-            raise RemoteError(
+            raise SpecError(
                 f"The flow {node.flow_class.name} ({reason}) cannot run with --remote, because "
                 f"the device is attached to this machine and not to {host}. Run the flows "
                 "before it with --remote. Then run this flow here, with a binding to the "
-                "fetched file."
+                "fetched file.",
+                code="unsupported_with_remote",
             )
 
 
@@ -712,7 +700,8 @@ def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
             raise DeliveryError(
                 f"`rtl.generator.outputs_to` of {unit.name} names a location "
                 f"({generator.outputs_to}): with --remote, the host would deliver there, on the "
-                "host. Remove it for a remote run, and run the generator here to get the copies"
+                "host. Remove it for a remote run, and run the generator here to get the copies",
+                before_run=True,
             )
     # The output names, checked as a local launch checks them.
     split_deliveries(plan.node(plan.requested).settings, design_name)
@@ -724,47 +713,34 @@ def _local_run_root(run_root: Path) -> Path:
 
 def _plan(
     run: _Run,
+    spec: Spec,
     *,
+    workspace: WorkspaceOptions,
+    options: LaunchOptions,
     local_root: Path,
-    destination_text: str,
-    run_root: Path,
-    flow_settings: Any,
-    xedaproject: Any,
-    design_updates: Any,
-    design_allow_extra: bool,
-    hashed_run_dirs: bool,
-    clean: bool,
-    rebuild_all: bool,
-    outputs_to: Optional[Path],
-    overwrite_outputs: bool,
-    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
-    ssh_options: Sequence[str],
+    destination: Destination,
     profile: HostProfile,
-    local_settings: LocalSettings | None,
+    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
     dry_run: bool = False,
 ) -> _Prepared:
     """Step 1: the checks that need no connection. A dry run asks no question."""
-    destination = resolve_destination(destination_text, ssh_options)
+    destination_text = destination.text
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
-        run_root,
-        rebuild_all=rebuild_all,
-        hashed_run_dirs=hashed_run_dirs,
-        clean=clean,
+        workspace.run_root,
+        rebuild_all=options.rebuild_all,
+        hashed_run_dirs=workspace.hashed_run_dirs,
+        clean=options.clean,
         display_results=False,
     )
     run.launcher = launcher
     prepared = launcher.prepare_request(
-        run.chain,
-        design=run.design,
-        xedaproject=xedaproject,
-        flow_settings=flow_settings,
-        design_updates=design_updates,
-        design_allow_extra=design_allow_extra,
-        target=run.target,
+        spec.flow,
+        design=spec.design,
+        flow_settings=thaw(spec.settings),
         host_flows=profile.flows,
         host=destination_text,
-        local_settings=local_settings,
+        local_settings=workspace.local_settings,
         # Refused before a Git dependency is fetched: it needs nothing that one supplies.
         before_fetch=refuse_unsendable_declared,
     )
@@ -779,13 +755,13 @@ def _plan(
     _check_deliverables(prepared, prepared.design.name)
     deliveries: Optional[Deliveries] = None
     planned: tuple[PlanDelivery, ...] = ()
-    if outputs_to is not None:
+    if options.outputs_to is not None:
         deliveries, planned = _check_outputs_to(
             launcher,
             prepared,
             run,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
+            outputs_to=options.outputs_to,
+            overwrite_outputs=options.overwrite_outputs,
             confirm_overwrite=confirm_overwrite,
             dry_run=dry_run,
         )
@@ -1219,14 +1195,11 @@ def _node_dirs(
 def _spec_fields(run: _Run) -> Dict[str, Any]:
     """The `spec` of a document of this side: what the user asked for, not the packaged copy on
     the remote."""
-    from ..introspect import design_info
-
-    launcher = run.launcher
     return spec_document(
         flow=run.chain,
-        **design_info(run.design, run.design_name or (launcher.design_name if launcher else None)),
-        target=(run.target if isinstance(run.target, str) else None)
-        or (launcher.target if launcher is not None else None),
+        design=run.design_name,
+        design_file=run.design,
+        target=run.target,
         settings=run.settings,
     )
 
@@ -1313,14 +1286,13 @@ def _mirror_dry_run(
 ) -> None:
     """Give a dry-run document the paths of this side, as the document of a run has them.
 
-    A dry run has no mirror, but the run does: a run directory is its place in the mirror, and
-    `remote_run_dir` keeps the place on the remote. The sources, settings and deliveries of a node
-    name the files here, not the copies that the remote reads."""
+    A dry run has no mirror, but the run does: a run directory is its place in the mirror. The
+    sources, settings and deliveries of a node name the files here, not the copies that the
+    remote reads."""
     for node in document.get("nodes") or []:
         if not isinstance(node, dict) or "run_dir" not in node:
             continue
         place = _place_below(remote_run_root, node["run_dir"], "a run directory")
-        node["remote_run_dir"] = node["run_dir"]
         node["run_dir"] = str(mirror_root / place)
         for key in ("settings", "inputs", "deliveries"):
             if key in node:
@@ -1375,29 +1347,18 @@ def _translation(
     return translate
 
 
-def _local_design(document: Dict[str, Any], run: _Run, design_name: str) -> Dict[str, Any]:
-    """Name the design file that the user gave, and not the packaged copy on the remote."""
-    from ..introspect import design_info
-
-    spec = document.get("spec")
-    if isinstance(spec, dict):
-        spec.update(design_info(run.design, design_name))
-        spec.update(flow=run.chain, settings=_spec_fields(run)["settings"])
+def _plan_options(options: LaunchOptions) -> Dict[str, Any]:
+    """The `options` of a plan document: the options of the caller. The host knows only some of
+    them, since it delivers nothing."""
+    document = options.as_dict()
+    if options.outputs_to is not None:
+        document["outputs_to"] = str(options.outputs_to)
     return document
 
 
-def _plan_outputs_to(
-    document: Dict[str, Any],
-    outputs_to: Optional[Path],
-    overwrite_outputs: bool,
-    planned: Sequence[PlanDelivery],
-) -> None:
-    """Put the options of delivery and the planned deliveries into the dry-run document of the
-    host. The host delivers nothing, so only this side knows them."""
-    options = document.get("options")
-    if isinstance(options, dict):
-        options["outputs_to"] = None if outputs_to is None else os.path.abspath(outputs_to)
-        options["overwrite_outputs"] = overwrite_outputs
+def _plan_deliveries(document: Dict[str, Any], planned: Sequence[PlanDelivery]) -> None:
+    """Put the planned deliveries into the plan document of the host, in the requested node. The
+    host delivers nothing, so only this side knows them."""
     roots = document.get("roots") or []
     for node in document.get("nodes") or []:
         if node.get("name") in roots:
@@ -1407,9 +1368,8 @@ def _plan_outputs_to(
             ]
 
 
-def _print_dry_run(host: str, document: Mapping[str, Any]) -> None:
+def _print_dry_run(host: str, uploaded: Sequence[str]) -> None:
     """The report of a dry run on the log: what was uploaded."""
-    uploaded = document.get("uploaded") or []
     if uploaded:
         log.info("Uploaded %d input file(s) to %s: %s", len(uploaded), host, ", ".join(uploaded))
     else:
@@ -1419,84 +1379,171 @@ def _print_dry_run(host: str, document: Mapping[str, Any]) -> None:
 # --- run_remote -------------------------------------------------------------------------------
 
 
-def run_remote(
-    chain: str,
-    *,
-    design: Any,
-    destination_text: str,
-    run_root: Path,
-    flow_settings: Any,
-    xedaproject: Any,
-    design_updates: Any,
-    design_allow_extra: bool,
-    target: Optional[str] | Unset,
-    hashed_run_dirs: bool,
-    clean: bool,
-    rebuild_all: bool,
-    scrub: bool,
-    dry_run: bool,
-    fetch_all: bool,
-    outputs_to: Optional[Path],
-    overwrite_outputs: bool,
-    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
-    log_level: int,
-    detailed_logs: bool,
-    ssh_options: Sequence[str] = (),
-    keep_running: bool = False,
-    profile: HostProfile | None = None,
-    local_settings: LocalSettings | None = None,
-) -> RemoteOutcome:
-    """Run the request `chain` on the host `destination_text` and return its outcome.
+def _refuse_unsupported(options: LaunchOptions) -> None:
+    """Refuse the options that remove run directories: they are on the host, and a remote launch
+    cannot ask the user to confirm the removal."""
+    for name in ("prune_variants", "post_cleanup", "post_cleanup_purge"):
+        if getattr(options, name):
+            raise SpecError(
+                f"`{name}` removes run directories, and with a remote host they are on the host: "
+                "use `xeda remote clean`",
+                code="unsupported_with_remote",
+            )
 
-    The arguments are those of the command `xeda run`. `profile` is the profile of the host (the
-    default profile without it) and `local_settings` the private settings of this user: this
-    function reads no file. The outcome holds the document that
-    `--json` prints. A failure of any step is an outcome too, with `success` false, the exception
-    in `error` and a failure document that names it. Ctrl-C during the launch is an outcome with
-    the error `RemoteCanceled`. Ctrl-C while this side loads the design or plans the request is
-    one too: its document has no outcome, since no launch started, and the code `canceled`."""
-    request = parse_request(chain)
+
+def _remote_of(workspace: WorkspaceOptions) -> Remote:
+    remote = workspace.remote
+    if not isinstance(remote, Remote):
+        raise TypeError(f"the workspace has no `Remote`: {remote!r}")
+    return remote
+
+
+def _profile_of(remote: Remote) -> HostProfile:
+    """The profile of the host as the `Remote` holds it: the default profile without one."""
+    if remote.profile is None:
+        return HostProfile()
     try:
-        table = command_line_table(flow_settings)
-    except ValueError:  # items that cannot be read: planning reports them
-        table = {}
-    run = _Run(
-        chain=chain,
-        flow=request.requested.name,
-        design=design,
-        target=target,
-        host=destination_text,
+        return HostProfile.model_validate(thaw(remote.profile))
+    except ValidationError as error:
+        raise RemoteConfigError(f"The profile of {remote.host} is invalid: {error}") from None
+
+
+def _request_run(spec: Spec, host: str, log_level: int) -> _Run:
+    """The record of one request for the documents."""
+    design = spec.design
+    file = design._source_file  # pylint: disable=protected-access
+    return _Run(
+        chain=spec.flow,
+        flow=spec.flow,
+        design=None if file is None else os.path.abspath(file),
+        target=design.target,
+        host=host,
         debug=log_level <= logging.DEBUG,
-        request=request.as_elements(),
-        settings=table,
+        design_name=design.name,
+        settings=thaw(spec.settings),
+        spec=spec,
     )
+
+
+def _log_level(log_level: Optional[int]) -> int:
+    """The level of the logs that the host sends: the one of the `xeda` logger, unless given."""
+    return logging.getLogger("xeda").getEffectiveLevel() if log_level is None else log_level
+
+
+def _asked(workspace: WorkspaceOptions) -> Optional[Callable[[Sequence[Conflict]], bool]]:
+    """The question about the files in the way of `outputs_to`, as the workspace answers it."""
+    answer = workspace.confirm
+    if answer is None:
+        return None
+    return lambda conflicts: answer(overwrite_question(conflicts))
+
+
+def run_remote(
+    spec: Spec,
+    *,
+    workspace: WorkspaceOptions,
+    options: LaunchOptions,
+    cancel: Optional[CancelToken] = None,
+    on_event: Optional[Callable[[Event], None]] = None,
+    log_level: Optional[int] = None,
+    detailed_logs: bool = False,
+) -> Result:
+    """Run `spec` on the host of `workspace.remote` and return what the launch did to every node.
+
+    The host is `workspace.remote` (a `Remote`, which holds its profile, `fetch_all` and
+    `keep_running`). `log_level` is the level of the logs that the host sends: the level of the
+    `xeda` logger without it.
+
+    A failure after the launch was sent to the host is a launch-level error of the `Result`
+    (`remote_failed`, `remote_fetch_failed`, `delivery_failed`, `canceled`, or `remote_detached`
+    with the outcome `detached`). A failure before raises: a `SpecError` for a request that the
+    host or this side refuses, a `RemoteError` (`remote_unreachable`, `remote_setup_failed`).
+    `cancel` stops the launch, and `on_event` gets its events. The host does the work, so the
+    events of the nodes come when the launch ends. An exception of `on_event` cancels the launch
+    and is raised again."""
+    level = _log_level(log_level)
+    remote = _remote_of(workspace)
+    run = _request_run(spec, remote.host, level)
+    progress = _Progress("", cancel, on_event)
+    with observing(progress.canceled):
+        try:
+            _refuse_unsupported(options)
+            request = parse_request(spec.flow)
+            run.flow = request.requested.name
+            run.request = request.as_elements()
+            result = cast(
+                Result,
+                _run(
+                    run,
+                    spec,
+                    workspace=workspace,
+                    options=options,
+                    remote=remote,
+                    log_level=level,
+                    detailed_logs=detailed_logs,
+                    dry_run=False,
+                    progress=progress,
+                ),
+            )
+        except Exception as error:  # pylint: disable=broad-except
+            result = _failed(run, error)
+        _tell(progress, result)
+    if progress.raised is not None:
+        raise progress.raised
+    return result
+
+
+def plan_remote(
+    spec: Spec,
+    *,
+    workspace: WorkspaceOptions,
+    options: LaunchOptions,
+    log_level: Optional[int] = None,
+    detailed_logs: bool = False,
+) -> Plan:
+    """Ask the host of `workspace.remote` to plan `spec`, and return its `Plan`.
+
+    The plan has the spec of the caller, and the run directories of the local mirror. It writes
+    no mirror and starts no launch. The host writes nothing in its run root but the storage of
+    its Git dependencies. Every failure raises, as a failure of `run_remote` before its launch
+    started does."""
+    level = _log_level(log_level)
+    remote = _remote_of(workspace)
+    run = _request_run(spec, remote.host, level)
     try:
-        return _run(
+        _refuse_unsupported(options)
+        run.request = parse_request(spec.flow).as_elements()
+        document = _run(
             run,
-            destination_text=destination_text,
-            run_root=run_root,
-            flow_settings=flow_settings,
-            xedaproject=xedaproject,
-            design_updates=design_updates,
-            design_allow_extra=design_allow_extra,
-            hashed_run_dirs=hashed_run_dirs,
-            clean=clean,
-            rebuild_all=rebuild_all,
-            scrub=scrub,
-            dry_run=dry_run,
-            fetch_all=fetch_all,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-            confirm_overwrite=confirm_overwrite,
-            log_level=log_level,
+            spec,
+            workspace=workspace,
+            options=options,
+            remote=remote,
+            log_level=level,
             detailed_logs=detailed_logs,
-            ssh_options=ssh_options,
-            keep_running=keep_running,
-            profile=profile or HostProfile(),
-            local_settings=local_settings,
+            dry_run=True,
+            progress=None,
         )
+        try:
+            return plan_from_dict(cast(Dict[str, Any], document), spec=spec, workspace=workspace)
+        except ValueError as error:
+            raise RemoteProtocolError(
+                f"The host {remote.host} sent a plan that cannot be read: {error}"
+            ) from None
     except Exception as error:  # pylint: disable=broad-except
-        return _failed(run, error)
+        raise _not_started(run, error) from error
+
+
+def _tell(progress: _Progress, result: Result) -> None:
+    """Tell `on_event` what a finished launch did: the nodes that it started, then its end. The
+    host ran the nodes, so they come together."""
+    progress.launch_id = result.launch_id
+    progress.emit("launch_started")
+    for node in result.nodes.values():
+        if node.disposition is not Disposition.NOT_RUN:
+            progress.emit("node_started", node.name)
+            progress.emit("node_finished", node.name, node.outcome, node.disposition)
+    progress.emit("launch_finished", None, result.outcome)
 
 
 def _launch_error_code(run: _Run, error: Exception) -> str:
@@ -1539,59 +1586,57 @@ def _unreached(run: _Run, outcome: Outcome) -> Dict[str, NodeResult]:
     return found
 
 
-#: The message of a Ctrl-C that came while the request was loaded or planned on this side.
-_CANCELED_BEFORE_START = "Ctrl-C canceled the command before the launch started."
+def _not_started(run: _Run, error: Exception) -> Exception:
+    """The public error for a failure before the launch started."""
+    from ..flow_runner.error_codes import public_error
+
+    if isinstance(error, RemoteRefused):
+        # The host refused the request as a local planning does.
+        if error.node is not None:
+            return SettingsError(str(error), code=error.code, node=error.node)
+        return SpecError(str(error), code=error.code)
+    public = public_error(error)
+    if isinstance(public, PublicRemoteError):
+        return PublicRemoteError(public.message, code=public.code, host=public.host or run.host)
+    if isinstance(error, RemoteError):
+        # A canceled, detached or interrupted run has no launch to report. It is a setup failure.
+        return PublicRemoteError(str(error), code="remote_setup_failed", host=run.host)
+    return public
 
 
-class _CanceledBeforeStart(RemoteCanceled):
-    """Ctrl-C came while this side loaded the design or planned the request: no launch started,
-    and nothing was sent to the host."""
+def _result_of(document: Dict[str, Any], run: _Run) -> Result:
+    """The `Result` of the document of a launch, with the `spec` of the request if it has one."""
+    try:
+        result = result_from_dict(document)
+    except (ValueError, RecordError) as error:
+        raise RemoteProtocolError(
+            f"The result of the launch on {run.host} cannot be read: {error}"
+        ) from None
+    return result if run.spec is None else replace(result, spec=run.spec)
 
 
-def _failed(run: _Run, error: Exception) -> RemoteOutcome:
-    """The outcome of a run that raised `error`: the document of the launch that failed.
+def _failed(run: _Run, error: Exception) -> Result:
+    """The result of a run that raised `error`, or the public error if no launch had started.
 
-    A request that is invalid started no launch: its document has no outcome. Any other error
-    ends the launch with a launch-level error. The nodes are those of the remote result when the
-    launch had ended, else those of the local plan."""
-    from ..flow_runner.error_codes import public_error, request_error_info
+    The nodes are those of the remote result when the launch had ended, else those of the local
+    plan. An error of this side after the launch started is a launch-level error."""
+    from ..flow_runner.error_codes import request_error_info
 
     log.debug("The remote run failed", exc_info=True)
     # An attach that failed before it read its record has no request to report.
     spec = _spec_fields(run) if run.chain else None
-    if isinstance(error, RemoteRefused):
-        # The host refused the request as a local planning does: it started no launch.
+    if isinstance(error, Canceled) and not run.started:
         document = run_document(
-            outcome=None,
-            error=ErrorInfo(
-                code=error.code, message=str(error), node=error.node, exit_status=None, log=None
-            ),
-            launch_id=None,
+            outcome=Outcome.CANCELED,
+            error=ErrorInfo(CANCELED, "The launch was canceled.", None, None, None),
+            launch_id=run.launch_id or new_launch_id(),
             spec=spec,
             roots=(),
             nodes=(),
         )
-        return RemoteOutcome(document, False, error)
-    if isinstance(error, _CanceledBeforeStart):
-        document = run_document(
-            outcome=None,
-            error=ErrorInfo(CANCELED, str(error), None, None, None),
-            launch_id=None,
-            spec=spec,
-            roots=(),
-            nodes=(),
-        )
-        return RemoteOutcome(document, False, error)
-    if isinstance(public_error(error), SpecError) and run.phase is None:
-        document = run_document(
-            outcome=None,
-            error=request_error_info(error),
-            launch_id=None,
-            spec=spec,
-            roots=(),
-            nodes=(),
-        )
-        return RemoteOutcome(document, False, error)
+        return _result_of(document, run)
+    if isinstance(error, RemoteRefused) or not run.started:
+        raise _not_started(run, error) from error
     # An error of the whole launch names no node.
     info = replace(request_error_info(error, code=_launch_error_code(run, error)), node=None)
     launch_id = run.launch_id or getattr(error, "launch_id", None)
@@ -1620,70 +1665,48 @@ def _failed(run: _Run, error: Exception) -> RemoteOutcome:
         roots=roots,
         nodes=node_documents,
     )
-    return RemoteOutcome(document, False, error)
+    return _result_of(document, run)
 
 
 def _run(
     run: _Run,
+    spec: Spec,
     *,
-    destination_text: str,
-    run_root: Path,
-    flow_settings: Any,
-    xedaproject: Any,
-    design_updates: Any,
-    design_allow_extra: bool,
-    hashed_run_dirs: bool,
-    clean: bool,
-    rebuild_all: bool,
-    scrub: bool,
-    dry_run: bool,
-    fetch_all: bool,
-    outputs_to: Optional[Path],
-    overwrite_outputs: bool,
-    confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
+    workspace: WorkspaceOptions,
+    options: LaunchOptions,
+    remote: Remote,
     log_level: int,
     detailed_logs: bool,
-    ssh_options: Sequence[str],
-    profile: HostProfile,
-    local_settings: LocalSettings | None,
-    keep_running: bool = False,
-) -> RemoteOutcome:
+    dry_run: bool,
+    progress: Optional[_Progress],
+) -> Result | Dict[str, Any]:
+    """Run the request, or only plan it (`dry_run`). A run returns its `Result`, and a dry run the
+    document of the plan, with the paths of this side."""
     if _is_windows():
         raise RemoteError(
             "--remote does not work on native Windows. Use WSL, or run xeda on a Linux or macOS "
             "machine."
         )
-    local_root = _local_run_root(run_root)
-    try:
-        prepared = _plan(
-            run,
-            local_root=local_root,
-            destination_text=destination_text,
-            run_root=run_root,
-            flow_settings=flow_settings,
-            xedaproject=xedaproject,
-            design_updates=design_updates,
-            design_allow_extra=design_allow_extra,
-            hashed_run_dirs=hashed_run_dirs,
-            clean=clean,
-            rebuild_all=rebuild_all,
-            outputs_to=outputs_to,
-            overwrite_outputs=overwrite_outputs,
-            confirm_overwrite=confirm_overwrite,
-            ssh_options=ssh_options,
-            profile=profile,
-            local_settings=local_settings,
-            dry_run=dry_run,
-        )
-    except KeyboardInterrupt:
-        raise _CanceledBeforeStart(_CANCELED_BEFORE_START) from None
-    destination = prepared.destination
+    destination_text = remote.host
+    profile = _profile_of(remote)
+    destination = resolve_destination(destination_text)
+    local_root = _local_run_root(workspace.run_root)
+    prepared = _plan(
+        run,
+        spec,
+        workspace=workspace,
+        options=options,
+        local_root=local_root,
+        destination=destination,
+        profile=profile,
+        confirm_overwrite=_asked(workspace),
+        dry_run=dry_run,
+    )
     mirror_root = local_root / f"@{destination.label()}"
     design = prepared.prepared.design
     plan = prepared.prepared.plan
-    profile = prepared.profile
     snapshot = code_snapshot()
-    spec = dependency_spec(design.tb.python_packages)
+    dependencies = dependency_spec(design.tb.python_packages)
     key = workspace_key(local_root, destination)
     launch_id = new_launch_id()
     run.launch_id = launch_id
@@ -1692,13 +1715,18 @@ def _run(
     # (`@host` included) is followed, so refuse one before the host runs anything.
     for directory in sorted(_planned_mirrors(local, mirror_root, local_root)):
         refuse_link_on_way(directory.parent, local_root)
+    if launch_canceled():
+        raise Canceled("the launch was canceled before it was sent to the host")
+    if progress is not None:
+        progress.launch_id = launch_id
+        progress.emit("launch_started")
     log.info("Connecting to %s...", destination_text)
     try:
-        with SshSession(destination, ssh_options) as session:
-            facts, provisioned = _provision(session, profile, snapshot, spec)
-            workspace = PurePosixPath(facts.root) / LAYOUT / "ws" / key
-            inputs_dir = workspace / "inputs" / design.name
-            remote_run_root = workspace / "xeda_run"
+        with SshSession(destination) as session:
+            facts, provisioned = _provision(session, profile, snapshot, dependencies)
+            workspace_dir = PurePosixPath(facts.root) / LAYOUT / "ws" / key
+            inputs_dir = workspace_dir / "inputs" / design.name
+            remote_run_root = workspace_dir / "xeda_run"
             # The host plans too, and merges the dependencies at the same point: the package holds
             # the design as it was given, a Git dependency as its reference (the host fetches it
             # into its own run root) and a local dependency as a design document with its files.
@@ -1720,17 +1748,17 @@ def _run(
                 run_root=str(remote_run_root),
                 path_identities=package.path_identities,
                 dependency_commits=package.dependency_commits,
-                hashed_run_dirs=hashed_run_dirs,
-                clean=clean,
-                rebuild_all=rebuild_all,
-                scrub=scrub,
+                hashed_run_dirs=workspace.hashed_run_dirs,
+                clean=options.clean,
+                rebuild_all=options.rebuild_all,
+                scrub=options.prune_variants,
                 dry_run=dry_run,
                 log_level=log_level,
                 detailed_logs=detailed_logs,
                 expected={node.name: node.flowrun_hash for node in plan.nodes},
             )
             agent = _start_agent(session, provisioned, key)
-            agent.keep_running = keep_running
+            agent.keep_running = remote.keep_running
             if local_root != _local_run_root(Path.cwd() / "xeda_run"):
                 agent.attach_options = f" --run-root {shlex.quote(str(local_root))}"
             try:
@@ -1740,9 +1768,10 @@ def _run(
                 try:
                     if running is not None:
                         run.launch_id = running["id"]
+                        run.started = True
                         result = _follow_running(agent, running)
                     else:
-                        if keep_running:
+                        if remote.keep_running:
                             _announce_keep_running(agent, facts.kill_user_processes, launch_id)
                             _record_launch(
                                 prepared,
@@ -1754,12 +1783,14 @@ def _run(
                                 inputs_dir=inputs_dir,
                                 package=package,
                                 design_root=design.root,
-                                fetch_all=fetch_all,
-                                delivers=outputs_to is not None,
+                                fetch_all=remote.fetch_all,
+                                delivers=options.outputs_to is not None,
                             )
+                        run.started = not dry_run
                         result = _launch(agent, launch, launch_id, profile.setup)
                 except BaseException:
-                    _discard_mirrors(local, mirror_root, local_root)
+                    if not dry_run:
+                        _discard_mirrors(local, mirror_root, local_root)
                     raise
                 run.phase = None if dry_run else _FETCHING
                 translate = _translation(
@@ -1771,7 +1802,18 @@ def _run(
                     design_root=design.root,
                     local_root=local_root,
                 )
-                if not dry_run:
+                outcome: Result | Dict[str, Any]
+                if dry_run:
+                    if "nodes" not in result or result.get("error") is not None:
+                        message = (result.get("error") or {}).get("message", "no reason given")
+                        raise RemoteError(f"The host {destination_text} cannot plan: {message}")
+                    outcome = dict(result)
+                    _mirror_dry_run(outcome, mirror_root, remote_run_root, translate)
+                    outcome["options"] = _plan_options(options)
+                    if options.outputs_to is not None:
+                        _plan_deliveries(outcome, prepared.planned_deliveries)
+                    _print_dry_run(destination_text, uploaded)
+                else:
                     run.localize = lambda: _localized(
                         result,
                         run,
@@ -1779,18 +1821,6 @@ def _run(
                         remote_run_root=remote_run_root,
                         translate=translate,
                     )
-                if dry_run:
-                    document = _local_design(dict(result), run, design.name)
-                    document["remote"] = destination_text
-                    document["mirror"] = str(mirror_root)
-                    _mirror_dry_run(document, mirror_root, remote_run_root, translate)
-                    document["uploaded"] = uploaded
-                    _plan_outputs_to(
-                        document, outputs_to, overwrite_outputs, prepared.planned_deliveries
-                    )
-                    _print_dry_run(destination_text, document)
-                    outcome = RemoteOutcome(document, result.get("error") is None)
-                else:
                     with _cancel_while_fetching(agent, run, destination_text, mirror_root):
                         outcome = _finish(
                             agent,
@@ -1801,8 +1831,8 @@ def _run(
                             local_root=local_root,
                             remote_run_root=remote_run_root,
                             translate=translate,
-                            fetch_all=fetch_all,
-                            outputs_to=outputs_to,
+                            fetch_all=remote.fetch_all,
+                            outputs_to=options.outputs_to,
                         )
                 agent.send({"bye": True}, "ending the session")
             except BaseException:
@@ -1813,10 +1843,12 @@ def _run(
     except KeyboardInterrupt:
         if run.phase is not None:
             raise _interrupted(run, destination_text, mirror_root, "by Ctrl-C") from None
-        raise RemoteCanceled(
-            f"Canceled by Ctrl-C. The launch on {destination_text} is stopped or was never "
-            "started."
-        ) from None
+        if run.started:
+            raise RemoteCanceled(
+                f"Canceled by Ctrl-C. The launch on {destination_text} is stopped or was never "
+                "started."
+            ) from None
+        raise
 
 
 def _note_deliveries(
@@ -1854,7 +1886,7 @@ def _finish(
     translate: Callable[[str], Optional[str]],
     fetch_all: bool,
     outputs_to: Optional[Path],
-) -> RemoteOutcome:
+) -> Result:
     """Fetch the files of the run into the mirror, rewrite the records and deliver. Return the
     document of the launch, with the paths of the mirror."""
     host = agent.host
@@ -1954,13 +1986,13 @@ def _finish(
                     run.localize = lambda: document
                     raise
                 _note_deliveries(document, local.requested, planned, delivered)
-    return RemoteOutcome(document, result.get("outcome") == Outcome.PASSED.value, None, record)
+    return _result_of(document, run)
 
 
 __all__ = [
-    "RemoteOutcome",
     "machine_id",
     "new_launch_id",
+    "plan_remote",
     "run_remote",
     "workspace_key",
 ]

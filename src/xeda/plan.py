@@ -32,6 +32,7 @@ __all__ = [
     "PlanInput",
     "PlanNode",
     "node_document",
+    "plan_from_dict",
     "plan_node",
     "plan_of",
     "spec_document",
@@ -306,6 +307,64 @@ def plan_of(
         _workspace=workspace,
         _dependencies=tuple(dependencies),
     )
+
+
+def _node_of(document: Any) -> PlanNode:
+    return PlanNode(
+        name=document["name"],
+        flow=document["flow"],
+        run_dir=Path(document["run_dir"]),
+        identity=document["identity"],
+        state=document["state"],
+        reason=document["reason"],
+        action=document["action"],
+        settings=document["settings"],
+        inputs=tuple(
+            PlanInput(
+                item["name"],
+                item["origin"],
+                item["producer"],
+                item["output"],
+                tuple(Path(source) for source in item["sources"]),
+                item["reason"],
+            )
+            for item in document["inputs"]
+        ),
+        outputs_enabled=tuple(document["outputs_enabled"]),
+        input_types=document["input_types"],
+        output_types=document["output_types"],
+        deliveries=tuple(
+            PlanDelivery(item["key"], Path(item["destination"]), item["replaces"])
+            for item in document["deliveries"]
+        ),
+    )
+
+
+def plan_from_dict(
+    document: Mapping[str, Any], *, spec: Spec, workspace: WorkspaceOptions | None
+) -> Plan:
+    """Return the `Plan` that the plan document `document` (`Plan.to_dict`) describes.
+
+    The document is the inverse of `Plan.to_dict`: a plan that was written and read again equals
+    the plan. The plan gets `spec` and `workspace` from the caller, and never the `spec` of the
+    document, which names the design of another machine. Raise `ValueError` if the document has
+    another schema version or lacks a part."""
+    if not isinstance(document, Mapping) or document.get("schema_version") != PLAN_DOCUMENT_VERSION:
+        raise ValueError(f"not a plan document of schema version {PLAN_DOCUMENT_VERSION}")
+    try:
+        options = dict(document["options"])
+        if options["outputs_to"] is not None:
+            options["outputs_to"] = Path(options["outputs_to"])
+        nodes = [_node_of(item) for item in document["nodes"]]
+        return Plan(
+            spec=spec,
+            roots=tuple(document["roots"]),
+            options=options,
+            nodes={node.name: node for node in nodes},
+            _workspace=workspace,
+        )
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"the plan document has a bad part: {error!r}") from None
 
 
 def delivery_key(key: str) -> str:

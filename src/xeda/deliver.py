@@ -98,6 +98,7 @@ __all__ = [
     "deliverable_setting_names",
     "delivery_record",
     "outputs_to_deliveries",
+    "overwrite_question",
     "recorded_artifacts",
     "leads_out",
     "refuse_shared_destinations",
@@ -163,6 +164,13 @@ class Conflict:
     delivery: Delivery
     destination: Path
     why: str
+
+
+def overwrite_question(conflicts: Sequence[Conflict]) -> str:
+    """Return the question that asks whether to replace the files in the way of the deliveries."""
+    lines = [f"Xeda would replace {len(conflicts)} file(s) at the output paths you named:"]
+    lines += [f"  {c.destination}   {c.why}" for c in conflicts]
+    return "\n".join([*lines, "Replace them?"])
 
 
 @dataclass(frozen=True)

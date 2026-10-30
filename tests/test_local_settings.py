@@ -631,8 +631,8 @@ def test_the_cli_passes_the_host_profile_and_the_private_settings_to_the_remote(
     user_file(private_home, {"flows": {"vivado_synth": {"nthreads": 3}}})
     seen = {}
 
-    def fake_run_remote(chain, **arguments):
-        seen.update(arguments)
+    def fake_run_remote(spec, *, workspace, options, **arguments):
+        seen.update(spec=spec, workspace=workspace, options=options)
         raise SystemExit(0)
 
     monkeypatch.setattr(client, "run_remote", fake_run_remote)
@@ -641,17 +641,17 @@ def test_the_cli_passes_the_host_profile_and_the_private_settings_to_the_remote(
         ["run", "vivado_synth", "--xedaproject", str(path), "--design-name", "d",
          "--remote", "venona", *PART],
     )  # fmt: skip
-    assert seen["profile"].root == "~/x"
-    assert seen["local_settings"].user == {"vivado_synth": {"nthreads": 3}}
-    assert seen["local_settings"].user_file == private_home / "config.yaml"
+    assert seen["workspace"].remote.profile["root"] == "~/x"
+    assert seen["workspace"].local_settings.user == {"vivado_synth": {"nthreads": 3}}
+    assert seen["workspace"].local_settings.user_file == private_home / "config.yaml"
     seen.clear()
     CliRunner().invoke(
         cli,
         ["run", "vivado_synth", "--xedaproject", str(path), "--design-name", "d",
          "--remote", "other", "--no-config", *PART],
     )  # fmt: skip
-    assert seen["profile"].root is None
-    assert seen["local_settings"].user == {}
+    assert seen["workspace"].remote.profile is None
+    assert seen["workspace"].local_settings.user == {}
 
 
 def test_the_unset_default_of_config_is_the_user_file(tmp_path, private_home):
