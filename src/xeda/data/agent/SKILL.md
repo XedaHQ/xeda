@@ -70,7 +70,8 @@ that failed or was rejected.
 
 `--dry-run --json` prints a document of its own, not the `run` document. Its keys are
 `schema_version`, `spec` (`flow`, `design`, `design_file`, `target`, `settings`), `roots`, `options`
-(the seven launch options by name) and `nodes`. A plan node has `name`, `flow`, `run_dir`,
+(the seven launch options by name), `dependencies` (the entries of `dependencies` in a run record)
+and `nodes`. A plan node has `name`, `flow`, `run_dir`,
 `identity`, `state`, `reason`, `action`, `settings`, `inputs` (`name`, `origin`: `producer`, `source`
 or `none`; `producer`, `output`, `sources`, `reason`), `outputs_enabled`, `input_types`,
 `output_types` and `deliveries` (`key`, `destination`, `replaces`). `state` is `fresh` (reused), `stale`
@@ -92,8 +93,7 @@ nothing else in the run root: no run directory, trace or delivery. A node that r
 sources is `unknown`, "the generator has not run". The plan refuses what a run would refuse at planning:
 unknown or conflicting settings, a source type the flow cannot read, a missing required setting,
 or a chain that does not fit. With `--remote HOST`, the host makes the plan and judges freshness;
-the dry run may install Xeda on the host and sync the inputs, and it reports what it uploaded
-(`uploaded`).
+the dry run may install Xeda on the host and sync the inputs, and it logs what it uploaded.
 
 ## Design file
 
@@ -541,12 +541,14 @@ Behavior:
 - `--outputs-to DIR` delivers from the mirror after a success.
 - `--json` writes one document: the document of a run. `run_dir` and the paths in the records name
   the mirror, `design_file` is the local file, and `launch_id` is the id of the launch on the host.
-  A failed remote step has the outcome `failed` and the code `remote_failed`; a launch that ended
-  but could not be fetched or delivered has `remote_fetch_failed` or `delivery_failed` and keeps its
-  records; Ctrl-C gives `canceled`; `--keep-running` then Ctrl-C gives the outcome `detached` and
-  `remote_detached`. A remote dry run prints the dry-run document and adds `remote`, `mirror` and
-  `uploaded` (the input files it sent), and each node of the plan has `run_dir` (in the mirror) and
-  `remote_run_dir`. Tool output goes to stderr.
+  A failed remote step after the launch was sent has the outcome `failed` and the code
+  `remote_failed`; before it, the host is unreachable or cannot be set up (`remote_unreachable`,
+  `remote_setup_failed`): no launch starts, so the outcome is `null`, there are no nodes and the
+  exit status is 2. A launch that ended but could not be fetched or delivered has
+  `remote_fetch_failed` or `delivery_failed` and keeps its records; Ctrl-C gives `canceled`;
+  `--keep-running` then Ctrl-C gives the outcome `detached` and `remote_detached`. A remote dry run
+  prints the dry-run document and no other key; each node of the plan has `run_dir` (in the mirror),
+  and the log lists the uploaded files. Tool output goes to stderr.
 - `--dry-run --remote HOST` plans and judges freshness on the host. It may install Xeda there and
   sync the inputs; it writes no run directory.
 - Ctrl-C asks the host to cancel (SIGINT, after 15 s SIGTERM, after 10 s more SIGKILL, to the
@@ -596,6 +598,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `rejected` | The checks judged the results negative. The metrics are in the record; change the design or settings. |
 | `producer_failed` (on a `blocked` node) | A producer did not pass. The top-level `error` is the producer's own; read its `record`. A blocked flow does not run and keeps its earlier `results.json`. |
 | `remote_failed`, `remote_fetch_failed`, `remote_detached`, `canceled` | A `--remote` run failed outside the flow, could not fetch its result, keeps running on the host, or was canceled. The message names the step and the cause; `references/troubleshooting.md` has the fix. |
+| `remote_unreachable`, `remote_setup_failed`, `unsupported_with_remote` (exit 2, outcome `null`, no nodes) | The host cannot be reached or set up, or the request cannot run on a host: a flow that programs a device here, or (in Python) `prune_variants`, `post_cleanup` or `post_cleanup_purge`. Fix the host (`xeda remote check HOST`), or run that flow here. |
 | `storage_error` | A file or directory error of the operating system, or a path that leaves the run directory, ended the node (the record may be missing). Check the disk and permissions. |
 | `internal_error` | A bug of Xeda. Report it with the message. |
 

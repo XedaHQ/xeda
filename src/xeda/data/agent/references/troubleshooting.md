@@ -127,7 +127,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 ### Remote runs
 
-`--remote` failures have their own types, which start the log line (`RemoteConnectionError: ...`); the document has the code `remote_failed`, `remote_fetch_failed`, `delivery_failed`, `remote_detached` or `canceled`, and the message without the type. The message names the step and the cause. Test the
+`--remote` failures have their own types, which start the log line (`RemoteConnectionError: ...`); the document has the code `remote_unreachable`, `remote_setup_failed` (both before the launch: outcome `null`, exit status 2), `remote_failed`, `remote_fetch_failed`, `delivery_failed`, `remote_detached` or `canceled`, and the message without the type. The message names the step and the cause. Test the
 destination with `ssh HOST true` first; `xeda remote check HOST --json` is the first diagnostic
 (connection, environment, disk, tools on the login `PATH`); add `--log-level 10` for the commands and the
 output of the host. A login profile that prints text does no harm (up to 1 MiB before the agent).

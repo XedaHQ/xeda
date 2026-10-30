@@ -12,6 +12,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from xeda.errors import SpecError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoSynth
 
@@ -167,38 +168,40 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
 
 
 def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
-    """`run_remote` is a way in too: it takes the log level as an argument, and it neither sets
-    a logger of the process nor leaves one changed."""
+    """`run_remote` takes the log level as an argument, and it neither sets a logger of the
+    process nor leaves one changed."""
+    from xeda.design import Design
+    from xeda.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
     from xeda.remote.client import run_remote
+    from xeda.remote_value import Remote
+    from xeda.spec import Spec
 
     design = tmp_path / "d.yaml"
     design.write_text("name: d\nrtl:\n  sources: []\n  top: t\n")
     before = levels()
-    outcome = run_remote(
+    spec = Spec(
         "nextpnr",
-        design=design,
-        destination_text="somewhere",
-        run_root=tmp_path / "run",
-        flow_settings=node_settings(
-            "nextpnr", ["no_such_setting=1"]
+        Design.load(design),
+        settings=node_settings(
+            "nextpnr", {"no_such_setting": 1}
         ),  # refused at planning, before any connection
-        xedaproject=None,
-        design_updates=[],
-        design_allow_extra=False,
-        target=None,
-        hashed_run_dirs=False,
-        clean=False,
-        rebuild_all=False,
-        scrub=False,
-        dry_run=False,
-        fetch_all=False,
-        outputs_to=None,
-        overwrite_outputs=False,
-        confirm_overwrite=None,
-        log_level=logging.DEBUG,
-        detailed_logs=False,
     )
-    assert not outcome.success and outcome.error is not None
+    workspace = WorkspaceOptions(
+        run_root=tmp_path / "run",
+        hashed_run_dirs=False,
+        tool_output="log",
+        confirm=None,
+        remote=Remote("somewhere"),
+        local_settings=None,
+    )
+    with pytest.raises(SpecError):
+        run_remote(
+            spec,
+            workspace=workspace,
+            options=LaunchOptions(),
+            log_level=logging.DEBUG,
+            detailed_logs=False,
+        )
     assert levels() == before
 
 
@@ -210,9 +213,9 @@ def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkey
 
     given: list = []
 
-    def recorded(chain, **arguments):
+    def recorded(spec, **arguments):
         given.append(arguments)
-        return client.RemoteOutcome({"success": True, "run_path": "/mirror/run"}, True)
+        raise SystemExit(0)
 
     sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     monkeypatch.chdir(tmp_path)

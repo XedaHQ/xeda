@@ -19,7 +19,7 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.design import DesignValidationError
-from xeda.errors import DesignError
+from xeda.errors import DesignError, SpecError
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse import Dse
@@ -196,7 +196,7 @@ def test_a_remote_launch_refuses_before_the_generator_runs(tmp_path, monkeypatch
         "yosys_fpga",
         flow_settings=node_settings("yosys_fpga", ["fpga.part=xc7a12tcsg325-1"]),
     )
-    assert isinstance(outcome.error, FlowSettingsException)
+    assert isinstance(outcome.error, SpecError)
     assert "yosys_fpga reads none of the design's" in str(outcome.error)
     assert generated.runs == 0 and not connected(remote_host)
 

@@ -20,6 +20,7 @@ from xeda.flow_runner import DefaultRunner, launch_locks, run_lock
 from xeda.flow_runner.plan_check import plan_difference
 from xeda.local_settings import LocalSettings
 from xeda.outcomes import Result
+from xeda.plan import plan_from_dict
 from xeda.proc_utils import TOOL_OUTPUT
 from xeda.run_root import ensure_run_root
 from xeda.spec import Spec
@@ -554,20 +555,55 @@ def test_two_entries_of_one_repository_at_different_commits_are_no_difference(
     )
     workspace = Workspace(tmp_path / "xeda_run")
     plan = workspace.plan(Spec(toy.name, Design.load(tmp_path / "d.yaml")))
-    assert [entry[-1] for entry in plan._dependencies] == [remote.first, second]
+    assert [entry["commit"] for entry in plan._dependencies] == [remote.first, second]
     assert workspace.run(plan).passed
 
 
-def test_dependencies_are_compared_by_path(tmp_path, remote, toy):  # noqa: F811
+def test_dependencies_are_compared_by_index(tmp_path, remote, toy):  # noqa: F811
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     entry = {"uri": f"git+{remote.url}?commit={remote.first}#dep.yaml"}
     (tmp_path / "d.yaml").write_text(
         yaml.safe_dump({"name": "d", "rtl": {"sources": ["top.v"]}, "dependencies": [entry]})
     )
     plan = Workspace(tmp_path / "xeda_run").plan(Spec(toy.name, Design.load(tmp_path / "d.yaml")))
-    path, repository, commit = plan._dependencies[0]
+    (entry,) = plan._dependencies
+    repository = entry["repository"]
     assert plan_difference(plan, plan) is None
     assert "was removed" in plan_difference(plan, replace(plan, _dependencies=()))
     assert "was added" in plan_difference(replace(plan, _dependencies=()), plan)
-    moved = replace(plan, _dependencies=((path, repository, "0" * 40),))
+    moved = replace(plan, _dependencies=({**entry, "commit": "0" * 40},))
     assert plan_difference(plan, moved) == f"dependency {repository} now resolves to {'0' * 40}"
+
+
+def test_a_plan_made_from_its_document_holds_its_dependencies(tmp_path, remote, toy):  # noqa: F811
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    entry = {"uri": f"git+{remote.url}?branch=main#dep.yaml"}
+    (tmp_path / "d.yaml").write_text(
+        yaml.safe_dump({"name": "d", "rtl": {"sources": ["top.v"]}, "dependencies": [entry]})
+    )
+    workspace = Workspace(tmp_path / "xeda_run")
+    plan = workspace.plan(Spec(toy.name, Design.load(tmp_path / "d.yaml")))
+    document = plan.to_dict()
+    assert document["dependencies"] == [
+        {
+            "repository": remote.url,
+            "reference": "main",
+            "commit": remote.first,
+            "design_file": "dep.yaml",
+        }
+    ]
+    assert list(document).index("dependencies") == list(document).index("options") + 1
+    restored = plan_from_dict(document, spec=plan.spec, workspace=plan._workspace)
+    assert restored == plan and restored._dependencies == plan._dependencies
+    assert plan_difference(plan, restored) is None
+    assert plan_from_dict(restored.to_dict(), spec=plan.spec, workspace=None).to_dict() == document
+    (entry,) = restored._dependencies
+    other = replace(restored, _dependencies=({**entry, "commit": "0" * 40},))
+    assert plan_difference(restored, other) == f"dependency {remote.url} now resolves to {'0' * 40}"
+    assert workspace.run(restored).passed
+
+    remote.advance()
+    for stale in (plan, restored):
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(stale)
+        assert raised.value.code == "stale_plan"

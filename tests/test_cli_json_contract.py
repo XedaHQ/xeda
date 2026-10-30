@@ -334,14 +334,13 @@ def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
 
 REMOTE_SCRIPT = """
 import sys
+from xeda.outcomes import result_from_dict
 from xeda.remote import client
-from xeda.types import UNSET
 
-def fake_run_remote(chain, **arguments):
-    assert chain == "vivado_synth" and arguments["destination_text"] == "host"
-    assert arguments["target"] is UNSET and arguments["xedaproject"] is None
-    assert arguments["design_updates"] == () and arguments["design_allow_extra"] is False
-    assert arguments["fetch_all"] is False and arguments["dry_run"] is False
+def fake_run_remote(spec, *, workspace, options, **arguments):
+    assert spec.flow == "vivado_synth" and workspace.remote.host == "host"
+    assert spec.design.target is None and dict(spec.settings) == {}
+    assert workspace.remote.fetch_all is False and options.outputs_to is None
     passed = %(passed)s
     document = {
         "schema_version": 1, "outcome": "passed" if passed else "failed",
@@ -351,7 +350,7 @@ def fake_run_remote(chain, **arguments):
         "spec": {"flow": "vivado_synth", "design": "sqrt", "design_file": %(design)r,
                  "target": None, "settings": {}},
     }
-    return client.RemoteOutcome(document, passed)
+    return result_from_dict(document)
 
 client.run_remote = fake_run_remote
 from xeda.cli import cli

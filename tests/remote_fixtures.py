@@ -9,16 +9,27 @@ import os
 import shutil
 import sys
 import tarfile
+from contextlib import contextmanager
 from dataclasses import dataclass
+from unittest import mock
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import pytest
 import yaml
 
+from xeda.design import Design
+from xeda.outcomes import Outcome, Result
+from xeda.project import Project
+from xeda.records import RunRecord
 from xeda.remote import client
 from xeda.remote.environment import CodeSnapshot
 from xeda.remote.profile import HostProfile
+
+from xeda.spec import Spec
+from xeda.types import UNSET
+from xeda.utils import settings_to_dict
 
 from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
 
@@ -333,36 +344,182 @@ def host_profile_of(destination: str) -> HostProfile:
     return host_profile(destination, read_host_profiles(remotes_file()))
 
 
+@dataclass
+class RemoteRun:
+    """What `remote_request` saw: the `result` of the call, or the `error` that it raised.
+
+    `document` is the run document of the result. For a call that raised, it is the document of a
+    request that started no launch, with the error of the exception."""
+
+    result: Optional[Result]
+    error: Optional[BaseException]
+    document: Dict[str, Any]
+
+    @property
+    def success(self) -> bool:
+        if self.result is None:  # a plan
+            return self.error is None
+        return self.result.passed
+
+    @property
+    def exit_status(self) -> int:
+        """The exit status of `xeda run`: 0 for a pass, 2 for a request that started no launch."""
+        if self.success:
+            return 0
+        return 2 if self.document["outcome"] is None else 1
+
+    @property
+    def record(self) -> Optional[RunRecord]:
+        if self.result is None or self.result.nodes[self.result.roots[0]].record is None:
+            return None
+        return self.result.record
+
+
+def run_of(call: Any) -> RemoteRun:
+    """Call `call()`, which returns a `Result`, and return what it gave or raised as a `RemoteRun`."""
+    from xeda.flow_runner.error_codes import public_error, request_error_info
+
+    try:
+        result = call()
+    except Exception as error:
+        info = request_error_info(error)
+        public = public_error(error)
+        document = {"outcome": None, "error": info.as_json_value(), "nodes": [], "roots": []}
+        document["error"]["code"] = public.code
+        return RemoteRun(None, error, document)
+    return RemoteRun(result, None, result.to_dict())
+
+
+def design_of(design: Any, xedaproject: Any, design_updates: Sequence[str], target: Any) -> Design:
+    """Load the design that a request names: a file, or a design of the project."""
+    updates = settings_to_dict(list(design_updates)) if design_updates else {}
+    if design is not None and not isinstance(design, Design):
+        found = Path(design)
+        if xedaproject is None or found.suffix:
+            return Design._load_file(
+                found,
+                updates=(updates,) if updates else (),
+                target=None if target is UNSET else target,
+            )
+        design = None
+    if isinstance(design, Design):
+        return design
+    loaded = Project.load(Path(xedaproject)).design(target=target)
+    return loaded.with_updates(updates) if updates else loaded
+
+
+@contextmanager
+def _ssh_options(options: Sequence[str]) -> Iterator[None]:
+    """Give the client the `ssh` options of a real host (`-F <file>`) for the time of a block. The
+    client takes none: they exist for these tests."""
+    if not options:
+        yield
+        return
+    resolve, session = client.resolve_destination, client.SshSession
+    with (
+        mock.patch.object(client, "resolve_destination", lambda text: resolve(text, options)),
+        mock.patch.object(client, "SshSession", lambda destination: session(destination, options)),
+    ):
+        yield
+
+
 def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overrides: Any):
-    """Run `chain` for `design` on the host `somewhere` with `run_remote`, and return its
-    `RemoteOutcome`. The run root is `tmp_path/local/xeda_run`. `overrides` replace the arguments
-    of `run_remote`."""
-    from xeda.remote.client import run_remote
+    """Run `chain` for `design` on the host `somewhere` with `run_remote`, and return a
+    `RemoteRun`. The run root is `tmp_path/local/xeda_run`. `overrides` replace the arguments of
+    the request: the ones of `xeda run`, `destination_text`, `profile` and `local_settings`."""
+    from xeda.flow_runner.error_codes import public_error, request_error_info
+    from xeda.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from xeda.flow_runner.settings_layers import command_line_table
+    from xeda.outcomes import run_document, spec_document_of
+    from xeda.remote.client import plan_remote, run_remote
+    from xeda.remote_value import Remote
 
     arguments: Dict[str, Any] = dict(
-        design=design,
         destination_text="somewhere",
         run_root=tmp_path / "local" / "xeda_run",
         flow_settings=[],
         xedaproject=None,
         design_updates=[],
-        design_allow_extra=False,
-        target=None,
+        target=UNSET,
         hashed_run_dirs=False,
         clean=False,
         rebuild_all=False,
-        scrub=False,
         dry_run=False,
         fetch_all=False,
+        keep_running=False,
         outputs_to=None,
         overwrite_outputs=False,
         confirm_overwrite=None,
         log_level=20,
         detailed_logs=False,
+        local_settings=None,
+        cancel=None,
+        on_event=None,
     )
     arguments.update(overrides)
     arguments.setdefault("profile", host_profile_of(arguments["destination_text"]))
-    return run_remote(chain, **arguments)
+    asked = arguments["confirm_overwrite"]
+    spec = None
+    profile = arguments["profile"]
+    workspace = WorkspaceOptions(
+        run_root=Path(arguments["run_root"]),
+        hashed_run_dirs=arguments["hashed_run_dirs"],
+        tool_output="log",
+        confirm=None if asked is None else (lambda text: asked([text])),
+        remote=Remote(
+            arguments["destination_text"],
+            profile=profile.model_dump(mode="python"),
+            fetch_all=arguments["fetch_all"],
+            keep_running=arguments["keep_running"],
+        ),
+        local_settings=arguments["local_settings"],
+    )
+    options = LaunchOptions(
+        rebuild_all=arguments["rebuild_all"],
+        clean=arguments["clean"],
+        outputs_to=arguments["outputs_to"],
+        overwrite_outputs=arguments["overwrite_outputs"],
+    )
+    common = dict(
+        workspace=workspace,
+        options=options,
+        log_level=arguments["log_level"],
+        detailed_logs=arguments["detailed_logs"],
+    )
+    try:
+        table = arguments["flow_settings"]
+        spec = Spec(
+            chain,
+            design_of(
+                design, arguments["xedaproject"], arguments["design_updates"], arguments["target"]
+            ),
+            settings=table if isinstance(table, Mapping) else command_line_table(list(table)),
+        )
+        with _ssh_options(arguments.get("ssh_options", ())):
+            if arguments["dry_run"]:
+                plan = plan_remote(spec, **common)
+                return RemoteRun(None, None, plan.to_dict())
+            result = run_remote(
+                spec, cancel=arguments["cancel"], on_event=arguments["on_event"], **common
+            )
+            return RemoteRun(result, None, result.to_dict())
+    except Exception as error:
+        from xeda.errors import RemoteError, SpecError
+
+        # A request that starts no launch: it is invalid, or its host cannot be reached or set up.
+        refused = isinstance(public_error(error), (SpecError, RemoteError))
+        document = run_document(
+            outcome=None if refused else Outcome.FAILED,
+            error=request_error_info(error),
+            launch_id=None,
+            spec=None if spec is None else spec_document_of(spec),
+            roots=(),
+            nodes=(),
+        )
+        # An exception that Xeda does not know comes as an `internal_error` from its cause.
+        if getattr(error, "code", None) == "internal_error" and error.__cause__ is not None:
+            error = error.__cause__  # type: ignore[assignment]
+        return RemoteRun(None, error, document)
 
 
 def connected(host: "RemoteHost") -> bool:

@@ -125,7 +125,9 @@ def test_plan_to_dict_is_the_dry_run_document(tmp_path):
     )
     plan = Workspace(tmp_path / "xeda_run").plan(spec)
     document = plan.to_dict()
-    assert set(document) == {"schema_version", "spec", "roots", "options", "nodes"}
+    assert set(document) == {"schema_version", "spec", "roots", "options", "dependencies", "nodes"}
+    assert list(document).index("dependencies") == list(document).index("options") + 1
+    assert document["dependencies"] == []
     assert document["schema_version"] == 1
     assert document["spec"]["design_file"] == str(root / "blink.yaml")
     node = document["nodes"][1]
@@ -165,6 +167,35 @@ def test_plan_to_dict_is_the_dry_run_document(tmp_path):
         check=True,
     )
     assert json.loads(proc.stdout) == document
+
+
+def test_the_command_line_dry_run_lists_the_dependencies_as_the_plan_does(tmp_path):
+    root = tmp_path / "design"
+    _design(root)
+    (root / "dep.yaml").write_text("name: dep\nrtl:\n  sources: []\n")
+    (root / "blink.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "blink",
+                "rtl": {"sources": ["blink.v"], "top": "blink"},
+                "dependencies": ["dep.yaml"],
+            }
+        )
+    )
+    spec = Spec(
+        "nextpnr", Design.load(root / "blink.yaml"), settings={"nextpnr": {"fpga": {"part": PART}}}
+    )
+    expected = [{"repository": None, "reference": None, "commit": None, "design_file": "dep.yaml"}]
+    assert Workspace(tmp_path / "xeda_run").plan(spec).to_dict()["dependencies"] == expected
+    proc = subprocess.run(
+        ["xeda", "run", "nextpnr", str(root / "blink.yaml"), "-s", f"nextpnr.fpga.part={PART}"]
+        + ["--dry-run", "--json", "--run-root", str(tmp_path / "xeda_run")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(proc.stdout)["dependencies"] == expected
 
 
 def test_a_plan_is_immutable_and_can_be_pickled(tmp_path):

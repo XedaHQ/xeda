@@ -581,8 +581,8 @@ A request that starts no launch
 -------------------------------
 
 Xeda refuses an invalid request before it runs any node: a bad setting, a bad design file or
-project file, an unknown design, a malformed chain, a refused delivery, or a mistake in the command
-line. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots": []`` and
+project file, an unknown design, a malformed chain, a refused delivery, a mistake in the command
+line, or a remote host that cannot be reached or set up. The document then has ``"outcome": null``, ``"launch_id": null``, ``"roots": []`` and
 ``"nodes": []``. Its ``error`` says why, and the exit status is 2:
 
 .. code-block:: json
@@ -617,6 +617,14 @@ other mistake of the command line has the code ``usage_error``: an unknown optio
 the options that need each other. For example, ``--remote`` refuses ``--post-cleanup``, and
 ``--keep-running`` and ``--fetch-all`` need ``--remote``. Click prints the same exit status 2 without
 ``--json``.
+
+With ``--remote``, a host that Xeda cannot reach has the code ``remote_unreachable``, and a host
+that Xeda cannot make ready has ``remote_setup_failed``. Both come before Xeda sends the launch, so
+they have no outcome and no nodes, and the exit status is 2. A flow that programs a device
+attached to this machine has the code ``unsupported_with_remote``. In Python, ``Workspace.plan``
+and ``Workspace.run`` raise a ``SpecError`` with that code for such a flow, and also for the options
+``prune_variants``, ``post_cleanup`` and ``post_cleanup_purge``, which remove run directories on
+the host. The command line refuses the matching options with ``--remote`` as a usage error.
 
 A Ctrl-C while Xeda loads the design or plans the request, before the launch starts, also gives a
 document with ``"outcome": null`` and no nodes. Its error code is ``canceled``, and the exit status
@@ -690,7 +698,8 @@ project, chain or run root problem. For a bad setting: ``unknown_setting``, ``re
 ``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
 ``dependency_cycle`` (the dependencies of a design lead back to a design on the same chain; the
 message names the chain),
-``flow_not_found``, ``invalid_run_root``, ``delivery_refused`` and ``usage_error``.
+``flow_not_found``, ``invalid_run_root``, ``delivery_refused``, ``usage_error``, and, for
+``--remote``, ``remote_unreachable``, ``remote_setup_failed`` and ``unsupported_with_remote``.
 
 ``generator_failed`` says that the generator of the design failed or could not be started or
 judged. It comes before any node runs, so every node is ``skipped``, and Xeda leaves no output of
@@ -709,8 +718,10 @@ The document of ``xeda run --remote ... --json`` is the document of a run, as ab
 ``run_dir`` of each node, and the paths in its record, name directories and files in the mirror, the
 directory ``<run root>/@<host>`` that holds the fetched files. ``design_file`` is your local design
 file, and ``launch_id`` is the id of the launch on the host. A failure of the remote step itself
-(a lost connection or an error while it makes the environment) gives the document of a launch with
-the outcome ``failed`` and the error code ``remote_failed``. If the launch ended and Xeda could not
+after the launch was sent gives the document of a launch with the outcome ``failed`` and the error
+code ``remote_failed``. A failure before (a host that cannot be reached or made ready) starts no
+launch: the document has the outcome ``null`` and no nodes, the error code is
+``remote_unreachable`` or ``remote_setup_failed``, and the exit status is 2. If the launch ended and Xeda could not
 fetch or deliver its result, the code is ``remote_fetch_failed`` or ``delivery_failed``, and the
 nodes keep their records. Ctrl-C gives the outcome ``canceled`` and the code ``canceled``.
 
@@ -718,10 +729,9 @@ The document of a launch that Xeda stopped following (``--keep-running``, then C
 connection) has the outcome ``detached``, the error code ``remote_detached`` and the id of the launch
 in ``launch_id``. Every node is ``detached``, and the launch keeps running on the host.
 
-The document of a remote dry run is the document of a local dry run with these keys: ``remote``,
-``mirror``, and ``uploaded``, the list of input files that the dry run sent to the host. Each
-node has the ``run_dir`` that the run would use in the mirror, and ``remote_run_dir``, the
-directory on the host.
+The document of a remote dry run is the document of a local dry run, and has no other key. The
+``run_dir`` of each node is the directory that the run would use in the mirror. The log lists the
+input files that the dry run uploaded to the host.
 
 ``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run. The other
 commands of ``xeda remote`` print one document each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status
@@ -800,7 +810,8 @@ Exit status
 Every command exits with 0 on success and with another value on failure. ``xeda run`` exits with 0
 when the ``outcome`` is ``passed`` and with 1 for every other outcome (``rejected``, ``failed``,
 ``canceled`` or ``detached``). It exits with 2 for a request that started no launch: an invalid
-setting, design, project or chain, and a mistake in the command line. ``xeda dse`` fails when the
+setting, design, project or chain, a mistake in the command line, and a remote host that Xeda cannot
+reach or set up. ``xeda dse`` fails when the
 exploration found no successful run. A failed exploration and a failed ``scrub`` exit with status 1.
 A usage error of any other command exits with status 2.
 
@@ -808,8 +819,9 @@ Planning a run
 ==============
 
 ``xeda run <flow> <design> --dry-run --json`` prints the plan and runs nothing. Its document is not
-the run document: it has the keys ``schema_version`` (1), ``spec``, ``roots``, ``options`` and
-``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same document. The next
+the run document: it has the keys ``schema_version`` (1), ``spec``, ``roots``, ``options``,
+``dependencies`` and ``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same
+document. The next
 command is for a design named ``blinky`` whose RTL top is ``blinky``:
 
 .. code-block:: bash
@@ -829,6 +841,7 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
         "rebuild_all": false, "clean": false, "prune_variants": false, "outputs_to": null,
         "overwrite_outputs": false, "post_cleanup": false, "post_cleanup_purge": false
       },
+      "dependencies": [],
       "nodes": [
         {"name": "yosys_fpga", "flow": "yosys_fpga",
          "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "identity": "...",
@@ -861,6 +874,11 @@ table. ``roots`` names the nodes that the spec asks for. ``options`` holds the s
 by name, with the value that the plan was made with: ``rebuild_all``, ``clean``,
 ``prune_variants``, ``outputs_to`` (an absolute path or ``null``), ``overwrite_outputs``,
 ``post_cleanup`` and ``post_cleanup_purge``.
+
+``dependencies`` lists the dependencies of the design as planning resolved them, with the entries of
+``dependencies`` in a run record: ``repository`` (with no user name and no password), ``reference``,
+``commit`` and ``design_file``. A local dependency has only its ``design_file``. A plan that was
+made earlier is stale when a Git dependency now resolves to another commit.
 
 ``nodes`` is ordered with the producers before the consumers and the requested flow last. Each node
 has these keys:

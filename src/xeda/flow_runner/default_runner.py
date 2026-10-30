@@ -37,7 +37,7 @@ from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
 from ..local_settings import LocalSettings
 from ..plan import Plan as PublicPlan
-from ..plan import PlanDelivery, dependency_commits, delivery_key, planned_destination, plan_of
+from ..plan import PlanDelivery, dependency_entries, delivery_key, planned_destination, plan_of
 from ..spec import Spec
 from ..deliver import (
     OUTPUTS_TO,
@@ -1091,7 +1091,7 @@ class FlowLauncher:
                 spec=expected.spec,
                 options=LaunchOptions(**expected.options),
                 workspace=expected._workspace,
-                dependencies=dependency_commits(request.design),
+                dependencies=dependency_entries(request.design),
             )
             return plan_difference(expected, fresh)
         finally:

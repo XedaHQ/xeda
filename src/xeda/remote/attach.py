@@ -14,8 +14,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional, Sequence
 
 from ..flow_runner import DefaultRunner
+from ..outcomes import Result
 from .client import (
-    RemoteOutcome,
     _discard_mirrors,
     _failed,
     _finish,
@@ -31,7 +31,7 @@ from .client import (
     workspace_key,
 )
 from .environment import code_snapshot, dependency_spec
-from .errors import RemoteCanceled, RemoteError, RemoteInterrupted, RemoteProtocolError
+from .errors import RemoteError, RemoteInterrupted, RemoteProtocolError
 from .launch_record import LaunchRecord, read_record
 from .profile import HostProfile
 from .ssh import SshSession, resolve_destination
@@ -56,10 +56,12 @@ def attach_launch(
     run_root: Path,
     ssh_options: Sequence[str] = (),
     profile: HostProfile | None = None,
-) -> RemoteOutcome:
-    """Follow a launch on `host` and fetch its result. Return the outcome as `run_remote` does.
+) -> Result:
+    """Follow a launch on `host` and fetch its result. Return its `Result` as `run_remote` does.
 
-    `profile` is the profile of the host, the default profile without it."""
+    `profile` is the profile of the host, the default profile without it. The `spec` of the result
+    has an empty design of the name of the design of the launch. A failure before the launch is
+    found raises a public error (`RemoteError`), as in `run_remote`."""
     run = _Run(chain="", flow="", design=None, target=None, host=host, debug=False)
     try:
         return _attach(run, host, launch_id, run_root, ssh_options, profile or HostProfile())
@@ -77,7 +79,7 @@ def attach_launch(
                     "them."
                 ),
             )
-        return _failed(run, RemoteCanceled("Canceled by Ctrl-C. The launch was not changed."))
+        raise
 
 
 def _attach(
@@ -87,7 +89,7 @@ def _attach(
     run_root: Path,
     ssh_options: Sequence[str],
     profile: HostProfile,
-) -> RemoteOutcome:
+) -> Result:
     _check_platform()
     destination = resolve_destination(host, ssh_options)
     local_root = _local_run_root(run_root)
@@ -108,6 +110,7 @@ def _attach(
             record = read_record(mirror_root, number)
             _fill(run, record, mirror_root)
             run.launch_id = number
+            run.started = True
             _say_which(host, found, launch_id)
             local = _Local(
                 DefaultRunner(run_root, display_results=False),

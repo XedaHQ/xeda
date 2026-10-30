@@ -380,15 +380,54 @@ Machine-readable output
 
 With ``--json``, ``xeda run --remote`` writes one document on stdout. It is the document of a local
 run, and the paths in it name the mirror. ``launch_id`` is the id of the launch on the host. A
-failed remote step has the outcome ``failed`` and the error code ``remote_failed``. A launch that
-ended on the host and could not be fetched has ``remote_fetch_failed``, and one whose outputs could
-not be delivered has ``delivery_failed``: in both, the nodes keep their records. Ctrl-C gives the
-outcome ``canceled`` and the code ``canceled``. A launch that Xeda stopped following has the outcome
-``detached`` and the error code ``remote_detached``. A request that Xeda refuses before it connects
-(a bad setting, design or chain, or a refused ``--outputs-to``) starts no launch: the outcome is
-``null`` and the exit status is 2. A dry run prints the dry-run document, which has a layout of its
-own, and adds ``remote``, ``mirror`` and ``uploaded`` to it. :doc:`machine-readable` lists all
-keys. The output of the tools goes to stderr.
+failure after the launch was sent to the host has the outcome ``failed`` and the error code
+``remote_failed``. A launch that ended on the host and could not be fetched has
+``remote_fetch_failed``, and one whose outputs could not be delivered has ``delivery_failed``: in
+both, the nodes keep their records. Ctrl-C gives the outcome ``canceled`` and the code
+``canceled``. A launch that Xeda stopped following has the outcome ``detached`` and the error code
+``remote_detached``. A failure before the launch was sent starts no launch, and the document has
+no nodes: the code is ``remote_unreachable`` (OpenSSH could not connect) or
+``remote_setup_failed`` (the host could not be made ready). Like a request that Xeda refuses
+before it connects (a bad setting, design or chain, a refused ``--outputs-to``, or a flow that
+programs a device here, which has the code ``unsupported_with_remote``), it has the outcome
+``null`` and the exit status 2. A dry run prints the dry-run document of a local dry run, with the
+run directories of the mirror, and no other key. The log lists the input files that it uploaded.
+:doc:`machine-readable` lists all keys. The output of the tools goes to stderr.
+
+Python API
+----------
+
+A script runs on a host with a ``Remote`` in its ``Workspace``. The ``Remote`` holds the profile of
+the host as a value: Xeda never reads ``remotes.yaml`` for it. ``local_settings().host_profiles``
+holds the entries of the file, so a script that wants the profile of the file passes it.
+
+.. code-block:: python
+
+    from xeda.design import Design
+    from xeda.local_settings import local_settings
+    from xeda.remote_value import Remote
+    from xeda.spec import Spec
+    from xeda.workspace import Workspace
+
+    host = "cluster"
+    profile = local_settings().host_profiles.get(host)
+    workspace = Workspace(remote=Remote(host, profile=profile, keep_running=True))
+    spec = Spec("vivado_synth", Design.load("sqrt.yaml"))
+    plan = workspace.plan(spec)  # the host plans; nothing is written in the mirror
+    result = workspace.run(spec)  # a Result, as for a local run
+
+``Remote(host)`` with no ``profile`` uses the default profile. ``workspace.run(plan)`` first plans
+the spec on the host again, and compares the new plan with ``plan`` as a local workspace does. If
+they differ (for example, a Git dependency now resolves to another commit), it raises
+``StalePlanError`` and starts no launch. ``Workspace.run`` returns a
+``Result`` for every launch that was sent to the host. A failure of this side after that is the
+launch-level error ``remote_failed`` or ``remote_fetch_failed``, and a launch that Xeda stopped
+following has the outcome ``detached`` (with ``keep_running=True``). A failure before raises a
+``RemoteError`` with the code ``remote_unreachable`` or ``remote_setup_failed`` and the host in
+``.host``. The options ``prune_variants``, ``post_cleanup`` and ``post_cleanup_purge`` remove run
+directories, so a remote workspace refuses them with a ``SpecError`` that has the code
+``unsupported_with_remote``: use ``xeda remote clean``. A flow that programs a device attached to
+this machine has the same error.
 
 Dry runs
 ========
@@ -396,7 +435,7 @@ Dry runs
 ``xeda run ... --remote HOST --dry-run`` shows the plan, and what each flow would do, as it is on
 the host. The host judges freshness against its own workspace, so the answer is correct. To answer,
 Xeda may provision the host and sync the inputs into the workspace. It never writes a run
-directory, and it says which input files it uploaded. ``--keep-running`` has no launch to keep
+directory, and it logs which input files it uploaded. ``--keep-running`` has no launch to keep
 running in a dry run, and Xeda refuses the combination.
 
 Ctrl-C and lost connections

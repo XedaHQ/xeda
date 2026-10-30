@@ -78,6 +78,7 @@ REVIEWED_CHDIRS: dict[tuple[str, str], str] = {
 #: (module, function) -> why it reads the working directory.
 REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
     ("agent_skill.py", "default_skill_dir"): "a command's default target directory",
+    ("cli.py", "_load_design"): "the directory that an error message names",
     ("cli.py", "run"): "the default run root of a command",
     ("design.py", "design_relative_root"): "a design file or resource given outside a design load",
     (

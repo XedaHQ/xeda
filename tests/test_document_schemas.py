@@ -939,3 +939,58 @@ def test_a_record_cannot_hold_the_outcome_of_a_node_that_did_not_run(tmp_path, o
     record = decode_record(record_document(), run_dir=tmp_path / "d" / "flow", run_root=tmp_path)
     with pytest.raises(ValueError, match="cannot hold the outcome"):
         dataclasses.replace(record, outcome=outcome)
+
+
+# --- The plan document -----------------------------------------------------------------------------
+
+
+def _plan_with_a_local_dependency(tmp_path: Path):
+    from xeda.spec import Spec
+    from xeda.workspace import Workspace
+
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "top.sv").write_text("module top; endmodule\n")
+    (root / "lib.yaml").write_text("name: lib\nrtl:\n  sources: []\n")
+    design = Design(
+        name="d", root=root, rtl={"sources": ["top.sv"], "top": "top"}, dependencies=["lib.yaml"]
+    )
+    return design, Workspace(tmp_path / "plan_root").plan(Spec("t_taker", design))
+
+
+def test_the_plan_document_lists_the_dependencies_of_a_record(tmp_path):
+    design, plan = _plan_with_a_local_dependency(tmp_path)
+    document = plan.to_dict()
+    assert list(document) == ["schema_version", "spec", "roots", "options", "dependencies", "nodes"]
+    assert document["dependencies"] == [
+        {"repository": None, "reference": None, "commit": None, "design_file": "lib.yaml"}
+    ]
+    flow = _runner(tmp_path).launch_flow(TTaker, design, {})
+    record = read_record(flow.run_path, run_root=flow.record.run_root)
+    assert document["dependencies"] == thaw(record.dependencies)
+
+
+def test_the_dependencies_of_a_plan_cannot_change_and_survive_a_pickle(tmp_path):
+    _design, plan = _plan_with_a_local_dependency(tmp_path)
+    with pytest.raises(TypeError):
+        plan._dependencies[0]["commit"] = "0" * 40  # type: ignore[index]
+    assert pickle.loads(pickle.dumps(plan))._dependencies == plan._dependencies
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda document: document.pop("dependencies"),
+        lambda document: document.update(dependencies=[{"repository": None}]),
+        lambda document: document.update(dependencies=["lib.yaml"]),
+    ],
+    ids=["no list", "an entry without keys", "an entry that is no mapping"],
+)
+def test_a_plan_document_with_bad_dependencies_is_refused(tmp_path, change):
+    from xeda.plan import plan_from_dict
+
+    _design, plan = _plan_with_a_local_dependency(tmp_path)
+    document = plan.to_dict()
+    change(document)
+    with pytest.raises(ValueError, match="plan document"):
+        plan_from_dict(document, spec=plan.spec, workspace=None)

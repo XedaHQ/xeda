@@ -33,7 +33,6 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.remote.constants import UV_VERSION
-from xeda.remote.errors import RemoteCanceled
 from xeda.remote.provision import env_file_text
 from xeda.remote.ssh import SshSession
 
@@ -58,7 +57,7 @@ ADDER = Path(__file__).parent.parent / "examples" / "vhdl" / "pipeline" / "pipel
 #: The prefix of the remote roots of these tests, below the home directory of the remote user.
 ROOT_PREFIX = "xeda-e2e-"
 
-#: The options of `run_remote` and of the `ssh` of the helpers below.
+#: The options of the `ssh` of the helpers below, and of `remote_request` (it hands them to the client).
 SSH_OPTIONS = ("-F", CONFIG) if CONFIG else ()
 
 
@@ -392,7 +391,7 @@ def test_a_killed_master_connection_cancels_the_launch(tmp_path, monkeypatch, sh
     thread.join()
     assert not problems, problems
     try:
-        assert isinstance(outcome.error, RemoteCanceled), outcome.document
+        assert outcome.document["error"]["code"] == "canceled", outcome.document
         assert "connection" in outcome.document["error"]["message"]
         assert_simulator_gone(token, pids)
     finally:

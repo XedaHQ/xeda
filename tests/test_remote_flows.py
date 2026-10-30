@@ -12,10 +12,10 @@ import shutil
 from pathlib import Path
 
 import pytest
+from xeda.errors import SpecError
 import yaml
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.launch_report import results_of
 from xeda.outcomes import result_from_dict
@@ -105,7 +105,7 @@ def test_a_remote_run_takes_a_target(tmp_path, remote_host):
     calls = len(remote_host.remote.calls("ssh"))
     refused = remote_request(tmp_path, TARGETS / "knight.yaml", "vivado_synth", target="nexys")
     assert refused.error is not None and "arty, ulx3s" in str(refused.error)
-    assert len(remote_host.remote.calls("ssh")) == calls + 1  # `ssh -G` only
+    assert len(remote_host.remote.calls("ssh")) == calls  # not even `ssh -G`
     assert not [c for c in remote_host.remote.calls("ssh")[calls:] if "-M" in c]
 
 
@@ -575,11 +575,11 @@ def test_a_converted_design_is_checked_as_what_it_will_be_before_connecting(
     accepted here, and fails only when it reaches for the connection."""
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "ssh")
     outcome = remote_request(tmp_path, _bluespec_design(tmp_path), "yosys")
-    assert outcome.error is not None and outcome.document["error"]["code"] == "remote_failed"
+    assert outcome.error is not None and outcome.document["error"]["code"] == "remote_unreachable"
     assert "cannot connect" in outcome.document["error"]["message"]
     # a flow with no converter is still refused here, for the language
     refused = remote_request(tmp_path, _bluespec_design(tmp_path / "again"), "ghdl_sim")
-    assert isinstance(refused.error, FlowSettingsException)
+    assert isinstance(refused.error, SpecError)
     assert "ghdl_sim cannot read the design's Bluespec" in str(refused.error)
 
 
@@ -732,7 +732,6 @@ def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp
 
 
 def test_a_declared_output_collision_is_refused_before_connecting(tmp_path, remote_host):
-    from xeda.deliver import OutputExistsError
 
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design")
@@ -744,7 +743,7 @@ def test_a_declared_output_collision_is_refused_before_connecting(tmp_path, remo
     conflict.write_text("user's file\n")
     calls = len([c for c in remote_host.remote.calls("ssh") if "-M" in c])
     outcome = remote_request(tmp_path, design, TMaker.name, outputs_to=destination)
-    assert isinstance(outcome.error, OutputExistsError) and "made.txt" in str(outcome.error)
+    assert isinstance(outcome.error, SpecError) and "made.txt" in str(outcome.error)
     assert len([c for c in remote_host.remote.calls("ssh") if "-M" in c]) == calls
     assert conflict.read_text() == "user's file\n"
 
@@ -787,7 +786,6 @@ def test_a_failed_declared_run_hands_over_no_partial_output(tmp_path, remote_hos
 
 
 def test_declared_shared_settings_must_agree_before_connecting(tmp_path, remote_host):
-    from xeda.flow import FlowSettingsError
 
     design = _declared_design(
         tmp_path / "design",
@@ -797,7 +795,7 @@ def test_declared_shared_settings_must_agree_before_connecting(tmp_path, remote_
         },
     )
     outcome = remote_request(tmp_path, design, TPlace.name)
-    assert isinstance(outcome.error, FlowSettingsError) and "disagree" in str(outcome.error)
+    assert isinstance(outcome.error, SpecError) and "disagree" in str(outcome.error)
     assert not connected(remote_host)
     assert not (tmp_path / "local" / "xeda_run").exists()
 

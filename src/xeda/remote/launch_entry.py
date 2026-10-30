@@ -308,7 +308,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..errors import SpecError
     from ..flow_runner.launch_options import LaunchOptions, WorkspaceOptions
     from ..introspect import design_info
-    from ..plan import plan_of
+    from ..plan import dependency_entries, plan_of
     from ..log_context import launch_id_of
     from ..outcomes import Outcome, run_document, spec_document
     from ..records import CANCELED, ErrorInfo
@@ -369,6 +369,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                             remote=None,
                             local_settings=None,
                         ),
+                        dependencies=dependency_entries(planned.request.design),
                     ).to_dict(),
                     None,
                 )

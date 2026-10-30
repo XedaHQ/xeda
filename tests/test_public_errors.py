@@ -175,6 +175,22 @@ def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
             assert code in text, f"{page} does not list {code}"
 
 
+def test_the_codes_of_a_remote_request_are_listed_where_a_reader_looks():
+    """The codes of a request that a remote host cannot take are stable text. The docs and both
+    copies of the skill list them."""
+    root = Path(__file__).resolve().parent.parent
+    pages = [
+        root / "docs" / "machine-readable.rst",
+        root / "docs" / "remote.rst",
+        root / ".claude" / "skills" / "xeda" / "SKILL.md",
+        root / "src" / "xeda" / "data" / "agent" / "SKILL.md",
+    ]
+    for page in pages:
+        text = page.read_text(encoding="utf-8")
+        for code in ("remote_unreachable", "remote_setup_failed", "unsupported_with_remote"):
+            assert code in text, f"{page} does not list {code}"
+
+
 # Each exception has its real constructor.
 @pytest.mark.parametrize(
     "exc, code, exit_status",

@@ -15,13 +15,15 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from .cancel import CancelToken
+from .deliver import overwrite_question
 from .errors import RecordError, RunRootError, SpecError, StalePlanError
 from .events import Event
 from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.plan_check import workspace_difference
 from .local_settings import LocalSettings
-from .plan import Plan, dependency_commits, plan_of
+from .plan import Plan, dependency_entries, plan_of
+from .remote_value import Remote
 from .records import RecordProblem, RunListing, RunRecord, read_record, read_stored_record
 from .run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from .spec import Spec
@@ -32,14 +34,7 @@ __all__ = ["Workspace"]
 TOOL_OUTPUTS = ("log", "terminal")
 
 if TYPE_CHECKING:
-    from .deliver import Conflict
     from .flow_runner.scrub import ScrubCandidate, ScrubResult
-
-
-def _overwrite_question(conflicts: "Sequence[Conflict]") -> str:
-    lines = [f"Xeda would replace {len(conflicts)} file(s) at the output paths you named:"]
-    lines += [f"  {c.destination}   {c.why}" for c in conflicts]
-    return "\n".join([*lines, "Replace them?"])
 
 
 def _prune_question(candidates: "Sequence[ScrubCandidate]") -> str:
@@ -81,16 +76,16 @@ class Workspace:
     `hashed_run_dirs` adds the hash of the run to the name of a run directory. `tool_output` is
     `"log"` (a tool writes only to the log files of its run directory) or `"terminal"` (it also
     writes to the output and error streams of this process). `confirm` answers the questions that
-    a launch asks, and `None` answers "no". `remote` is the host that runs the launches. This
-    class does not use it yet, and refuses to plan with one. `local_settings` are the private
-    settings layers, as `local_settings()` reads them."""
+    a launch asks, and `None` answers "no". `remote` is the host that runs the launches (a
+    `Remote`). Planning and running then happen on that host, and the run directories of a launch
+    are in the mirror `<run root>/@<host>` here. `local_settings` are the private settings layers,
+    as `local_settings()` reads them."""
 
     run_root: Path
     hashed_run_dirs: bool
     tool_output: Literal["log", "terminal"]
     confirm: Callable[[str], bool] | None
-    # `Remote` is not part of this package yet.
-    remote: Any | None
+    remote: Remote | None
     local_settings: LocalSettings | None
 
     def __init__(
@@ -100,7 +95,7 @@ class Workspace:
         hashed_run_dirs: bool = False,
         tool_output: Literal["log", "terminal"] = "log",
         confirm: Callable[[str], bool] | None = None,
-        remote: Any | None = None,
+        remote: Remote | None = None,
         local_settings: LocalSettings | None = None,
     ) -> None:
         if tool_output not in TOOL_OUTPUTS:
@@ -187,8 +182,6 @@ class Workspace:
         from .flow_runner import DefaultRunner
         from .flow_runner.error_codes import public_error
 
-        if self.remote is not None:
-            raise NotImplementedError("planning on a remote host is not supported yet")
         options = LaunchOptions(
             rebuild_all=rebuild_all,
             clean=clean,
@@ -199,6 +192,16 @@ class Workspace:
             post_cleanup_purge=post_cleanup_purge,
         )
         self._refuse_project_run_root(spec)
+        if self.remote is not None:
+            from .remote.client import plan_remote
+
+            try:
+                return plan_remote(spec, workspace=self._options(), options=options)
+            except Exception as error:
+                public = public_error(error)
+                if public is error:
+                    raise
+                raise public from error
         try:
             runner = self._runner(DefaultRunner)
             planned = runner.plan_spec(spec, local_settings=self.local_settings, options=options)
@@ -214,7 +217,7 @@ class Workspace:
             spec=spec,
             options=options,
             workspace=self._options(),
-            dependencies=dependency_commits(planned.request.design),
+            dependencies=dependency_entries(planned.request.design),
         )
 
     def _runner(self, runner_class: Any) -> Any:
@@ -248,7 +251,9 @@ class Workspace:
         under them. It raises `StalePlanError` when the graph, an identity, a run directory, a
         delivery, the settings, the commit of a Git dependency or an option of this workspace
         differs from the plan. A stale plan prunes nothing, asks nothing, generates nothing and
-        runs nothing. A source edit is no difference: the launch checks freshness again.
+        runs nothing. A source edit is no difference: the launch checks freshness again. With a
+        `remote`, the host plans the spec again before the launch, and the same rule compares the
+        two plans.
 
         A node that fails, is rejected or is blocked is an outcome in the `Result`, not an
         exception. `prune_variants` removes the other run directories of every node of the plan,
@@ -305,13 +310,13 @@ class Workspace:
         else:
             spec = what
             options = LaunchOptions(**named)
-        if self.remote is not None:
-            raise NotImplementedError("running on a remote host is not supported yet")
         self._refuse_project_run_root(spec)
+        if self.remote is not None:
+            return self._run_remote(spec, options, expected, cancel, on_event)
         runner = self._runner(DefaultRunner)
         if self.confirm is not None:
             answer = self.confirm
-            runner.confirm_overwrite = lambda conflicts: answer(_overwrite_question(conflicts))
+            runner.confirm_overwrite = lambda conflicts: answer(overwrite_question(conflicts))
             runner.confirm_scrub = lambda candidates: answer(_prune_question(candidates))
         from_callback: list[Exception] = []
 
@@ -330,6 +335,68 @@ class Workspace:
                 local_settings=self.local_settings,
                 options=options,
                 expected=expected,
+                cancel=cancel,
+                on_event=None if on_event is None else relay,
+            )
+        except Exception as error:
+            public = public_error(error)
+            if public is error or error in from_callback:
+                raise
+            raise public from error
+        finally:
+            TOOL_OUTPUT.reset(token)
+
+    def _run_remote(
+        self,
+        spec: Spec,
+        options: LaunchOptions,
+        expected: Plan | None,
+        cancel: CancelToken | None,
+        on_event: Callable[[Event], None] | None,
+    ) -> Result:
+        """Run `spec` on the remote host. With the plan `expected`, the host plans `spec` again
+        first, and a difference raises `StalePlanError` before any launch starts."""
+        from .flow_runner.error_codes import plain_message, public_error
+        from .flow_runner.plan_check import plan_difference
+        from .proc_utils import TOOL_OUTPUT
+        from .remote.client import plan_remote, run_remote
+
+        from_callback: list[Exception] = []
+
+        def relay(event: Event) -> None:
+            assert on_event is not None
+            try:
+                on_event(event)
+            except Exception as error:
+                from_callback.append(error)
+                raise
+
+        token = TOOL_OUTPUT.set(self.tool_output)
+        try:
+            if expected is not None:
+                cause: Exception | None = None
+                difference: str | None
+                try:
+                    fresh = plan_remote(spec, workspace=self._options(), options=options)
+                except Exception as error:
+                    # A request that the host refuses now is a difference. Any other failure (a
+                    # host that cannot be reached) is no statement about the plan.
+                    if not isinstance(public_error(error), SpecError):
+                        raise
+                    difference = f"planning is refused now: {plain_message(error)}"
+                    cause = error
+                else:
+                    difference = plan_difference(expected, fresh)
+                if difference is not None:
+                    raise StalePlanError(
+                        f"The plan is stale: {difference}. Plan again.",
+                        code="stale_plan",
+                        difference=difference,
+                    ) from cause
+            return run_remote(
+                spec,
+                workspace=self._options(),
+                options=options,
                 cancel=cancel,
                 on_event=None if on_event is None else relay,
             )

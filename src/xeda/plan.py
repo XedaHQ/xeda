@@ -32,6 +32,7 @@ __all__ = [
     "PlanInput",
     "PlanNode",
     "node_document",
+    "plan_from_dict",
     "plan_node",
     "plan_of",
     "spec_document",
@@ -121,20 +122,24 @@ class Plan:
     nodes: Mapping[str, PlanNode]
     #: The options of the workspace that made the plan. Running the plan compares them.
     _workspace: WorkspaceOptions | None = field(default=None, repr=False, compare=False)
-    #: The Git dependencies as planning resolved them, as `(path, repository, commit)`. The path
-    #: names the entry in the tree of dependencies (`DependencyRecord.path`).
-    _dependencies: tuple[tuple[str, str, str], ...] = field(default=(), repr=False, compare=False)
+    #: The dependencies as planning resolved them, as `RunRecord.dependencies` lists them: one
+    #: entry for each element of `Design.resolved_dependencies`, in its order.
+    _dependencies: tuple[Mapping[str, str | None], ...] = field(
+        default=(), repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roots", tuple(self.roots))
         object.__setattr__(self, "options", FrozenDict(self.options))
         object.__setattr__(self, "nodes", FrozenDict(self.nodes))
+        object.__setattr__(self, "_dependencies", tuple(freeze(d) for d in self._dependencies))
 
     def to_dict(self) -> dict[str, Any]:
         """Return the document that `xeda run --dry-run --json` prints (schema 1).
 
-        It has the keys `schema_version`, `spec`, `roots`, `options` and `nodes`. `nodes` is a
-        list in execution order, and each entry has one key for each field of `PlanNode`."""
+        It has the keys `schema_version`, `spec`, `roots`, `options`, `dependencies` and `nodes`.
+        `dependencies` has the entries of `RunRecord.dependencies`. `nodes` is a list in execution
+        order, and each entry has one key for each field of `PlanNode`."""
         options = dict(self.options)
         if options["outputs_to"] is not None:
             options["outputs_to"] = str(options["outputs_to"])
@@ -143,6 +148,7 @@ class Plan:
             "spec": spec_document(self.spec),
             "roots": list(self.roots),
             "options": options,
+            "dependencies": [thaw(entry) for entry in self._dependencies],
             "nodes": [node_document(node) for node in self.nodes.values()],
         }
 
@@ -286,14 +292,15 @@ def plan_of(
     spec: Spec,
     options: LaunchOptions,
     workspace: WorkspaceOptions | None,
-    dependencies: Sequence[tuple[str, str, str]] = (),
+    dependencies: Sequence[Mapping[str, str | None]] = (),
 ) -> Plan:
     """Return the public `Plan` of the plan that the launcher resolved.
 
     `states` holds what a launch would do with each node, and `deliveries` the files that each
     node would deliver, both by node name. The plan keeps `workspace` in a private field, which
-    `to_dict` leaves out: running the plan compares it. The plan keeps `dependencies`, the commit
-    of each Git dependency, in a private field for the same comparison."""
+    `to_dict` leaves out: running the plan compares it. The plan keeps `dependencies` (see
+    `dependency_entries`) in a private field. `to_dict` writes them, and running the plan compares
+    the commits of the Git dependencies."""
     nodes = {
         node.name: plan_node(node, states[node.name], deliveries.get(node.name, ()))
         for node in internal.nodes
@@ -308,6 +315,72 @@ def plan_of(
     )
 
 
+#: The keys of an entry of `dependencies` in a plan document, as `DependencyRecord.as_mapping`.
+_DEPENDENCY_KEYS = ("repository", "reference", "commit", "design_file")
+
+
+def _node_of(document: Any) -> PlanNode:
+    return PlanNode(
+        name=document["name"],
+        flow=document["flow"],
+        run_dir=Path(document["run_dir"]),
+        identity=document["identity"],
+        state=document["state"],
+        reason=document["reason"],
+        action=document["action"],
+        settings=document["settings"],
+        inputs=tuple(
+            PlanInput(
+                item["name"],
+                item["origin"],
+                item["producer"],
+                item["output"],
+                tuple(Path(source) for source in item["sources"]),
+                item["reason"],
+            )
+            for item in document["inputs"]
+        ),
+        outputs_enabled=tuple(document["outputs_enabled"]),
+        input_types=document["input_types"],
+        output_types=document["output_types"],
+        deliveries=tuple(
+            PlanDelivery(item["key"], Path(item["destination"]), item["replaces"])
+            for item in document["deliveries"]
+        ),
+    )
+
+
+def plan_from_dict(
+    document: Mapping[str, Any], *, spec: Spec, workspace: WorkspaceOptions | None
+) -> Plan:
+    """Return the `Plan` that the plan document `document` (`Plan.to_dict`) describes.
+
+    The document is the inverse of `Plan.to_dict`: a plan that was written and read again equals
+    the plan. The plan gets `spec` and `workspace` from the caller, and never the `spec` of the
+    document, which names the design of another machine. Raise `ValueError` if the document has
+    another schema version or lacks a part."""
+    if not isinstance(document, Mapping) or document.get("schema_version") != PLAN_DOCUMENT_VERSION:
+        raise ValueError(f"not a plan document of schema version {PLAN_DOCUMENT_VERSION}")
+    try:
+        options = dict(document["options"])
+        if options["outputs_to"] is not None:
+            options["outputs_to"] = Path(options["outputs_to"])
+        nodes = [_node_of(item) for item in document["nodes"]]
+        dependencies = tuple(
+            {key: item[key] for key in _DEPENDENCY_KEYS} for item in document["dependencies"]
+        )
+        return Plan(
+            spec=spec,
+            roots=tuple(document["roots"]),
+            options=options,
+            nodes={node.name: node for node in nodes},
+            _workspace=workspace,
+            _dependencies=dependencies,
+        )
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"the plan document has a bad part: {error!r}") from None
+
+
 def delivery_key(key: str) -> str:
     """Return the key of a planned delivery: the setting that asked for it, or `outputs_to`."""
     from .deliver import OUTPUTS_TO
@@ -320,11 +393,8 @@ def planned_destination(path: Path) -> Path:
     return Path(os.path.abspath(path))
 
 
-def dependency_commits(design: Any) -> tuple[tuple[str, str, str], ...]:
-    """Return `(path, repository, commit)` for each Git dependency that planning resolved in
-    `design`. Two entries of one repository at different commits have different paths."""
-    return tuple(
-        (d.path, d.repository, d.commit)
-        for d in design.resolved_dependencies
-        if d.commit is not None
-    )
+def dependency_entries(design: Any) -> tuple[Mapping[str, str | None], ...]:
+    """Return the dependencies that planning resolved in `design`, as the entries of
+    `RunRecord.dependencies`: `repository` (with no user name and no password), `reference`,
+    `commit` and `design_file`. A local dependency has only its `design_file`."""
+    return tuple(d.as_mapping() for d in design.resolved_dependencies)

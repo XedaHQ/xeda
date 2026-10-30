@@ -975,8 +975,8 @@ def test_the_project_run_root_is_used_by_dse_and_the_remote_mirror(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     seen = {}
 
-    def fake_run_remote(chain, **arguments):
-        seen.update(arguments)
+    def fake_run_remote(spec, *, workspace, options, **arguments):
+        seen.update(spec=spec, workspace=workspace)
         raise SystemExit(0)
 
     monkeypatch.setattr(client, "run_remote", fake_run_remote)
@@ -985,14 +985,14 @@ def test_the_project_run_root_is_used_by_dse_and_the_remote_mirror(tmp_path, mon
         ["run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d",
          "--remote", "host", *PART],
     )  # fmt: skip
-    assert seen["run_root"] == (repo / "runs").resolve()
+    assert seen["workspace"].run_root == (repo / "runs").resolve()
     seen.clear()
     CliRunner().invoke(
         cli,
         ["run", "vivado_synth", "--xedaproject", str(project), "--design-name", "d",
          "--remote", "host", "--run-root", str(tmp_path / "given"), *PART],
     )  # fmt: skip
-    assert seen["run_root"] == (tmp_path / "given").resolve()
+    assert seen["workspace"].run_root == (tmp_path / "given").resolve()
 
 
 # -------------------------------------------------------- the design a command selects
@@ -1077,11 +1077,12 @@ def test_a_remote_run_without_a_design_takes_the_only_design_of_the_project(tmp_
     project = write_project(tmp_path, {"designs": [{"name": "solo", "rtl": rtl()}]})
     seen = {}
 
-    def fake_run_remote(chain, **arguments):
-        seen.update(arguments)
+    def fake_run_remote(spec, *, workspace, options, **arguments):
+        seen.update(spec=spec, workspace=workspace)
         raise SystemExit(0)
 
     monkeypatch.setattr(client, "run_remote", fake_run_remote)
     CliRunner().invoke(cli, ["run", "vivado_synth", "--remote", "host", *PART])
-    assert seen["design"] is None and Path(seen["xedaproject"]) == project
-    assert seen["run_root"] == project.parent.resolve() / "xeda_run"
+    assert seen["spec"].design.name == "solo"
+    assert seen["spec"].design._project_layer[0] == str(project)
+    assert seen["workspace"].run_root == project.parent.resolve() / "xeda_run"

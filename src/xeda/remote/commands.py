@@ -469,16 +469,20 @@ def remote_attach(
     from ..cli_utils import emit_structured
     from .attach import attach_launch
 
-    outcome = attach_launch(
-        host, launch_id, run_root=run_root, profile=_profile_of(host, json_flag)
-    )
-    if outcome.error is not None:
-        log.critical("%s", outcome.document["error"]["message"])
-    elif not outcome.success:
+    try:
+        result = attach_launch(
+            host, launch_id, run_root=run_root, profile=_profile_of(host, json_flag)
+        )
+    except Exception as error:  # pylint: disable=broad-except
+        log.debug("The attach failed", exc_info=True)
+        _fail(type(error).__name__, str(error), json_flag)
+    if result.error is not None:
+        log.critical("%s", result.error.message)
+    elif not result.passed:
         log.critical("The launch on '%s' did not succeed.", host)
     if json_flag:
-        emit_structured(outcome.document, "json")
-    sys.exit(0 if outcome.success else 1)
+        emit_structured(result.to_dict(), "json")
+    sys.exit(0 if result.passed else 1)
 
 
 @click.argument("host")
