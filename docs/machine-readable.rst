@@ -53,7 +53,7 @@ document:
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
     xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
-    xeda scrub vivado_synth sqrt --json
+    xeda scrub vivado_synth sqrt --yes --json
 
 .. note::
    The table renderings wrap to the terminal width, and long values wrap across lines. The JSON,
@@ -543,7 +543,8 @@ The ``outcome`` of the document is the outcome of the cause of the launch, in th
 1. A node that is ``detached`` makes the outcome ``detached``.
 2. A node that is ``canceled``, or the launch error ``canceled``, makes it ``canceled``. Ctrl-C
    cancels a launch: the document still lists every node, a node that ended keeps its outcome,
-   and the node that was running is ``canceled``.
+   and the node that was running is ``canceled``. The first Ctrl-C asks the launch to stop. A second
+   one ends Xeda at once.
 3. A launch-level error (a failed delivery, a failed fetch of a remote launch) makes it ``failed``.
 4. Otherwise each root has a cause: the root itself, or, for a blocked root, the producer that failed
    or was rejected. The outcome is the worst of the causes, in the order ``failed``, ``rejected``,
@@ -592,7 +593,7 @@ line, or a remote host that cannot be reached or set up. The document then has `
       "outcome": null,
       "error": {
         "code": "unknown_setting",
-        "message": "sed: Extra inputs are not permitted",
+        "message": "nextpnr.sed: the flow has no such setting",
         "node": "nextpnr",
         "exit_status": null,
         "log": null
@@ -614,9 +615,8 @@ line as a request. A flow that does not exist has the code ``flow_not_found``, a
 its chain code (``invalid_chain``, ``repeated_flow``, ``no_edge`` and others), and a design file or
 project file that does not exist has ``design_file_not_found`` or ``project_file_not_found``. Any
 other mistake of the command line has the code ``usage_error``: an unknown option, no design, and
-the options that need each other. For example, ``--remote`` refuses ``--post-cleanup``, and
-``--keep-running`` and ``--fetch-all`` need ``--remote``. Click prints the same exit status 2 without
-``--json``.
+the options that need each other. For example, ``--keep-running`` and ``--fetch-all`` need
+``--remote``. Click prints the same exit status 2 without ``--json``.
 
 With ``--remote``, a host that Xeda cannot reach has the code ``remote_unreachable``, and a host
 that Xeda cannot make ready has ``remote_setup_failed``. Both come before Xeda sends the launch, so
@@ -624,11 +624,15 @@ they have no outcome and no nodes, and the exit status is 2. A flow that program
 attached to this machine has the code ``unsupported_with_remote``. In Python, ``Workspace.plan``
 and ``Workspace.run`` raise a ``SpecError`` with that code for such a flow, and also for the options
 ``prune_variants``, ``post_cleanup`` and ``post_cleanup_purge``, which remove run directories on
-the host. The command line refuses the matching options with ``--remote`` as a usage error.
+the host. The command line passes ``--prune-variants``, ``--post-cleanup`` and
+``--post-cleanup-purge`` on, so with ``--remote`` they have the same code and the exit status 2.
 
 A Ctrl-C while Xeda loads the design or plans the request, before the launch starts, also gives a
 document with ``"outcome": null`` and no nodes. Its error code is ``canceled``, and the exit status
 is 1.
+
+An exception that is no refusal of the request (a bug of Xeda) ends the launch. The document then has
+the outcome ``failed``, the error code ``internal_error`` and no nodes, and the exit status is 1.
 
 A binding that cannot be applied (an unknown input or producer, a binding for a flow that declares
 no inputs, or a chain together with a command-line or API binding of the same input) is a settings
@@ -762,30 +766,34 @@ successful run, the document has an ``error`` of type ``NoSuccessfulRun``, and t
 Removing run directories
 ========================
 
-``xeda scrub <flow> <design> --json`` removes the previous run directories of a flow for one design
-(see :doc:`run-directories`) and writes a single JSON object to stdout. The listing, the
-confirmation prompt, the lines about the directories that scrub kept or found gone, and the links it
-skipped go to stderr, with the rest of its output:
+``xeda scrub <flow> <design> --yes --json`` removes the previous run directories of a flow for one
+design (see :doc:`run-directories`) and writes a single JSON object to stdout. The lines about the
+directories that scrub kept or found gone, and the links it skipped, go to stderr with the rest of
+its output. With ``--json``, scrub never asks: without ``--yes`` it removes nothing:
 
 .. code-block:: json
 
     {
-      "success": true,
+      "schema_version": 1,
+      "outcome": "passed",
+      "error": null,
       "flow": "vivado_synth",
       "design": "sqrt",
       "target": null,
       "run_root": "/path/to/xeda_run",
       "scanned": ["/path/to/xeda_run/sqrt"],
-      "scrubbed": ["/path/to/xeda_run/sqrt/vivado_synth_0123456789abcdef"],
+      "removed": ["/path/to/xeda_run/sqrt/vivado_synth_0123456789abcdef"],
       "kept": ["/path/to/xeda_run/sqrt/vivado_synth_fedcba9876543210"],
       "gone": [],
       "skipped": []
     }
 
-``target`` is the ``--target`` that you gave, or ``null``. The five lists hold paths:
+``outcome`` is ``passed`` when the scrub ran to its end, also when it removed nothing because you
+did not confirm. ``target`` is the ``--target`` that you gave, or ``null``. The five lists hold
+paths:
 
 * ``scanned`` holds the directories that scrub searched for run directories of the flow.
-* ``scrubbed`` holds the run directories that scrub removed. The list is empty if scrub found none,
+* ``removed`` holds the run directories that scrub removed. The list is empty if scrub found none,
   or if you did not confirm.
 * ``kept`` holds the run directories that scrub listed and did not remove, because their run records
   (``results.json`` and ``trace.json``) changed after the listing. A run finished there, or a launch
@@ -798,11 +806,19 @@ skipped go to stderr, with the rest of its output:
   :doc:`run-directories`). Scrub removed neither the link nor what it leads to. It says why on
   stderr, with one line for each link.
 
-No path is in more than one of ``scrubbed``, ``kept``, ``gone`` and ``skipped``. A failure writes
-``{"success": false, "flow": ..., "design": ..., "target": ..., "error": {"type": ..., "message":
-...}}`` and exits with status 1. The ``error.type`` is ``RunDirectoryError`` for a design or target
-name that is not a name, or for a run directory that scrub refuses to remove (one that is no longer
-a directory, for example). It is ``RunRootError`` for a run root that scrub cannot use.
+No path is in more than one of ``removed``, ``kept``, ``gone`` and ``skipped``. A failure has the
+outcome ``failed``, an ``error`` with the keys of the ``error`` of a run document (``code``,
+``message``, ``node``, ``exit_status`` and ``log``), ``null`` for ``run_root`` when scrub did not get
+to use one, and empty lists. The exit status is 1. The ``error.code`` is ``invalid_run_root`` for a
+design or target name that is not a name, for a run directory that scrub refuses to remove (one that
+is no longer a directory, for example) and for a run root that scrub cannot use.
+
+A usage error (a missing argument, an unknown flow or a removed option) is a failure before scrub
+scanned anything. The document has the same keys, ``"outcome": null``, an ``error`` with the code
+``usage_error`` (or ``flow_not_found`` for a flow that does not exist), empty lists, and the exit
+status 2. ``flow``, ``design``, ``target`` and ``run_root`` hold what the command line gave, as
+text, and are ``null`` when it gave nothing. In Python, ``Workspace.scrub`` does the same removal
+and returns the five lists.
 
 Exit status
 ===========
@@ -813,7 +829,7 @@ when the ``outcome`` is ``passed`` and with 1 for every other outcome (``rejecte
 setting, design, project or chain, a mistake in the command line, and a remote host that Xeda cannot
 reach or set up. ``xeda dse`` fails when the
 exploration found no successful run. A failed exploration and a failed ``scrub`` exit with status 1.
-A usage error of any other command exits with status 2.
+A usage error of any other command, ``scrub`` included, exits with status 2.
 
 Planning a run
 ==============

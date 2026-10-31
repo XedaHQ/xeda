@@ -18,6 +18,7 @@ from xeda import Design
 from xeda.dataclass import Field, field_validator, model_validator
 from xeda.flow import Flow, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
+from xeda.project import Project
 from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
@@ -109,7 +110,7 @@ def _launch(how: str, runner: DefaultRunner, design: Design, root: Path) -> Flow
     if how == "design file":
         return runner.run(cls, _design_file(root, {NAME: GIVEN}))
     if how == "project file":
-        return runner.run(cls, "d", xedaproject=str(_project_file(root, {NAME: GIVEN})))
+        return runner.run(cls, Project.load(_project_file(root, {NAME: GIVEN})).design("d"))
     if how == "-s":
         flow_settings = [f"{key}={value}" for key, value in GIVEN.items()]
         return runner.run(cls, _design_file(root), flow_settings=node_settings(cls, flow_settings))

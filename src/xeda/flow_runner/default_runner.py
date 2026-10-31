@@ -1355,8 +1355,8 @@ class FlowLauncher:
         last, come last.
 
         So the launch has asked everything before any tool runs, before it scrubs older runs
-        (`--scrub`) and before it takes the lock of its run directory. A launch that the user
-        declines has removed nothing, and a question that waits for the user holds up no other
+        (`--prune-variants`) and before it takes the lock of its run directory. A launch that the
+        user declines has removed nothing, and a question that waits for the user holds up no other
         launch or scrub of that directory. Each flow keeps the object it checked, and checks
         again with it at its turn. That finds the record that this check anchored, so the
         destination is read once in the launch, and the check asks again only about a file that
@@ -2345,6 +2345,10 @@ class FlowLauncher:
                 layers.append(
                     split_bindings(project.flows, location=f'the project file "{project_path}"')[1]
                 )
+        elif isinstance(design, Design) and design._project_layer is not None:
+            # A design that a project selected carries the `flows` table of the project.
+            label, table = design._project_layer
+            layers.append(split_bindings(thaw(table), location=f'the project file "{label}"')[1])
         require_no_bindings(layers, [NodeKey(requested.name)])
 
     @log_context.with_launch_context
@@ -2352,7 +2356,6 @@ class FlowLauncher:
         self,
         flow: Union[Type[Flow], str],
         design: Union[str, Path, Design, Dict[str, Any], None] = None,
-        xedaproject: Optional[str] = None,
         flow_settings: Union[  # the command line's `-s`: overrides the design and project
             List[str],
             Tuple[str, ...],
@@ -2364,27 +2367,23 @@ class FlowLauncher:
             Tuple[str, ...],
             Mapping[str, Any],
         ] = [],
-        design_updates: Union[Iterable[str], Dict[str, Any], None] = None,
-        design_allow_extra: bool = False,
-        design_remove_fields: List[str] = [],
         target: str | None | Unset = UNSET,
         local_settings: LocalSettings | None = None,
     ) -> Optional[Flow]:
-        """Load and compose a request, then execute its resolved declared graph.
+        """Compose a request on a design that the caller built, then execute its resolved
+        declared graph.
 
-        `target` selects one of the `targets` of the design, as `Design.load` does.
+        `design` is a `Design` (`Design.load`, or `Project.design` for a design of a project, which
+        carries the project's `flows` table), or a design file. A design file is loaded as
+        `Design.load` does, with `target`, which selects one of its `targets`.
         `local_settings` are the private settings of the user and of the checkout, as
         `xeda.local_settings()` reads them: two layers of the settings (`settings_layers`). The
         launcher reads no private file."""
         request, plan = self.resolve_run(
             flow,
             design,
-            xedaproject,
             flow_settings,
             flow_overrides,
-            design_updates,
-            design_allow_extra,
-            design_remove_fields,
             target=target,
             local_settings=local_settings,
         )
@@ -2395,7 +2394,6 @@ class FlowLauncher:
         self,
         flow: Union[Type[Flow], str],
         design: Union[str, Path, Design, Dict[str, Any], None] = None,
-        xedaproject: Optional[str] = None,
         flow_settings: Union[
             List[str],
             Tuple[str, ...],
@@ -2407,9 +2405,6 @@ class FlowLauncher:
             Tuple[str, ...],
             Mapping[str, Any],
         ] = [],
-        design_updates: Union[Iterable[str], Dict[str, Any], None] = None,
-        design_allow_extra: bool = False,
-        design_remove_fields: List[str] = [],
         target: str | None | Unset = UNSET,
         local_settings: LocalSettings | None = None,
     ) -> Tuple[_Request, Plan]:
@@ -2420,18 +2415,16 @@ class FlowLauncher:
         # Where requests are not taken (`Dse`), refuse before loading what needs no design.
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
-            self._refuse_unaccepted_request(
-                flow, flow_settings, flow_overrides, xedaproject, design
-            )
+            self._refuse_unaccepted_request(flow, flow_settings, flow_overrides, None, design)
         request, plan = self._judged_request(
             flow,
             design,
-            xedaproject,
+            None,
             flow_settings,
             flow_overrides,
-            design_updates,
-            design_allow_extra,
-            design_remove_fields,
+            None,
+            False,
+            [],
             target=target,
             local_settings=local_settings,
         )
@@ -3110,7 +3103,7 @@ class FlowLauncher:
         project_label, flows_settings = (layer[0], thaw(layer[1])) if layer else ("", {})
         if given_file is not None:
             design_label = str(given_file.absolute())
-        elif layer is not None and design._source_file is not None:
+        elif design._source_file is not None:
             design_label = str(design._source_file)
         elif layer is not None:
             design_label = f"{project_label}: design {design.name}"
@@ -3210,9 +3203,14 @@ class FlowLauncher:
         launch_files: list[Path | None] = [given_file, project_path, design._source_file]
         if layer is not None:
             launch_files.append(Path(project_label))
-        # The private files that were loaded are files of the launch too.
+        # The private files that were loaded are files of the launch too, and so is the project
+        # file that `local_settings` was read with: it gives the run root, whatever design runs.
         if local_settings is not None:
-            launch_files += [local_settings.user_file, local_settings.local_file]
+            launch_files += [
+                local_settings.user_file,
+                local_settings.local_file,
+                local_settings.project_file,
+            ]
         self._launch_inputs = list(
             dict.fromkeys(
                 path.resolve() for path in launch_files if path is not None and path.is_file()

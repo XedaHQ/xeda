@@ -71,7 +71,7 @@ def test_local_settings_is_a_plain_keyword_value():
     empty = LocalSettings()
     assert empty.user == {} and empty.local == {} and empty.env == {}
     assert empty.run_root is None and empty.host_profiles == {}
-    assert empty.user_file is None and empty.local_file is None
+    assert empty.user_file is None and empty.local_file is None and empty.project_file is None
     with pytest.raises(TypeError):
         LocalSettings({"a": {}})  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -117,7 +117,7 @@ def test_an_empty_or_relative_xdg_config_home_means_the_home_config(tmp_path, mo
 def test_absent_files_are_no_layer(tmp_path):
     project = project_of(tmp_path)
     ls = local_settings(project)
-    assert ls == LocalSettings(run_root=project.run_root)
+    assert ls == LocalSettings(run_root=project.run_root, project_file=project.path)
 
 
 def test_an_empty_file_is_no_layer(tmp_path, private_home):

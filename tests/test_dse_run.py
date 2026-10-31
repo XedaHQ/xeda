@@ -27,6 +27,7 @@ from xeda.flows import VivadoSynth
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
 from xeda.flow_runner.settings_layers import merge_layers
+from xeda.project import Project
 from xeda.dataclass import Field
 from xeda.units import Time
 from xeda.utils import replacing_file
@@ -197,10 +198,9 @@ def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, mo
     with pytest.raises(FlowSettingsError, match="disagree"):
         runner.run(
             TDsePlace,
-            "d",
+            Project.load(_write_dse_project(tmp_path)).design("d"),
             flow_overrides={},
             flow_settings={},
-            xedaproject=str(_write_dse_project(tmp_path)),
         )
     assert not (tmp_path / "run").exists()
 

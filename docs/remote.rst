@@ -73,7 +73,9 @@ These limits apply to every remote run:
 
 * The run directories are on the host. ``--post-cleanup`` and
   ``--post-cleanup-purge`` are refused. Use ``xeda remote clean`` to free the space on the host.
-* ``--scrub`` is refused, because it asks you to confirm and a remote launch cannot ask.
+* ``--prune-variants`` is refused, because the run directories are on the host. ``xeda remote
+  clean`` removes whole workspaces on the host, not single variants: by default those that nobody
+  used for 30 days, and with ``--all`` every one that nobody uses now.
 * A deliverable setting that names a location is refused, because it would write on the host. Use
   ``--outputs-to`` (see `What comes back`_).
 * A flow that programs a board (``openfpgaloader``) cannot run with ``--remote``, because the board
@@ -319,8 +321,8 @@ The runs are make-like, as local runs are. A second run of the same request find
 directories of the first one in the workspace. A flow whose inputs and settings did not change is
 fresh, and its results come back without running the tool. A run that passed or was rejected by its
 checks is reused. A run that failed runs again. ``--rebuild-all`` and ``--clean`` act on the run
-directories of the host. ``--scrub`` is refused with ``--remote``, because it asks you to confirm
-and a remote launch cannot ask. Run ``xeda remote clean`` to free the space.
+directories of the host. ``--prune-variants`` is refused with ``--remote``, because the run directories are
+on the host. Run ``xeda remote clean`` to remove them and free the space.
 
 The local mirror
 ================

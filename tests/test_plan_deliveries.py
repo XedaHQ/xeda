@@ -21,7 +21,7 @@ from click.testing import CliRunner
 import xeda.deliver as deliver
 from xeda.flow import MetricSpec
 from xeda import Design
-from xeda.cli import _prompt_scrub, cli
+from xeda.cli import _prompt_removal, cli
 from xeda.console import console
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
@@ -30,6 +30,7 @@ from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner, launch_locks
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_dir import RunDirectoryError
+from xeda.workspace import _removal_question
 from xeda.run_root import ensure_run_root
 
 RUNS: List[str] = []
@@ -150,9 +151,9 @@ def world(tmp_path, monkeypatch):
 
 
 def _runner(tmp_path: Path, **settings) -> DefaultRunner:
-    """A launcher that asks the way the command line does (`console.input`), as `--scrub` does."""
+    """A launcher that asks the way `xeda scrub` does (`console.input`)."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
-    runner.confirm_scrub = _prompt_scrub
+    runner.confirm_scrub = lambda candidates: _prompt_removal(_removal_question(candidates))
     return runner
 
 
@@ -590,7 +591,7 @@ def test_a_refusal_keeps_what_it_says_of_the_run_when_it_crosses_a_process(error
 
 
 # ---------------------------------------------------------------------------------------------
-# `--scrub`: the question about the requested flow's own file comes before anything is removed,
+# `--prune-variants`: the question about the requested flow's own file comes before anything is removed,
 # and while no lock is held
 # ---------------------------------------------------------------------------------------------
 
@@ -615,7 +616,7 @@ def _lock_is_held(run_path: Path) -> bool:
 
 def _an_older_variant(world) -> Path:
     """A run directory of another variant of the requested flow, as a hashed layout leaves one: a
-    launch with `--scrub` removes it, once it is confirmed."""
+    launch with `--prune-variants` removes it, once it is confirmed."""
     ensure_run_root(world.root)
     old = world.root / "d" / "t_both_0123456789abcdef"
     old.mkdir(parents=True)
@@ -625,7 +626,7 @@ def _an_older_variant(world) -> Path:
 
 @pytest.fixture
 def questions(monkeypatch) -> list[str]:
-    """The questions of a launch with `--scrub`, in the order they are asked: "replace" for the
+    """The questions of a launch with `--prune-variants`, in the order they are asked: "replace" for the
     replacement of a file (`confirm_overwrite`, which each test installs) and "scrub" for the
     removal of the older runs (`console.input`, answered yes here)."""
     asked: list[str] = []

@@ -34,6 +34,7 @@ from xeda.run_root import ensure_run_root
 
 from .design_edits import design_of_target
 from .flow_registry import preserved_flow_registry
+from .scrub_utils import on_a_terminal
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -61,6 +62,7 @@ def private_registry():
 @pytest.fixture
 def confirmed(monkeypatch):
     monkeypatch.setattr(console, "input", lambda *args, **kwargs: "yes")
+    on_a_terminal(monkeypatch)
 
 
 def snapshot(root: Path) -> dict[str, str]:
@@ -293,7 +295,7 @@ def test_a_scrub_of_a_design_says_which_target_link_it_skipped(tmp_path, leads, 
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     assert document["skipped"] == [str(world.link)]
-    assert document["scrubbed"] == [str(real / SCRUBBED)]
+    assert document["removed"] == [str(real / SCRUBBED)]
     after = snapshot(tmp_path)
     assert {k: v for k, v in after.items() if k.startswith("outside")} == {
         k: v for k, v in world.before.items() if k.startswith("outside")
@@ -328,5 +330,5 @@ def test_a_run_root_that_is_a_link_keeps_working(tmp_path, confirmed):
         cli, ["scrub", SCRUBBED, "d", "--run-root", str(link), "--json"], catch_exceptions=False
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["scrubbed"] == [str(scrubbed)]
+    assert json.loads(result.stdout)["removed"] == [str(scrubbed)]
     assert not scrubbed.exists()

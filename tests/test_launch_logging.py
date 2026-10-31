@@ -206,6 +206,8 @@ def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
 
 
 def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkeypatch) -> None:
+    """The command sets the level of the process, and a remote run with no `log_level` of its own
+    asks the host for the level of the `xeda` logger (`client._log_level`)."""
     from click.testing import CliRunner
 
     from xeda.cli import cli
@@ -214,7 +216,7 @@ def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkey
     given: list = []
 
     def recorded(spec, **arguments):
-        given.append(arguments)
+        given.append((arguments.get("log_level"), client._log_level(None)))
         raise SystemExit(0)
 
     sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
@@ -222,4 +224,4 @@ def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkey
     monkeypatch.setattr(client, "run_remote", recorded)
     args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json", "--log-level", "10"]
     CliRunner().invoke(cli, args, catch_exceptions=False)
-    assert [arguments["log_level"] for arguments in given] == [logging.DEBUG]
+    assert given == [(None, logging.DEBUG)]

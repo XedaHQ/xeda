@@ -463,7 +463,7 @@ print("done", flush=True)
 
 def _launch_variants_scrubbing_at_once(tmp_path: Path, texts: tuple[str, ...], timeout: float):
     """Make one hashed variant of `TMaker` for each of `texts`, then launch every variant again,
-    each as its own process with `--scrub`, all released together: each one removes the others'
+    each as its own process with `--prune-variants`, all released together: each one removes the others'
     run directories and then makes its own. Every launch must succeed."""
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", hashed_run_dirs=True, display_results=False)

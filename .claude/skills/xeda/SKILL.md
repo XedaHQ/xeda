@@ -31,10 +31,12 @@ Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`,
 and `scrub`, `--json` moves tool output and logs to stderr. Table output wraps at the terminal
 width, so parse JSON.
 
-`xeda scrub` and `run --scrub` prompt on stdin and remove nothing unless you type `yes`:
-`echo yes | xeda scrub vivado_synth sqrt --json`. `scrub --json` reports `scrubbed`, `kept`, `gone`
+`xeda scrub` and `run --prune-variants` ask only when stdin and stderr are terminals: with `--json` or without a terminal they remove
+nothing and the log says so, unless you pass `--yes`
+(`xeda scrub vivado_synth sqrt --yes --json`). `--yes` answers no other question: replacing a file that
+`--outputs-to` names needs `--overwrite-outputs`. `scrub --json` reports `removed`, `kept`, `gone`
 and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
-`prune_variants` remove nothing unless the caller passes `confirm` / sets `confirm_scrub`.
+`prune_variants` remove nothing unless the caller passes `confirm` (`Workspace(confirm=...)`).
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=5ns --json | jq '.nodes[-1].record.metrics.fmax'
@@ -406,7 +408,7 @@ environment is tracked (see Environment).
 | Run every flow | `--rebuild-all` |
 | Empty each run directory, then run every flow | `--clean` |
 | Keep variants of the settings or of the design side by side | `--hashed-run-dirs` |
-| Remove the flow's other run directories first (prompts for `yes`) | `--scrub` |
+| Remove the other run directories of every flow of the plan first (asks on a terminal) | `--prune-variants` |
 | Keep only `settings.json`, `results.json` and artifacts afterward | `--post-cleanup` |
 | Remove each run directory afterward | `--post-cleanup-purge` |
 
@@ -522,7 +524,7 @@ Behavior:
   `--rebuild-all` act on the host. A command waits for the workspace lock and logs the launch
   that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
-  `--scrub` (a remote launch cannot ask for the confirmation),
+  `--prune-variants` (the run directories are on the host: use `xeda remote clean`),
   a deliverable setting that names a location (use `--outputs-to`), `rtl.generator.outputs_to` (drop it for the
   remote run, or run locally to get the copies), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a
@@ -577,9 +579,9 @@ A launch that does not pass exits 1 with `outcome` and `error`. A request that s
 `outcome: null`, exits 2 and has the `spec` it could read (`null` for a usage error); a Ctrl-C
 before the launch started exits 1 with the code `canceled`. Branch on
 `error.code`, a stable lower snake case text (the set is open: keep an unknown code as text).
-`references/troubleshooting.md` has the messages and fixes. `dse`, `scrub`, `pdk`, `remote check`
-and `list-*` keep their own documents: on failure they have `success: false` and
-`error.type`/`error.message`.
+`references/troubleshooting.md` has the messages and fixes. `scrub` has its own document with
+`outcome` (`passed`, `failed`, or `null` for a usage error, which exits 2) and the same `error`. `dse`, `pdk`, `remote check` and `list-*` keep
+their own documents: on failure they have `success: false` and `error.type`/`error.message`.
 
 | `error.code` | Do |
 | --- | --- |
@@ -598,7 +600,7 @@ and `list-*` keep their own documents: on failure they have `success: false` and
 | `rejected` | The checks judged the results negative. The metrics are in the record; change the design or settings. |
 | `producer_failed` (on a `blocked` node) | A producer did not pass. The top-level `error` is the producer's own; read its `record`. A blocked flow does not run and keeps its earlier `results.json`. |
 | `remote_failed`, `remote_fetch_failed`, `remote_detached`, `canceled` | A `--remote` run failed outside the flow, could not fetch its result, keeps running on the host, or was canceled. The message names the step and the cause; `references/troubleshooting.md` has the fix. |
-| `remote_unreachable`, `remote_setup_failed`, `unsupported_with_remote` (exit 2, outcome `null`, no nodes) | The host cannot be reached or set up, or the request cannot run on a host: a flow that programs a device here, or (in Python) `prune_variants`, `post_cleanup` or `post_cleanup_purge`. Fix the host (`xeda remote check HOST`), or run that flow here. |
+| `remote_unreachable`, `remote_setup_failed`, `unsupported_with_remote` (exit 2, outcome `null`, no nodes) | The host cannot be reached or set up, or the request cannot run on a host: a flow that programs a device here, or `--prune-variants`, `--post-cleanup` or `--post-cleanup-purge` (`prune_variants`, `post_cleanup`, `post_cleanup_purge` in Python). Fix the host (`xeda remote check HOST`), or run that flow here. |
 | `storage_error` | A file or directory error of the operating system, or a path that leaves the run directory, ended the node (the record may be missing). Check the disk and permissions. |
 | `internal_error` | A bug of Xeda. Report it with the message. |
 

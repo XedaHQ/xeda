@@ -42,7 +42,7 @@ from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
-from .scrub_utils import ask_scrub_design, ask_scrub_runs
+from .scrub_utils import ask_scrub_design, ask_scrub_runs, on_a_terminal
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -71,6 +71,7 @@ def confirmations(monkeypatch):
         return "yes"
 
     monkeypatch.setattr(console, "input", ask)
+    on_a_terminal(monkeypatch)
     return prompts
 
 
@@ -565,6 +566,7 @@ def test_a_directory_replaced_by_a_link_to_a_directory_with_another_name_after_i
         return "yes"
 
     monkeypatch.setattr(console, "input", ask)
+    on_a_terminal(monkeypatch)
     with pytest.raises(RunDirectoryError) as refused:
         ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert str(refused.value) == (
@@ -583,6 +585,7 @@ def test_scrub_json_lists_the_links_it_skipped_and_says_why_on_stderr(tmp_path, 
     link = world.link(True)
     link.symlink_to(world.other_target, target_is_directory=True)
     monkeypatch.setattr(console, "input", lambda *a, **k: "yes")
+    on_a_terminal(monkeypatch)
     result = CliRunner().invoke(
         cli,
         ["scrub", FLOW, "d", "--target", "a", "--run-root", str(world.root), "--json"],
@@ -591,9 +594,9 @@ def test_scrub_json_lists_the_links_it_skipped_and_says_why_on_stderr(tmp_path, 
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     assert document["skipped"] == [str(link)]
-    assert document["scrubbed"] == [str(world.sibling)]
+    assert document["removed"] == [str(world.sibling)]
     assert document["kept"] == [] and document["gone"] == []
-    assert link not in [Path(p) for p in document["scrubbed"]]
+    assert link not in [Path(p) for p in document["removed"]]
     assert (
         f"skipped {link}: it is a link to {world.other_target.resolve()}, which is not a "
         f"directory {RULE} in {world.parent.resolve()}"
@@ -603,6 +606,7 @@ def test_scrub_json_lists_the_links_it_skipped_and_says_why_on_stderr(tmp_path, 
 def test_scrub_json_has_an_empty_skipped_list_when_there_is_none(tmp_path, monkeypatch):
     world = World(tmp_path)
     monkeypatch.setattr(console, "input", lambda *a, **k: "yes")
+    on_a_terminal(monkeypatch)
     result = CliRunner().invoke(
         cli,
         ["scrub", FLOW, "d", "--target", "a", "--run-root", str(world.root), "--json"],
@@ -620,6 +624,7 @@ def test_a_link_is_said_even_when_the_removal_is_declined_or_there_is_nothing_to
     link.symlink_to(world.design, target_is_directory=True)
     asked: list = []
     monkeypatch.setattr(console, "input", lambda *a, **k: asked.append(a) or "no")
+    on_a_terminal(monkeypatch)
     result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     assert result.skipped == [link] and result.removed == [] and asked == []
     assert any(line.startswith(f"skipped {link}: ") for line in said)
@@ -630,6 +635,7 @@ def test_a_launch_s_scrub_says_a_link_it_skips(tmp_path, monkeypatch, said):
     link = world.link(True)
     link.symlink_to(world.victims["a directory with another name"], target_is_directory=True)
     monkeypatch.setattr(console, "input", lambda *a, **k: "yes")
+    on_a_terminal(monkeypatch)
     assert ask_scrub_runs(FLOW, world.parent, run_root=world.root) is True
     assert link.is_symlink() and not world.sibling.exists()
     assert any(line.startswith(f"skipped {link}: it is a link to ") for line in said)
@@ -661,7 +667,7 @@ NAMES_OF_ONE_DIRECTORY = {
 
 @pytest.mark.parametrize("names", NAMES_OF_ONE_DIRECTORY.values(), ids=NAMES_OF_ONE_DIRECTORY)
 def test_a_launch_s_scrub_removes_a_directory_and_every_link_to_it(tmp_path, confirmations, names):
-    """`--scrub` lists a directory once, whatever it is called. It used to remove the directory
+    """`--prune-variants` lists a directory once, whatever it is called. It used to remove the directory
     and then fail on a link to it, which led nowhere by then, and the launch stopped."""
     world = World(tmp_path)
     links = a_directory_with_links(world, *names)
@@ -696,7 +702,7 @@ def test_scrub_names_every_name_of_a_directory_before_it_asks(tmp_path, confirma
     ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
     listing = "\n".join(said)
     assert all(str(name) in listing for name in (world.sibling, *links))
-    assert "1 folders removed." in said[-1]
+    assert "1 run directory removed." in said[-1]
 
 
 def test_a_name_that_changed_while_scrub_waited_for_the_lock_is_refused_and_nothing_is_removed(

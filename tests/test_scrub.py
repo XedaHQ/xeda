@@ -113,7 +113,7 @@ def test_scrub_runs_does_not_match_longer_flow_name(tmp_path, monkeypatch):
 # ------------------------------------------------------------------------------- CLI-level tests
 
 
-def _run_xeda(*args: str, cwd=None, input_text: str = "yes\n") -> subprocess.CompletedProcess:
+def _run_xeda(*args: str, cwd=None, input_text: str = "") -> subprocess.CompletedProcess:
     """Invoke the Xeda CLI for scrub tests."""
     env = dict(os.environ, COLUMNS="80")
     return subprocess.run(
@@ -141,6 +141,7 @@ def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
         "foo",
         "--run-root",
         str(run_root),
+        "--yes",
         "--json",
     )
 
@@ -149,7 +150,7 @@ def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
         document = json.loads(proc.stdout)
     except json.JSONDecodeError as e:
         pytest.fail(f"stdout was not a single JSON document ({e})\nstdout:\n{proc.stdout}")
-    assert document["success"] is True
+    assert document["outcome"] == "passed"
 
     assert not dirs["vivado_synth"].exists()
     assert not dirs["vivado_synth_0123456789abcdef"].exists()
@@ -197,5 +198,5 @@ def test_scrub_refuses_a_design_name_that_leads_out_of_the_run_root(tmp_path, mo
     result = CliRunner().invoke(
         cli, ["scrub", "verilator", "..", "--run-root", str(tmp_path / "xeda_run"), "--json"]
     )
-    assert json.loads(result.stdout)["success"] is False
+    assert json.loads(result.stdout)["outcome"] == "failed"
     assert (tmp_path / "verilator" / "keep.txt").read_text() == "mine\n"

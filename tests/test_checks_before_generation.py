@@ -24,6 +24,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse import Dse
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
+from xeda.project import Project
 
 from .scoping import node_settings
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
@@ -390,8 +391,7 @@ def test_a_project_s_design_generates_once(tmp_path, monkeypatch):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     flow = runner.run(
         "vivado_synth",
-        spec["name"],
-        xedaproject=str(project),
+        Project.load(project).design(spec["name"]),
         flow_settings=node_settings("vivado_synth", dict(XILINX)),
     )
     assert flow is not None and flow.succeeded

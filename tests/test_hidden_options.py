@@ -88,7 +88,7 @@ def test_a_mistyped_option_still_suggests_the_options_the_command_has():
     result = CliRunner().invoke(cli, ["run", "--run-dirs"])
     text = click.unstyle(result.output)
 
-    assert "Did you mean one of: '--hashed-run-dirs', '--run-root'?" in text
+    assert "Did you mean one of: '--hashed-run-dirs', '--prune-variants', '--run-root'?" in text
     assert "--xeda-run-dir" not in text
 
 

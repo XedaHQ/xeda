@@ -362,7 +362,7 @@ def test_a_subprocess_dry_run_never_invokes_tools_or_delivers(
         "--dry-run",
         "--json",
         "--clean",
-        "--scrub",
+        "--prune-variants",
         "--outputs-to",
         str(tmp_path / "out"),
         *(["-s", "nextpnr.fpga.family=unknown"] if invalid_target else []),

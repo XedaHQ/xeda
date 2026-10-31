@@ -13,7 +13,6 @@ from xeda.tool import Tool
 from xeda.units import Time
 
 from .bluespec_sources import COUNTER_BSV
-from .launch_utils import empty_project
 from .tool_utils import fake_calls, require_bsc, use_fake_tools
 from .scoping import node_settings
 
@@ -398,7 +397,6 @@ def test_vivado_sim_reads_what_bsc_converted_in_the_chain_bsc_vivado_sim(tmp_pat
     flow = runner.run(
         "bsc+vivado_sim",
         design,
-        empty_project(tmp_path),
         flow_settings=node_settings("bsc+vivado_sim", {"prerun_time": "10ns", "stop_time": "20ns"}),
     )
     assert flow is not None and flow.succeeded, getattr(flow, "results", None)

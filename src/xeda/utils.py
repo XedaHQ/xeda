@@ -88,6 +88,9 @@ __all__ = [
     "ToolException",
     "NonZeroExitCode",
     "ExecutableNotFound",
+    # logging
+    "ShortLoggerNames",
+    "logs_are_detailed",
     # etc
     "expand_env_vars",
     "parse_patterns",
@@ -173,6 +176,29 @@ def replacing_file(
     finally:
         if not committed:
             _discard(temporary)
+
+
+class ShortLoggerNames(logging.Formatter):
+    """A formatter that shows a log record with its logger name shortened (`xeda.flow` as `flow`).
+    It formats a copy of the record. The record itself, which every other handler of the process
+    also receives, keeps the name of its logger."""
+
+    def __init__(self, formatter: logging.Formatter) -> None:
+        super().__init__()
+        self.formatter = formatter
+
+    def format(self, record: logging.LogRecord) -> str:
+        shown = logging.makeLogRecord(record.__dict__)
+        shown.name = removeprefix(record.name, "xeda.")
+        return self.formatter.format(shown)
+
+
+def logs_are_detailed() -> bool:
+    """Return whether the logging of this process is detailed, as `--detailed-logs` sets it up: a
+    handler of the root logger shows the names of the loggers (`ShortLoggerNames`). The command
+    line makes this choice for the logs of the process, and a remote launch gives the host the
+    same choice, as it does the level of the `xeda` logger."""
+    return any(isinstance(h.formatter, ShortLoggerNames) for h in logging.getLogger().handlers)
 
 
 @contextmanager

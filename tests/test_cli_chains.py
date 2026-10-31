@@ -11,6 +11,7 @@ from click.testing import CliRunner
 from xeda.design import DesignFileParseError
 from xeda.cli import cli
 from xeda.flow import FlowSettingsException
+from xeda.project import Project
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -255,7 +256,9 @@ def test_a_project_binding_of_the_requested_node_given_to_dse_fetches_no_git_dep
         )
     )
     with pytest.raises(FlowSettingsException, match="local `xeda run` requests"):
-        _dse_runner(tmp_path).run("t_taker", "d", xedaproject=str(tmp_path / "xedaproject.yaml"))
+        _dse_runner(tmp_path).run(
+            "t_taker", Project.load(tmp_path / "xedaproject.yaml").design("d")
+        )
     assert not fetched and not (tmp_path / "mirror").exists()
 
 

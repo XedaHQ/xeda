@@ -91,7 +91,7 @@ from ..records import CANCELED, ErrorInfo, decode_record
 from ..run_dir import RunDirectory, refuse_link_on_way
 from ..remote_value import Remote
 from ..spec import Spec
-from ..utils import Canceled
+from ..utils import Canceled, logs_are_detailed
 from .constants import HEARTBEAT, LAYOUT
 from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
 from .errors import (
@@ -1380,8 +1380,8 @@ def _print_dry_run(host: str, uploaded: Sequence[str]) -> None:
 
 
 def _refuse_unsupported(options: LaunchOptions) -> None:
-    """Refuse the options that remove run directories: they are on the host, and a remote launch
-    cannot ask the user to confirm the removal."""
+    """Refuse the options that remove run directories: they are on the host, and `xeda remote
+    clean` removes them."""
     for name in ("prune_variants", "post_cleanup", "post_cleanup_purge"):
         if getattr(options, name):
             raise SpecError(
@@ -1430,6 +1430,12 @@ def _log_level(log_level: Optional[int]) -> int:
     return logging.getLogger("xeda").getEffectiveLevel() if log_level is None else log_level
 
 
+def _detailed_logs(detailed_logs: Optional[bool]) -> bool:
+    """Whether the logs that the host sends are detailed: as the logging of this process is,
+    unless given (`logs_are_detailed`)."""
+    return logs_are_detailed() if detailed_logs is None else detailed_logs
+
+
 def _asked(workspace: WorkspaceOptions) -> Optional[Callable[[Sequence[Conflict]], bool]]:
     """The question about the files in the way of `outputs_to`, as the workspace answers it."""
     answer = workspace.confirm
@@ -1446,13 +1452,14 @@ def run_remote(
     cancel: Optional[CancelToken] = None,
     on_event: Optional[Callable[[Event], None]] = None,
     log_level: Optional[int] = None,
-    detailed_logs: bool = False,
+    detailed_logs: Optional[bool] = None,
 ) -> Result:
     """Run `spec` on the host of `workspace.remote` and return what the launch did to every node.
 
     The host is `workspace.remote` (a `Remote`, which holds its profile, `fetch_all` and
     `keep_running`). `log_level` is the level of the logs that the host sends: the level of the
-    `xeda` logger without it.
+    `xeda` logger without it. `detailed_logs` is whether they are detailed: as the logging of this
+    process is without it (`logs_are_detailed`).
 
     A failure after the launch was sent to the host is a launch-level error of the `Result`
     (`remote_failed`, `remote_fetch_failed`, `delivery_failed`, `canceled`, or `remote_detached`
@@ -1464,6 +1471,7 @@ def run_remote(
     an identical one that keeps running, which this call then follows. An exception of `on_event`
     cancels the launch and is raised again."""
     level = _log_level(log_level)
+    detailed = _detailed_logs(detailed_logs)
     remote = _remote_of(workspace)
     run = _request_run(spec, remote.host, level)
     progress = _Progress("", cancel, on_event)
@@ -1482,7 +1490,7 @@ def run_remote(
                     options=options,
                     remote=remote,
                     log_level=level,
-                    detailed_logs=detailed_logs,
+                    detailed_logs=detailed,
                     dry_run=False,
                     progress=progress,
                 ),
@@ -1501,7 +1509,7 @@ def plan_remote(
     workspace: WorkspaceOptions,
     options: LaunchOptions,
     log_level: Optional[int] = None,
-    detailed_logs: bool = False,
+    detailed_logs: Optional[bool] = None,
 ) -> Plan:
     """Ask the host of `workspace.remote` to plan `spec`, and return its `Plan`.
 
@@ -1510,6 +1518,7 @@ def plan_remote(
     its Git dependencies. Every failure raises, as a failure of `run_remote` before its launch
     started does."""
     level = _log_level(log_level)
+    detailed = _detailed_logs(detailed_logs)
     remote = _remote_of(workspace)
     run = _request_run(spec, remote.host, level)
     try:
@@ -1522,7 +1531,7 @@ def plan_remote(
             options=options,
             remote=remote,
             log_level=level,
-            detailed_logs=detailed_logs,
+            detailed_logs=detailed,
             dry_run=True,
             progress=None,
         )

@@ -1,8 +1,9 @@
 """The library never prompts. An unanswered confirmation of scrub answers "no".
 
-Only the command line asks the user, through the confirmation it passes (`ScrubConfirmation`).
-A caller without a terminal (a notebook, a CI job, a pipe) removes nothing, and the command line
-refuses `--scrub` with `--remote`, since the host cannot ask.
+Only the command line asks the user, through the confirmation it passes (`ScrubConfirmation`), and
+only on a terminal. A caller without a terminal (a notebook, a CI job, a pipe) removes nothing, and
+the command line refuses `--prune-variants` with `--remote`, since the run directories are on the
+host.
 """
 
 import ast
@@ -22,6 +23,7 @@ from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
+from .scrub_utils import on_a_terminal
 
 FLOW = "vivado_synth"
 SRC = Path(__file__).parent.parent / "src" / "xeda"
@@ -155,21 +157,79 @@ def _invoke_scrub(run_root: Path, text: str):
     )
 
 
-def test_the_command_removes_on_yes(tree):
-    run_root, _design_dir, directories = tree
-    result = _invoke_scrub(run_root, "yes\n")
-    assert json.loads(result.stdout)["success"] is True
-    assert not any(directory.exists() for directory in directories)
+NO_TERMINAL = (
+    "Not removing 2 run directories: no terminal to ask on. Run the command in a terminal, pass "
+    "--yes, or call Workspace(confirm=...) from Python to answer the question."
+)
 
 
-@pytest.mark.parametrize("text", ["", "no\n"])
-def test_the_command_removes_nothing_without_a_yes(tree, text):
-    """No input at all (stdin at its end) is a no, not an error. The one JSON document says that
-    nothing was scrubbed."""
+@pytest.mark.parametrize("text", ["yes\n", ""], ids=["piped-yes", "no-input"])
+def test_the_command_without_a_terminal_removes_nothing_and_says_why(tree, caplog, text):
+    """A pipe is no terminal, so `echo yes | xeda scrub` answers nothing. The warning is the one
+    of the prune of `xeda run`."""
     run_root, _design_dir, directories = tree
     result = _invoke_scrub(run_root, text)
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["scrubbed"] == []
+    assert document["outcome"] == "passed" and document["removed"] == []
+    assert NO_TERMINAL in [record.getMessage() for record in caplog.records]
+    assert _all_exist(directories)
+
+
+@pytest.mark.parametrize(
+    "count, summary", [(1, "1 run directory removed."), (2, "2 run directories removed.")]
+)
+def test_the_command_says_how_many_run_directories_it_removed(tmp_path, count, summary):
+    run_root = ensure_run_root(tmp_path / "xeda_run")
+    assert run_root is not None
+    for name in [FLOW, f"{FLOW}_0123456789abcdef"][:count]:
+        (run_root / "sqrt" / name).mkdir(parents=True)
+        (run_root / "sqrt" / name / "results.json").write_text("{}")
+    result = CliRunner().invoke(
+        cli, ["scrub", FLOW, "sqrt", "--run-root", str(run_root), "--yes", "--json"]
+    )
+    assert summary in result.stderr
+
+
+def test_the_command_removes_on_yes(tree, monkeypatch):
+    on_a_terminal(monkeypatch)
+    run_root, _design_dir, directories = tree
+    result = _invoke_scrub(run_root, "yes\n")
+    assert json.loads(result.stdout)["outcome"] == "passed"
+    assert not any(directory.exists() for directory in directories)
+
+
+def test_the_command_removes_with_yes_and_asks_nothing(tree, no_terminal):
+    """`--yes` answers the question: no input is read, also with a closed standard input."""
+    run_root, _design_dir, directories = tree
+    result = CliRunner().invoke(
+        cli, ["scrub", FLOW, "sqrt", "--run-root", str(run_root), "--yes", "--json"]
+    )
+    document = json.loads(result.stdout)
+    assert document["outcome"] == "passed" and sorted(document["removed"]) == sorted(
+        str(directory) for directory in directories
+    )
+    assert not any(directory.exists() for directory in directories)
+
+
+def test_the_command_that_cannot_read_an_answer_says_that_yes_removes_without_asking(
+    tree, monkeypatch
+):
+    on_a_terminal(monkeypatch)
+    run_root, _design_dir, directories = tree
+    result = _invoke_scrub(run_root, "")
+    assert "Pass --yes to remove without asking." in result.stderr
+    assert _all_exist(directories)
+
+
+@pytest.mark.parametrize("text", ["", "no\n"])
+def test_the_command_removes_nothing_without_a_yes(tree, monkeypatch, text):
+    """No input at all (stdin at its end) is a no, not an error. The one JSON document says that
+    nothing was scrubbed."""
+    on_a_terminal(monkeypatch)
+    run_root, _design_dir, directories = tree
+    result = _invoke_scrub(run_root, text)
+    document = json.loads(result.stdout)
+    assert document["outcome"] == "passed" and document["removed"] == []
     assert _all_exist(directories)
 
 
@@ -178,6 +238,7 @@ def test_the_command_removes_nothing_without_a_yes(tree, text):
 )
 def test_the_command_removes_nothing_when_the_input_cannot_be_read(tree, monkeypatch, error):
     """A closed or broken standard input is a no, as an input at its end is."""
+    on_a_terminal(monkeypatch)
     run_root, _design_dir, directories = tree
 
     def unreadable(*args, **kwargs):
@@ -186,7 +247,7 @@ def test_the_command_removes_nothing_when_the_input_cannot_be_read(tree, monkeyp
     monkeypatch.setattr(console, "input", unreadable)
     result = _invoke_scrub(run_root, "")
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["scrubbed"] == []
+    assert document["outcome"] == "passed" and document["removed"] == []
     assert _all_exist(directories)
 
 
@@ -202,7 +263,8 @@ class _ClosedInput(io.BytesIO):
     read1 = readline = readinto = read
 
 
-def test_the_command_removes_nothing_when_standard_input_is_closed(tree):
+def test_the_command_removes_nothing_when_standard_input_is_closed(tree, monkeypatch):
+    on_a_terminal(monkeypatch)
     run_root, _design_dir, directories = tree
     result = CliRunner().invoke(
         cli,
@@ -210,7 +272,7 @@ def test_the_command_removes_nothing_when_standard_input_is_closed(tree):
         input=_ClosedInput(),
     )
     document = json.loads(result.stdout)
-    assert document["success"] is True and document["scrubbed"] == []
+    assert document["outcome"] == "passed" and document["removed"] == []
     assert _all_exist(directories)
 
 

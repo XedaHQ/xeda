@@ -4,7 +4,6 @@ An option takes a value only when the value is data; a behavior switch is a flag
 the directory holding every run, a run directory one flow's.
 """
 
-import inspect
 import itertools
 import json
 import os
@@ -16,7 +15,6 @@ import pytest
 from click.testing import CliRunner
 from pydantic import ValidationError
 
-from xeda import cli as cli_module
 from xeda.cli import cli, dse, run, scrub
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
@@ -49,9 +47,11 @@ def _invoke(args, env=None):
 
 def _refused(command, document, message):
     """Check the document of a usage error. `run` prints the document of a launch that did not
-    start, with the code `usage_error`. Every other command prints `success` and the error type."""
-    if command == "run":
-        assert document["outcome"] is None and document["spec"] is None
+    start, and `scrub` the document of a scrub that did not start, both with the code
+    `usage_error`. Every other command prints `success` and the error type."""
+    if command in ("run", "scrub"):
+        assert document["outcome"] is None
+        assert document["spec"] is None if command == "run" else document["removed"] == []
         assert document["error"]["code"] == "usage_error"
         assert document["error"]["message"] == message
     else:
@@ -142,14 +142,6 @@ def test_an_exploration_has_one_default_run_root(start):
 
 # ------------------------------------------------------------------------------ the oracle
 
-#: `xeda run` options configuring the launcher under another name than a setting of theirs
-LAUNCHER_NAME_EXCEPTIONS = {
-    "--scrub": {"prune_variants"},
-    "--cwd": {"run_path", "dump_settings_json"},
-}
-#: options with which `xeda run` launches nothing locally, and `--design-name`, which cannot be
-#: given with the `DESIGN` argument that every case here has (it selects no launcher setting)
-NOT_A_LOCAL_LAUNCH = {"--remote", "--fetch-all", "--keep-running", "--dry-run", "--design-name"}
 #: the environment variables each command reads; `XEDA_RUN_DIR` only to refuse it
 DECLARED_ENVVARS = {
     "run": {
@@ -183,68 +175,11 @@ def _envvars(param: click.Parameter) -> set:
     return {envvar} if isinstance(envvar, str) else set(envvar or ())
 
 
-def _non_default(option: click.Option, tmp_path: Path) -> list:
-    """The option as given on the command line, with a value other than its default."""
-    if option.is_flag:
-        return [option.secondary_opts[0] if option.default is True else option.opts[0]]
-    if isinstance(option.type, click.Path):
-        if option.name == "xedaproject":  # the command line reads the project file it names
-            project = tmp_path / "project.yaml"
-            project.write_text("flows: {}\n")
-            return [option.opts[0], str(project)]
-        if option.name == "config":  # the command line reads the file it names, which must exist
-            config = tmp_path / "config.yaml"
-            config.write_text("flows: {}\n")
-            return [option.opts[0], str(config)]
-        if option.type.exists:
-            return [option.opts[0], str(SQRT)]
-        return [option.opts[0], str(tmp_path / option.name)]
-    if option.type is click.INT:
-        return [option.opts[0], "30"]
-    if option.type is click.STRING:
-        return [option.opts[0], "x"]
-    return [option.opts[0], "a=1"]  # KEY=VALUE lists
-
-
-def test_the_launcher_options_are_named_as_its_settings(start, monkeypatch):
-    """(1) Every `xeda run` option that configures the launcher has the name of the setting it
-    sets (or of the launcher's own parameter, the run root), or is in an explicit table; every
-    other option leaves the launcher's configuration alone. (2) None of them is a choice."""
-    seen: list = []
-
-    class Recording(DefaultRunner):
-        def resolve_run(self, *args, **kwargs):
-            seen.append({"run_root": self.run_root, **self.settings.model_dump()})
-            raise RuntimeError("the configuration is recorded; launch nothing")
-
-    monkeypatch.setattr(cli_module, "DefaultRunner", Recording)
-    fields = set(DefaultRunner.Settings.model_fields) | {
-        name
-        for name in inspect.signature(DefaultRunner.__init__).parameters
-        if name not in ("self", "kwargs")
-    }
-    assert "run_root" in fields
-
-    def configuration(*args) -> dict | None:
-        seen.clear()
-        CliRunner().invoke(cli, [*COMMANDS["run"], *args])
-        return seen[0] if seen else None
-
-    baseline = configuration()
-    assert baseline is not None
+def test_no_option_of_run_is_a_choice_between_behaviors():
+    """(2) A behavior switch is a flag. The names that set an API parameter are checked in
+    `test_cli_on_api`."""
     for option in _options(run):
         assert not isinstance(option.type, click.Choice), option.opts
-        name = option.opts[0]
-        if name in NOT_A_LOCAL_LAUNCH:
-            continue
-        configured = configuration(*_non_default(option, start))
-        assert configured is not None, name
-        changed = {key for key in baseline if configured[key] != baseline[key]}
-        own = option.name if option.name in fields else None
-        expected = LAUNCHER_NAME_EXCEPTIONS.get(name, {own} if own else set())
-        assert changed == expected, name
-        if own:
-            assert name == "--" + own.replace("_", "-")
 
 
 @pytest.mark.parametrize("command", [run, dse, scrub], ids=lambda c: c.name)

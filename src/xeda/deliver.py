@@ -75,6 +75,7 @@ from .flow import Flow, FlowSettingsError
 from .flow.flow import WrittenLeaf, map_written_leaves, output_name, resolved_template
 from .records import RunRecord, read_record, stored_outputs
 from .run_root import is_run_root
+from .types import Question
 from .utils import XedaException, copy_fd, json_encodable, with_json_keys
 
 log = logging.getLogger(__name__)
@@ -166,11 +167,15 @@ class Conflict:
     why: str
 
 
-def overwrite_question(conflicts: Sequence[Conflict]) -> str:
+def overwrite_question(conflicts: Sequence[Conflict]) -> Question:
     """Return the question that asks whether to replace the files in the way of the deliveries."""
     lines = [f"Xeda would replace {len(conflicts)} file(s) at the output paths you named:"]
     lines += [f"  {c.destination}   {c.why}" for c in conflicts]
-    return "\n".join([*lines, "Replace them?"])
+    return Question(
+        "\n".join([*lines, "Replace them?"]),
+        removal=False,
+        undone=f"Not replacing {len(conflicts)} file{'' if len(conflicts) == 1 else 's'}",
+    )
 
 
 @dataclass(frozen=True)

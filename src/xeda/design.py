@@ -3363,6 +3363,9 @@ class Design(XedaBaseModel):
     #: The design as written, with its dotted keys expanded and its `targets` still in it: what
     #: `with_target` selects from.
     _declared: dict[str, Any] = PrivateAttr(default_factory=dict)
+    # True when `tb.cocotb` is a table that the design derived from a `Cocotb` source, not one
+    # that it declared: an update derives it again.
+    _cocotb_derived: bool = PrivateAttr(default=False)
     #: Complete RTL snapshots for targets that supply a generator, classified from written entries.
     _target_rtl: dict[str, Any] = PrivateAttr(default_factory=dict)
     #: The names of the targets that the design defines.
@@ -3793,12 +3796,17 @@ class Design(XedaBaseModel):
                 data = Design.process_dict(data)
             except (ValueError, TypeError, AssertionError) as e:
                 raise invalid(None, str(e)) from e
+            tb_written = data.get("tb")
+            declares_cocotb = (
+                isinstance(tb_written, Mapping) and tb_written.get("cocotb") is not None
+            )
             try:
                 super().__init__(**data)
             except ValidationError as e:
                 raise DesignValidationError(
                     _design_errors(e.errors()), data=data, root=root_path
                 ) from e
+        self._cocotb_derived = not declares_cocotb and self.tb.cocotb is not None
         self._root = root_path
         self._declared = declared
         self._target_rtl = target_rtl if target_rtl is not None else {}
@@ -3970,6 +3978,8 @@ class Design(XedaBaseModel):
 
         Raises `DesignValidationError` for a key that a design does not have."""
         data = self._document("python")
+        if self._cocotb_derived:
+            del data["tb"]["cocotb"]  # the updated sources derive it again
         if self.target is not None:
             data["target"] = self.target
         step = self._resolved_update(data, updates, self.root)

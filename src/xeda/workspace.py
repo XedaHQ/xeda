@@ -21,13 +21,14 @@ from .events import Event
 from .outcomes import Result
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.plan_check import workspace_difference
+from .flow_runner.scrub import log_removed
 from .local_settings import LocalSettings
 from .plan import Plan, dependency_entries, plan_of
 from .remote_value import Remote
 from .records import RecordProblem, RunListing, RunRecord, read_record, read_stored_record
 from .run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from .spec import Spec
-from .types import UNSET, PathLike, Unset
+from .types import UNSET, PathLike, Question, Unset
 
 __all__ = ["Workspace"]
 
@@ -37,20 +38,23 @@ if TYPE_CHECKING:
     from .flow_runner.scrub import ScrubCandidate, ScrubResult
 
 
-def _prune_question(candidates: "Sequence[ScrubCandidate]") -> str:
-    lines = [f"Xeda would remove these {len(candidates)} run directories:"]
+def _listing(header: str, candidates: "Sequence[ScrubCandidate]") -> list[str]:
+    lines = [header]
     for candidate in candidates:
         lines.append(f"  {candidate.path}")
         lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
-    return "\n".join([*lines, "Remove them?"])
+    return lines
 
 
-def _removal_question(candidates: "Sequence[ScrubCandidate]") -> str:
-    lines = [f"Xeda would remove these {len(candidates)} directories:"]
-    for candidate in candidates:
-        lines.append(f"  {candidate.path}")
-        lines += [f"  {alias} (another name of the same directory)" for alias in candidate.aliases]
-    return "\n".join([*lines, "Remove them?"])
+def _removal_question(candidates: "Sequence[ScrubCandidate]") -> Question:
+    count = len(candidates)
+    what = "this run directory" if count == 1 else f"these {count} run directories"
+    lines = _listing(f"Xeda would remove {what}:", candidates)
+    return Question(
+        "\n".join([*lines, "Remove it?" if count == 1 else "Remove them?"]),
+        removal=True,
+        undone=f"Not removing {count} run director{'y' if count == 1 else 'ies'}",
+    )
 
 
 def _checked_design_name(name: str) -> str:
@@ -76,7 +80,8 @@ class Workspace:
     `hashed_run_dirs` adds the hash of the run to the name of a run directory. `tool_output` is
     `"log"` (a tool writes only to the log files of its run directory) or `"terminal"` (it also
     writes to the output and error streams of this process). `confirm` answers the questions that
-    a launch asks, and `None` answers "no". `remote` is the host that runs the launches (a
+    a launch asks, and `None` answers "no". It gets a `Question`, which is a `str`. Its `removal`
+    is true when a yes removes run directories. `remote` is the host that runs the launches (a
     `Remote`). Planning and running then happen on that host, and the run directories of a launch
     are in the mirror `<run root>/@<host>` here. `local_settings` are the private settings layers,
     as `local_settings()` reads them."""
@@ -84,7 +89,7 @@ class Workspace:
     run_root: Path
     hashed_run_dirs: bool
     tool_output: Literal["log", "terminal"]
-    confirm: Callable[[str], bool] | None
+    confirm: Callable[[Question], bool] | None
     remote: Remote | None
     local_settings: LocalSettings | None
 
@@ -94,7 +99,7 @@ class Workspace:
         *,
         hashed_run_dirs: bool = False,
         tool_output: Literal["log", "terminal"] = "log",
-        confirm: Callable[[str], bool] | None = None,
+        confirm: Callable[[Question], bool] | None = None,
         remote: Remote | None = None,
         local_settings: LocalSettings | None = None,
     ) -> None:
@@ -193,10 +198,10 @@ class Workspace:
         )
         self._refuse_project_run_root(spec)
         if self.remote is not None:
-            from .remote.client import plan_remote
+            from .remote import client
 
             try:
-                return plan_remote(spec, workspace=self._options(), options=options)
+                return client.plan_remote(spec, workspace=self._options(), options=options)
             except Exception as error:
                 public = public_error(error)
                 if public is error:
@@ -314,10 +319,11 @@ class Workspace:
         if self.remote is not None:
             return self._run_remote(spec, options, expected, cancel, on_event)
         runner = self._runner(DefaultRunner)
+        runner.scrub_done = log_removed
         if self.confirm is not None:
             answer = self.confirm
             runner.confirm_overwrite = lambda conflicts: answer(overwrite_question(conflicts))
-            runner.confirm_scrub = lambda candidates: answer(_prune_question(candidates))
+            runner.confirm_scrub = lambda candidates: answer(_removal_question(candidates))
         from_callback: list[Exception] = []
 
         def relay(event: Event) -> None:
@@ -359,7 +365,7 @@ class Workspace:
         from .flow_runner.error_codes import plain_message, public_error
         from .flow_runner.plan_check import plan_difference
         from .proc_utils import TOOL_OUTPUT
-        from .remote.client import plan_remote, run_remote
+        from .remote import client
 
         from_callback: list[Exception] = []
 
@@ -377,7 +383,7 @@ class Workspace:
                 cause: Exception | None = None
                 difference: str | None
                 try:
-                    fresh = plan_remote(spec, workspace=self._options(), options=options)
+                    fresh = client.plan_remote(spec, workspace=self._options(), options=options)
                 except Exception as error:
                     # A request that the host refuses now is a difference. Any other failure (a
                     # host that cannot be reached) is no statement about the plan.
@@ -393,7 +399,7 @@ class Workspace:
                         code="stale_plan",
                         difference=difference,
                     ) from cause
-            return run_remote(
+            return client.run_remote(
                 spec,
                 workspace=self._options(),
                 options=options,
@@ -482,17 +488,25 @@ class Workspace:
         one that is gone when its turn comes is `gone`. A link that is named like a run directory
         but leads elsewhere is `skipped`, and is not followed.
 
-        Raise `FlowNotFoundError` for a `flow` that is no flow, `RunRootError` for a link where the
-        run directories or the storages lie, and `LeaseHeldError` in a thread that holds a lock of
+        The name of a flow that was removed from Xeda is a name too, because the run directories
+        that the flow left are still there. Any spelling of that name works (`OpenXC7`, `open-xc7`),
+        as it does for `xeda scrub`. Raise `FlowNotFoundError` for a `flow` that is no flow (also
+        for another spelling of a flow that exists), `RunRootError` for a link where the run
+        directories or the storages lie, and `LeaseHeldError` in a thread that holds a lock of
         Xeda (a callback of `run`)."""
         from .flow_runner import default_runner
         from .flow_runner.error_codes import public_error
         from .flow_runner.run_lock import refuse_if_held
         from .flow_runner.scrub import scrub_design
+        from .flow_runner.settings_layers import FlowRemovedError
 
         refuse_if_held()
         if not isinstance(flow, Unset):
-            default_runner.get_flow_class(flow)
+            try:
+                default_runner.get_flow_class(flow)
+            except FlowRemovedError as removed:
+                # The flow is gone and its run directories are not, and a scrub removes directories.
+                flow = removed.flow_name or flow
         answer = self.confirm
         try:
             return scrub_design(

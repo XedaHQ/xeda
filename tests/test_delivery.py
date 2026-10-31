@@ -2133,8 +2133,28 @@ def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):
     assert replaced["outcome"] == "passed" and edited.read_text() != "my edit\n"
 
 
+def test_without_a_terminal_a_file_in_the_way_is_not_replaced_and_yes_does_not_answer(
+    sqrt_copy, caplog
+):
+    """`--yes` answers the question of a removal only. The log names `--overwrite-outputs`."""
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "vivado_synth.fpga.part=xc7a12tcsg325-1"]
+    args += ["--outputs-to", "got", "--json"]
+    first = json.loads(CliRunner().invoke(cli, args).stdout)
+    edited = Path(first["nodes"][0]["deliveries"][0]["destination"])
+    edited.write_text("my edit\n")
+    refused = CliRunner().invoke(cli, [*args, "--yes"])
+    assert refused.exit_code == 2
+    assert json.loads(refused.stdout)["error"]["code"] == "delivery_refused"
+    assert edited.read_text() == "my edit\n"
+    assert (
+        "Not replacing 1 file: no terminal to ask on. Run the command in a terminal, pass "
+        "--overwrite-outputs, or call Workspace(confirm=...) from Python to answer the question."
+    ) in [record.getMessage() for record in caplog.records]
+
+
 def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, capsys):
-    from xeda.cli import _prompt_overwrite
+    from xeda.cli import _prompt_question
+    from xeda.deliver import overwrite_question
 
     destination = Path("/u/sqrt.bit")
     conflict = Conflict(
@@ -2143,7 +2163,7 @@ def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, 
         "not recorded as delivered from sqrt: yours, or another run's",
     )
     monkeypatch.setattr("click.confirm", lambda text, default, err: default)
-    assert _prompt_overwrite([conflict]) is False
+    assert _prompt_question(overwrite_question([conflict])) is False
     assert "/u/sqrt.bit" in capsys.readouterr().err
 
 
@@ -2247,6 +2267,26 @@ def test_a_loaded_private_settings_file_is_never_a_destination_even_with_overwri
             local_settings=settings,
         )
     assert private.read_text() == "flows: {}\n" and RUNS == []
+
+
+def test_the_project_file_of_a_design_file_is_never_a_destination_even_with_overwrite_outputs(
+    world, tmp_path
+):
+    """`--xedaproject` with a design file gives the launch the run root of the project, so its
+    file is a file of the launch although none of its settings reach the design."""
+    project = tmp_path / "design" / "xedaproject.yaml"
+    text = "designs:\n  - name: other\n    rtl: {sources: [], top: top}\n"
+    project.write_text(text)
+    answer = CliRunner().invoke(
+        cli,
+        ["run", TDeliverer.name, str(world.design_file), "--xedaproject", str(project)]
+        + ["--run-root", str(world.root), "--overwrite-outputs", "--json"]
+        + ["-s", f"{TDeliverer.name}.netlist={project}"],
+    )
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 2 and document["error"]["code"] == "delivery_refused"
+    assert "an input of the run" in document["error"]["message"]
+    assert project.read_text() == text and RUNS == []
 
 
 def test_a_plan_after_an_edit_of_a_delivered_file_writes_nothing(world):

@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from xeda.design import Design, DesignFileParseError, DesignValidationError
+from xeda.project import Project
 from xeda.utils import XedaException
 
 from .project_files import PROJECT_FILE
@@ -290,7 +291,7 @@ def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):
     project = _project(tmp_path)
     runner = DefaultRunner(tmp_path / "run")
     with pytest.raises(ProjectError, match="nosuch") as raised:
-        runner.run("ghdl_sim", "nosuch", xedaproject=str(project))
+        Project.load(project).design("nosuch")
     assert isinstance(raised.value, XedaException)
     # a string with a design-file suffix is a design file, whatever its case -- and the loader
     # then names the right spelling rather than looking it up as a design name

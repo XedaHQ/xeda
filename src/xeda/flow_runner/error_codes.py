@@ -112,6 +112,9 @@ _SETTINGS_CODES = {
 }
 
 
+#: The text of pydantic for a key that a model does not have.
+_EXTRA_INPUTS = "Extra inputs are not permitted"
+
 #: The codes of the findings that refuse an address, and hold the addresses to use in their context.
 _ADDRESS_CODES = frozenset({"unscoped_setting", "unknown_node"})
 
@@ -235,9 +238,13 @@ def _settings_error(exc: FlowSettingsError | ValidationError) -> errors.Settings
         if code in _ADDRESS_CODES and context:
             # The context of these findings holds the addresses that the message suggests.
             suggestions = tuple(context.split(","))
+        # A setting of a flow is named as the user writes it: `-s <flow>.<key>`.
+        named = f"{node}.{setting}" if node and setting and code not in _ADDRESS_CODES else setting
+        if node and code == "unknown_setting":
+            problem = problem.replace(_EXTRA_INPUTS, "the flow has no such setting", 1)
         built.append(
             errors.SettingsError(
-                f"{setting}: {problem}" if setting else problem,
+                f"{named}: {problem}" if named else problem,
                 code=code,
                 node=None if code in _ADDRESS_CODES else node,
                 setting=setting,

@@ -29,7 +29,7 @@
 
 | Message | Fix |
 | --- | --- |
-| `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s <producer>.<name>=...`. |
+| `<flow>.<name>: the flow has no such setting` (`unknown_setting`) | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s <producer>.<name>=...`. |
 | `` <flow> runs Vivado in non-project mode, which has no runs to use `<setting>` on: it is a setting of vivado_synth `` | A flow refuses a setting that belongs to a related flow and names that flow. Move the setting there (`flows.vivado_synth.<setting>`). |
 | `` `<name>` names no node of this run (<flow>) `` (`unknown_node`) | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
 | `` `seed` is not a node: write `nextpnr.seed` `` (`unscoped_setting`) | Start every `-s` key with the flow it addresses. The error gives the address. |

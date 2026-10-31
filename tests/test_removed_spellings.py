@@ -441,6 +441,7 @@ REMOVED_OPTIONS = [
     ("--design-overrides", ["run", "vivado_synth", "d.yaml"], "--design-updates"),
     ("--design-file", ["dse", "vivado_synth"], "the positional DESIGN argument"),
     ("--design", ["dse", "vivado_synth"], "the positional DESIGN argument"),
+    ("--scrub", ["run", "vivado_synth", "d.yaml"], "--prune-variants"),
     ("--help-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
     ("--list-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
     ("--debug", [], "--log-level 10 and --detailed-logs"),
