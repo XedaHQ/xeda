@@ -317,9 +317,11 @@ guard. Workers cannot start for code that Python reads from standard input (``py
 from a file or a notebook. Only the specs and the options of the workspace cross to a worker. A
 flow that you register in code reaches a worker through its module: the worker imports the module
 of each flow that Xeda does not have built in, such as ``mylib.flows``, before it runs the node.
-A flow that a script or a notebook defines (its module is ``__main__``) cannot be imported, so the
-sweep raises a ``SpecError`` with the code ``flow_not_importable`` before anything runs. Move the
-flow into a module, or sweep with ``max_workers=1``. The callback, the cancel token and the
+A flow that a script or a notebook defines (its module is ``__main__``), or whose module a new
+process cannot find by its name, cannot be imported. The sweep then raises a ``SpecError`` with the
+code ``flow_not_importable`` before anything runs. Move the flow into a module that Python can
+import, or sweep with ``max_workers=1``. An import that still fails in a worker fails that node
+with the same code. The callback, the cancel token and the
 confirmation stay in the calling process. A cancel, a timeout or an exception of the callback
 stops the tools that run, and the sweep returns when every worker has released its locks.
 

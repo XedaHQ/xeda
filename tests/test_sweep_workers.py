@@ -301,3 +301,86 @@ def test_a_flow_defined_in_main_is_refused_before_anything_runs(tmp_path):
     assert not list(workspace.run_root.rglob("results.json"))
     # One worker runs it in this process, as before.
     assert dict(workspace.sweep(specs, max_workers=1).counts()) == {Outcome.PASSED: 2}
+
+
+_MESSAGE = (
+    "the flow `my_flow` is defined in `{module}`, which a worker process cannot import. "
+    "Move it into a module that Python can import, or sweep with max_workers=1."
+)
+
+
+def _flow_of_module(module: str) -> type[Flow]:
+    class MyFlow(Flow):
+        """A flow whose class says that it is defined in `module`."""
+
+        __module__ = module
+        results_description: dict = {}
+
+        class Settings(Flow.Settings):
+            n: int = Field(0, description="Tells the points apart.")
+
+        def run(self) -> None:
+            pass
+
+    return MyFlow
+
+
+def _refused_modules_specs(tmp_path: Path) -> tuple[Workspace, list[Spec]]:
+    design = _plain_design(tmp_path)
+    specs = [Spec("my_flow", design, settings={"my_flow.n": n}) for n in (1, 2)]
+    return Workspace(tmp_path / "run", hashed_run_dirs=True), specs
+
+
+def _assert_refused(workspace: Workspace, specs: list[Spec], module: str) -> None:
+    with pytest.raises(SpecError) as refused:
+        workspace.sweep(specs, max_workers=2)
+    assert refused.value.code == "flow_not_importable" and list(refused.value.points) == [0, 1]
+    assert str(refused.value) == _MESSAGE.format(module=module)
+    assert not list(workspace.run_root.rglob("results.json"))
+    # One worker runs it in this process, as before.
+    assert dict(workspace.sweep(specs, max_workers=1).counts()) == {Outcome.PASSED: 2}
+
+
+def test_a_flow_of_a_module_that_does_not_exist_is_refused_before_anything_runs(tmp_path):
+    _flow_of_module("no_such_scripts.foo")
+    workspace, specs = _refused_modules_specs(tmp_path)
+    _assert_refused(workspace, specs, "no_such_scripts.foo")
+
+
+def test_a_flow_of_a_module_loaded_from_a_file_under_a_name_is_refused(tmp_path, monkeypatch):
+    # The module is in `sys.modules`, but no other process finds it by that name.
+    import importlib.util
+
+    source = tmp_path / "foo.py"
+    source.write_text("")
+    spec = importlib.util.spec_from_file_location("loaded_scripts.foo", source)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "loaded_scripts.foo", module)
+    _flow_of_module("loaded_scripts.foo")
+    workspace, specs = _refused_modules_specs(tmp_path)
+    _assert_refused(workspace, specs, "loaded_scripts.foo")
+
+
+def test_a_module_that_a_worker_fails_to_import_fails_the_node_with_its_code(tmp_path, monkeypatch):
+    (tmp_path / "importable_by_the_parent.py").write_text(
+        "import multiprocessing\n"
+        "from xeda.flow import Flow\n"
+        "if multiprocessing.parent_process() is not None:\n"
+        "    raise ImportError('only the parent imports this')\n"
+        "class WorkerFlow(Flow):\n"
+        '    """A flow that only the parent can import."""\n'
+        "    results_description = {}\n"
+        "    def run(self): pass\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "importable_by_the_parent", raising=False)
+    import importlib
+
+    importlib.import_module("importable_by_the_parent")
+    spec = Spec("worker_flow", _plain_design(tmp_path))
+    (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
+    node = point.result.nodes["worker_flow"]
+    assert point.result.outcome is Outcome.FAILED and node.error is not None
+    assert node.error.code == "flow_not_importable"
+    assert "importable_by_the_parent" in node.error.message

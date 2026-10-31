@@ -18,6 +18,7 @@ import logging
 import multiprocessing
 import os
 import signal
+import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
@@ -378,7 +379,7 @@ def worker_main(task: NodeTask, channel: WorkerChannel) -> NodeOutcome:
     The node stops when `channel.cancel` is set, or when the calling process is gone. No exception
     leaves this function: an exception that the calling process cannot unpickle would lose the
     result. A failure is plain data, an outcome with an error code."""
-    from .flow_runner.error_codes import error_info
+    from .flow_runner.error_codes import FLOW_NOT_IMPORTABLE, error_info
 
     def canceled() -> bool:
         try:
@@ -386,15 +387,25 @@ def worker_main(task: NodeTask, channel: WorkerChannel) -> NodeOutcome:
         except (OSError, EOFError):  # the manager of the calling process is gone
             return True
 
-    try:
-        for name in task.modules:
+    for name in task.modules:
+        try:
             importlib.import_module(name)
+        except Exception as error:  # noqa: BLE001 - the failure of a node is a value
+            message = f"a worker process cannot import `{name}`, the module of a flow: {error}"
+            return _failed(task, ErrorInfo(FLOW_NOT_IMPORTABLE, message, task.node, None, None))
+    try:
         return run_node(task, canceled=canceled, emit=lambda event: None)
     except StalePlanError as error:
-        info = ErrorInfo(error.code or "stale_plan", str(error), task.node, None, None)
+        return _failed(
+            task, ErrorInfo(error.code or "stale_plan", str(error), task.node, None, None)
+        )
     except Exception as error:  # noqa: BLE001 - the failure of a node is a value
-        info = error_info(error, node=task.node)
-    # The calling process knows the flow and the run directory of the node: it fills them in.
+        return _failed(task, error_info(error, node=task.node))
+
+
+def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
+    """Return the outcome of a node that failed in a worker. The calling process knows the flow and
+    the run directory of the node: it fills them in."""
     result = NodeResult(
         name=task.node,
         outcome=Outcome.FAILED,
@@ -403,7 +414,7 @@ def worker_main(task: NodeTask, channel: WorkerChannel) -> NodeOutcome:
         blocked_by=None,
         elapsed=0.0,
         record=None,
-        error=info,
+        error=error,
         deliveries=(),
         run_dir=Path(),
         flow="",
@@ -984,22 +995,57 @@ def _flow_modules(plan: Plan) -> tuple[str, ...]:
     return tuple(sorted(name for name in modules if name.partition(".")[0] != "xeda"))
 
 
+def _importable(name: str) -> bool:
+    """Return whether a new process finds the module `name` by that name, whatever this process
+    holds in `sys.modules` (a module that a script loaded from a file is there, and nowhere else).
+    """
+    parent, _, _ = name.rpartition(".")
+    try:
+        path = None
+        if parent:
+            path = getattr(importlib.import_module(parent), "__path__", None)
+            if path is None:
+                return False
+        for finder in sys.meta_path:
+            try:
+                spec = finder.find_spec(name, path)  # type: ignore[call-arg]
+            except Exception:  # noqa: BLE001 - a finder that fails does not find it
+                continue
+            if spec is not None:
+                return spec.origin is not None or spec.submodule_search_locations is not None
+    except Exception:  # noqa: BLE001 - a parent that does not import: the module is not there
+        return False
+    return False
+
+
 def _check_importable(plans: Sequence[Plan]) -> None:
-    """Refuse a flow that a worker process cannot import: one that a script or a notebook defines.
-    A worker has no `__main__` of the caller."""
+    """Refuse a flow that a worker process cannot import: one that a script or a notebook defines
+    (`__main__`), and one whose module no new process finds by its name."""
+    found: dict[str, bool] = {}
     for plan in plans:
         for node in plan.nodes.values():
-            if registered_flows[node.flow][0] == "__main__":
-                _refuse(
-                    "flow_not_importable",
-                    f"the flow `{node.flow}` is defined in `__main__`, so a worker process cannot "
-                    "import it. Move it into a module, or sweep with max_workers=1.",
-                    (
-                        index
-                        for index, other in enumerate(plans)
-                        if any(n.flow == node.flow for n in other.nodes.values())
-                    ),
+            module = registered_flows[node.flow][0]
+            if module == "__main__":
+                reason = "is defined in `__main__`, so a worker process cannot import it."
+                advice = "Move it into a module, or sweep with max_workers=1."
+            elif module.partition(".")[0] == "xeda" or found.setdefault(
+                module, _importable(module)
+            ):
+                continue
+            else:
+                reason = f"is defined in `{module}`, which a worker process cannot import."
+                advice = (
+                    "Move it into a module that Python can import, or sweep with max_workers=1."
                 )
+            _refuse(
+                "flow_not_importable",
+                f"the flow `{node.flow}` {reason} {advice}",
+                (
+                    index
+                    for index, other in enumerate(plans)
+                    if any(n.flow == node.flow for n in other.nodes.values())
+                ),
+            )
 
 
 def _check_deliveries(plans: Sequence[Plan]) -> None:

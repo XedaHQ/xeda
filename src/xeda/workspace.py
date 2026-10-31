@@ -387,8 +387,9 @@ class Workspace:
         script that calls `sweep` this way guards its entry point with
         `if __name__ == "__main__":`, and a notebook needs no guard. Only the specs and the
         options of the workspace cross to a worker. A worker imports the module of each flow
-        that Xeda does not have built in. A flow defined in `__main__` cannot be imported:
-        the sweep refuses it (`SpecError`, `flow_not_importable`). `rebuild_all` and `clean` apply
+        that Xeda does not have built in. A flow whose module cannot be imported (`__main__`, or a
+        name that no new process finds) is refused before anything runs (`SpecError`,
+        `flow_not_importable`). `rebuild_all` and `clean` apply
         to each node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep
         ran when every point has finished, under the lock of the node, and only if the node still
         holds the run of the sweep. There are no `prune_variants`, `outputs_to` and
