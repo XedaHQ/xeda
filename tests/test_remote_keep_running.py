@@ -1045,7 +1045,6 @@ def test_the_launch_record_is_never_written_through_a_link(tmp_path, linked):
         design_root=str(tmp_path),
         fetch_all=False,
         delivers=False,
-        debug=False,
     )
     with pytest.raises(RemoteError, match="cannot be written"):
         write_record(mirror_root, record)

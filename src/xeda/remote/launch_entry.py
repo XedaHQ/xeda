@@ -314,7 +314,6 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..records import CANCELED, ErrorInfo
     from ..spec import Spec
 
-    debug = request.log_level <= logging.DEBUG
     launcher: Optional[DefaultRunner] = None
     design: Optional[Path] = None
     plan: Any = None
@@ -338,7 +337,6 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             clean=request.clean,
             prune_variants=request.scrub,
             display_results=False,
-            debug=debug,
         )
         loaded = load_packaged_design(design)
         arguments: Dict[str, Any] = dict(design=loaded)

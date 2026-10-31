@@ -62,7 +62,7 @@ def attach_launch(
     `profile` is the profile of the host, the default profile without it. The `spec` of the result
     has an empty design of the name of the design of the launch. A failure before the launch is
     found raises a public error (`RemoteError`), as in `run_remote`."""
-    run = _Run(chain="", flow="", design=None, target=None, host=host, debug=False)
+    run = _Run(chain="", flow="", design=None, target=None, host=host)
     try:
         return _attach(run, host, launch_id, run_root, ssh_options, profile or HostProfile())
     except Exception as error:  # pylint: disable=broad-except
@@ -171,7 +171,7 @@ def _fill(run: _Run, record: LaunchRecord, mirror_root: Path) -> None:
     """Give the run the names of the request that the record holds, and the mirror `mirror_root`
     of the host."""
     run.chain, run.flow, run.design = record.chain, record.flow, record.design
-    run.target, run.debug, run.request = record.target, record.debug, record.request
+    run.target, run.request = record.target, record.request
     run.design_name, run.settings = record.design_name, record.settings
     run.local_root = Path(record.local_root)
     run.mirror_root = mirror_root
