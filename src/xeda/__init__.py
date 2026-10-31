@@ -43,6 +43,8 @@ _LAZY_EXPORTS = {
     "ScrubResult": (".flow_runner.scrub", "ScrubResult"),
     "Source": (".design", "Source"),
     "Spec": (".spec", "Spec"),
+    "SweepPoint": (".sweep", "SweepPoint"),
+    "SweepResult": (".sweep", "SweepResult"),
     "Testbench": (".design", "Testbench"),
     "UNSET": (".types", "UNSET"),
     "Unset": (".types", "Unset"),
@@ -80,6 +82,8 @@ __all__ = [
     "ScrubResult",
     "Source",
     "Spec",
+    "SweepPoint",
+    "SweepResult",
     "Testbench",
     "UNSET",
     "Unset",
@@ -139,6 +143,10 @@ if TYPE_CHECKING:
     )
     from .spec import (
         Spec as Spec,
+    )
+    from .sweep import (
+        SweepPoint as SweepPoint,
+        SweepResult as SweepResult,
     )
     from .types import (
         Question as Question,
