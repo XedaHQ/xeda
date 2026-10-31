@@ -53,7 +53,7 @@ document:
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
     xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
-    xeda scrub vivado_synth sqrt --json
+    xeda scrub vivado_synth sqrt --yes --json
 
 .. note::
    The table renderings wrap to the terminal width, and long values wrap across lines. The JSON,
@@ -766,10 +766,10 @@ successful run, the document has an ``error`` of type ``NoSuccessfulRun``, and t
 Removing run directories
 ========================
 
-``xeda scrub <flow> <design> --json`` removes the previous run directories of a flow for one design
-(see :doc:`run-directories`) and writes a single JSON object to stdout. The listing, the
-confirmation prompt, the lines about the directories that scrub kept or found gone, and the links it
-skipped go to stderr, with the rest of its output. ``--yes`` removes without the prompt:
+``xeda scrub <flow> <design> --yes --json`` removes the previous run directories of a flow for one
+design (see :doc:`run-directories`) and writes a single JSON object to stdout. The lines about the
+directories that scrub kept or found gone, and the links it skipped, go to stderr with the rest of
+its output. With ``--json``, scrub never asks: without ``--yes`` it removes nothing:
 
 .. code-block:: json
 

@@ -31,7 +31,7 @@ Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`,
 and `scrub`, `--json` moves tool output and logs to stderr. Table output wraps at the terminal
 width, so parse JSON.
 
-`xeda scrub` and `run --prune-variants` ask only on a terminal: with `--json` or a pipe they remove
+`xeda scrub` and `run --prune-variants` ask only when stdin and stderr are terminals: with `--json` or without a terminal they remove
 nothing and the log says so, unless you pass `--yes`
 (`xeda scrub vivado_synth sqrt --yes --json`). `--yes` answers no other question: replacing a file that
 `--outputs-to` names needs `--overwrite-outputs`. `scrub --json` reports `removed`, `kept`, `gone`

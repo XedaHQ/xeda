@@ -887,3 +887,12 @@ def test_a_second_interrupt_while_the_launch_runs_names_the_launch(world, monkey
     assert answer.exit_code == 1 and document["outcome"] is None
     assert document["launch_id"] == "abc123" and document["error"]["code"] == "canceled"
     assert "while the launch was running" in document["error"]["message"]
+
+
+@pytest.mark.parametrize("stdin", [None, "closed"])
+def test_a_missing_or_closed_stdin_is_no_terminal(monkeypatch, tmp_path, stdin):
+    if stdin == "closed":
+        stdin = (tmp_path / "in").open("w")
+        stdin.close()
+    monkeypatch.setattr(cli_module.sys, "stdin", stdin)
+    assert cli_module._interactive(False) is False

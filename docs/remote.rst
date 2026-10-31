@@ -73,8 +73,9 @@ These limits apply to every remote run:
 
 * The run directories are on the host. ``--post-cleanup`` and
   ``--post-cleanup-purge`` are refused. Use ``xeda remote clean`` to free the space on the host.
-* ``--prune-variants`` is refused, because the run directories are on the host. Use
-  ``xeda remote clean`` to remove them.
+* ``--prune-variants`` is refused, because the run directories are on the host. ``xeda remote
+  clean`` removes whole workspaces on the host, not single variants: by default those that nobody
+  used for 30 days, and with ``--all`` every one that nobody uses now.
 * A deliverable setting that names a location is refused, because it would write on the host. Use
   ``--outputs-to`` (see `What comes back`_).
 * A flow that programs a board (``openfpgaloader``) cannot run with ``--remote``, because the board

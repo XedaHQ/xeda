@@ -761,8 +761,11 @@ def _cancel_on_interrupt(token: CancelToken | None) -> Iterator[None]:
 
 def _interactive(json_flag: bool) -> bool:
     """Return whether a question may be asked: stdin and stderr are terminals, and the output is
-    not machine-readable."""
-    return not json_flag and sys.stdin.isatty() and sys.stderr.isatty()
+    not machine-readable. A closed or missing stream is no terminal."""
+    try:
+        return not json_flag and sys.stdin.isatty() and sys.stderr.isatty()
+    except (AttributeError, ValueError):
+        return False
 
 
 def _prompt_question(question: str) -> bool:
