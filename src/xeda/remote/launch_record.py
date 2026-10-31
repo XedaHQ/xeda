@@ -51,7 +51,6 @@ class LaunchRecord(XedaBaseModel):
     fetch_all: bool
     #: Whether the request had `--outputs-to`. An attach does not deliver.
     delivers: bool
-    debug: bool
 
 
 def record_path(mirror_root: Path, launch_id: str) -> Path:

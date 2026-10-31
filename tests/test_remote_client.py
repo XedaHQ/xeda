@@ -1270,7 +1270,7 @@ def test_the_run_directories_of_a_result_must_lie_below_the_remote_run_root():
             client._node_dirs({"nodes": [{"name": "a", "run_dir": path}]}, root)
     with pytest.raises(RemoteProtocolError):
         client._node_dirs({"nodes": [{"run_dir": "/ws/xeda_run/d/a"}]}, root)
-    run = client._Run(chain="a", flow="a", design=None, target=None, host="h", debug=False)
+    run = client._Run(chain="a", flow="a", design=None, target=None, host="h")
     for node in ({"run_dir": "/ws/xeda_run/../x"}, {"run_dir": "/ws/xeda_run/d/../../x"}):
         with pytest.raises(RemoteProtocolError):
             client._localized(
@@ -1621,3 +1621,10 @@ def test_a_path_in_a_git_dependency_checkout_of_the_remote_is_the_local_checkout
     assert translate(f"{remote_run_root}/top/nextpnr") == str(
         tmp_path / "xeda_run/@host/top/nextpnr"
     )
+
+
+def test_the_debug_log_level_does_not_change_the_plan_of_the_host(tmp_path, remote_host):
+    """The log level is no setting: the host plans the nodes that the command planned."""
+    result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--log-level", "10", "--json")
+    assert result.exit_code == 0, result.stderr
+    assert json.loads(result.stdout)["outcome"] == "passed"

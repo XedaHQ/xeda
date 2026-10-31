@@ -607,7 +607,6 @@ class _Run:
     #: The target of the design; the plan replaces it with the target it selected.
     target: Optional[str]
     host: str
-    debug: bool
     launcher: Optional[DefaultRunner] = None
     mirror_root: Optional[Path] = None
     local_root: Optional[Path] = None
@@ -1148,7 +1147,6 @@ def _record_launch(
             design_root=str(design_root),
             fetch_all=fetch_all,
             delivers=delivers,
-            debug=run.debug,
         ),
     )
 
@@ -1408,7 +1406,7 @@ def _profile_of(remote: Remote) -> HostProfile:
         raise RemoteConfigError(f"The profile of {remote.host} is invalid: {error}") from None
 
 
-def _request_run(spec: Spec, host: str, log_level: int) -> _Run:
+def _request_run(spec: Spec, host: str) -> _Run:
     """The record of one request for the documents."""
     design = spec.design
     file = design._source_file  # pylint: disable=protected-access
@@ -1418,7 +1416,6 @@ def _request_run(spec: Spec, host: str, log_level: int) -> _Run:
         design=None if file is None else os.path.abspath(file),
         target=design.target,
         host=host,
-        debug=log_level <= logging.DEBUG,
         design_name=design.name,
         settings=thaw(spec.settings),
         spec=spec,
@@ -1473,7 +1470,7 @@ def run_remote(
     level = _log_level(log_level)
     detailed = _detailed_logs(detailed_logs)
     remote = _remote_of(workspace)
-    run = _request_run(spec, remote.host, level)
+    run = _request_run(spec, remote.host)
     progress = _Progress("", cancel, on_event)
     with observing(progress.canceled):
         try:
@@ -1520,7 +1517,7 @@ def plan_remote(
     level = _log_level(log_level)
     detailed = _detailed_logs(detailed_logs)
     remote = _remote_of(workspace)
-    run = _request_run(spec, remote.host, level)
+    run = _request_run(spec, remote.host)
     try:
         _refuse_unsupported(options)
         run.request = parse_request(spec.flow).as_elements()
