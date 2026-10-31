@@ -1244,6 +1244,9 @@ class FlowLauncher:
             # No lock is held here. The generator may fail only because the plan is stale.
             self._check_expected()
             raise
+        if self._node_run is not None:
+            # A sweep generated once. Under these leases, the storage must still be that generation.
+            launch_generation.verify_fingerprints(settled.generations, self._node_run.generation)
         self._locks = settled.locks
         execution = launch_generation.execution_design(design, settled.generations)
         self._generation = _LaunchGeneration(design, settled.generations, execution)
@@ -2705,6 +2708,7 @@ class FlowLauncher:
         *,
         node: str,
         identity: str,
+        generation: tuple[tuple[str, str], ...],
         completed: Mapping[str, Any],
         local_settings: LocalSettings | None,
         options: LaunchOptions,
@@ -2746,7 +2750,7 @@ class FlowLauncher:
                 return launch_result(
                     self, spec, self._stop_unplanned, cancel=token, on_event=on_event
                 )
-            self._node_run = launch_node.NodeRun(node, completed)
+            self._node_run = launch_node.NodeRun(node, completed, generation=generation)
             return launch_result(
                 self,
                 spec,
@@ -2782,7 +2786,7 @@ class FlowLauncher:
         options: LaunchOptions,
         environment: EnvironmentSnapshot,
         canceled: Callable[[], bool],
-    ) -> list[GenerationError | None]:
+    ) -> list[tuple[GenerationError | None, tuple[tuple[str, str], ...]]]:
         """Settle the generation of every point of a sweep once, and return how it went for each.
 
         This is the step of a launch that comes after the declarative checks and before the first
@@ -2791,12 +2795,13 @@ class FlowLauncher:
         state of the generation, so a unit that two points need generates once, and a generator
         that always runs does not run again for the second point. The locks are released when a
         point is settled: the launches of the nodes and the delivery read what it left, under
-        shared leases (`GenerationState.read_only`). A point whose generator failed has its
-        `GenerationError`, and a point without a generator `None`."""
+        shared leases (`GenerationState.read_only`), and verify that it is the generation named
+        by the fingerprints that this returns with each point. A point whose generator failed has
+        its `GenerationError`, and a point without a generator `None`."""
         self._apply(options)
         self._environment = environment
         state = launch_generation.GenerationState()
-        found: list[GenerationError | None] = []
+        found: list[tuple[GenerationError | None, tuple[tuple[str, str], ...]]] = []
         try:
             with observing(canceled):
                 for spec in specs:
@@ -2816,7 +2821,7 @@ class FlowLauncher:
                     design = self._merged(request.design)
                     stack = ExitStack()
                     try:
-                        launch_generation.settle(
+                        settled = launch_generation.settle(
                             design,
                             run_root=self.run_root,
                             environ=dict(environment.inherited),
@@ -2830,9 +2835,11 @@ class FlowLauncher:
                             ],
                             canceled=self._canceled_now,
                         )
-                        found.append(None)
+                        # What these leases show is the generation of the point: the nodes and
+                        # the delivery must find the same one (`verify_fingerprints`).
+                        found.append((None, launch_generation.fingerprints(settled.generations)))
                     except GenerationError as error:
-                        found.append(error)
+                        found.append((error, ()))
                     finally:
                         stack.close()
         finally:
@@ -2845,6 +2852,7 @@ class FlowLauncher:
         spec: Spec,
         *,
         completed: Mapping[str, Any],
+        generation: tuple[tuple[str, str], ...],
         local_settings: LocalSettings | None,
         environment: EnvironmentSnapshot,
         canceled: Callable[[], bool],
@@ -2877,7 +2885,7 @@ class FlowLauncher:
                     )
                     self._refuse_planned(plan)
                     launch_node.check_completed(plan, completed)
-                    return self._deliver_planned(request, plan, completed)
+                    return self._deliver_planned(request, plan, completed, generation)
             except Canceled:
                 return launch_node.PointDelivery({}, CANCELED_ERROR)
         finally:
@@ -2890,6 +2898,7 @@ class FlowLauncher:
         request: _Request,
         plan: Plan,
         completed: Mapping[str, Any],
+        generation: tuple[tuple[str, str], ...],
     ) -> launch_node.PointDelivery:
         root = plan.node(plan.requested)
         design = self._merged(request.design)
@@ -2912,7 +2921,9 @@ class FlowLauncher:
         self._read_inputs = ReadInputs(self._launch_inputs)
         self.collector = LaunchCollector()
         self.collector.planned(plan)
-        self._node_run = launch_node.NodeRun(root.name, completed, delivering=True)
+        self._node_run = launch_node.NodeRun(
+            root.name, completed, delivering=True, generation=generation
+        )
         self._read_inputs.add(design_files(design))
         self._read_inputs.add_source_entries(design.source_entries())
         for planned in plan.nodes:

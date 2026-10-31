@@ -225,6 +225,9 @@ class NodeTask:
     snapshot: EnvironmentSnapshot
     completed: tuple[CompletedNode, ...]
     rebuild: bool
+    #: The generation that the sweep settled for the point (`launch_generation.fingerprints`),
+    #: which the launch verifies under its leases. Empty: nothing to verify.
+    generation: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -261,6 +264,7 @@ def launch_node_result(
             local_settings=options.local_settings,
             options=task.launch,
             rebuild=task.rebuild,
+            generation=task.generation,
             environment=task.snapshot,
             canceled=canceled,
             on_event=emit,
@@ -302,6 +306,7 @@ def generate_points(
 def deliver_point(
     spec: Spec,
     completed: Mapping[str, CompletedNode],
+    generation: tuple[tuple[str, str], ...],
     options: WorkspaceOptions,
     snapshot: EnvironmentSnapshot,
     canceled: Callable[[], bool],
@@ -321,6 +326,7 @@ def deliver_point(
         return runner.deliver_point(
             spec,
             completed=completed,
+            generation=generation,
             local_settings=options.local_settings,
             environment=snapshot,
             canceled=canceled,
@@ -386,6 +392,8 @@ class _Point:
         self.finished: Result | None = None
         #: The error of the launch that a node reported (`_Unit.launch_error`).
         self.launch_error: ErrorInfo | None = None
+        #: What the sweep generated for the point, which its launches verify.
+        self.generation: tuple[tuple[str, str], ...] = ()
 
 
 class _Sweep:
@@ -504,6 +512,7 @@ class _Sweep:
         done = deliver_point(
             self.specs[point.index],
             completed,
+            point.generation,
             self.workspace._options(),
             self.snapshot,
             self.canceled,
@@ -559,6 +568,7 @@ class _Sweep:
             snapshot=self.snapshot,
             completed=tuple(completed),
             rebuild=self.rebuild,
+            generation=self.points[unit.point].generation,
         )
 
     def _execute(self, unit: _Unit) -> None:
@@ -621,12 +631,18 @@ class _Sweep:
             )
         except Canceled:
             return  # the token says so, and no node starts
-        for point, error in zip(self.points, errors):
+        for point, (error, generation) in zip(self.points, errors):
+            point.generation = generation
             if error is not None:
                 point.launch_error = ErrorInfo(GENERATOR_FAILED, str(error), None, None, None)
 
     def run(self) -> SweepResult:
-        self._generate()
+        # As in a launch, the start is told before the generators run, while no lock is held: a
+        # callback that cancels or raises stops the sweep before any generator.
+        for point in self.points:
+            self._begin(point)
+        if not self.canceled():
+            self._generate()
         for unit in self.order:
             if self.canceled():
                 break

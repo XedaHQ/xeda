@@ -830,3 +830,79 @@ def test_points_with_different_generation_keys_each_generate_once(tmp_path, monk
     result = workspace.sweep(specs)
     assert result.counts() == {Outcome.PASSED: 4}
     assert len(world.storages()) == 2 and world.runs == 2
+
+
+def _another_generation(storage: Path) -> None:
+    """Replace the generation in `storage` with another one of the same key, as a launch that ran
+    the generator again would: other files, and a record that vouches for them."""
+    import yaml
+
+    from xeda.digest import content_digest
+
+    record = storage / "generation.yaml"
+    data = yaml.safe_load(record.read_text())
+    for name, _digest in data["outputs"]:
+        (storage / name).write_text("// the other generation\n")
+    data["outputs"] = [[name, content_digest(storage / name)] for name, _ in data["outputs"]]
+    record.write_text(yaml.safe_dump(data, sort_keys=True))
+
+
+@pytest.mark.parametrize("after", ["yosys_fpga", "nextpnr"])
+def test_a_generation_that_another_launch_replaced_is_never_read_or_delivered(
+    tmp_path, monkeypatch, after
+):
+    copy = tmp_path / "copy"
+    world = _generating(tmp_path, monkeypatch, outputs_to=str(copy))
+    workspace = Workspace(world.run_root, hashed_run_dirs=True)
+    swapped: list[str] = []
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and event.node == after and not swapped:
+            swapped.append(after)
+            _another_generation(world.storages()[0])
+
+    result = workspace.sweep([_spec(world.load(), 1)], on_event=on_event)
+    (point,) = result
+    assert swapped and point.result.outcome is Outcome.FAILED
+    assert point.result.error is not None and point.result.error.node is None
+    if after == "yosys_fpga":
+        # The routing node found another generation under its lease.
+        assert point.result.error.code == "generator_failed"
+        assert point.result.nodes["nextpnr"].outcome is Outcome.SKIPPED
+        assert "sweep generated" in point.result.error.message
+    else:
+        assert point.result.error.code == "delivery_failed"
+        assert {str(n.outcome) for n in point.result.nodes.values()} == {"passed"}
+    assert not copy.exists() or not any(copy.rglob("*")), "nothing of the other generation"
+    assert world.runs == 1
+
+
+def test_cancel_at_the_start_event_runs_no_generator(tmp_path, monkeypatch):
+    world = _generating(tmp_path, monkeypatch)
+    token = CancelToken()
+
+    def on_event(event: Event) -> None:
+        if event.kind == "launch_started":
+            token.cancel()
+
+    result = Workspace(world.run_root, hashed_run_dirs=True).sweep(
+        _seeds(world.load(), 2), cancel=token, on_event=on_event
+    )
+    assert world.runs == 0 and result.canceled
+    assert {str(p.result.outcome) for p in result} == {"canceled"}
+    assert {str(n.outcome) for p in result for n in p.result.nodes.values()} == {"skipped"}
+
+
+def test_an_exception_at_the_start_event_runs_no_generator(tmp_path, monkeypatch):
+    world = _generating(tmp_path, monkeypatch)
+    raised = RuntimeError("stop at the start")
+
+    def on_event(event: Event) -> None:
+        if event.kind == "launch_started":
+            raise raised
+
+    with pytest.raises(RuntimeError) as caught:
+        Workspace(world.run_root, hashed_run_dirs=True).sweep(
+            _seeds(world.load(), 2), on_event=on_event
+        )
+    assert caught.value is raised and world.runs == 0

@@ -58,6 +58,9 @@ class NodeRun:
     #: A point of the sweep delivers: every node of its plan is read from its record, and the
     #: launch delivers for all of them (`FlowLauncher.deliver_point`).
     delivering: bool = False
+    #: What the sweep generated, as `launch_generation.fingerprints` named it: the launch verifies
+    #: it under its shared leases of the storages.
+    generation: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
