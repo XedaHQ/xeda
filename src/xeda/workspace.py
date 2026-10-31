@@ -381,11 +381,19 @@ class Workspace:
         destination (`shared_destination`). The error names the points (`SpecError.points`). A
         spec that cannot be planned is refused the same way, and nothing runs.
 
-        The sweep reads the environment once, and every point uses that snapshot. It executes the
-        nodes in this process: `max_workers` must be 1. `rebuild_all` and `clean` apply to each
-        node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep ran when
-        every point has finished, under the lock of the node, and only if the node still holds the
-        run of the sweep. There are no `prune_variants`, `outputs_to` and `overwrite_outputs`.
+        The sweep reads the environment once, and every point uses that snapshot. With
+        `max_workers` of 1, it executes the nodes in this process. With more, it executes them in
+        that many worker processes, which start with the `spawn` method on every platform: a
+        script that calls `sweep` this way guards its entry point with
+        `if __name__ == "__main__":`, and a notebook needs no guard. Only the specs and the
+        options of the workspace cross to a worker. A worker imports the module of each flow
+        that Xeda does not have built in. A flow whose module cannot be imported (`__main__`, or a
+        name that no new process finds) is refused before anything runs (`SpecError`,
+        `flow_not_importable`). `rebuild_all` and `clean` apply
+        to each node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep
+        ran when every point has finished, under the lock of the node, and only if the node still
+        holds the run of the sweep. There are no `prune_variants`, `outputs_to` and
+        `overwrite_outputs`.
 
         A deliverable setting that names a location delivers as in a launch: each point delivers
         when it ends, what a launch of that point alone would deliver, and nothing if its last
@@ -395,7 +403,8 @@ class Workspace:
         `cancel` stops the sweep: the points that did not finish end as `canceled`, and
         `SweepResult.canceled` is true. `on_event` gets the events of each point in the calling
         thread, while the sweep holds no lock: it may open any record. An exception that it
-        raises stops the sweep and propagates. A thread that holds a lock of Xeda cannot start a
+        raises stops the sweep and propagates. With workers, a stop also stops the tools that
+        run, and the sweep returns when every worker has released its locks. A thread that holds a lock of Xeda cannot start a
         sweep (`LeaseHeldError`)."""
         from .flow_runner.error_codes import public_error
         from .flow_runner.run_lock import refuse_if_held
@@ -405,11 +414,6 @@ class Workspace:
         refuse_if_held()
         if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers < 1:
             raise ValueError(f"`max_workers` is a whole number of at least 1, not {max_workers!r}")
-        if max_workers != 1:
-            raise NotImplementedError(
-                f"`max_workers={max_workers}` is not supported yet: a sweep executes every node "
-                "in this process, so use `max_workers=1`"
-            )
         if self.remote is not None:
             raise SpecError(
                 "a sweep does not run on a remote host: use a workspace without `remote`",

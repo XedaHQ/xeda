@@ -3,18 +3,28 @@
 `Workspace.sweep` plans every point first. The nodes of all points form one graph, keyed by the
 identity of a node: a node that several points have is one node, and it executes once. The
 scheduler starts a node when every producer of it has completed. A producer that did not pass
-blocks its consumers in every point. Each node executes through `execute_node`, in this process
-(`run_node`), as a launch of that node alone whose producers are read from their records.
+blocks its consumers in every point. Each node executes through `execute_node` (`run_node`), as a
+launch of that node alone whose producers are read from their records. With `max_workers` of 1 it
+runs in this process. With more, it runs in a worker process (`worker_main`), and the nodes that
+do not wait for each other run at once.
 
 A point gets a `Result` as a launch does. A node that another point executed is `shared` there.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
+import multiprocessing
 import os
+import signal
+import sys
+import threading
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from multiprocessing.connection import Connection
+from multiprocessing.context import BaseContext
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +34,7 @@ from .cancel import CancelToken, never_canceled, observing
 from .design import Design
 from .errors import RecordError, SpecError, StalePlanError
 from .events import Event
+from .flow import registered_flows
 from .flow_runner import launch_run
 from .flow_runner.environment import EnvironmentSnapshot
 from .flow_runner.launch_identity import RunDirPolicy
@@ -41,6 +52,7 @@ from .flow_runner.run_lock import LockRequest, acquire_all
 from .frozen import thaw
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
+from .proc_utils import CANCEL_POLL
 from .records import ErrorInfo, read_record
 from .run_dir import RunDirectory
 from .spec import Spec
@@ -59,9 +71,11 @@ __all__ = [
     "NodeTask",
     "SweepPoint",
     "SweepResult",
+    "WorkerChannel",
     "node_key",
     "run_node",
     "run_sweep",
+    "worker_main",
 ]
 
 
@@ -228,6 +242,9 @@ class NodeTask:
     #: The generation that the sweep settled for the point (`launch_generation.fingerprints`),
     #: which the launch verifies under its leases. Empty: nothing to verify.
     generation: tuple[tuple[str, str], ...] = ()
+    #: The modules, by name, that define the flows of the point that Xeda does not have built in. A
+    #: worker imports them before it plans, so that the flows are registered there.
+    modules: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -345,6 +362,126 @@ def run_node(
     return execute_node(task, canceled=canceled, emit=emit, launch=_LAUNCH)
 
 
+# ------------------------------------------------------------------------------ worker processes
+
+
+class WorkerChannel:
+    """The request to stop, from the calling process to its workers: a pipe.
+
+    The calling process holds the write end, and each worker holds the read end (`ProcessPool
+    Executor`'s `initargs`). `cancel()` closes the write end, and then the read end is readable in
+    every worker. It is readable too when the calling process is gone, however it died (SIGKILL
+    included), since the write end closes with it. A pipe is no file and no named object, so a
+    sweep writes nothing outside the run root for it. The events of the sweep never cross it: the
+    calling process tells them from the results of the nodes, so a worker never waits for the
+    callback."""
+
+    def __init__(self, context: BaseContext) -> None:
+        self.reader, self._writer = context.Pipe(duplex=False)
+
+    def cancel(self) -> None:
+        self._writer.close()
+
+    def close(self) -> None:
+        self._writer.close()
+        self.reader.close()
+
+
+#: In a worker process: the read end of the pipe of the calling process (`_start_worker`).
+_REQUEST: Connection | None = None
+
+#: In a worker process: set while no node runs.
+_IDLE = threading.Event()
+_IDLE.set()
+
+
+def _start_worker(request: Connection) -> None:
+    """Start a worker: it keeps the request to stop, and leaves Ctrl-C to the calling process,
+    which stops it through the request. It also ends itself once the calling process is gone and
+    no node runs: a worker that waits for its next node would wait for ever, since its pool is
+    gone."""
+    global _REQUEST
+    _REQUEST = request
+    # A handler, not SIG_IGN: an ignored signal stays ignored in the tools that the worker starts.
+    signal.signal(signal.SIGINT, _ignore_interrupt)
+    parent = multiprocessing.parent_process()
+    if parent is not None:
+
+        def end_with_the_parent() -> None:
+            parent.join()
+            _IDLE.wait()
+            os._exit(1)
+
+        threading.Thread(target=end_with_the_parent, daemon=True).start()
+
+
+def _ignore_interrupt(_signal: int, _frame: Any) -> None:
+    """Do nothing on Ctrl-C in a worker: the calling process stops it through the request."""
+
+
+def _stop_requested() -> bool:
+    """Whether this worker must stop: the calling process asked, or it is gone."""
+    try:
+        return _REQUEST is not None and _REQUEST.poll()
+    except (OSError, EOFError):
+        return True
+
+
+def worker_main(task: NodeTask) -> NodeOutcome:
+    """Execute the node of `task` in a worker process, and return how it ended.
+
+    The node stops when the calling process asks, or when it is gone (`WorkerChannel`). Nothing
+    leaves this function as an exception, not even `SystemExit` or `KeyboardInterrupt`: what the
+    calling process could not unpickle would lose the result. A failure is plain data, an outcome
+    with an error code."""
+    _IDLE.clear()
+    try:
+        return _execute_in_worker(task)
+    finally:
+        _IDLE.set()
+
+
+def _execute_in_worker(task: NodeTask) -> NodeOutcome:
+    from .flow_runner.error_codes import FLOW_NOT_IMPORTABLE, REPORTED_FAILURE, error_info
+
+    for name in task.modules:
+        try:
+            importlib.import_module(name)
+        except BaseException as error:  # noqa: BLE001 - a module may exit; a failure is a value
+            message = f"a worker process cannot import `{name}`, the module of a flow: {error}"
+            return _failed(task, ErrorInfo(FLOW_NOT_IMPORTABLE, message, task.node, None, None))
+    try:
+        return run_node(task, canceled=_stop_requested, emit=lambda event: None)
+    except StalePlanError as error:
+        return _failed(
+            task, ErrorInfo(error.code or "stale_plan", str(error), task.node, None, None)
+        )
+    except Exception as error:  # noqa: BLE001 - the failure of a node is a value
+        return _failed(task, error_info(error, node=task.node))
+    except BaseException as error:  # a flow that exits, or a signal that stops this process
+        message = f"the node ended its worker process with {error!r}"
+        return _failed(task, ErrorInfo(REPORTED_FAILURE, message, task.node, None, None))
+
+
+def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
+    """Return the outcome of a node that failed in a worker. The calling process knows the flow and
+    the run directory of the node: it fills them in."""
+    result = NodeResult(
+        name=task.node,
+        outcome=Outcome.FAILED,
+        disposition=Disposition.RAN,
+        reason="",
+        blocked_by=None,
+        elapsed=0.0,
+        record=None,
+        error=error,
+        deliveries=(),
+        run_dir=Path(),
+        flow="",
+    )
+    return NodeOutcome(task.node, result, None)
+
+
 # ------------------------------------------------------------------------------------ the sweep
 
 
@@ -407,8 +544,10 @@ class _Sweep:
         cancel: CancelToken | None,
         on_event: Callable[[Event], None] | None,
         snapshot: EnvironmentSnapshot,
+        max_workers: int = 1,
     ) -> None:
         self.workspace = workspace
+        self.max_workers = max_workers
         self.specs = specs
         #: The options of each node launch, and those of the sweep (the clean-up at its end).
         self.launch = launch
@@ -569,9 +708,11 @@ class _Sweep:
             completed=tuple(completed),
             rebuild=self.rebuild,
             generation=self.points[unit.point].generation,
+            modules=_flow_modules(self.points[unit.point].plan) if self.max_workers > 1 else (),
         )
 
     def _execute(self, unit: _Unit) -> None:
+        """Execute `unit` in this process."""
         from .flow_runner.error_codes import error_info
 
         point = self.points[unit.point]
@@ -582,22 +723,28 @@ class _Sweep:
         except (StalePlanError, KeyboardInterrupt):
             raise
         except Exception as error:  # noqa: BLE001 - the failure of a node is a value
-            node = unit.node
-            result = NodeResult(
-                name=node.name,
-                outcome=Outcome.FAILED,
-                disposition=Disposition.RAN,
-                reason="",
-                blocked_by=None,
-                elapsed=0.0,
-                record=None,
-                error=error_info(error, node=node.name),
-                deliveries=(),
-                run_dir=node.run_dir,
-                flow=node.flow,
-            )
-            self._complete(unit, result, None)
+            self._failed(unit, error_info(error, node=unit.node.name))
             return
+        self._ran(unit, outcome)
+
+    def _failed(self, unit: _Unit, error: ErrorInfo) -> None:
+        node = unit.node
+        result = NodeResult(
+            name=node.name,
+            outcome=Outcome.FAILED,
+            disposition=Disposition.RAN,
+            reason="",
+            blocked_by=None,
+            elapsed=0.0,
+            record=None,
+            error=error,
+            deliveries=(),
+            run_dir=node.run_dir,
+            flow=node.flow,
+        )
+        self._complete(unit, result, None)
+
+    def _ran(self, unit: _Unit, outcome: NodeOutcome) -> None:
         result = outcome.result
         if result.outcome is Outcome.BLOCKED and result.blocked_by is not None:
             blocker = next(
@@ -614,6 +761,112 @@ class _Sweep:
                 # saw, so the cause is the node itself: it did not pass.
                 result = replace(result, outcome=Outcome.FAILED, disposition=Disposition.RAN)
         self._complete(unit, result, outcome.run_id)
+
+    def _settle(self, unit: _Unit) -> bool:
+        """Complete `unit` with no execution when a producer of it, or its point, failed before
+        it. Return whether it did. Every producer of `unit` has completed."""
+        inherited = self.points[unit.point].launch_error or next(
+            (self.units[k].launch_error for k in unit.producers if self.units[k].launch_error),
+            None,
+        )
+        node = unit.node
+        if inherited is not None:
+            skipped = skipped_result(node.name, node.flow, node.run_dir)
+            self._complete(unit, replace(skipped, error=inherited), None)
+            return True
+        blocked = self._blocked(unit)
+        if blocked is not None:
+            self._complete(unit, blocked, None)
+            return True
+        return False
+
+    # ----------------------------------------------------------------------------- the workers
+
+    def _run_in_workers(self) -> None:
+        """Execute the nodes in worker processes, at most `max_workers` at once.
+
+        A node starts when every producer of it has completed. The loop tells the events, and
+        completes a node that a worker finished, in this thread. When the token says stop, the
+        workers get the request, and nothing else starts. When anything raises (a callback, a
+        stale plan, Ctrl-C), the workers get the request too, the loop waits until each has
+        released its locks, and then the exception goes on."""
+        context = multiprocessing.get_context("spawn")
+        channel = WorkerChannel(context)
+        running: dict[Future[NodeOutcome], _Unit] = {}
+        try:
+            with ProcessPoolExecutor(
+                self.max_workers,
+                mp_context=context,
+                initializer=_start_worker,
+                initargs=(channel.reader,),
+            ) as pool:
+                try:
+                    self._schedule(pool, channel, running)
+                except BaseException:
+                    channel.cancel()
+                    wait(running)
+                    raise
+        finally:
+            channel.close()
+
+    def _schedule(
+        self,
+        pool: ProcessPoolExecutor,
+        channel: WorkerChannel,
+        running: dict[Future[NodeOutcome], _Unit],
+    ) -> None:
+        # `order` has every producer before its consumers, so one pass sees what a pass settles.
+        pending = list(self.order)
+        while pending or running:
+            if self.canceled():
+                channel.cancel()
+                pending.clear()
+            waiting: list[_Unit] = []
+            for unit in pending:
+                if self.canceled() or any(self.units[key].result is None for key in unit.producers):
+                    waiting.append(unit)
+                elif self._settle(unit):
+                    continue
+                elif len(running) < self.max_workers:
+                    self._start(unit, pool, running)
+                else:
+                    waiting.append(unit)
+            pending = waiting
+            if running:
+                done, _ = wait(running, timeout=CANCEL_POLL, return_when=FIRST_COMPLETED)
+                for future in done:
+                    self._collect(running.pop(future), future)
+
+    def _start(
+        self,
+        unit: _Unit,
+        pool: ProcessPoolExecutor,
+        running: dict[Future[NodeOutcome], _Unit],
+    ) -> None:
+        from .flow_runner.error_codes import error_info
+
+        try:
+            future = pool.submit(worker_main, self._task(unit))
+        except Exception as error:  # noqa: BLE001 - a broken pool is the failure of the node
+            self._failed(unit, error_info(error, node=unit.node.name))
+            return
+        # Its events come when it completes, with those of the nodes before it in the plan.
+        running[future] = unit
+
+    def _collect(self, unit: _Unit, future: Future[NodeOutcome]) -> None:
+        from .flow_runner.error_codes import error_info
+
+        try:
+            outcome = future.result()
+        except Exception as error:  # noqa: BLE001 - a worker that died is the failure of the node
+            self._failed(unit, error_info(error, node=unit.node.name))
+            return
+        node = unit.node
+        result = replace(outcome.result, run_dir=node.run_dir, flow=node.flow)
+        problem = result.error
+        if problem is not None and problem.code == "stale_plan":
+            raise StalePlanError(problem.message, code=problem.code, difference=problem.message)
+        self._ran(unit, replace(outcome, result=result))
 
     def _generate(self) -> None:
         """Settle the generation of every point once, before the first node, as a launch does.
@@ -643,25 +896,14 @@ class _Sweep:
             self._begin(point)
         if not self.canceled():
             self._generate()
-        for unit in self.order:
-            if self.canceled():
-                break
-            inherited = self.points[unit.point].launch_error or next(
-                (self.units[k].launch_error for k in unit.producers if self.units[k].launch_error),
-                None,
-            )
-            blocked = self._blocked(unit)
-            if inherited is not None:
-                node = unit.node
-                self._complete(
-                    unit,
-                    replace(skipped_result(node.name, node.flow, node.run_dir), error=inherited),
-                    None,
-                )
-            elif blocked is not None:
-                self._complete(unit, blocked, None)
-            else:
-                self._execute(unit)
+        if self.max_workers > 1:
+            self._run_in_workers()
+        else:
+            for unit in self.order:
+                if self.canceled():
+                    break
+                if not self._settle(unit):
+                    self._execute(unit)
         for point in self.points:
             self._finish(point)
         stopped = any(
@@ -800,6 +1042,65 @@ def _check_points(plans: Sequence[Plan], specs: Sequence[Spec]) -> None:
             )
 
 
+def _flow_modules(plan: Plan) -> tuple[str, ...]:
+    """Return the names of the modules that define the flows of `plan` and are not part of Xeda."""
+    modules = {registered_flows[node.flow][0] for node in plan.nodes.values()}
+    return tuple(sorted(name for name in modules if name.partition(".")[0] != "xeda"))
+
+
+def _importable(name: str) -> bool:
+    """Return whether a new process finds the module `name` by that name, whatever this process
+    holds in `sys.modules` (a module that a script loaded from a file is there, and nowhere else).
+    """
+    parent, _, _ = name.rpartition(".")
+    try:
+        path = None
+        if parent:
+            path = getattr(importlib.import_module(parent), "__path__", None)
+            if path is None:
+                return False
+        for finder in sys.meta_path:
+            try:
+                spec = finder.find_spec(name, path)  # type: ignore[call-arg]
+            except Exception:  # noqa: BLE001 - a finder that fails does not find it
+                continue
+            if spec is not None:
+                return spec.origin is not None or spec.submodule_search_locations is not None
+    except Exception:  # noqa: BLE001 - a parent that does not import: the module is not there
+        return False
+    return False
+
+
+def _check_importable(plans: Sequence[Plan]) -> None:
+    """Refuse a flow that a worker process cannot import: one that a script or a notebook defines
+    (`__main__`), and one whose module no new process finds by its name."""
+    found: dict[str, bool] = {}
+    for plan in plans:
+        for node in plan.nodes.values():
+            module = registered_flows[node.flow][0]
+            if module == "__main__":
+                reason = "is defined in `__main__`, so a worker process cannot import it."
+                advice = "Move it into a module, or sweep with max_workers=1."
+            elif module.partition(".")[0] == "xeda" or found.setdefault(
+                module, _importable(module)
+            ):
+                continue
+            else:
+                reason = f"is defined in `{module}`, which a worker process cannot import."
+                advice = (
+                    "Move it into a module that Python can import, or sweep with max_workers=1."
+                )
+            _refuse(
+                "flow_not_importable",
+                f"the flow `{node.flow}` {reason} {advice}",
+                (
+                    index
+                    for index, other in enumerate(plans)
+                    if any(n.flow == node.flow for n in other.nodes.values())
+                ),
+            )
+
+
 def _check_deliveries(plans: Sequence[Plan]) -> None:
     """Refuse a delivery that would replace a file that Xeda did not deliver. A sweep asks no
     question, so the answer is no."""
@@ -869,6 +1170,8 @@ def run_sweep(
         return _unplanned(given, on_event)
     _check_deliveries(plans)
     _check_points(plans, given)
+    if max_workers > 1:
+        _check_importable(plans)
     sweep = _Sweep(
         workspace,
         plans,
@@ -878,5 +1181,6 @@ def run_sweep(
         cancel,
         on_event,
         snapshot,
+        max_workers,
     )
     return sweep.run()

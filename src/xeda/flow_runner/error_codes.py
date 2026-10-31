@@ -64,11 +64,15 @@ GENERATOR_FAILED = "generator_failed"
 #: The code of a launch-level error: a clean-up after the run failed, and every root had passed.
 CLEANUP_FAILED = "cleanup_failed"
 
+#: The code of a node error: a worker process of a sweep could not import the module of a flow.
+FLOW_NOT_IMPORTABLE = "flow_not_importable"
+
 __all__ = [
     "CANCELED",
     "CLEANUP_FAILED",
     "DELIVERY_FAILED",
     "EXECUTABLE_NOT_FOUND",
+    "FLOW_NOT_IMPORTABLE",
     "GENERATOR_FAILED",
     "INTERNAL_ERROR",
     "INVALID_METRIC",
