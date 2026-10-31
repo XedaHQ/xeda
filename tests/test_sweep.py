@@ -28,7 +28,10 @@ from xeda.utils import dump_json
 from xeda.workspace import Workspace
 
 from . import tool_utils
+from .cancel_flows import cut_flows
 from .flow_registry import preserved_flow_registry
+from .test_cancel_and_events import _dependent
+from .test_git_dependencies import REAL_GIT, git_log, remote  # noqa: F401  (a Git remote)
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -280,7 +283,9 @@ def test_an_action_node_is_never_shared(tmp_path, design):
     action = [node for node in plan.nodes.values() if node.action]
     assert [node.name for node in action] == ["openfpgaloader"]
     for node in plan.nodes.values():
-        same = node_key(0, node) == node_key(1, node)
+        same = node_key(0, node, tmp_path) == node_key(1, node, tmp_path)
+        if not node.action:
+            assert node_key(0, node, tmp_path) != node_key(0, node, tmp_path / "other")
         assert same is not node.action
 
 
@@ -611,3 +616,154 @@ def test_to_pandas_without_pandas_is_a_spec_error(tmp_path, design, monkeypatch)
     with pytest.raises(SpecError) as raised:
         result.to_pandas()
     assert raised.value.code == "missing_dependency"
+
+
+# ------------------------------------------------------------------------------ review findings
+
+
+def _design_in(tmp_path: Path, directory: str, text: str) -> Design:
+    root = tmp_path / directory
+    root.mkdir()
+    (root / "top.v").write_text(text)
+    return Design(
+        name="top", root=root, rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]}
+    )
+
+
+def test_designs_of_one_name_in_two_roots_do_not_share_a_node(tmp_path, design):
+    first = _design_in(
+        tmp_path, "one", "module top(input clk, output q); assign q = clk; endmodule\n"
+    )
+    second = _design_in(
+        tmp_path, "two", "module top(input clk, output q); assign q = ~clk; endmodule\n"
+    )
+    for specs in (
+        [_spec(first, 1), _spec(second, 2)],  # equal identities for `yosys_fpga`
+        [_spec(first, 1), _spec(second, 1)],  # equal identities for the whole run
+    ):
+        with pytest.raises(SpecError) as raised:
+            _workspace(tmp_path).sweep(specs)
+        assert raised.value.code == "colliding_run_dirs" and raised.value.points == (0, 1)
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_producer_replaced_by_a_failed_run_under_the_lease_fails_the_point(
+    tmp_path, design, monkeypatch
+):
+    workspace = _workspace(tmp_path)
+    shared = workspace.plan(_spec(design, 1)).nodes["yosys_fpga"].run_dir
+    failed = dict(
+        outcome="failed",
+        error=ErrorInfo("nonzero_exit", "again", "yosys_fpga", 1, None),
+    )
+    armed: list[bool] = []
+    swapped: list[str] = []
+
+    def hook(path: Path) -> None:
+        if path == _lock_of(shared) and armed and not swapped:
+            swapped.append(_replace_record(shared, workspace, **failed))
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and event.node == "yosys_fpga":
+            armed.append(True)  # the routing node takes its lease next
+            monkeypatch.setattr(run_lock, "acquired_hook", hook)
+
+    result = workspace.sweep([_spec(design, 1)], on_event=on_event)
+    assert swapped
+    (point,) = result
+    assert point.result.outcome is Outcome.FAILED
+    assert point.result.error is not None and point.result.error.code == "producer_failed"
+    assert point.result.nodes["nextpnr"].outcome is not Outcome.BLOCKED
+    assert result.counts() == {Outcome.FAILED: 1}
+
+
+def test_a_delivery_never_runs_a_generator_again(tmp_path):
+    from .test_generator_deliveries import Delivering
+
+    world = Delivering(tmp_path, ["gen/top.v"])
+    document = json.loads(world.file.read_text())
+    document["rtl"]["generator"]["always_runs"] = True
+    world.file.write_text(json.dumps(document))
+    result = Workspace(world.run_root).sweep([Spec(world.flow.name, world.design())])
+    assert result.counts() == {Outcome.PASSED: 1}
+    assert world.runs == 1, "the generator ran for the node, and not again for the delivery"
+    assert (world.root / "out" / "gen" / "top.v").is_file()
+
+
+def test_a_root_replaced_by_a_failed_run_before_the_delivery_fails_the_point(tmp_path, design):
+    destination = tmp_path / "out" / "top.v"
+    workspace = _workspace(tmp_path)
+    failed = dict(outcome="failed", error=ErrorInfo("nonzero_exit", "x", "nextpnr", 1, None))
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and event.node == "nextpnr":
+            directory = workspace.plan(_spec(design, 1)).nodes["nextpnr"].run_dir
+            _replace_record(directory, workspace, **failed)
+
+    result = workspace.sweep([_edif_spec(design, 1, destination)], on_event=on_event)
+    (point,) = result
+    assert point.result.outcome is Outcome.FAILED
+    assert point.result.error is not None and point.result.error.code == "delivery_failed"
+    assert point.result.error.node is None and not destination.exists()
+
+
+def test_a_cancel_while_the_sweep_plans_gives_canceled_points(
+    tmp_path, remote, git_log  # noqa: F811
+):
+    cut_flows()
+    token, events = CancelToken(), []
+    token.cancel()
+    specs = [_dependent(tmp_path, remote)]
+    result = Workspace(tmp_path / "xeda_run").sweep(specs, cancel=token, on_event=events.append)
+    assert result.canceled and len(result) == 1
+    (point,) = result
+    assert point.result.outcome is Outcome.CANCELED and point.result.error.code == "canceled"
+    assert dict(point.result.nodes) == {} and point.result.roots == ()
+    assert [e.kind for e in events] == ["launch_started", "launch_finished"]
+    assert git_log() == [], "no Git command started"
+
+
+def test_a_cancel_after_the_last_node_cancels_the_point_as_it_does_a_launch(tmp_path, design):
+    spec = Spec("yosys_fpga", design, settings={"yosys_fpga.fpga.part": ECP5})
+
+    def cancel_at_the_end(token: CancelToken):
+        return lambda event: token.cancel() if event.kind == "node_finished" else None
+
+    token = CancelToken()
+    launched = _workspace(tmp_path / "a").run(spec, cancel=token, on_event=cancel_at_the_end(token))
+    token = CancelToken()
+    swept = _workspace(tmp_path / "b").sweep(
+        [spec], cancel=token, on_event=cancel_at_the_end(token)
+    )
+    assert launched.outcome is Outcome.CANCELED
+    (point,) = swept
+    assert swept.canceled and point.result.outcome is launched.outcome
+    assert point.result.error == launched.error
+
+
+def test_an_exception_of_on_event_propagates_unchanged(tmp_path, design):
+    class Boom(Exception):
+        pass
+
+    raised = Boom("stop")
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished":
+            raise raised
+
+    with pytest.raises(Boom) as caught:
+        _workspace(tmp_path).sweep(_seeds(design, 2), on_event=on_event)
+    assert caught.value is raised
+
+
+def test_dotted_and_nested_updates_make_one_column(tmp_path, design):
+    updated = (
+        design.with_updates({"rtl.parameters.WIDTH": 8})
+        .with_updates({"rtl": {"parameters": {"WIDTH": 16}}})
+        .with_updates({"rtl.parameters.WIDTH": 32})
+    )
+    result = _workspace(tmp_path).sweep([replace(_spec(design, 1), design=updated)])
+    (row,) = result.rows()
+    assert updated.rtl.parameters["WIDTH"] == 32
+    assert row["design.rtl.parameters.WIDTH"] == 32
+    assert [key for key in row if key.startswith("design.")] == ["design.rtl.parameters.WIDTH"]

@@ -2834,7 +2834,8 @@ class FlowLauncher:
         self._pending_clean_ups = []
         self._generation = None
         self._node_locks = None
-        self._generation_state = launch_generation.GenerationState()
+        # The delivery reads what the nodes of the sweep read: it never generates.
+        self._generation_state = launch_generation.GenerationState(read_only=True)
         self._restarts = 0
         self._confirmed_replacements = ConfirmedReplacements()
         self._code_digests = CodeDigests()
@@ -2870,7 +2871,12 @@ class FlowLauncher:
             for node in plan.nodes:
                 flow = flows[node.name] = self._planned_completed[(id(plan), node.node_key)]
                 if not flow.succeeded:
-                    continue
+                    # Another launch replaced the run since the sweep completed this node.
+                    cause = flow.results.get("error")
+                    raise DeliveryError(
+                        f"nothing was delivered: {node.name} holds a run that did not pass now"
+                        + (f" ({cause['code']})" if isinstance(cause, Mapping) else "")
+                    )
                 delivery = self._deliveries_ahead.pop(node.node_key, None)
                 if delivery is None:
                     delivery = self._deliveries_of(

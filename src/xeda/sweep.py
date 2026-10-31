@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .cancel import CancelToken, never_canceled
+from .cancel import CancelToken, never_canceled, observing
+from .design import Design
 from .errors import RecordError, SpecError, StalePlanError
 from .events import Event
 from .flow_runner import launch_run
@@ -43,6 +44,7 @@ from .plan import Plan, PlanNode
 from .records import ErrorInfo, read_record
 from .run_dir import RunDirectory
 from .spec import Spec
+from .utils import Canceled
 
 if TYPE_CHECKING:
     import pandas
@@ -135,7 +137,7 @@ class SweepResult:
         }
         updates: dict[str, Any] = {}
         for update in spec.design.updates:
-            updates = _merged(updates, thaw(update))
+            updates = _merged(updates, Design.expanded(thaw(update)))
         for path, value in _leaves(updates):
             row[f"design.{path}"] = value
         for path, value in _leaves(thaw(spec.settings)):
@@ -310,12 +312,18 @@ def run_node(
 # ------------------------------------------------------------------------------------ the sweep
 
 
-def node_key(point: int, node: PlanNode) -> tuple[Any, ...]:
+def node_key(point: int, node: PlanNode, design_root: Path) -> tuple[Any, ...]:
     """Return the key of `node`, a node of the plan of the point `point`, in the graph of a sweep.
 
-    Nodes of equal identity are one node, and executes once. A node that acts (it programs a
-    device) is never shared: its key holds its point."""
-    return (point, node.name) if node.action else ("", node.identity)
+    Nodes of equal identity that read the same design are one node, and it executes once. The
+    identity holds no content and no place, so the key holds the root of the design too: files
+    of one relative name in two roots are two inputs. A node that acts (it programs a device) is
+    never shared: its key holds its point."""
+    return (point, node.name) if node.action else (design_root, node.identity)
+
+
+def _root_of(spec: Spec) -> Path:
+    return Path(os.path.realpath(spec.design.root))
 
 
 @dataclass
@@ -378,7 +386,7 @@ class _Sweep:
         for point in self.points:
             keys: dict[str, tuple[Any, ...]] = {}
             for name, node in point.plan.nodes.items():
-                key = keys[name] = node_key(point.index, node)
+                key = keys[name] = node_key(point.index, node, _root_of(specs[point.index]))
                 unit = self.units.get(key)
                 if unit is None:
                     unit = self.units[key] = _Unit(key, point.index, node)
@@ -439,7 +447,8 @@ class _Sweep:
         if error is None and stopped:
             error = CANCELED_ERROR
         elif error is None and nodes[roots[0]].outcome is Outcome.PASSED:
-            error = self._deliver(point, nodes)
+            # As a launch does: a request that came after the last node delivers nothing.
+            error = CANCELED_ERROR if self.canceled() else self._deliver(point, nodes)
         outcome, cause = aggregate(nodes, roots, error)
         point.finished = Result(
             launch_id=point.launch_id,
@@ -549,7 +558,22 @@ class _Sweep:
             )
             self._complete(unit, result, None)
             return
-        self._complete(unit, outcome.result, outcome.run_id)
+        result = outcome.result
+        if result.outcome is Outcome.BLOCKED and result.blocked_by is not None:
+            blocker = next(
+                (
+                    self.units[k].result
+                    for k in unit.producers
+                    if self.units[k].node.name == result.blocked_by
+                ),
+                None,
+            )
+            if blocker is not None and not stops_consumers(blocker.outcome):
+                # Another launch replaced the producer after the sweep completed it, and the node
+                # read the run that is there now. The result of the producer stays what the sweep
+                # saw, so the cause is the node itself: it did not pass.
+                result = replace(result, outcome=Outcome.FAILED, disposition=Disposition.RAN)
+        self._complete(unit, result, outcome.run_id)
 
     def run(self) -> SweepResult:
         for unit in self.order:
@@ -647,12 +671,14 @@ def _refuse(code: str, message: str, points: Iterable[int]) -> None:
     raise SpecError(message, code=code, points=sorted(set(points)))
 
 
-def _check_points(plans: Sequence[Plan]) -> None:
+def _check_points(plans: Sequence[Plan], specs: Sequence[Spec]) -> None:
     """Refuse what no sweep can do, before any node runs: two points that are one run, two
     configurations on one run directory, and two outputs for one destination."""
-    roots: dict[str, list[int]] = {}
+    roots: dict[tuple[Path, str], list[int]] = {}
     for index, plan in enumerate(plans):
-        roots.setdefault(plan.nodes[plan.roots[0]].identity, []).append(index)
+        roots.setdefault((_root_of(specs[index]), plan.nodes[plan.roots[0]].identity), []).append(
+            index
+        )
     equal = [points for points in roots.values() if len(points) > 1]
     if equal:
         _refuse(
@@ -666,7 +692,7 @@ def _check_points(plans: Sequence[Plan]) -> None:
     destinations: dict[Path, dict[tuple[Any, ...], list[int]]] = {}
     for index, plan in enumerate(plans):
         for node in plan.nodes.values():
-            key = node_key(index, node)
+            key = node_key(index, node, _root_of(specs[index]))
             directories.setdefault(node.run_dir, {}).setdefault(key, []).append(index)
             for delivery in node.deliveries:
                 where = Path(os.path.realpath(delivery.destination))
@@ -706,6 +732,20 @@ def _check_deliveries(plans: Sequence[Plan]) -> None:
                     )
 
 
+def _unplanned(specs: Sequence[Spec], on_event: Callable[[Event], None] | None) -> SweepResult:
+    """Return the result of a sweep that was canceled while it planned: every point ended as a
+    launch does that was canceled before it had a plan, with no node."""
+    points = []
+    for index, spec in enumerate(specs):
+        launch_id = os.urandom(16).hex()
+        result = Result(launch_id, spec, (), Outcome.CANCELED, CANCELED_ERROR, {})
+        for kind, outcome in (("launch_started", None), ("launch_finished", Outcome.CANCELED)):
+            if on_event is not None:
+                on_event(Event(kind, launch_id, None, outcome, None, datetime.now(timezone.utc)))
+        points.append(SweepPoint(index, spec, result))
+    return SweepResult(tuple(points), True)
+
+
 def run_sweep(
     workspace: Workspace,
     specs: Iterable[Spec],
@@ -722,22 +762,29 @@ def run_sweep(
     private = workspace.local_settings.env if workspace.local_settings is not None else {}
     snapshot = EnvironmentSnapshot.take(private)
     plans: list[Plan] = []
-    for index, spec in enumerate(given):
-        try:
-            plans.append(
-                workspace.plan(
-                    spec,
-                    rebuild_all=options.rebuild_all,
-                    clean=options.clean,
-                    post_cleanup=options.post_cleanup,
-                    post_cleanup_purge=options.post_cleanup_purge,
-                )
-            )
-        except SpecError as error:
-            error.points = (index,)
+    try:
+        # Planning waits for the lock of a Git dependency and runs `git`: it observes the token.
+        with observing(lambda: cancel is not None and cancel.canceled):
+            for index, spec in enumerate(given):
+                try:
+                    plans.append(
+                        workspace.plan(
+                            spec,
+                            rebuild_all=options.rebuild_all,
+                            clean=options.clean,
+                            post_cleanup=options.post_cleanup,
+                            post_cleanup_purge=options.post_cleanup_purge,
+                        )
+                    )
+                except SpecError as error:
+                    error.points = (index,)
+                    raise
+    except Exception as error:
+        if not isinstance(error, Canceled) and not isinstance(error.__cause__, Canceled):
             raise
+        return _unplanned(given, on_event)
     _check_deliveries(plans)
-    _check_points(plans)
+    _check_points(plans, given)
     sweep = _Sweep(
         workspace,
         plans,

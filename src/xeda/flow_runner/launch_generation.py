@@ -318,6 +318,10 @@ class GenerationState:
     not make it stale again. A storage that is not valid still generates."""
 
     generated: set[str] = field(default_factory=set)
+    #: A launch that only reads what a generation left (the delivery of a sweep point). Every
+    #: storage is judged as one this launch generated, and a storage that is not valid fails the
+    #: launch: it never runs a generator.
+    read_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -345,7 +349,7 @@ def _reason(
     """Return why the generator of `unit` must run, or None, and the files of its storage.
 
     `rebuild_all` is the reason only for a storage that this launch has not generated."""
-    done = unit.identity in state.generated
+    done = unit.identity in state.generated or state.read_only
     reason, matches = judge(
         unit.storage,
         unit.key,
@@ -548,7 +552,10 @@ def settle(
             raise _gave_up(description, reason)
         write = set(must_write)
         for unit in units:
-            if _reason(unit, environ, rebuild_all=rebuild_all, state=state)[0] is not None:
+            if (
+                _reason(unit, environ, rebuild_all=rebuild_all, state=state)[0] is not None
+                and not state.read_only
+            ):
                 write.add(unit.identity)
         requests = [
             *(participants.requests() if participants is not None else ()),
@@ -583,6 +590,10 @@ def settle(
                             description,
                         )
                     continue
+                if state.read_only:
+                    raise GenerationError(
+                        f"{description} left no valid sources for the delivery: {found}"
+                    )
                 if unit.identity in state.generated:
                     # The launch generated it and found it valid: it is not valid now.
                     state.generated.discard(unit.identity)

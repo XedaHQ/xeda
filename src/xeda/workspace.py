@@ -420,6 +420,16 @@ class Workspace:
             post_cleanup=post_cleanup,
             post_cleanup_purge=post_cleanup_purge,
         )
+        from_callback: list[Exception] = []
+
+        def relay(event: Event) -> None:
+            assert on_event is not None
+            try:
+                on_event(event)
+            except Exception as error:
+                from_callback.append(error)
+                raise
+
         token = TOOL_OUTPUT.set(self.tool_output)
         try:
             return run_sweep(
@@ -428,11 +438,11 @@ class Workspace:
                 max_workers=max_workers,
                 options=options,
                 cancel=cancel,
-                on_event=on_event,
+                on_event=None if on_event is None else relay,
             )
         except Exception as error:
             public = public_error(error)
-            if public is error:
+            if public is error or error in from_callback:
                 raise
             raise public from error
         finally:
