@@ -631,19 +631,27 @@ def _design_in(tmp_path: Path, directory: str, text: str) -> Design:
 
 
 def test_designs_of_one_name_in_two_roots_do_not_share_a_node(tmp_path, design):
-    first = _design_in(
-        tmp_path, "one", "module top(input clk, output q); assign q = clk; endmodule\n"
+    text = "module top(input clk, output q); assign q = {}; endmodule\n"
+    first = _design_in(tmp_path, "one", text.format("clk"))
+    second = _design_in(tmp_path, "two", text.format("~clk"))
+    third = _design_in(tmp_path, "three", text.format("1'b0"))
+    workspace = _workspace(tmp_path)
+    shared = workspace.plan(_spec(first, 1)).nodes["yosys_fpga"].run_dir
+    sources = (
+        "{} use one run directory, " + str(shared) + ", for designs with different sources. "
+        "Give each design its own name, or sweep them separately."
     )
-    second = _design_in(
-        tmp_path, "two", "module top(input clk, output q); assign q = ~clk; endmodule\n"
-    )
-    for specs in (
-        [_spec(first, 1), _spec(second, 2)],  # equal identities for `yosys_fpga`
-        [_spec(first, 1), _spec(second, 1)],  # equal identities for the whole run
+    for specs, points, text in (
+        # equal identities for `yosys_fpga`
+        ([_spec(first, 1), _spec(second, 2)], (0, 1), "points 0 and 1"),
+        # equal identities for the whole run
+        ([_spec(first, 1), _spec(second, 1)], (0, 1), "points 0 and 1"),
+        ([_spec(first, 1), _spec(third, 3), _spec(second, 2)], (0, 1, 2), "points 0, 1 and 2"),
     ):
         with pytest.raises(SpecError) as raised:
-            _workspace(tmp_path).sweep(specs)
-        assert raised.value.code == "colliding_run_dirs" and raised.value.points == (0, 1)
+            workspace.sweep(specs)
+        assert raised.value.code == "colliding_run_dirs" and raised.value.points == points
+        assert raised.value.message == sources.format(text)
     assert not (tmp_path / "run").exists()
 
 
@@ -767,3 +775,58 @@ def test_dotted_and_nested_updates_make_one_column(tmp_path, design):
     assert updated.rtl.parameters["WIDTH"] == 32
     assert row["design.rtl.parameters.WIDTH"] == 32
     assert [key for key in row if key.startswith("design.")] == ["design.rtl.parameters.WIDTH"]
+
+
+# ------------------------------------------------------------------------------- generation
+
+
+def _generating(tmp_path: Path, monkeypatch, **recipe):
+    """A design whose generator always runs, and the fake FPGA tools."""
+    from .generation_world import World
+
+    tool_utils.use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
+    return World(
+        tmp_path,
+        generator={"always_runs": True, **recipe},
+        extra="  clocks: [clk]\n",
+    )
+
+
+def _generated_keys(workspace: Workspace) -> set[str | None]:
+    return {
+        source.generation
+        for record in workspace.records()
+        for item in record.inputs
+        for source in item.sources
+        if source.generated
+    }
+
+
+def test_a_sweep_generates_once_and_every_node_and_the_delivery_read_that_generation(
+    tmp_path, monkeypatch
+):
+    world = _generating(tmp_path, monkeypatch, outputs_to=str(tmp_path / "copy"))
+    workspace = Workspace(world.run_root, hashed_run_dirs=True)
+    specs = [_spec(world.load(), seed) for seed in (1, 2, 3)]
+    result = workspace.sweep(specs)
+    assert result.counts() == {Outcome.PASSED: 3}
+    assert world.runs == 1, "an always-running generator runs once for the sweep"
+    assert len(world.storages()) == 1
+    assert _dispositions(result, "yosys_fpga") == ["ran", "shared", "shared"]
+    assert len(_generated_keys(workspace) - {None}) == 1
+    (copy,) = [p for p in (tmp_path / "copy").rglob("*.v")]
+    assert copy.read_text() == (world.storages()[0] / "gen" / "top.v").read_text()
+
+
+def test_points_with_different_generation_keys_each_generate_once(tmp_path, monkeypatch):
+    world = _generating(tmp_path, monkeypatch)
+    base = world.load()
+    workspace = Workspace(world.run_root, hashed_run_dirs=True)
+    specs = [
+        _spec(base.with_updates({"rtl": {"parameters": {"W": width}}}), seed)
+        for width in (1, 2)
+        for seed in (1, 2)
+    ]
+    result = workspace.sweep(specs)
+    assert result.counts() == {Outcome.PASSED: 4}
+    assert len(world.storages()) == 2 and world.runs == 2

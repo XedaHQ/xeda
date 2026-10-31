@@ -269,6 +269,36 @@ def launch_node_result(
         TOOL_OUTPUT.reset(token)
 
 
+def generate_points(
+    specs: Sequence[Spec],
+    options: WorkspaceOptions,
+    launch: LaunchOptions,
+    snapshot: EnvironmentSnapshot,
+    canceled: Callable[[], bool],
+) -> list[Any]:
+    """Settle the generation of every spec in this process: see `FlowLauncher.generate_points`."""
+    from .flow_runner import DefaultRunner
+    from .proc_utils import TOOL_OUTPUT
+
+    runner = DefaultRunner(
+        options.run_root,
+        hashed_run_dirs=options.hashed_run_dirs,
+        display_results=False,
+        run_root_start=options.run_root.parent,
+    )
+    token = TOOL_OUTPUT.set(options.tool_output)  # type: ignore[arg-type]
+    try:
+        return runner.generate_points(
+            specs,
+            local_settings=options.local_settings,
+            options=launch,
+            environment=snapshot,
+            canceled=canceled,
+        )
+    finally:
+        TOOL_OUTPUT.reset(token)
+
+
 def deliver_point(
     spec: Spec,
     completed: Mapping[str, CompletedNode],
@@ -575,11 +605,32 @@ class _Sweep:
                 result = replace(result, outcome=Outcome.FAILED, disposition=Disposition.RAN)
         self._complete(unit, result, outcome.run_id)
 
+    def _generate(self) -> None:
+        """Settle the generation of every point once, before the first node, as a launch does.
+        The nodes and the deliveries read what it leaves. A point whose generator failed ends as a
+        launch does that the generator failed."""
+        from .flow_runner.error_codes import GENERATOR_FAILED
+
+        try:
+            errors = generate_points(
+                self.specs,
+                replace(self.workspace._options(), confirm=None),
+                LaunchOptions(rebuild_all=self.options.rebuild_all, clean=self.options.clean),
+                self.snapshot,
+                self.canceled,
+            )
+        except Canceled:
+            return  # the token says so, and no node starts
+        for point, error in zip(self.points, errors):
+            if error is not None:
+                point.launch_error = ErrorInfo(GENERATOR_FAILED, str(error), None, None, None)
+
     def run(self) -> SweepResult:
+        self._generate()
         for unit in self.order:
             if self.canceled():
                 break
-            inherited = next(
+            inherited = self.points[unit.point].launch_error or next(
                 (self.units[k].launch_error for k in unit.producers if self.units[k].launch_error),
                 None,
             )
@@ -671,6 +722,12 @@ def _refuse(code: str, message: str, points: Iterable[int]) -> None:
     raise SpecError(message, code=code, points=sorted(set(points)))
 
 
+def _listed(points: Sequence[int]) -> str:
+    """Return the points as text: `0 and 1`, `0, 2 and 5`."""
+    names = [str(point) for point in points]
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 def _check_points(plans: Sequence[Plan], specs: Sequence[Spec]) -> None:
     """Refuse what no sweep can do, before any node runs: two points that are one run, two
     configurations on one run directory, and two outputs for one destination."""
@@ -689,22 +746,33 @@ def _check_points(plans: Sequence[Plan], specs: Sequence[Spec]) -> None:
             (i for points in equal for i in points),
         )
     directories: dict[Path, dict[tuple[Any, ...], list[int]]] = {}
+    identities: dict[Path, set[str]] = {}
     destinations: dict[Path, dict[tuple[Any, ...], list[int]]] = {}
     for index, plan in enumerate(plans):
         for node in plan.nodes.values():
             key = node_key(index, node, _root_of(specs[index]))
             directories.setdefault(node.run_dir, {}).setdefault(key, []).append(index)
+            identities.setdefault(node.run_dir, set()).add(node.identity)
             for delivery in node.deliveries:
                 where = Path(os.path.realpath(delivery.destination))
                 destinations.setdefault(where, {}).setdefault(key, []).append(index)
     for path, keys in directories.items():
         if len(keys) > 1:
+            involved = sorted({i for points in keys.values() for i in points})
+            if len(identities[path]) == 1:
+                # One configuration of one design name, read from more than one design root.
+                _refuse(
+                    "colliding_run_dirs",
+                    f"points {_listed(involved)} use one run directory, {path}, for designs with "
+                    "different sources. Give each design its own name, or sweep them separately.",
+                    involved,
+                )
             _refuse(
                 "colliding_run_dirs",
                 f"points with different configurations use one run directory, {path}. "
                 "Create the workspace with `hashed_run_dirs=True` to give each configuration "
                 "its own directory.",
-                (i for points in keys.values() for i in points),
+                involved,
             )
     for path, keys in destinations.items():
         if len(keys) > 1:

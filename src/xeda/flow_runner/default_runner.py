@@ -939,7 +939,10 @@ class FlowLauncher:
         if top_level:
             self._launched_before = len(self.launched)
             self._confirmed_replacements = ConfirmedReplacements()
-            self._generation_state = launch_generation.GenerationState()
+            # A node of a sweep reads the generation that the sweep made (`generate_points`).
+            self._generation_state = launch_generation.GenerationState(
+                read_only=self._node_run is not None
+            )
             self._node_locks = None
             self._restarts = 0
             # A launch of a plan that the caller gave prunes after it has checked the plan.
@@ -2769,6 +2772,72 @@ class FlowLauncher:
             )
         finally:
             self._request_context = previous
+
+    @log_context.with_launch_context
+    def generate_points(
+        self,
+        specs: Sequence[Spec],
+        *,
+        local_settings: LocalSettings | None,
+        options: LaunchOptions,
+        environment: EnvironmentSnapshot,
+        canceled: Callable[[], bool],
+    ) -> list[GenerationError | None]:
+        """Settle the generation of every point of a sweep once, and return how it went for each.
+
+        This is the step of a launch that comes after the declarative checks and before the first
+        node (`_lock_graph`): the same locks, taken in the same sequence (a storage exclusive
+        while its generator runs, then shared), under the same judgment. The points share the
+        state of the generation, so a unit that two points need generates once, and a generator
+        that always runs does not run again for the second point. The locks are released when a
+        point is settled: the launches of the nodes and the delivery read what it left, under
+        shared leases (`GenerationState.read_only`). A point whose generator failed has its
+        `GenerationError`, and a point without a generator `None`."""
+        self._apply(options)
+        self._environment = environment
+        state = launch_generation.GenerationState()
+        found: list[GenerationError | None] = []
+        try:
+            with observing(canceled):
+                for spec in specs:
+                    request, plan = self._judged_request(
+                        spec.flow,
+                        spec.design,
+                        None,
+                        thaw(spec.settings),
+                        [],
+                        None,
+                        False,
+                        [],
+                        target=UNSET,
+                        local_settings=local_settings,
+                    )
+                    self._refuse_planned(plan)
+                    design = self._merged(request.design)
+                    stack = ExitStack()
+                    try:
+                        launch_generation.settle(
+                            design,
+                            run_root=self.run_root,
+                            environ=dict(environment.inherited),
+                            rebuild_all=self.settings.rebuild_all or self.settings.clean,
+                            state=state,
+                            stack=stack,
+                            leases=[
+                                record.storage
+                                for record in design.resolved_dependencies
+                                if record.storage is not None
+                            ],
+                            canceled=self._canceled_now,
+                        )
+                        found.append(None)
+                    except GenerationError as error:
+                        found.append(error)
+                    finally:
+                        stack.close()
+        finally:
+            self._environment = None
+        return found
 
     @log_context.with_launch_context
     def deliver_point(
