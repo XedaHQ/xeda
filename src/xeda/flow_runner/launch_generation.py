@@ -39,6 +39,8 @@ from pathlib import Path, PurePath
 from types import MappingProxyType
 from typing import Any, Protocol
 
+import yaml
+
 from ..dataclass import ValidationError
 from ..deliver import GENERATOR, Delivery
 from ..design import (
@@ -56,6 +58,7 @@ from ..flow import Flow
 from ..frozen import FrozenDict
 from ..generation import (
     KEY_LENGTH,
+    RECORD_NAME,
     REBUILD_ALL,
     GenerationError,
     MissingGenerated,
@@ -318,6 +321,10 @@ class GenerationState:
     not make it stale again. A storage that is not valid still generates."""
 
     generated: set[str] = field(default_factory=set)
+    #: A launch that only reads what a generation left (the delivery of a sweep point). Every
+    #: storage is judged as one this launch generated, and a storage that is not valid fails the
+    #: launch: it never runs a generator.
+    read_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -345,7 +352,7 @@ def _reason(
     """Return why the generator of `unit` must run, or None, and the files of its storage.
 
     `rebuild_all` is the reason only for a storage that this launch has not generated."""
-    done = unit.identity in state.generated
+    done = unit.identity in state.generated or state.read_only
     reason, matches = judge(
         unit.storage,
         unit.key,
@@ -548,7 +555,10 @@ def settle(
             raise _gave_up(description, reason)
         write = set(must_write)
         for unit in units:
-            if _reason(unit, environ, rebuild_all=rebuild_all, state=state)[0] is not None:
+            if (
+                _reason(unit, environ, rebuild_all=rebuild_all, state=state)[0] is not None
+                and not state.read_only
+            ):
                 write.add(unit.identity)
         requests = [
             *(participants.requests() if participants is not None else ()),
@@ -583,6 +593,10 @@ def settle(
                             description,
                         )
                     continue
+                if state.read_only:
+                    raise GenerationError(
+                        f"{description} left no valid sources for the delivery: {found}"
+                    )
                 if unit.identity in state.generated:
                     # The launch generated it and found it valid: it is not valid now.
                     state.generated.discard(unit.identity)
@@ -650,6 +664,40 @@ def generated(
             state=GenerationState(),
             stack=stack,
         ).generations
+
+
+def fingerprints(generations: Generations | None) -> tuple[tuple[str, str], ...]:
+    """Return what identifies the generations as they are now: the storage of each, and the digest
+    of the outputs that its record holds (`generation.yaml`, written when the generator ended).
+
+    The caller holds the shared lease of the storages. A key names a configuration, and any
+    generation of it is valid; the digests tell the generation that a sweep settled from another
+    that a later launch made under the same key."""
+    found: list[tuple[str, str]] = []
+    for generation in () if generations is None else generations.by_owner.values():
+        try:
+            record = yaml.safe_load((generation.storage / RECORD_NAME).read_text(encoding="utf-8"))
+            digest = semantic_hash(record["outputs"])
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError):
+            digest = ""
+        found.append((str(generation.storage), digest))
+    return tuple(sorted(found))
+
+
+def verify_fingerprints(
+    generations: Generations | None, expected: Sequence[tuple[str, str]]
+) -> None:
+    """Raise `GenerationError` when the generations are not the ones that `expected` names
+    (`fingerprints`). Nothing is expected, nothing is checked."""
+    if not expected:
+        return
+    now = dict(fingerprints(generations))
+    for storage, digest in expected:
+        if now.get(storage) != digest:
+            raise GenerationError(
+                f"the generated sources in {storage} are not the ones that the sweep generated: "
+                "another launch ran the generator again. Run the sweep again"
+            )
 
 
 def execution_design(design: Design, generations: Generations | None) -> Design:

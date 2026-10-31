@@ -38,7 +38,6 @@ STAGE_MODULES = sorted([*FLOW_RUNNER.glob("launch_*.py"), *FLOW_RUNNER.glob("scr
 #: `default_runner` -> (module that defines it now, name there). The rest are `MOVED_NAMES`.
 IMPORTED: dict[str, tuple[str, str]] = {
     "RunDirPolicy": ("launch_identity", "RunDirPolicy"),
-    "run_directory_names": ("scrub", "run_directory_names"),
     "scrub_runs": ("scrub", "scrub_runs"),
     "_drop_unwritten_artifacts": ("launch_report", "drop_unwritten"),
 }

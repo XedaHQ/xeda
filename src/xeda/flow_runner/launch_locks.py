@@ -55,7 +55,8 @@ class NodeLocks:
     exclusively, and a node leaves no set it entered: a launch that started again with a node
     exclusive keeps it so. `judge` judges the plan without locks (`plan_freshness.judge_plan`).
     With `everything_runs` (`--rebuild-all`, `--clean`) every node is exclusive and there is
-    nothing to judge."""
+    nothing to judge. A node in `leased` is only read (a producer that a sweep has completed):
+    it is locked shared whatever its state, and is never judged."""
 
     def __init__(
         self,
@@ -64,12 +65,14 @@ class NodeLocks:
         *,
         everything_runs: bool,
         exclusive: Collection[str] = (),
+        leased: Collection[str] = (),
     ) -> None:
         self.paths = dict(paths)
         self._judge = judge
-        self.exclusive: set[str] = set(exclusive)
+        self._leased = frozenset(leased)
+        self.exclusive: set[str] = set(exclusive) - self._leased
         if everything_runs:
-            self.exclusive |= self.paths.keys()
+            self.exclusive |= self.paths.keys() - self._leased
         self._hinted = everything_runs
 
     def _states(self) -> Mapping[str, NodeFreshness] | None:
@@ -85,12 +88,14 @@ class NodeLocks:
             return
         self._hinted = True
         states = self._states()
-        late = set(self.paths) if states is None else self._not_reused(states)
+        late = set(self.paths) - self._leased if states is None else self._not_reused(states)
         self.exclusive |= late
 
     def _not_reused(self, states: Mapping[str, NodeFreshness]) -> set[str]:
         return {
-            name for name in self.paths if name not in states or states[name].state not in REUSED
+            name
+            for name in self.paths
+            if name not in self._leased and (name not in states or states[name].state not in REUSED)
         }
 
     def requests(self) -> list[LockRequest]:
@@ -102,10 +107,12 @@ class NodeLocks:
 
     def settled(self) -> bool:
         """Judge the plan under the locks. False: some shared node must be exclusive."""
-        if len(self.exclusive) == len(self.paths):
+        if len(self.exclusive) == len(self.paths) - len(self._leased):
             return True
         states = self._states()
-        late = (set(self.paths) if states is None else self._not_reused(states)) - self.exclusive
+        late = (
+            set(self.paths) - self._leased if states is None else self._not_reused(states)
+        ) - self.exclusive
         if not late:
             return True
         log.debug("Locking exclusively: %s", ", ".join(sorted(late)))

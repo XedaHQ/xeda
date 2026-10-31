@@ -32,7 +32,6 @@ from typing import (
 )
 
 
-from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
 from ..local_settings import LocalSettings
@@ -108,6 +107,7 @@ from . import (
     launch_identity,
     launch_input,
     launch_locks,
+    launch_node,
     launch_producers,
     launch_report,
     launch_run,
@@ -122,7 +122,7 @@ from .error_codes import INTERNAL_ERROR, error_info, plain_message, public_error
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_options import LaunchOptions
-from .launch_result import launch_result
+from .launch_result import CANCELED_ERROR, launch_level_error, launch_result
 from .plan_check import plan_difference
 from .launch_report import (
     report,
@@ -148,7 +148,7 @@ from .plan_freshness import (
     NodeFreshness,
     judge_plan,
 )
-from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
+from .scrub import ScrubConfirmation, ScrubDone, scrub_runs
 from .run_lock import CompletedRun, LockSet, acquire_all
 from .settings_layers import (
     API_ORIGIN,
@@ -216,6 +216,7 @@ MOVED_NAMES: dict[str, tuple[str, str]] = {
     "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
     "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
     "_setting_naming": ("launch_input", "setting_naming"),
+    "run_directory_names": ("scrub", "run_directory_names"),
     "_free_working_locations": ("launch_run", "free_working_locations"),
     "_refuse_inputs_inside": ("launch_run", "refuse_inputs_inside"),
 }
@@ -578,6 +579,8 @@ class FlowLauncher:
         #: What the current launch reports as it goes on (`launch_result.launch_result` reads it).
         self.collector = LaunchCollector()
         self._completed_runs: dict[Path, tuple[Flow, CompletedRun]] = {}
+        #: Set while the launcher launches one node of a sweep (`run_node`).
+        self._node_run: launch_node.NodeRun | None = None
 
     @property
     def run_root(self) -> Path:
@@ -936,7 +939,10 @@ class FlowLauncher:
         if top_level:
             self._launched_before = len(self.launched)
             self._confirmed_replacements = ConfirmedReplacements()
-            self._generation_state = launch_generation.GenerationState()
+            # A node of a sweep reads the generation that the sweep made (`generate_points`).
+            self._generation_state = launch_generation.GenerationState(
+                read_only=self._node_run is not None
+            )
             self._node_locks = None
             self._restarts = 0
             # A launch of a plan that the caller gave prunes after it has checked the plan.
@@ -1195,8 +1201,14 @@ class FlowLauncher:
         assert self._environment is not None
         environ = dict(self._environment.inherited)
         if self._node_locks is None:
+            # A node of a sweep locks itself and the producers that it reads, as leases.
+            scope = None if self._node_run is None else {plan.requested, *self._node_run.completed}
             self._node_locks = launch_locks.NodeLocks(
-                {planned.name: planned.run_path for planned in plan.nodes},
+                {
+                    planned.name: planned.run_path
+                    for planned in plan.nodes
+                    if scope is None or planned.name in scope
+                },
                 lambda: judge_plan(
                     plan,
                     design,
@@ -1209,6 +1221,7 @@ class FlowLauncher:
                     environment=self._environment,
                 ),
                 everything_runs=rebuild_all,
+                leased=() if self._node_run is None else self._node_run.completed,
             )
         self._node_locks.hint()
         leases = [
@@ -1231,11 +1244,41 @@ class FlowLauncher:
             # No lock is held here. The generator may fail only because the plan is stale.
             self._check_expected()
             raise
+        if self._node_run is not None:
+            # A sweep generated once. Under these leases, the storage must still be that generation.
+            launch_generation.verify_fingerprints(settled.generations, self._node_run.generation)
         self._locks = settled.locks
         execution = launch_generation.execution_design(design, settled.generations)
         self._generation = _LaunchGeneration(design, settled.generations, execution)
         if execution is not design:
             self._read_inputs.add(design_files(execution))
+
+    def _delivering_nodes(self, plan: Plan, requested: PlanNode) -> Sequence[PlanNode]:
+        """Return the nodes whose deliveries this launch checks and makes: all of them, but for
+        the launch of one node of a sweep, which keeps to its own."""
+        run = self._node_run
+        return plan.nodes if run is None or run.delivering else (requested,)
+
+    def _adopt_completed(self, plan: Plan, design: Design, runner_cwd: Path) -> None:
+        """Read the producers that a sweep completed, now that the launch holds their leases.
+
+        Each becomes the completed producer of its node, so the launch never runs it
+        (`launch_producers`). A record that does not pass makes the consumer blocked."""
+        assert self._node_run is not None
+        for name, done in self._node_run.completed.items():
+            node = plan.node(name)
+            flow, token = launch_node.adopt_completed(
+                node,
+                plan,
+                design,
+                done,
+                run_root=self.run_root,
+                runner_cwd=runner_cwd,
+                run_path_of=self.run_path_of,
+                environment=self._environment,
+            )
+            self._planned_completed[(id(plan), node.node_key)] = flow
+            self._completed_runs[node.run_path.resolve()] = (flow, token)
 
     def _release_generation(self) -> None:
         """Release every lock of the launch, once it has delivered everything."""
@@ -1421,7 +1464,8 @@ class FlowLauncher:
         self._predicted_copies = [(requested.name, d, d.destination) for d in predicted]
         ahead: dict[NodeKey, Deliveries] = {}
         copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
-        for planned in plan.nodes:
+        # The producers of a node of a sweep deliver in their own launches.
+        for planned in self._delivering_nodes(plan, requested):
             if planned.node_key == requested.node_key:
                 known = [*deliveries, *predicted]
             else:
@@ -1473,7 +1517,7 @@ class FlowLauncher:
             design,
         )
         touched: list[Deliveries] = []
-        for node in plan.nodes:
+        for node in self._delivering_nodes(plan, plan.node(plan.requested)):
             copies = by_node.get(node.node_key)
             ahead = self._deliveries_ahead.get(node.node_key)
             if copies is None and (ahead is None or not ahead.generated):
@@ -1656,6 +1700,8 @@ class FlowLauncher:
                 ),
             )
             self._place_generated_deliveries(plan, design, runner_cwd)
+            if self._node_run is not None:
+                self._adopt_completed(plan, design, runner_cwd)
         # What the flows read: the design with the files of its generated sources in place.
         execution = self._execution_of(design)
         design_hash = execution.parts_hash(
@@ -2126,7 +2172,10 @@ class FlowLauncher:
 
         The files are noted one by one as its run left them (`Deliveries.collect`, under the lock
         of its run directory). The copies are made when the launch has finished
-        (`_finish_launch`), once every flow of it has read its inputs."""
+        (`_finish_launch`), once every flow of it has read its inputs. The launch of one node of a
+        sweep notes nothing: its point delivers."""
+        if self._node_run is not None and not self._node_run.delivering:
+            return
         artifacts = [
             flow.results.get("artifacts") or flow.artifacts,
             declared_output_files(flow.results),
@@ -2157,60 +2206,16 @@ class FlowLauncher:
         Pruning removes the trace first. Until every flow declares every output it writes, a
         pruned directory may lack a file that a consumer reads, so the run must not be reused,
         not even if the pruning is interrupted halfway."""
-        if policy.post_cleanup:
-            remove_trace(flow.run_path)
-            if policy.purges:
-                log.warning("Deleting run directory %s", flow.run_path)
-                # With every name of it, the link that the launch named it by included, so none
-                # is left leading nowhere.
-                flow.run_directory.delete(
-                    *run_directory_names(flow.run_path, flow.name, self.run_root)
-                )
-            else:
-                log.warning("Cleaning up %s", flow.run_path)
-                named_run_path = Path(os.path.abspath(flow.run_path))
-                run_path = flow.run_path.resolve()
-                kept: set[Path] = set()
-                for raw_path in (
-                    settings_json,
-                    results_json,
-                    *iter_artifact_paths(flow.results.artifacts),
-                    *declared_output_files(flow.results),
-                ):
-                    path = Path(os.path.abspath(named_run_path / raw_path))
-                    if path.is_relative_to(named_run_path):
-                        # Resolve the run-directory alias without resolving an artifact's
-                        # own symlink: both that link and its internal target must survive.
-                        path = run_path / path.relative_to(named_run_path)
-                    target = path.resolve()
-                    if path.is_relative_to(run_path):
-                        kept.add(path)
-                        # A retained symlink to an internal file needs its target as well.
-                        if target.is_relative_to(run_path):
-                            kept.add(target)
-                    elif target.is_relative_to(run_path):
-                        # Absolute paths may spell the run directory through a symlink.
-                        kept.add(target)
-
-                ancestors = {
-                    parent for path in kept for parent in path.parents if parent != run_path
-                }
-                removed: list[Path] = []
-
-                def prune(directory: Path) -> None:
-                    for path in directory.iterdir():
-                        if path in kept:
-                            continue
-                        if path in ancestors and path.is_symlink():
-                            continue
-                        if path in ancestors and path.is_dir() and not path.is_symlink():
-                            prune(path)
-                        else:
-                            removed.extend(flow.run_directory.remove(path))
-
-                if run_path.is_relative_to(self.run_root) and run_path not in kept:
-                    prune(run_path)
-                log.warning("Removed the following files: %s", " ".join(str(p) for p in removed))
+        launch_run.clean_up_run(
+            flow.run_path,
+            flow.run_directory,
+            flow.name,
+            flow.results,
+            settings_json,
+            results_json,
+            self.run_root,
+            policy,
+        )
 
     @log_context.with_launch_context
     def run_flow(
@@ -2695,6 +2700,282 @@ class FlowLauncher:
             self._expected_local_settings = None
             self._prelock_difference = None
             self._stale = None
+
+    @log_context.with_launch_context
+    def run_node(
+        self,
+        spec: Spec,
+        *,
+        node: str,
+        identity: str,
+        generation: tuple[tuple[str, str], ...],
+        completed: Mapping[str, Any],
+        local_settings: LocalSettings | None,
+        options: LaunchOptions,
+        rebuild: bool,
+        environment: EnvironmentSnapshot,
+        canceled: Callable[[], bool],
+        on_event: Callable[[Event], None] | None = None,
+    ) -> Result:
+        """Launch the node `node` of the plan of `spec`, and nothing else: one step of a sweep.
+
+        The node must have the identity `identity` (`StalePlanError`, before any lock). The
+        producers of the node are the nodes of `completed` (`launch_node.NodeRun`): the launch
+        reads their records under shared leases and never runs them. The launch delivers nothing:
+        a point of the sweep delivers when it ends (`deliver_point`). `rebuild` runs the node even
+        when it is up to date. The launch takes `environment` as its snapshot. The `Result` is
+        that of a launch of the plan that ends at the node: the node is its only root."""
+        self._apply(replace(options, rebuild_all=options.rebuild_all or rebuild))
+        self._pinned_environment = environment
+        token = launch_node.PredicateToken(canceled)
+        try:
+            try:
+                with observing(canceled):
+                    request, plan = self._judged_request(
+                        spec.flow,
+                        spec.design,
+                        None,
+                        thaw(spec.settings),
+                        [],
+                        None,
+                        False,
+                        [],
+                        target=UNSET,
+                        local_settings=local_settings,
+                    )
+                self._refuse_planned(plan)
+                ending = launch_node.plan_up_to(plan, node, completed, identity)
+                self._plans[id(ending)] = (ending, *self._plans[id(plan)][1:])
+            except Canceled:
+                return launch_result(
+                    self, spec, self._stop_unplanned, cancel=token, on_event=on_event
+                )
+            self._node_run = launch_node.NodeRun(node, completed, generation=generation)
+            return launch_result(
+                self,
+                spec,
+                lambda: self._run_ending(request, ending),
+                cancel=token,
+                on_event=on_event,
+            )
+        finally:
+            self._node_run = None
+            self._pinned_environment = None
+
+    def _run_ending(self, request: _Request, plan: Plan) -> Flow:
+        """Launch the last node of `plan`, as the requested node of its own launch."""
+        previous, self._request_context = self._request_context, request
+        try:
+            last = plan.node(plan.requested)
+            return self.launch_flow(
+                last.flow_class,
+                request.design,
+                last.settings,
+                all_flows_settings=request.sections,
+                plan=plan,
+            )
+        finally:
+            self._request_context = previous
+
+    @log_context.with_launch_context
+    def generate_points(
+        self,
+        specs: Sequence[Spec],
+        *,
+        local_settings: LocalSettings | None,
+        options: LaunchOptions,
+        environment: EnvironmentSnapshot,
+        canceled: Callable[[], bool],
+    ) -> list[tuple[GenerationError | None, tuple[tuple[str, str], ...]]]:
+        """Settle the generation of every point of a sweep once, and return how it went for each.
+
+        This is the step of a launch that comes after the declarative checks and before the first
+        node (`_lock_graph`): the same locks, taken in the same sequence (a storage exclusive
+        while its generator runs, then shared), under the same judgment. The points share the
+        state of the generation, so a unit that two points need generates once, and a generator
+        that always runs does not run again for the second point. The locks are released when a
+        point is settled: the launches of the nodes and the delivery read what it left, under
+        shared leases (`GenerationState.read_only`), and verify that it is the generation named
+        by the fingerprints that this returns with each point. A point whose generator failed has
+        its `GenerationError`, and a point without a generator `None`."""
+        self._apply(options)
+        self._environment = environment
+        state = launch_generation.GenerationState()
+        found: list[tuple[GenerationError | None, tuple[tuple[str, str], ...]]] = []
+        try:
+            with observing(canceled):
+                for spec in specs:
+                    request, plan = self._judged_request(
+                        spec.flow,
+                        spec.design,
+                        None,
+                        thaw(spec.settings),
+                        [],
+                        None,
+                        False,
+                        [],
+                        target=UNSET,
+                        local_settings=local_settings,
+                    )
+                    self._refuse_planned(plan)
+                    design = self._merged(request.design)
+                    stack = ExitStack()
+                    try:
+                        settled = launch_generation.settle(
+                            design,
+                            run_root=self.run_root,
+                            environ=dict(environment.inherited),
+                            rebuild_all=self.settings.rebuild_all or self.settings.clean,
+                            state=state,
+                            stack=stack,
+                            leases=[
+                                record.storage
+                                for record in design.resolved_dependencies
+                                if record.storage is not None
+                            ],
+                            canceled=self._canceled_now,
+                        )
+                        # What these leases show is the generation of the point: the nodes and
+                        # the delivery must find the same one (`verify_fingerprints`).
+                        found.append((None, launch_generation.fingerprints(settled.generations)))
+                    except GenerationError as error:
+                        found.append((error, ()))
+                    finally:
+                        stack.close()
+        finally:
+            self._environment = None
+        return found
+
+    @log_context.with_launch_context
+    def deliver_point(
+        self,
+        spec: Spec,
+        *,
+        completed: Mapping[str, Any],
+        generation: tuple[tuple[str, str], ...],
+        local_settings: LocalSettings | None,
+        environment: EnvironmentSnapshot,
+        canceled: Callable[[], bool],
+    ) -> launch_node.PointDelivery:
+        """Deliver the outputs of a point of a sweep, when its last node has passed.
+
+        `completed` holds every node of the plan of `spec`, as the sweep ran or reused it. The
+        launch reads each node from its record under a shared lease, as a launch that finds them
+        all up to date would, and delivers what that launch delivers: the deliverable settings of
+        every node that passed, and the copies of generated sources. It runs no node. A refusal
+        or a failure of the delivery is the error of the launch (`delivery_failed`), and the
+        deliveries that were made stay."""
+        self._apply(LaunchOptions())
+        self._pinned_environment = environment
+        self._environment = environment
+        try:
+            try:
+                with observing(canceled):
+                    request, plan = self._judged_request(
+                        spec.flow,
+                        spec.design,
+                        None,
+                        thaw(spec.settings),
+                        [],
+                        None,
+                        False,
+                        [],
+                        target=UNSET,
+                        local_settings=local_settings,
+                    )
+                    self._refuse_planned(plan)
+                    launch_node.check_completed(plan, completed)
+                    return self._deliver_planned(request, plan, completed, generation)
+            except Canceled:
+                return launch_node.PointDelivery({}, CANCELED_ERROR)
+        finally:
+            self._node_run = None
+            self._pinned_environment = None
+            self._release_generation()
+
+    def _deliver_planned(
+        self,
+        request: _Request,
+        plan: Plan,
+        completed: Mapping[str, Any],
+        generation: tuple[tuple[str, str], ...],
+    ) -> launch_node.PointDelivery:
+        root = plan.node(plan.requested)
+        design = self._merged(request.design)
+        runner_cwd = self._start
+        self._claims = set()
+        self._deliveries_ahead = {}
+        self._predicted_copies = []
+        self._planned_completed = {}
+        self._completed_runs = {}
+        self._pending_deliveries = []
+        self._pending_clean_ups = []
+        self._generation = None
+        self._node_locks = None
+        # The delivery reads what the nodes of the sweep read: it never generates.
+        self._generation_state = launch_generation.GenerationState(read_only=True)
+        self._restarts = 0
+        self._confirmed_replacements = ConfirmedReplacements()
+        self._code_digests = CodeDigests()
+        self._delivered_files = DeliveredFiles()
+        self._read_inputs = ReadInputs(self._launch_inputs)
+        self.collector = LaunchCollector()
+        self.collector.planned(plan)
+        self._node_run = launch_node.NodeRun(
+            root.name, completed, delivering=True, generation=generation
+        )
+        self._read_inputs.add(design_files(design))
+        self._read_inputs.add_source_entries(design.source_entries())
+        for planned in plan.nodes:
+            register_read_settings(
+                self._read_inputs, planned.settings, planned.run_path, self.run_root
+            )
+        failure: Exception | None = None
+        flows: dict[str, Flow] = {}
+        try:
+            named = split_deliveries(
+                launch_input.input_settings(
+                    root.flow_class,
+                    root.settings,
+                    planned_design_of(plan, root, design, self.run_path_of),
+                    runner_cwd,
+                    False,
+                    debug=self.debug,
+                ),
+                design.name,
+            )
+            self._check_deliveries_ahead(plan, root, design, named, root.run_path, runner_cwd)
+            self._lock_graph(plan, design, runner_cwd)
+            self._place_generated_deliveries(plan, design, runner_cwd)
+            self._adopt_completed(plan, design, runner_cwd)
+            for node in plan.nodes:
+                flow = flows[node.name] = self._planned_completed[(id(plan), node.node_key)]
+                if not flow.succeeded:
+                    # Another launch replaced the run since the sweep completed this node.
+                    cause = flow.results.get("error")
+                    raise DeliveryError(
+                        f"nothing was delivered: {node.name} holds a run that did not pass now"
+                        + (f" ({cause['code']})" if isinstance(cause, Mapping) else "")
+                    )
+                delivery = self._deliveries_ahead.pop(node.node_key, None)
+                if delivery is None:
+                    delivery = self._deliveries_of(
+                        node.run_path, split_deliveries(node.settings, design.name), node.name
+                    )
+                else:
+                    delivery.reread_record()
+                delivery.check_outputs_to(None)
+                delivery.check([])
+                self._defer_delivery(flow, delivery, None)
+            failure = self._finish_launch(deliver=flows[root.name].succeeded)
+        except Canceled:
+            raise
+        except Exception as error:  # noqa: BLE001 - the delivery of the point failed
+            failure = error
+            self.collector.finish_failed("delivery", error, root.run_path)
+        self.collector.finish_raised = failure
+        deliveries = {name: self.collector.deliveries_of(flow) for name, flow in flows.items()}
+        return launch_node.PointDelivery(deliveries, launch_level_error(self.collector, {}, ()))
 
     @staticmethod
     def _stop_unplanned() -> None:
