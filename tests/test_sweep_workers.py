@@ -58,24 +58,35 @@ def _tools_that_block(tmp_path: Path, monkeypatch) -> Path:
     return ready
 
 
+def _all_pids(ready: Path) -> list[int]:
+    """The process ids that the blocked tools wrote, and those of their children."""
+    pids: list[int] = []
+    for file in sorted(ready.glob("*.pid")):
+        pids += [int(pid) for pid in file.read_text().split()]
+    return pids
+
+
 def _blocked_pids(ready: Path) -> list[int] | None:
     """The process ids of two tools and their children, once both tools block; else `None`."""
-    files = sorted(ready.glob("*.pid"))
-    if len(files) < 2:
-        return None
-    return [int(pid) for file in files for pid in file.read_text().split()]
+    return _all_pids(ready) if len(list(ready.glob("*.pid"))) >= 2 else None
+
+
+def _worker_pids(workspace: Workspace) -> set[int]:
+    """The processes that started a tool: the workers."""
+    return {
+        json.loads(line)["ppid"]
+        for file in workspace.run_root.rglob("fake_fpga.calls.jsonl")
+        for line in file.read_text().splitlines()
+    }
 
 
 def _two_independent_points(design) -> list:
     return [_spec(design, 1), _spec(design, 1, **{"yosys_fpga.nobram": True})]
 
 
-def _assert_all_stopped_and_free(workspace: Workspace, specs: list, pids: list[int]) -> None:
-    try:
-        assert not [pid for pid in pids if _is_running(pid)]
-    finally:
-        for pid in pids:
-            _kill(pid)
+def _stopped_and_free(workspace: Workspace, specs: list, pids: list[int]) -> None:
+    """Assert that every process in `pids` ended and that a new launch takes every lock."""
+    _wait_until(lambda: not any(_is_running(pid) for pid in pids), "the processes to end", PROMPT)
     requests = [
         LockRequest("run_dir", node.run_dir, True)
         for spec in specs
@@ -96,11 +107,7 @@ def test_two_workers_execute_each_node_once(tmp_path, design):
     assert dict(result.counts()) == {Outcome.PASSED: 4} and not result.canceled
     calls = _calls(workspace)
     assert calls["yosys"] == 1 and calls["nextpnr-ecp5"] == 4
-    parents = {
-        json.loads(line)["ppid"]
-        for file in workspace.run_root.rglob("fake_fpga.calls.jsonl")
-        for line in file.read_text().splitlines()
-    }
+    parents = _worker_pids(workspace)
     assert os.getpid() not in parents and 1 <= len(parents) <= 2
 
 
@@ -108,47 +115,61 @@ def test_canceling_stops_running_workers_tools(tmp_path, design, monkeypatch):
     ready = _tools_that_block(tmp_path, monkeypatch)
     workspace = _workspace(tmp_path)
     token = CancelToken()
-    found: list[list[int]] = []
+    failure: list[BaseException] = []
 
     def cancel_when_both_block() -> None:
-        found.append(_wait_until(lambda: _blocked_pids(ready), "both tools to block"))
-        token.cancel()
+        try:
+            _wait_until(lambda: _blocked_pids(ready), "both tools to block")
+        except BaseException as error:  # noqa: BLE001 - the main thread raises it
+            failure.append(error)
+        finally:  # whatever happened, the sweep must not wait for ever
+            token.cancel()
 
     thread = threading.Thread(target=cancel_when_both_block, daemon=True)
     thread.start()
-    begin = time.monotonic()
     specs = _two_independent_points(design)
-    result = workspace.sweep(specs, max_workers=2, cancel=token)
-    thread.join()
-    assert time.monotonic() - begin < PROMPT
-    assert result.canceled and {str(p.result.outcome) for p in result} == {"canceled"}
-    assert {str(p.result.nodes["yosys_fpga"].outcome) for p in result} == {"canceled"}
-    assert {str(p.result.nodes["nextpnr"].outcome) for p in result} == {"skipped"}
-    (pids,) = found
-    assert len(pids) == 4
-    _assert_all_stopped_and_free(workspace, specs, pids)
+    try:
+        begin = time.monotonic()
+        result = workspace.sweep(specs, max_workers=2, cancel=token)
+        thread.join()
+        if failure:
+            raise failure[0]
+        assert time.monotonic() - begin < PROMPT
+        assert result.canceled and {str(p.result.outcome) for p in result} == {"canceled"}
+        assert {str(p.result.nodes["yosys_fpga"].outcome) for p in result} == {"canceled"}
+        assert {str(p.result.nodes["nextpnr"].outcome) for p in result} == {"skipped"}
+        assert len(_all_pids(ready)) == 4
+        _stopped_and_free(workspace, specs, _all_pids(ready))
+    finally:
+        thread.join()
+        for pid in _all_pids(ready):
+            _kill(pid)
 
 
 def test_a_raising_callback_stops_running_workers_and_propagates(tmp_path, design, monkeypatch):
+    from . import io_flows  # noqa: F401
+
     ready = _tools_that_block(tmp_path, monkeypatch)
     workspace = _workspace(tmp_path)
-    found: list[list[int]] = []
-    started: list[str | None] = []
+    # Three workers: two run the tools that block, and the third finishes `t_maker`, which
+    # tells the callback while the other two run.
+    specs = [*_two_independent_points(design), Spec("t_maker", design)]
 
     def on_event(event: Event) -> None:
-        if event.kind == "node_started":
-            started.append(event.node)
-            if len(started) == 2:  # both nodes went to a worker: wait until both tools run
-                found.append(_wait_until(lambda: _blocked_pids(ready), "both tools to block"))
-                raise RuntimeError("stop")
+        if event.kind == "node_finished" and event.node == "t_maker":
+            _wait_until(lambda: _blocked_pids(ready), "both tools to block")
+            raise RuntimeError("stop")
 
-    specs = _two_independent_points(design)
-    begin = time.monotonic()
-    with pytest.raises(RuntimeError, match="stop"):
-        workspace.sweep(specs, max_workers=2, on_event=on_event)
-    assert time.monotonic() - begin < PROMPT
-    ((*pids,),) = found
-    _assert_all_stopped_and_free(workspace, specs, pids)
+    try:
+        begin = time.monotonic()
+        with pytest.raises(RuntimeError, match="stop"):
+            workspace.sweep(specs, max_workers=3, on_event=on_event)
+        assert time.monotonic() - begin < PROMPT
+        assert len(_all_pids(ready)) == 4
+        _stopped_and_free(workspace, specs, _all_pids(ready))
+    finally:
+        for pid in _all_pids(ready):
+            _kill(pid)
 
 
 _SCRIPT = """
@@ -362,8 +383,22 @@ def test_a_flow_of_a_module_loaded_from_a_file_under_a_name_is_refused(tmp_path,
     _assert_refused(workspace, specs, "loaded_scripts.foo")
 
 
+def _module_flow(tmp_path: Path, monkeypatch, name: str, source: str) -> None:
+    """Write the module `name` with `source` into `tmp_path`, make it importable by name in this
+    process and in a spawned worker (which gets `sys.path`), and import it: its flow registers."""
+    import importlib
+
+    (tmp_path / f"{name}.py").write_text(source)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, name, raising=False)
+    importlib.import_module(name)
+
+
 def test_a_module_that_a_worker_fails_to_import_fails_the_node_with_its_code(tmp_path, monkeypatch):
-    (tmp_path / "importable_by_the_parent.py").write_text(
+    _module_flow(
+        tmp_path,
+        monkeypatch,
+        "importable_by_the_parent",
         "import multiprocessing\n"
         "from xeda.flow import Flow\n"
         "if multiprocessing.parent_process() is not None:\n"
@@ -371,16 +406,127 @@ def test_a_module_that_a_worker_fails_to_import_fails_the_node_with_its_code(tmp
         "class WorkerFlow(Flow):\n"
         '    """A flow that only the parent can import."""\n'
         "    results_description = {}\n"
-        "    def run(self): pass\n"
+        "    def run(self): pass\n",
     )
-    monkeypatch.syspath_prepend(str(tmp_path))
-    monkeypatch.delitem(sys.modules, "importable_by_the_parent", raising=False)
-    import importlib
-
-    importlib.import_module("importable_by_the_parent")
     spec = Spec("worker_flow", _plain_design(tmp_path))
     (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
     node = point.result.nodes["worker_flow"]
     assert point.result.outcome is Outcome.FAILED and node.error is not None
     assert node.error.code == "flow_not_importable"
     assert "importable_by_the_parent" in node.error.message
+
+
+@pytest.mark.parametrize("statement", ["sys.exit(3)", "raise KeyboardInterrupt"])
+def test_a_flow_that_leaves_the_worker_fails_its_node_not_the_sweep(
+    tmp_path, monkeypatch, statement
+):
+    _module_flow(
+        tmp_path,
+        monkeypatch,
+        "flow_that_leaves",
+        "import sys\n"
+        "from xeda.flow import Flow\n"
+        "class LeavingFlow(Flow):\n"
+        '    """A flow that leaves its process."""\n'
+        "    results_description = {}\n"
+        f"    def run(self): {statement}\n",
+    )
+    spec = Spec("leaving_flow", _plain_design(tmp_path))
+    (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
+    node = point.result.nodes["leaving_flow"]
+    assert point.result.outcome is Outcome.FAILED and node.error is not None
+    assert node.error.code == "reported_failure"
+
+
+def test_the_events_of_a_diamond_come_in_the_order_of_the_plan(tmp_path):
+    # `t_left` and `t_right` run at once in two workers. Their events still come as the plan has
+    # them: a `node_started` and a `node_finished` for each node, one node after the other.
+    from . import io_flows  # noqa: F401
+
+    workspace = Workspace(tmp_path / "run")
+    spec = Spec("t_join", _plain_design(tmp_path))
+    names = list(workspace.plan(spec).nodes)
+    assert names[0] == "t_fork" and names[-1] == "t_join" and len(names) == 4
+    events: list[Event] = []
+    (point,) = workspace.sweep([spec], max_workers=2, on_event=events.append)
+    assert point.result.outcome is Outcome.PASSED
+    assert [(e.kind, e.node) for e in events] == [
+        ("launch_started", None),
+        *[(kind, name) for name in names for kind in ("node_started", "node_finished")],
+        ("launch_finished", None),
+    ]
+
+
+_BLOCKED_SWEEP = """
+import sys
+from pathlib import Path
+
+from xeda import Design
+from xeda.spec import Spec
+from xeda.workspace import Workspace
+
+def main():
+    root = Path(sys.argv[1])
+    design = Design(
+        name="top", root=root / "design",
+        rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
+    )
+    base = {"nextpnr.seed": 1, "nextpnr.fpga.part": %r}
+    specs = [
+        Spec("yosys_fpga+nextpnr", design, settings=base),
+        Spec("yosys_fpga+nextpnr", design, settings={**base, "yosys_fpga.nobram": True}),
+    ]
+    Workspace(root / "run", hashed_run_dirs=True).sweep(specs, max_workers=2)
+
+if __name__ == "__main__":
+    main()
+""" % (ECP5,)
+
+
+def test_killing_the_calling_process_stops_the_tools_of_the_workers(tmp_path, design, monkeypatch):
+    ready = _tools_that_block(tmp_path, monkeypatch)
+    script = tmp_path / "killed_sweep.py"
+    script.write_text(_BLOCKED_SWEEP)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    caller = subprocess.Popen(
+        [sys.executable, str(script), str(tmp_path)],
+        cwd=elsewhere,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    workspace = _workspace(tmp_path)
+    try:
+        _wait_until(lambda: _blocked_pids(ready), "both tools to block")
+        caller.kill()  # SIGKILL: nothing in the process gets to stop its workers
+        caller.wait()
+        pids = _all_pids(ready)
+        # The tools and their children end, the workers end, and every lock is free.
+        _stopped_and_free(
+            workspace, _two_independent_points(design), pids + [*_worker_pids(workspace)]
+        )
+    finally:
+        caller.kill()
+        caller.wait()
+        for pid in [*_all_pids(ready), *_worker_pids(workspace)]:
+            _kill(pid)
+
+
+def test_a_sweep_with_workers_makes_no_temporary_directory_for_its_sockets(tmp_path, design):
+    # A `multiprocessing.Manager` makes `pymp-*` with a socket in the temporary directory, which
+    # is a write outside the run root. It is made by a process that this one starts, so no audit
+    # hook of this process sees it: look at the directory while the sweep runs.
+    import tempfile
+
+    places = {Path(tempfile.gettempdir()), Path("/tmp")}
+
+    def made() -> set[Path]:
+        return {entry for place in places for entry in place.glob("pymp-*")}
+
+    before = made()
+    seen: list[set[Path]] = []
+    result = _workspace(tmp_path).sweep(
+        _seeds(design, 2), max_workers=2, on_event=lambda event: seen.append(made() - before)
+    )
+    assert dict(result.counts()) == {Outcome.PASSED: 2}
+    assert seen and not any(seen), seen

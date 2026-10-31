@@ -19,8 +19,11 @@ import multiprocessing
 import os
 import signal
 import sys
+import threading
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from multiprocessing.connection import Connection
+from multiprocessing.context import BaseContext
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -362,30 +365,79 @@ def run_node(
 # ------------------------------------------------------------------------------ worker processes
 
 
-@dataclass(frozen=True)
 class WorkerChannel:
-    """What the calling process shares with its workers: the request to stop.
+    """The request to stop, from the calling process to its workers: a pipe.
 
-    `cancel` is an event of a `multiprocessing.Manager`, so that it crosses the process boundary.
-    The events of the sweep never cross it: the calling process tells them from the results of the
-    nodes, so a worker never waits for the callback."""
+    The calling process holds the write end, and each worker holds the read end (`ProcessPool
+    Executor`'s `initargs`). `cancel()` closes the write end, and then the read end is readable in
+    every worker. It is readable too when the calling process is gone, however it died (SIGKILL
+    included), since the write end closes with it. A pipe is no file and no named object, so a
+    sweep writes nothing outside the run root for it. The events of the sweep never cross it: the
+    calling process tells them from the results of the nodes, so a worker never waits for the
+    callback."""
 
-    cancel: Any
+    def __init__(self, context: BaseContext) -> None:
+        self.reader, self._writer = context.Pipe(duplex=False)
+
+    def cancel(self) -> None:
+        self._writer.close()
+
+    def close(self) -> None:
+        self._writer.close()
+        self.reader.close()
 
 
-def worker_main(task: NodeTask, channel: WorkerChannel) -> NodeOutcome:
+#: In a worker process: the read end of the pipe of the calling process (`_start_worker`).
+_REQUEST: Connection | None = None
+
+#: In a worker process: set while no node runs.
+_IDLE = threading.Event()
+_IDLE.set()
+
+
+def _start_worker(request: Connection) -> None:
+    """Start a worker: it keeps the request to stop, and leaves Ctrl-C to the calling process,
+    which stops it through the request. It also ends itself once the calling process is gone and
+    no node runs: a worker that waits for its next node would wait for ever, since its pool is
+    gone."""
+    global _REQUEST
+    _REQUEST = request
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    parent = multiprocessing.parent_process()
+    if parent is not None:
+
+        def end_with_the_parent() -> None:
+            parent.join()
+            _IDLE.wait()
+            os._exit(1)
+
+        threading.Thread(target=end_with_the_parent, daemon=True).start()
+
+
+def _stop_requested() -> bool:
+    """Whether this worker must stop: the calling process asked, or it is gone."""
+    try:
+        return _REQUEST is not None and _REQUEST.poll()
+    except (OSError, EOFError):
+        return True
+
+
+def worker_main(task: NodeTask) -> NodeOutcome:
     """Execute the node of `task` in a worker process, and return how it ended.
 
-    The node stops when `channel.cancel` is set, or when the calling process is gone. No exception
-    leaves this function: an exception that the calling process cannot unpickle would lose the
-    result. A failure is plain data, an outcome with an error code."""
-    from .flow_runner.error_codes import FLOW_NOT_IMPORTABLE, error_info
+    The node stops when the calling process asks, or when it is gone (`WorkerChannel`). Nothing
+    leaves this function as an exception, not even `SystemExit` or `KeyboardInterrupt`: what the
+    calling process could not unpickle would lose the result. A failure is plain data, an outcome
+    with an error code."""
+    _IDLE.clear()
+    try:
+        return _execute_in_worker(task)
+    finally:
+        _IDLE.set()
 
-    def canceled() -> bool:
-        try:
-            return bool(channel.cancel.is_set())
-        except (OSError, EOFError):  # the manager of the calling process is gone
-            return True
+
+def _execute_in_worker(task: NodeTask) -> NodeOutcome:
+    from .flow_runner.error_codes import FLOW_NOT_IMPORTABLE, REPORTED_FAILURE, error_info
 
     for name in task.modules:
         try:
@@ -394,13 +446,16 @@ def worker_main(task: NodeTask, channel: WorkerChannel) -> NodeOutcome:
             message = f"a worker process cannot import `{name}`, the module of a flow: {error}"
             return _failed(task, ErrorInfo(FLOW_NOT_IMPORTABLE, message, task.node, None, None))
     try:
-        return run_node(task, canceled=canceled, emit=lambda event: None)
+        return run_node(task, canceled=_stop_requested, emit=lambda event: None)
     except StalePlanError as error:
         return _failed(
             task, ErrorInfo(error.code or "stale_plan", str(error), task.node, None, None)
         )
     except Exception as error:  # noqa: BLE001 - the failure of a node is a value
         return _failed(task, error_info(error, node=task.node))
+    except BaseException as error:  # a flow that exits, or a signal that stops this process
+        message = f"the node ended its worker process with {error!r}"
+        return _failed(task, ErrorInfo(REPORTED_FAILURE, message, task.node, None, None))
 
 
 def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
@@ -420,12 +475,6 @@ def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
         flow="",
     )
     return NodeOutcome(task.node, result, None)
-
-
-def _ignore_interrupt() -> None:
-    """Start a worker that leaves Ctrl-C to the calling process, which stops it through the
-    channel."""
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 # ------------------------------------------------------------------------------------ the sweep
@@ -737,20 +786,23 @@ class _Sweep:
         stale plan, Ctrl-C), the workers get the request too, the loop waits until each has
         released its locks, and then the exception goes on."""
         context = multiprocessing.get_context("spawn")
+        channel = WorkerChannel(context)
         running: dict[Future[NodeOutcome], _Unit] = {}
-        with (
-            context.Manager() as manager,
-            ProcessPoolExecutor(
-                self.max_workers, mp_context=context, initializer=_ignore_interrupt
-            ) as pool,
-        ):
-            channel = WorkerChannel(manager.Event())
-            try:
-                self._schedule(pool, channel, running)
-            except BaseException:
-                channel.cancel.set()
-                wait(running)
-                raise
+        try:
+            with ProcessPoolExecutor(
+                self.max_workers,
+                mp_context=context,
+                initializer=_start_worker,
+                initargs=(channel.reader,),
+            ) as pool:
+                try:
+                    self._schedule(pool, channel, running)
+                except BaseException:
+                    channel.cancel()
+                    wait(running)
+                    raise
+        finally:
+            channel.close()
 
     def _schedule(
         self,
@@ -762,7 +814,7 @@ class _Sweep:
         pending = list(self.order)
         while pending or running:
             if self.canceled():
-                channel.cancel.set()
+                channel.cancel()
                 pending.clear()
             waiting: list[_Unit] = []
             for unit in pending:
@@ -771,7 +823,7 @@ class _Sweep:
                 elif self._settle(unit):
                     continue
                 elif len(running) < self.max_workers:
-                    self._start(unit, pool, channel, running)
+                    self._start(unit, pool, running)
                 else:
                     waiting.append(unit)
             pending = waiting
@@ -784,21 +836,17 @@ class _Sweep:
         self,
         unit: _Unit,
         pool: ProcessPoolExecutor,
-        channel: WorkerChannel,
         running: dict[Future[NodeOutcome], _Unit],
     ) -> None:
         from .flow_runner.error_codes import error_info
 
-        point = self.points[unit.point]
-        self._begin(point)
         try:
-            future = pool.submit(worker_main, self._task(unit), channel)
+            future = pool.submit(worker_main, self._task(unit))
         except Exception as error:  # noqa: BLE001 - a broken pool is the failure of the node
             self._failed(unit, error_info(error, node=unit.node.name))
             return
-        # The node is in `running` before its start is told: a callback that raises waits for it.
+        # Its events come when it completes, with those of the nodes before it in the plan.
         running[future] = unit
-        self._emit(point, "node_started", unit.node.name)
 
     def _collect(self, unit: _Unit, future: Future[NodeOutcome]) -> None:
         from .flow_runner.error_codes import error_info

@@ -323,7 +323,8 @@ code ``flow_not_importable`` before anything runs. Move the flow into a module t
 import, or sweep with ``max_workers=1``. An import that still fails in a worker fails that node
 with the same code. The callback, the cancel token and the
 confirmation stay in the calling process. A cancel, a timeout or an exception of the callback
-stops the tools that run, and the sweep returns when every worker has released its locks.
+stops the tools that run, and the sweep returns when every worker has released its locks. If the
+calling process dies, the workers stop their tools and end.
 
 Rebuilding only what changed
 =============================
