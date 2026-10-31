@@ -43,7 +43,17 @@ from .run_lock import callback_guard
 
 log = logging.getLogger(__name__)
 
-__all__ = ["LaunchCollector", "LaunchRunner", "failed_result", "launch_result"]
+__all__ = [
+    "CANCELED_ERROR",
+    "LaunchCollector",
+    "LaunchRunner",
+    "blocked_result",
+    "failed_result",
+    "launch_result",
+    "shared_result",
+    "skipped_result",
+    "stops_consumers",
+]
 
 #: The outcomes of a producer that stop its consumers. A canceled producer is not one of them: the
 #: launch stopped, and a consumer that it never started is skipped.
@@ -321,9 +331,26 @@ def _producer_names(plan: Plan, node: PlanNode) -> set[str]:
     }
 
 
-def _blocked(node: PlanNode, blocker: str, message: str) -> NodeResult:
+def stops_consumers(outcome: Outcome) -> bool:
+    """Return whether a producer that ended with `outcome` stops its consumers."""
+    return outcome in _STOPS_CONSUMERS
+
+
+def blocked_result(
+    name: str, flow: str, run_dir: Path, blocker: str, cause: ErrorInfo | None
+) -> NodeResult:
+    """Return the result of the node `name` that its producer `blocker` stopped.
+
+    `cause` is the error of the producer. A sweep builds the same result from a public plan."""
+    message = f"producer {blocker} did not pass" + (
+        f" ({cause.code}): {cause.message}" if cause is not None else ""
+    )
+    return _blocked(name, flow, run_dir, blocker, message)
+
+
+def _blocked(name: str, flow: str, run_dir: Path, blocker: str, message: str) -> NodeResult:
     return NodeResult(
-        name=node.name,
+        name=name,
         outcome=Outcome.BLOCKED,
         disposition=Disposition.NOT_RUN,
         reason=f"{blocker} did not pass",
@@ -331,11 +358,41 @@ def _blocked(node: PlanNode, blocker: str, message: str) -> NodeResult:
         elapsed=0.0,
         record=None,
         error=ErrorInfo(
-            code=PRODUCER_FAILED, message=message, node=node.name, exit_status=None, log=None
+            code=PRODUCER_FAILED, message=message, node=name, exit_status=None, log=None
         ),
         deliveries=(),
-        run_dir=node.run_path,
-        flow=node.flow_class.name,
+        run_dir=run_dir,
+        flow=flow,
+    )
+
+
+def skipped_result(name: str, flow: str, run_dir: Path) -> NodeResult:
+    """Return the result of the node `name` that the launch never started."""
+    return NodeResult(
+        name=name,
+        outcome=Outcome.SKIPPED,
+        disposition=Disposition.NOT_RUN,
+        reason="the launch stopped before its turn",
+        blocked_by=None,
+        elapsed=0.0,
+        record=None,
+        error=None,
+        deliveries=(),
+        run_dir=run_dir,
+        flow=flow,
+    )
+
+
+def shared_result(result: NodeResult, point: int) -> NodeResult:
+    """Return `result`, the result of a node that a sweep executed for the point `point`, as
+    another point of the sweep sees it.
+
+    Only an execution is shared. A node that was reused, blocked or not started is the same in
+    every point."""
+    if result.disposition is not Disposition.RAN:
+        return result
+    return replace(
+        result, disposition=Disposition.SHARED, elapsed=0.0, reason=f"shared with point {point}"
     )
 
 
@@ -359,7 +416,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             flow=node.flow_class.name,
         )
     if flow.blocked_by is not None:
-        return _blocked(node, flow.blocked_by, str(error))
+        return _blocked(node.name, node.flow_class.name, node.run_path, flow.blocked_by, str(error))
     deliveries = collector.deliveries_of(flow)
     record = flow.record
     if record is not None and (error is None or record.outcome not in ("passed", "rejected")):
@@ -434,28 +491,11 @@ def _not_reached(plan: Plan, node: PlanNode, done: Mapping[str, NodeResult]) -> 
         producer = done.get(name)
         if name in producers and producer is not None and producer.outcome in _STOPS_CONSUMERS:
             cause = producer.error
-            return _blocked(
-                node,
-                name,
-                f"producer {name} did not pass"
-                + (f" ({cause.code}): {cause.message}" if cause is not None else ""),
-            )
-    return NodeResult(
-        name=node.name,
-        outcome=Outcome.SKIPPED,
-        disposition=Disposition.NOT_RUN,
-        reason="the launch stopped before its turn",
-        blocked_by=None,
-        elapsed=0.0,
-        record=None,
-        error=None,
-        deliveries=(),
-        run_dir=node.run_path,
-        flow=node.flow_class.name,
-    )
+            return blocked_result(node.name, node.flow_class.name, node.run_path, name, cause)
+    return skipped_result(node.name, node.flow_class.name, node.run_path)
 
 
-_CANCELED_ERROR = ErrorInfo(
+CANCELED_ERROR = ErrorInfo(
     code=CANCELED, message="The launch was canceled.", node=None, exit_status=None, log=None
 )
 
@@ -473,7 +513,7 @@ def _launch_error(
     delivery is the cause. A launch that was canceled has the error `canceled`, whatever stopped
     it."""
     if collector.canceled:
-        return _CANCELED_ERROR
+        return CANCELED_ERROR
     if collector.generation_failed is not None:
         return ErrorInfo(
             code=GENERATOR_FAILED,
@@ -568,7 +608,7 @@ def launch_result(
             spec=spec,
             roots=(),
             outcome=Outcome.CANCELED,
-            error=_CANCELED_ERROR,
+            error=CANCELED_ERROR,
             nodes={},
         )
         progress.emit("launch_finished", None, result.outcome)

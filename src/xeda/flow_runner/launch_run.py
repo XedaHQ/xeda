@@ -9,11 +9,12 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..artifacts import iter_artifact_paths
 from ..dataclass import WORKING_ROLE
 from ..flow import Flow
 from ..flow.flow import WrittenLeaf, map_written_leaves
@@ -30,7 +31,10 @@ from ..records import (
 from ..run_dir import RunDirectory, RunDirectoryError
 from ..tool import NonZeroExitCode
 from .error_codes import error_info, missing_report_info
-from .outputs import record_outputs
+from .launch_identity import RunDirPolicy
+from .outputs import declared_output_files, record_outputs
+from .scrub import run_directory_names
+from .trace import remove_trace
 
 log = logging.getLogger(__name__)
 
@@ -239,3 +243,74 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
     for k, v in flow.artifacts.items():
         if not flow.results.artifacts.get(k):
             flow.results.artifacts[k] = v
+
+
+def clean_up_run(
+    run_path: Path,
+    run_directory: RunDirectory,
+    flow_name: str,
+    results: Mapping[str, Any],
+    settings_json: Path,
+    results_json: Path,
+    run_root: Path,
+    policy: RunDirPolicy,
+) -> None:
+    """Clean up after a run, as `policy` says.
+
+    Either purge the run directory, or prune it to what the run reports and records
+    (`settings.json`, `results.json`, artifacts). `results` holds the artifacts and the declared
+    outputs of the run, as `Flow.results` or `launch_report.results_of` give them.
+
+    Pruning removes the trace first. Until every flow declares every output it writes, a
+    pruned directory may lack a file that a consumer reads, so the run must not be reused,
+    not even if the pruning is interrupted halfway."""
+    if policy.post_cleanup:
+        remove_trace(run_path)
+        if policy.purges:
+            log.warning("Deleting run directory %s", run_path)
+            # With every name of it, the link that the launch named it by included, so none
+            # is left leading nowhere.
+            run_directory.delete(*run_directory_names(run_path, flow_name, run_root))
+        else:
+            log.warning("Cleaning up %s", run_path)
+            named_run_path = Path(os.path.abspath(run_path))
+            run_path = run_path.resolve()
+            kept: set[Path] = set()
+            for raw_path in (
+                settings_json,
+                results_json,
+                *iter_artifact_paths(results["artifacts"]),
+                *declared_output_files(dict(results)),
+            ):
+                path = Path(os.path.abspath(named_run_path / raw_path))
+                if path.is_relative_to(named_run_path):
+                    # Resolve the run-directory alias without resolving an artifact's
+                    # own symlink: both that link and its internal target must survive.
+                    path = run_path / path.relative_to(named_run_path)
+                target = path.resolve()
+                if path.is_relative_to(run_path):
+                    kept.add(path)
+                    # A retained symlink to an internal file needs its target as well.
+                    if target.is_relative_to(run_path):
+                        kept.add(target)
+                elif target.is_relative_to(run_path):
+                    # Absolute paths may spell the run directory through a symlink.
+                    kept.add(target)
+
+            ancestors = {parent for path in kept for parent in path.parents if parent != run_path}
+            removed: list[Path] = []
+
+            def prune(directory: Path) -> None:
+                for path in directory.iterdir():
+                    if path in kept:
+                        continue
+                    if path in ancestors and path.is_symlink():
+                        continue
+                    if path in ancestors and path.is_dir() and not path.is_symlink():
+                        prune(path)
+                    else:
+                        removed.extend(run_directory.remove(path))
+
+            if run_path.is_relative_to(run_root) and run_path not in kept:
+                prune(run_path)
+            log.warning("Removed the following files: %s", " ".join(str(p) for p in removed))

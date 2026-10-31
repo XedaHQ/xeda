@@ -518,12 +518,17 @@ def _names_used(directory: Path, wanted: set[str]) -> dict[str, set[str]]:
 
 
 def test_only_reviewed_code_opts_out_of_the_request_of_a_launch():
-    """A call that opts out is a call that a canceled launch does not stop. The two reviewed ones
-    run because the launch was canceled: the stop of a container, and the clean-up of a mirror."""
+    """A call that opts out is a call that a canceled launch does not stop. The three reviewed ones
+    run because the launch was canceled: the stop of a container, the clean-up of a mirror, and the
+    clean-up of the nodes of a canceled sweep."""
     root = Path(xeda.__file__).parent
     found = _names_used(root, {"never_canceled"})
     found.pop("cancel.py")
-    assert found == {"remote/client.py": {"never_canceled"}, "tool.py": {"never_canceled"}}
+    assert found == {
+        "remote/client.py": {"never_canceled"},
+        "sweep.py": {"never_canceled"},
+        "tool.py": {"never_canceled"},
+    }
 
 
 def test_only_reviewed_code_starts_a_process_other_than_through_run_process():

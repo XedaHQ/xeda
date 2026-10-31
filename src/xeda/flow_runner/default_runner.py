@@ -32,7 +32,6 @@ from typing import (
 )
 
 
-from ..artifacts import iter_artifact_paths
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
 from ..local_settings import LocalSettings
@@ -108,6 +107,7 @@ from . import (
     launch_identity,
     launch_input,
     launch_locks,
+    launch_node,
     launch_producers,
     launch_report,
     launch_run,
@@ -148,7 +148,7 @@ from .plan_freshness import (
     NodeFreshness,
     judge_plan,
 )
-from .scrub import ScrubConfirmation, ScrubDone, run_directory_names, scrub_runs
+from .scrub import ScrubConfirmation, ScrubDone, scrub_runs
 from .run_lock import CompletedRun, LockSet, acquire_all
 from .settings_layers import (
     API_ORIGIN,
@@ -216,6 +216,7 @@ MOVED_NAMES: dict[str, tuple[str, str]] = {
     "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
     "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
     "_setting_naming": ("launch_input", "setting_naming"),
+    "run_directory_names": ("scrub", "run_directory_names"),
     "_free_working_locations": ("launch_run", "free_working_locations"),
     "_refuse_inputs_inside": ("launch_run", "refuse_inputs_inside"),
 }
@@ -578,6 +579,8 @@ class FlowLauncher:
         #: What the current launch reports as it goes on (`launch_result.launch_result` reads it).
         self.collector = LaunchCollector()
         self._completed_runs: dict[Path, tuple[Flow, CompletedRun]] = {}
+        #: Set while the launcher launches one node of a sweep (`run_node`).
+        self._node_run: launch_node.NodeRun | None = None
 
     @property
     def run_root(self) -> Path:
@@ -1195,8 +1198,14 @@ class FlowLauncher:
         assert self._environment is not None
         environ = dict(self._environment.inherited)
         if self._node_locks is None:
+            # A node of a sweep locks itself and the producers that it reads, as leases.
+            scope = None if self._node_run is None else {plan.requested, *self._node_run.completed}
             self._node_locks = launch_locks.NodeLocks(
-                {planned.name: planned.run_path for planned in plan.nodes},
+                {
+                    planned.name: planned.run_path
+                    for planned in plan.nodes
+                    if scope is None or planned.name in scope
+                },
                 lambda: judge_plan(
                     plan,
                     design,
@@ -1209,6 +1218,7 @@ class FlowLauncher:
                     environment=self._environment,
                 ),
                 everything_runs=rebuild_all,
+                leased=() if self._node_run is None else self._node_run.completed,
             )
         self._node_locks.hint()
         leases = [
@@ -1236,6 +1246,27 @@ class FlowLauncher:
         self._generation = _LaunchGeneration(design, settled.generations, execution)
         if execution is not design:
             self._read_inputs.add(design_files(execution))
+
+    def _adopt_completed(self, plan: Plan, design: Design, runner_cwd: Path) -> None:
+        """Read the producers that a sweep completed, now that the launch holds their leases.
+
+        Each becomes the completed producer of its node, so the launch never runs it
+        (`launch_producers`). A record that does not pass makes the consumer blocked."""
+        assert self._node_run is not None
+        for name, done in self._node_run.completed.items():
+            node = plan.node(name)
+            flow, token = launch_node.adopt_completed(
+                node,
+                plan,
+                design,
+                done,
+                run_root=self.run_root,
+                runner_cwd=runner_cwd,
+                run_path_of=self.run_path_of,
+                environment=self._environment,
+            )
+            self._planned_completed[(id(plan), node.node_key)] = flow
+            self._completed_runs[node.run_path.resolve()] = (flow, token)
 
     def _release_generation(self) -> None:
         """Release every lock of the launch, once it has delivered everything."""
@@ -1421,7 +1452,8 @@ class FlowLauncher:
         self._predicted_copies = [(requested.name, d, d.destination) for d in predicted]
         ahead: dict[NodeKey, Deliveries] = {}
         copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
-        for planned in plan.nodes:
+        # The producers of a node of a sweep deliver in their own launches.
+        for planned in plan.nodes if self._node_run is None else (requested,):
             if planned.node_key == requested.node_key:
                 known = [*deliveries, *predicted]
             else:
@@ -1473,7 +1505,7 @@ class FlowLauncher:
             design,
         )
         touched: list[Deliveries] = []
-        for node in plan.nodes:
+        for node in plan.nodes if self._node_run is None else (plan.node(plan.requested),):
             copies = by_node.get(node.node_key)
             ahead = self._deliveries_ahead.get(node.node_key)
             if copies is None and (ahead is None or not ahead.generated):
@@ -1656,6 +1688,8 @@ class FlowLauncher:
                 ),
             )
             self._place_generated_deliveries(plan, design, runner_cwd)
+            if self._node_run is not None:
+                self._adopt_completed(plan, design, runner_cwd)
         # What the flows read: the design with the files of its generated sources in place.
         execution = self._execution_of(design)
         design_hash = execution.parts_hash(
@@ -2157,60 +2191,16 @@ class FlowLauncher:
         Pruning removes the trace first. Until every flow declares every output it writes, a
         pruned directory may lack a file that a consumer reads, so the run must not be reused,
         not even if the pruning is interrupted halfway."""
-        if policy.post_cleanup:
-            remove_trace(flow.run_path)
-            if policy.purges:
-                log.warning("Deleting run directory %s", flow.run_path)
-                # With every name of it, the link that the launch named it by included, so none
-                # is left leading nowhere.
-                flow.run_directory.delete(
-                    *run_directory_names(flow.run_path, flow.name, self.run_root)
-                )
-            else:
-                log.warning("Cleaning up %s", flow.run_path)
-                named_run_path = Path(os.path.abspath(flow.run_path))
-                run_path = flow.run_path.resolve()
-                kept: set[Path] = set()
-                for raw_path in (
-                    settings_json,
-                    results_json,
-                    *iter_artifact_paths(flow.results.artifacts),
-                    *declared_output_files(flow.results),
-                ):
-                    path = Path(os.path.abspath(named_run_path / raw_path))
-                    if path.is_relative_to(named_run_path):
-                        # Resolve the run-directory alias without resolving an artifact's
-                        # own symlink: both that link and its internal target must survive.
-                        path = run_path / path.relative_to(named_run_path)
-                    target = path.resolve()
-                    if path.is_relative_to(run_path):
-                        kept.add(path)
-                        # A retained symlink to an internal file needs its target as well.
-                        if target.is_relative_to(run_path):
-                            kept.add(target)
-                    elif target.is_relative_to(run_path):
-                        # Absolute paths may spell the run directory through a symlink.
-                        kept.add(target)
-
-                ancestors = {
-                    parent for path in kept for parent in path.parents if parent != run_path
-                }
-                removed: list[Path] = []
-
-                def prune(directory: Path) -> None:
-                    for path in directory.iterdir():
-                        if path in kept:
-                            continue
-                        if path in ancestors and path.is_symlink():
-                            continue
-                        if path in ancestors and path.is_dir() and not path.is_symlink():
-                            prune(path)
-                        else:
-                            removed.extend(flow.run_directory.remove(path))
-
-                if run_path.is_relative_to(self.run_root) and run_path not in kept:
-                    prune(run_path)
-                log.warning("Removed the following files: %s", " ".join(str(p) for p in removed))
+        launch_run.clean_up_run(
+            flow.run_path,
+            flow.run_directory,
+            flow.name,
+            flow.results,
+            settings_json,
+            results_json,
+            self.run_root,
+            policy,
+        )
 
     @log_context.with_launch_context
     def run_flow(
@@ -2695,6 +2685,78 @@ class FlowLauncher:
             self._expected_local_settings = None
             self._prelock_difference = None
             self._stale = None
+
+    @log_context.with_launch_context
+    def run_node(
+        self,
+        spec: Spec,
+        *,
+        node: str,
+        completed: Mapping[str, Any],
+        local_settings: LocalSettings | None,
+        options: LaunchOptions,
+        rebuild: bool,
+        environment: EnvironmentSnapshot,
+        canceled: Callable[[], bool],
+        on_event: Callable[[Event], None] | None = None,
+    ) -> Result:
+        """Launch the node `node` of the plan of `spec`, and nothing else: one step of a sweep.
+
+        The producers of the node are the nodes of `completed` (`launch_node.NodeRun`): the launch
+        reads their records under shared leases and never runs them. `rebuild` runs the node even
+        when it is up to date. The launch takes `environment` as its snapshot. The `Result` is
+        that of a launch of the plan that ends at the node: the node is its only root."""
+        self._apply(replace(options, rebuild_all=options.rebuild_all or rebuild))
+        self._pinned_environment = environment
+        token = launch_node.PredicateToken(canceled)
+        try:
+            try:
+                with observing(canceled):
+                    request, plan = self._judged_request(
+                        spec.flow,
+                        spec.design,
+                        None,
+                        thaw(spec.settings),
+                        [],
+                        None,
+                        False,
+                        [],
+                        target=UNSET,
+                        local_settings=local_settings,
+                    )
+                self._refuse_planned(plan)
+                ending = launch_node.plan_up_to(plan, node, completed)
+                self._plans[id(ending)] = (ending, *self._plans[id(plan)][1:])
+            except Canceled:
+                return launch_result(
+                    self, spec, self._stop_unplanned, cancel=token, on_event=on_event
+                )
+            self._node_run = launch_node.NodeRun(node, completed)
+            return launch_result(
+                self,
+                spec,
+                lambda: self._run_ending(request, ending),
+                cancel=token,
+                on_event=on_event,
+            )
+        finally:
+            self._node_run = None
+            self._pinned_environment = None
+
+    def _run_ending(self, request: _Request, plan: Plan) -> Flow:
+        """Launch the last node of `plan`, as the requested node of its own launch."""
+        previous, self._request_context = self._request_context, request
+        try:
+            last = plan.node(plan.requested)
+            return self.launch_flow(
+                last.flow_class,
+                request.design,
+                last.settings,
+                all_flows_settings=request.sections,
+                plan=plan,
+            )
+        finally:
+            self._request_context = previous
 
     @staticmethod
     def _stop_unplanned() -> None:

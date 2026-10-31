@@ -1,0 +1,481 @@
+"""`Workspace.sweep` plans every point first, then executes each node once, in this process.
+
+The tests run the open FPGA chain `yosys_fpga+nextpnr` through the process fakes of
+`tests/fake_tools`. The fakes record each call in `fake_fpga.calls.jsonl` in the run directory of
+the node, so a test counts what ran.
+"""
+
+import json
+import sys
+from collections import Counter
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from xeda import Design
+from xeda.cancel import CancelToken
+from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError
+from xeda.events import Event
+from xeda.flow_runner import run_lock
+from xeda.flow_runner.environment import EnvironmentSnapshot
+from xeda.flow_runner.launch_options import LaunchOptions
+from xeda.outcomes import Disposition, Outcome
+from xeda.records import ErrorInfo, encode_record, read_record
+from xeda.spec import Spec
+from xeda.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
+from xeda.utils import dump_json
+from xeda.workspace import Workspace
+
+from . import tool_utils
+from .flow_registry import preserved_flow_registry
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
+
+ECP5 = "LFE5U-25F-6BG381C"
+MARK = "XEDA_FAKE_FPGA_MARK"
+
+
+@pytest.fixture(autouse=True)
+def isolate_registration():
+    with preserved_flow_registry():
+        yield
+
+
+@pytest.fixture
+def design(tmp_path, monkeypatch) -> Design:
+    tool_utils.use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    return Design(
+        name="top", root=root, rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]}
+    )
+
+
+def _spec(design: Design, seed: int, **settings) -> Spec:
+    table = {"nextpnr.seed": seed, "nextpnr.fpga.part": ECP5, **settings}
+    return Spec("yosys_fpga+nextpnr", design, settings=table)
+
+
+def _seeds(design: Design, count: int = 4) -> list[Spec]:
+    return [_spec(design, seed) for seed in range(1, count + 1)]
+
+
+def _workspace(tmp_path: Path, **options) -> Workspace:
+    return Workspace(tmp_path / "run", hashed_run_dirs=True, **options)
+
+
+def _calls(workspace: Workspace) -> Counter:
+    """How often each fake tool ran, in every run directory of the workspace."""
+    found: Counter = Counter()
+    for file in workspace.run_root.rglob("fake_fpga.calls.jsonl"):
+        for line in file.read_text().splitlines():
+            found[json.loads(line)["tool"]] += 1
+    return found
+
+
+def _calls_of(workspace: Workspace, prefix: str) -> Counter:
+    return Counter(
+        {tool: count for tool, count in _calls(workspace).items() if tool.startswith(prefix)}
+    )
+
+
+def _dispositions(result: SweepResult, node: str) -> list[str]:
+    return [str(point.result.nodes[node].disposition) for point in result]
+
+
+def test_a_seed_sweep_runs_one_shared_producer(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design))
+    assert [point.index for point in result] == [0, 1, 2, 3] and len(result) == 4
+    assert _dispositions(result, "yosys_fpga") == ["ran", "shared", "shared", "shared"]
+    assert _dispositions(result, "nextpnr") == ["ran"] * 4
+    assert dict(result.counts()) == {Outcome.PASSED: 4} and not result.canceled
+    first, second = (point.result.nodes["yosys_fpga"] for point in list(result)[:2])
+    assert second.outcome is first.outcome and second.record == first.record
+    assert second.elapsed == 0.0 and second.reason == "shared with point 0"
+    calls = _calls(workspace)
+    assert calls["yosys"] == 1 and calls["nextpnr-ecp5"] == 4
+
+
+def test_rebuild_all_rebuilds_a_shared_node_once(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    workspace.sweep(_seeds(design))
+    again = workspace.sweep(_seeds(design), rebuild_all=True)
+    assert _dispositions(again, "yosys_fpga") == ["ran", "shared", "shared", "shared"]
+    calls = _calls(workspace)
+    assert calls["yosys"] == 2 and calls["nextpnr-ecp5"] == 8
+
+
+def test_a_node_reused_from_an_earlier_launch_is_reused_in_every_point(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    workspace.sweep(_seeds(design))
+    again = workspace.sweep(_seeds(design))
+    assert _dispositions(again, "yosys_fpga") == ["reused"] * 4
+    assert _dispositions(again, "nextpnr") == ["reused"] * 4
+    assert _calls(workspace)["yosys"] == 1
+
+
+def _task(workspace: Workspace, spec: Spec, node: str, completed, **fields) -> NodeTask:
+    return NodeTask(
+        spec=spec,
+        node=node,
+        workspace=workspace._options(),
+        launch=LaunchOptions(),
+        snapshot=EnvironmentSnapshot.take({}),
+        completed=tuple(completed),
+        rebuild=fields.get("rebuild", False),
+    )
+
+
+def _completed(result) -> CompletedNode:
+    node = result.nodes["yosys_fpga"]
+    assert node.record is not None
+    return CompletedNode("yosys_fpga", node.run_dir, node.record.run_id, node.outcome)
+
+
+def test_a_consumer_never_launches_its_completed_producer(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    spec = _spec(design, 1)
+    first = workspace.run(spec)
+    done = _completed(first)
+    task = _task(workspace, spec, "nextpnr", [done], rebuild=True)
+    outcome = run_node(task, canceled=lambda: False, emit=lambda event: None)
+    assert outcome.node == "nextpnr" and outcome.result.outcome is Outcome.PASSED
+    assert outcome.result.disposition is Disposition.RAN and outcome.run_id is not None
+    calls = _calls(workspace)
+    assert calls["yosys"] == 1 and calls["nextpnr-ecp5"] == 2
+    assert outcome.result.record is not None
+    (producer,) = [i for i in outcome.result.record.inputs if i.producer == "yosys_fpga"]
+    assert producer.producer_run_dir == done.run_dir and producer.producer_run_id == done.run_id
+
+
+def _replace_record(directory: Path, workspace: Workspace, **changes) -> str:
+    """Write the record of `directory` again, as a launch outside the sweep would: another run."""
+    record = read_record(directory, run_root=workspace.run_root)
+    new_id = "0123456789abcdef0123456789abcdef"
+    dump_json(encode_record(replace(record, run_id=new_id, **changes)), directory / "results.json")
+    return new_id
+
+
+@pytest.mark.parametrize("passed", [True, False], ids=["a passed record", "a failed record"])
+def test_a_replaced_producer_is_read_as_found_never_run_again(
+    tmp_path, design, monkeypatch, passed
+):
+    workspace = _workspace(tmp_path)
+    spec = _spec(design, 1)
+    first = workspace.run(spec)
+    done = _completed(first)
+    changes: dict = {}
+    if not passed:
+        changes = dict(
+            outcome="failed",
+            error=ErrorInfo(
+                code="nonzero_exit", message="again", node="yosys_fpga", exit_status=1, log=None
+            ),
+        )
+    taken: list[str] = []
+    lock = done.run_dir.parent / (done.run_dir.name + ".lock")
+
+    def after_the_lease(path: Path) -> None:
+        if path == lock and not taken:
+            taken.append(_replace_record(done.run_dir, workspace, **changes))
+
+    monkeypatch.setattr(run_lock, "acquired_hook", after_the_lease)
+    outcome = run_node(
+        _task(workspace, spec, "nextpnr", [done], rebuild=True),
+        canceled=lambda: False,
+        emit=lambda event: None,
+    )
+    assert taken and _calls(workspace)["yosys"] == 1, "the producer did not run again"
+    if passed:
+        assert outcome.result.outcome is Outcome.PASSED and outcome.result.record is not None
+        (producer,) = [i for i in outcome.result.record.inputs if i.producer == "yosys_fpga"]
+        assert producer.producer_run_id == taken[0]
+    else:
+        assert outcome.result.error is not None
+        assert outcome.result.error.code == "producer_failed"
+        assert outcome.result.outcome is Outcome.BLOCKED and outcome.run_id is None
+
+
+def test_a_failed_shared_producer_is_shared_and_blocks_every_point(tmp_path, design, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "yosys")
+    monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design, 3))
+    yosys = [point.result.nodes["yosys_fpga"] for point in result]
+    assert [str(n.outcome) for n in yosys] == ["failed"] * 3
+    assert [str(n.disposition) for n in yosys] == ["ran", "shared", "shared"]
+    assert yosys[1].error == yosys[0].error and yosys[1].record == yosys[0].record
+    for point in result:
+        nextpnr = point.result.nodes["nextpnr"]
+        assert nextpnr.outcome is Outcome.BLOCKED and nextpnr.blocked_by == "yosys_fpga"
+        assert point.result.outcome is Outcome.FAILED
+        assert point.result.error == yosys[0].error
+    calls = _calls(workspace)
+    assert calls["yosys"] == 1 and not calls["nextpnr-ecp5"]
+
+
+def test_two_configurations_on_one_directory_are_refused_before_execution(tmp_path, design):
+    workspace = Workspace(tmp_path / "run")
+    with pytest.raises(SpecError) as raised:
+        workspace.sweep(_seeds(design, 2))
+    assert raised.value.code == "colliding_run_dirs" and raised.value.points == (0, 1)
+    assert "hashed_run_dirs=True" in raised.value.message
+    assert not (tmp_path / "run").exists(), "nothing was written"
+
+
+def test_equal_specs_are_refused(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    ns = _spec(design, 1, **{"nextpnr.clocks.main_clock.period": "10 ns"})
+    ps = _spec(design, 1, **{"nextpnr.clocks.main_clock.period": "10000 ps"})
+    other = _spec(design, 2)
+    with pytest.raises(SpecError) as raised:
+        workspace.sweep([other, ns, ps])
+    assert raised.value.code == "equal_specs" and raised.value.points == (1, 2)
+    assert not (tmp_path / "run").exists()
+
+
+def test_one_destination_for_two_points_is_refused(tmp_path, design):
+    destination = tmp_path / "out" / "routed.config"
+    specs = [_spec(design, seed, **{"nextpnr.textcfg": str(destination)}) for seed in (1, 2)]
+    with pytest.raises(SpecError) as raised:
+        _workspace(tmp_path).sweep(specs)
+    assert raised.value.code == "shared_destination" and raised.value.points == (0, 1)
+    assert not (tmp_path / "run").exists() and not destination.exists()
+
+
+def test_a_point_that_cannot_be_planned_names_itself(tmp_path, design):
+    specs = [_spec(design, 1), Spec("yosys_fpga+nextpnr", design, settings={"nextpnr.nosuch": 1})]
+    with pytest.raises(SpecError) as raised:
+        _workspace(tmp_path).sweep(specs)
+    assert raised.value.points == (1,)
+
+
+def test_an_action_node_is_never_shared(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    plan = workspace.plan(
+        Spec(
+            "nextpnr+fpga_pack+openfpgaloader",
+            design,
+            settings={"nextpnr": {"fpga": {"part": ECP5}}},
+        )
+    )
+    action = [node for node in plan.nodes.values() if node.action]
+    assert [node.name for node in action] == ["openfpgaloader"]
+    for node in plan.nodes.values():
+        same = node_key(0, node) == node_key(1, node)
+        assert same is not node.action
+
+
+def test_rows_have_the_contract_columns(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    updated = design.with_updates({"rtl": {"parameters": {"WIDTH": 8}}})
+    specs = [replace(_spec(design, seed), design=updated) for seed in (1, 2)]
+    result = workspace.sweep(specs)
+    rows = result.rows(metrics=("nextpnr.fmax", "yosys_fpga.lut"))
+    assert list(rows[0])[:7] == [
+        "index",
+        "flow",
+        "design",
+        "target",
+        "outcome",
+        "error_code",
+        "run_dir",
+    ]
+    assert [row["index"] for row in rows] == [0, 1] and rows[0]["design"] == "top"
+    assert rows[0]["flow"] == "yosys_fpga+nextpnr" and rows[0]["outcome"] == "passed"
+    assert rows[0]["error_code"] is None and rows[0]["target"] is None
+    assert rows[0]["run_dir"] == result.points[0].result.nodes["nextpnr"].run_dir
+    assert rows[0]["design.rtl.parameters.WIDTH"] == 8
+    assert [row["settings.nextpnr.seed"] for row in rows] == [1, 2]
+    assert rows[0]["settings.nextpnr.fpga.part"] == ECP5
+    assert "nextpnr.fmax" in rows[0] and "yosys_fpga.lut" in rows[0]
+    names = list(rows[0])
+    assert names.index("design.rtl.parameters.WIDTH") < names.index("settings.nextpnr.seed")
+    assert names.index("settings.nextpnr.seed") < names.index("nextpnr.fmax")
+    # nested and dotted settings give one column
+    nested = Spec(
+        "yosys_fpga+nextpnr", design, settings={"nextpnr": {"seed": 1, "fpga": {"part": ECP5}}}
+    )
+    assert workspace.sweep([nested]).rows()[0]["settings.nextpnr.seed"] == 1
+
+
+def test_a_metric_of_a_node_in_no_point_raises_key_error(tmp_path, design):
+    result = _workspace(tmp_path).sweep(_seeds(design, 2))
+    for text in ("fmax", "nosuchnode.fmax"):
+        with pytest.raises(KeyError) as raised:
+            result.rows(metrics=(text,))
+        assert "nextpnr" in str(raised.value) and "yosys_fpga" in str(raised.value)
+
+
+def test_a_metric_column_is_none_where_the_node_has_no_record(tmp_path, design, monkeypatch):
+    monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "yosys")
+    monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
+    rows = _workspace(tmp_path).sweep(_seeds(design, 2)).rows(metrics=("nextpnr.fmax",))
+    assert [row["nextpnr.fmax"] for row in rows] == [None, None]
+    assert [row["error_code"] for row in rows] == ["nonzero_exit"] * 2
+
+
+def test_every_point_uses_the_snapshot_taken_at_the_start(tmp_path, design, monkeypatch):
+    monkeypatch.setenv(MARK, "OLD")
+    workspace = _workspace(tmp_path)
+    changed: list[str] = []
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and not changed:
+            changed.append(event.node or "")
+            monkeypatch.setenv(MARK, "NEW")
+
+    result = workspace.sweep(_seeds(design, 3), on_event=on_event)
+    assert changed and result.counts() == {Outcome.PASSED: 3}
+    seen = {
+        json.loads(line)["environment"].get(MARK)
+        for file in workspace.run_root.rglob("fake_fpga.calls.jsonl")
+        for line in file.read_text().splitlines()
+    }
+    assert seen == {"OLD"}
+
+
+def _lock_of(directory: Path) -> Path:
+    return directory.parent / (directory.name + ".lock")
+
+
+@pytest.mark.parametrize("replaced", [False, True], ids=["purged", "replaced meanwhile"])
+def test_shared_node_clean_up_retakes_the_lock_and_checks_the_run_id(
+    tmp_path, design, monkeypatch, replaced
+):
+    workspace = _workspace(tmp_path)
+    shared = workspace.plan(_spec(design, 1)).nodes["yosys_fpga"].run_dir
+    swapped: list[str] = []
+
+    def hook(path: Path) -> None:
+        if path == _lock_of(shared) and not swapped:
+            swapped.append(_replace_record(shared, workspace))
+
+    finished: list[Event] = []
+
+    def on_event(event: Event) -> None:
+        finished.append(event)
+        # The last point has finished: what follows is the clean-up, which takes the lock again.
+        if replaced and sum(e.kind == "launch_finished" for e in finished) == 2:
+            monkeypatch.setattr(run_lock, "acquired_hook", hook)
+
+    result = workspace.sweep(_seeds(design, 2), post_cleanup_purge=True, on_event=on_event)
+    nextpnr_dirs = [point.result.nodes["nextpnr"].run_dir for point in result]
+    assert not any(directory.exists() for directory in nextpnr_dirs)
+    record = result.points[1].result.nodes["yosys_fpga"].record
+    assert record is not None
+    if replaced:
+        assert swapped and shared.is_dir(), "the directory of another run is left as it is"
+        with pytest.raises(RunReplacedError):
+            with record.open():
+                pass
+    else:
+        assert not shared.exists(), "the shared node is purged after both points"
+        with pytest.raises(RecordError) as raised:
+            with record.open():
+                pass
+        assert raised.value.code == "missing_record"
+
+
+def test_post_cleanup_keeps_the_records_and_the_artifacts_of_the_nodes_that_ran(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design, 2), post_cleanup=True)
+    for point in result:
+        record = point.result.nodes["nextpnr"].record
+        assert record is not None and (record.run_dir / "results.json").is_file()
+        assert not (record.run_dir / "trace.json").exists(), "such a run is never reused"
+        with record.open():
+            pass
+
+
+def test_a_sweep_callback_holds_no_lock_and_can_open_any_record(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    opened: list[int] = []
+
+    def on_event(event: Event) -> None:
+        if event.kind != "node_finished":
+            return
+        for record in workspace.records():
+            with record.open():
+                opened.append(1)
+
+    result = workspace.sweep(_seeds(design, 2), on_event=on_event)
+    assert result.counts() == {Outcome.PASSED: 2} and len(opened) >= 4
+
+
+def test_a_sweep_refuses_to_start_in_a_thread_that_holds_a_lock(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    workspace.run(_spec(design, 1))
+    (record,) = [r for r in workspace.records() if r.flow == "nextpnr"]
+    with record.open():
+        with pytest.raises(LeaseHeldError):
+            workspace.sweep([_spec(design, 1)])
+
+
+def test_unstarted_points_of_a_canceled_sweep_are_canceled_with_skipped_nodes(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    token = CancelToken()
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished":
+            token.cancel()
+
+    specs = [_spec(design, 1), _spec(design, 1, **{"yosys_fpga.nobram": True})]
+    result = workspace.sweep(specs, cancel=token, on_event=on_event)
+    assert result.canceled
+    started, unstarted = (point.result for point in result)
+    assert started.nodes["yosys_fpga"].outcome is Outcome.PASSED
+    assert started.nodes["nextpnr"].outcome is Outcome.SKIPPED
+    assert started.outcome is Outcome.CANCELED
+    assert unstarted.outcome is Outcome.CANCELED and unstarted.error.code == "canceled"
+    assert {str(n.outcome) for n in unstarted.nodes.values()} == {"skipped"}
+    assert {str(n.disposition) for n in unstarted.nodes.values()} == {"not_run"}
+    assert not _calls_of(workspace, "nextpnr")
+
+
+def test_events_of_a_sweep_come_in_order_within_each_launch(tmp_path, design):
+    events: list[Event] = []
+    result = _workspace(tmp_path).sweep(_seeds(design, 2), on_event=events.append)
+    for point in result:
+        mine = [e for e in events if e.launch_id == point.result.launch_id]
+        assert [e.kind for e in mine] == [
+            "launch_started",
+            "node_started",
+            "node_finished",
+            "node_started",
+            "node_finished",
+            "launch_finished",
+        ]
+        assert [e.node for e in mine][1:5] == ["yosys_fpga", "yosys_fpga", "nextpnr", "nextpnr"]
+        assert mine[-1].outcome is Outcome.PASSED
+    assert len({point.result.launch_id for point in result}) == 2
+    finished = [e for e in events if e.kind == "node_finished" and e.node == "yosys_fpga"]
+    assert [str(e.disposition) for e in finished] == ["ran", "shared"]
+
+
+def test_workers_other_than_one_are_not_yet_supported(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    with pytest.raises(NotImplementedError, match="max_workers"):
+        workspace.sweep(_seeds(design, 1), max_workers=2)
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="max_workers"):
+            workspace.sweep(_seeds(design, 1), max_workers=bad)
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_task_crosses_a_process_boundary(tmp_path, design):
+    import pickle
+
+    workspace = _workspace(tmp_path)
+    task = _task(workspace, _spec(design, 1), "nextpnr", [])
+    assert pickle.loads(pickle.dumps(task)) == task
+    done = CompletedNode("yosys_fpga", tmp_path, "ab" * 16, Outcome.PASSED)
+    assert pickle.loads(pickle.dumps(done)) == done
+
+
+def test_an_empty_sweep_has_no_point(tmp_path):
+    result = Workspace(tmp_path / "run").sweep([])
+    assert len(result) == 0 and not result.canceled and result.rows() == []

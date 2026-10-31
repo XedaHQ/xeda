@@ -9,7 +9,7 @@ workspaces, threads and processes may use one run root.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
@@ -36,6 +36,7 @@ TOOL_OUTPUTS = ("log", "terminal")
 
 if TYPE_CHECKING:
     from .flow_runner.scrub import ScrubCandidate, ScrubResult
+    from .sweep import SweepResult
 
 
 def _listing(header: str, candidates: "Sequence[ScrubCandidate]") -> list[str]:
@@ -347,6 +348,87 @@ class Workspace:
         except Exception as error:
             public = public_error(error)
             if public is error or error in from_callback:
+                raise
+            raise public from error
+        finally:
+            TOOL_OUTPUT.reset(token)
+
+    def sweep(
+        self,
+        specs: Iterable[Spec],
+        /,
+        *,
+        max_workers: int = 1,
+        rebuild_all: bool = False,
+        clean: bool = False,
+        post_cleanup: bool = False,
+        post_cleanup_purge: bool = False,
+        cancel: CancelToken | None = None,
+        on_event: Callable[[Event], None] | None = None,
+    ) -> "SweepResult":
+        """Run many specs, and execute each node that several of them share once.
+
+        The sweep plans every spec first, then runs the nodes of all points as one graph. Two
+        specs that need the same node (`yosys_fpga` for four seeds of `nextpnr`) share one run
+        of it: the first point has it as `ran`, and the others as `shared`. A node that fails or
+        is rejected blocks its consumers in every point. A node that only needs a lease of a
+        record that another launch holds waits for it.
+
+        Specs that differ in what a node does need `hashed_run_dirs=True` in the workspace: two
+        configurations of one node cannot use one run directory (`colliding_run_dirs`). The sweep
+        also refuses points that are one run (`equal_specs`) and points that deliver to one
+        destination (`shared_destination`). The error names the points (`SpecError.points`). A
+        spec that cannot be planned is refused the same way, and nothing runs.
+
+        The sweep reads the environment once, and every point uses that snapshot. It executes the
+        nodes in this process: `max_workers` must be 1. `rebuild_all` and `clean` apply to each
+        node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep ran when
+        every point has finished, under the lock of the node, and only if the node still holds the
+        run of the sweep. There are no `prune_variants`, `outputs_to` and `overwrite_outputs`: a
+        deliverable setting that names a location delivers as in a launch.
+
+        `cancel` stops the sweep: the points that did not finish end as `canceled`, and
+        `SweepResult.canceled` is true. `on_event` gets the events of each point in the calling
+        thread, while the sweep holds no lock: it may open any record. An exception that it
+        raises stops the sweep and propagates. A thread that holds a lock of Xeda cannot start a
+        sweep (`LeaseHeldError`)."""
+        from .flow_runner.error_codes import public_error
+        from .flow_runner.run_lock import refuse_if_held
+        from .proc_utils import TOOL_OUTPUT
+        from .sweep import run_sweep
+
+        refuse_if_held()
+        if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers < 1:
+            raise ValueError(f"`max_workers` is a whole number of at least 1, not {max_workers!r}")
+        if max_workers != 1:
+            raise NotImplementedError(
+                f"`max_workers={max_workers}` is not supported yet: a sweep executes every node "
+                "in this process, so use `max_workers=1`"
+            )
+        if self.remote is not None:
+            raise SpecError(
+                "a sweep does not run on a remote host: use a workspace without `remote`",
+                code="unsupported_with_remote",
+            )
+        options = LaunchOptions(
+            rebuild_all=rebuild_all,
+            clean=clean,
+            post_cleanup=post_cleanup,
+            post_cleanup_purge=post_cleanup_purge,
+        )
+        token = TOOL_OUTPUT.set(self.tool_output)
+        try:
+            return run_sweep(
+                self,
+                specs,
+                max_workers=max_workers,
+                options=options,
+                cancel=cancel,
+                on_event=on_event,
+            )
+        except Exception as error:
+            public = public_error(error)
+            if public is error:
                 raise
             raise public from error
         finally:

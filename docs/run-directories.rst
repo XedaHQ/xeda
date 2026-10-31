@@ -255,6 +255,54 @@ messages go to stderr. You do not need to look for files::
 The exit status is not zero when the launch does not pass. The JSON document then has an ``outcome``
 other than ``passed`` and an ``error`` object. See :doc:`machine-readable`.
 
+Sweeping many specs
+===================
+
+``Workspace.sweep`` runs many specs and executes each node that several of them share once. A
+sweep over four seeds of ``nextpnr`` runs ``yosys_fpga`` once and ``nextpnr`` four times. Every
+sweep example here creates the workspace with ``hashed_run_dirs=True``: the four seeds are four
+configurations of ``nextpnr``, and each needs its own run directory. Without it, the sweep raises a
+``SpecError`` with the code ``colliding_run_dirs`` before anything runs.
+
+.. code-block:: python
+
+    from xeda import Design, Spec, Workspace
+
+    design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
+    specs = [
+        Spec("yosys_fpga+nextpnr", design, settings={"nextpnr.seed": seed}) for seed in range(4)
+    ]
+    result = Workspace(hashed_run_dirs=True).sweep(specs)
+    for row in result.rows(metrics=["nextpnr.fmax"]):
+        print(row["settings.nextpnr.seed"], row["outcome"], row["nextpnr.fmax"])
+
+The sweep plans every spec first. It refuses a request that cannot work before it runs anything,
+and the error names the points (``SpecError.points``): a spec that cannot be planned, two specs
+that are the same run (``equal_specs``), two configurations on one run directory
+(``colliding_run_dirs``) and two points that deliver to one destination
+(``shared_destination``).
+
+Each point has a ``Result`` as a launch has. In the first point that has a node, the node is
+``ran``. In the others it is ``shared``, with the same outcome, record and error, the time 0.0 and
+the reason ``shared with point N``. A node that an earlier launch left up to date is ``reused`` in
+every point. A producer that fails or is rejected blocks its consumers in every point. All points
+read one snapshot of the environment, taken when the sweep starts. ``rebuild_all`` and ``clean``
+apply to each node once.
+
+``post_cleanup`` and ``post_cleanup_purge`` act when every point has finished. For each node that
+the sweep ran, the sweep takes the lock of the node again and checks that ``results.json`` still
+holds the run of the sweep. If another launch replaced the run meanwhile, the directory stays as it
+is, and the log says so. A sweep takes no ``prune_variants``, ``outputs_to`` or
+``overwrite_outputs``. A deliverable setting that names a location delivers as in a launch.
+
+``rows`` returns one dict for each point. The keys are ``index``, ``flow``, ``design``,
+``target``, ``outcome``, ``error_code`` and ``run_dir``, then ``design.<path>`` for each setting
+that the updates of the design changed, ``settings.<node>.<path>`` for each setting of the specs,
+and the metrics that you ask for as ``<node>.<metric>``. A metric is ``None`` for a node that has
+no record in that point. ``to_pandas`` returns the same table as a ``DataFrame``.
+
+A sweep executes its nodes in the calling process, so ``max_workers`` must be 1.
+
 Rebuilding only what changed
 =============================
 
