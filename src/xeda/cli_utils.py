@@ -482,13 +482,15 @@ def dse_document(
     target: Optional[str],
     optimizer: Optional[str],
     best: Any = None,
+    best_run_dir: Any = None,
     points: Sequence[Any] = (),
 ) -> Dict[str, Any]:
     """Return the document that `xeda dse --json` prints (schema 1).
 
     `outcome` is an `Outcome`, or `None` when the command line was refused before an exploration
     started. `error` is an `ErrorInfo` or `None`. `best` is the `RunRecord` of the best run, or
-    `None`. `points` are the `DsePoint`s that the exploration tried, in order."""
+    `None`, and `best_run_dir` the run directory of that run, or `None`. `points` are the
+    `DsePoint`s that the exploration tried, in order."""
     return {
         "schema_version": 1,
         "outcome": None if outcome is None else outcome.value,
@@ -498,6 +500,7 @@ def dse_document(
         "target": target,
         "optimizer": optimizer,
         "best": None if best is None else best.to_dict(),
+        "best_run_dir": None if best_run_dir is None else str(best_run_dir),
         "points": [point.as_json_value() for point in points],
     }
 

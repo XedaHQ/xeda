@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import psutil
@@ -11,7 +12,7 @@ from attrs import define
 from pydantic import ValidationError
 
 from ...cancel import CancelToken
-from ...dataclass import Field, XedaBaseModel, validation_errors
+from ...dataclass import Field, NoReplacement, XedaBaseModel, validation_errors
 from ...deliver import deliverable_locations
 from ...design import Design
 from ...flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
@@ -37,8 +38,14 @@ from ..default_runner import (
     remove_file_logger,
 )
 from ..scrub import run_directory_names
-from ..settings_layers import merge_layers, read_command_line_text
-from ..resolver import Plan, planned_design_of
+from ..settings_layers import (
+    compose_flow_settings,
+    merge_flow_sections,
+    merge_layers,
+    read_command_line_text,
+    registered_flow,
+)
+from ..resolver import SHARED_SETTINGS, Plan, planned_design_of
 from ..run_lock import refuse_if_held, run_dir_lock
 from ..trace import as_recorded
 from ...types import UNSET
@@ -197,6 +204,45 @@ def _variation_delta(candidate: dict[str, Any], base: dict[str, Any]) -> dict[st
     return delta
 
 
+def _spread_shared(
+    optimizer: Mapping[str, Mapping[str, Any]], command_line: Mapping[str, Mapping[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Return the shared settings that a node of `optimizer` gives, for each other node that
+    `command_line` gives the same setting and `optimizer` gives none.
+
+    A point puts the contributions of the optimizer in the same layer as the command line. A
+    shared setting that the optimizer gives to one node would then meet the value that the command
+    line gave to another node in the same layer, and the two would disagree. An API override wins
+    over the command line, so the value of the optimizer replaces that value."""
+    spread: dict[str, dict[str, Any]] = {}
+    for name, section in optimizer.items():
+        for shared in SHARED_SETTINGS:
+            if shared not in section:
+                continue
+            for node, given in command_line.items():
+                if node != name and shared in given and shared not in optimizer.get(node, {}):
+                    spread.setdefault(node, {}).setdefault(shared, deepcopy(section[shared]))
+    return spread
+
+
+def _point_settings(
+    command_line: Mapping[str, Any],
+    api: Mapping[str, Any],
+    delta: Mapping[str, Any],
+    flow_name: str,
+) -> dict[str, dict[str, Any]]:
+    """Return the settings of one point: the layers of the request, with the delta of the point
+    on top. The contributions of the optimizer (`api`, `delta`) outrank the command line, as
+    API overrides do, also across the nodes that share a setting."""
+    optimizer = merge_flow_sections(api, {flow_name: delta}, flow_class_for=registered_flow)
+    return merge_flow_sections(
+        command_line,
+        _spread_shared(optimizer, command_line),
+        optimizer,
+        flow_class_for=registered_flow,
+    )
+
+
 class _RoundToken(CancelToken):
     """The token of one round: it expires after `timeout` seconds, and it is canceled when `outer`
     is."""
@@ -234,12 +280,29 @@ class Dse(FlowLauncher):
             psutil.cpu_count(logical=False) or 2,
             description="Number of parallel executions.",
         )
-        timeout: int = 90 * 60  # in seconds
+        timeout: int = Field(
+            90 * 60,
+            description="Time limit of one round, in seconds. When it passes, the points of the "
+            "round that have not finished end as canceled, and the exploration goes on with the "
+            "next round.",
+        )
         variations: Optional[Dict[str, List[Any]]] = None
         #: Always true. Each variant keeps its own directory. Variants (and producers) with
         #: identical settings share one, locked while a launch uses it, so the second reuses what
         #: the first ran.
         hashed_run_dirs: Literal[True] = True
+
+        #: An exploration reads none of these settings of a launcher.
+        removed_inputs: ClassVar[Mapping[str, str]] = {
+            "debug": NoReplacement("an exploration does not read it"),
+            "dump_settings_json": NoReplacement("an exploration does not read it"),
+            "dump_results_json": NoReplacement("an exploration does not read it"),
+            "display_results": NoReplacement("an exploration does not read it"),
+            "backups": NoReplacement("an exploration does not read it"),
+            "prune_variants": NoReplacement("an exploration never removes earlier runs"),
+            "outputs_to": NoReplacement("an exploration delivers nothing"),
+            "overwrite_outputs": NoReplacement("an exploration delivers nothing"),
+        }
 
     def __init__(
         self,
@@ -259,7 +322,6 @@ class Dse(FlowLauncher):
         if self.settings.keep_optimal_run_dirs:
             self.settings.post_cleanup = False
             self.settings.post_cleanup_purge = False
-        self.settings.display_results = False
 
         if isinstance(optimizer_class, str):
             cls = load_class(optimizer_class, __package__)
@@ -290,6 +352,9 @@ class Dse(FlowLauncher):
         #: Stops the exploration when it says so: the points that run end as `canceled`.
         self.cancel: Optional[CancelToken] = None
         self._local_settings: Any = None
+        #: What the last run did. It is `None` before a run starts, and after an exception ended
+        #: a run it holds the points and the best run that the run had until then.
+        self.result: Optional[DseResult] = None
 
     def _new_optimizer(self) -> Optimizer:
         assert isinstance(self.settings, self.Settings)
@@ -302,10 +367,41 @@ class Dse(FlowLauncher):
         """Explore the settings of a flow for a design, as `FlowLauncher.run` takes its request.
 
         Return what the exploration did, even when no run passed. An exception of the optimizer
-        ends the exploration with that exception."""
+        ends the exploration with that exception, and `result` holds what it did until then."""
+        self.result = None
         result = super().run(*args, **kwargs)
         assert isinstance(result, DseResult)
         return result
+
+    def _value_overlay(
+        self,
+        flow_class: Type[Flow],
+        design: Design,
+        flow_settings: Dict[str, Any],
+        request: Any,
+    ) -> Dict[str, Any]:
+        """Return what the settings of the request (`flow_settings`) set beyond the layers that
+        the request kept: the leaves where a settings value of the caller overrides the files.
+
+        A request keeps only what the caller wrote in a settings value, but a value wins as a
+        whole over the design and the project. Without a request, there are none."""
+        if request is None:
+            return {}
+        bare = compose_flow_settings(
+            flow_class,
+            [
+                *(section for _, section in request.origins),
+                request.command_line,
+                request.api_overrides,
+            ],
+        )
+        if as_recorded(bare) == as_recorded(flow_settings):
+            return {}
+        context = dict(design_root=design.root, runner_cwd=Path.cwd())
+        return _variation_delta(
+            as_recorded(flow_class.Settings.from_input(flow_settings, **context)),
+            as_recorded(flow_class.Settings.from_input(bare, **context)),
+        )
 
     def resolve_run(  # type: ignore[override]
         self,
@@ -396,13 +492,16 @@ class Dse(FlowLauncher):
             {k: v[0] for k, v in optimizer.variations.items() if v},
             hierarchical_keys=True,
         )
+        request = self._request_context
+        # What a settings value of the caller sets beyond the layers of the request: its full
+        # values win over the design, and the request keeps only what the caller wrote.
+        overlay = self._value_overlay(flow_class, design, flow_settings, request)
         flow_settings = merge_layers(
             flow_settings,
             base_variation,
             settings_cls=flow_class.Settings,
         )
 
-        request = self._request_context
         # Base agreement happens before Logs, best records or any sweep exist.
         base_plan = self.resolve(
             flow_class,
@@ -439,7 +538,7 @@ class Dse(FlowLauncher):
         )
         # Many variants would deliver to one path, so an exploration delivers nothing.
         located = deliverable_locations(base_settings)
-        if located or self.settings.outputs_to is not None:
+        if located:
             reason = "an exploration runs many variants, so nothing is delivered"
             raise FlowSettingsError(
                 [
@@ -450,14 +549,6 @@ class Dse(FlowLauncher):
                         "value_error",
                     )
                     for key, path in located
-                ]
-                or [
-                    (
-                        "outputs_to",
-                        f"{reason}: the best run directory is in its result",
-                        None,
-                        "value_error",
-                    )
                 ],
                 flow_class.Settings,
             )
@@ -484,20 +575,22 @@ class Dse(FlowLauncher):
         optimizer.base_settings = base_settings
         # Every point is a spec of the design as the caller gave it. What all points share is the
         # request's own layers, the base variation and the thread limit. What differs is the
-        # delta of the point to the base settings.
+        # delta of the point to the base settings. The command line is one layer. The API
+        # overrides of the request, the values of the caller, the base variation, the thread
+        # limit and the delta are the layer above it (`_point_settings`).
+        own = merge_layers(overlay, base_variation, adjustments, settings_cls=flow_class.Settings)
         if request is not None:
             declared = request.declared
-            common = merge_layers(
-                request.command_line,
-                request.api_overrides,
-                {flow_class.name: merge_layers(base_variation, adjustments)},
+            command_line = request.command_line
+            api = merge_flow_sections(
+                request.api_overrides, {flow_class.name: own}, flow_class_for=registered_flow
             )
         else:  # a caller that has no request: the layers as they were given
             declared = design
-            common = merge_layers(
-                all_flows_settings,
-                {flow_class.name: merge_layers(flow_settings, base_variation, adjustments)},
-            )
+            command_line = all_flows_settings or {}
+            api = {
+                flow_class.name: merge_layers(flow_settings, own, settings_cls=flow_class.Settings)
+            }
         base_recorded = as_recorded(base_settings)
         workspace = Workspace(
             self._run_root,
@@ -520,9 +613,16 @@ class Dse(FlowLauncher):
         num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
         # Nothing between opening the log and the `try` that closes it.
         file_handler = add_file_logger(self.run_root / "Logs", timestamp)
+
+        def outer_canceled() -> bool:
+            return self.cancel is not None and self.cancel.canceled
+
         try:
             log.info("Best results are saved to %s", best_json_path)
             while True:
+                if outer_canceled():
+                    canceled = True
+                    break
                 cpu_usage = tuple((ld / num_cpus) * 100 for ld in psutil.getloadavg())
                 ram_usage = psutil.virtual_memory()[2]
 
@@ -562,11 +662,13 @@ class Dse(FlowLauncher):
                 if not batch_settings:
                     break
 
+                # Each point keeps its position in the batch of the optimizer, whatever the points
+                # before it did: a point that an earlier round ran is not run again.
                 this_batch = []
-                for s in batch_settings:
+                for position, s in enumerate(batch_settings):
                     hash_value = deep_hash(s)
                     if hash_value not in flow_setting_hashes:
-                        this_batch.append(s)
+                        this_batch.append((position, s))
                         flow_setting_hashes.add(hash_value)
                     else:
                         log.info(
@@ -575,7 +677,6 @@ class Dse(FlowLauncher):
                         )
                 batch_len = len(batch_settings)
                 batch_len = min(batch_len, self.settings.max_workers)
-                batch_settings = batch_settings[:batch_len]
                 if batch_len < self.settings.max_workers:
                     log.warning(
                         "Only %d (out of %d) workers will be utilized.",
@@ -598,12 +699,14 @@ class Dse(FlowLauncher):
                         Spec(
                             flow_class.name,
                             declared,
-                            settings=merge_layers(
-                                common,
-                                {flow_class.name: _variation_delta(s, base_recorded)},
+                            settings=_point_settings(
+                                command_line,
+                                api,
+                                _variation_delta(s, base_recorded),
+                                flow_class.name,
                             ),
                         )
-                        for s in this_batch
+                        for _, s in this_batch
                     ]
                     swept = workspace.sweep(
                         specs,
@@ -615,33 +718,39 @@ class Dse(FlowLauncher):
                         post_cleanup_purge=purge_with_sweep,
                     )
                     if swept.canceled:
-                        if self.cancel is not None and self.cancel.canceled:
+                        if outer_canceled():
                             canceled = True
                         else:
                             log.critical(
                                 "Flow run took longer than %d seconds. Canceled the remaining runs.",
                                 self.settings.timeout,
                             )
-                    for idx, (candidate, point) in enumerate(zip(this_batch, swept)):
+                    # Every point of the round is a point of the result before the optimizer reads
+                    # the first of them: an exception of the optimizer loses none.
+                    ran: List[Tuple[int, int, RunRecord]] = []
+                    for (position, _), point in zip(this_batch, swept):
                         result = point.result
                         node = result.nodes[result.roots[0]] if result.roots else None
                         record = None if node is None else node.record
                         run_dir = None if node is None else node.run_dir
                         points.append(DsePoint(result.outcome, result.error, run_dir))
                         if record is None or record.outcome is Outcome.CANCELED:
-                            log.warning("Flow #%d: no results (%s).", idx, result.outcome)
+                            log.warning("Flow #%d: no results (%s).", position, result.outcome)
                             continue
+                        ran.append((position, len(points) - 1, record))
+                    for position, index, record in ran:
                         results = Flow.Results(thaw(record.metrics))
                         results.success = record.passed
+                        # The settings that ran, as the run recorded them.
                         outcome = FlowOutcome(
                             settings=flow_class.Settings.from_input(
-                                candidate, design_root=design.root
+                                thaw(record.settings), design_root=design.root
                             ),
                             results=results,
-                            run_path=run_dir,
+                            run_path=points[index].run_dir,
                             record=record,
                         )
-                        improved = optimizer.process_outcome(outcome, idx)
+                        improved = optimizer.process_outcome(outcome, position)
                         if improved:
                             log.info("Writing improved result to %s", best_json_path)
                             dump_json(
@@ -676,7 +785,9 @@ class Dse(FlowLauncher):
                                 except (OSError, ValueError) as e:
                                     log.warning("Could not delete %s: %s", p, e)
                                 outcome.run_path = None
-                                points[-1] = DsePoint(result.outcome, result.error, None)
+                                points[index] = DsePoint(
+                                    points[index].outcome, points[index].error, None
+                                )
 
                 if not have_success:
                     consecutive_failed_iters += 1
@@ -711,4 +822,6 @@ class Dse(FlowLauncher):
                 # The log of the search belongs to the search: a later search of the process has its
                 # own, and this runs however the clean-up above ends.
                 remove_file_logger(file_handler)
-        return DseResult(optimizer.best, tuple(points), canceled)
+                # An exception ends the search here too: what it had found stays in `result`.
+                self.result = DseResult(optimizer.best, tuple(points), canceled or outer_canceled())
+        return self.result

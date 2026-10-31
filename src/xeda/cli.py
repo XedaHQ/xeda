@@ -1590,6 +1590,9 @@ def dse(
                     target=(dse.target if dse is not None else None) or target,
                     optimizer=optimizer,
                     best=None if result is None or result.best is None else result.best.record,
+                    best_run_dir=(
+                        None if result is None or result.best is None else result.best.run_path
+                    ),
                     points=() if result is None else result.points,
                 ),
                 "json",
@@ -1605,7 +1608,7 @@ def dse(
         info = request_error_info(error)
         log.critical("%s", _error_message(error))
         refused = isinstance(public, (SpecError, RemoteError))
-        report(None if refused else Outcome.FAILED, info)
+        report(None if refused else Outcome.FAILED, info, None if dse is None else dse.result)
         if not json_flag and (info.code == INTERNAL_ERROR or not isinstance(error, XedaException)):
             raise error
         sys.exit(2 if refused else 1)
@@ -1678,7 +1681,7 @@ def dse(
         # A second Ctrl-C, or one before the exploration could stop.
         interrupted = ErrorInfo(CANCELED, "Ctrl-C ended the exploration.", None, None, None)
         log.critical("%s", interrupted.message)
-        report(Outcome.CANCELED, interrupted)
+        report(Outcome.CANCELED, interrupted, None if dse is None else dse.result)
         sys.exit(1)
     except Exception as e:
         not_ended(e)

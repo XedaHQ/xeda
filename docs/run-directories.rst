@@ -1098,8 +1098,8 @@ inside a nested setting given as a mapping or an instance, such as ``cocotb.resu
 or when a field is assigned, not later.
 
 ``xeda dse`` delivers nothing, because an exploration runs many variants and they would deliver to
-one path. Xeda refuses a deliverable setting that is given as a location, or ``outputs_to``, before
-the search starts.
+one path. Xeda refuses a deliverable setting that is given as a location before the search starts.
+It refuses the ``outputs_to`` setting of ``xeda dse``, too.
 
 ``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and only from its
 local mirror, once the results of the host are there. The mirror has the layout of the run

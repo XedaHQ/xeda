@@ -127,9 +127,7 @@ def test_a_debug_launch_leaves_a_level_the_application_sets_meanwhile(
     assert logging.getLogger("xeda").level == logging.ERROR
 
 
-def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
-    tmp_path, monkeypatch
-) -> None:
+def test_a_direct_search_launch_leaves_the_level_alone(tmp_path, monkeypatch) -> None:
     """`Dse.run_flow` is a way in too: a caller may use it without `run`."""
     from xeda.flow_runner.dse import Dse
     from xeda.flow_runner.dse.fmax import FmaxOptimizer
@@ -153,7 +151,6 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
         optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 200.0},
         run_root=tmp_path / "run",
         max_workers=1,
-        debug=True,
     )
     runner.run_flow(
         "vivado_alt_synth",
