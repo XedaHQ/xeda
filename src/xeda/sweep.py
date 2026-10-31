@@ -13,6 +13,7 @@ A point gets a `Result` as a launch does. A node that another point executed is 
 
 from __future__ import annotations
 
+import importlib
 import logging
 import multiprocessing
 import os
@@ -29,6 +30,7 @@ from .cancel import CancelToken, never_canceled, observing
 from .design import Design
 from .errors import RecordError, SpecError, StalePlanError
 from .events import Event
+from .flow import registered_flows
 from .flow_runner import launch_run
 from .flow_runner.environment import EnvironmentSnapshot
 from .flow_runner.launch_identity import RunDirPolicy
@@ -236,6 +238,9 @@ class NodeTask:
     #: The generation that the sweep settled for the point (`launch_generation.fingerprints`),
     #: which the launch verifies under its leases. Empty: nothing to verify.
     generation: tuple[tuple[str, str], ...] = ()
+    #: The modules, by name, that define the flows of the point that Xeda does not have built in. A
+    #: worker imports them before it plans, so that the flows are registered there.
+    modules: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -382,6 +387,8 @@ def worker_main(task: NodeTask, channel: WorkerChannel) -> NodeOutcome:
             return True
 
     try:
+        for name in task.modules:
+            importlib.import_module(name)
         return run_node(task, canceled=canceled, emit=lambda event: None)
     except StalePlanError as error:
         info = ErrorInfo(error.code or "stale_plan", str(error), task.node, None, None)
@@ -636,6 +643,7 @@ class _Sweep:
             completed=tuple(completed),
             rebuild=self.rebuild,
             generation=self.points[unit.point].generation,
+            modules=_flow_modules(self.points[unit.point].plan) if self.max_workers > 1 else (),
         )
 
     def _execute(self, unit: _Unit) -> None:
@@ -970,6 +978,30 @@ def _check_points(plans: Sequence[Plan], specs: Sequence[Spec]) -> None:
             )
 
 
+def _flow_modules(plan: Plan) -> tuple[str, ...]:
+    """Return the names of the modules that define the flows of `plan` and are not part of Xeda."""
+    modules = {registered_flows[node.flow][0] for node in plan.nodes.values()}
+    return tuple(sorted(name for name in modules if name.partition(".")[0] != "xeda"))
+
+
+def _check_importable(plans: Sequence[Plan]) -> None:
+    """Refuse a flow that a worker process cannot import: one that a script or a notebook defines.
+    A worker has no `__main__` of the caller."""
+    for plan in plans:
+        for node in plan.nodes.values():
+            if registered_flows[node.flow][0] == "__main__":
+                _refuse(
+                    "flow_not_importable",
+                    f"the flow `{node.flow}` is defined in `__main__`, so a worker process cannot "
+                    "import it. Move it into a module, or sweep with max_workers=1.",
+                    (
+                        index
+                        for index, other in enumerate(plans)
+                        if any(n.flow == node.flow for n in other.nodes.values())
+                    ),
+                )
+
+
 def _check_deliveries(plans: Sequence[Plan]) -> None:
     """Refuse a delivery that would replace a file that Xeda did not deliver. A sweep asks no
     question, so the answer is no."""
@@ -1039,6 +1071,8 @@ def run_sweep(
         return _unplanned(given, on_event)
     _check_deliveries(plans)
     _check_points(plans, given)
+    if max_workers > 1:
+        _check_importable(plans)
     sweep = _Sweep(
         workspace,
         plans,

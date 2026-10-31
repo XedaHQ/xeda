@@ -17,9 +17,13 @@ import pytest
 
 from xeda import Design
 from xeda.cancel import CancelToken
+from xeda.dataclass import Field
+from xeda.errors import SpecError
 from xeda.events import Event
+from xeda.flow import Flow
 from xeda.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
 from xeda.outcomes import Outcome
+from xeda.spec import Spec
 from xeda.workspace import Workspace
 
 from . import tool_utils
@@ -247,3 +251,53 @@ def test_workers_use_the_parent_snapshot(tmp_path, design, monkeypatch):
         for line in file.read_text().splitlines()
     }
     assert seen == {"OLD"}
+
+
+def _plain_design(tmp_path: Path) -> Design:
+    root = tmp_path / "d"
+    root.mkdir()
+    return Design(name="d", root=root, rtl={"sources": [], "top": "t"})
+
+
+def test_a_flow_of_an_importable_module_runs_in_a_worker(tmp_path):
+    # `tests.io_flows` registers its flows as it is imported. A spawned worker does not import it
+    # by itself: it must import the module of each flow that Xeda does not have built in.
+    from . import io_flows  # noqa: F401
+
+    design = _plain_design(tmp_path)
+    specs = [
+        Spec("t_maker+t_taker", design, settings={"t_maker.text": f"{text}\n"})
+        for text in ("one", "two")
+    ]
+    result = Workspace(tmp_path / "run", hashed_run_dirs=True).sweep(specs, max_workers=2)
+    assert dict(result.counts()) == {Outcome.PASSED: 2}
+    reads = [point.result.nodes["t_taker"].record.metric("read") for point in result]
+    assert reads == ["one\n", "two\n"]
+
+
+def test_a_flow_defined_in_main_is_refused_before_anything_runs(tmp_path):
+    class MyMainFlow(Flow):
+        """A flow of a script: its module is `__main__`."""
+
+        __module__ = "__main__"
+        results_description: dict = {}
+
+        class Settings(Flow.Settings):
+            n: int = Field(0, description="Tells the points apart.")
+
+        def run(self) -> None:
+            pass
+
+    design = _plain_design(tmp_path)
+    specs = [Spec("my_main_flow", design, settings={"my_main_flow.n": n}) for n in (1, 2)]
+    workspace = Workspace(tmp_path / "run", hashed_run_dirs=True)
+    with pytest.raises(SpecError) as refused:
+        workspace.sweep(specs, max_workers=2)
+    assert refused.value.code == "flow_not_importable" and list(refused.value.points) == [0, 1]
+    assert str(refused.value) == (
+        "the flow `my_main_flow` is defined in `__main__`, so a worker process cannot import it. "
+        "Move it into a module, or sweep with max_workers=1."
+    )
+    assert not list(workspace.run_root.rglob("results.json"))
+    # One worker runs it in this process, as before.
+    assert dict(workspace.sweep(specs, max_workers=1).counts()) == {Outcome.PASSED: 2}

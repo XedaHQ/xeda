@@ -313,10 +313,15 @@ With ``max_workers`` of 1, a sweep executes its nodes in the calling process. Wi
 executes them in that many worker processes, and nodes that do not wait for each other run at
 once. The workers start with the ``spawn`` method on every platform. A script that calls
 ``sweep`` this way guards its entry point with ``if __name__ == "__main__":``. A notebook needs no
-guard. Only the specs and the options of the workspace cross to a worker, so a flow that you
-register in code is not available there. The callback, the cancel token and the confirmation stay
-in the calling process. A cancel, a timeout or an exception of the callback stops the tools that
-run, and the sweep returns when every worker has released its locks.
+guard. Workers cannot start for code that Python reads from standard input (``python -``): run it
+from a file or a notebook. Only the specs and the options of the workspace cross to a worker. A
+flow that you register in code reaches a worker through its module: the worker imports the module
+of each flow that Xeda does not have built in, such as ``mylib.flows``, before it runs the node.
+A flow that a script or a notebook defines (its module is ``__main__``) cannot be imported, so the
+sweep raises a ``SpecError`` with the code ``flow_not_importable`` before anything runs. Move the
+flow into a module, or sweep with ``max_workers=1``. The callback, the cancel token and the
+confirmation stay in the calling process. A cancel, a timeout or an exception of the callback
+stops the tools that run, and the sweep returns when every worker has released its locks.
 
 Rebuilding only what changed
 =============================

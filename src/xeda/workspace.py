@@ -386,11 +386,13 @@ class Workspace:
         that many worker processes, which start with the `spawn` method on every platform: a
         script that calls `sweep` this way guards its entry point with
         `if __name__ == "__main__":`, and a notebook needs no guard. Only the specs and the
-        options of the workspace cross to a worker, so a flow that the caller registered in code
-        is not there. `rebuild_all` and `clean` apply to each
-        node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep ran when
-        every point has finished, under the lock of the node, and only if the node still holds the
-        run of the sweep. There are no `prune_variants`, `outputs_to` and `overwrite_outputs`.
+        options of the workspace cross to a worker. A worker imports the module of each flow
+        that Xeda does not have built in. A flow defined in `__main__` cannot be imported:
+        the sweep refuses it (`SpecError`, `flow_not_importable`). `rebuild_all` and `clean` apply
+        to each node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep
+        ran when every point has finished, under the lock of the node, and only if the node still
+        holds the run of the sweep. There are no `prune_variants`, `outputs_to` and
+        `overwrite_outputs`.
 
         A deliverable setting that names a location delivers as in a launch: each point delivers
         when it ends, what a launch of that point alone would deliver, and nothing if its last
