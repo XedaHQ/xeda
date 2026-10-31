@@ -27,10 +27,12 @@ Xeda keeps four concerns separate.
     tools by name. With ``--remote``, Xeda runs the whole flow on another machine over SSH (see
     :doc:`remote`).
 
-``FlowLauncher``: the orchestration
-    Creates the flows, runs their producers first, manages run directories and the reuse of
-    up-to-date runs, and collects the results. ``xeda run`` uses a launcher, and ``xeda dse``
-    uses one that runs many flows in parallel. See :doc:`run-directories`.
+``Workspace``: the orchestration
+    Holds the run root and the options of a session. It plans and runs a ``Spec`` (a flow, a
+    design and settings): it creates the flows, runs their producers first, manages run
+    directories and the reuse of up-to-date runs, and returns a ``Result``. ``xeda run`` runs
+    through a workspace, and ``xeda dse`` runs many flows in parallel. See
+    :doc:`run-directories` and :doc:`machine-readable`.
 
 Why the parts are separate
 ==========================

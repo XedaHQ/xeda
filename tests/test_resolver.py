@@ -941,7 +941,7 @@ def test_synthesized_clock_name_does_not_override_an_explicit_name(tmp_path):
 
 @pytest.mark.parametrize("model_input", [False, True])
 def test_direct_entry_points_share_context_and_validation(tmp_path, monkeypatch, model_input):
-    from xeda import DefaultRunner
+    from xeda.flow_runner import DefaultRunner
 
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"

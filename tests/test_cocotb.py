@@ -5,7 +5,8 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pytest
 
-from xeda import Cocotb, Design
+from xeda import Design
+from xeda.cocotb import Cocotb
 from xeda.cocotb import TestResults as CocotbTestResults  # alias: pytest collects `Test*`
 from xeda.flow import SimFlow
 from xeda.flow_runner import DefaultRunner
