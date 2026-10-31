@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda import DefaultRunner, Design
+from xeda import Design
+from xeda.flow_runner import DefaultRunner
 from xeda.flow import Flow
 from xeda.flow_runner.launch_result import launch_result
 from xeda.outcomes import Result

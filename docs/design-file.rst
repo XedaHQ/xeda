@@ -938,7 +938,7 @@ therefore never wait for each other, also when they merge the same dependencies 
 and rebuild them. A launch generates before it takes the lock of any run directory.
 
 Xeda keeps the storage until it is removed. No command removes it yet: ``xeda scrub`` leaves it
-alone, and a later design-level scrub of the Python API will remove it. The directory
+alone. ``Workspace.scrub`` of the Python API removes it when it gets no flow and no target. The directory
 ``<run root>/.generated/`` holds nothing that a launch needs after it has ended, and may be
 deleted while no launch runs.
 

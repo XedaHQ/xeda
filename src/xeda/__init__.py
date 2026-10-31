@@ -11,56 +11,143 @@ from .version import __version__
 # handler writes nothing: it tags the records of a launch (`log_context.py`).
 logging.getLogger(__name__).addHandler(TaggingNullHandler())
 
+# Each public name loads its module on first use, so `import xeda` stays fast.
 _LAZY_EXPORTS = {
-    "FPGA": (".flow", "FPGA"),
-    "Cocotb": (".cocotb", "Cocotb"),
-    "DefaultRunner": (".flow_runner", "DefaultRunner"),
+    "CancelToken": (".cancel", "CancelToken"),
+    "DeliveryRecord": (".outcomes", "DeliveryRecord"),
     "Design": (".design", "Design"),
-    "Dse": (".flow_runner", "Dse"),
-    "Flow": (".flow", "Flow"),
-    "FlowRunner": (".flow_runner", "FlowRunner"),
-    "SimFlow": (".flow", "SimFlow"),
-    "SynthFlow": (".flow", "SynthFlow"),
-    "Tool": (".tool", "Tool"),
-    "cocotb": (".cocotb", None),
-    "design": (".design", None),
-    "flow": (".flow", None),
-    "flow_runner": (".flow_runner", None),
-    "flows": (".flows", None),
-    "tool": (".tool", None),
+    "DesignPart": (".design", "DesignPart"),
+    "Disposition": (".outcomes", "Disposition"),
+    "ErrorInfo": (".records", "ErrorInfo"),
+    "Event": (".events", "Event"),
+    "InputRecord": (".records", "InputRecord"),
+    "InputSource": (".records", "InputSource"),
+    "LocalSettings": (".local_settings", "LocalSettings"),
+    "MetricInfo": (".records", "MetricInfo"),
+    "NodeResult": (".outcomes", "NodeResult"),
+    "OpenRun": (".records", "OpenRun"),
+    "Outcome": (".outcomes", "Outcome"),
+    "OutputRecord": (".records", "OutputRecord"),
+    "Plan": (".plan", "Plan"),
+    "PlanDelivery": (".plan", "PlanDelivery"),
+    "PlanInput": (".plan", "PlanInput"),
+    "PlanNode": (".plan", "PlanNode"),
+    "Project": (".project", "Project"),
+    "Question": (".types", "Question"),
+    "RecordProblem": (".records", "RecordProblem"),
+    "Remote": (".remote_value", "Remote"),
+    "Result": (".outcomes", "Result"),
+    "Rtl": (".design", "Rtl"),
+    "RunListing": (".records", "RunListing"),
+    "RunRecord": (".records", "RunRecord"),
+    "ScrubResult": (".flow_runner.scrub", "ScrubResult"),
+    "Source": (".design", "Source"),
+    "Spec": (".spec", "Spec"),
+    "Testbench": (".design", "Testbench"),
+    "UNSET": (".types", "UNSET"),
+    "Unset": (".types", "Unset"),
+    "Workspace": (".workspace", "Workspace"),
 }
 
 __all__ = [
-    "FPGA",
-    "Cocotb",
-    "DefaultRunner",
+    "CancelToken",
+    "DeliveryRecord",
     "Design",
-    "Dse",
-    "Flow",
-    "FlowRunner",
-    "SimFlow",
-    "SynthFlow",
-    "Tool",
+    "DesignPart",
+    "Disposition",
+    "ErrorInfo",
+    "Event",
+    "InputRecord",
+    "InputSource",
+    "LocalSettings",
+    "MetricInfo",
+    "NodeResult",
+    "OpenRun",
+    "Outcome",
+    "OutputRecord",
+    "Plan",
+    "PlanDelivery",
+    "PlanInput",
+    "PlanNode",
+    "Project",
+    "Question",
+    "RecordProblem",
+    "Remote",
+    "Result",
+    "Rtl",
+    "RunListing",
+    "RunRecord",
+    "ScrubResult",
+    "Source",
+    "Spec",
+    "Testbench",
+    "UNSET",
+    "Unset",
+    "Workspace",
     "__version__",
-    "design",
-    "flow_runner",
-    "flows",
 ]
 
 if TYPE_CHECKING:
-    from . import design as design
-    from . import flow_runner as flow_runner
-    from . import flows as flows
-    from .cocotb import Cocotb as Cocotb
-    from .design import Design as Design
-    from .flow import FPGA as FPGA
-    from .flow import Flow as Flow
-    from .flow import SimFlow as SimFlow
-    from .flow import SynthFlow as SynthFlow
-    from .flow_runner import DefaultRunner as DefaultRunner
-    from .flow_runner import Dse as Dse
-    from .flow_runner import FlowRunner as FlowRunner
-    from .tool import Tool as Tool
+    from .cancel import (
+        CancelToken as CancelToken,
+    )
+    from .design import (
+        Design as Design,
+        DesignPart as DesignPart,
+        Rtl as Rtl,
+        Source as Source,
+        Testbench as Testbench,
+    )
+    from .events import (
+        Event as Event,
+    )
+    from .flow_runner.scrub import (
+        ScrubResult as ScrubResult,
+    )
+    from .local_settings import (
+        LocalSettings as LocalSettings,
+    )
+    from .outcomes import (
+        DeliveryRecord as DeliveryRecord,
+        Disposition as Disposition,
+        NodeResult as NodeResult,
+        Outcome as Outcome,
+        Result as Result,
+    )
+    from .plan import (
+        Plan as Plan,
+        PlanDelivery as PlanDelivery,
+        PlanInput as PlanInput,
+        PlanNode as PlanNode,
+    )
+    from .project import (
+        Project as Project,
+    )
+    from .records import (
+        ErrorInfo as ErrorInfo,
+        InputRecord as InputRecord,
+        InputSource as InputSource,
+        MetricInfo as MetricInfo,
+        OpenRun as OpenRun,
+        OutputRecord as OutputRecord,
+        RecordProblem as RecordProblem,
+        RunListing as RunListing,
+        RunRecord as RunRecord,
+    )
+    from .remote_value import (
+        Remote as Remote,
+    )
+    from .spec import (
+        Spec as Spec,
+    )
+    from .types import (
+        Question as Question,
+        UNSET as UNSET,
+        Unset as Unset,
+    )
+    from .workspace import (
+        Workspace as Workspace,
+    )
 
 
 def __getattr__(name: str) -> Any:
@@ -69,11 +156,10 @@ def __getattr__(name: str) -> Any:
     except KeyError:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
 
-    module = import_module(module_name, __name__)
-    value = module if attribute is None else getattr(module, attribute)
+    value = getattr(import_module(module_name, __name__), attribute)
     globals()[name] = value
     return value
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(__all__) | set(_LAZY_EXPORTS))
+    return sorted(set(globals()) | set(__all__))

@@ -400,20 +400,13 @@ Python API
 ----------
 
 A script runs on a host with a ``Remote`` in its ``Workspace``. The ``Remote`` holds the profile of
-the host as a value: Xeda never reads ``remotes.yaml`` for it. ``local_settings().host_profiles``
-holds the entries of the file, so a script that wants the profile of the file passes it.
+the host as a value: Xeda never reads ``remotes.yaml`` for it.
 
 .. code-block:: python
 
-    from xeda.design import Design
-    from xeda.local_settings import local_settings
-    from xeda.remote_value import Remote
-    from xeda.spec import Spec
-    from xeda.workspace import Workspace
+    from xeda import Design, Remote, Spec, Workspace
 
-    host = "cluster"
-    profile = local_settings().host_profiles.get(host)
-    workspace = Workspace(remote=Remote(host, profile=profile, keep_running=True))
+    workspace = Workspace(remote=Remote("cluster", keep_running=True))
     spec = Spec("vivado_synth", Design.load("sqrt.yaml"))
     plan = workspace.plan(spec)  # the host plans; nothing is written in the mirror
     result = workspace.run(spec)  # a Result, as for a local run

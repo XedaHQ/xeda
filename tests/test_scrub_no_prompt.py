@@ -18,7 +18,8 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.console import console
-from xeda.flow_runner import DefaultRunner, scrub_design, scrub_runs
+from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.scrub import scrub_design, scrub_runs
 from xeda.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry

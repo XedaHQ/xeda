@@ -131,7 +131,7 @@ def test_a_direct_search_launch_leaves_the_level_alone_when_asked_for_debug(
     tmp_path, monkeypatch
 ) -> None:
     """`Dse.run_flow` is a way in too: a caller may use it without `run`."""
-    from xeda.flow_runner import Dse
+    from xeda.flow_runner.dse import Dse
     from xeda.flow_runner.dse.fmax import FmaxOptimizer
 
     seen: list = []

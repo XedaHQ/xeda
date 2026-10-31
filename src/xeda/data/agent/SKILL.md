@@ -35,7 +35,7 @@ width, so parse JSON.
 nothing and the log says so, unless you pass `--yes`
 (`xeda scrub vivado_synth sqrt --yes --json`). `--yes` answers no other question: replacing a file that
 `--outputs-to` names needs `--overwrite-outputs`. `scrub --json` reports `removed`, `kept`, `gone`
-and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
+and `skipped` paths. The Python API never prompts: `Workspace.scrub` and a launch with
 `prune_variants` remove nothing unless the caller passes `confirm` (`Workspace(confirm=...)`).
 
 ```bash
@@ -619,14 +619,18 @@ second spelling is refused, and the error names the right one.
 ## Library
 
 ```python
-from xeda import Design, DefaultRunner
+from xeda import Design, Spec, Workspace
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
 design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
-flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["vivado_synth.clock.period=5ns"])
-if flow and flow.results.success:
-    print(flow.results.fmax)
+spec = Spec("vivado_synth", design, settings={"vivado_synth.clock.period": "5 ns"})
+result = Workspace("xeda_run").run(spec)  # a node that fails is an outcome, not an exception
+if result.passed:
+    print(result.record.metric("fmax"))
 ```
+
+`Workspace.plan(spec)` returns the `Plan` without a run. `Workspace.records()` lists the records of
+earlier runs. Import only from `xeda`, `xeda.errors` and `xeda.introspect`.
 
 A `Design` and everything in it is read-only (assigning raises an error). Change a copy with
 `design.model_copy(update=...)`, then call `invalidate_cached_properties()` on it.

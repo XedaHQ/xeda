@@ -702,7 +702,8 @@ from .tool_utils import HANG_GUARD
 
 def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path):
     import sys
-    from xeda import Design, DefaultRunner
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
     from xeda.tool import Tool
 
     # Registration belongs to the test alone, including canonical and class-name aliases.

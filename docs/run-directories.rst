@@ -149,9 +149,8 @@ three exceptions:
 
 ``xeda run`` also shows the output on the terminal. With ``--json``, it goes to the standard error
 (see :doc:`machine-readable`). A Python program that launches a flow sees no tool output on its
-standard output or error. It reads the logs. Until the Python API has an option for this, set
-``xeda.proc_utils.TOOL_OUTPUT`` to ``"terminal"`` in the thread that launches the flow to see
-the output as it arrives.
+standard output or error. It reads the logs. To see the output as it arrives, create the workspace
+with ``Workspace(tool_output="terminal")``.
 The library adds no handler that writes to the ``xeda`` logger, and it changes no logging level.
 Your application decides where the log records go. Each record of a launch has the attributes
 ``xeda_launch_id`` and ``xeda_node`` (the node that runs), for a log format or a filter.

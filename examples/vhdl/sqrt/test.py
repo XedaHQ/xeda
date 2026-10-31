@@ -4,17 +4,14 @@ import logging
 import os
 from pathlib import Path
 
-from xeda import Design, Flow
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, YosysFpga
-from xeda.tool import ExecutableNotFound
+from xeda import Design, Result, Spec, Workspace
 
 log = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 
 design = Design.load(SCRIPT_DIR / "sqrt.yaml")
-xeda_runner = DefaultRunner()
+workspace = Workspace()
 
 
 def test_sqrt() -> None:
@@ -25,25 +22,29 @@ def test_sqrt() -> None:
         print("running long test!")
         ws = LONG_TEST
     for w in ws:
-        f: Flow = xeda_runner.run_flow(
-            GhdlSim,
+        spec = Spec(
+            "ghdl_sim",
             design.with_updates({"tb.parameters.G_IN_WIDTH": w}),
-            {"env": {"NUM_TV": "50"}},
+            settings={"ghdl_sim.env.NUM_TV": "50"},
         )
-        if not f.succeeded:
+        if not workspace.run(spec).passed:
             raise AssertionError(f"test failed for w={w}")
 
 
 def test_sqrt_yosys_synth() -> None:
-    try:
-        f = xeda_runner.run_flow(
-            YosysFpga,
-            design.with_updates({"tb.parameters.G_IN_WIDTH": 32}),
-            {"fpga": {"part": "LFE5U-25F-6BG381C"}, "clocks": {"main_clock": {"period": "10 ns"}}},
-        )
-        assert f.succeeded
-    except ExecutableNotFound:
+    spec = Spec(
+        "yosys_fpga",
+        design.with_updates({"tb.parameters.G_IN_WIDTH": 32}),
+        settings={
+            "yosys_fpga.fpga.part": "LFE5U-25F-6BG381C",
+            "yosys_fpga.clocks.main_clock.period": "10 ns",
+        },
+    )
+    result: Result = workspace.run(spec)
+    if result.error is not None and result.error.code == "executable_not_found":
         log.critical("Yosys executable not found")
+    else:
+        assert result.passed
 
 
 if __name__ == "__main__":
