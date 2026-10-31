@@ -680,6 +680,9 @@ the cause:
 ``storage_error``
     A file or directory error of the operating system, or a path that leaves the run directory,
     ended the node. The record may be missing.
+``flow_not_importable``
+    A worker process of a sweep could not import the module of a flow. The message names the
+    module.
 ``internal_error``
     A bug of Xeda.
 

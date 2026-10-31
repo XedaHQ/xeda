@@ -309,7 +309,22 @@ that the updates of the design changed, ``settings.<node>.<path>`` for each sett
 and the metrics that you ask for as ``<node>.<metric>``. A metric is ``None`` for a node that has
 no record in that point. ``to_pandas`` returns the same table as a ``DataFrame``.
 
-A sweep executes its nodes in the calling process, so ``max_workers`` must be 1.
+With ``max_workers`` of 1, a sweep executes its nodes in the calling process. With more, it
+executes them in that many worker processes, and nodes that do not wait for each other run at
+once. The workers start with the ``spawn`` method on every platform. A script that calls
+``sweep`` this way guards its entry point with ``if __name__ == "__main__":``. A notebook needs no
+guard. Workers cannot start for code that Python reads from standard input (``python -``): run it
+from a file or a notebook. Only the specs and the options of the workspace cross to a worker. A
+flow that you register in code reaches a worker through its module: the worker imports the module
+of each flow that Xeda does not have built in, such as ``mylib.flows``, before it runs the node.
+A flow that a script or a notebook defines (its module is ``__main__``), or whose module a new
+process cannot find by its name, cannot be imported. The sweep then raises a ``SpecError`` with the
+code ``flow_not_importable`` before anything runs. Move the flow into a module that Python can
+import, or sweep with ``max_workers=1``. An import that still fails in a worker fails that node
+with the same code. The callback, the cancel token and the
+confirmation stay in the calling process. A cancel, a timeout or an exception of the callback
+stops the tools that run, and the sweep returns when every worker has released its locks. If the
+calling process dies, the workers stop their tools and end.
 
 Rebuilding only what changed
 =============================

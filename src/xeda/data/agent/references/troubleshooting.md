@@ -116,6 +116,8 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
   runs. Its output is in the log.
 - `storage_error`: a file or directory error of the operating system, or a path that leaves the
   run directory, ended the node.
+- `flow_not_importable`: a worker process of a sweep could not import the module of a flow. Put the
+  flow in a module that Python can import, or sweep with `max_workers=1`.
 - `missing_output`: a declared output is absent, unreadable, outside the run directory or not
   written by this run. `nextpnr` reports its own missing configuration as `reported_failure`, naming
   the setting and path.

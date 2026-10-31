@@ -5,9 +5,11 @@ Calls are JSON lines in the working directory, after every input has been opened
 XEDA_FAKE_FPGA_TOOL optionally limits fault injection to one executable. MODE is
 partial, no-output, malformed-report, fail, or signal; DELAY is seconds before output.
 READY (the path of a FIFO) makes the tool report its process id there and block, to the end of
-a test that stops it; GO (the path of a FIFO) makes it continue instead, when the test opens the FIFO
-and closes it; IGNORE_SIGNALS makes it ignore SIGINT and SIGTERM while it blocks; FLOOD makes it print lines
-without a pause instead.
+a test that stops it. When READY is a directory, each tool leaves a file `<pid>.pid` in it instead,
+with its process id and the id of a child that it starts, so that tools that run at the same time
+do not share a file. GO (the path of a FIFO) makes it continue instead, when the test opens the
+FIFO and closes it; IGNORE_SIGNALS makes it ignore SIGINT and SIGTERM while it blocks; FLOOD makes
+it print lines without a pause instead.
 Only version/help probes bypass input validation and call recording. openFPGALoader answers
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
@@ -38,6 +40,7 @@ import os
 import shlex
 import signal
 import struct
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -239,6 +242,9 @@ def options(args):
     return values, positional
 
 
+WAIT = "import signal, time; signal.signal(signal.SIGINT, signal.SIG_DFL); time.sleep(600)"
+
+
 def read_inputs(paths):
     return [Path(path).read_bytes() for path in paths]
 
@@ -255,6 +261,7 @@ def record(tool, args, inputs, contents, seed=1):
         "tool": tool,
         # the file that ran (a symbolic link followed), so a test can tell which fake it was
         "executable": os.path.realpath(sys.argv[0]),
+        "ppid": os.getppid(),
         "argv": args,
         "cwd": str(Path.cwd()),
         "environment": environment,
@@ -279,7 +286,16 @@ def record(tool, args, inputs, contents, seed=1):
         if os.environ.get("XEDA_FAKE_FPGA_IGNORE_SIGNALS"):
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        Path(ready).write_text(str(os.getpid()))
+        else:
+            # a test that runs in the background gets SIGINT ignored from its shell
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+        if Path(ready).is_dir():
+            child = subprocess.Popen([sys.executable, "-c", WAIT])
+            partial = Path(ready) / f".{os.getpid()}"
+            partial.write_text(f"{os.getpid()} {child.pid}")
+            os.replace(partial, Path(ready) / f"{os.getpid()}.pid")
+        else:
+            Path(ready).write_text(str(os.getpid()))
         while os.environ.get("XEDA_FAKE_FPGA_FLOOD"):
             # a tool that writes output without a pause, as a verbose tool does
             print("flood line " + "x" * 100, flush=True)

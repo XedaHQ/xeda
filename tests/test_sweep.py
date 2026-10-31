@@ -480,11 +480,9 @@ def test_events_of_a_sweep_come_in_order_within_each_launch(tmp_path, design):
     assert [str(e.disposition) for e in finished] == ["ran", "shared"]
 
 
-def test_workers_other_than_one_are_not_yet_supported(tmp_path, design):
+def test_a_number_of_workers_that_is_not_a_positive_whole_number_is_refused(tmp_path, design):
     workspace = _workspace(tmp_path)
-    with pytest.raises(NotImplementedError, match="max_workers"):
-        workspace.sweep(_seeds(design, 1), max_workers=2)
-    for bad in (0, -1):
+    for bad in (0, -1, True, 1.5):
         with pytest.raises(ValueError, match="max_workers"):
             workspace.sweep(_seeds(design, 1), max_workers=bad)
     assert not (tmp_path / "run").exists()
