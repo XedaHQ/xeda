@@ -653,7 +653,9 @@ def test_dse_takes_a_target(tmp_path, monkeypatch):
         "--init-freq-high",
         "200",
     )
-    assert result.exit_code == 1 and document["target"] == "nexys"
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "unknown_target"
+    assert document["target"] == "nexys"
     assert "arty, ulx3s" in document["error"]["message"]
 
 
@@ -680,8 +682,8 @@ def test_dse_uses_the_design_unless_a_target_is_given(tmp_path, target):
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
     document = json.loads(proc.stdout)
-    assert document["success"] is True and document["target"] == target
-    run_dir = Path(document["best"]["run_path"]).resolve().parent.name
+    assert document["outcome"] == "passed" and document["target"] == target
+    run_dir = Path(document["best_run_dir"]).resolve().parent.name
     assert run_dir == (target or "sqrt")
 
 

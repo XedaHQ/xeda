@@ -223,9 +223,16 @@ def test_xeda_dse_reports_an_invalid_design_file_once(tmp_path, json_flag):
     args += ["--init-freq-low", "100", "--init-freq-high", "200"]
     proc = run_xeda(*args, *(["--json"] if json_flag else []), cwd=tmp_path)
     if json_flag:
-        assert_one_error_document(proc, "DesignValidationError", str(path), "rtl.top")
+        assert proc.returncode == 2, proc.stderr
+        document = json.loads(proc.stdout)
+        assert document["outcome"] is None
+        error = document["error"]
+        assert error["code"] == "invalid_design", error
+        assert str(path) in error["message"] and "rtl.top" in error["message"], error
+        assert "DesignValidationError" not in error["message"], error
+        assert "Traceback" not in proc.stderr, proc.stderr
     else:
-        assert proc.returncode == 1
+        assert proc.returncode == 2
         assert "Traceback" not in proc.stderr, proc.stderr
         assert "DesignValidationError: DesignValidationError" not in proc.stderr
 

@@ -114,6 +114,7 @@ _SETTINGS_CODES = {
     "unscoped_setting": "unscoped_setting",
     "unknown_node": "unknown_node",
     "removed_setting": "removed_setting",
+    "removed_key": "removed_setting",  # a launcher setting: the same code as a flow setting
     "removed_alias": "removed_alias",
     "settings_group": "unsupported_setting",
     "unsupported_setting": "unsupported_setting",

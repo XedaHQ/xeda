@@ -383,6 +383,21 @@ def test_a_search_without_its_bounds_names_them(tmp_path):
     assert "init_freq_low" in proc.stderr and "init_freq_high" in proc.stderr
 
 
+def test_a_removed_setting_of_an_exploration_has_the_code_of_a_removed_flow_setting(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.toml").write_text(
+        'name = "bad"\n[rtl]\nsources = ["missing.vhdl"]\ntop = "bad"\n'
+    )
+    args = ["dse", "vivado_synth", "bad.toml", "--dse-settings", "debug=true", "--json"]
+    result = CliRunner().invoke(cli, args)
+    document = json.loads(result.stdout)
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "removed_setting", document["error"]
+    assert "`debug` was removed" in document["error"]["message"]
+
+
 def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     """A search without a device says so before starting any run."""
     proc, document = _dse(tmp_path, BARE, "--init-freq-low", "100", "--init-freq-high", "300")

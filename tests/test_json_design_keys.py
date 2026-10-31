@@ -161,18 +161,18 @@ def test_an_exploration_that_fails_after_loading_its_design_names_it(world):
         "300",
     )
 
-    assert status == 1 and document["success"] is False
+    assert status == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "required_setting"
     assert "`fpga`" in document["error"]["message"]
     assert document["design"] == "blink"
-    assert _is(document["design_file"], world / "blink.toml")
 
 
 def test_an_exploration_that_fails_before_loading_its_design_has_no_name(world):
     status, document = _json("dse", "vivado_synth", "sqrt.yaml", "--optimizer", "no_such_optimizer")
 
-    assert status == 1 and document["error"]["type"] == "OptimizerNotFound"
+    assert status == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "usage_error"
     assert document["design"] is None
-    assert _is(document["design_file"], world / "sqrt.yaml")
 
 
 @pytest.mark.parametrize(
