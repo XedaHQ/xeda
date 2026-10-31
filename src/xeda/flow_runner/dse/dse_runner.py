@@ -1,6 +1,5 @@
 import logging
 import multiprocessing
-from concurrent.futures import CancelledError, TimeoutError
 from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
@@ -9,16 +8,18 @@ from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple
 
 import psutil
 from attrs import define
-from pebble.common import ProcessExpired  # type: ignore
-from pebble.pool.process import ProcessPool
 from pydantic import ValidationError
 
+from ...cancel import CancelToken
 from ...dataclass import Field, XedaBaseModel, validation_errors
 from ...deliver import deliverable_locations
 from ...design import Design
-from ...flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException, flowrun_hash
+from ...flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
+from ...frozen import thaw
+from ...outcomes import Outcome
+from ...records import ErrorInfo, RunRecord
 from ...run_dir import RunDirectory
-from ...tool import NonZeroExitCode
+from ...spec import Spec
 from ...utils import (
     Timer,
     dump_json,
@@ -26,9 +27,9 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
-from ... import log_context, proc_utils
+from ... import log_context
+from ...workspace import Workspace
 from ..chains import FlowRequest, parse_request
-from ..environment import EnvironmentSnapshot
 from ..default_runner import (
     FlowLauncher,
     add_file_logger,
@@ -40,6 +41,7 @@ from ..settings_layers import merge_layers, read_command_line_text
 from ..resolver import Plan, planned_design_of
 from ..run_lock import refuse_if_held, run_dir_lock
 from ..trace import as_recorded
+from ...types import UNSET
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ def _refuse_openroad(optimizer: "Optimizer", flow: Union[str, Type[Flow], FlowRe
 
 
 def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
-    """Delete the outcome of a worker that did not improve, with every name of it.
+    """Delete the run of a point that did not improve, with every name of it.
 
     The names come from `run_directory_names`, so none is left leading nowhere. The deletion
     waits until readers finish, and it checks ownership."""
@@ -80,36 +82,44 @@ def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
         )
 
 
-# Slotted, as `attrs` does by default. An outcome crosses a process boundary (the worker builds
-# it, `pool.map` returns it) and is written to the best-run file of the search
-# (`fmax_<design>_<flow>_<timestamp>.json` in the run root). It does both
-# without an instance `__dict__`: `attrs` generates `__getstate__` and `__setstate__` for
-# pickling, and JSON goes through `as_json_value()` below. A `__dict__` is not a serialization
-# format. It would leave `run_path` a `Path` for the encoder to stringify by luck, and nothing
-# would stop a private attribute from joining it.
 @define
 class FlowOutcome:
+    """What an optimizer gets of one point: the settings of the point, the results of its run, and
+    the record of the run (`results.json`). `results.success` is true for a run that passed. A
+    run that was rejected for its timing keeps the results that it had, `fmax` among them.
+    `run_path` is the run directory, or `None` when the exploration deleted it."""
+
     settings: Flow.Settings
     results: Flow.Results
-    timestamp: Optional[str]
     run_path: Optional[Path]
-    # Worker provenance for promotion; excluded from the public best-run document.
-    variation: dict[str, Any] | None = None
+    record: Optional[RunRecord] = None
+
+
+@define(frozen=True)
+class DsePoint:
+    """One point of an exploration: how its run ended, and where. `error` is `None` for a run
+    that passed. `run_dir` is `None` when the exploration deleted the run directory."""
+
+    outcome: Outcome
+    error: Optional[ErrorInfo]
+    run_dir: Optional[Path]
 
     def as_json_value(self) -> Dict[str, Any]:
-        """Return this outcome as JSON: what a design-space exploration records as its best run.
-
-        The outcome is written out and not left to whatever its `__dict__` holds. `run_path` is
-        a `Path`, and the two places that serialize an outcome have to agree: the best-run file
-        that a search writes as it improves (`fmax_<design>_<flow>_<timestamp>.json` in the run
-        root), and the `--json` document that the CLI prints.
-        """
         return {
-            "settings": self.settings,
-            "results": dict(self.results),
-            "timestamp": self.timestamp,
-            "run_path": str(self.run_path) if self.run_path else None,
+            "outcome": str(self.outcome),
+            "error": None if self.error is None else self.error.as_json_value(),
+            "run_dir": None if self.run_dir is None else str(self.run_dir),
         }
+
+
+@define(frozen=True)
+class DseResult:
+    """What an exploration did: its best run, if any, and every point that it tried, in order.
+    `canceled` is true when a cancellation ended it."""
+
+    best: Optional[FlowOutcome]
+    points: Tuple[DsePoint, ...]
+    canceled: bool = False
 
 
 #: The results of a run that an exploration reports.
@@ -187,98 +197,24 @@ def _variation_delta(candidate: dict[str, Any], base: dict[str, Any]) -> dict[st
     return delta
 
 
+class _RoundToken(CancelToken):
+    """The token of one round: it expires after `timeout` seconds, and it is canceled when `outer`
+    is."""
+
+    def __init__(self, timeout: float, outer: Optional[CancelToken]) -> None:
+        super().__init__(timeout=timeout)
+        self._outer = outer
+
+    @property
+    def canceled(self) -> bool:
+        return super().canceled or (self._outer is not None and self._outer.canceled)
+
+
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     if n < 2:
         return [b], 0
     step = (b - a) / (n - 1)
     return [step * i + a for i in range(n)], step
-
-
-class Executioner:
-    def __init__(
-        self,
-        launcher: FlowLauncher,
-        design: Design,
-        flow_class,
-        all_flows_settings: Optional[Dict[str, Any]] = None,
-        candidate_base: dict[str, Any] | None = None,
-        candidate_input: dict[str, Any] | None = None,
-    ):
-        self.launcher = launcher
-        self.design = design
-        self.flow_class = flow_class
-        self.all_flows_settings = all_flows_settings
-        self.candidate_base = candidate_base
-        self.candidate_input = candidate_input
-        self.candidate_changes: dict[str, Any] = {}
-
-    def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
-        # The candidates of an exploration run side by side, so their tool output goes to the log
-        # of each run and never to the terminal, whatever the caller chose.
-        token = proc_utils.TOOL_OUTPUT.set("log")
-        try:
-            return self._launch_candidate(args)
-        finally:
-            proc_utils.TOOL_OUTPUT.reset(token)
-
-    def _launch_candidate(
-        self, args: Tuple[int, Dict[str, Any]]
-    ) -> Tuple[Optional[FlowOutcome], int]:
-        idx, flow_settings = args
-        try:
-            delta = merge_layers(
-                self.candidate_changes,
-                _variation_delta(flow_settings, self.candidate_base or {}),
-                settings_cls=self.flow_class.Settings,
-            )
-            flow_settings = merge_layers(
-                self.candidate_input or {}, delta, settings_cls=self.flow_class.Settings
-            )
-            request = self.launcher._request_context
-            api = merge_layers(
-                request.api_overrides if request else {}, {self.flow_class.name: delta}
-            )
-            plan = self.launcher.resolve(
-                self.flow_class,
-                self.design,
-                flow_settings,
-                self.all_flows_settings,
-                origins=request.origins if request else (),
-                command_line=request.command_line if request else None,
-                api_overrides=api,
-            )
-            flow = self.launcher.launch_flow(
-                self.flow_class,
-                self.design,
-                flow_settings,
-                all_flows_settings=self.all_flows_settings,
-                plan=plan,
-            )
-            return (
-                FlowOutcome(
-                    settings=deepcopy(flow.settings),  # type: ignore[call-arg]
-                    results=flow.results,
-                    timestamp=flow.timestamp,
-                    run_path=flow.run_path,
-                    variation=delta,
-                ),
-                idx,
-            )
-        except KeyboardInterrupt:
-            log.exception("KeyboardInterrupt received during the execution of flow")
-        except FlowFatalError as e:
-            log.warning("Fatal exception during execution of flow: %s", e)
-            log.debug("Traceback of the exception", exc_info=True)
-            raise e
-        except NonZeroExitCode as e:
-            log.warning("%s", e)
-        except Exception as e:  # noqa: BLE001 - one failed candidate must not stop the search
-            log.error(
-                "Received exception during the execution of flow, but will continue: %s",
-                e,
-            )
-            log.debug("Traceback of the exception", exc_info=True)
-        return None, idx
 
 
 class Dse(FlowLauncher):
@@ -343,12 +279,54 @@ class Dse(FlowLauncher):
                 raise FlowSettingsError(
                     validation_errors(e.errors()), optimizer_class.Settings
                 ) from None
-        self.optimizer: Optimizer = optimizer_class(
-            max_workers=self.settings.max_workers, settings=optimizer_settings
-        )
+        self._optimizer_class = optimizer_class
+        self._optimizer_settings = optimizer_settings
+        #: The optimizer of the last run, or of none yet. Every run makes its own, so no state of
+        #: one run reaches the next.
+        self.optimizer: Optimizer = self._new_optimizer()
         #: Called after each iteration that has a best run, with that run's outcome. The library
         #: prints nothing: the command line passes a callback that shows the results.
         self.best_so_far: Optional[Callable[[FlowOutcome], None]] = None
+        #: Stops the exploration when it says so: the points that run end as `canceled`.
+        self.cancel: Optional[CancelToken] = None
+        self._local_settings: Any = None
+
+    def _new_optimizer(self) -> Optimizer:
+        assert isinstance(self.settings, self.Settings)
+        return self._optimizer_class(
+            max_workers=self.settings.max_workers,
+            settings=self._optimizer_settings.model_copy(deep=True),
+        )
+
+    def run(self, *args: Any, **kwargs: Any) -> DseResult:  # type: ignore[override]
+        """Explore the settings of a flow for a design, as `FlowLauncher.run` takes its request.
+
+        Return what the exploration did, even when no run passed. An exception of the optimizer
+        ends the exploration with that exception."""
+        result = super().run(*args, **kwargs)
+        assert isinstance(result, DseResult)
+        return result
+
+    def resolve_run(  # type: ignore[override]
+        self,
+        flow: Any,
+        design: Any = None,
+        flow_settings: Any = [],
+        flow_overrides: Any = [],
+        target: Any = UNSET,
+        local_settings: Any = None,
+    ) -> Any:
+        """Resolve the request, as a launcher does, and keep the private settings that it gets:
+        the sweeps of the exploration plan every point with them."""
+        self._local_settings = local_settings
+        return super().resolve_run(
+            flow,
+            design,
+            flow_settings,
+            flow_overrides,
+            target=target,
+            local_settings=local_settings,
+        )
 
     def _refuse_unaccepted_request(
         self, flow, flow_settings, flow_overrides, xedaproject, design=None
@@ -377,15 +355,15 @@ class Dse(FlowLauncher):
         _refuse_openroad(self.optimizer, flow_class)
         timer = Timer()
 
-        optimizer = self.optimizer
+        optimizer = self.optimizer = self._new_optimizer()
 
         optimizer.max_failed_iters = self.settings.max_failed_iters
 
         # Consecutive "unsuccessful" iterations where in all runs success == False.
         consecutive_failed_iters = 0
         num_iterations = 0
-        future = None
-        pool = None
+        canceled = False
+        points: List[DsePoint] = []
 
         results_sub = RESULTS_SHOWN
 
@@ -425,7 +403,7 @@ class Dse(FlowLauncher):
         )
 
         request = self._request_context
-        # Base agreement happens before Logs, best records or the process pool exist.
+        # Base agreement happens before Logs, best records or any sweep exist.
         base_plan = self.resolve(
             flow_class,
             design,
@@ -439,7 +417,7 @@ class Dse(FlowLauncher):
         )
         base_settings = base_plan.node(flow_class.name).settings
 
-        # Check once, here. Checked in each worker instead, a missing setting (or a design that
+        # Check once, here. Checked for each point instead, a missing setting (or a design that
         # the flow cannot run) would fail every run of the search separately, and be reported
         # only as "no successful run".
         flow_class.check_required_settings(base_settings)
@@ -504,36 +482,34 @@ class Dse(FlowLauncher):
         base_settings = adjusted_plan.node(flow_class.name).settings
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
-        # `post_cleanup_purge` means here that the exploration deletes the runs that did not
-        # improve, itself, once their outcome is in. A launch purges its own run directory only
-        # when `post_cleanup` asks for a clean-up too, as it did before the purge implied one.
-        # Otherwise the best run would go as well.
-        worker = FlowLauncher(
+        # Every point is a spec of the design as the caller gave it. What all points share is the
+        # request's own layers, the base variation and the thread limit. What differs is the
+        # delta of the point to the base settings.
+        if request is not None:
+            declared = request.declared
+            common = merge_layers(
+                request.command_line,
+                request.api_overrides,
+                {flow_class.name: merge_layers(base_variation, adjustments)},
+            )
+        else:  # a caller that has no request: the layers as they were given
+            declared = design
+            common = merge_layers(
+                all_flows_settings,
+                {flow_class.name: merge_layers(flow_settings, base_variation, adjustments)},
+            )
+        base_recorded = as_recorded(base_settings)
+        workspace = Workspace(
             self._run_root,
-            **{
-                **{
-                    name: getattr(self.settings, name)
-                    for name in FlowLauncher.Settings.model_fields
-                },
-                "post_cleanup_purge": self.settings.post_cleanup
-                and self.settings.post_cleanup_purge,
-            },
+            hashed_run_dirs=True,
+            tool_output="log",
+            local_settings=self._local_settings,
         )
-        worker._request_context = self._request_context
-        # One snapshot of the environment for the whole exploration: every point judges and
-        # starts its processes by the same environment.
-        worker._pinned_environment = EnvironmentSnapshot.take(
-            self._request_context.private_env if self._request_context is not None else {}
-        )
-        worker._launch_inputs = list(self._launch_inputs)
-        executioner = Executioner(
-            worker,
-            design,
-            flow_class,
-            all_flows_settings,
-            as_recorded(base_settings),
-            candidate_input,
-        )
+        # `post_cleanup_purge` means here that the exploration deletes the runs that did not
+        # improve, itself, once their outcome is in. A sweep purges its run directories only when
+        # `post_cleanup` asks for a clean-up too, as it did before the purge implied one.
+        # Otherwise the best run would go as well.
+        purge_with_sweep = self.settings.post_cleanup and self.settings.post_cleanup_purge
 
         # The exploration's log and its best-run record go into the run root, which is made here,
         # once the settings have validated and no deliverable names a location: an exploration
@@ -542,187 +518,186 @@ class Dse(FlowLauncher):
         best_json_path = self.run_root / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         flow_setting_hashes = set()
         num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
-        iterate = True
         # Nothing between opening the log and the `try` that closes it.
         file_handler = add_file_logger(self.run_root / "Logs", timestamp)
         try:
             log.info("Best results are saved to %s", best_json_path)
-            with ProcessPool(max_workers=optimizer.max_workers) as pool:
-                while iterate:
-                    cpu_usage = tuple((ld / num_cpus) * 100 for ld in psutil.getloadavg())
-                    ram_usage = psutil.virtual_memory()[2]
+            while True:
+                cpu_usage = tuple((ld / num_cpus) * 100 for ld in psutil.getloadavg())
+                ram_usage = psutil.virtual_memory()[2]
 
+                log.info(
+                    "CPU load over (1, 5, 15) minutes: %d%%, %d%%, %d%%    RAM usage: %d%%",
+                    cpu_usage[0],
+                    cpu_usage[1],
+                    cpu_usage[2],
+                    ram_usage,
+                )
+
+                if consecutive_failed_iters > self.settings.max_failed_iters:
                     log.info(
-                        "CPU load over (1, 5, 15) minutes: %d%%, %d%%, %d%%    RAM usage: %d%%",
-                        cpu_usage[0],
-                        cpu_usage[1],
-                        cpu_usage[2],
-                        ram_usage,
+                        "Stopping after %d unsuccessful iterations.",
+                        consecutive_failed_iters,
                     )
-
-                    if consecutive_failed_iters > self.settings.max_failed_iters:
-                        log.info(
-                            "Stopping after %d unsuccessful iterations.",
-                            consecutive_failed_iters,
-                        )
-                        break
-                    if (
-                        optimizer.best
-                        and consecutive_failed_iters > self.settings.max_failed_iters_with_best
-                    ):
-                        log.info(
-                            "Stopping after %d unsuccessful iterations (max_failed_iters_with_best=%d)",
-                            consecutive_failed_iters,
-                            self.settings.max_failed_iters_with_best,
-                        )
-                        break
-
-                    if timer.minutes > self.settings.max_runtime_minutes:
-                        log.warning(
-                            "Total execution time (%d minutes) exceed 'max_runtime_minutes'=%d",
-                            timer.minutes,
-                            self.settings.max_runtime_minutes,
-                        )
-                        break
-                    # Compare with the current promoted baseline, not the initial plan.
-                    executioner.candidate_base = as_recorded(optimizer.base_settings)
-                    batch_settings = optimizer.next_batch()
-                    if not batch_settings:
-                        break
-
-                    this_batch = []
-                    for s in batch_settings:
-                        hash_value = deep_hash(s)
-                        if hash_value not in flow_setting_hashes:
-                            this_batch.append(s)
-                            flow_setting_hashes.add(hash_value)
-                        else:
-                            log.info(
-                                "Skipping flow settings with hash %s, already executed in this run.",
-                                hash_value,
-                            )
-                    batch_len = len(batch_settings)
-                    batch_len = min(batch_len, self.settings.max_workers)
-                    batch_settings = batch_settings[:batch_len]
-                    if batch_len < self.settings.max_workers:
-                        log.warning(
-                            "Only %d (out of %d) workers will be utilized.",
-                            batch_len,
-                            self.settings.max_workers,
-                        )
-
+                    break
+                if (
+                    optimizer.best
+                    and consecutive_failed_iters > self.settings.max_failed_iters_with_best
+                ):
                     log.info(
-                        "Starting iteration #%d with %d parallel executions.",
-                        num_iterations,
+                        "Stopping after %d unsuccessful iterations (max_failed_iters_with_best=%d)",
+                        consecutive_failed_iters,
+                        self.settings.max_failed_iters_with_best,
+                    )
+                    break
+
+                if timer.minutes > self.settings.max_runtime_minutes:
+                    log.warning(
+                        "Total execution time (%d minutes) exceed 'max_runtime_minutes'=%d",
+                        timer.minutes,
+                        self.settings.max_runtime_minutes,
+                    )
+                    break
+                batch_settings = optimizer.next_batch()
+                if not batch_settings:
+                    break
+
+                this_batch = []
+                for s in batch_settings:
+                    hash_value = deep_hash(s)
+                    if hash_value not in flow_setting_hashes:
+                        this_batch.append(s)
+                        flow_setting_hashes.add(hash_value)
+                    else:
+                        log.info(
+                            "Skipping flow settings with hash %s, already executed in this run.",
+                            hash_value,
+                        )
+                batch_len = len(batch_settings)
+                batch_len = min(batch_len, self.settings.max_workers)
+                batch_settings = batch_settings[:batch_len]
+                if batch_len < self.settings.max_workers:
+                    log.warning(
+                        "Only %d (out of %d) workers will be utilized.",
                         batch_len,
+                        self.settings.max_workers,
                     )
 
-                    future = pool.map(
-                        executioner,
-                        enumerate(this_batch),
-                        timeout=self.settings.timeout,
-                    )
+                log.info(
+                    "Starting iteration #%d with %d parallel executions.",
+                    num_iterations,
+                    batch_len,
+                )
 
-                    have_success = False
-                    improved = False
-                    try:
-                        iterator = future.result()
-                        if not iterator:
-                            log.error("Process result iterator is None!")
-                            break
-                        while True:
-                            try:
-                                idx: int
-                                outcome: Optional[FlowOutcome]
-                                outcome, idx = next(iterator)
-                                if outcome is None:
-                                    log.error("Flow outcome is None!")
-                                    iterate = False
-                                    continue
-                                improved = optimizer.process_outcome(outcome, idx)
-                                if optimizer.base_settings == outcome.settings:
-                                    executioner.candidate_changes = deepcopy(
-                                        outcome.variation or {}
-                                    )
-                                if improved:
-                                    log.info("Writing improved result to %s", best_json_path)
-                                    dump_json(
-                                        dict(
-                                            best=optimizer.best,
-                                            successful_results=successful_results,
-                                            total_time=timer.timedelta,
-                                            optimizer_settings=optimizer.settings,
-                                            num_iterations=num_iterations,
-                                            consecutive_failed_iters=consecutive_failed_iters,
-                                            design=design,
-                                        ),
-                                        best_json_path,
-                                        backup=False,
-                                    )
-                                if outcome.results.success:
-                                    have_success = True
-                                    r = {k: outcome.results.get(k) for k in results_sub}
-                                    successful_results.append(r)
-                                if (
-                                    self.settings.post_cleanup_purge
-                                    and not improved
-                                    and (have_success or num_iterations > 0)
-                                ):
-                                    p = outcome.run_path
-                                    if p and p.exists():
-                                        log.debug(
-                                            "Deleting non-improved run directory: %s",
-                                            p,
-                                        )
-                                        try:
-                                            _purge_run(p, self.run_root, flow_class.name)
-                                        except (OSError, ValueError) as e:
-                                            log.warning("Could not delete %s: %s", p, e)
-                                        outcome.run_path = None
-                            except StopIteration:
-                                break  # next(iterator) finished
-                            except TimeoutError as e:
-                                log.critical(
-                                    f"Flow run took longer than {e.args[1]} seconds. Canceling remaining tasks."
-                                )
-                                future.cancel()
-                            except ProcessExpired as e:
-                                log.critical("%s. Exit code: %d", e, e.exitcode)
-                    except CancelledError:
-                        log.warning("CancelledError")
-                    except KeyboardInterrupt as e:
-                        pool.stop()
-                        pool.join()
-                        raise e from None
-
-                    if not have_success:
-                        consecutive_failed_iters += 1
-                    else:
-                        consecutive_failed_iters = 0
-
-                    num_iterations += 1
-                    log.info(
-                        f"End of iteration #{num_iterations}. Execution time: {timer.timedelta}"
-                    )
-                    if optimizer.best:
-                        log.debug(
-                            "Best so far: %s",
-                            {k: optimizer.best.results.get(k) for k in results_sub},
+                have_success = False
+                improved = False
+                if this_batch:
+                    # A point is its settings, as the delta to the base settings that the
+                    # candidates grew from.
+                    specs = [
+                        Spec(
+                            flow_class.name,
+                            declared,
+                            settings=merge_layers(
+                                common,
+                                {flow_class.name: _variation_delta(s, base_recorded)},
+                            ),
                         )
-                        if self.best_so_far is not None:
-                            self.best_so_far(optimizer.best)
-                    else:
-                        log.info("No results to report.")
+                        for s in this_batch
+                    ]
+                    swept = workspace.sweep(
+                        specs,
+                        max_workers=self.settings.max_workers,
+                        cancel=_RoundToken(self.settings.timeout, self.cancel),
+                        rebuild_all=self.settings.rebuild_all,
+                        clean=self.settings.clean,
+                        post_cleanup=self.settings.post_cleanup,
+                        post_cleanup_purge=purge_with_sweep,
+                    )
+                    if swept.canceled:
+                        if self.cancel is not None and self.cancel.canceled:
+                            canceled = True
+                        else:
+                            log.critical(
+                                "Flow run took longer than %d seconds. Canceled the remaining runs.",
+                                self.settings.timeout,
+                            )
+                    for idx, (candidate, point) in enumerate(zip(this_batch, swept)):
+                        result = point.result
+                        node = result.nodes[result.roots[0]] if result.roots else None
+                        record = None if node is None else node.record
+                        run_dir = None if node is None else node.run_dir
+                        points.append(DsePoint(result.outcome, result.error, run_dir))
+                        if record is None or record.outcome is Outcome.CANCELED:
+                            log.warning("Flow #%d: no results (%s).", idx, result.outcome)
+                            continue
+                        results = Flow.Results(thaw(record.metrics))
+                        results.success = record.passed
+                        outcome = FlowOutcome(
+                            settings=flow_class.Settings.from_input(
+                                candidate, design_root=design.root
+                            ),
+                            results=results,
+                            run_path=run_dir,
+                            record=record,
+                        )
+                        improved = optimizer.process_outcome(outcome, idx)
+                        if improved:
+                            log.info("Writing improved result to %s", best_json_path)
+                            dump_json(
+                                dict(
+                                    best=(
+                                        None if outcome.record is None else outcome.record.to_dict()
+                                    ),
+                                    successful_results=successful_results,
+                                    total_time=timer.timedelta,
+                                    optimizer_settings=optimizer.settings,
+                                    num_iterations=num_iterations,
+                                    consecutive_failed_iters=consecutive_failed_iters,
+                                    design=design,
+                                ),
+                                best_json_path,
+                                backup=False,
+                            )
+                        if outcome.results.success:
+                            have_success = True
+                            r = {k: outcome.results.get(k) for k in results_sub}
+                            successful_results.append(r)
+                        if (
+                            self.settings.post_cleanup_purge
+                            and not improved
+                            and (have_success or num_iterations > 0)
+                        ):
+                            p = outcome.run_path
+                            if p and p.exists():
+                                log.debug("Deleting non-improved run directory: %s", p)
+                                try:
+                                    _purge_run(p, self.run_root, flow_class.name)
+                                except (OSError, ValueError) as e:
+                                    log.warning("Could not delete %s: %s", p, e)
+                                outcome.run_path = None
+                                points[-1] = DsePoint(result.outcome, result.error, None)
 
-        except KeyboardInterrupt:
-            log.critical("Received Keyboard Interrupt")
-        except Exception as e:
-            log.exception("Received exception: %s", e)
+                if not have_success:
+                    consecutive_failed_iters += 1
+                else:
+                    consecutive_failed_iters = 0
+
+                num_iterations += 1
+                log.info(f"End of iteration #{num_iterations}. Execution time: {timer.timedelta}")
+                if optimizer.best:
+                    log.debug(
+                        "Best so far: %s",
+                        {k: optimizer.best.results.get(k) for k in results_sub},
+                    )
+                    if self.best_so_far is not None:
+                        self.best_so_far(optimizer.best)
+                else:
+                    log.info("No results to report.")
+                if canceled:
+                    break
         finally:
             try:
-                if pool:
-                    pool.close()
-                    pool.join()
                 if optimizer.best:
                     log.info("The best result was written to %s", best_json_path)
                 else:
@@ -736,4 +711,4 @@ class Dse(FlowLauncher):
                 # The log of the search belongs to the search: a later search of the process has its
                 # own, and this runs however the clean-up above ends.
                 remove_file_logger(file_handler)
-        return optimizer.best
+        return DseResult(optimizer.best, tuple(points), canceled)

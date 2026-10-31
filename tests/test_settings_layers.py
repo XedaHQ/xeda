@@ -556,33 +556,42 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
     assert design.flows == before
 
 
-def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path):
-    from types import SimpleNamespace
+def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path, monkeypatch):
+    from xeda.flow_runner.dse import dse_runner
+    from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
+    from xeda.frozen import thaw
 
-    from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import Executioner
+    class Stop(Exception):
+        pass
 
-    class Launcher(DefaultRunner):
-        def launch_flow(self, flow_class, design, flow_settings, **kwargs):
-            assert kwargs["all_flows_settings"] == {"yosys_fpga": {"flatten": False, "abc9": True}}
-            return SimpleNamespace(
-                settings=Flow.Settings(),
-                results=Flow.Results(),
-                timestamp=None,
-                run_path=None,
-            )
+    class OnePoint(Optimizer):
+        default_variations = {"nextpnr": {}}
 
+        def next_batch(self):
+            return [self.base_settings.model_dump()]
+
+    sent = []
+
+    def sweep(self, specs, **options):
+        sent.extend(specs)
+        raise Stop
+
+    monkeypatch.setattr(dse_runner.Workspace, "sweep", sweep)
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `yosys_fpga` reads a source
     design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
-    outcome, index = Executioner(
-        Launcher(tmp_path / "run"),
-        design,
-        Nextpnr,
-        {"yosys_fpga": {"flatten": False, "abc9": True}},
-    )((3, {"fpga": {"part": "LFE5U-25F-6BG381C"}}))
+    runner = Dse(OnePoint, run_root=tmp_path / "run", variations={}, max_workers=1)
+    with pytest.raises(Stop):
+        runner.run_flow(
+            Nextpnr,
+            design,
+            {"fpga": {"part": "LFE5U-25F-6BG381C"}},
+            all_flows_settings={"yosys_fpga": {"flatten": False, "abc9": True}},
+        )
 
-    assert outcome is not None
-    assert index == 3
+    (spec,) = sent
+    assert thaw(spec.settings["yosys_fpga"]) == {"flatten": False, "abc9": True}
+    assert thaw(spec.settings["nextpnr"])["fpga"]["part"] == "LFE5U-25F-6BG381C"
 
 
 def test_fmax_variations_refine_nested_base_settings_instead_of_replacing_them():

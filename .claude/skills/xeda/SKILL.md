@@ -580,7 +580,8 @@ A launch that does not pass exits 1 with `outcome` and `error`. A request that s
 before the launch started exits 1 with the code `canceled`. Branch on
 `error.code`, a stable lower snake case text (the set is open: keep an unknown code as text).
 `references/troubleshooting.md` has the messages and fixes. `scrub` has its own document with
-`outcome` (`passed`, `failed`, or `null` for a usage error, which exits 2) and the same `error`. `dse`, `pdk`, `remote check` and `list-*` keep
+`outcome` (`passed`, `failed`, or `null` for a usage error, which exits 2) and the same `error`. `dse` has its own document with `outcome`, `error`, `best` (a `results.json` object, or `null`) and `points`
+(one `{outcome, error, run_dir}` for each point that it tried); without a run that passed, the outcome is `failed` with the code `no_successful_run`. `pdk`, `remote check` and `list-*` keep
 their own documents: on failure they have `success: false` and `error.type`/`error.message`.
 
 | `error.code` | Do |

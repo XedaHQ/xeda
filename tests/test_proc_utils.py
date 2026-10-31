@@ -1108,12 +1108,11 @@ def test_a_stop_signal_to_xeda_stops_what_the_tool_started(tmp_path, name):
         launch.wait()
 
 
-#: A program that runs a tool tree in the worker of a process pool, as a design-space exploration
-#: does, and stops the pool once the tool runs, as its Ctrl-C does. The worker ignores SIGINT.
+#: A program that runs a tool tree in a worker process, as a sweep does, and terminates the worker
+#: once the tool runs, as the stop of a sweep does.
 _POOL_LAUNCH = """
-import sys, time
+import multiprocessing, sys, time
 from pathlib import Path
-from pebble import ProcessPool
 from xeda.proc_utils import run_process
 
 def work(tool):
@@ -1121,17 +1120,17 @@ def work(tool):
 
 if __name__ == "__main__":
     started = Path(sys.argv[2])
-    with ProcessPool(max_workers=1) as pool:
-        pool.schedule(work, args=(sys.argv[1],))
-        while not (started.exists() and started.read_text().isdigit()):
-            time.sleep(0.01)
-        pool.stop()
-        pool.join()
+    worker = multiprocessing.get_context("spawn").Process(target=work, args=(sys.argv[1],))
+    worker.start()
+    while not (started.exists() and started.read_text().isdigit()):
+        time.sleep(0.01)
+    worker.terminate()
+    worker.join()
 """
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
-def test_stopping_a_process_pool_stops_what_its_tools_started(tmp_path):
+def test_stopping_a_worker_process_stops_what_its_tools_started(tmp_path):
     started = tmp_path / "started"
     script = tmp_path / "pool_launch.py"
     script.write_text(_POOL_LAUNCH)

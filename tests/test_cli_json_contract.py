@@ -149,11 +149,13 @@ def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_
 def test_dse_unknown_optimizer_reports_json_and_fails():
     proc = run_xeda("dse", "vivado_synth", str(SQRT), "--optimizer", "nope", "--json")
     document = json_stdout(proc)
-    assert proc.returncode != 0
-    assert document["success"] is False
-    assert document["error"]["type"] == "OptimizerNotFound"
+    assert proc.returncode == 2
+    assert document["outcome"] is None and document["best"] is None
+    assert document["error"]["code"] == "usage_error"
     # the message must name the alternatives rather than just rejecting
+    assert "Unknown optimizer 'nope'" in document["error"]["message"]
     assert "fmax_optimizer" in document["error"]["message"]
+    assert (document["flow"], document["optimizer"]) == ("vivado_synth", "nope")
 
 
 @pytest.mark.parametrize("command", [["run"], ["list-flows"], ["dse"]])

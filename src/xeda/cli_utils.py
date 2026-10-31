@@ -331,9 +331,10 @@ class XedaHelpGroup(ColorizedGroup):
                     fmt,
                 )
                 sys.exit(e.exit_code)
-            if _is_command(e.ctx, "scrub"):
-                argv = list(sys.argv[1:] if args is None else args)
-                self._report_scrub_usage_error(e, fmt, argv[argv.index("scrub") + 1 :])
+            for name in ("scrub", "dse"):
+                if _is_command(e.ctx, name):
+                    argv = list(sys.argv[1:] if args is None else args)
+                    self._report_usage_error(e, fmt, name, argv[argv.index(name) + 1 :])
             self._report_click_error(e, fmt)
         except click.ClickException as e:
             self._report_click_error(e, fmt)
@@ -344,10 +345,12 @@ class XedaHelpGroup(ColorizedGroup):
             sys.exit(1)
 
     @staticmethod
-    def _report_scrub_usage_error(e: click.UsageError, fmt: str, arguments: List[str]) -> NoReturn:
-        """Write the scrub document of a scrub that did not start. It has what the command line
-        gave (`arguments`, those after `scrub`) and no outcome, as the document of a launch that
-        did not start has no outcome."""
+    def _report_usage_error(
+        e: click.UsageError, fmt: str, command: str, arguments: List[str]
+    ) -> NoReturn:
+        """Write the document of a `scrub` or `dse` that did not start. It has what the command
+        line gave (`arguments`, those after the command) and no outcome, as the document of a
+        launch that did not start has no outcome."""
         ctx = e.ctx
         assert ctx is not None
         # The arguments are read again without any conversion, since a conversion (the flow
@@ -362,17 +365,25 @@ class XedaHelpGroup(ColorizedGroup):
             value = given.get(name)
             return value if isinstance(value, str) else None  # not given: None or click's sentinel
 
-        emit_structured(
-            scrub_document(
+        if command == "scrub":
+            document = scrub_document(
                 outcome=None,
                 error=_usage_error_info(e),
                 flow=text("flow"),
                 design=text("design_name"),
                 target=text("target"),
                 run_root=text("run_root"),
-            ),
-            fmt,
-        )
+            )
+        else:
+            document = dse_document(
+                outcome=None,
+                error=_usage_error_info(e),
+                flow=text("flow"),
+                design=None,
+                target=text("target"),
+                optimizer=text("optimizer"),
+            )
+        emit_structured(document, fmt)
         sys.exit(e.exit_code)
 
     @staticmethod
@@ -459,6 +470,35 @@ def scrub_document(
         "target": target,
         "run_root": run_root,
         **{name: paths(name) for name in ("scanned", "removed", "kept", "gone", "skipped")},
+    }
+
+
+def dse_document(
+    *,
+    outcome: Any,
+    error: Any,
+    flow: Optional[str],
+    design: Optional[str],
+    target: Optional[str],
+    optimizer: Optional[str],
+    best: Any = None,
+    points: Sequence[Any] = (),
+) -> Dict[str, Any]:
+    """Return the document that `xeda dse --json` prints (schema 1).
+
+    `outcome` is an `Outcome`, or `None` when the command line was refused before an exploration
+    started. `error` is an `ErrorInfo` or `None`. `best` is the `RunRecord` of the best run, or
+    `None`. `points` are the `DsePoint`s that the exploration tried, in order."""
+    return {
+        "schema_version": 1,
+        "outcome": None if outcome is None else outcome.value,
+        "error": None if error is None else error.as_json_value(),
+        "flow": flow,
+        "design": design,
+        "target": target,
+        "optimizer": optimizer,
+        "best": None if best is None else best.to_dict(),
+        "points": [point.as_json_value() for point in points],
     }
 
 

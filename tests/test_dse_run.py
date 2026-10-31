@@ -1,10 +1,11 @@
 """`xeda dse`, end to end: a real design-space exploration on the fake Vivado.
 
-The unit tests around it stop short of running a flow: `Optimizer` stubs that return no batch,
-`FlowOutcome` pickled by hand. This runs the command as a user does -- a `pebble` process pool
-launching real flow runs, the Fmax search, the best-run file written as the search improves
-(`fmax_<design>_<flow>_<timestamp>.json` in the run root), and the
-`--json` document -- and checks what comes out is one consistent, re-runnable record.
+The unit tests around it stop short of running a flow: `Optimizer` stubs that return no batch.
+This runs the command as a user does -- every round a sweep of real flow runs, the Fmax search,
+the best-run file written as the search improves (`fmax_<design>_<flow>_<timestamp>.json` in the
+run root), and the `--json` document -- and checks what comes out is one consistent, re-runnable
+record. A failed point is a point of the document, and a failure of the optimizer ends the
+command.
 """
 
 import copy
@@ -30,7 +31,7 @@ from xeda.flow_runner.settings_layers import merge_layers
 from xeda.project import Project
 from xeda.dataclass import Field
 from xeda.units import Time
-from xeda.utils import replacing_file
+from xeda.utils import camelcase_to_snakecase, replacing_file
 from xeda.flow import FpgaSynthFlow, MetricSpec
 from .scoping import node_settings
 from .design_edits import design_from_dump
@@ -41,7 +42,12 @@ from .tool_utils import HANG_GUARD
 class TDsePlace(TPlace):
     """A declared placer with one independent search setting."""
 
-    results_description = {}
+    results_description = {
+        "producer": MetricSpec("The run directory of the producer.", "text"),
+        "producer_period": MetricSpec("The period that the producer ran with.", "number", "ns"),
+        "period": MetricSpec("The period of the clock.", "number", "ns"),
+        "pid": MetricSpec("The process that ran the flow.", "integer"),
+    }
 
     class Settings(TPlace.Settings):
         tag: str = Field("base", description="The search variant.")
@@ -99,7 +105,7 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
     monkeypatch.chdir(tmp_path)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
-    best = runner.run(
+    result = runner.run(
         TDsePlace,
         design,
         flow_settings=node_settings(
@@ -110,7 +116,7 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
             },
         ),
     )
-    assert best is not None
+    assert result.best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
     assert set(outcomes) == {"one", "two", "clock"}
     assert outcomes["one"].results["producer"] == outcomes["two"].results["producer"]
@@ -127,7 +133,10 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
 class TDseLeaf(FpgaSynthFlow):
     """A synthesis flow that declares no inputs and no outputs."""
 
-    results_description = {}
+    results_description = {
+        "period": MetricSpec("The period of the clock.", "number", "ns"),
+        "pid": MetricSpec("The process that ran the flow.", "integer"),
+    }
 
     class Settings(FpgaSynthFlow.Settings):
         tag: str = Field("base", description="The search variant.")
@@ -141,7 +150,7 @@ def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_pa
     monkeypatch.chdir(tmp_path)
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
-    best = runner.run(
+    result = runner.run(
         TDseLeaf,
         design,
         flow_settings=node_settings(
@@ -152,7 +161,7 @@ def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_pa
             },
         ),
     )
-    assert best is not None
+    assert result.best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
     assert set(outcomes) == {"one", "two", "clock"}
     assert outcomes["clock"].results["period"] == 12.0 and outcomes["one"].results["period"] == 10.0
@@ -274,21 +283,29 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
     document = json.loads(proc.stdout)
-    assert document["success"] is True
+    assert list(document) == DSE_DOCUMENT_KEYS
+    assert document["outcome"] == "passed" and document["error"] is None
     # The command line prints the tables of the best run, on stderr with --json.
     assert "Best so far" in proc.stderr and "Best results" in proc.stderr
-    # the design's name, and the file it was read from
-    assert document["design"] == "sqrt"
-    assert Path(document["design_file"]).samefile(tmp_path / "sqrt.yaml")
+    assert (document["flow"], document["design"], document["optimizer"]) == (
+        "vivado_synth",
+        "sqrt",
+        "fmax_optimizer",
+    )
     best = document["best"]
 
-    # The best run is a real run directory, holding the results it was chosen for.
-    run_path = Path(best["run_path"])
-    recorded_results = json.loads((run_path / "results.json").read_text())
-    assert recorded_results["outcome"] == "passed"
-    assert best["results"]["fmax"] == recorded_results["metrics"]["fmax"]
+    # The best run is a real run: its `results.json` is what the document holds, and it is the
+    # run directory of one of the points.
+    assert best["outcome"] == "passed" and best["metrics"]["fmax"] > 0
+    stored = {
+        point["run_dir"]: json.loads((Path(point["run_dir"]) / "results.json").read_text())
+        for point in document["points"]
+        if point["run_dir"] and (Path(point["run_dir"]) / "results.json").is_file()
+    }
+    assert best in stored.values()
+    assert all(point["outcome"] in ("passed", "rejected", "failed") for point in document["points"])
 
-    # The search's own record of it is the same view the CLI printed.
+    # The search's own record of it is the same document.
     (best_file,) = (tmp_path / "xeda_run").glob("fmax_sqrt_vivado_synth_*.json")
     recorded = json.loads(best_file.read_text())
     assert recorded["best"] == best
@@ -354,21 +371,22 @@ def test_a_search_without_its_bounds_names_them(tmp_path):
     """Without `--init-freq-low/high`, the CLI handed the optimizer `None` for both and the user
     got pydantic's `Input should be a valid number [type=float_type, input_value=None]`."""
     proc, document = _dse(tmp_path, BARE + '[flows.vivado_synth]\nfpga.part = "xc7a12tcsg325-1"\n')
-    assert proc.returncode != 0 and document["success"] is False
+    assert proc.returncode == 2 and document["outcome"] is None
     error = document["error"]
-    assert error["type"] == "FlowSettingsError"
-    assert "init_freq_low" in error["message"] and "init_freq_high" in error["message"]
-    # the optimizer is refused before the design is read: the file is named, the design is not
+    assert error["code"] == "required_setting"
+    assert "init_freq_" in error["message"]
+    # the optimizer is refused before the design is read
     assert document["design"] is None
-    assert Path(document["design_file"]).samefile(tmp_path / "d.toml")
     assert "None" not in error["message"] and "float_type" not in error["message"]
+    # the log of the command names both bounds
+    assert "init_freq_low" in proc.stderr and "init_freq_high" in proc.stderr
 
 
 def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     """A search without a device says so before starting any run."""
     proc, document = _dse(tmp_path, BARE, "--init-freq-low", "100", "--init-freq-high", "300")
-    assert proc.returncode != 0 and document["success"] is False
-    assert document["error"]["type"] == "FlowSettingsException"
+    assert proc.returncode == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "required_setting"
     assert "`fpga`" in document["error"]["message"]
     assert document["design"] == "sqrt", "the design had loaded"
     assert not list(tmp_path.glob("xeda_run/**/settings.json")), "no run was started"
@@ -468,7 +486,7 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
                 "clocks": {"main_clock": {"period": "10 ns"}},
             },
         ),
-    )
+    ).best
     assert len(runner.optimizer.outcomes) == 2
     assert [o.results["producer_period"] for o in runner.optimizer.outcomes] == [12.0, 14.0]
     assert [o.settings.tag for o in runner.optimizer.outcomes] == ["promoted", "promoted"]
@@ -477,7 +495,10 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
 class TFmaxPlace(TDsePlace):
     """A declared placer that reports a maximum frequency."""
 
-    results_description = {}
+    results_description = {
+        **TDsePlace.results_description,
+        "fmax": MetricSpec("The frequency that the clock allows.", "number", "MHz"),
+    }
 
     def run(self):
         super().run()
@@ -519,7 +540,7 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
                 "clocks": {"main_clock": {"period": "10 ns"}},
             },
         ),
-    )
+    ).best
     assert len(runner.optimizer.outcomes) >= 2
 
 
@@ -597,7 +618,7 @@ def test_a_promotion_leaves_the_default_table_as_it_was(monkeypatch):
     results = Flow.Results()
     results["fmax"] = 150.0
     results.success = True
-    outcome = FlowOutcome(settings=Flow.Settings(), results=results, timestamp=None, run_path=None)
+    outcome = FlowOutcome(settings=Flow.Settings(), results=results, run_path=None)
     assert optimizer.process_outcome(outcome, 0)
     assert optimizer.variations["synth.strategy"][0] == "Timing"  # the search promoted it
     assert FmaxOptimizer.default_variations == pristine  # ... in its own copy
@@ -619,8 +640,8 @@ def test_a_search_leaves_no_log_handler_on_the_process(tmp_path, monkeypatch):
 
 
 def test_a_search_removes_its_log_handler_when_the_cleanup_after_it_fails(tmp_path, monkeypatch):
-    """A second Ctrl+C while the pool is joined ends the search from inside its clean-up. The
-    handler of the search's log is gone all the same."""
+    """A clean-up that fails ends the search from its `finally`. The handler of the search's log
+    is gone all the same."""
     import logging
 
     from xeda.flow_runner.dse import dse_runner
@@ -628,10 +649,10 @@ def test_a_search_removes_its_log_handler_when_the_cleanup_after_it_fails(tmp_pa
     class SecondInterrupt(Exception):
         pass
 
-    def join(self):
+    def timedelta(self):
         raise SecondInterrupt
 
-    monkeypatch.setattr(dse_runner.ProcessPool, "join", join)
+    monkeypatch.setattr(dse_runner.Timer, "timedelta", property(timedelta))
     root = logging.getLogger()
     before = list(root.handlers)
     with pytest.raises(SecondInterrupt):
@@ -757,7 +778,7 @@ def _search_timing_judged(tmp_path) -> Dse:
                 "clocks": {"main_clock": {"period": "10 ns"}},
             },
         ),
-    )
+    ).best
     return runner
 
 
@@ -766,9 +787,7 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
     rejection from the recorded results, without running the flow. The optimizer gets the same
     failed outcome, with its `fmax`, as on the first search, and picks the same best run.
 
-    The worker processes of the search return only a `FlowOutcome`, which does not carry
-    `Flow.rejected_again`, so the replay shows in the count of runs of each run directory and in
-    the unchanged `started_at` of each result."""
+    The replay shows in the count of runs of each run directory."""
     first = _search_timing_judged(tmp_path)
     runs = {p: p.read_text().count("run") for p in (tmp_path / "run").glob("**/runs.txt")}
     assert sorted(runs.values()) == [1, 1, 1, 1], "one run directory per candidate, each run once"
@@ -787,7 +806,9 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
         rejected = period < TTimingJudged.MIN_PERIOD
         assert outcome.results.success is (not rejected)
         assert outcome.results["fmax"] == round(1000.0 / period, 4), "a rejection keeps its Fmax"
-        assert outcome.results.get("error", {}).get("code") == ("rejected" if rejected else None)
+        assert (outcome.record.error and outcome.record.error.code) == (
+            "rejected" if rejected else None
+        )
         assert outcome.run_path == before[period].run_path
         assert _as_json(outcome.results) == _as_json(before[period].results)
         assert outcome.settings == before[period].settings
@@ -887,9 +908,9 @@ def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
                 "--json",
             ],
         )
-    assert result.exit_code != 0
     document = json.loads(result.stdout)
-    assert document["success"] is False
+    assert result.exit_code == 2
+    assert document["outcome"] is None and document["points"] == []
     assert OPENROAD_DSE_REFUSAL in document["error"]["message"]
 
 
@@ -908,7 +929,7 @@ def test_dse_does_not_refuse_a_flow_that_is_not_an_openroad_flow(tmp_path, monke
                     "clocks": {"main_clock": {"period": "10 ns"}},
                 },
             ),
-        )
+        ).best
         is not None
     )
 
@@ -942,3 +963,244 @@ def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_t
             },
         ),
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Every round is one sweep, every point is kept, and the optimizer is the optimizer's own
+# ---------------------------------------------------------------------------------------------
+
+
+class TDseFailing(TDseLeaf):
+    """A synthesis flow that fails after it starts when its `tag` starts with "bad"."""
+
+    def run(self):
+        super().run()
+        if self.settings.tag.startswith("bad"):
+            raise RuntimeError("the bad variant of the flow")
+
+
+class DseVariants(Optimizer):
+    """One round of variants, one for each tag of `TAGS`. The best run is the first that passes."""
+
+    TAGS = ("good", "bad")
+    default_variations = {"t_dse_failing": {}}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.started = False
+        self.outcomes = []
+
+    def next_batch(self):
+        if self.started:
+            return None
+        self.started = True
+        base = self.base_settings.model_dump()
+        return [
+            merge_layers(base, {"tag": tag}, settings_cls=self.flow_class.Settings)
+            for tag in self.TAGS
+        ]
+
+    def process_outcome(self, outcome, idx):
+        self.outcomes.append(outcome)
+        if outcome.results.success and self.best is None:
+            self.best = outcome
+            return True
+        return False
+
+
+class DseOnlyBad(DseVariants):
+    TAGS = ("bad", "bad two")
+
+
+class DseCrashing(Optimizer):
+    """An optimizer that fails: no round can come of it."""
+
+    default_variations = {"t_dse_failing": {}}
+
+    def next_batch(self):
+        raise ValueError("the optimizer broke")
+
+
+def _leaf_dse(tmp_path, monkeypatch, optimizer_class, flow=TDseFailing, **dse_settings):
+    """A `Dse` of `optimizer_class` and the arguments of its `run`, on the leaf flow `flow`."""
+    monkeypatch.chdir(tmp_path)
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
+    settings = {"max_workers": 1, "variations": {}, **dse_settings}
+    runner = Dse(optimizer_class, run_root=tmp_path / "run", **settings)
+    arguments = dict(
+        flow_settings=node_settings(
+            flow,
+            {"fpga": {"part": "LFE5U-25F-6BG256C"}, "clocks": {"main_clock": {"period": "10 ns"}}},
+        )
+    )
+    return runner, design, arguments
+
+
+def _again(tmp_path):
+    """A second directory for the second exploration of a test."""
+    (tmp_path / "again").mkdir()
+    return tmp_path / "again"
+
+
+def _dse_command(tmp_path, monkeypatch, optimizer_class, *extra):
+    """Run `xeda dse` on the leaf flow with `optimizer_class` in this process, as `CliRunner`
+    does, and return the result of the command and its document."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "d.yaml").write_text("name: d\nrtl:\n  sources: []\n  top: t\n  clocks: [clk]\n")
+    result = CliRunner().invoke(
+        cli,
+        [
+            "dse",
+            "t_dse_failing",
+            "d.yaml",
+            "--optimizer",
+            # the command line names an optimizer in snake case, as `load_class` reads it
+            f"{optimizer_class.__module__}.{camelcase_to_snakecase(optimizer_class.__name__)}",
+            "--dse-settings",
+            "max_workers=1",
+            "--json",
+            *extra,
+            "-s",
+            "t_dse_failing.fpga.part=LFE5U-25F-6BG256C",
+            "t_dse_failing.clocks.main_clock.period=10ns",
+        ],
+    )
+    return result, json.loads(result.stdout)
+
+
+DSE_DOCUMENT_KEYS = [
+    "schema_version",
+    "outcome",
+    "error",
+    "flow",
+    "design",
+    "target",
+    "optimizer",
+    "best",
+    "points",
+]
+
+
+def test_every_failed_point_is_kept(tmp_path, monkeypatch):
+    """A point that fails is a point of the document, with its error. The best run is the one
+    that passed."""
+    result, document = _dse_command(tmp_path, monkeypatch, DseVariants)
+    assert result.exit_code == 0, result.output
+    assert document["outcome"] == "passed" and document["error"] is None
+    outcomes = sorted(point["outcome"] for point in document["points"])
+    assert outcomes == ["failed", "passed"]
+    for point in document["points"]:
+        assert list(point) == ["outcome", "error", "run_dir"]
+        assert Path(point["run_dir"]).is_dir()
+        assert (point["error"] is None) == (point["outcome"] == "passed")
+    (failed,) = (p for p in document["points"] if p["outcome"] == "failed")
+    assert failed["error"]["code"] and "the bad variant" in failed["error"]["message"]
+    best = document["best"]
+    assert best["outcome"] == "passed" and best["settings"]["tag"] == "good"
+    (passed,) = (p for p in document["points"] if p["outcome"] == "passed")
+    assert best == json.loads((Path(passed["run_dir"]) / "results.json").read_text())
+
+
+def test_a_round_is_one_sweep(tmp_path, monkeypatch):
+    """The variants of a round go to `Workspace.sweep` in one call."""
+    from xeda.flow_runner.dse import dse_runner
+
+    real = dse_runner.Workspace.sweep
+    calls = []
+
+    def counting(self, specs, **options):
+        specs = list(specs)
+        calls.append(specs)
+        return real(self, specs, **options)
+
+    monkeypatch.setattr(dse_runner.Workspace, "sweep", counting)
+    runner, design, arguments = _leaf_dse(tmp_path, monkeypatch, _DeclaredOptimizer, TDseLeaf)
+    runner.run(TDseLeaf, design, **arguments)
+    assert [len(specs) for specs in calls] == [3]
+    assert {
+        spec.settings["t_dse_leaf"]["tag"]
+        for spec in calls[0]
+        if "tag" in spec.settings["t_dse_leaf"]
+    } == {
+        "one",
+        "two",
+        "clock",
+    }
+    runner, design, arguments = _leaf_dse(
+        _again(tmp_path), monkeypatch, _PromotingOptimizer, TDsePlace
+    )
+    calls.clear()
+    runner.run(TDsePlace, design, **arguments)
+    assert [len(specs) for specs in calls] == [1, 1]
+
+
+def test_an_optimizer_failure_raises(tmp_path, monkeypatch):
+    """An exception of the optimizer ends the exploration with that exception."""
+    runner, design, arguments = _leaf_dse(tmp_path, monkeypatch, DseCrashing)
+    with pytest.raises(ValueError, match="the optimizer broke"):
+        runner.run(TDseFailing, design, **arguments)
+
+    class BrokenOutcome(DseVariants):
+        def process_outcome(self, outcome, idx):
+            raise KeyError("the optimizer cannot read an outcome")
+
+    runner, design, arguments = _leaf_dse(_again(tmp_path), monkeypatch, BrokenOutcome)
+    with pytest.raises(KeyError, match="cannot read an outcome"):
+        runner.run(TDseFailing, design, **arguments)
+
+
+def test_an_optimizer_failure_fails_the_command(tmp_path, monkeypatch):
+    result, document = _dse_command(tmp_path, monkeypatch, DseCrashing)
+    assert result.exit_code == 1
+    assert list(document) == DSE_DOCUMENT_KEYS
+    assert document["outcome"] == "failed" and document["best"] is None
+    assert document["error"]["code"] == "internal_error"
+    assert "the optimizer broke" in document["error"]["message"]
+
+
+def test_a_second_run_starts_from_a_fresh_optimizer(tmp_path, monkeypatch):
+    """`DseVariants` makes its one round once for each optimizer. A `Dse` that kept the optimizer
+    of its first run would end its second run without a round."""
+    runner, design, arguments = _leaf_dse(tmp_path, monkeypatch, DseVariants, TDseFailing)
+    first = runner.run(TDseFailing, design, **arguments)
+    first_optimizer = runner.optimizer
+    second = runner.run(TDseFailing, design, **arguments)
+    assert runner.optimizer is not first_optimizer
+    assert len(first_optimizer.outcomes) == len(runner.optimizer.outcomes) == 2
+    assert first.best is not None and second.best is not None
+    assert len(first.points) == len(second.points) == 2
+
+
+def test_the_document_of_an_exploration_without_a_best_run(tmp_path, monkeypatch):
+    result, document = _dse_command(tmp_path, monkeypatch, DseOnlyBad)
+    assert result.exit_code == 1
+    assert list(document) == DSE_DOCUMENT_KEYS
+    assert document["schema_version"] == 1
+    assert (document["flow"], document["design"], document["target"]) == (
+        "t_dse_failing",
+        "d",
+        None,
+    )
+    assert document["optimizer"].endswith(".dse_only_bad")
+    assert document["outcome"] == "failed" and document["best"] is None
+    assert document["error"]["code"] == "no_successful_run"
+    assert set(document["error"]) == {"code", "message", "node", "exit_status", "log"}
+    assert [point["outcome"] for point in document["points"]] == ["failed", "failed"]
+
+
+def test_a_usage_error_of_dse_has_the_document_of_a_command_that_did_not_start(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, "-m", "xeda", "dse", "vivado_synth", "--no-such-option", "--json"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=HANG_GUARD,
+    )
+    document = json.loads(proc.stdout)
+    assert proc.returncode == 2
+    assert list(document) == DSE_DOCUMENT_KEYS
+    assert document["outcome"] is None and document["best"] is None
+    assert document["points"] == []
+    assert document["flow"] == "vivado_synth"
+    assert document["error"]["code"] == "usage_error"
+    assert "--no-such-option" in document["error"]["message"]

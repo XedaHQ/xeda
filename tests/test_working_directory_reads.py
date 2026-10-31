@@ -106,8 +106,6 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
 
 #: (module, function) -> why a process it starts needs no explicit working directory.
 REVIEWED_PROCESS_STARTS: dict[tuple[str, str], str] = {
-    ("flow_runner/dse/dse_runner.py", "Dse.run_flow"): "a pool worker is a process of its own "
-    "that runs launches: it starts where the caller is, where the caller's relative paths point",
     ("flow_runner/trace.py", "_image_id"): "`docker image inspect` names no file",
     ("platforms/providers.py", "_check_ciel"): "`ciel --version` names no file",
     ("platforms/providers.py", "_run"): "an install command names absolute paths only",

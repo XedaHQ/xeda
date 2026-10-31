@@ -48,7 +48,6 @@ dependencies = [
     "click_extra         ~= 9.5",
     "coloredlogs         ~= 15.0",
     "rich                >= 15.0.0",
-    "pebble              ~= 5.2.3",
     "pint                >= 0.25.3",
     "importlib_resources >= 7.1.0",                      # backport of importlib.resources, replaces pkg_resources
     "simpleeval          ~= 1.0.8",
