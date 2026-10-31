@@ -1092,8 +1092,10 @@ To inspect a plan without constructing or running flows:
     print(plan.to_dict())
 
 ``plan.to_dict()`` returns the same plain data as ``--dry-run --json``. A ``Plan`` is read-only.
-``workspace.run(plan)`` runs exactly that plan and raises ``StalePlanError`` if the disk or the
-settings changed since.
+``workspace.run(plan)`` plans the spec again under the locks of the launch. It raises
+``StalePlanError`` when the graph, an identity, a run directory, a delivery, the settings or the
+commit of a Git dependency differs from the plan. A changed source file is no difference: the launch
+checks freshness again, so a node that the plan showed as fresh can run.
 
 The records of earlier runs are on the disk. A workspace reads them without running a flow:
 

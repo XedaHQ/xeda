@@ -100,15 +100,31 @@ def problems(tree: ast.AST) -> list[str]:
                 if item.name not in exports(node.module)
             ]
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and aliases.get(node.value.id)
-            and node.attr not in exports(aliases[node.value.id])
-            and not (aliases[node.value.id] == "xeda" and f"xeda.{node.attr}" in PUBLIC_MODULES)
-        ):
-            found.append(f"{node.value.id}.{node.attr}")
+        if not isinstance(node, ast.Attribute):
+            continue
+        path = _module_path(node, aliases)
+        if path is None:
+            continue
+        # The longest public module the path starts with, and the name read from it.
+        size = max(n for n in range(1, len(path) + 1) if ".".join(path[:n]) in PUBLIC_MODULES)
+        if size < len(path) and path[size] not in exports(".".join(path[:size])):
+            name = ".".join(path[: size + 1])
+            if name not in found:
+                found.append(name)
     return found
+
+
+def _module_path(node: ast.Attribute, aliases: dict[str, str]) -> list[str] | None:
+    """Return `node` as the dotted path of what it reads, starting at the module that its name
+    is bound to, or `None` when the name is no `xeda` import."""
+    parts: list[str] = []
+    value: ast.expr = node
+    while isinstance(value, ast.Attribute):
+        parts.append(value.attr)
+        value = value.value
+    if not isinstance(value, ast.Name) or value.id not in aliases:
+        return None
+    return [*aliases[value.id].split("."), *reversed(parts)]
 
 
 def test_the_old_entry_points_are_not_exported() -> None:
@@ -135,9 +151,13 @@ def test_the_checker_finds_a_name_that_is_not_public() -> None:
     tree = ast.parse(
         "import xeda\nfrom xeda import DefaultRunner\nfrom xeda.flows import GhdlSim\n"
         "xeda.Tool\nfrom xeda.errors import SpecError\n"
+        "import xeda.introspect\nxeda.introspect.Flow\nxeda.introspect.flows_info()\n"
+        "import xeda.introspect as xi\nxi.Tool\nxeda.Workspace.run\n"
     )
     assert sorted(problems(tree)) == [
         "from xeda import DefaultRunner",
         "from xeda.flows import ...",
         "xeda.Tool",
+        "xeda.introspect.Flow",
+        "xeda.introspect.Tool",
     ]
