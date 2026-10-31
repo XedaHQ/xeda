@@ -256,10 +256,20 @@ def test_scrub_still_removes_a_removed_flow_s_run_directories(name, tmp_path):
         (root / "blinky" / directory).mkdir(parents=True)
         (root / "blinky" / directory / "results.json").write_text("{}\n")
     proc = subprocess.run(
-        [sys.executable, "-m", "xeda", "scrub", name, "blinky", "--run-root", str(root), "--json"],
+        [
+            sys.executable,
+            "-m",
+            "xeda",
+            "scrub",
+            name,
+            "blinky",
+            "--run-root",
+            str(root),
+            "--yes",
+            "--json",
+        ],
         capture_output=True,
         text=True,
-        input="yes\n",
     )
     assert proc.returncode == 0, proc.stderr
     document = json.loads(proc.stdout)

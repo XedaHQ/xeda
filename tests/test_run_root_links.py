@@ -34,6 +34,7 @@ from xeda.run_root import ensure_run_root
 
 from .design_edits import design_of_target
 from .flow_registry import preserved_flow_registry
+from .scrub_utils import on_a_terminal
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -61,6 +62,7 @@ def private_registry():
 @pytest.fixture
 def confirmed(monkeypatch):
     monkeypatch.setattr(console, "input", lambda *args, **kwargs: "yes")
+    on_a_terminal(monkeypatch)
 
 
 def snapshot(root: Path) -> dict[str, str]:

@@ -66,7 +66,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .flow_runner.error_codes import public_error, request_error_info
     from .flow_runner.launch_report import results_of
     from .records import CANCELED, INTERNAL_ERROR, ErrorInfo
-    from .flow_runner.scrub import ScrubResult
+    from .flow_runner.scrub import ScrubResult, removed_summary
     from .log_context import launch_id_of
     from .flow_runner.settings_layers import command_line_settings, command_line_table
     from .introspect import (
@@ -771,26 +771,32 @@ def _prompt_question(question: str) -> bool:
     *context, ask = question.splitlines()
     if context:
         click.echo("\n".join(context), err=True)
+    # The handler of a launch only asks it to stop, and the prompt would go on waiting.
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
         return click.confirm(ask, default=False, err=True)
     except click.Abort:
         return False
+    finally:
+        signal.signal(signal.SIGINT, previous)
 
 
-def _confirmation(json_flag: bool, yes: bool) -> Callable[[Question], bool]:
-    """Return how `xeda run` answers the questions of a workspace (the removal of run directories
-    and the replacement of a file), by one rule.
+def _confirmation(
+    json_flag: bool, yes: bool, ask: Callable[[str], bool] | None = None
+) -> Callable[[Question], bool]:
+    """Return how a command answers the questions of a workspace (the removal of run directories
+    and the replacement of a file), by one rule. `xeda run` and `xeda scrub` use it.
 
-    `--yes` answers the question of a removal with yes. Any question is asked on a terminal, where
-    the answer is yes only if the user types it. Without a terminal, nothing is removed or
-    replaced, and the log says why and what to do. `--yes` does not answer the replacement of a
-    file: `--overwrite-outputs` does."""
+    `--yes` answers the question of a removal with yes. Any question is asked on a terminal, by
+    `ask` (`_prompt_question` by default), where the answer is yes only if the user types it.
+    Without a terminal, nothing is removed or replaced, and the log says why and what to do.
+    `--yes` does not answer the replacement of a file: `--overwrite-outputs` does."""
 
     def answer(question: Question) -> bool:
         if yes and question.removal:
             return True
         if _interactive(json_flag):
-            return _prompt_question(question)
+            return (ask or _prompt_question)(question)
         log.warning(
             "%s: no terminal to ask on. Run the command in a terminal, pass %s, or call "
             "Workspace(confirm=...) from Python to answer the question.",
@@ -803,12 +809,11 @@ def _confirmation(json_flag: bool, yes: bool) -> Callable[[Question], bool]:
 
 
 def _prompt_removal(question: str) -> bool:
-    """Show the directories that the question of a workspace lists and ask on the terminal (or on
-    the input that stands for it) whether to remove them. The first line of the question says what
-    the list is, and the last line is the question itself, which this prompt replaces. Only the
-    word "yes" says yes. The answer is also no when there is no input to read: the input is at its
-    end, closed or unreadable. The command asks even when stdin is no terminal, so a script can
-    pipe "yes" to it. The listing and the question go to stderr with `--json`."""
+    """Show the directories that the question of a workspace lists and ask on the terminal whether
+    to remove them (`xeda scrub` asks this way). The first line of the question says what the list
+    is, and the last line is the question itself, which this prompt replaces. Only the word "yes"
+    says yes. The answer is also no when there is no input to read: the input is at its end,
+    closed or unreadable."""
     header, *listing, _ = question.splitlines()
     console.print(f"[red]{escape(header)}[/red]")
     for line in listing:
@@ -818,12 +823,12 @@ def _prompt_removal(question: str) -> bool:
     except (EOFError, ValueError, OSError):
         console.print()
         _say_scrub(
-            "Not confirmed. No files or folders were removed. Pass --yes to remove without "
+            "Not confirmed. No run directories were removed. Pass --yes to remove without "
             "asking."
         )
         return False
     if answer.lower() != "yes":
-        _say_scrub("Not confirmed. No files or folders were removed.")
+        _say_scrub("Not confirmed. No run directories were removed.")
         return False
     return True
 
@@ -847,7 +852,7 @@ def _print_scrub_result(result: ScrubResult) -> None:
             "(a run finished or refreshed there)"
         )
     if result.removed or result.kept or result.gone:
-        summary = f"{len(result.removed)} folders removed"
+        summary = removed_summary(len(result.removed))
         if result.kept:
             summary += f", {len(result.kept)} kept"
         if result.gone:
@@ -1354,6 +1359,8 @@ def run(
     try:
         with _cancel_on_interrupt(token):
             result = workspace.run(spec, **options, cancel=token)
+        if token is not None and result.outcome is Outcome.CANCELED and not result.nodes:
+            raise KeyboardInterrupt  # canceled while it planned: no node, so no launch began
     except KeyboardInterrupt as interrupt:
         canceled_before_start(launch_id_of(interrupt))
     except Exception as e:
@@ -1716,8 +1723,8 @@ def dse(
     is_flag=True,
     default=False,
     help=(
-        "Write a machine-readable JSON summary to stdout; the confirmation prompt and all other "
-        "output go to stderr."
+        "Write a machine-readable JSON summary to stdout; all other output goes to stderr. Xeda "
+        "asks on a terminal only, so with --json it removes nothing unless you pass --yes."
     ),
 )
 @click.pass_context
@@ -1726,8 +1733,8 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, yes, json_fla
 
     The run directories lie under <run root>/<design_name>: those directly under the design and
     those of every target (<design_name>/<target>/). With --target, only the run directories of
-    that target are removed. Xeda lists the run directories and asks once for confirmation;
-    --yes answers yes. It skips a link that is named like a run directory but does not lead to a
+    that target are removed. Xeda lists the run directories and asks once for confirmation, on a
+    terminal only; --yes answers yes. Without a terminal, and without --yes, it removes nothing. It skips a link that is named like a run directory but does not lead to a
     run directory of the flow beside it, and says so."""
     if json_flag:
         machine_readable_mode()
@@ -1752,7 +1759,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, yes, json_fla
     try:
         if target is not None and (problem := target_name_problem(target)) is not None:
             raise RunDirectoryError(problem)
-        workspace = Workspace(run_root, confirm=(lambda question: True) if yes else _prompt_removal)
+        workspace = Workspace(run_root, confirm=_confirmation(json_flag, yes, _prompt_removal))
         result = workspace.scrub(
             design_name=design_name, flow=flow, target=UNSET if target is None else target
         )

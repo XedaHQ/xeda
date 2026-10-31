@@ -315,8 +315,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `ScrubResult`; a usage error has `outcome: null` and exits 2. The other commands print
   `{"success": false, "error": ...}` (`tests/test_cli_json_contract.py`).
 - The library never prompts: an unanswered question answers "no". Only `cli.py` asks, through the
-  `confirm` callback it gives `Workspace`. `xeda run` asks every question by one rule
-  (`cli._confirmation`): on a terminal only, else it removes and replaces nothing and logs why;
+  `confirm` callback it gives `Workspace`. `xeda run` and `xeda scrub` ask every question by
+  one rule (`cli._confirmation`): on a terminal only, else it removes and replaces nothing and logs why;
   `--yes` answers a removal, never a replacement (`tests/test_cli_on_api.py`).
   `--remote --prune-variants` is refused at planning (`tests/test_remote_client.py`). A prompt call
   elsewhere in `src/xeda` fails `tests/test_scrub_no_prompt.py`.

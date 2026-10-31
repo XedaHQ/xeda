@@ -1380,8 +1380,8 @@ def _print_dry_run(host: str, uploaded: Sequence[str]) -> None:
 
 
 def _refuse_unsupported(options: LaunchOptions) -> None:
-    """Refuse the options that remove run directories: they are on the host, and a remote launch
-    cannot ask the user to confirm the removal."""
+    """Refuse the options that remove run directories: they are on the host, and `xeda remote
+    clean` removes them."""
     for name in ("prune_variants", "post_cleanup", "post_cleanup_purge"):
         if getattr(options, name):
             raise SpecError(

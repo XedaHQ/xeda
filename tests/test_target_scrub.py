@@ -18,7 +18,6 @@ never goes into a run directory. The oracles:
 import json
 import logging
 import os
-import queue
 import subprocess
 import sys
 import threading
@@ -37,11 +36,11 @@ from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 from xeda.utils import replacing_file
-from xeda.workspace import _prune_question
+from xeda.workspace import _removal_question
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
-from .scrub_utils import ask_scrub_design, ask_scrub_runs
+from .scrub_utils import ask_scrub_design, ask_scrub_runs, on_a_terminal
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -75,6 +74,7 @@ def confirmations(monkeypatch):
         return prompts.answer
 
     monkeypatch.setattr(console, "input", ask)
+    on_a_terminal(monkeypatch)
     return prompts
 
 
@@ -421,7 +421,7 @@ def test_a_run_that_finished_in_a_candidate_s_place_after_the_listing_is_kept(
     assert document["kept"] == [str(victim)] and document["gone"] == []
     assert (victim / "out.txt").read_text() == "a newer run\n" and not other.exists()
     assert f"kept {victim}: {KEPT}" in said
-    assert said[-1] == "1 folders removed, 1 kept."
+    assert said[-1] == "1 run directory removed, 1 kept."
 
 
 def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_removed(
@@ -475,7 +475,7 @@ def test_a_candidate_gone_when_its_lock_is_held_is_skipped_and_not_counted(
     ]
     assert skipped == [f"Not removing {victim}: it is gone already"], caplog.text
     assert f"{victim} is gone already" in said
-    assert said[-1] == "1 folders removed, 1 gone already."
+    assert said[-1] == "1 run directory removed, 1 gone already."
 
 
 def launch_writes_into(directory: Path) -> None:
@@ -1194,7 +1194,7 @@ def test_the_scrub_of_a_launch_stays_in_its_own_target(tmp_path, confirmations):
             prune_variants=prune_variants,
             display_results=False,
         )
-        launcher.confirm_scrub = lambda candidates: _prompt_removal(_prune_question(candidates))
+        launcher.confirm_scrub = lambda candidates: _prompt_removal(_removal_question(candidates))
         flow = launcher.launch_flow(TMaker, maker_design(tmp_path, target), {"text": text})
         assert flow.succeeded
         return flow.run_path
@@ -1282,56 +1282,27 @@ def test_scrub_json_lists_what_it_kept_and_found_gone_and_says_so_on_stderr(
     assert document["gone"] == [str(gone)]
     assert f"kept {kept}: {KEPT}" in result.stderr
     assert f"{gone} is gone already" in result.stderr
-    assert "1 folders removed, 1 kept, 1 gone already." in result.stderr
+    assert "1 run directory removed, 1 kept, 1 gone already." in result.stderr
 
 
-def test_xeda_scrub_json_writes_one_document_to_stdout_when_it_kept_and_found_gone(tmp_path):
-    """The command as a script runs it. Scrub lists, and waits for the answer. While it waits, one
-    candidate is removed and a run ends in another. Stdout is then one JSON document, and what
-    scrub said of the outcomes is on stderr."""
+def test_xeda_scrub_json_writes_one_document_to_stdout_and_its_summary_to_stderr(tmp_path):
+    """The command as a script runs it, without a terminal: `--yes` answers the question. Stdout
+    is one JSON document, and what scrub said is on stderr."""
     tree = Tree(tmp_path)
-    gone, kept, removed = three_outcomes(tree)
-    process = subprocess.Popen(
-        [sys.executable, "-m", "xeda", "scrub", FLOW, "d", "--target", "a", "--json"]
+    directories = three_outcomes(tree)
+    process = subprocess.run(
+        [sys.executable, "-m", "xeda", "scrub", FLOW, "d", "--target", "a", "--yes", "--json"]
         + ["--run-root", str(tree.root)],
         cwd=tmp_path,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
+        timeout=120,
     )
-    errors: queue.Queue = queue.Queue()
-    reader = threading.Thread(target=lambda: [errors.put(line) for line in process.stderr])
-    reader.daemon = True
-    reader.start()
-    try:
-        said = [errors.get(timeout=120)]
-        while "Xeda would remove these" not in said[-1]:
-            said.append(errors.get(timeout=120))
-        # the candidates are listed, with what the listing saw of their run records: change them
-        scrub_module.RunDirectory.claimed(gone, tree.root).delete()
-        a_run_ends_in(kept)
-        assert process.stdin is not None and process.stdout is not None
-        process.stdin.write("yes\n")
-        process.stdin.flush()
-        stdout = process.stdout.read()
-        process.wait(timeout=120)
-        reader.join(timeout=30)
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=30)
-    while not errors.empty():
-        said.append(errors.get())
-    assert process.returncode == 0, "".join(said)
-    document = json.loads(stdout)
+    assert process.returncode == 0, process.stderr
+    document = json.loads(process.stdout)
     assert document["outcome"] == "passed"
-    assert document["removed"] == [str(removed)]
-    assert document["kept"] == [str(kept)]
-    assert document["gone"] == [str(gone)]
-    errors_text = "".join(said)
-    assert f"kept {kept}: {KEPT}" in errors_text and f"{gone} is gone already" in errors_text
-    assert "1 folders removed, 1 kept, 1 gone already." in errors_text
+    assert sorted(document["removed"]) == sorted(str(path) for path in directories)
+    assert "3 run directories removed." in process.stderr
 
 
 # ------------------------------------------------------------------------------- the help text

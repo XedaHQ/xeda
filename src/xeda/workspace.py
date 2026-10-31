@@ -46,23 +46,13 @@ def _listing(header: str, candidates: "Sequence[ScrubCandidate]") -> list[str]:
     return lines
 
 
-def _prune_question(candidates: "Sequence[ScrubCandidate]") -> Question:
+def _removal_question(candidates: "Sequence[ScrubCandidate]") -> Question:
     count = len(candidates)
     lines = _listing(f"Xeda would remove these {count} run directories:", candidates)
     return Question(
         "\n".join([*lines, "Remove them?"]),
         removal=True,
         undone=f"Not removing {count} run director{'y' if count == 1 else 'ies'}",
-    )
-
-
-def _removal_question(candidates: "Sequence[ScrubCandidate]") -> Question:
-    count = len(candidates)
-    lines = _listing(f"Xeda would remove these {count} directories:", candidates)
-    return Question(
-        "\n".join([*lines, "Remove them?"]),
-        removal=True,
-        undone=f"Not removing {count} director{'y' if count == 1 else 'ies'}",
     )
 
 
@@ -332,7 +322,7 @@ class Workspace:
         if self.confirm is not None:
             answer = self.confirm
             runner.confirm_overwrite = lambda conflicts: answer(overwrite_question(conflicts))
-            runner.confirm_scrub = lambda candidates: answer(_prune_question(candidates))
+            runner.confirm_scrub = lambda candidates: answer(_removal_question(candidates))
         from_callback: list[Exception] = []
 
         def relay(event: Event) -> None:

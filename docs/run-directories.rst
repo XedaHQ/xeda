@@ -698,7 +698,7 @@ the declared outputs under ``<run root>/@<host>/``, with the same layout as a lo
 (``<design>[/<target>]/<flow>[_<hash>]``). The mirror holds no ``trace.json``, so a local run never
 reuses it. A mirror directory is replaced by each fetch. ``--hashed-run-dirs``, ``--clean``,
 ``--rebuild-all`` and ``--dry-run`` act on the remote run directories, as they do for a local run.
-``--prune-variants`` is refused: a remote launch cannot ask you to confirm it.
+``--prune-variants`` is refused: the run directories are on the host, and ``xeda remote clean`` removes them.
 ``--post-cleanup`` and ``--post-cleanup-purge`` are refused, because the run directories are not on
 your machine: ``xeda remote clean`` frees the space on the host. See :doc:`remote`.
 
@@ -730,7 +730,7 @@ Cleaning up
        ``--yes`` answers yes. If the launch also has to ask whether to replace a file that you
        named for an output, it asks that first. A launch that you decline removes nothing, and so
        does one without a terminal and without ``--yes``. Xeda refuses ``--prune-variants`` with
-       ``--remote``, because a remote launch cannot ask you.
+       ``--remote``, because the run directories are on the host: ``xeda remote clean`` removes them.
 
 Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
 therefore not reused, even though its ``settings.json`` and ``results.json`` remain.
@@ -801,15 +801,18 @@ Only the command line asks for the confirmation. ``xeda run --prune-variants`` a
 terminal: it lists the run directories and asks ``Remove them? [y/N]``. Without a terminal (a pipe,
 or ``--json``), it removes nothing and logs a warning that says why and what to do. ``--yes``
 removes them without a question, with or without a terminal. When it has removed some, the launch
-logs how many. ``xeda scrub`` asks you to type ``yes``, also from a pipe, so ``echo yes | xeda
-scrub`` removes the run directories. ``xeda scrub --yes`` does not ask.
+logs how many. ``xeda scrub`` asks by the same rule: it lists the run directories and asks you to type
+``yes`` on a terminal only. Without a terminal (a pipe, or ``--json``), it removes nothing and logs
+the same warning, so ``echo yes | xeda scrub`` removes nothing. ``xeda scrub --yes`` removes the run
+directories without a question. Both commands say how many run directories they removed, as ``2 run directories removed.`` or
+``1 run directory removed.``
 
 The Python functions ``scrub_design`` and ``scrub_runs``, ``Workspace.run`` with
 ``prune_variants`` and ``Workspace.scrub`` never prompt. They ask the ``confirm`` callback that
 you give ``Workspace``, or the ``confirm`` argument of ``scrub_design`` and ``scrub_runs``. The
-callback of a workspace gets the question as a ``Question`` (a ``str`` that lists the run
-directories), and its ``removal`` is true when a yes removes run directories. The callback returns
-whether to go on. Without a callback, nothing is removed, and Xeda logs a warning that names the
+callback of a workspace gets the question as a ``Question`` (``xeda.types.Question``, a ``str``
+that lists the run directories), and its ``removal`` is true when a yes removes run directories.
+The callback returns whether to go on. Without a callback, nothing is removed, and Xeda logs a warning that names the
 run directories. This holds when stdin is closed, in a notebook or a CI job.
 
 Xeda's space and yours

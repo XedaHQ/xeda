@@ -390,6 +390,23 @@ def test_a_new_cocotb_source_after_an_update_still_turns_cocotb_on(tmp_path):
     assert changed.tb.cocotb is not None
 
 
+def test_an_update_derives_the_cocotb_table_again_from_the_updated_sources(tmp_path):
+    """A cocotb table that the design derived from a `Cocotb` source is no declaration: when an
+    update replaces the sources, the table follows them. A table the design declared stays."""
+    (tmp_path / "tb.vhd").write_text("")
+    derived = _cocotb_design(tmp_path)
+    assert derived.tb.cocotb is not None
+    plain = {"tb.sources": [{"file": "tb.vhd", "type": "Vhdl"}]}
+    assert derived.with_updates(plain).tb.cocotb is None
+    assert derived.with_updates(plain).with_updates({"rtl.top": "b"}).tb.cocotb is None
+    for declared in (True, {"testcase": ["t"]}):
+        design = _cocotb_design(tmp_path, cocotb=declared)
+        assert design.with_updates(plain).tb.cocotb == design.tb.cocotb
+    refused = _cocotb_design(tmp_path, cocotb=False)
+    assert refused.with_updates(plain).tb.cocotb is None
+    assert derived.with_updates({"tb.cocotb": False}).tb.cocotb is None
+
+
 PROPERTY = "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM"
 
 

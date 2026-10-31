@@ -86,12 +86,18 @@ class ScrubResult(NamedTuple):
     reasons: Mapping[Path, str] = MappingProxyType({})
 
 
+def removed_summary(count: int) -> str:
+    """Return what a scrub says of the run directories it removed, such as `2 run directories
+    removed` (without the final period)."""
+    return f"{count} run director{'y' if count == 1 else 'ies'} removed"
+
+
 def log_removed(result: ScrubResult) -> None:
     """Log how many run directories a scrub removed (a `ScrubDone`). A scrub that removed none
     logged why already."""
     count = len(result.removed)
     if count:
-        log.info("%d director%s removed.", count, "y" if count == 1 else "ies")
+        log.info("%s.", removed_summary(count))
 
 
 class _Removal(NamedTuple):

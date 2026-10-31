@@ -30,7 +30,7 @@ from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner, launch_locks
 from xeda.flow_runner.run_lock import lock_file
 from xeda.run_dir import RunDirectoryError
-from xeda.workspace import _prune_question
+from xeda.workspace import _removal_question
 from xeda.run_root import ensure_run_root
 
 RUNS: List[str] = []
@@ -153,7 +153,7 @@ def world(tmp_path, monkeypatch):
 def _runner(tmp_path: Path, **settings) -> DefaultRunner:
     """A launcher that asks the way `xeda scrub` does (`console.input`)."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
-    runner.confirm_scrub = lambda candidates: _prompt_removal(_prune_question(candidates))
+    runner.confirm_scrub = lambda candidates: _prompt_removal(_removal_question(candidates))
     return runner
 
 

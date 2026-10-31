@@ -392,8 +392,22 @@ def canned(outcome: str, code: str = "reported_failure"):
             "outcome": outcome,
             "error": error and {"exit_status": None, "log": None, **error},
             "launch_id": "abc",
-            "roots": [],
-            "nodes": [],
+            "roots": [FLOW],
+            "nodes": [
+                {
+                    "name": FLOW,
+                    "outcome": outcome,
+                    "disposition": "ran" if outcome == "passed" else "not_run",
+                    "reason": "",
+                    "blocked_by": None,
+                    "elapsed": 0.0,
+                    "record": None,
+                    "error": error and {"exit_status": None, "log": None, **error},
+                    "deliveries": [],
+                    "run_dir": "/x/demo/yosys_fpga",
+                    "flow": FLOW,
+                }
+            ],
             "spec": {
                 "flow": FLOW,
                 "design": "demo",
@@ -628,8 +642,14 @@ def test_yes_prunes_without_a_terminal_and_the_log_says_how_many(maker, caplog):
     variant(maker, "two")
     answer, directories = variant(maker, "three", "--prune-variants", "--yes")
     assert answer.exit_code == 0 and len(directories) == 1
-    assert "2 directories removed." in [r.getMessage() for r in caplog.records]
+    assert "2 run directories removed." in [r.getMessage() for r in caplog.records]
     assert "no terminal" not in caplog.text
+
+
+def test_the_log_of_a_prune_of_one_run_directory_uses_the_singular(maker, caplog):
+    variant(maker, "one")
+    variant(maker, "two", "--prune-variants", "--yes")
+    assert "1 run directory removed." in [r.getMessage() for r in caplog.records]
 
 
 @pytest.mark.parametrize("reply, kept", [("y\n", 1), ("n\n", 2), ("\n", 2)])
@@ -690,13 +710,20 @@ def test_scrub_maps_its_arguments_to_the_workspace(scrubs, tmp_path, arguments, 
     ((workspace, called),) = scrubs
     assert called == {"design_name": "demo", "flow": FLOW, "target": target}
     assert workspace.run_root == (tmp_path / "root").resolve()
-    assert workspace.confirm is cli_module._prompt_removal
 
 
-def test_scrub_asks_even_when_nobody_can_see_the_prompt(scrubs, tmp_path):
-    """The command asks with `--json` too, so that `echo yes | xeda scrub` works."""
-    invoke("scrub", FLOW, "demo", "--json", "--run-root", tmp_path / "root")
-    assert scrubs[0][0].confirm is cli_module._prompt_removal
+def test_scrub_asks_on_a_terminal_only(scrubs, tmp_path, monkeypatch, caplog):
+    """As the prune of `xeda run` does: on a terminal the user answers, else the answer is no and
+    the log says why, in the words of the prune."""
+    monkeypatch.setattr(cli_module, "_prompt_removal", lambda question: True)
+    monkeypatch.setattr(cli_module, "_interactive", lambda json_flag: not json_flag)
+    invoke("scrub", FLOW, "demo", "--run-root", tmp_path / "root")
+    assert scrubs[0][0].confirm(REMOVAL) is True
+    for arguments in (["--json"], []):
+        monkeypatch.setattr(cli_module, "_interactive", lambda json_flag: False)
+        invoke("scrub", FLOW, "demo", "--run-root", tmp_path / "root", *arguments)
+        assert scrubs[-1][0].confirm(REMOVAL) is False
+    assert NO_TERMINAL.format(what="1 run directory") in [r.getMessage() for r in caplog.records]
 
 
 def test_scrub_with_yes_answers_the_question_with_yes(scrubs, tmp_path):
@@ -746,7 +773,7 @@ def test_the_scrub_document_has_the_keys_of_the_contract(tmp_path):
     variant = root / "demo" / f"{FLOW}_0123456789abcdef"
     variant.mkdir(parents=True)
     (variant / "results.json").write_text("{}\n")
-    answer = invoke("scrub", FLOW, "demo", "--run-root", root, "--json", input="yes\n")
+    answer = invoke("scrub", FLOW, "demo", "--run-root", root, "--json", "--yes")
     document = json.loads(answer.stdout)
     assert answer.exit_code == 0 and list(document) == SCRUB_KEYS
     assert (document["schema_version"], document["outcome"], document["error"]) == (
@@ -802,6 +829,48 @@ def test_a_usage_error_of_scrub_prints_the_scrub_document(tmp_path, arguments, g
     assert [document[name] for name in ("scanned", "removed", "kept", "gone", "skipped")] == [
         []
     ] * 5
+
+
+def test_a_cancel_while_the_request_is_planned_prints_the_document_of_no_launch(maker, monkeypatch):
+    """The library ends a launch that is canceled while it plans as a `Result` with the outcome
+    `canceled`. The command says what it says of any Ctrl-C before the launch starts: no outcome,
+    no launch, the exit status 1."""
+    from xeda.flow_runner.default_runner import FlowLauncher
+    from xeda.utils import Canceled
+
+    def canceled(self, *arguments, **keywords):
+        raise Canceled("the launch was canceled while it was planned")
+
+    monkeypatch.setattr(FlowLauncher, "_judged_request", canceled)
+    design, run_root = maker
+    answer = invoke("run", "t_maker", design, "--run-root", run_root, "--json")
+    document = json.loads(answer.stdout)
+    assert answer.exit_code == 1 and document["outcome"] is None
+    assert document["error"]["code"] == "canceled" and document["nodes"] == []
+    assert document["launch_id"] is None
+    assert "before the launch started" in document["error"]["message"]
+
+
+def test_a_question_is_asked_with_the_default_handler_of_ctrl_c(monkeypatch):
+    """While the command asks, Ctrl-C reaches the prompt (it answers no), as it does without the
+    handler that cancels a launch. The handler is back when the question is answered."""
+    import signal
+
+    from xeda.cancel import CancelToken
+
+    seen = []
+
+    def confirm(text, **keywords):
+        seen.append(signal.getsignal(signal.SIGINT))
+        return True
+
+    monkeypatch.setattr(click, "confirm", confirm)
+    token = CancelToken()
+    with cli_module._cancel_on_interrupt(token):
+        installed = signal.getsignal(signal.SIGINT)
+        assert cli_module._prompt_question("Remove them?") is True
+        assert signal.getsignal(signal.SIGINT) is installed
+    assert seen == [signal.default_int_handler] and installed is not signal.default_int_handler
 
 
 def test_a_second_interrupt_while_the_launch_runs_names_the_launch(world, monkeypatch):

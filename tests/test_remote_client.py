@@ -403,7 +403,7 @@ def test_programmer_flow_is_refused_with_remote(tmp_path, remote_host):
 def test_the_options_that_remove_run_directories_are_refused_with_remote(
     tmp_path, remote_host, option, parameter
 ):
-    """The host holds the run directories and a remote launch cannot ask for a confirmation, so
+    """The host holds the run directories, and `xeda remote clean` removes them, so
     planning refuses the options with `unsupported_with_remote` (exit status 2, no outcome): no ssh
     call is made, for a run, a dry run, and `--json` (one document on stdout). The message names
     the option that the user typed, where the API names the parameter."""

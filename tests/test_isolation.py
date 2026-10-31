@@ -1843,15 +1843,12 @@ def test_a_targeted_run_and_its_scrub_change_nothing_outside_the_run_root(tmp_pa
     """The target's directory is one level deeper in the run root and no further out: launching
     each of two targets (`--clean`, `--post-cleanup`, plain) and scrubbing them one by one and
     then all leaves everything outside the run root as it was, the audit hook seeing no write."""
-    from xeda.console import console
-
     world = _world(tmp_path)
     text = (SQRT / "sqrt.yaml").read_text().rstrip("\n")
     (world.work / "sqrt.yaml").write_text(text + "\ntargets:\n  a: {}\n  b: {}\n")
     before = _state(world.parent, [world.root])
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(world.work)
-    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
     args = [
         "run",
         "vivado_synth",
@@ -1869,7 +1866,9 @@ def test_a_targeted_run_and_its_scrub_change_nothing_outside_the_run_root(tmp_pa
         assert (world.root / "sqrt" / target / "vivado_synth").is_dir()
     for extra in (["--target", "a"], []):
         with watching(world) as violations:
-            result = CliRunner().invoke(cli, ["scrub", "vivado_synth", "sqrt", "--json", *extra])
+            result = CliRunner().invoke(
+                cli, ["scrub", "vivado_synth", "sqrt", "--yes", "--json", *extra]
+            )
         assert result.exit_code == 0, result.output
         assert not violations, violations
         assert not (world.root / "sqrt" / "a" / "vivado_synth").exists()

@@ -31,10 +31,9 @@ Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`,
 and `scrub`, `--json` moves tool output and logs to stderr. Table output wraps at the terminal
 width, so parse JSON.
 
-`xeda scrub` prompts on stdin and removes nothing unless you type `yes`:
-`echo yes | xeda scrub vivado_synth sqrt --json`, or pass `--yes` to remove without asking.
-`run --prune-variants` asks only on a terminal: with `--json` or a pipe it removes nothing and the
-log says so, unless you pass `--yes`. `--yes` answers no other question: replacing a file that
+`xeda scrub` and `run --prune-variants` ask only on a terminal: with `--json` or a pipe they remove
+nothing and the log says so, unless you pass `--yes`
+(`xeda scrub vivado_synth sqrt --yes --json`). `--yes` answers no other question: replacing a file that
 `--outputs-to` names needs `--overwrite-outputs`. `scrub --json` reports `removed`, `kept`, `gone`
 and `skipped` paths. The Python API never prompts: `scrub_design` and a launch with
 `prune_variants` remove nothing unless the caller passes `confirm` (`Workspace(confirm=...)`).
@@ -525,7 +524,7 @@ Behavior:
   `--rebuild-all` act on the host. A command waits for the workspace lock and logs the launch
   that holds it.
 - Refused before any connection: `--post-cleanup`, `--post-cleanup-purge` (use `xeda remote clean`),
-  `--prune-variants` (a remote launch cannot ask for the confirmation),
+  `--prune-variants` (the run directories are on the host: use `xeda remote clean`),
   a deliverable setting that names a location (use `--outputs-to`), `rtl.generator.outputs_to` (drop it for the
   remote run, or run locally to get the copies), a chain with a programmer
   flow (`openfpgaloader`; run the part before it with `--remote`, then program locally with a

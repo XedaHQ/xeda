@@ -113,7 +113,7 @@ def test_scrub_runs_does_not_match_longer_flow_name(tmp_path, monkeypatch):
 # ------------------------------------------------------------------------------- CLI-level tests
 
 
-def _run_xeda(*args: str, cwd=None, input_text: str = "yes\n") -> subprocess.CompletedProcess:
+def _run_xeda(*args: str, cwd=None, input_text: str = "") -> subprocess.CompletedProcess:
     """Invoke the Xeda CLI for scrub tests."""
     env = dict(os.environ, COLUMNS="80")
     return subprocess.run(
@@ -141,6 +141,7 @@ def test_cli_scrub_removes_unhashed_and_hashed_dirs_only(tmp_path):
         "foo",
         "--run-root",
         str(run_root),
+        "--yes",
         "--json",
     )
 
