@@ -402,7 +402,8 @@ def _start_worker(request: Connection) -> None:
     gone."""
     global _REQUEST
     _REQUEST = request
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # A handler, not SIG_IGN: an ignored signal stays ignored in the tools that the worker starts.
+    signal.signal(signal.SIGINT, _ignore_interrupt)
     parent = multiprocessing.parent_process()
     if parent is not None:
 
@@ -412,6 +413,10 @@ def _start_worker(request: Connection) -> None:
             os._exit(1)
 
         threading.Thread(target=end_with_the_parent, daemon=True).start()
+
+
+def _ignore_interrupt(_signal: int, _frame: Any) -> None:
+    """Do nothing on Ctrl-C in a worker: the calling process stops it through the request."""
 
 
 def _stop_requested() -> bool:
@@ -442,7 +447,7 @@ def _execute_in_worker(task: NodeTask) -> NodeOutcome:
     for name in task.modules:
         try:
             importlib.import_module(name)
-        except Exception as error:  # noqa: BLE001 - the failure of a node is a value
+        except BaseException as error:  # noqa: BLE001 - a module may exit; a failure is a value
             message = f"a worker process cannot import `{name}`, the module of a flow: {error}"
             return _failed(task, ErrorInfo(FLOW_NOT_IMPORTABLE, message, task.node, None, None))
     try:

@@ -26,6 +26,7 @@ from xeda.outcomes import Outcome
 from xeda.spec import Spec
 from xeda.workspace import Workspace
 
+from . import io_flows  # noqa: F401 - registers the declared test flows
 from . import tool_utils
 from .test_proc_utils import _is_running, _kill, _wait_until
 from .test_sweep import ECP5, MARK, _calls, _dispositions, _seeds, _spec, _workspace
@@ -147,7 +148,6 @@ def test_canceling_stops_running_workers_tools(tmp_path, design, monkeypatch):
 
 
 def test_a_raising_callback_stops_running_workers_and_propagates(tmp_path, design, monkeypatch):
-    from . import io_flows  # noqa: F401
 
     ready = _tools_that_block(tmp_path, monkeypatch)
     workspace = _workspace(tmp_path)
@@ -283,7 +283,6 @@ def _plain_design(tmp_path: Path) -> Design:
 def test_a_flow_of_an_importable_module_runs_in_a_worker(tmp_path):
     # `tests.io_flows` registers its flows as it is imported. A spawned worker does not import it
     # by itself: it must import the module of each flow that Xeda does not have built in.
-    from . import io_flows  # noqa: F401
 
     design = _plain_design(tmp_path)
     specs = [
@@ -417,6 +416,48 @@ def test_a_module_that_a_worker_fails_to_import_fails_the_node_with_its_code(tmp
 
 
 @pytest.mark.parametrize("statement", ["sys.exit(3)", "raise KeyboardInterrupt"])
+def test_a_module_that_leaves_the_worker_at_import_fails_its_node_not_the_sweep(
+    tmp_path, monkeypatch, statement
+):
+    _module_flow(
+        tmp_path,
+        monkeypatch,
+        "module_that_leaves",
+        "import multiprocessing, sys\n"
+        "from xeda.flow import Flow\n"
+        "if multiprocessing.parent_process() is not None:\n"
+        f"    {statement}\n"
+        "class ModuleLeavingFlow(Flow):\n"
+        '    """A flow whose module leaves a worker when the worker imports it."""\n'
+        "    results_description = {}\n"
+        "    def run(self): pass\n",
+    )
+    spec = Spec("module_leaving_flow", _plain_design(tmp_path))
+    (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
+    node = point.result.nodes["module_leaving_flow"]
+    assert point.result.outcome is Outcome.FAILED and node.error is not None
+    assert node.error.code == "flow_not_importable"
+
+
+def test_a_tool_that_a_worker_starts_does_not_ignore_ctrl_c(tmp_path):
+    # An ignored signal stays ignored across `exec`, a handler does not: the worker must not leave
+    # SIGINT ignored for the tools that it starts.
+    script = (
+        "import multiprocessing, signal, subprocess, sys\n"
+        "signal.signal(signal.SIGINT, signal.default_int_handler)\n"
+        "from xeda.sweep import _start_worker\n"
+        "_start_worker(multiprocessing.Pipe(duplex=False)[0])\n"
+        "child = 'import signal; print(signal.getsignal(signal.SIGINT) is signal.SIG_IGN)'\n"
+        "print(subprocess.run([sys.executable, '-c', child], capture_output=True, text=True,"
+        " check=True).stdout.strip())\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "False"
+
+
+@pytest.mark.parametrize("statement", ["sys.exit(3)", "raise KeyboardInterrupt"])
 def test_a_flow_that_leaves_the_worker_fails_its_node_not_the_sweep(
     tmp_path, monkeypatch, statement
 ):
@@ -441,7 +482,6 @@ def test_a_flow_that_leaves_the_worker_fails_its_node_not_the_sweep(
 def test_the_events_of_a_diamond_come_in_the_order_of_the_plan(tmp_path):
     # `t_left` and `t_right` run at once in two workers. Their events still come as the plan has
     # them: a `node_started` and a `node_finished` for each node, one node after the other.
-    from . import io_flows  # noqa: F401
 
     workspace = Workspace(tmp_path / "run")
     spec = Spec("t_join", _plain_design(tmp_path))
