@@ -62,6 +62,10 @@ class WorkspaceOptions:
     confirm: Callable[[Question], bool] | None = field(compare=False)
     remote: Any | None
     local_settings: LocalSettings | None
+    #: The directory that the rule of the run root takes as the start directory
+    #: (`ensure_run_root`): where the workspace was made. `None`: the current directory. It
+    #: decides a refusal, never a plan, so two values that differ in it are equal.
+    start: Path | None = field(default=None, compare=False)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, WorkspaceOptions):

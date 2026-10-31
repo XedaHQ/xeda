@@ -30,7 +30,7 @@ from .launch_report import results_of
 from .launch_run import timestamp_text
 from .resolver import Plan, PlanNode, planned_design_of
 from .run_lock import CompletedRun
-from .trace import output_equivalences
+from .trace import output_equivalences, previous_trace
 
 if TYPE_CHECKING:
     from ..sweep import CompletedNode, NodeOutcome, NodeTask
@@ -221,7 +221,15 @@ def adopt_completed(
         flow.outcome = "failed"
         flow.results.success = False
         flow.results["error"] = cause.as_json_value()
-    return flow, CompletedRun.capture(run_path)
+    # As the launch of a producer does: the recorded outputs vouch for the files that did not change.
+    recorded = previous_trace(run_path, node.name)
+    token = CompletedRun.capture(
+        run_path,
+        (),
+        recorded.outputs if recorded else None,
+        recorded.outputs_recorded_ns if recorded else None,
+    )
+    return flow, token
 
 
 class NodeLaunch(Protocol):

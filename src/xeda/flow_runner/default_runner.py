@@ -2902,7 +2902,7 @@ class FlowLauncher:
     ) -> launch_node.PointDelivery:
         root = plan.node(plan.requested)
         design = self._merged(request.design)
-        runner_cwd = Path.cwd()
+        runner_cwd = self._start
         self._claims = set()
         self._deliveries_ahead = {}
         self._predicted_copies = []

@@ -18,6 +18,7 @@ from xeda.cancel import CancelToken
 from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
 from xeda.events import Event
 from xeda.flow_runner import run_lock
+from xeda.flow_runner.trace import previous_trace
 from xeda.flow_runner.environment import EnvironmentSnapshot
 from xeda.flow_runner.launch_options import LaunchOptions
 from xeda.outcomes import Disposition, Outcome, Result
@@ -906,3 +907,63 @@ def test_an_exception_at_the_start_event_runs_no_generator(tmp_path, monkeypatch
             _seeds(world.load(), 2), on_event=on_event
         )
     assert caught.value is raised and world.runs == 0
+
+
+def test_a_node_task_applies_the_run_root_rule_with_the_start_directory_of_the_workspace(
+    tmp_path, design, monkeypatch
+):
+    start = tmp_path / "start"
+    start.mkdir()
+    monkeypatch.chdir(start)
+    root = tmp_path / "elsewhere" / "xeda_run"
+    workspace = Workspace(root)  # absent now: the rule accepts it
+    spec = _spec(design, 1)
+    task = _task(workspace, spec, "yosys_fpga", [])
+    root.mkdir(parents=True)
+    (root / "notes.txt").write_text("not Xeda's\n")  # unmarked, not empty, not the default
+    # The rule of a workspace, which a task carries to the process that executes it.
+    with pytest.raises(Exception) as run_error:
+        workspace.run(spec)
+    assert run_error.value.code == "invalid_run_root"
+    with pytest.raises(Exception) as node_error:
+        run_node(task, canceled=lambda: False, emit=lambda event: None)
+    assert node_error.value.code == "invalid_run_root"
+    assert not (root / ".xeda-run-root").exists(), "the node must not adopt the directory"
+
+
+def test_a_consumer_vouches_for_the_unchanged_outputs_of_its_producer_by_metadata(
+    tmp_path, design, monkeypatch
+):
+    from xeda import digest
+
+    monkeypatch.setattr(digest, "RACY_NS", 0)  # a file of this test is settled at once
+    workspace = _workspace(tmp_path)
+    spec = _spec(design, 1)
+    first = workspace.run(spec)
+    done = _completed(first)
+    recorded = previous_trace(done.run_dir, "yosys_fpga")
+    assert recorded is not None and recorded.outputs
+    outputs = {Path(name) for name in recorded.outputs}
+    read: list[Path] = []
+    real, capture = digest.content_digest, run_lock.CompletedRun.capture
+    capturing: list[bool] = []
+
+    def counting(path: Path) -> str:
+        if capturing:
+            read.append(Path(path))
+        return real(path)
+
+    def counted_capture(cls, *args, **kwargs):
+        capturing.append(True)
+        try:
+            return capture.__func__(cls, *args, **kwargs)
+        finally:
+            capturing.pop()
+
+    monkeypatch.setattr(digest, "content_digest", counting)
+    monkeypatch.setattr(run_lock.CompletedRun, "capture", classmethod(counted_capture))
+    task = _task(workspace, spec, "nextpnr", [done])
+    outcome = run_node(task, canceled=lambda: False, emit=lambda event: None)
+    assert outcome.result.outcome is Outcome.PASSED
+    assert read, "the capture of the producer reads the files that nothing vouches for"
+    assert not outputs & set(read), "an unchanged output is read in full again"

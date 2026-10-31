@@ -252,7 +252,7 @@ def launch_node_result(
         options.run_root,
         hashed_run_dirs=options.hashed_run_dirs,
         display_results=False,
-        run_root_start=options.run_root.parent,
+        run_root_start=options.start,
     )
     token = TOOL_OUTPUT.set(options.tool_output)  # type: ignore[arg-type]
     try:
@@ -288,7 +288,7 @@ def generate_points(
         options.run_root,
         hashed_run_dirs=options.hashed_run_dirs,
         display_results=False,
-        run_root_start=options.run_root.parent,
+        run_root_start=options.start,
     )
     token = TOOL_OUTPUT.set(options.tool_output)  # type: ignore[arg-type]
     try:
@@ -319,7 +319,7 @@ def deliver_point(
         options.run_root,
         hashed_run_dirs=options.hashed_run_dirs,
         display_results=False,
-        run_root_start=options.run_root.parent,
+        run_root_start=options.start,
     )
     token = TOOL_OUTPUT.set(options.tool_output)  # type: ignore[arg-type]
     try:

@@ -136,6 +136,7 @@ class Workspace:
             confirm=self.confirm,
             remote=self.remote,
             local_settings=self.local_settings,
+            start=self._start,
         )
 
     def _refuse_project_run_root(self, spec: Spec) -> None:
