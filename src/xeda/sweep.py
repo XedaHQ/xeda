@@ -26,7 +26,7 @@ from .events import Event
 from .flow_runner import launch_run
 from .flow_runner.environment import EnvironmentSnapshot
 from .flow_runner.launch_identity import RunDirPolicy
-from .flow_runner.launch_node import NodeLaunch, execute_node
+from .flow_runner.launch_node import NodeLaunch, PointDelivery, execute_node
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
 from .flow_runner.launch_report import results_of
 from .flow_runner.launch_result import (
@@ -40,7 +40,7 @@ from .flow_runner.run_lock import LockRequest, acquire_all
 from .frozen import thaw
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
-from .records import read_record
+from .records import ErrorInfo, read_record
 from .run_dir import RunDirectory
 from .spec import Spec
 
@@ -113,8 +113,8 @@ class SweepResult:
         for text in metrics:
             if text.partition(".")[0] not in names or "." not in text:
                 raise KeyError(
-                    f"`{text}` is not `<node>.<metric>` of a node of this sweep. "
-                    f"The nodes are: {', '.join(sorted(names))}"
+                    f"`{text}` names no node of this sweep. Write `<node>.<metric>`, such as "
+                    f"`nextpnr.fmax`. The nodes are: {', '.join(sorted(names))}."
                 )
         rows = [self._row(point, metrics) for point in self.points]
         keys = list(dict.fromkeys(key for row in rows for key in row))
@@ -210,12 +210,14 @@ class CompletedNode:
 class NodeTask:
     """What `execute_node` needs to execute one node: a value that crosses a process boundary.
 
-    `node` is the name of the node in the plan of `spec`. `completed` are its producers. `rebuild`
+    `node` is the name of the node in the plan of `spec`, and `identity` is the identity that the
+    sweep planned for it. `completed` are its producers. `rebuild`
     applies to the node only, never to a producer. `workspace.confirm` is `None`, since a task
     asks nothing."""
 
     spec: Spec
     node: str
+    identity: str
     workspace: WorkspaceOptions
     launch: LaunchOptions
     snapshot: EnvironmentSnapshot
@@ -252,6 +254,7 @@ def launch_node_result(
         return runner.run_node(
             task.spec,
             node=task.node,
+            identity=task.identity,
             completed={done.name: done for done in task.completed},
             local_settings=options.local_settings,
             options=task.launch,
@@ -259,6 +262,36 @@ def launch_node_result(
             environment=task.snapshot,
             canceled=canceled,
             on_event=emit,
+        )
+    finally:
+        TOOL_OUTPUT.reset(token)
+
+
+def deliver_point(
+    spec: Spec,
+    completed: Mapping[str, CompletedNode],
+    options: WorkspaceOptions,
+    snapshot: EnvironmentSnapshot,
+    canceled: Callable[[], bool],
+) -> PointDelivery:
+    """Deliver a point of the sweep in this process: see `FlowLauncher.deliver_point`."""
+    from .flow_runner import DefaultRunner
+    from .proc_utils import TOOL_OUTPUT
+
+    runner = DefaultRunner(
+        options.run_root,
+        hashed_run_dirs=options.hashed_run_dirs,
+        display_results=False,
+        run_root_start=options.run_root.parent,
+    )
+    token = TOOL_OUTPUT.set(options.tool_output)  # type: ignore[arg-type]
+    try:
+        return runner.deliver_point(
+            spec,
+            completed=completed,
+            local_settings=options.local_settings,
+            environment=snapshot,
+            canceled=canceled,
         )
     finally:
         TOOL_OUTPUT.reset(token)
@@ -298,6 +331,8 @@ class _Unit:
     users: list[tuple[int, str]] = field(default_factory=list)
     result: NodeResult | None = None
     run_id: str | None = None
+    #: The error of a failure of the launch itself (the generator): no node of it ran.
+    launch_error: ErrorInfo | None = None
 
 
 class _Point:
@@ -311,6 +346,8 @@ class _Point:
         self.launch_id = os.urandom(16).hex()
         self.told: set[tuple[str, str | None]] = set()
         self.finished: Result | None = None
+        #: The error of the launch that a node reported (`_Unit.launch_error`).
+        self.launch_error: ErrorInfo | None = None
 
 
 class _Sweep:
@@ -398,21 +435,52 @@ class _Sweep:
                 result = skipped_result(name, node.flow, node.run_dir)
             nodes[name] = result
         roots = tuple(point.plan.roots)
-        outcome, error = aggregate(nodes, roots, CANCELED_ERROR if stopped else None)
+        error = point.launch_error
+        if error is None and stopped:
+            error = CANCELED_ERROR
+        elif error is None and nodes[roots[0]].outcome is Outcome.PASSED:
+            error = self._deliver(point, nodes)
+        outcome, cause = aggregate(nodes, roots, error)
         point.finished = Result(
             launch_id=point.launch_id,
             spec=self.specs[point.index],
             roots=roots,
             outcome=outcome,
-            error=error,
+            error=cause,
             nodes=nodes,
         )
         self._begin(point)
         self._emit(point, "launch_finished", None, outcome)
 
+    def _deliver(self, point: _Point, nodes: dict[str, NodeResult]) -> ErrorInfo | None:
+        """Deliver the outputs of `point`, which ended with its root passed, as a launch of the
+        point alone would. Put the deliveries in `nodes`, and return the error of the launch."""
+        if not any(node.deliveries for node in point.plan.nodes.values()):
+            return None
+        completed = {}
+        for name, result in nodes.items():
+            unit = self.units[self.keys[point.index][name]]
+            assert unit.run_id is not None, f"{name} passed with no run"
+            completed[name] = CompletedNode(name, result.run_dir, unit.run_id, result.outcome)
+        done = deliver_point(
+            self.specs[point.index],
+            completed,
+            self.workspace._options(),
+            self.snapshot,
+            self.canceled,
+        )
+        for name in nodes:
+            nodes[name] = replace(nodes[name], deliveries=done.deliveries.get(name, ()))
+        return done.error
+
     # ----------------------------------------------------------------------------- scheduling
 
     def _complete(self, unit: _Unit, result: NodeResult, run_id: str | None) -> None:
+        if result.outcome is Outcome.SKIPPED and result.error is not None:
+            # A failure of the launch: its error has no node, and the node is skipped.
+            unit.launch_error, result = result.error, replace(result, error=None)
+            for index, _ in unit.users:
+                self.points[index].launch_error = unit.launch_error
         unit.result, unit.run_id = result, run_id
         for index, name in unit.users:
             point = self.points[index]
@@ -446,6 +514,7 @@ class _Sweep:
         return NodeTask(
             spec=self.specs[unit.point],
             node=unit.node.name,
+            identity=unit.node.identity,
             workspace=replace(self.workspace._options(), confirm=None),
             launch=self.launch,
             snapshot=self.snapshot,
@@ -480,22 +549,25 @@ class _Sweep:
             )
             self._complete(unit, result, None)
             return
-        record = outcome.result.record
-        if record is not None and record.identity != unit.node.identity:
-            raise StalePlanError(
-                f"The plan is stale: {unit.node.name} ran as another configuration than the "
-                "sweep planned. Plan again.",
-                code="stale_plan",
-                difference=f"the identity of {unit.node.name} changed",
-            )
         self._complete(unit, outcome.result, outcome.run_id)
 
     def run(self) -> SweepResult:
         for unit in self.order:
             if self.canceled():
                 break
+            inherited = next(
+                (self.units[k].launch_error for k in unit.producers if self.units[k].launch_error),
+                None,
+            )
             blocked = self._blocked(unit)
-            if blocked is not None:
+            if inherited is not None:
+                node = unit.node
+                self._complete(
+                    unit,
+                    replace(skipped_result(node.name, node.flow, node.run_dir), error=inherited),
+                    None,
+                )
+            elif blocked is not None:
                 self._complete(unit, blocked, None)
             else:
                 self._execute(unit)
@@ -618,6 +690,22 @@ def _check_points(plans: Sequence[Plan]) -> None:
             )
 
 
+def _check_deliveries(plans: Sequence[Plan]) -> None:
+    """Refuse a delivery that would replace a file that Xeda did not deliver. A sweep asks no
+    question, so the answer is no."""
+    for index, plan in enumerate(plans):
+        for node in plan.nodes.values():
+            for delivery in node.deliveries:
+                if delivery.replaces:
+                    raise SpecError(
+                        f"point {index} would replace {delivery.destination}, a file that Xeda "
+                        "did not deliver. A sweep never replaces such a file: remove it, or "
+                        "name another path.",
+                        code="delivery_refused",
+                        points=(index,),
+                    )
+
+
 def run_sweep(
     workspace: Workspace,
     specs: Iterable[Spec],
@@ -648,6 +736,7 @@ def run_sweep(
         except SpecError as error:
             error.points = (index,)
             raise
+    _check_deliveries(plans)
     _check_points(plans)
     sweep = _Sweep(
         workspace,

@@ -48,7 +48,9 @@ __all__ = [
     "LaunchCollector",
     "LaunchRunner",
     "blocked_result",
+    "FinishFailure",
     "failed_result",
+    "launch_level_error",
     "launch_result",
     "shared_result",
     "skipped_result",
@@ -131,7 +133,7 @@ class _Ended:
 
 
 @dataclass(frozen=True)
-class _FinishFailure:
+class FinishFailure:
     """A failure of the end of the launch: its stage (`delivery` or `clean-up`), the exception,
     and the run directory of the flow that the stage acted on."""
 
@@ -163,7 +165,7 @@ class LaunchCollector:
         #: The failure of the generator of the design, which ended the launch before any node ran.
         self.generation_failed: GenerationError | None = None
         #: The failures of the end of the launch.
-        self.finish_failures: list[_FinishFailure] = []
+        self.finish_failures: list[FinishFailure] = []
         #: The failure of the end of the launch that the launch raised: the first of them, when
         #: the requested flow passed.
         self.finish_raised: Exception | None = None
@@ -260,7 +262,7 @@ class LaunchCollector:
     def finish_failed(self, stage: str, error: Exception, run_dir: Path) -> None:
         """Note a failure of the end of the launch, in the stage `stage`, for the flow whose run
         directory is `run_dir`."""
-        self.finish_failures.append(_FinishFailure(stage, error, run_dir))
+        self.finish_failures.append(FinishFailure(stage, error, run_dir))
         if isinstance(error, Canceled):
             self.canceled = True
 
@@ -500,7 +502,7 @@ CANCELED_ERROR = ErrorInfo(
 )
 
 
-def _launch_error(
+def launch_level_error(
     collector: LaunchCollector, nodes: Mapping[str, NodeResult], roots: Sequence[str]
 ) -> ErrorInfo | None:
     """Return the error of the whole launch, or None: a failed generator, or the failure at the
@@ -628,7 +630,7 @@ def launch_result(
             else _not_reached(plan, node, nodes)
         )
     roots = (plan.nodes[-1].name,)
-    launch_error = _launch_error(collector, nodes, roots)
+    launch_error = launch_level_error(collector, nodes, roots)
     outcome, error = aggregate(nodes, roots, launch_error)
     result = Result(
         launch_id=launch_id,

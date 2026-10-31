@@ -23,7 +23,7 @@ from ..design import Design
 from ..errors import RecordError, StalePlanError
 from ..events import Event
 from ..flow import Flow
-from ..outcomes import Disposition, NodeResult, Outcome, Result
+from ..outcomes import DeliveryRecord, Disposition, NodeResult, Outcome, Result
 from ..records import CANCELED, INTERNAL_ERROR, ErrorInfo, read_record
 from ..run_dir import RunDirectory
 from .launch_report import results_of
@@ -37,7 +37,15 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-__all__ = ["NodeLaunch", "NodeRun", "adopt_completed", "execute_node", "plan_up_to"]
+__all__ = [
+    "NodeLaunch",
+    "NodeRun",
+    "PointDelivery",
+    "adopt_completed",
+    "check_completed",
+    "execute_node",
+    "plan_up_to",
+]
 
 
 @dataclass(frozen=True)
@@ -47,6 +55,18 @@ class NodeRun:
 
     node: str
     completed: Mapping[str, CompletedNode]
+    #: A point of the sweep delivers: every node of its plan is read from its record, and the
+    #: launch delivers for all of them (`FlowLauncher.deliver_point`).
+    delivering: bool = False
+
+
+@dataclass(frozen=True)
+class PointDelivery:
+    """What the delivery of a point did: the deliveries of each node by name, and the error of the
+    launch (`delivery_failed`, or `canceled`), if there is one."""
+
+    deliveries: Mapping[str, tuple[DeliveryRecord, ...]]
+    error: ErrorInfo | None
 
 
 class PredicateToken(CancelToken):
@@ -66,10 +86,12 @@ def producers_of(node: PlanNode) -> list[str]:
     return list(dict.fromkeys(ref.node for item in node.inputs for ref in item.references))
 
 
-def plan_up_to(plan: Plan, name: str, completed: Mapping[str, CompletedNode]) -> Plan:
+def plan_up_to(
+    plan: Plan, name: str, completed: Mapping[str, CompletedNode], identity: str
+) -> Plan:
     """Return the plan that ends at the node `name`: that node and every node it needs.
 
-    The producers of the node must be the ones that the sweep completed, each in the run
+    The node must have the identity `identity` that the sweep planned. The producers of the node must be the ones that the sweep completed, each in the run
     directory that the sweep planned. Otherwise the files that the sweep planned from are not
     the files that planning finds now, and `StalePlanError` says so."""
     if name not in plan:
@@ -79,6 +101,12 @@ def plan_up_to(plan: Plan, name: str, completed: Mapping[str, CompletedNode]) ->
             difference=f"the node {name} is not in the plan",
         )
     target = plan.node(name)
+    if target.flowrun_hash != identity:
+        raise StalePlanError(
+            f"The plan is stale: the identity of {name} changed. Plan again.",
+            code="stale_plan",
+            difference=f"the identity of {name} changed",
+        )
     needed = {target.name}
     for node in reversed(plan.nodes):
         if node.name in needed:
@@ -104,6 +132,22 @@ def plan_up_to(plan: Plan, name: str, completed: Mapping[str, CompletedNode]) ->
                 difference=difference,
             )
     return replace(plan, requested=name, nodes=kept)
+
+
+def check_completed(plan: Plan, completed: Mapping[str, CompletedNode]) -> None:
+    """Refuse a plan whose nodes are not the nodes that the sweep completed, each in the run
+    directory that the sweep planned (`StalePlanError`)."""
+    names = [node.name for node in plan.nodes]
+    if sorted(names) != sorted(completed):
+        difference = f"the nodes are {names}, and the sweep completed {sorted(completed)}"
+    else:
+        moved = [n for n in plan.nodes if n.run_path != completed[n.name].run_dir]
+        if not moved:
+            return
+        difference = f"the run directory of {moved[0].name} is {moved[0].run_path}"
+    raise StalePlanError(
+        f"The plan is stale: {difference}. Plan again.", code="stale_plan", difference=difference
+    )
 
 
 def adopt_completed(
@@ -200,8 +244,9 @@ def execute_node(
 ) -> NodeOutcome:
     """Execute the node `task.node` once, and return how it ended.
 
-    `launch` plans `task.spec` again and checks that the producers are the ones that the sweep
-    completed (`StalePlanError`). It takes, in one acquisition, the lock of the node and the shared
+    `launch` plans `task.spec` again and checks, before it takes any lock, that the node has the
+    identity `task.identity` and that its producers are the ones that the sweep completed
+    (`StalePlanError`). It takes, in one acquisition, the lock of the node and the shared
     lease of each completed producer, reads each producer as it is (`adopt_completed`), runs the
     node alone and releases its lock when the node ends. A producer is never run again, and
     `task.rebuild` applies to the node only. `emit` gets the events of that launch."""
@@ -211,10 +256,11 @@ def execute_node(
     node = result.nodes[task.node]
     error = result.error
     if error is not None and error.node is None and error.code != CANCELED:
-        # A failure of the launch itself (the generator, a delivery): the node that the sweep
-        # needed did not end well, whatever its own outcome.
-        node = replace(node, outcome=Outcome.FAILED, disposition=Disposition.RAN, error=error)
-    elif node.outcome is Outcome.SKIPPED and not canceled():
+        # A failure of the launch itself (the generator): no node of it ran. The node is `skipped`,
+        # as it is in the result of a launch, and carries the error of the launch, which has no
+        # node. The sweep reads it and gives its points that error.
+        return NodeOutcome(task.node, replace(node, error=error), None)
+    if node.outcome is Outcome.SKIPPED and not canceled():
         node = replace(
             node,
             outcome=Outcome.FAILED,

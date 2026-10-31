@@ -293,7 +293,15 @@ apply to each node once.
 the sweep ran, the sweep takes the lock of the node again and checks that ``results.json`` still
 holds the run of the sweep. If another launch replaced the run meanwhile, the directory stays as it
 is, and the log says so. A sweep takes no ``prune_variants``, ``outputs_to`` or
-``overwrite_outputs``. A deliverable setting that names a location delivers as in a launch.
+``overwrite_outputs``.
+
+A deliverable setting that names a location delivers as in a launch. Each point delivers when it
+ends, and it delivers what a launch of that point alone would deliver: the files of all its nodes,
+the shared ones too, when its last node passed, and nothing when it did not. A destination is no
+part of the identity of a node, so two points may name different destinations for one shared node.
+A file at a destination that Xeda did not deliver is never replaced: the sweep raises a
+``SpecError`` with the code ``delivery_refused`` before anything runs. A failure of the delivery is
+the error of the point, as it is of a launch. A failure of the generator of the design is too.
 
 ``rows`` returns one dict for each point. The keys are ``index``, ``flow``, ``design``,
 ``target``, ``outcome``, ``error_code`` and ``run_dir``, then ``design.<path>`` for each setting

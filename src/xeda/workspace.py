@@ -384,8 +384,12 @@ class Workspace:
         nodes in this process: `max_workers` must be 1. `rebuild_all` and `clean` apply to each
         node once. `post_cleanup` and `post_cleanup_purge` clean each node that the sweep ran when
         every point has finished, under the lock of the node, and only if the node still holds the
-        run of the sweep. There are no `prune_variants`, `outputs_to` and `overwrite_outputs`: a
-        deliverable setting that names a location delivers as in a launch.
+        run of the sweep. There are no `prune_variants`, `outputs_to` and `overwrite_outputs`.
+
+        A deliverable setting that names a location delivers as in a launch: each point delivers
+        when it ends, what a launch of that point alone would deliver, and nothing if its last
+        node did not pass. A delivery that would replace a file that Xeda did not deliver is
+        refused before anything runs (`delivery_refused`), since a sweep asks no question.
 
         `cancel` stops the sweep: the points that did not finish end as `canceled`, and
         `SweepResult.canceled` is true. `on_event` gets the events of each point in the calling

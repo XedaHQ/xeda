@@ -15,12 +15,12 @@ import pytest
 
 from xeda import Design
 from xeda.cancel import CancelToken
-from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError
+from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
 from xeda.events import Event
 from xeda.flow_runner import run_lock
 from xeda.flow_runner.environment import EnvironmentSnapshot
 from xeda.flow_runner.launch_options import LaunchOptions
-from xeda.outcomes import Disposition, Outcome
+from xeda.outcomes import Disposition, Outcome, Result
 from xeda.records import ErrorInfo, encode_record, read_record
 from xeda.spec import Spec
 from xeda.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
@@ -121,6 +121,7 @@ def _task(workspace: Workspace, spec: Spec, node: str, completed, **fields) -> N
     return NodeTask(
         spec=spec,
         node=node,
+        identity=workspace.plan(spec).nodes[node].identity,
         workspace=workspace._options(),
         launch=LaunchOptions(),
         snapshot=EnvironmentSnapshot.take({}),
@@ -149,6 +150,20 @@ def test_a_consumer_never_launches_its_completed_producer(tmp_path, design):
     assert outcome.result.record is not None
     (producer,) = [i for i in outcome.result.record.inputs if i.producer == "yosys_fpga"]
     assert producer.producer_run_dir == done.run_dir and producer.producer_run_id == done.run_id
+
+
+def test_a_node_whose_identity_changed_since_the_plan_is_refused_before_it_runs(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    spec = _spec(design, 1)
+    task = _task(workspace, spec, "yosys_fpga", [])
+    stale = replace(task, identity="0" * 64)
+    with pytest.raises(StalePlanError) as raised:
+        run_node(stale, canceled=lambda: False, emit=lambda event: None)
+    assert raised.value.code == "stale_plan" and "yosys_fpga" in raised.value.difference
+    assert not _calls(workspace), "nothing ran"
+    assert not list(workspace.run_root.rglob("*.lock")), "no lock was taken"
+    outcome = run_node(task, canceled=lambda: False, emit=lambda event: None)
+    assert outcome.result.outcome is Outcome.PASSED
 
 
 def _replace_record(directory: Path, workspace: Workspace, **changes) -> str:
@@ -307,7 +322,10 @@ def test_a_metric_of_a_node_in_no_point_raises_key_error(tmp_path, design):
     for text in ("fmax", "nosuchnode.fmax"):
         with pytest.raises(KeyError) as raised:
             result.rows(metrics=(text,))
-        assert "nextpnr" in str(raised.value) and "yosys_fpga" in str(raised.value)
+        assert raised.value.args[0] == (
+            f"`{text}` names no node of this sweep. Write `<node>.<metric>`, such as "
+            "`nextpnr.fmax`. The nodes are: nextpnr, yosys_fpga."
+        )
 
 
 def test_a_metric_column_is_none_where_the_node_has_no_record(tmp_path, design, monkeypatch):
@@ -479,3 +497,117 @@ def test_a_task_crosses_a_process_boundary(tmp_path, design):
 def test_an_empty_sweep_has_no_point(tmp_path):
     result = Workspace(tmp_path / "run").sweep([])
     assert len(result) == 0 and not result.canceled and result.rows() == []
+
+
+def _edif_spec(design: Design, seed: int, destination: Path, **settings) -> Spec:
+    return _spec(design, seed, **{"yosys_fpga.netlist_verilog": str(destination), **settings})
+
+
+def _point_view(result: Result) -> tuple:
+    """What a launch of a point shows, apart from where it ran: the verdict and each node."""
+    return (
+        str(result.outcome),
+        None if result.error is None else (result.error.code, result.error.node),
+        {n.name: (str(n.outcome), n.blocked_by) for n in result.nodes.values()},
+    )
+
+
+def test_a_point_delivers_when_it_ends_as_a_launch_of_that_point_alone_does(
+    tmp_path, design, monkeypatch
+):
+    failing = {
+        "nextpnr.env": {"XEDA_FAKE_FPGA_MODE": "fail", "XEDA_FAKE_FPGA_TOOL": "nextpnr-ecp5"}
+    }
+    out = tmp_path / "out"
+    a, b, c = (out / f"{name}.v" for name in "abc")
+    specs = [
+        _edif_spec(design, 1, a),
+        _edif_spec(design, 2, b, **failing),
+        _edif_spec(design, 3, c),
+    ]
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(specs)
+    assert _dispositions(result, "yosys_fpga") == ["ran", "shared", "shared"]
+    assert [str(p.result.outcome) for p in result] == ["passed", "failed", "passed"]
+    assert a.is_file() and c.is_file() and not b.exists(), "a failed point delivers nothing"
+    assert a.read_bytes() == c.read_bytes()
+    for point, destination in zip(result, (a, b, c)):
+        delivered = point.result.nodes["yosys_fpga"].deliveries
+        assert [(d.key, d.destination, d.delivered) for d in delivered] == (
+            [("netlist_verilog", destination, True)] if destination.is_file() else []
+        )
+    # Each point alone, in a workspace of its own, delivers the same files.
+    alone = tmp_path / "alone"
+    for spec, destination in zip(specs, (a, b, c)):
+        destination.unlink(missing_ok=True)
+        single = Workspace(alone, hashed_run_dirs=True).run(spec)
+        assert destination.is_file() is (single.outcome is Outcome.PASSED)
+        destination.unlink(missing_ok=True)
+
+
+def test_a_file_in_the_way_of_a_delivery_is_refused_before_anything_runs(tmp_path, design):
+    destination = tmp_path / "out" / "top.v"
+    destination.parent.mkdir()
+    destination.write_text("a file that is not Xeda's\n")
+    specs = [_spec(design, 1), _edif_spec(design, 2, destination)]
+    with pytest.raises(SpecError) as raised:
+        _workspace(tmp_path).sweep(specs)
+    assert raised.value.code == "delivery_refused" and raised.value.points == (1,)
+    assert destination.read_text() == "a file that is not Xeda's\n"
+    assert not (tmp_path / "run").exists()
+
+
+def test_a_failed_delivery_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_path, design):
+    destination = tmp_path / "out" / "top.v"
+    destination.parent.mkdir()
+
+    def on_event(event: Event) -> None:
+        # Another process puts a file there after the plan, while the sweep runs.
+        if event.kind == "node_finished":
+            destination.write_text("a file that is not Xeda's\n")
+
+    swept = _workspace(tmp_path).sweep([_edif_spec(design, 1, destination)], on_event=on_event)
+    (point,) = swept
+    assert point.result.outcome is Outcome.FAILED
+    assert point.result.error is not None and point.result.error.node is None
+    assert point.result.error.code == "delivery_failed"
+    assert {str(n.outcome) for n in point.result.nodes.values()} == {"passed"}
+    assert destination.read_text() == "a file that is not Xeda's\n"
+
+
+def test_a_generator_failure_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_path):
+    from .generation_world import World, reader_flow
+
+    flow = reader_flow()
+    world = World(tmp_path)
+    (world.root / "fail").write_text("")
+    base = world.load()
+    specs = [
+        Spec(flow.name, base.with_updates({"rtl": {"parameters": {"W": width}}}))
+        for width in (1, 2)
+    ]
+    swept = Workspace(world.run_root, hashed_run_dirs=True).sweep(specs)
+    for point, spec in zip(swept, specs):
+        alone = Workspace(tmp_path / "alone", hashed_run_dirs=True).run(spec)
+        assert alone.error is not None and alone.error.code == "generator_failed"
+        assert _point_view(point.result) == _point_view(alone)
+        assert point.result.error.node is None
+        assert {str(n.disposition) for n in point.result.nodes.values()} == {"not_run"}
+    assert {point.result.outcome for point in swept} == {Outcome.FAILED}
+    assert not swept.canceled
+
+
+def test_to_pandas_has_the_columns_of_rows(tmp_path, design):
+    pytest.importorskip("pandas")
+    result = _workspace(tmp_path).sweep(_seeds(design, 2))
+    frame = result.to_pandas(metrics=("nextpnr.fmax",))
+    assert list(frame.columns) == list(result.rows(metrics=("nextpnr.fmax",))[0])
+    assert list(frame["settings.nextpnr.seed"]) == [1, 2] and len(frame) == 2
+
+
+def test_to_pandas_without_pandas_is_a_spec_error(tmp_path, design, monkeypatch):
+    result = _workspace(tmp_path).sweep(_seeds(design, 1))
+    monkeypatch.setitem(sys.modules, "pandas", None)
+    with pytest.raises(SpecError) as raised:
+        result.to_pandas()
+    assert raised.value.code == "missing_dependency"

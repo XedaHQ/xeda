@@ -122,7 +122,7 @@ from .error_codes import INTERNAL_ERROR, error_info, plain_message, public_error
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_options import LaunchOptions
-from .launch_result import launch_result
+from .launch_result import CANCELED_ERROR, launch_level_error, launch_result
 from .plan_check import plan_difference
 from .launch_report import (
     report,
@@ -1247,6 +1247,12 @@ class FlowLauncher:
         if execution is not design:
             self._read_inputs.add(design_files(execution))
 
+    def _delivering_nodes(self, plan: Plan, requested: PlanNode) -> Sequence[PlanNode]:
+        """Return the nodes whose deliveries this launch checks and makes: all of them, but for
+        the launch of one node of a sweep, which keeps to its own."""
+        run = self._node_run
+        return plan.nodes if run is None or run.delivering else (requested,)
+
     def _adopt_completed(self, plan: Plan, design: Design, runner_cwd: Path) -> None:
         """Read the producers that a sweep completed, now that the launch holds their leases.
 
@@ -1453,7 +1459,7 @@ class FlowLauncher:
         ahead: dict[NodeKey, Deliveries] = {}
         copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
         # The producers of a node of a sweep deliver in their own launches.
-        for planned in plan.nodes if self._node_run is None else (requested,):
+        for planned in self._delivering_nodes(plan, requested):
             if planned.node_key == requested.node_key:
                 known = [*deliveries, *predicted]
             else:
@@ -1505,7 +1511,7 @@ class FlowLauncher:
             design,
         )
         touched: list[Deliveries] = []
-        for node in plan.nodes if self._node_run is None else (plan.node(plan.requested),):
+        for node in self._delivering_nodes(plan, plan.node(plan.requested)):
             copies = by_node.get(node.node_key)
             ahead = self._deliveries_ahead.get(node.node_key)
             if copies is None and (ahead is None or not ahead.generated):
@@ -2160,7 +2166,10 @@ class FlowLauncher:
 
         The files are noted one by one as its run left them (`Deliveries.collect`, under the lock
         of its run directory). The copies are made when the launch has finished
-        (`_finish_launch`), once every flow of it has read its inputs."""
+        (`_finish_launch`), once every flow of it has read its inputs. The launch of one node of a
+        sweep notes nothing: its point delivers."""
+        if self._node_run is not None and not self._node_run.delivering:
+            return
         artifacts = [
             flow.results.get("artifacts") or flow.artifacts,
             declared_output_files(flow.results),
@@ -2692,6 +2701,7 @@ class FlowLauncher:
         spec: Spec,
         *,
         node: str,
+        identity: str,
         completed: Mapping[str, Any],
         local_settings: LocalSettings | None,
         options: LaunchOptions,
@@ -2702,8 +2712,10 @@ class FlowLauncher:
     ) -> Result:
         """Launch the node `node` of the plan of `spec`, and nothing else: one step of a sweep.
 
-        The producers of the node are the nodes of `completed` (`launch_node.NodeRun`): the launch
-        reads their records under shared leases and never runs them. `rebuild` runs the node even
+        The node must have the identity `identity` (`StalePlanError`, before any lock). The
+        producers of the node are the nodes of `completed` (`launch_node.NodeRun`): the launch
+        reads their records under shared leases and never runs them. The launch delivers nothing:
+        a point of the sweep delivers when it ends (`deliver_point`). `rebuild` runs the node even
         when it is up to date. The launch takes `environment` as its snapshot. The `Result` is
         that of a launch of the plan that ends at the node: the node is its only root."""
         self._apply(replace(options, rebuild_all=options.rebuild_all or rebuild))
@@ -2725,7 +2737,7 @@ class FlowLauncher:
                         local_settings=local_settings,
                     )
                 self._refuse_planned(plan)
-                ending = launch_node.plan_up_to(plan, node, completed)
+                ending = launch_node.plan_up_to(plan, node, completed, identity)
                 self._plans[id(ending)] = (ending, *self._plans[id(plan)][1:])
             except Canceled:
                 return launch_result(
@@ -2757,6 +2769,127 @@ class FlowLauncher:
             )
         finally:
             self._request_context = previous
+
+    @log_context.with_launch_context
+    def deliver_point(
+        self,
+        spec: Spec,
+        *,
+        completed: Mapping[str, Any],
+        local_settings: LocalSettings | None,
+        environment: EnvironmentSnapshot,
+        canceled: Callable[[], bool],
+    ) -> launch_node.PointDelivery:
+        """Deliver the outputs of a point of a sweep, when its last node has passed.
+
+        `completed` holds every node of the plan of `spec`, as the sweep ran or reused it. The
+        launch reads each node from its record under a shared lease, as a launch that finds them
+        all up to date would, and delivers what that launch delivers: the deliverable settings of
+        every node that passed, and the copies of generated sources. It runs no node. A refusal
+        or a failure of the delivery is the error of the launch (`delivery_failed`), and the
+        deliveries that were made stay."""
+        self._apply(LaunchOptions())
+        self._pinned_environment = environment
+        self._environment = environment
+        try:
+            try:
+                with observing(canceled):
+                    request, plan = self._judged_request(
+                        spec.flow,
+                        spec.design,
+                        None,
+                        thaw(spec.settings),
+                        [],
+                        None,
+                        False,
+                        [],
+                        target=UNSET,
+                        local_settings=local_settings,
+                    )
+                    self._refuse_planned(plan)
+                    launch_node.check_completed(plan, completed)
+                    return self._deliver_planned(request, plan, completed)
+            except Canceled:
+                return launch_node.PointDelivery({}, CANCELED_ERROR)
+        finally:
+            self._node_run = None
+            self._pinned_environment = None
+            self._release_generation()
+
+    def _deliver_planned(
+        self,
+        request: _Request,
+        plan: Plan,
+        completed: Mapping[str, Any],
+    ) -> launch_node.PointDelivery:
+        root = plan.node(plan.requested)
+        design = self._merged(request.design)
+        runner_cwd = Path.cwd()
+        self._claims = set()
+        self._deliveries_ahead = {}
+        self._predicted_copies = []
+        self._planned_completed = {}
+        self._completed_runs = {}
+        self._pending_deliveries = []
+        self._pending_clean_ups = []
+        self._generation = None
+        self._node_locks = None
+        self._generation_state = launch_generation.GenerationState()
+        self._restarts = 0
+        self._confirmed_replacements = ConfirmedReplacements()
+        self._code_digests = CodeDigests()
+        self._delivered_files = DeliveredFiles()
+        self._read_inputs = ReadInputs(self._launch_inputs)
+        self.collector = LaunchCollector()
+        self.collector.planned(plan)
+        self._node_run = launch_node.NodeRun(root.name, completed, delivering=True)
+        self._read_inputs.add(design_files(design))
+        self._read_inputs.add_source_entries(design.source_entries())
+        for planned in plan.nodes:
+            register_read_settings(
+                self._read_inputs, planned.settings, planned.run_path, self.run_root
+            )
+        failure: Exception | None = None
+        flows: dict[str, Flow] = {}
+        try:
+            named = split_deliveries(
+                launch_input.input_settings(
+                    root.flow_class,
+                    root.settings,
+                    planned_design_of(plan, root, design, self.run_path_of),
+                    runner_cwd,
+                    False,
+                    debug=self.debug,
+                ),
+                design.name,
+            )
+            self._check_deliveries_ahead(plan, root, design, named, root.run_path, runner_cwd)
+            self._lock_graph(plan, design, runner_cwd)
+            self._place_generated_deliveries(plan, design, runner_cwd)
+            self._adopt_completed(plan, design, runner_cwd)
+            for node in plan.nodes:
+                flow = flows[node.name] = self._planned_completed[(id(plan), node.node_key)]
+                if not flow.succeeded:
+                    continue
+                delivery = self._deliveries_ahead.pop(node.node_key, None)
+                if delivery is None:
+                    delivery = self._deliveries_of(
+                        node.run_path, split_deliveries(node.settings, design.name), node.name
+                    )
+                else:
+                    delivery.reread_record()
+                delivery.check_outputs_to(None)
+                delivery.check([])
+                self._defer_delivery(flow, delivery, None)
+            failure = self._finish_launch(deliver=flows[root.name].succeeded)
+        except Canceled:
+            raise
+        except Exception as error:  # noqa: BLE001 - the delivery of the point failed
+            failure = error
+            self.collector.finish_failed("delivery", error, root.run_path)
+        self.collector.finish_raised = failure
+        deliveries = {name: self.collector.deliveries_of(flow) for name, flow in flows.items()}
+        return launch_node.PointDelivery(deliveries, launch_level_error(self.collector, {}, ()))
 
     @staticmethod
     def _stop_unplanned() -> None:
