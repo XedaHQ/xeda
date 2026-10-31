@@ -35,7 +35,7 @@ pytestmark = pytest.mark.python_compat
 FLOW = "yosys_fpga"
 #: A question of a launch that removes run directories, as a workspace asks it.
 REMOVAL = Question(
-    "Xeda would remove these 1 run directories:\n  x\nRemove them?",
+    "Xeda would remove this run directory:\n  x\nRemove it?",
     removal=True,
     undone="Not removing 1 run directory",
 )
@@ -662,8 +662,8 @@ def test_on_a_terminal_a_prune_shows_the_directories_and_asks(maker, monkeypatch
         "-s", "t_maker.text=two", input=reply,
     )  # fmt: skip
     text = click.unstyle(answer.output)
-    assert answer.exit_code == 0 and "Xeda would remove these 1 run directories:" in text
-    assert "Remove them? [y/N]:" in text
+    assert answer.exit_code == 0 and "Xeda would remove this run directory:" in text
+    assert "Remove it? [y/N]:" in text
     assert len(variants_of(run_root)) == kept
 
 

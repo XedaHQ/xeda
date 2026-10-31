@@ -48,9 +48,10 @@ def _listing(header: str, candidates: "Sequence[ScrubCandidate]") -> list[str]:
 
 def _removal_question(candidates: "Sequence[ScrubCandidate]") -> Question:
     count = len(candidates)
-    lines = _listing(f"Xeda would remove these {count} run directories:", candidates)
+    what = "this run directory" if count == 1 else f"these {count} run directories"
+    lines = _listing(f"Xeda would remove {what}:", candidates)
     return Question(
-        "\n".join([*lines, "Remove them?"]),
+        "\n".join([*lines, "Remove it?" if count == 1 else "Remove them?"]),
         removal=True,
         undone=f"Not removing {count} run director{'y' if count == 1 else 'ies'}",
     )
