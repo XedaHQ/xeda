@@ -8,7 +8,9 @@ tools. One declarative design file drives all of them: you switch tools by namin
 
 New here? Start with the :doc:`quickstart`, then the :doc:`tutorial/index`.
 
-To drive Xeda from a script or a coding agent, read :doc:`machine-readable`.
+To drive Xeda from a script or a coding agent, read :doc:`machine-readable`. To use it from Python,
+start with the `notebooks <https://github.com/XedaHQ/xeda/tree/main/notebooks>`_: a quickstart and
+a tour of the ways a simulation can end.
 
 .. toctree::
    :maxdepth: 2
