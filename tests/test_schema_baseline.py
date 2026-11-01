@@ -198,12 +198,12 @@ def _property(schema: dict[str, Any], **extra: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "document, old, new, effect",
     [
-        # an output document: any other type, and a narrower enum, break a reader
+        # an output document: any other type or enum breaks a reader
         ("run", STRING, {"type": "integer"}, "breaks"),
         ("run", STRING, NULLABLE, "breaks"),
         ("run", NULLABLE, STRING, "breaks"),
         ("run", {"enum": ["a", "b"]}, {"enum": ["a"]}, "breaks"),
-        ("run", {"enum": ["a"]}, {"enum": ["a", "b"]}, "adds"),
+        ("run", {"enum": ["a"]}, {"enum": ["a", "b"]}, "breaks"),
         ("run", {"type": "array", "items": STRING}, {"type": "array", "items": NULLABLE}, "breaks"),
         ("run", STRING, STRING | {"description": "text"}, "same"),
         # the design file: what it accepts may widen, and may not narrow

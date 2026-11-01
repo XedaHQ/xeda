@@ -1045,8 +1045,8 @@ def _classify_schema(
     """Compare the schemas of the documents.
 
     A document that Xeda writes keeps its types, its enums and its keys: a removed key, another
-    type, a narrower enum or a key that is no longer required breaks a reader of it, and a new key
-    or a wider enum is an addition. The design file is what Xeda reads, so the direction reverses:
+    type, another enum or a key that is no longer required breaks a reader of it, and a new
+    optional key is an addition. The design file is what Xeda reads, so the direction reverses:
     it may accept more and never less, and a new key must be optional. A `$ref` is compared by
     what it names. Other keywords, such as `minimum` or `pattern`, are not compared."""
     _diff_names("schemas", "document", set(old), set(new), add, brk)
@@ -1078,7 +1078,10 @@ def _classify_schema(
             grew = new_enum is None or (
                 old_enum is not None and {repr(v) for v in old_enum} < {repr(v) for v in new_enum}
             )
-            (add if grew else brk).append(f"{path}: enum {'widened' if grew else 'narrowed'}")
+            # A document holds closed sets (an outcome, a disposition): a new member breaks a reader.
+            (add if grew and reader else brk).append(
+                f"{path}: enum {'widened' if grew else 'narrowed'}"
+            )
         properties(path, before, after, roots, reader, seen)
         old_items, new_items = before.get("items"), after.get("items")
         if isinstance(old_items, dict) and isinstance(new_items, dict):
