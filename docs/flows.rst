@@ -2859,11 +2859,13 @@ UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms.
 
 * A run passes on the end line that ``xezim`` writes in this run, and on its diagnostics. The
   line comes after all output of the design, so output of the design cannot stand in for it.
-  ``** Fatal`` ends the run with ``sim.ended_by`` ``fatal``. ``** Error``, ``[xezim][error]`` and
-  ``** Warning`` count against ``fail_severity``, so a failed assertion, an ``illegal_bins`` hit
-  and a timing violation fail at the default threshold, although ``xezim`` exits with status 0. A
-  line that a testbench prints in one of these forms counts too. ``sim.time`` is in the finest time
-  precision of the design.
+  ``** Fatal`` and ``UVM_FATAL`` end the run with ``sim.ended_by`` ``fatal``. ``** Error``,
+  ``UVM_ERROR``, ``[xezim][error]`` and a ``let`` error count as errors, and ``** Warning``,
+  ``UVM_WARNING``, ``[xezim][warning]`` and ``[WARN]`` during the simulation count as warnings.
+  So a failed assertion, an ``illegal_bins`` hit, a timing violation and a failed UVM test fail at
+  the default ``fail_severity``, although ``xezim`` exits with status 0 for all of them. A line
+  that a testbench prints in one of these forms counts too. A plain ``Error:`` line does not.
+  ``sim.time`` is in the finest time precision of the design.
 * ``xezim`` reports a Verilog ``$stop`` as ``$finish``. A ``$stop`` passes on this flow, unlike on
   the other simulators. A testbench that reports a failure must use ``$error`` or ``$fatal``.
 * A run that a signal stops fails, although ``xezim`` exits with status 0.
@@ -2878,7 +2880,8 @@ UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms.
 * ``sdf_file`` and ``sdf_type`` annotate delays. ``xezim`` has no SDF region, so each ``INSTANCE``
   in the SDF file is a dotted path from the simulation top, such as ``uut.u1``. A run that
   annotates no signal fails.
-* cocotb uses the stock VPI library of cocotb. ``vcd`` is refused with cocotb: use ``fst``.
+* cocotb uses the stock VPI library of cocotb. As on every simulator, the results of cocotb decide
+  such a run, so these lines do not affect it. ``vcd`` is refused with cocotb: use ``fst``.
 * ``code_coverage`` selects ``stmt``, ``branch`` and ``toggle``. The results are
   ``coverage.statement``, ``coverage.branch`` and ``coverage.toggle``, and the artifact
   ``coverage`` holds the details.

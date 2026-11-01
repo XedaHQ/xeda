@@ -12617,7 +12617,7 @@
           "false",
           "true"
         ],
-        "help": "Warn when a signal that held 0 or 1 takes an X value after time 0, and name its drivers (`--x-warn`). The warnings are in the log and no result depends on them."
+        "help": "Warn when a signal that held 0 or 1 takes an X value after time 0, and name its drivers (`--x-warn`). These warnings count like any other against `fail_severity`."
       },
       "x_warn_limit": {
         "children": false,

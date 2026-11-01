@@ -118,6 +118,63 @@ def test_text_of_a_testbench_that_only_says_error_is_no_event(tmp_path: Path) ->
     assert [event.kind for event in evidence.events] == ["finish"]
 
 
+@pytest.mark.parametrize(
+    "line, kind",
+    [
+        ("UVM_ERROR t.sv(8) @ 10000: uvm_test_top [id] broken\n", "error"),
+        ("UVM_FATAL t.sv(8) @ 10000: uvm_test_top [id] broken\n", "fatal"),
+        ("UVM_WARNING t.sv(8) @ 10000: uvm_test_top [id] odd\n", "warning"),
+    ],
+)
+def test_a_uvm_report_is_an_event(tmp_path: Path, line: str, kind: str) -> None:
+    """A failing UVM test ends by `$finish` with status 0, so this line is its only trace."""
+    event = _evidence(tmp_path, line + FINISHED).events[0]
+    assert event.kind == kind
+    assert "t.sv(8)" in event.message
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "UVM_ERROR :    0\n",
+        "UVM_ERROR :    1\n",
+        "UVM_FATAL :    0\n",
+        "UVM_INFO t.sv(1) @ 0: top [id] no UVM_ERROR found\n",
+        "UVM_INFO t.sv(1) @ 0: top [id] UVM_FATAL count is 0\n",
+    ],
+)
+def test_other_uvm_text_is_no_event(tmp_path: Path, line: str) -> None:
+    assert [event.kind for event in _evidence(tmp_path, line + FINISHED).events] == ["finish"]
+
+
+def test_a_let_error_of_the_tool_is_an_error(tmp_path: Path) -> None:
+    text = "Error: too many arguments (IEEE 1800-2023 \u00a711.13)\n" + FINISHED
+    assert _evidence(tmp_path, text).events[0].kind == "error"
+
+
+def test_a_warning_of_the_tool_counts_only_while_simulating(tmp_path: Path) -> None:
+    """Elaboration ends where `--dump-timescales` prints its block."""
+    text = (
+        "[xezim][warning] port width mismatch\n"
+        + TIMESCALES
+        + "[xezim][warning] randomize() failed\n"
+        + "[WARN] settle limit was exhausted 1 time(s)\n"
+        + FINISHED
+    )
+    events = _evidence(tmp_path, text).events
+    assert [(event.kind, event.message) for event in events[:-1]] == [
+        ("warning", "randomize() failed"),
+        ("warning", "settle limit was exhausted 1 time(s)"),
+    ]
+
+
+def test_the_default_timeout_of_uvm_is_no_warning(tmp_path: Path) -> None:
+    """Every UVM run prints this, so it would fail each one at `fail_severity: warning`."""
+    line = "[xezim][warning] a #delay evaluated to a pathological real value 9.2000e15 at t.sv\n"
+    events = _evidence(tmp_path, TIMESCALES + line + FINISHED).events
+    assert [event.kind for event in events] == ["finish"]
+
+
 def test_a_fatal_event_decides_the_end(tmp_path: Path) -> None:
     evidence = _evidence(tmp_path, "** Fatal: boom\n   Time: 5  Scope: tb\n" + FINISHED)
     assert evidence.ended_by == "fatal"
@@ -174,6 +231,8 @@ def test_a_stop_time_that_is_no_positive_whole_nanosecond_is_refused(stop_time: 
         ("--error-exit", "`fail_severity`"),
         ("+seed=3", "`random_seed`"),
         ("-l", "the log of the run"),
+        ("--cache", "a run writes only in its run directory"),
+        ("--cache-dir=c", "a run writes only in its run directory"),
     ],
 )
 def test_an_option_of_the_flow_is_refused_in_the_flags(flag: str, setting: str) -> None:
@@ -319,6 +378,41 @@ def test_an_error_of_the_tool_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.real_tool
+@pytest.mark.parametrize("severity", ["ERROR", "FATAL"])
+def test_a_uvm_failure_fails(tmp_path: Path, severity: str) -> None:
+    """The line that UVM prints, since CI has no UVM library. xezim exits with status 0."""
+    report = f"UVM_{severity} tb.sv(8) @ 10: uvm_test_top [id] broken"
+    testbench = f'module tb; initial begin $display("{report}"); $finish; end endmodule\n'
+    flow = _simulate(tmp_path, testbench)
+    assert not flow.succeeded
+    assert flow.results["sim.errors"] == 1
+
+
+@pytest.mark.real_tool
+def test_a_failed_randomize_counts_as_a_warning(tmp_path: Path) -> None:
+    testbench = (
+        "module tb; class C; rand int x; constraint c {x > 0; x < 0;} endclass\n"
+        "  C o = new; int r;\n"
+        "  initial begin r = o.randomize(); $finish; end\n"
+        "endmodule\n"
+    )
+    flow = _simulate(tmp_path, testbench)
+    assert flow.succeeded
+    assert flow.results["sim.warnings"] == 1
+
+
+@pytest.mark.real_tool
+def test_an_elaboration_warning_is_no_runtime_warning(tmp_path: Path) -> None:
+    testbench = (
+        "module sub(input [1:0] x); endmodule\n"
+        "module tb; wire [3:0] a; sub u(.x(a)); initial #1 $finish; endmodule\n"
+    )
+    flow = _simulate(tmp_path, testbench, fail_severity="warning")
+    assert flow.succeeded
+    assert flow.results["sim.warnings"] == 0
+
+
+@pytest.mark.real_tool
 def test_a_failed_assertion_fails(tmp_path: Path) -> None:
     testbench = (
         "module tb; reg c = 0, a = 0; always #5 c = ~c;\n"
@@ -326,7 +420,9 @@ def test_a_failed_assertion_fails(tmp_path: Path) -> None:
         "  initial #7 $finish;\n"
         "endmodule\n"
     )
-    assert not _simulate(tmp_path, testbench).succeeded
+    flow = _simulate(tmp_path, testbench)
+    assert not flow.succeeded
+    assert flow.results["sim.errors"] >= 1
 
 
 @pytest.mark.real_tool
@@ -338,7 +434,9 @@ def test_an_illegal_bin_fails(tmp_path: Path) -> None:
         "  initial begin #1 c = 1; #1 $finish; end\n"
         "endmodule\n"
     )
-    assert not _simulate(tmp_path, testbench).succeeded
+    flow = _simulate(tmp_path, testbench)
+    assert not flow.succeeded
+    assert flow.results["sim.errors"] == 1
 
 
 @pytest.mark.real_tool

@@ -31,7 +31,19 @@ _INTERRUPTED = re.compile(r".*\[xezim\] interrupted at time \d+\b.*")
 _CAP_REACHED = re.compile(r".*\[xezim\]\[hang-report\] simulation reached --max-time \(.*")
 _DIAGNOSTIC = re.compile(r".*?\*\* (Error|Warning|Fatal)(?:: (.*))?")
 _DIAGNOSTIC_CONTEXT = re.compile(r"   Time: (\d+)  Scope: (.*)")
-_TOOL_ERROR = re.compile(r".*?\[xezim\]\[error\] (.*)")
+_TOOL_ERROR = re.compile(r".*?(?:\[xezim\]\[error\] (.*)|Error: (.* \(IEEE 1800-\d+ \S+\)))")
+# The default phase timeout of the UVM library gives the excluded warning on every UVM run.
+_TOOL_WARNING = re.compile(
+    r".*?\[(?:xezim\]\[warning|WARN)\] (?!a #delay evaluated to a pathological real value)(.*)"
+)
+# A line start, and no `:`: the text of a `UVM_INFO` and the summary `UVM_ERROR :    0` hold these
+# words too.
+_UVM_REPORT = re.compile(r"UVM_(WARNING|ERROR|FATAL) (?!:)(.*)")
+_EVENT_KINDS: Dict[str, Literal["warning", "error", "fatal"]] = {
+    "WARNING": "warning",
+    "ERROR": "error",
+    "FATAL": "fatal",
+}
 _TIMESCALES_HEADER = re.compile(r"=== module timescales \(\d+ modules?\) ===")
 _TIMESCALE_ENTRY = re.compile(r"  .+?\s+\d+\s*[a-z]+ / (\d+)\s*(s|ms|us|ns|ps|fs)\b.*")
 _NOTHING_ANNOTATED = "[SDF] annotated 0 signals with delays"
@@ -54,6 +66,8 @@ OWNED_FLAGS: Dict[str, str] = {
     "--error-exit": "`fail_severity`",
     "--sdf": "`sdf_file`",
     "--dump-timescales": "nothing: the flow always passes it",
+    "--cache": "nothing: a run writes only in its run directory",
+    "--cache-dir": "nothing: a run writes only in its run directory",
     "-uvm": "`uvm`",
     "--uvm": "`uvm`",
     "--x-warn": "`x_warn`",
@@ -89,18 +103,51 @@ def _whole_nanoseconds(time: Time) -> Optional[int]:
     return nanoseconds if nanoseconds > 0 and remainder == 0 else None
 
 
-def _tick(lines: List[str]) -> Optional[str]:
-    """Return the simulation tick: the finest precision of `--dump-timescales`, or None."""
+def _timescales(lines: List[str]) -> Tuple[Optional[str], int]:
+    """Return the simulation tick and the index of the first line of the simulation.
+
+    `--dump-timescales` prints a block between elaboration and the start of the simulation. The
+    tick is the finest precision in it. Without the block, the tick is None and the index is 0."""
     start = next((i for i, line in enumerate(lines) if _TIMESCALES_HEADER.fullmatch(line)), None)
     if start is None:
-        return None
+        return None, 0
     precisions = []
+    end = start + 1
     for line in lines[start + 1 :]:
         entry = _TIMESCALE_ENTRY.fullmatch(line)
         if entry is None:
             break
         precisions.append(entry[1] + entry[2])
-    return min(precisions, key=lambda unit: time_in_fs(1, unit), default=None)
+        end += 1
+    return min(precisions, key=lambda unit: time_in_fs(1, unit), default=None), end
+
+
+def _event(lines: List[str], index: int, simulating: bool) -> Optional[SimEvent]:
+    """Return the event that the line at `index` reports, or None.
+
+    A warning of the tool counts only while `simulating`: elaboration warnings are no runtime
+    diagnostics. The line after `index` exists, since the closing line ends the lines read."""
+    line = lines[index]
+    tool_error = _TOOL_ERROR.fullmatch(line)
+    if tool_error is not None:
+        return SimEvent(kind="error", message=tool_error[1] or tool_error[2])
+    uvm_report = _UVM_REPORT.fullmatch(line)
+    if uvm_report is not None:
+        return SimEvent(kind=_EVENT_KINDS[uvm_report[1]], message=uvm_report[2])
+    tool_warning = _TOOL_WARNING.fullmatch(line)
+    if tool_warning is not None:
+        return SimEvent(kind="warning", message=tool_warning[1]) if simulating else None
+    diagnostic = _DIAGNOSTIC.fullmatch(line)
+    if diagnostic is None:
+        return None
+    severity, message = diagnostic.groups()
+    kind = _EVENT_KINDS[severity.upper()]
+    # `$error` and its kin have this line. A timing violation has none, and is an error too.
+    context = _DIAGNOSTIC_CONTEXT.fullmatch(lines[index + 1])
+    if context is None:
+        return SimEvent(kind=kind, message=message or "")
+    described = f"{message + ' ' if message else ''}(in {context[2]})"
+    return SimEvent(kind=kind, time=int(context[1]), message=described)
 
 
 def parse_xezim_log(flow: Flow, path: Union[str, Path] = SIM_LOG) -> Optional[SimEvidence]:
@@ -114,9 +161,10 @@ def parse_xezim_log(flow: Flow, path: Union[str, Path] = SIM_LOG) -> Optional[Si
     and a claim of `$finish`, so the interruption line takes precedence over that claim.
 
     Errors do not change the exit status, so these lines are the only record of them: `** Error`
-    (`$error`, assertions, `illegal_bins` and timing violations) and `[xezim][error]`. A line of
-    a testbench that spells either one counts too: a false failure is the safe side. A plain
-    `Error:` does not count, since testbenches print it in their own reports."""
+    (`$error`, assertions, `illegal_bins` and timing violations), `[xezim][error]`, a `let` error
+    and a `UVM_ERROR` report. A `UVM_FATAL` report also exits with status 0. A line of a testbench
+    that spells one of these counts too: a false failure is the safe side. A plain `Error:` does
+    not count, since testbenches print it in their own reports."""
     text = read_sim_log(flow, path)
     if text is None:
         return None
@@ -127,31 +175,15 @@ def parse_xezim_log(flow: Flow, path: Union[str, Path] = SIM_LOG) -> Optional[Si
     closing = _END_LINE.fullmatch(lines[end])
     assert closing is not None
     time, finished = int(closing[1]), closing[2] is not None
-    tick = _tick(lines[:end])
+    tick, simulation = _timescales(lines[:end])
     evidence = SimEvidence(ended_by="unknown", time=time, time_unit=tick)
-    fatal = interrupted = capped = False
-    for index, line in enumerate(lines[:end]):
-        interrupted = interrupted or _INTERRUPTED.fullmatch(line) is not None
-        capped = capped or _CAP_REACHED.fullmatch(line) is not None
-        tool_error = _TOOL_ERROR.fullmatch(line)
-        if tool_error is not None:
-            evidence.events.append(SimEvent(kind="error", message=tool_error[1]))
-            continue
-        diagnostic = _DIAGNOSTIC.fullmatch(line)
-        if diagnostic is None:
-            continue
-        severity, message = diagnostic.groups()
-        kind: Literal["fatal", "error", "warning"] = (
-            "fatal" if severity == "Fatal" else "error" if severity == "Error" else "warning"
-        )
-        fatal = fatal or kind == "fatal"
-        # `$error` and its kin have this line. A timing violation has none, and it is an error too.
-        context = _DIAGNOSTIC_CONTEXT.fullmatch(lines[index + 1])
-        event = SimEvent(kind=kind, message=message or "")
-        if context is not None:
-            event.time = int(context[1])
-            event.message = f"{message + ' ' if message else ''}(in {context[2]})"
-        evidence.events.append(event)
+    for index in range(end):
+        event = _event(lines, index, index >= simulation)
+        if event is not None:
+            evidence.events.append(event)
+    fatal = any(event.kind == "fatal" for event in evidence.events)
+    interrupted = any(_INTERRUPTED.fullmatch(line) for line in lines[:end])
+    capped = any(_CAP_REACHED.fullmatch(line) for line in lines[:end])
     stop_time = getattr(flow.settings, "stop_time", None)
     if fatal:
         evidence.ended_by = "fatal"
@@ -287,8 +319,8 @@ class Xezim(SimFlow):
         x_warn: bool = Field(
             False,
             description="Warn when a signal that held 0 or 1 takes an X value after time 0, "
-            "and name its drivers (`--x-warn`). The warnings are in the log and no result "
-            "depends on them.",
+            "and name its drivers (`--x-warn`). These warnings count like any other against "
+            "`fail_severity`.",
         )
         x_warn_limit: Optional[int] = Field(
             None,
