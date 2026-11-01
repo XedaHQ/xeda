@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find newer versions of the tools that CI pins, and write them into the workflow files.
 
-CI pins six tools. A pin is one line of a workflow file (two lines for bsc and for the image).
+CI pins seven tools. A pin is one line of a workflow file (two lines for bsc and for the image).
 bsc is pinned twice, in two files, and one release moves both pins:
 
 * the OSS CAD Suite, by the date of its build: the `version` of the
@@ -11,6 +11,8 @@ bsc is pinned twice, in two files, and one release moves both pins:
 * the Bluespec Compiler (bsc), by its release and the SHA-256 of its tarball: `BSC_VERSION` and
   `BSC_SHA256` in `.github/workflows/ci.yml` (the Ubuntu 24.04 tarball) and in
   `.github/workflows/openroad.yml` (the Ubuntu 22.04 tarball, for the image of the OpenROAD job);
+* xezim, by its release tag (no `v`; it is built from source): `XEZIM_VERSION` in
+  `.github/workflows/ci.yml`;
 * the openXC7 toolchain installer, by a commit: `INSTALLER_REV` in
   `.github/workflows/openxc7.yml`;
 * the OpenROAD-flow-scripts (ORFS) Docker image that runs the OpenROAD tests, by its tag
@@ -65,6 +67,8 @@ OSS_CAD_TAG = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 BSC_TAG = re.compile(r"[0-9]{4}\.[0-9]{2}(?:\.[0-9]+)?")
 # The release number of uv, as the tag of its release: no `v`, no release candidate.
 UV_TAG = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+# The release tag of xezim: no `v`, no release candidate.
+XEZIM_TAG = UV_TAG
 # The release number of NVC, as the `version` of the action writes it. The tag of the release
 # has an `r` before it.
 NVC_NUMBER = UV_TAG
@@ -87,6 +91,7 @@ NVC_REPOSITORY = "nickg/nvc"
 #: picks the package whose name ends with `ubuntu-<version>.deb`.
 NVC_PACKAGE_SUFFIX = "ubuntu-24.04.deb"
 UV_REPOSITORY = "astral-sh/uv"
+XEZIM_REPOSITORY = "aionhw/xezim"
 ORFS_REPOSITORY = "The-OpenROAD-Project/OpenROAD-flow-scripts"
 ORFS_IMAGE = "openroad/orfs"
 DOCKER_HUB = "https://hub.docker.com"
@@ -122,6 +127,7 @@ PINS = (
     Pin("oss_cad", "OSS CAD Suite", CI, "`version` of the setup-oss-cad-suite step"),
     Pin("nvc", "NVC", CI, "`version` of the setup-nvc step"),
     Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`", "ubuntu-24.04"),
+    Pin("xezim", "xezim", CI, "`XEZIM_VERSION`"),
     Pin("installer", "openXC7 toolchain installer", OPENXC7, "`INSTALLER_REV`"),
     Pin("orfs", "ORFS image for the OpenROAD tests", ORFS, "`image` of the container"),
     Pin("uv", "uv", ORFS, "`version` of the setup-uv step"),
@@ -272,6 +278,20 @@ def write_bsc(text: str, version: str, sha256: str) -> str:
     return text
 
 
+_XEZIM_VERSION = re.compile(
+    rf'^\s+XEZIM_VERSION:\s*"(?P<value>{XEZIM_TAG.pattern})"[ \t\r]*$', re.MULTILINE
+)
+_XEZIM_EXAMPLE = 'XEZIM_VERSION: "0.11.4"'
+
+
+def read_xezim(text: str) -> str:
+    return _single(text, _XEZIM_VERSION, "XEZIM_VERSION", _XEZIM_EXAMPLE).group("value")
+
+
+def write_xezim(text: str, version: str) -> str:
+    return _replace(text, _single(text, _XEZIM_VERSION, "XEZIM_VERSION", _XEZIM_EXAMPLE), version)
+
+
 _INSTALLER_REV = re.compile(
     rf'^\s+INSTALLER_REV:\s*"?(?P<value>{COMMIT.pattern})"?[ \t\r]*$', re.MULTILINE
 )
@@ -378,6 +398,18 @@ def newest_uv(answer: Any) -> str:
     ]
     if not tags:
         raise PinError("uv: no release has a Linux x64 archive")
+    return max(tags, key=_release_number)
+
+
+def newest_xezim(answer: Any) -> str:
+    """The number of the newest release. xezim is built from source, so no asset is needed."""
+    tags = [
+        tag
+        for release in _releases(answer, "xezim")
+        if isinstance(tag := release.get("tag_name"), str) and XEZIM_TAG.fullmatch(tag)
+    ]
+    if not tags:
+        raise PinError("xezim: no release has a tag like 0.11.4")
     return max(tags, key=_release_number)
 
 
@@ -591,6 +623,16 @@ def find_update(
             ("compare", _compare(UV_REPOSITORY, old, new)),
         )
         return Update(pin, old, new, links)
+    if pin.kind == "xezim":
+        old = read_xezim(text)
+        new = newest_xezim(fetch(f"/repos/{XEZIM_REPOSITORY}/releases?per_page=30"))
+        if _release_number(new) <= _release_number(old):
+            return None
+        links = (
+            ("release", f"{GITHUB}/{XEZIM_REPOSITORY}/releases/tag/{new}"),
+            ("compare", _compare(XEZIM_REPOSITORY, old, new)),
+        )
+        return Update(pin, old, new, links)
     if pin.kind == "orfs":
         old, _ = read_orfs_image(text)
         image = newest_orfs(fetch(ORFS_TAGS_URL))
@@ -612,6 +654,8 @@ def apply_update(text: str, update: Update) -> str:
         return write_nvc(text, update.new)
     if kind == "bsc":
         return write_bsc(text, update.new, update.sha256)
+    if kind == "xezim":
+        return write_xezim(text, update.new)
     if kind == "installer":
         return write_installer(text, update.new)
     if kind == "uv":

@@ -15,6 +15,7 @@
         "vivado_project",
         "vivado_sim",
         "vivado_synth",
+        "xezim",
         "yosys",
         "yosys_fpga",
         "yosys_sim",
@@ -43,6 +44,7 @@
         "vivado_project",
         "vivado_sim",
         "vivado_synth",
+        "xezim",
         "yosys",
         "yosys_fpga",
         "yosys_sim",
@@ -12428,6 +12430,204 @@
         "children": false,
         "assignable": true,
         "help": "Clock frequency, a frequency with a unit, such as `100 MHz`. Specify `freq` or `period`; a consistent pair is also accepted."
+      }
+    },
+    "default_producers": [
+      "bsc"
+    ]
+  },
+  "xezim": {
+    "followers": {
+      "": []
+    },
+    "settings": {
+      "verbosity": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
+        ],
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
+      },
+      "nthreads": {
+        "children": false,
+        "assignable": true,
+        "help": "Maximum number of threads."
+      },
+      "lib_paths": {
+        "children": false,
+        "assignable": true,
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
+      "docker": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Run the tools in Docker."
+      },
+      "docker_image": {
+        "children": false,
+        "assignable": true,
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
+      },
+      "timeout": {
+        "children": false,
+        "assignable": true,
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+      },
+      "fail_severity": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "error",
+          "failure",
+          "fatal",
+          "warning"
+        ],
+        "help": "The least severe runtime diagnostic that fails the simulation: warning, error, failure or fatal. Failure and fatal have the same rank. Diagnostics below the threshold are recorded. Assertions that the design disables explicitly keep the documented behavior of the simulator. A nonzero exit status always fails."
+      },
+      "vcd": {
+        "children": false,
+        "assignable": true,
+        "help": "Write a VCD waveform to this file. `true` writes `dump.vcd`; a name without an extension gets `.vcd`; `false` or an empty name writes none. A simulator that cannot write VCD refuses it, and names its own waveform settings."
+      },
+      "stop_time": {
+        "children": false,
+        "assignable": true,
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
+      },
+      "cocotb": {
+        "children": true,
+        "assignable": false,
+        "help": "Settings for the cocotb testbench, used when `tb.cocotb` is set."
+      },
+      "cocotb.coverage": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Collect coverage data if supported by simulation tool."
+      },
+      "cocotb.reduced_log_fmt": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Display shorter log lines in the terminal."
+      },
+      "cocotb.resolve_x": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "ONES",
+          "RANDOM",
+          "VALUE_ERROR",
+          "ZEROS"
+        ],
+        "help": "How to resolve bits with a value of X, Z, U or W when they are converted to an integer."
+      },
+      "cocotb.testcase": {
+        "children": false,
+        "assignable": true,
+        "help": "Names of the cocotb tests to run; all of them if empty. A name selects exactly the test of that name (`check` never selects `foo_check`); on cocotb 2.x it may be qualified by its module (`tb.check`). Can also be given as a comma-separated string."
+      },
+      "cocotb.random_seed": {
+        "children": false,
+        "assignable": true,
+        "help": "Seed of the Python random module (`COCOTB_RANDOM_SEED`): the same seed recreates the same test stimulus. \"random\" lets cocotb draw a new seed on every run, so the flow then always runs and is never reused."
+      },
+      "cocotb.gpi_extra": {
+        "children": false,
+        "assignable": true,
+        "help": "A comma-separated list of extra libraries that are dynamically loaded at runtime."
+      },
+      "fst": {
+        "children": false,
+        "assignable": true,
+        "help": "Write the waveform as an FST file: a name in the run directory, or a location it is delivered to ($PWD/..., $DESIGN_ROOT/..., $DESIGN_DIR/... or an absolute path). `true` writes `dump.fst`; a name without an extension gets `.fst`. The testbench needs no `$dumpvars`."
+      },
+      "random_seed": {
+        "children": false,
+        "assignable": true,
+        "help": "Seed of the simulator's random numbers (`+seed=`): the same seed gives the same run. \"random\" draws a new seed on every run, so the flow then always runs and is never reused."
+      },
+      "uvm": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Add the UVM library (`-uvm`) that the environment variable `XEZIM_UVM_DIR` names. `XEZIM_UVM_VERSION` picks a release of a checkout that holds several. Xeda tracks these two values, not the files of the library, so an edit in place does not make a run stale."
+      },
+      "sdf_file": {
+        "children": false,
+        "assignable": true,
+        "help": "SDF file that back-annotates delays (`--sdf`). xezim has no region for it: each `INSTANCE` is a dotted path from the simulation top, such as `uut.u1`. A run that annotates no signal fails."
+      },
+      "sdf_type": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "max",
+          "min",
+          "typ"
+        ],
+        "help": "SDF delay type to back-annotate. Needs `sdf_file`."
+      },
+      "code_coverage": {
+        "children": false,
+        "assignable": true,
+        "help": "Kinds of code coverage to collect (`--code-coverage`): `stmt`, `branch` and `toggle`. The percentages are the results `coverage.statement`, `coverage.branch` and `coverage.toggle`, and the artifact `coverage` holds the details."
+      },
+      "code_coverage_scope": {
+        "children": false,
+        "assignable": true,
+        "help": "Limit code coverage to these instance subtrees and packages, such as `tb.dut` (`--code-coverage-scope`). Needs `code_coverage`."
+      },
+      "x_warn": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Warn when a signal that held 0 or 1 takes an X value after time 0, and name its drivers (`--x-warn`). These warnings count like any other against `fail_severity`."
+      },
+      "x_warn_limit": {
+        "children": false,
+        "assignable": true,
+        "help": "Stop reporting X warnings after this many; 0 sets no limit (`--x-warn-limit`). None keeps the default of xezim. Needs `x_warn`."
+      },
+      "xezim_flags": {
+        "children": false,
+        "assignable": true,
+        "help": "Extra arguments for `xezim`, placed before the source files. A file that an argument names is no input of the run."
       }
     },
     "default_producers": [

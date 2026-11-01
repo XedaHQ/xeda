@@ -2590,8 +2590,10 @@ default severity is ``error``, and the choices are ``warning``, ``error``, ``fai
 selected threshold fails the run. ``timeout`` is a number of seconds of wall-clock time. It stops
 and fails each subprocess invocation that contains simulation. An invocation can combine analysis,
 elaboration and simulation. The limit applies to each invocation and not to their total. An unset
-``timeout`` adds no limit. A Verilog ``$stop`` is an event of the rank ``error`` and fails at the
-default threshold. VHDL ``std.env.stop`` is accepted as completion.
+``timeout`` adds no limit. On every simulator except ``xezim``, a Verilog ``$stop`` is an event of the
+rank ``error`` and fails at the default threshold. ``xezim`` reports ``$stop`` as ``$finish``, so
+a ``$stop`` passes there. A testbench that reports a failure must use ``$error`` or ``$fatal``.
+VHDL ``std.env.stop`` is accepted as completion.
 
 GHDL and nvc keep the actual end time of the simulator. A stop whose observed time differs from the
 requested ``stop_time`` fails, which matters for designs with sparse clock events. Xeda does not
@@ -2704,6 +2706,12 @@ says to use ``vcd``.
        ``dump.vcd`` fails.
    * - ``verilator``
      - ``vcd``, ``fst`` and ``saif``. See the Verilator section below.
+   * - ``xezim``
+     - ``vcd`` and ``fst``. ``vcd`` (``--wave``) needs ``$dumpvars`` and a ``$dumpfile`` of the same
+       name in the testbench (``dump.vcd`` for ``true`` or a location), and a run that wrote no
+       such file fails. The flow refuses ``vcd`` with cocotb. ``fst`` (``--fst``) needs neither and
+       works with cocotb, and a run that wrote no FST file, because the design has no signal to
+       dump, fails.
    * - ``vcs``
      - ``vpd``, ``fsdb`` and ``evcd``, only one at a time. ``vcd`` is refused: set ``vpd`` or
        ``fsdb`` with ``to_vcd`` to get a VCD file. ``vpd_size_limit`` needs ``vpd``, and
@@ -2841,6 +2849,46 @@ Other points:
   (stored as ``dump.vcd`` or ``dump.fst``, the only names accepted). A run that wrote no such file
   fails and says so. With cocotb, Xeda adds a root module that dumps the simulation, and the value
   names the file.
+
+xezim
+-----
+
+``xezim`` compiles and simulates Verilog and SystemVerilog in one process. Upstream ships no
+binaries: build ``xezim`` from source with Cargo and put it on ``PATH``. The flow supports cocotb,
+UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms.
+
+* A run passes on the end line that ``xezim`` writes in this run, and on its diagnostics. The
+  line comes after all output of the design, so output of the design cannot stand in for it.
+  ``** Fatal`` and ``UVM_FATAL`` end the run with ``sim.ended_by`` ``fatal``. ``** Error``,
+  ``UVM_ERROR``, ``[xezim][error]`` and a ``let`` error count as errors. ``** Warning`` and
+  ``UVM_WARNING`` count as warnings, and so do ``[xezim][warning]`` and ``[WARN]`` during the
+  simulation, except the warning that the default phase timeout of UVM prints on every UVM run.
+  So a failed assertion, an ``illegal_bins`` hit, a timing violation and a failed UVM test fail at
+  the default ``fail_severity``, although ``xezim`` exits with status 0 for all of them. A line
+  that a testbench prints in one of these forms counts too. A plain ``Error:`` line does not.
+  ``sim.time`` is in the finest time precision of the design.
+* ``xezim`` reports a Verilog ``$stop`` as ``$finish``. A ``$stop`` passes on this flow, unlike on
+  the other simulators. A testbench that reports a failure must use ``$error`` or ``$fatal``, or
+  a UVM error or fatal report.
+* A run that a signal stops fails, although ``xezim`` exits with status 0.
+* ``stop_time`` must be a positive whole number of nanoseconds. Planning refuses any other value.
+  Without ``stop_time``, the flow lifts the default limit of 100 ms of simulated time, and a run
+  ends at the finish of the testbench.
+* ``random_seed`` defaults to 1, so a run repeats. ``random`` draws a new seed on every run, and
+  such a flow always runs.
+* ``uvm: true`` adds the UVM library that the environment variable ``XEZIM_UVM_DIR`` names.
+  ``XEZIM_UVM_VERSION`` picks a release of a checkout that holds several. Xeda tracks these two
+  values, not the files of the library, so an edit in place does not make a run stale.
+* ``sdf_file`` and ``sdf_type`` annotate delays. ``xezim`` has no SDF region, so each ``INSTANCE``
+  in the SDF file is a dotted path from the simulation top, such as ``uut.u1``. A run that
+  annotates no signal fails.
+* cocotb uses the stock VPI library of cocotb. As on every simulator, the results of cocotb decide
+  such a run, so these lines do not affect it. ``vcd`` is refused with cocotb: use ``fst``.
+* ``code_coverage`` selects ``stmt``, ``branch`` and ``toggle``. The results are
+  ``coverage.statement``, ``coverage.branch`` and ``coverage.toggle``, and the artifact
+  ``coverage`` holds the details.
+* ``xezim_flags`` passes other options. A flow-owned option there is refused at planning, and the
+  message names the setting to use.
 
 Writing a new flow
 ==================

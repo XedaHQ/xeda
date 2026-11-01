@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Icarus Verilog, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`unknown_setting`, `invalid_design`, `executable_not_found`, `nonzero_exit`, `rejected`).
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Icarus Verilog, Verilator, xezim, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`unknown_setting`, `invalid_design`, `executable_not_found`, `nonzero_exit`, `rejected`).
 ---
 
 # Driving Xeda

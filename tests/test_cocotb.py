@@ -1,3 +1,4 @@
+import inspect
 import re
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from .tool_utils import (
     require_iverilog_evidence,
     require_nvc,
     require_verilator,
+    require_xezim,
 )
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -48,6 +50,7 @@ _COCOTB_SIMULATORS: Dict[str, Tuple[Callable[[], None], str]] = {
     "iverilog": (require_iverilog_evidence, "verilog"),
     "nvc": (require_nvc, "vhdl"),
     "verilator": (require_verilator, "verilog"),
+    "xezim": (require_xezim, "verilog"),
 }
 
 
@@ -175,7 +178,10 @@ def test_all_cocotb_flows_use_shared_verdict_check():
     assert flows
     for cls in flows:
         assert issubclass(cls, SimFlow)
-        assert cls.check_results is SimFlow.check_results
+        # an override may only add a rejection after the shared verdict passed (xezim: SDF)
+        assert cls.check_results is SimFlow.check_results or (
+            "passed = super().check_results()" in inspect.getsource(cls.check_results)
+        )
 
 
 @pytest.mark.parametrize("content", [None, "<broken>"])

@@ -191,6 +191,7 @@ LOCATED = {
     "vivado_sim": {"saif": "sim.saif"},
     "ghdl_sim": {"vcd": "dump.vcd"},
     "nvc": {"fst": "dump.fst"},
+    "xezim": {"fst": "dump.fst"},
     "verilator": {"vcd": "dump.vcd"},
     "yosys_fpga": {"netlist_json": "net.json", "netlist_edif": "net.edif"},
     "vivado_impl": {"bitstream": "top.bit"},
@@ -285,6 +286,8 @@ def stand_in_answers(world: World) -> Dict[Tuple[str, str], str]:
     return {
         ("cocotb-config", "--share"): str(world.parent / COCOTB_SHARE),
         ("cocotb-config", "--python-bin"): sys.executable,
+        # xezim loads cocotb's VPI library for VCS
+        ("cocotb-config", "--lib-name-path"): str(world.parent / COCOTB_SHARE / "libcocotbvpi.so"),
     }
 
 
@@ -295,6 +298,7 @@ def _world(parent: Path) -> World:
     cocotb_main = parent / COCOTB_SHARE / "lib" / "verilator" / "verilator.cpp"
     cocotb_main.parent.mkdir(parents=True)
     cocotb_main.write_text("// the stand-in cocotb's main for Verilator\n")
+    (cocotb_main.parents[2] / "libcocotbvpi.so").write_text("the stand-in VPI library\n")
     for name in ("sqrt.vhdl", "tb_sqrt.py"):
         shutil.copy(SQRT / name, work / name)
     (work / "tb_sqrt_plain.vhdl").write_text(PLAIN_TB)

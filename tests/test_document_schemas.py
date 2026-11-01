@@ -1092,5 +1092,5 @@ def test_the_design_schema_has_an_integer_schema_version():
     from xeda.introspect import design_schema
 
     for input_syntax in (True, False):
-        version = design_schema(input_syntax)["schema_version"]
+        version = design_schema(input_syntax=input_syntax)["schema_version"]
         assert version == 1 and type(version) is int
