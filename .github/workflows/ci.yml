@@ -272,4 +272,4 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade tox tox-gh-actions
       - name: Run type and lint checks
-        run: "python -m tox -e mypy,black,ruff"
+        run: "python -m tox -e mypy,black,ruff,consumer-typing"
