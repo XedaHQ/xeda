@@ -87,10 +87,13 @@ examples = [
     "pyserial>=3.5",
     "cocolight @ git+https://github.com/kammoh/cocolight.git",
 ]
+# What the notebooks of `notebooks/` need, and the suite runs them.
+notebooks = ["nbclient", "nbformat", "ipykernel", "pandas", "plotly"]
 # black >= 26.10.1 is the first release that knows the py314 target set in [tool.black].
 dev = [
     { include-group = "test" },
     { include-group = "examples" },
+    { include-group = "notebooks" },
     "mypy",
     "black>=26.10.1",
     "isort",
