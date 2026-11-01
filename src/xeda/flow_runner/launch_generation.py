@@ -200,6 +200,17 @@ def declarations(design: Design) -> tuple[str, ...]:
     )
 
 
+def valid_generator(unit: Design) -> Generator | None:
+    """Return the generator of `unit` (`design.generator_of`), or None for a design without one.
+
+    A recipe that is not valid now is a `GenerationError`: what it names went since the design
+    loaded (a file of `sources`, say)."""
+    try:
+        return generator_of(unit.rtl, root=unit.root)
+    except (ValidationError, ValueError) as error:
+        raise GenerationError(f"the recipe of the generator is not valid now: {error}") from error
+
+
 def generation_key(
     design: Design, environ: Mapping[str, str] | None = None
 ) -> tuple[str, Generator]:
@@ -216,11 +227,7 @@ def generation_key(
     storage."""
     if design.rtl.generator is None:
         raise ValueError("the design has no generator")
-    try:
-        generator = generator_of(design.rtl, root=design.root)
-    except (ValidationError, ValueError) as error:
-        # What the recipe names went since the design loaded (a file of `sources`, say).
-        raise GenerationError(f"the recipe of the generator is not valid now: {error}") from error
+    generator = valid_generator(design)
     assert generator is not None
     environ = dict(os.environ) if environ is None else environ
     identity = {
@@ -888,7 +895,7 @@ def delivery_directory(unit: Design, start_directory: Path) -> Path | None:
     (`Generator.outputs_to`, with every path variable expanded), or None for a recipe without one.
 
     `start_directory` is what `$PWD` stands for."""
-    generator = generator_of(unit.rtl, root=unit.root)
+    generator = valid_generator(unit)
     return None if generator is None else generator.delivery_directory(unit.root, start_directory)
 
 

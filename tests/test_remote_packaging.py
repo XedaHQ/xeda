@@ -1065,3 +1065,98 @@ def test_the_host_merges_local_and_git_dependencies_as_the_client_does(
         order == "git first",
         order == "local first",
     ]
+
+
+# --- A generator's recipe counts the same on both ends -----------------------------------------
+
+
+def _generating_root(root: Path) -> Path:
+    (root / "build").mkdir(parents=True)
+    (root / "gen.py").write_text("print('gen')\n")
+    (root / "spec.txt").write_text("one\n")
+    return root
+
+
+def _generating_design(root: Path, **recipe) -> Design:
+    table = {"executable": "python3", "args": ["$DESIGN_ROOT/gen.py", "8"], **recipe}
+    return Design(
+        name="g",
+        root=root,
+        rtl={"sources": ["$XEDA_GENERATED/gen/top.v"], "top": "top", "generator": table},
+    )
+
+
+def _generator_recipes(root: Path) -> dict[str, dict]:
+    return {
+        "glob": {"sources": ["*.py", "spec.txt"]},
+        "absolute": {"sources": [str(root / "gen.py"), "spec.txt"]},
+        "design-root": {"sources": ["$DESIGN_ROOT/gen.py", "$DESIGN_ROOT/spec.txt"]},
+        "cwd": {"sources": ["gen.py"], "cwd": "$DESIGN_ROOT/./build/"},
+    }
+
+
+@pytest.mark.parametrize("recipe", ["glob", "absolute", "design-root", "cwd"])
+def test_a_generator_recipe_has_the_same_identity_on_the_remote(tmp_path, recipe):
+    """Packaging rewrites the paths of a recipe (it expands `sources` and names them and `cwd`
+    relative to the root on the host). The host still computes the identities of the client."""
+    from xeda.flow_runner import DefaultRunner
+    from xeda.frozen import thaw
+
+    root = _generating_root(tmp_path / "design")
+    design = _generating_design(root, **_generator_recipes(root)[recipe])
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+    prepared = local.prepare_request("yosys", design=design)
+
+    _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys", True
+    )
+
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    assert thaw(remote_plan.node("yosys").configuration) == thaw(
+        prepared.plan.node("yosys").configuration
+    )
+
+
+def test_a_dependency_generator_has_the_same_identity_on_the_remote(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+
+    lib = _generating_root(tmp_path / "lib")
+    (lib / "lib.yaml").write_text(
+        "name: lib\nrtl:\n  sources: [$XEDA_GENERATED/gen/lib.v]\n  top: lib\n"
+        "  generator:\n    executable: python3\n    args: [$DESIGN_ROOT/gen.py, lib]\n"
+        f"    sources: ['*.py', {str(lib / 'spec.txt')!r}]\n    cwd: ./build\n"
+    )
+    root = tmp_path / "top"
+    root.mkdir()
+    (root / "top.v").write_text("module top; endmodule\n")
+    design = Design(
+        name="top",
+        root=root,
+        dependencies=["../lib/lib.yaml"],
+        rtl={"sources": ["top.v"], "top": "top"},
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    local = DefaultRunner(local_root, display_results=False, hashed_run_dirs=True)
+    prepared = local.prepare_request("yosys", design=design)
+
+    _package_, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys", True
+    )
+
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+
+
+@pytest.mark.parametrize("recipe", ["glob", "absolute", "design-root", "cwd"])
+def test_a_moved_design_tree_with_a_generator_keeps_its_identity(tmp_path, recipe):
+    from xeda.flow_runner import DefaultRunner
+
+    identities = []
+    for place in ("here", "there/deeper"):
+        root = _generating_root(tmp_path / place / "design")
+        design = _generating_design(root, **_generator_recipes(root)[recipe])
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, hashed_run_dirs=True)
+        identities.append(
+            runner.prepare_request("yosys", design=design).plan.node("yosys").flowrun_hash
+        )
+    assert identities[0] == identities[1]
