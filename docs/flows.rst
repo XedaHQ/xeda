@@ -1095,11 +1095,17 @@ undefined. Xeda sets both, so ``rtl.defines`` must not name them. VHDL sources a
 Yosys plugin, which also reads PSL in comments. A design cannot mix VHDL with Verilog or
 SystemVerilog, and the Synopsys packages of VHDL (``language.vhdl.synopsys``) are refused.
 
-The flow stages each source under its path relative to the design root. A relative ``include`` and
-a memory file that the HDL names relative to the design root resolve as they do in the design. The
-flow refuses a source outside the design root. It also refuses a path that holds a character other
-than a letter, a digit or one of ``_ . + - /``, a path that starts with ``-`` or ``+``, and two
-paths that differ only in case. Rename the file.
+The flow stages each source under its path relative to the design root. A generated source that
+the generator writes in the design tree has the same path, wherever the run root is. So a relative
+``include`` and a memory file that the HDL names relative to the design root resolve as they do in
+the design. A file in the storage of a generator has no place in the tree, and the flow stages it
+in ``xeda_generated/``. A dependency in the design tree keeps its path. A Git dependency, or a local
+dependency outside the design tree, is staged in ``xeda_dependencies/<number>/``, so a relative
+``include`` works within that dependency but not across it. The flow refuses a written source that
+lies outside the design root and every dependency. It also refuses a path that holds a character
+other than a letter, a digit or one of ``_ . + - /``, a path that starts with ``-`` or ``+``, two
+paths that differ only in case, two files with one name, and a name of the design tree in
+``xeda_generated`` or ``xeda_dependencies``, in any letter case. Rename the file.
 
 ``rtl.defines`` and ``rtl.parameters`` reach the task as one word each. A value that holds
 whitespace, ``#``, ``;`` or, in a string parameter, ``"`` is refused. Parameters apply to the top
@@ -1120,6 +1126,60 @@ accepted. VHDL generics are not refused, because GHDL reads their text by the ty
 ``timeout`` takes a whole number of seconds, such as ``10 min``. Xeda does not round it. A task that
 reaches the limit ends with the status TIMEOUT, and the run fails. ``prove`` needs a ``timeout``,
 because its proof has no bound.
+
+Properties that the frontend reads
+----------------------------------
+
+Slang reads a concurrent assertion, assumption or cover statement only in the form
+``[disable iff (c)] <boolean>``. It refuses ``|->``, ``|=>``, ``##``, a named ``property``, a
+``sequence``, ``default clocking`` and ``restrict``. Write such a property as a Boolean check on
+``$past`` or on a register. A design from CIRCT can lower a flat ``a |-> b`` before Yosys reads it,
+with ``firtool --hw-pass-plugin='hw.module(lower-ltl-to-core)'``.
+
+The flow refuses ``default disable iff``, because the frontend ignores it. An assumption or a cover
+statement would then hold during reset. Write ``disable iff (...)`` on each property. The check
+reads the source text, without comments and strings. So it also refuses the words in an inactive
+```ifdef`` branch, and it does not see them when a macro spells them.
+
+With this frontend, ``$past``, ``$rose``, ``$fell``, ``$stable`` and ``$changed`` read a free value
+at the first step. The value in the declaration of a variable has no effect on it. An assertion only
+gets stricter from this, but a cover statement can be reached at the first step when it should not.
+Guard such a property with a register that is 0 at the first step:
+
+.. code-block:: systemverilog
+
+   logic past_valid = 0;
+   always_ff @(posedge clk) past_valid <= 1;
+   cover property (@(posedge clk) past_valid && $rose(ready));
+
+A checker module has no effect until a ``bind`` places it. If the design has no assertion, the run
+fails. If another assertion exists, the run passes, so read ``formal.assertions``. The count comes
+from the prepared model, so a property that Yosys removes as constant is not in it.
+
+Clocks and depth
+----------------
+
+By default, SBY replaces every clock with one implicit step, and it does not check that this is
+valid. So the flow inspects a flattened copy of the prepared model and fails the run when the design
+does not fit. All state, clocked properties and memory ports must use the rising edge of one bit of
+one top-level input, and no logic can read that bit as data. A design with more than one clock, a
+falling edge, a derived or gated clock, an asynchronous reset or a latch fails. This holds for a
+FAIL of SBY as well, because a counterexample of the wrong model proves nothing. The inspection runs
+in the task, so the run fails after SBY ends. SBY gets the prepared model unchanged.
+
+Set ``multiclock`` to true to model every clock edge and asynchronous change (SBY ``multiclock on``).
+This changes the meaning of the run:
+
+- ``depth`` counts global sampling steps, and a regular clock needs two for each cycle. A failure
+  that ``depth`` 7 finds by default needs ``depth`` 12. An irregular clock has no fixed ratio.
+- No clock has to toggle. An assertion that never gets a clock edge holds without a check, so state
+  the clock in the harness, and use ``cover`` to show that the clocks run.
+- Inputs can change between clock edges, so state their stability in the harness if the design
+  relies on it.
+- ``prove`` still has no check of the assumptions.
+
+In both models, a clocked property is checked one step after its clock edge, so the last step of
+``depth`` checks no clocked property. A failure at cycle 5 needs ``depth`` 7.
 
 Solvers
 -------

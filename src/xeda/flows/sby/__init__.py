@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from ...dataclass import Field
-from ...design import Design, Source, SourceType, language_of
+from ...design import Design, Source, SourceType, language_of, storage_name
 from ...flow import (
     ArtifactSpec,
     Flow,
@@ -42,6 +42,15 @@ STAGE = "sby_stage"
 #: The temporary and state directory of SBY and every program it starts.
 TEMPORARY = "sby_tmp"
 CONFIG = "task.sby"
+#: The directory of the task that holds the files of the storage of the design's generator. They
+#: have no place in the design tree.
+GENERATED_DIRECTORY = "xeda_generated"
+#: The directory of the task that holds one directory for each dependency that is outside the
+#: design root, numbered by the order of its first source.
+DEPENDENCIES_DIRECTORY = "xeda_dependencies"
+#: The flattened model that the task writes beside the staged sources, for `timing_problems`. A
+#: source of this name, in any letter case, is refused. Keep it lowercase, as `PARAMETERS_FILE`.
+TIMING_MODEL = "xeda_timing.json"
 ARCHIVE = "sby_evidence.zip"
 #: The SBY engine line of each mode. `smtbmc` runs its presat check of the assumptions. `prove` uses
 #: one process of rIC3, IC3 only: the default portfolio of rIC3 writes `/tmp/rIC3` outside the run
@@ -104,35 +113,113 @@ CHECKED = ("assert", "assume", "cover")
 SYMBOLIC_CELLS = ("$anyconst", "$anyseq", "$allconst", "$allseq")
 #: What each mode checks: a run passes only with at least one such statement.
 OBLIGATION = {"bmc": "assert", "prove": "assert", "cover": "cover"}
+#: The state cells with one clock edge and no other way to change.
+EDGE_CELLS = ("$dff", "$dffe", "$sdff", "$sdffe", "$sdffce")
+#: The state cells that also change without a clock edge, or have no clock edge. The default model
+#: of SBY samples them at the one clock, so a change between two edges would be lost.
+LEVEL_CELLS = (
+    "$adff",
+    "$adffe",
+    "$aldff",
+    "$aldffe",
+    "$dffsr",
+    "$dffsre",
+    "$sr",
+    "$dlatch",
+    "$adlatch",
+    "$dlatchsr",
+)
+#: The state cells of the implicit global clock. It counts as one more clock next to a real one.
+GLOBAL_CELLS = ("$ff", "$anyinit")
+GLOBAL_CLOCK = "the global clock"
+#: Removes what `DEFAULT_DISABLE` must not see. A string goes first, because it can hold `//`.
+COMMENT_OR_STRING = re.compile(r'"(?:\\.|[^"\\\n])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+DEFAULT_DISABLE = re.compile(r"\bdefault\s+disable\s+iff\b")
+
+
+def _staged_name(
+    design: Design, src: Source, roots: dict[str, Path], outside: dict[str, str]
+) -> str:
+    """Return the name of `src` in the SBY task, from the root that holds it and its path there.
+
+    A generated file has the place where its generator writes it, so the location of the run root
+    does not change the name, and a relative `include` to its neighbors works as in the tree. A
+    file in a storage has no such place, and goes into `GENERATED_DIRECTORY` of its root. `roots`
+    gives the root of each generator of a dependency (`Source.owner`), and `outside` numbers the
+    roots outside the design tree. A Git checkout is one of them wherever the run root is.
+    """
+    design_root = os.path.realpath(design.root)
+    checkouts = {
+        os.path.realpath(record.checkout)
+        for record in design.resolved_dependencies
+        if record.checkout is not None
+    }
+    if src.generated:
+        name = str(src.output_name)
+        if src.owner is not None and src.owner not in roots:
+            raise FlowSettingsException(
+                f"sby cannot stage {name!r}: the design has no generator {src.owner!r}"
+            )
+        home = design.root if src.owner is None else roots[src.owner]
+        stored = storage_name(name)
+        if stored is not None:
+            name = (PurePosixPath(GENERATED_DIRECTORY) / stored).as_posix()
+    elif src.dependency_place is not None:
+        name = src.dependency_place
+        home = src.path.parents[len(PurePosixPath(name).parts) - 1]
+    else:
+        # The directory is resolved and the file name is kept, so a link names its own place.
+        parent = os.path.relpath(os.path.realpath(src.path.parent), design_root)
+        name = (PurePosixPath(Path(parent).as_posix()) / src.path.name).as_posix()
+        home = design.root
+    root = os.path.realpath(home)
+    below = Path(os.path.relpath(root, design_root)).as_posix()
+    if root == design_root:
+        if name.split("/", 1)[0].lower() == DEPENDENCIES_DIRECTORY or (
+            not src.generated and name.split("/", 1)[0].lower() == GENERATED_DIRECTORY
+        ):
+            raise FlowSettingsException(
+                f"sby cannot stage {name!r}: the task keeps {GENERATED_DIRECTORY} and "
+                f"{DEPENDENCIES_DIRECTORY} for itself, in any letter case; rename the directory"
+            )
+    elif root in checkouts or below.split("/", 1)[0] == "..":
+        name = f"{DEPENDENCIES_DIRECTORY}/{outside.setdefault(root, str(len(outside)))}/{name}"
+    else:
+        name = f"{below}/{name}"
+    if name.split("/", 1)[0] == "..":
+        raise FlowSettingsException(
+            f"sby stages each source under its path relative to the design root, and "
+            f"{src.path} lies outside the design root {design_root}: move it into the design root"
+        )
+    if PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts:
+        raise FlowSettingsException(f"sby cannot stage {name!r}: it leaves the stage directory")
+    return PurePosixPath(name).as_posix()  # one spelling, so that the checks compare the file
 
 
 def staged_names(design: Design, sources: list[Source]) -> dict[str, Source]:
     """Return each source under the name it has in the SBY task, in design order.
 
-    The name is the path relative to the design root, so a relative `include` and a memory file
-    that the HDL names relative to the design root are found as in the design. A source outside
-    the design root, a name that the task cannot hold, and two names that differ only in case
-    (one file on a case-insensitive file system) are refused. So is a name equal to the parameters
-    file of the task (`PARAMETERS_FILE`) in any letter case, whatever the type of the source, when
-    the task writes that file: it would replace the file.
+    The name of a file of the design is its path relative to the design root, so a relative
+    `include` and a memory file that the HDL names relative to the design root are found as in the
+    design (`_staged_name`). A declaration of a generated source has no file yet: its pattern is
+    kept, and `run` checks the names of the files. A written source outside the design root and
+    outside every dependency, a name that the task cannot hold, two files under one name, a file
+    named as a directory of another, and two names that differ only in case (one file on a
+    case-insensitive file system) are refused. So is a name equal to the parameters file of the task
+    (`PARAMETERS_FILE`) in any letter case, whatever the type of the source, when the task writes
+    that file: it would replace the file.
     """
-    root = os.path.realpath(design.root)
     # Only Verilog and SystemVerilog with parameters have the file; GHDL checks generics itself.
     writes_parameters_file = bool(design.rtl.parameters) and not any(
         src.type is SourceType.Vhdl for src in sources
     )
+    roots = {unit.generation_label: unit.root for unit in design.generation_units}
+    outside: dict[str, str] = {}
     names: dict[str, Source] = {}
     folded: dict[str, str] = {}
     for src in sources:
-        # The directory is resolved and the file name is kept, so a link names its own place.
-        parent = os.path.relpath(os.path.realpath(src.path.parent), root)
-        name = (PurePosixPath(Path(parent).as_posix()) / src.path.name).as_posix()
-        if name.split("/", 1)[0] == "..":
-            raise FlowSettingsException(
-                f"sby stages each source under its path relative to the design root, and "
-                f"{src.path} lies outside the design root {root}: move it into the design root"
-            )
-        if not STAGED_NAME.fullmatch(name):
+        name = _staged_name(design, src, roots, outside)
+        if not STAGED_NAME.fullmatch(name if src.located else name.replace("*", "_")):
             raise FlowSettingsException(
                 f"sby cannot stage {name!r}: SBY splits its list of files at whitespace and "
                 "expands `$` and `~`, so a path relative to the design root may hold only "
@@ -144,15 +231,38 @@ def staged_names(design: Design, sources: list[Source]) -> dict[str, Source]:
                 "parameter names, and a source with that name, in any letter case, would replace "
                 "it; rename the source"
             )
+        if name.lower() == TIMING_MODEL:
+            raise FlowSettingsException(
+                f"sby cannot stage {name!r}: the task writes {TIMING_MODEL} itself; rename the source"
+            )
         if name in names:
-            continue  # the same file listed twice
+            if _same_file(names[name], src):
+                continue  # the same file listed twice
+            raise FlowSettingsException(
+                f"sby cannot stage both {names[name].path} and {src.path} as {name!r}: rename one"
+            )
         other = folded.setdefault(name.lower(), name)
         if other != name:
             raise FlowSettingsException(
                 f"sby cannot stage both {other!r} and {name!r}: their names differ only in case"
             )
         names[name] = src
+    for name in names:
+        for parent in PurePosixPath(name).parents:
+            if parent.as_posix() in names:
+                raise FlowSettingsException(
+                    f"sby cannot stage {name!r}: {parent.as_posix()!r} is a file of the design"
+                )
     return names
+
+
+def _same_file(first: Source, second: Source) -> bool:
+    """Whether two sources with one name are one file. A declaration has no file to resolve."""
+    return first.path == second.path or (
+        first.located
+        and second.located
+        and os.path.realpath(first.path) == os.path.realpath(second.path)
+    )
 
 
 def obligations(model: dict[str, Any]) -> Counter[str]:
@@ -189,10 +299,111 @@ def obligations(model: dict[str, Any]) -> Counter[str]:
     return count_in(tops[0]["name"], 0)
 
 
+def timing_problems(model: dict[str, Any]) -> list[str]:
+    """Return why the default model of SBY cannot hold a flattened design, or an empty list.
+
+    The model is the output of Yosys `write_json` (`TIMING_MODEL`). With `multiclock off`, SBY
+    replaces every clock with one implicit step and does not check that this is valid. It is valid
+    for state, assertions and memory ports on the rising edge of one bit of one top-level input,
+    and for logic that reads no such clock. A clock bit that is read as data has a value in the
+    model that it never has in the design. Raise `ValueError`, `KeyError`, `IndexError` or
+    `TypeError` for a model of another shape.
+    """
+    tops = [
+        module
+        for module in model["modules"].values()
+        if int(module.get("attributes", {}).get("top", "0"), 2) == 1
+    ]
+    if len(tops) != 1:
+        raise ValueError(f"the model has {len(tops)} top modules")
+    module = tops[0]
+    bit_names: dict[Any, str] = {}
+    for wire, net in module["netnames"].items():
+        for index, bit in enumerate(net["bits"]):
+            bit_names.setdefault(bit, wire if len(net["bits"]) == 1 else f"{wire}[{index}]")
+    inputs = {
+        bit
+        for port in module["ports"].values()
+        if port["direction"] == "input"
+        for bit in port["bits"]
+    }
+    events: set[tuple[Any, str]] = set()
+    read: set[Any] = set()
+    problems: set[str] = set()
+    for cell in module["cells"].values():
+        kind, parameters, ports = cell["type"], cell["parameters"], cell["connections"]
+        timing: tuple[str, ...] = ()  # the ports that are no data of the model
+        if kind in LEVEL_CELLS:
+            problems.add(f"the cell {kind} can change between clock edges")
+        elif kind in EDGE_CELLS:
+            timing = ("CLK",)
+            events.add((ports["CLK"][0], parameters["CLK_POLARITY"][-1]))
+        elif kind in ("$check", "$print"):
+            timing = ("TRG", "ARGS")  # only a message reads `ARGS`
+            if "1" in parameters["TRG_ENABLE"]:
+                polarities = parameters["TRG_POLARITY"][::-1]
+                events.update((bit, polarities[index]) for index, bit in enumerate(ports["TRG"]))
+        elif kind in GLOBAL_CELLS:
+            events.add((GLOBAL_CLOCK, "1"))
+        elif kind == "$mem_v2":
+            timing = ("RD_CLK", "WR_CLK")
+            for prefix in ("RD", "WR"):
+                polarities = parameters[f"{prefix}_CLK_POLARITY"][::-1]
+                for index, enabled in enumerate(parameters[f"{prefix}_CLK_ENABLE"][::-1]):
+                    if enabled == "1":
+                        events.add((ports[f"{prefix}_CLK"][index], polarities[index]))
+            if any(bit != "0" for bit in ports["RD_ARST"]):
+                problems.add("a memory read port has an asynchronous reset")
+        elif (
+            not kind.startswith("$")
+            or (kind.startswith("$_") and any(state in kind for state in ("FF", "LATCH", "SR")))
+            or any("CLK" in port or port == "TRG" for port in ports)
+        ):
+            problems.add(f"the cell {kind} has timing that the flow does not know")
+        directions = cell["port_directions"]
+        read.update(
+            bit
+            for port, bits in ports.items()
+            if directions[port] == "input" and port not in timing
+            for bit in bits
+        )
+    clocks = sorted({bit for bit, _ in events}, key=str)
+    if len(clocks) > 1:
+        shown = ", ".join(bit_names.get(bit, str(bit)) for bit in clocks)
+        problems.add(f"it has {len(clocks)} clocks: {shown}")
+    if any(polarity != "1" for _, polarity in events):
+        problems.add("it uses a falling clock edge")
+    for bit in clocks:
+        if bit == GLOBAL_CLOCK:
+            continue
+        shown = bit_names.get(bit, str(bit))
+        if bit not in inputs:
+            problems.add(f"the clock {shown} is no top-level input: it is derived or constant")
+        elif bit in read:
+            problems.add(f"the clock {shown} is also read as data")
+    return sorted(problems)
+
+
 def depth_of(settings: Sby.Settings) -> int | None:
     """Return the depth that the task asks for: `depth` or its default for `bmc` and `cover`, and
     None for `prove`, which has none."""
     return None if settings.mode == "prove" else settings.depth or DEFAULT_DEPTH
+
+
+def _refuse_default_disable(names: dict[str, Source]) -> None:
+    """Refuse `default disable iff` in Verilog and SystemVerilog sources. yosys-slang ignores it, so
+    an assumption or a cover statement would hold during reset, which can give a wrong pass.
+
+    shortcut: this reads the text, so it refuses the words in an inactive `ifdef` and misses them
+    when a macro spells them; remove it when the frontend refuses or honors the construct."""
+    for name, src in names.items():
+        if src.type in (*HEADER_TYPES, SourceType.Verilog, SourceType.SystemVerilog):
+            text = COMMENT_OR_STRING.sub(" ", src.path.read_text(errors="replace"))
+            if DEFAULT_DISABLE.search(text):
+                raise FlowException(
+                    f"sby cannot read `default disable iff` in {name}: the frontend ignores it, "
+                    "so a verdict could be wrong. Write `disable iff (...)` on each property"
+                )
 
 
 def _word(value: Any) -> str:
@@ -211,7 +422,15 @@ class Sby(Flow):
     that the proof assumes. SystemVerilog and Verilog are read by yosys-slang with `FORMAL`
     defined and `SYNTHESIS` undefined, and VHDL by the GHDL plugin with PSL in comments.
     `rtl.parameters` sets the parameters (generics) of the top only, and a name that the top does
-    not have fails the run.
+    not have fails the run. `default disable iff` is refused, because the frontend ignores it.
+    A source keeps its path relative to the design root, a generated source its name in the
+    tree. The files of a generator's storage are in `xeda_generated/`, and the files of a
+    dependency outside the design tree in `xeda_dependencies/<number>/`.
+
+    With the default `multiclock` false, the model has one implicit clock. The run fails for a
+    design that does not fit it: more than one clock, a falling edge, a derived clock, a clock read
+    as data, an asynchronous reset or a latch. `multiclock` models them, and `depth` then counts
+    global sampling steps.
 
     `mode` is required. `bmc` passes when no assertion fails within `depth` steps, and `cover`
     when every cover statement is reached within `depth` steps (assertions are not checked); both
@@ -318,6 +537,13 @@ class Sby(Flow):
             "unset). A `bmc` pass holds only up to this bound. `prove` has no bound and refuses "
             "`depth`.",
             json_schema_extra=count(),
+        )
+        multiclock: bool = Field(
+            False,
+            description="Model every clock edge and asynchronous change (SBY `multiclock on`). "
+            "`depth` then counts global sampling steps, and a regular clock needs two for each "
+            "cycle. When false, the run fails for a design that has more than one clock, a falling "
+            "edge, a derived clock, a clock that is read as data, an asynchronous reset or a latch.",
         )
         timeout: Time | None = Field(
             None,
@@ -433,6 +659,8 @@ class Sby(Flow):
         self.status: tuple[str, int] | None = None
         self.status_problem: str | None = None
         self.properties: Counter[str] | None = None
+        #: Why the default model of SBY cannot hold this design; None until the model is read.
+        self.timing: list[str] | None = None
 
     def always_runs(self) -> str | None:
         return super().always_runs() or (
@@ -449,6 +677,7 @@ class Sby(Flow):
         # First, so that a run that stops before SBY starts leaves no evidence of an earlier one.
         run_directory.remove(WORK, STAGE, TEMPORARY, ARCHIVE)
         names = staged_names(design, self.sources_read())
+        _refuse_default_disable(names)
         mode = ss.mode or "bmc"
         engine = ENGINES[mode]
         sby, options = self._programs(mode)
@@ -482,6 +711,7 @@ class Sby(Flow):
             # GHDL itself refuses a generic that the top does not have.
             parameters_root=PARAMETERS_ROOT if parameters and not vhdl else None,
             parameters_file=PARAMETERS_FILE,
+            timing_model=TIMING_MODEL,
             # `-fpsl` reads the PSL in comments; GHDL keeps assertions and PSL unless told not to.
             ghdl_flags=ghdl.common_flags(language_of(design).vhdl)
             + ["-fpsl"]
@@ -566,15 +796,42 @@ class Sby(Flow):
             if "selection is empty" in error:
                 assert isinstance(self.settings, self.Settings)
                 kind = OBLIGATION[self.settings.mode or "bmc"]
-                return f"{text}: the hierarchy of `{self.design.rtl.top}` has no {kind} ({error})"
+                return (
+                    f"{text}: the hierarchy of `{self.design.rtl.top}` has no {kind} ({error}). A "
+                    "checker module has no effect until a `bind` places it: list the file that "
+                    "holds the `bind`"
+                )
             if "selection is not empty" in error:
                 return (
                     f"{text}: the design has an unsupported construct: a symbolic value "
                     f"(anyconst, anyseq, allconst, allseq), liveness, fairness or a blackbox "
                     f"({error})"
                 )
+            if "unsupported SVA feature" in error:
+                return (
+                    f"{text}: {error}. The frontend reads a concurrent assertion only as "
+                    "`[disable iff (c)] <boolean>`: write `|->`, `|=>` and `##` as a Boolean check "
+                    "with `$past` or a register"
+                )
+            if "No such file or directory" in error:
+                return (
+                    f"{text}: {error}. If it is a header, list it in `rtl.sources`, with "
+                    "`type: SVHeader` for a header with the extension `.sv`"
+                )
             return f"{text}: {error}"
         return text
+
+    def _failed_property(self) -> str:
+        """Return the place of the first failed property in the task log, as text for a verdict,
+        or nothing when the log does not name one."""
+        task_log = self.report_file(Path(WORK) / "logfile.txt", optional=True)
+        if task_log is None:
+            return ""
+        for line in task_log.read_text(errors="replace").splitlines():
+            for mark in ("Assert failed in ", "Unreached cover statement at "):
+                if mark in line:
+                    return f" (in {line.split(mark, 1)[1].strip()})"
+        return ""
 
     def _archive_evidence(self) -> None:
         """Write every regular file of the work directory into the evidence archive. A symbolic
@@ -611,6 +868,13 @@ class Sby(Flow):
                 self.results["formal.assertions"] = self.properties["assert"]
                 self.results["formal.assumptions"] = self.properties["assume"]
                 self.results["formal.covers"] = self.properties["cover"]
+        if not ss.multiclock:
+            timing = self.report_file(Path(WORK) / "src" / TIMING_MODEL, optional=True)
+            if timing is not None:
+                try:
+                    self.timing = timing_problems(json.loads(timing.read_text()))
+                except (ValueError, KeyError, IndexError, TypeError) as error:
+                    log.error("The timing model %s is unreadable: %s", timing, error)
         status_file = self.report_file(Path(WORK) / "status")
         if status_file is None:
             self.status_problem = "SBY wrote no status for this run"
@@ -651,6 +915,14 @@ class Sby(Flow):
                     f"the model has unsupported formal constructs: {', '.join(unsupported)}; "
                     "sby checks only assertions, assumptions and cover statements"
                 )
+            elif not ss.multiclock and self.timing is None:
+                problem = "SBY wrote no readable timing model for this run"
+            elif not ss.multiclock and self.timing:
+                problem = (
+                    f"the default model of SBY has one clock, and this design does not fit it: "
+                    f"{'; '.join(self.timing)}. So a verdict could be wrong. Set "
+                    "`multiclock` to model it, or change the design"
+                )
             elif not self.properties[kind]:
                 problem = (
                     f"the hierarchy of `{self.design.rtl.top}` has no {kind} statement, so "
@@ -659,10 +931,11 @@ class Sby(Flow):
             elif status == "FAIL":
                 depth = depth_of(ss)
                 within = "" if depth is None else f" within depth {depth}"
+                where = self._failed_property()
                 self.reject(
-                    f"a cover goal is not reached{within}"
+                    f"a cover goal is not reached{within}{where}"
                     if ss.mode == "cover"
-                    else f"an assertion fails{within}: the counterexample is in `{ARCHIVE}`"
+                    else f"an assertion fails{within}{where}: the counterexample is in `{ARCHIVE}`"
                 )
                 return False
         if problem is not None:
