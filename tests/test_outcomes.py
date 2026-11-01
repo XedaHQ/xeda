@@ -1031,7 +1031,6 @@ def test_result_from_dict_reads_a_detached_and_a_skipped_node(tmp_path):
     [
         {"schema_version": 2},
         {"outcome": None},
-        {"outcome": "done"},
         {"nodes": [{"name": "a"}]},
         {"roots": "a"},
         {"spec": None},

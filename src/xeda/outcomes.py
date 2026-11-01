@@ -345,6 +345,19 @@ def _field(document: Mapping[str, Any], key: str, kinds: type | tuple[type, ...]
     return value
 
 
+def _closed(kind: type[Outcome] | type[Disposition], value: str, what: str, path: Path) -> Any:
+    """Return the member of the closed set `kind` that `value` names. A value that the set does not
+    have is a corrupt document: a newer Xeda wrote it, or it was changed."""
+    try:
+        return kind(value)
+    except ValueError:
+        raise RecordError(
+            f"{what} has the {kind.__name__.lower()} {value!r}, which this Xeda does not know",
+            code="corrupt_record",
+            path=path,
+        ) from None
+
+
 def _run_root_of(run_dir: Path, target: str | None) -> Path:
     """Return the run root of the run directory `run_dir`: the layout is
     `<run root>/<design>[/<target>]/<flow>[_<hash>]`."""
@@ -374,7 +387,7 @@ def _node_of(document: Any) -> NodeResult:
             )
         except RecordError as problem:
             raise ValueError(f"{what} has a bad record: {problem}") from None
-    outcome = Outcome(_field(document, "outcome", str, what))
+    outcome = _closed(Outcome, _field(document, "outcome", str, what), what, run_dir)
     if "error" not in document:
         raise ValueError(f"{what} has no `error`")
     try:
@@ -395,7 +408,7 @@ def _node_of(document: Any) -> NodeResult:
     return NodeResult(
         name=name,
         outcome=outcome,
-        disposition=Disposition(_field(document, "disposition", str, what)),
+        disposition=_closed(Disposition, _field(document, "disposition", str, what), what, run_dir),
         reason=_field(document, "reason", str, what),
         blocked_by=blocked_by,
         elapsed=float(_field(document, "elapsed", (int, float), what)),
@@ -445,7 +458,8 @@ def result_from_dict(document: Mapping[str, Any]) -> Result:
 
     A key that this version does not know is ignored. Raise `ValueError` if the document is of a
     request that never started a launch (its `outcome` is null), has another schema version, or
-    is malformed.
+    is malformed. An `outcome` or `disposition` that this version does not know raises
+    `RecordError` (`corrupt_record`).
 
     The nodes come back as they were. Only the `spec` is less than it was: the result has an empty
     design of the same name, target and file, and the settings of the document."""
@@ -472,7 +486,9 @@ def result_from_dict(document: Mapping[str, Any]) -> Result:
         launch_id=launch_id,
         spec=_spec_of(_field(document, "spec", Mapping, "the document")),
         roots=tuple(roots),
-        outcome=Outcome(_field(document, "outcome", str, "the document")),
+        outcome=_closed(
+            Outcome, _field(document, "outcome", str, "the document"), "the document", Path()
+        ),
         error=parsed_error,
         nodes={node.name: node for node in nodes},
     )

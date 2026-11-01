@@ -318,6 +318,11 @@ the integer ``schema_version`` 1, and every number in it is finite. A reader of 
 version, or of a file without ``schema_version`` (an older Xeda wrote it), does not guess: it
 refuses the file. A launch treats such a file as no run at all and runs the flow again.
 
+A reader accepts a document of a later minor version of the same schema. It ignores a field that it
+does not know, and it keeps an error code or an event kind that it does not know as text. The
+outcome and the disposition are closed sets: a value that a reader does not know makes the document
+corrupt (``corrupt_record``).
+
 The record has these fields:
 
 ``run_id``

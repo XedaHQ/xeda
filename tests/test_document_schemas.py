@@ -29,6 +29,7 @@ from xeda.flow_runner.environment import SESSION_VARIABLES
 from xeda.flow_runner.outputs import handed_entries
 from xeda.flow_runner.trace import previous_trace
 from xeda.frozen import FrozenDict, freeze, thaw
+from xeda.outcomes import result_from_dict
 from xeda.records import (
     ErrorInfo,
     InvalidMetric,
@@ -994,3 +995,102 @@ def test_a_plan_document_with_bad_dependencies_is_refused(tmp_path, change):
     change(document)
     with pytest.raises(ValueError, match="plan document"):
         plan_from_dict(document, spec=plan.spec, workspace=None)
+
+
+# --- Readers of documents from another version --------------------------------------------------
+
+DOCUMENTS = Path(__file__).parent / "resources" / "documents"
+
+
+def _fixture(name: str) -> dict[str, Any]:
+    return json.loads((DOCUMENTS / name).read_text())
+
+
+def _decode_fixture(name: str, tmp_path: Path) -> RunRecord:
+    run_root = tmp_path / "xeda_run"
+    return decode_record(_fixture(name), run_dir=run_root / "d" / "t_copy", run_root=run_root)
+
+
+def test_a_document_of_a_later_minor_version_loads(tmp_path):
+    record = _decode_fixture("results-1.9-extra-fields.json", tmp_path)
+    assert record.schema_version == 1 and record.outcome == "passed"
+    assert not hasattr(record, "future_field")
+    assert record == _decode_fixture("results-1.0.json", tmp_path)
+    result = result_from_dict(_fixture("run-1.9-extra-fields.json"))
+    assert result.outcome == "passed"
+    assert result.to_dict() == result_from_dict(_fixture("run-1.0.json")).to_dict()
+
+
+def test_an_unknown_disposition_is_a_corrupt_document():
+    with pytest.raises(RecordError) as caught:
+        result_from_dict(_fixture("run-unknown-disposition.json"))
+    assert caught.value.code == "corrupt_record"
+
+
+def test_an_unknown_outcome_in_a_run_document_is_a_corrupt_document():
+    document = _fixture("run-1.0.json")
+    document["nodes"][0]["outcome"] = "an_outcome_of_the_future"
+    with pytest.raises(RecordError) as caught:
+        result_from_dict(document)
+    assert caught.value.code == "corrupt_record"
+    document = _fixture("run-1.0.json")
+    document["outcome"] = "an_outcome_of_the_future"
+    with pytest.raises(RecordError) as caught:
+        result_from_dict(document)
+    assert caught.value.code == "corrupt_record"
+
+
+def test_an_unknown_event_kind_is_kept_as_text():
+    from xeda.flow_runner.launch_result import _Progress
+
+    told: list[Any] = []
+    _Progress("id", None, told.append).emit("a_kind_of_the_future", "node")
+    (event,) = told
+    assert event.kind == "a_kind_of_the_future" and event.node == "node"
+
+
+def test_a_newer_major_version_raises_unsupported_schema(tmp_path):
+    with pytest.raises(RecordError) as caught:
+        _decode_fixture("results-2.0.json", tmp_path)
+    assert caught.value.code == "unsupported_schema"
+
+
+def test_a_document_without_a_version_raises_unsupported_schema(tmp_path):
+    with pytest.raises(RecordError) as caught:
+        _decode_fixture("results-no-version.json", tmp_path)
+    assert caught.value.code == "unsupported_schema"
+
+
+def test_an_unknown_error_code_is_kept_as_text(tmp_path):
+    document = record_document("failed")
+    document["error"]["code"] = "a_code_of_the_future"
+    record = decode_record(document, run_dir=tmp_path / "d" / "f", run_root=tmp_path)
+    assert record.error is not None and record.error.code == "a_code_of_the_future"
+
+
+def test_an_unknown_outcome_is_a_corrupt_record(tmp_path):
+    document = record_document("an_outcome_of_the_future")
+    with pytest.raises(RecordError) as caught:
+        decode_record(document, run_dir=tmp_path / "d" / "f", run_root=tmp_path)
+    assert caught.value.code == "corrupt_record"
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(path.name for path in DOCUMENTS.glob("*-1.[0-9]*.json")) if DOCUMENTS.is_dir() else [],
+)
+def test_the_historical_fixtures_still_load(tmp_path, name):
+    if name.startswith("results-"):
+        assert _decode_fixture(name, tmp_path).schema_version == 1
+    elif name.startswith("run-"):
+        assert result_from_dict(_fixture(name)).outcome == "passed"
+    else:
+        pytest.fail(f"no reader for the fixture {name}")
+
+
+def test_the_design_schema_has_an_integer_schema_version():
+    from xeda.introspect import design_schema
+
+    for input_syntax in (True, False):
+        version = design_schema(input_syntax)["schema_version"]
+        assert version == 1 and type(version) is int
