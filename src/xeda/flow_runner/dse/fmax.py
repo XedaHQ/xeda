@@ -438,8 +438,7 @@ class FmaxOptimizer(Optimizer):
         def promote(lst: List[Any], choice: Any):
             # By value: an earlier promotion of this round has moved the choices already.
             if lst and lst[0] != choice and choice in lst:
-                lst.remove(choice)
-                lst.insert(0, choice)
+                lst.insert(0, lst.pop(lst.index(choice)))
 
         if best_freq is None or fmax > best_freq:
             log.info(
