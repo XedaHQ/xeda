@@ -88,17 +88,7 @@ def run(
     cancel: CancelToken | None = None,
     on_event: Callable[[Event], None] | None = None,
 ) -> Result:
-    """Run a `Spec` or a `Plan`, and return what the launch did to every node.
-
-    A launch option that is not given has the default of `plan`. A `Plan` brings its own
-    options, so giving any option with a plan is an error (`plan_options`), also one equal to
-    the plan's. Running a plan takes the locks of its graph and resolves its spec again
-    under them. It raises `StalePlanError` when the graph, an identity, a run directory, a
-    delivery, the settings, the commit of a Git dependency or an option of this workspace
-    differs from the plan. A stale plan prunes nothing, asks nothing, generates nothing and
-    runs nothing. A source edit is no difference: the launch checks freshness again. With a
-    `remote`, the host plans the spec again before the launch, and the same rule compares the
-    two plans.
+    """Run a `Spec`, and return what the launch did to every node.
 
     A node that fails, is rejected or is blocked is an outcome in the `Result`, not an
     exception. `prune_variants` removes the other run directories of every node of the plan,

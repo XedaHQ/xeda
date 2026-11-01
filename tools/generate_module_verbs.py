@@ -168,6 +168,12 @@ def verb_source(
     name = method.__name__
     own_keywords = [n for n, _ in keyword if n not in workspace_options]
     doc = inspect.getdoc(method) or ""
+    if refuse_plan:
+        # The method's summary and its second paragraph are about a `Plan`, which this verb refuses.
+        summary, plan_paragraph, *rest = doc.split("\n\n")
+        if not plan_paragraph.startswith("A launch option that is not given"):
+            raise ValueError(f"the docstring of {method.__qualname__} changed its plan paragraph")
+        doc = "\n\n".join([summary.replace("a `Spec` or a `Plan`", "a `Spec`"), *rest])
     doc = f"{doc}\n\n{_paragraph(workspace_options, refuse_plan)}"
     if '"""' in doc or "\\" in doc:
         raise ValueError(f"the docstring of {method.__qualname__} needs escapes")

@@ -157,7 +157,13 @@ def test_the_docstrings_share_one_source() -> None:
         method_doc = inspect.getdoc(getattr(xeda.Workspace, name))
         verb_doc = inspect.getdoc(getattr(xeda.workspace_verbs, name))
         assert method_doc and verb_doc
-        assert verb_doc.startswith(method_doc.splitlines()[0])
+        if name == "run":
+            assert (
+                verb_doc.startswith("Run a `Spec`, and return") and "`Plan` brings" not in verb_doc
+            )
+            assert method_doc.split("\n\n")[2] in verb_doc
+        else:
+            assert verb_doc.startswith(method_doc.splitlines()[0])
         assert "`run_root`" in verb_doc or name == "load"
 
 
