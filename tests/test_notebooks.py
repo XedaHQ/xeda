@@ -37,7 +37,7 @@ FLOW_PROBES = {
 
 # Public names that `xeda` does not export yet. The set only shrinks: the test below fails when a
 # name in it is exported, so the entry goes.
-NOT_EXPORTED_YET = {"plan", "run", "sweep", "load", "records", "scrub", "local_settings"}
+NOT_EXPORTED_YET = {"plan", "sweep", "records", "local_settings"}
 
 PUBLIC_NAMES = """
 Design DesignPart Rtl Testbench Source Project Spec LocalSettings local_settings
