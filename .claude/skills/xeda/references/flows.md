@@ -35,6 +35,18 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings
 
 Artifacts: `log`
 
+### `iverilog`
+
+*supports cocotb testbenches | can follow: `bsc`*
+
+Simulate a Verilog or SystemVerilog design with Icarus Verilog 13.0 or newer. `iverilog` compiles the design and `vvp` runs it. A run without cocotb needs a C compiler and the VPI headers of Icarus Verilog, for Xeda's end monitor. The monitor reports how the simulation ended, and it stops the simulation at `stop_time`, an option that `vvp` does not have. With cocotb, the results of cocotb decide the run, and `stop_time` is refused. The simulated top modules are `tb.top`, else `rtl.top`. With cocotb, the simulated top module is the one cocotb drives: `tb.cocotb.toplevel`, else `rtl.top`. The parameters are those of the first simulated top module: `rtl.parameters` updated by `tb.parameters` when it is the RTL top, and `tb.parameters` alone otherwise. Text is a string, unless it is a sized literal such as `8'hff`. A waveform setting (`vcd` or `fst`) selects the format. Without cocotb, the testbench's `$dumpvars` writes the waveform, and `$dumpfile`, if it is called, must keep the name `dump.vcd` or `dump.fst`. A run that writes no such file fails. With cocotb, Xeda adds a root module that dumps the simulation, and the value of the setting names the file.
+
+17 flow-specific settings (plus the common ones): `xeda list-settings iverilog --json`
+
+Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
+
+Artifacts: `log`, `vvp_log`, `cc_log`
+
 ### `modelsim`
 
 *can follow: `bsc`*
@@ -381,7 +393,7 @@ Artifacts: `log`, `rtl_json`, `rtl_verilog`, `utilization_report`, `timing_repor
 
 ### `bsc`
 
-*can be followed by: `dc`, `diamond_synth`, `ise_synth`, `modelsim`, `quartus`, `sby`, `vcs`, `verilator`, `vivado_alt_synth`, `vivado_project`, `vivado_sim`, `vivado_synth`, `yosys`, `yosys_fpga`, `yosys_sim`, `fpga_pack` (through `yosys_fpga`, `nextpnr`), `nextpnr` (through `yosys_fpga`), `openfpgaloader` (through `yosys_fpga`, `nextpnr`, `fpga_pack`), `openroad` (through `yosys`, `openroad_place`, `openroad_cts`, `openroad_grt`), `openroad_cts` (through `yosys`, `openroad_place`), `openroad_grt` (through `yosys`, `openroad_place`, `openroad_cts`), `openroad_place` (through `yosys`), `vivado_impl` (through `yosys_fpga`), `vivado_postsynth_sim` (through `vivado_synth`), `vivado_power` (through `vivado_synth`, `vivado_postsynth_sim`)*
+*can be followed by: `dc`, `diamond_synth`, `ise_synth`, `iverilog`, `modelsim`, `quartus`, `sby`, `vcs`, `verilator`, `vivado_alt_synth`, `vivado_project`, `vivado_sim`, `vivado_synth`, `yosys`, `yosys_fpga`, `yosys_sim`, `fpga_pack` (through `yosys_fpga`, `nextpnr`), `nextpnr` (through `yosys_fpga`), `openfpgaloader` (through `yosys_fpga`, `nextpnr`, `fpga_pack`), `openroad` (through `yosys`, `openroad_place`, `openroad_cts`, `openroad_grt`), `openroad_cts` (through `yosys`, `openroad_place`), `openroad_grt` (through `yosys`, `openroad_place`, `openroad_cts`), `openroad_place` (through `yosys`), `vivado_impl` (through `yosys_fpga`), `vivado_postsynth_sim` (through `vivado_synth`), `vivado_power` (through `vivado_synth`, `vivado_postsynth_sim`)*
 
 Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It generates Verilog for `rtl.top` and for every `synthesize`d module on the way. The output `design` lists the Verilog files that the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library that it instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream synthesis or simulation flow can take the list as it is. If the generated Verilog instantiates a module that no Verilog file defines (a vendor primitive, for example), the flow leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`. The flow converts the design for the flows that read Verilog: its output `design` is the design with the generated Verilog in place of the Bluespec sources. Every other source of `rtl` passes through, once and in the order of the design, and the rest of the design is carried unchanged.
 

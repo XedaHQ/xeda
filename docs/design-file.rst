@@ -451,7 +451,7 @@ programs a ``Bitstream`` with nothing built:
 
 A flow reads only the source types that it declares. For example, ``vivado_synth`` passes over an
 ``Lpf`` source. Before the flow runs, Xeda refuses a source in a language that the flow cannot
-read: a Bluespec source for ``vivado_synth``, a VHDL source for ``verilator``, or a SystemVerilog
+read: a Bluespec source for ``vivado_synth``, a VHDL source for ``verilator`` or ``iverilog``, or a SystemVerilog
 source for ``ghdl_sim`` or ``nvc``. Xeda also refuses a design with no source that the flow
 reads. A design whose only netlist is an ``.edf`` file gives ``yosys_fpga``, ``vivado_synth`` and
 every simulator nothing to read. The error names the sources that the design lists, with their

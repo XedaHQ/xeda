@@ -258,12 +258,15 @@ matching option. Such a flow accepts ``nthreads`` or ``lib_paths`` and does noth
     gone: where the output of the tools appears is not a setting of a flow.
 
 ``lib_paths``
-    Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
-    simulation flows use them. GHDL and NVC take a relative path as relative to the design root.
+    Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC, Icarus Verilog and
+    the Vivado simulation flows use them. GHDL, NVC and ``iverilog`` take a relative path as
+    relative to the design root.
     GHDL passes ``-P<path>``, where the path is a directory that holds the library. NVC maps a
     named entry to its directory (``--map=<name>:<path>``) and adds an unnamed path to its library
     search path (``-L <path>``), a directory that holds library directories. NVC refuses an entry
-    that has a name and no path.
+    that has a name and no path. ``iverilog`` passes ``-y<path>``, where the path is a directory
+    that holds one Verilog file for each module (``<module>.v``). It ignores the name, and it
+    refuses an entry that has a name and no path.
 
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
@@ -2534,7 +2537,8 @@ GHDL and nvc keep the actual end time of the simulator. A stop whose observed ti
 requested ``stop_time`` fails, which matters for designs with sparse clock events. Xeda does not
 rewrite the reported time to the request. NVC uses a passive VHPI helper for the end time, so a C++
 compiler is needed when that helper must be built. NVC has no ``exit_severity`` setting: use
-``fail_severity``. A Bluesim ``max_cycles`` passes only when the recorded cycle count
+``fail_severity``. Icarus Verilog (``iverilog``) uses a VPI monitor for the end of the run, and a C compiler builds
+it, except under cocotb. A Bluesim ``max_cycles`` passes only when the recorded cycle count
 equals the request and the record includes a measured final time and unit. CXXRTL links an exit
 monitor and an RTL assertion hook into a C++ driver that the user owns. An observed driver exit 0
 is valid evidence even when the simulated time is unknown, but missing records or abnormal exits
@@ -2618,6 +2622,9 @@ says to use ``vcd``.
        (``--fst``) and ``wave`` (GHW, ``--wave``). Only one of the four may be set, and
        ``read_wave_opt`` needs one of them. The name never selects the option: ``vcd`` always
        writes plain VCD.
+   * - ``iverilog``
+     - ``vcd`` (``vvp -vcd``) and ``fst`` (``vvp -fst``). Only one of the two may be set. See the
+       Icarus Verilog section below.
    * - ``nvc``
      - ``vcd`` (``--wave=<file> --format=vcd``) and ``fst`` (``--wave=<file>``). Only one of
        the two may be set. ``wave_include_glob``, ``wave_exclude_glob`` and ``wave_arrays`` apply
@@ -2728,6 +2735,52 @@ Defaults and limits:
   has ``..`` in it, or that goes through a link leading out of the run directory. A full path
   outside the run directory is left as it is. In a directory that no launcher chose (a flow built
   directly), the flow deletes nothing and refuses a link at that name.
+
+Icarus Verilog
+--------------
+
+``iverilog`` compiles the design with ``iverilog`` and runs it with ``vvp``. It needs Icarus
+Verilog 13.0 or newer. Without cocotb, it also needs a C compiler and the VPI headers of Icarus
+Verilog: Xeda builds a small VPI monitor that records how the run ended (``xeda_end.json``). The
+run passes when ``$finish`` or the requested ``stop_time`` ends it and nothing reported reaches
+``fail_severity``. These ends fail:
+
+* A drained event queue (``sim.ended_by`` is ``unknown``) and ``$stop``.
+* ``$fatal`` (``sim.ended_by`` is ``fatal``, and the exit status of ``vvp`` is nonzero).
+* ``$error`` and a failed assertion, which are events of the rank ``error``. A ``$warning`` fails
+  only with ``fail_severity: warning``.
+
+``stop_time`` ends a run at that time (``sim.ended_by`` is ``stop_time``), which the monitor
+enforces, since ``vvp`` has no such option. Xeda copies the output of ``vvp`` to ``sim.log``,
+except under cocotb. With cocotb, the results of cocotb decide the run, the monitor does not run,
+and ``stop_time`` is an error when planned.
+
+The simulated tops are ``tb.top``, or else ``rtl.top``. With cocotb, the top is the module that
+cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. Parameters go to the first simulated
+top with ``-P<top>.<name>=<value>``. ``rtl.parameters`` apply only when the RTL top is that top,
+and ``tb.parameters`` always apply. Text is a string, unless it is a sized literal such as
+``8'hff``, so ``"1+2"`` is a string and not the number 3. A boolean is 1 or 0. Icarus Verilog
+sets only a parameter of a top module: a dotted name is an error, and the testbench must use
+``defparam`` for a deeper instance. A define without a value (``X: null``) is an empty macro.
+
+Other points:
+
+* ``language.verilog.standard`` selects the ``-g`` generation: ``1995``, ``2001``,
+  ``2001-noconfig``, ``2005``, ``2005-sv``, ``2009`` or ``2012`` (the default). Another value is an
+  error.
+* ``time_unit`` and ``time_resolution`` give the time scale of a module with no ``timescale``
+  directive (default ``1 ns`` and ``1 ps``). A directive in a source wins. The resolution may not
+  be longer than the unit.
+* ``include_dirs``, ``verilog_libs`` (``-l``), ``lib_paths`` (``-y``) and ``vpi_modules`` (``-m``)
+  take a relative path as relative to the design root. ``plusargs`` start with ``+``. ``specify``
+  honors specify blocks (``-gspecify``), which Icarus Verilog omits otherwise.
+* ``compile_flags`` may not hold ``-o``, ``-s`` or a ``-g`` generation, and ``run_flags`` may not
+  hold ``-s``, because a setting owns each of them.
+* ``vcd`` and ``fst`` select the waveform format, and only one may be set. Without cocotb, the
+  testbench writes the file with ``$dumpfile`` and ``$dumpvars``. Set the format to ``true``
+  (stored as ``dump.vcd`` or ``dump.fst``, the only names accepted). A run that wrote no such file
+  fails and says so. With cocotb, Xeda adds a root module that dumps the simulation, and the value
+  names the file.
 
 Writing a new flow
 ==================

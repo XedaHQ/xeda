@@ -65,39 +65,10 @@ def verilator_evidence(flow: Flow) -> SimEvidence | None:
 
 
 def iverilog_evidence(flow: Flow) -> SimEvidence | None:
-    """Read the Icarus end record.
+    """Read the Icarus end record and the native diagnostics of the simulator."""
+    from ..iverilog import icarus_evidence
 
-    The task registration reports a quiet `$finish` or `$stop`. The native runtime diagnostics of
-    the simulator supply the severity.
-    """
-    evidence = read_sim_evidence(flow, "xeda_end.json")
-    text = read_sim_log(flow, "sim.log")
-    if evidence is None or text is None or "XEDA_ICARUS_RUNTIME_START\n" not in text:
-        return None
-    if (
-        evidence.time is None
-        or evidence.time_unit is None
-        or len(evidence.events) != 1
-        or evidence.events[0].time != evidence.time
-        or (evidence.ended_by, evidence.events[0].kind)
-        not in (("finish", "finish"), ("unknown", "stop"))
-    ):
-        return None
-    runtime = text.split("XEDA_ICARUS_RUNTIME_START\n", 1)[1]
-    for line in runtime.splitlines():
-        diagnostic = re.search(r"(WARNING|ERROR|FATAL): (.+):([0-9]+): ?(.*)", line)
-        if diagnostic:
-            kind = {"WARNING": "warning", "ERROR": "error", "FATAL": "fatal"}[diagnostic[1]]
-            evidence.events.append(
-                SimEvent(
-                    kind=(
-                        "warning" if kind == "warning" else "error" if kind == "error" else "fatal"
-                    ),
-                    location=diagnostic[2] + ":" + diagnostic[3],
-                    message=diagnostic[4],
-                )
-            )
-    return evidence
+    return icarus_evidence(flow)
 
 
 def modelsim_evidence(flow: Flow) -> SimEvidence | None:

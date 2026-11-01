@@ -55,12 +55,12 @@
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
 | `` `standard` was removed from a source `` | Use `language.vhdl.standard`. |
 | `<flow> reads none of the design's sources: ...` (`NoReadableSource`) | The design lists no source the flow reads. Pick a flow for the design's languages, or give a source its `type`. |
-| `<flow> cannot read the design's Vhdl source(s) ...; it reads ...` | Same: `verilator` reads no VHDL; `ghdl_sim`, `nvc` and `ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog. A simulator checks `tb.sources` too. |
+| `<flow> cannot read the design's Vhdl source(s) ...; it reads ...` | Same: `verilator` and `iverilog` read no VHDL; `ghdl_sim`, `nvc` and `ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog. A simulator checks `tb.sources` too. |
 | `<flow> does not read the design's Bluespec sources, and more than one flow converts them: ...` | Two converters fit. Choose one with a chain (`bsc+<flow>`) or a binding (`flows.<flow>.inputs.design: bsc`). |
 | `... ; simulate a Bluespec testbench with bsc_sim` | A Verilog simulator cannot read a Bluespec `tb`. Run `bsc_sim`. |
 | `` the design defines `BSV_POSITIVE_RESET`, which bsc defines itself when `positive_reset` is true: remove the define, or set `positive_reset: false` `` | `bsc` and `bsc_sim` refuse a design that defines the macro while `positive_reset` is on. Remove the define, or set `positive_reset: false`. |
 | `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s <flow>.fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
-| `<flow> cannot run cocotb tests; use one of: ghdl_sim, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
+| `<flow> cannot run cocotb tests; use one of: ghdl_sim, iverilog, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
 
 ### Chains
 
@@ -180,6 +180,11 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
   starts at time 0).
 - `vcs` has no `ucli` setting (Xeda always runs VCS with `-ucli`); `ucli_script` sets the
   script that drives `simv`.
+- `iverilog` (Icarus Verilog 13.0 or newer) needs a C compiler and the VPI headers for non-cocotb
+  runs. It ends a run at `stop_time` itself, and refuses `stop_time` with cocotb. OSS CAD Suite's
+  `vvp` is a script that uses the Python and the libraries of the suite, so cocotb from another
+  Python stops with "Failed to import encodings module" or "undefined symbol": use a `vvp` that
+  is not that script, or the cocotb of the suite.
 - `nvc` needs a C++ compiler for non-cocotb runs. It has no `exit_severity`: use
   `fail_severity`. `optimization_flags` is a setting of `bsc_sim`, `ghdl_sim`, `vivado_sim` and
   `vivado_postsynth_sim` only; `nvc` has `optimization_level`.
@@ -199,13 +204,14 @@ and the quoted text `"true"` are refused.
 | --- | --- |
 | `` `wave` writes GHW data, and its name x.vcd ends in .vcd: give the name to `vcd` `` | A name that ends in another format's extension goes to that format's setting. |
 | `` `vcd` writes VCD data, and its name x.vcd.gz ends in .vcd.gz: give the name to `vcdgz` `` | `ghdl_sim` writes compressed VCD with `vcdgz`. `vcd` is plain VCD. |
-| `ghdl_sim writes one waveform, and vcd, fst are set: keep one of them` | One format at a time on `ghdl_sim`, `nvc`, `vcs` and `verilator`. |
+| `ghdl_sim writes one waveform, and vcd, fst are set: keep one of them` | One format at a time on `ghdl_sim`, `iverilog`, `nvc`, `vcs` and `verilator`. |
 | `` `vcd` names a waveform file, but without cocotb xeda writes no waveform ... Set `vcd: true` `` | `verilator` without cocotb: `vcd`, `fst` or `saif` set to `true` builds the model with that trace format, and the testbench calls `$dumpfile("dump.<format>")` and `$dumpvars`. A run that wrote no such file fails. |
 | `` vcs cannot write a waveform from `vcd`: ... set `vpd`, `fsdb` or `evcd` `` | `to_vcd` converts FSDB or VPD to VCD. |
 | `` yosys_sim cannot write a waveform from `vcd` `` | The design's C++ driver writes the waveform. |
 
 No simulator has a `waveform` setting: use `vcd`.
-`nvc` has `vcd` and `fst` (it refuses `wave` and `wave_format`). `ghdl_sim` has `vcd`, `vcdgz`,
+`iverilog` has `vcd` and `fst`; without cocotb, `true` is the only value and the testbench calls
+`$dumpfile("dump.<format>")` and `$dumpvars`. `nvc` has `vcd` and `fst` (it refuses `wave` and `wave_format`). `ghdl_sim` has `vcd`, `vcdgz`,
 `fst` and `wave` (GHW). `modelsim` writes no dump unless `vcd` is set. `vivado_sim`'s `saif` is
 `outputs/<design>.saif`.
 

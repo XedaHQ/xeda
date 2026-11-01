@@ -229,6 +229,8 @@ HONORED: dict[tuple[str, str | None, str], list[tuple[tuple, str]]] = {
     ("ghdl_sim", None, "vcdgz"): [(("tool", "ghdl", "run"), "--vcdgz=dump.vcd.gz")],
     ("ghdl_sim", None, "fst"): [(("tool", "ghdl", "run"), "--fst=dump.fst")],
     ("ghdl_sim", None, "wave"): [(("tool", "ghdl", "run"), "--wave=dump.ghw")],
+    ("iverilog", None, "vcd"): [(("tool", "vvp", None), "-vcd")],
+    ("iverilog", None, "fst"): [(("tool", "vvp", None), "-fst")],
     ("nvc", None, "vcd"): [
         (("tool", "nvc", "-r"), "--wave=dump.vcd"),
         (("tool", "nvc", "-r"), "--format=vcd"),

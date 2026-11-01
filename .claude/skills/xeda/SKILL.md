@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`unknown_setting`, `invalid_design`, `executable_not_found`, `nonzero_exit`, `rejected`).
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Icarus Verilog, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis and place and route (yosys, Design Compiler, OpenROAD) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`unknown_setting`, `invalid_design`, `executable_not_found`, `nonzero_exit`, `rejected`).
 ---
 
 # Driving Xeda
@@ -189,10 +189,12 @@ xeda run nextpnr blinky.yaml -s yosys_fpga.flatten=true
   their Docker image), `docker_image` (the image to use), `verbosity` (`quiet`, `normal`,
   `verbose` or `debug`; each level adds only its own tool options, so `debug` does not add those
   of `verbose`) and `lib_paths`. A flow whose tool has no matching option accepts
-  `nthreads` or `lib_paths` and ignores it: only GHDL, ModelSim, NVC and the Vivado simulation
-  flows read `lib_paths`. `ghdl_sim`, `ghdl_synth` and `nvc` take a relative path as relative to the
-  design root. `nvc` maps `(name, path)` with `--map=name:path`, passes `(None, path)` as `-L path`
+  `nthreads` or `lib_paths` and ignores it: only GHDL, ModelSim, NVC, Icarus Verilog and the Vivado
+  simulation flows read `lib_paths`. `ghdl_sim`, `ghdl_synth`, `nvc` and `iverilog` take a relative
+  path as relative to the design root. `nvc` maps `(name, path)` with `--map=name:path`, passes `(None, path)` as `-L path`
   (a directory that holds library directories) and refuses an entry that has a name and no path.
+  `iverilog` passes the path as `-y path` (a directory of `<module>.v` files) and refuses a name
+  without a path.
 - A flow uses every other setting it lists, and refuses a setting of a related flow:
   - The message names the flow that has it: `vivado_project` refuses `elab_debug`, `stop_time` and
     the other `vivado_sim` settings ("use `flows.vivado_sim.<name>`"); `ghdl_synth` refuses
@@ -315,7 +317,7 @@ fail and name both origins. A command-line leaf (`-s yosys_fpga.fpga.part=...`) 
 a flow that is not in the run reaches no node.
 
 A Bluespec design runs on every flow that reads Verilog sources (`yosys`, `yosys_fpga`,
-`vivado_synth`, `verilator` and others). When `rtl.sources` holds a language the flow does not read
+`vivado_synth`, `verilator`, `iverilog` and others). When `rtl.sources` holds a language the flow does not read
 and one flow converts it, that flow (today `bsc`) is the default producer of the `design` input:
 `xeda run yosys examples/bluespec/gcd/gcd.yaml` plans `design <- bsc.design (the design has
 Bluespec sources, which yosys does not read)`. The OpenROAD flows read no design sources: `xeda run

@@ -13,7 +13,14 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import __builtin_flows__
 from xeda.tool import ToolException
 
-from .tool_utils import require_cocotb, require_ghdl, require_nvc, require_verilator
+from .tool_utils import (
+    cocotb_safe_vvp,  # noqa: F401  (a fixture, used by name)
+    require_cocotb,
+    require_ghdl,
+    require_iverilog_evidence,
+    require_nvc,
+    require_verilator,
+)
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -38,9 +45,19 @@ _INVERTER = {
 #: Every flow in `COCOTB_FLOWS` needs an entry, so a new cocotb simulator joins these tests.
 _COCOTB_SIMULATORS: Dict[str, Tuple[Callable[[], None], str]] = {
     "ghdl_sim": (require_ghdl, "vhdl"),
+    "iverilog": (require_iverilog_evidence, "verilog"),
     "nvc": (require_nvc, "vhdl"),
     "verilator": (require_verilator, "verilog"),
 }
+
+
+@pytest.fixture(autouse=True)
+def _cocotb_vvp(request):
+    """The cocotb runs of `iverilog` use a `vvp` that keeps the Python of cocotb."""
+    callspec = getattr(request.node, "callspec", None)
+    if callspec is not None and callspec.params.get("flow_name") == "iverilog":
+        request.getfixturevalue("cocotb_safe_vvp")
+
 
 _TEST_HEADER = "import cocotb\nfrom cocotb.triggers import Timer\n"
 

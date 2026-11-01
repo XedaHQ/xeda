@@ -111,6 +111,7 @@ EXPECTED_READS = {
     "yosys_sim": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader Cpp",
     "verilator": "Verilog SystemVerilog VerilogHeader SVHeader Cpp",
     "ghdl_sim": "Vhdl",
+    "iverilog": "Verilog SystemVerilog VerilogHeader SVHeader",
     "ghdl_synth": "Vhdl",
     "nvc": "Vhdl",
     "modelsim": "Verilog SystemVerilog Vhdl",

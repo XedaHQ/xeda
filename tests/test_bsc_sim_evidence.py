@@ -10,6 +10,7 @@ from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.bsc import BscSim
+from xeda.flows.iverilog import build_end_monitor
 
 from .tool_utils import require_bluesim_evidence
 from .tool_utils import HANG_GUARD
@@ -542,7 +543,7 @@ def test_iverilog_builtin_registration_capability(tmp_path, task):
     run = tmp_path / "probe"
     run.mkdir()
     flow = BscSim({"simulator": "iverilog"}, design, run)
-    flow._build_iverilog_monitor()
+    build_end_monitor(flow, flow.bsc)
     source = run / "probe.v"
     source.write_text(
         "`timescale 1ns/1ps\nmodule probe; initial begin #5; "
@@ -586,7 +587,10 @@ def test_iverilog_builtin_registration_capability(tmp_path, task):
         env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
     )
     assert drained.returncode == 0
-    assert not (run / "xeda_end.json").exists(), "A drained queue must not look like a quiet finish"
+    record = json.loads((run / "xeda_end.json").read_text())
+    assert (
+        record["ended_by"] == "unknown" and record["events"] == []
+    ), "A drained queue must not look like a quiet finish"
 
 
 def test_iverilog_helper_compiles_with_installed_headers(tmp_path):
@@ -601,7 +605,7 @@ def test_iverilog_helper_compiles_with_installed_headers(tmp_path):
     run = tmp_path / "probe"
     run.mkdir()
     flow = BscSim({"simulator": "iverilog"}, design, run)
-    flow._build_iverilog_monitor()
+    build_end_monitor(flow, flow.bsc)
     assert (run / "iverilog_evidence.vpi").is_file()
 
 
