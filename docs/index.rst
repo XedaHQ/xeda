@@ -23,6 +23,7 @@ To drive Xeda from a script or a coding agent, read :doc:`machine-readable`.
    run-directories
    remote
    machine-readable
+   stability
    bugs
    copyright
    license
