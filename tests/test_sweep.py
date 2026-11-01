@@ -831,6 +831,47 @@ def test_points_with_different_generation_keys_each_generate_once(tmp_path, monk
     assert len(world.storages()) == 2 and world.runs == 2
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="the node identity holds no part of the generator recipe: points whose generators "
+    "differ only in their arguments are one node, so the sweep shares the first generation's "
+    "result (or fails with StalePlanError, or refuses equal_specs)",
+)
+@pytest.mark.parametrize(
+    "case",
+    [
+        "seeds",  # one name, other seeds: the sweep shares a node that read the other generation
+        "names",  # other names: the shared node runs in the other point's run directory
+        "args_only",  # nothing else varies: the sweep refuses the points as one run
+    ],
+)
+def test_points_whose_generators_differ_only_in_their_arguments_are_other_nodes(
+    tmp_path, monkeypatch, case
+):
+    world = _generating(tmp_path, monkeypatch)
+    base = world.load()
+    workspace = Workspace(world.run_root, hashed_run_dirs=True)
+    specs = []
+    for index, width in enumerate(("8", "16")):
+        updates: dict = {"rtl.generator.args": ["$DESIGN_ROOT/gen.py", str(world.counter), width]}
+        if case == "names":
+            updates["name"] = f"counter{width}"
+        specs.append(_spec(base.with_updates(updates), index + 1 if case == "seeds" else 1))
+    result = workspace.sweep(specs)
+    assert result.counts() == {Outcome.PASSED: 2}
+    assert _dispositions(result, "yosys_fpga") == ["ran", "ran"]
+    read = [
+        {
+            source.generation
+            for item in point.result.nodes["yosys_fpga"].record.inputs
+            for source in item.sources
+            if source.generated
+        }
+        for point in result
+    ]
+    assert len(read[0]) == len(read[1]) == 1 and read[0] != read[1], "each point reads its own"
+
+
 def _another_generation(storage: Path) -> None:
     """Replace the generation in `storage` with another one of the same key, as a launch that ran
     the generator again would: other files, and a record that vouches for them."""
