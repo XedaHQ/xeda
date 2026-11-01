@@ -831,12 +831,6 @@ def test_points_with_different_generation_keys_each_generate_once(tmp_path, monk
     assert len(world.storages()) == 2 and world.runs == 2
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the node identity holds no part of the generator recipe: points whose generators "
-    "differ only in their arguments are one node, so the sweep shares the first generation's "
-    "result (or fails with StalePlanError, or refuses equal_specs)",
-)
 @pytest.mark.parametrize(
     "case",
     [
@@ -870,6 +864,24 @@ def test_points_whose_generators_differ_only_in_their_arguments_are_other_nodes(
         for point in result
     ]
     assert len(read[0]) == len(read[1]) == 1 and read[0] != read[1], "each point reads its own"
+
+
+def test_generator_variants_of_one_name_need_hashed_run_directories(tmp_path, monkeypatch):
+    world = _generating(tmp_path, monkeypatch)
+    base = world.load()
+    specs = [
+        _spec(
+            base.with_updates(
+                {"rtl.generator.args": ["$DESIGN_ROOT/gen.py", str(world.counter), width]}
+            ),
+            1,
+        )
+        for width in ("8", "16")
+    ]
+    with pytest.raises(SpecError) as caught:
+        Workspace(world.run_root).sweep(specs)
+    assert caught.value.code == "colliding_run_dirs"
+    assert "hashed_run_dirs=True" in str(caught.value)
 
 
 def _another_generation(storage: Path) -> None:

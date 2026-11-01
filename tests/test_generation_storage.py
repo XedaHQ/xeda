@@ -16,11 +16,15 @@ from pathlib import Path
 import pytest
 import yaml
 
+from typing import ClassVar
+
+from xeda.design import SourceType, generator_of
+from xeda.flow import Flow, MetricSpec
 from xeda.flow_runner import run_lock
 from xeda.frozen import thaw
 from xeda.flow_runner.launch_generation import generation_key
 from xeda.flow_runner.run_lock import lock_file
-from xeda.generation import RECORD_FORMAT, RECORD_NAME
+from xeda.generation import RECORD_FORMAT, RECORD_NAME, recipe_identity
 from xeda.outcomes import Outcome
 
 from .flow_registry import preserved_flow_registry
@@ -305,16 +309,76 @@ def test_the_configuration_names_a_generated_source_by_its_declaration(tmp_path)
     design = world.load()
     plan = runner.plan(flow, design)
     planned = plan.nodes[0]
-    assert thaw(planned.configuration["rtl"]["sources"]) == [
-        {"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog"}
-    ]
+    # The entry holds the recipe of its generator as written, and no content or digest.
+    recipe = recipe_identity(generator_of(design.rtl, root=design.root))
+    expected = [{"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog", "generator": recipe}]
+    assert thaw(planned.configuration["rtl"]["sources"]) == expected
     result = world.launch(flow, runner, design)
     assert result.outcome is Outcome.PASSED, result.error
     record = result.nodes[flow.name].record
-    assert thaw(record.configuration["rtl"]["sources"]) == [
-        {"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog"}
-    ]
+    assert thaw(record.configuration["rtl"]["sources"]) == expected
     assert record.identity == planned.flowrun_hash
+
+
+def _args(world: World, width: str) -> dict:
+    """The recipe of the variant `width`, which counts its runs in a file of its own."""
+    counter = f"{world.counter}.{width}"
+    return {"rtl.generator.args": ["$DESIGN_ROOT/gen.py", counter, width]}
+
+
+@pytest.mark.parametrize("reader", [reader_flow, input_reader_flow])
+def test_the_recipe_of_the_generator_is_part_of_the_identity_of_a_reader(tmp_path, reader):
+    flow = reader()
+    world = World(tmp_path)
+    runner = world.runner()
+    design = world.load()
+    identities = {
+        runner.plan(flow, design.with_updates(_args(world, width))).nodes[0].flowrun_hash
+        for width in ("8", "16")
+    }
+    assert len(identities) == 2
+
+
+def test_a_node_that_reads_no_generated_source_keeps_its_identity(tmp_path):
+    class TVerilogReader(Flow):
+        """Is judged on the Verilog sources of the design, none of which is generated."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+        reads_sources = frozenset({SourceType.Verilog})
+        design_source_types = frozenset({SourceType.Verilog})
+
+    world = World(
+        tmp_path,
+        sources=["top.v", "$XEDA_GENERATED/gen/top.xdc"],
+        generator={"generated_sources": ["$XEDA_GENERATED/gen/top.xdc"]},
+    )
+    (world.root / "top.v").write_text("module top; endmodule\n")
+    runner = world.runner()
+    design = world.load()
+    planned = [
+        runner.plan(TVerilogReader, design.with_updates(_args(world, width))).nodes[0]
+        for width in ("8", "16")
+    ]
+    assert planned[0].flowrun_hash == planned[1].flowrun_hash
+    assert thaw(planned[0].configuration["rtl"]["sources"]) == [
+        {"path": "top.v", "type": "Verilog"}
+    ]
+
+
+def test_each_variant_of_a_generator_has_its_own_run_and_reuses_it(tmp_path):
+    flow = reader_flow()
+    world = World(tmp_path)
+    runner = world.runner(hashed_run_dirs=True)
+    design = world.load()
+    seen = []
+    for width in ("8", "16", "8", "16"):
+        result = world.launch(flow, runner, design.with_updates(_args(world, width)))
+        assert result.outcome is Outcome.PASSED, result.error
+        node = result.nodes[flow.name]
+        seen.append((str(node.disposition), node.record.run_dir, node.record.metrics["seen"]))
+    assert [disposition for disposition, _, _ in seen] == ["ran", "ran", "reused", "reused"]
+    assert seen[0][1] != seen[1][1] and seen[0][1:] == seen[2][1:] and seen[1][1:] == seen[3][1:]
+    assert seen[0][2].endswith("W=8\n") and seen[1][2].endswith("W=16\n")
 
 
 def test_a_record_names_a_generated_input_by_its_name_and_the_key_of_its_storage(tmp_path):

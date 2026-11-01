@@ -569,7 +569,9 @@ selected direct executable. The storage holds the files that the generator wrote
 ``generation.yaml``, with the digest of every generated source that the last generation left and the
 digest of the environment that the generator inherited. The generator therefore runs again only
 when one of its inputs changed. Indirect tools and the packages that the generator uses stay
-outside this identity. The generator starts in the design root, or in its ``cwd`` below it. It
+outside this identity. The run hash of a flow that reads a generated source holds the recipe of its
+generator as written, so two recipes (other ``args``, say) are two runs; a change of a file that the
+generator reads only makes the run stale. The generator starts in the design root, or in its ``cwd`` below it. It
 writes each generated source under ``$XEDA_GENERATED``, the storage, or into the design tree, as the
 entry of ``rtl.sources`` says. Xeda copies a tree file that the generation wrote into the storage,
 under ``.xeda-tree/<path>``, and the flows read that copy. Xeda never writes or deletes a file in

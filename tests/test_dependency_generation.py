@@ -190,6 +190,17 @@ def test_a_change_of_the_recipe_of_a_dependency_regenerates_only_its_storage(tmp
     assert len(chain.storages("lib1")) == 2
 
 
+def test_the_recipe_of_a_dependency_generator_is_part_of_the_identity_of_a_reader(tmp_path):
+    chain = Chain(tmp_path)
+    flow = reader_flow()
+    before = chain.runner().plan(flow, chain.load()).nodes[0].flowrun_hash
+    path = tmp_path / "lib1" / "lib1.yaml"
+    path.write_text(
+        path.read_text().replace("['$DESIGN_ROOT/gen.py', 'lib1'", "['$DESIGN_ROOT/gen.py', 'lib9'")
+    )
+    assert chain.runner().plan(flow, chain.load()).nodes[0].flowrun_hash != before
+
+
 def test_the_inherited_environment_is_evidence_for_every_generator(tmp_path, monkeypatch):
     chain = Chain(tmp_path, depth=1, own=True)
     flow = reader_flow()

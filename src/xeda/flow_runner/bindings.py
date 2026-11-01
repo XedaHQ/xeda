@@ -18,6 +18,7 @@ from ..flow import Flow, FlowSettingsException
 from ..flow.io import declared_inputs, declared_outputs
 from ..utils import semantic_hash
 from .chains import ChainLink, FlowRequest, close_names
+from .configuration import generated_by
 from .settings_layers import merge_flow_sections, registered_flow
 
 #: The key of a flow section that holds input bindings. It is wiring, never a setting:
@@ -394,8 +395,8 @@ def input_origins(
     the design root (`Design.source_place`) and the entry holds no content, so two netlists are
     two origins, and the same netlist in two checkouts is one. A file of a dependency is
     `(path, type, index)`: the index of its entry in `dependencies` tells the origins apart that
-    differ only in the dependency. The origin of an input that
-    producers supply is its ordered `(producer identity, output key)` references, and none for an
+    differ only in the dependency. A generated file also holds the recipe of its generator as
+    written (`configuration.generated_by`). The origin of an input that producers supply is its ordered `(producer identity, output key)` references, and none for an
     absent input. `inputs` are the `ResolvedInput`s of a plan node. `identity_of` gives the
     identity of the plan node that a reference names, so producers are identified before their
     consumers. The order of the references and of the files counts. Where a binding was written
@@ -406,7 +407,10 @@ def input_origins(
     def entry(source: Any) -> tuple[Any, ...]:
         place, kind = design.source_place(source), source.type.name
         # A file of a dependency also says which entry of `dependencies` it comes from.
-        return (place, kind) if source.dependency is None else (place, kind, source.dependency)
+        found = (place, kind) if source.dependency is None else (place, kind, source.dependency)
+        # A generated file also says what recipe writes it.
+        recipe = generated_by(design, source)
+        return found if recipe is None else (*found, recipe)
 
     def origin(resolved: Any) -> Any:
         if resolved.origin == "source":

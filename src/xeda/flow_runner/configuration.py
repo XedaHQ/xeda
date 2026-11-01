@@ -13,7 +13,8 @@ The shape is that of a part of `Design.to_dict()`:
 
 - for each part of `Flow.design_parts` (`rtl`, `tb`): its metadata (`Design.part_metadata`) and,
   for a node that reads the design's sources, its `sources`, a list of `{path, type}` (a file of a
-  Git dependency also says which dependency, and its path is in the checkout);
+  Git dependency also says which dependency, and its path is in the checkout; a generated source
+  also holds the recipe of its generator as written, `generated_by`);
 - `language`, when the node reads `rtl`;
 - for a design that a converter derives, the conversion (`converted_from`, `transforms`,
   `produces`) and no `sources`.
@@ -26,10 +27,11 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from typing import Any
 
-from ..design import Design, Source, SourceType
+from ..design import Design, Source, SourceType, generator_of
 from ..flow import Flow
 from ..flow.derived import DesignConversion
 from ..frozen import thaw
+from ..generation import recipe_identity
 from ..utils import plain_json, semantic_hash
 
 __all__ = [
@@ -37,6 +39,7 @@ __all__ = [
     "conversion_descriptor",
     "design_configuration",
     "design_configuration_hash",
+    "generated_by",
     "node_configuration",
     "source_entries",
 ]
@@ -54,12 +57,34 @@ def conversion_descriptor(producer: str, conversion: DesignConversion) -> dict[s
     }
 
 
+def generated_by(design: Design, source: Source) -> dict[str, Any] | None:
+    """Return the recipe of the generator that writes `source` (`generation.recipe_identity`),
+    or None for a source that no generator writes.
+
+    The generator is that of `design`, or that of the unit of generation that owns the source
+    (`Source.owner`, `Design.generation_units`). The recipe is as written: it holds no content
+    and no digest, so two designs whose generators differ only in their arguments read two
+    configurations, and an edit of a generator's script is evidence of freshness only."""
+    if not source.generated:
+        return None
+    if source.owner is None:
+        unit = design
+    else:
+        units = {unit.generation_label: unit for unit in design.generation_units}
+        if source.owner not in units:
+            raise ValueError(f"no unit of generation of {design.name} owns {source.path}")
+        unit = units[source.owner]
+    generator = generator_of(unit.rtl, root=unit.root)
+    return None if generator is None else recipe_identity(generator)
+
+
 def source_entries(
     design: Design,
     sources: tuple[Source, ...],
     scope: Collection[SourceType] | None,
     *,
     ownership: bool = False,
+    recipes: bool = False,
 ) -> list[dict[str, Any]]:
     """Return the `{path, type}` of each source in `scope` (None: all), in design order.
 
@@ -83,6 +108,8 @@ def source_entries(
             entry["dependency"] = source.dependency
         if ownership:
             entry["generated"] = source.generated
+        if recipes and (recipe := generated_by(design, source)) is not None:
+            entry["generator"] = recipe
         entries.append(entry)
     return entries
 
@@ -130,7 +157,9 @@ def node_configuration(
             continue
         entry = design.part_metadata(part)
         if reads:
-            entry["sources"] = source_entries(design, getattr(design, part).sources, scope)
+            entry["sources"] = source_entries(
+                design, getattr(design, part).sources, scope, recipes=True
+            )
         configuration[part] = entry
     if "rtl" in flow_class.design_parts:
         configuration["language"] = thaw(design.language)
