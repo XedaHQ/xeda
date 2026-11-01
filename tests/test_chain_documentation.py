@@ -791,7 +791,8 @@ def test_flows_without_outputs_end_a_chain_and_only_a_flow_that_reads_sources_bi
     routed checkpoint), but not `nextpnr`: its netlists are FPGA netlists, and `nextpnr` takes a
     JSON netlist."""
     listed = {
-        f["name"]: f for f in json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)
+        f["name"]: f
+        for f in json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)["flows"]
     }
     assert [e["flow"] for e in listed["vivado_synth"]["can_precede"]] == [
         "openfpgaloader",

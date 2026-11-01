@@ -62,11 +62,14 @@ document:
 Discovering what to run
 =======================
 
-``xeda list-flows --json`` returns a list with one object per flow:
+``xeda list-flows --json`` returns an object with ``schema_version: 1`` and a ``flows`` list.
+Each entry describes one flow:
 
 .. code-block:: json
 
     {
+      "schema_version": 1,
+      "flows": [{
       "name": "vivado_postsynth_sim",
       "class": "VivadoPostsynthSim",
       "module": "xeda.flows.vivado.vivado_postsynthsim",
@@ -79,6 +82,7 @@ Discovering what to run
       "inputs": ["..."], "outputs": ["..."],
       "can_follow": [], "can_precede": ["..."],
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
+      }]
     }
 
 ``name`` is the name of the flow, the only name that Xeda accepts for it. ``dependencies`` are
@@ -155,6 +159,7 @@ under the name of the setting in its flow. Write the flow before it on the comma
 .. code-block:: json
 
     {
+      "schema_version": 1,
       "flow": "vivado_synth",
       "settings_class": "xeda.flows.vivado.vivado_synth.VivadoSynth.Settings",
       "fields": [
@@ -241,6 +246,7 @@ its artifacts (see :ref:`artifact-keys`):
 .. code-block:: json
 
     {
+      "schema_version": 1,
       "flow": "vivado_synth",
       "metrics": [
         {"path": "fmax", "description": "Maximum achievable clock frequency, ...",

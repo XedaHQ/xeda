@@ -638,4 +638,6 @@ earlier runs. Import only from `xeda`, `xeda.errors` and `xeda.introspect`.
 A `Design` and everything in it is read-only (assigning raises an error). Change a copy with
 `design.model_copy(update=...)`, then call `invalidate_cached_properties()` on it.
 
-`xeda.introspect` returns the data the CLI's `--json` renders.
+`xeda.introspect` returns the data the CLI renders. Each `list-* --json` document has
+`schema_version: 1`. Its entries are under `flows`, `fields`, `metrics`, `boards`, `platforms`,
+or `optimizers`, respectively.

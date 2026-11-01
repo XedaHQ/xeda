@@ -402,7 +402,7 @@ def test_an_explicit_yaml_project_binds_below_the_design_and_names_its_file(tmp_
 def _listed():
     result = CliRunner().invoke(cli, ["list-flows", "--json"])
     assert result.exit_code == 0, result.output
-    return {flow["name"]: flow for flow in json.loads(result.stdout)}
+    return {flow["name"]: flow for flow in json.loads(result.stdout)["flows"]}
 
 
 def _real(edges):

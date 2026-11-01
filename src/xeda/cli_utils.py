@@ -797,6 +797,8 @@ def print_flow_settings(
     ]
     if output_format != "table":
         document = {**info, "fields": fields}
+        if output_format == "json":
+            document = {"schema_version": 1, **document}
         emit_structured(
             document,
             output_format,

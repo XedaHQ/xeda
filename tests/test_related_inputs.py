@@ -280,7 +280,7 @@ def test_list_flows_shows_the_relation():
     assert power["checkpoint"]["same_producer_as"] == "activity"
     assert power["checkpoint"]["via"] == "netlist_timing"
     documents = json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)
-    listed = {flow["name"]: flow for flow in documents}["vivado_power"]["inputs"]
+    listed = {flow["name"]: flow for flow in documents["flows"]}["vivado_power"]["inputs"]
     assert {item["name"]: item["same_producer_as"] for item in listed} == {
         "activity": None,
         "checkpoint": "activity",
