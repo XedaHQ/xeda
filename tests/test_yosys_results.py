@@ -15,7 +15,7 @@ import pytest
 
 from xeda import Design
 from xeda.flows import Yosys
-from xeda.introspect import results_info
+from xeda.introspect import results_class_info
 
 from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import HANG_GUARD
@@ -48,7 +48,7 @@ def parsed_flow(tmp_path: Path) -> Yosys:
 
 def test_every_documented_key_is_actually_reported(parsed_flow: Yosys):
     """A key in `results_description` that `parse_reports` never writes is a false promise."""
-    flow_specific = [m["path"] for m in results_info(Yosys)["metrics"]]
+    flow_specific = [m["path"] for m in results_class_info(Yosys)["metrics"]]
     undelivered = sorted(k for k in flow_specific if parsed_flow.results.get(k) is None)
     assert not undelivered, (
         f"`xeda list-results yosys` advertises {undelivered}, but parse_reports() does not "

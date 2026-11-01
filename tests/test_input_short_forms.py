@@ -11,7 +11,7 @@ from xeda.design import Design, DesignValidationError
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flows import VivadoSynth
-from xeda.introspect import settings_info
+from xeda.introspect import settings_class_info
 
 from .scoping import scoped
 
@@ -118,7 +118,7 @@ def test_higher_flow_short_forms_merge_as_tables(name):
 
 
 def test_list_settings_advertises_input_only_clock():
-    fields = {field["name"]: field for field in settings_info(VivadoSynth)["fields"]}
+    fields = {field["name"]: field for field in settings_class_info(VivadoSynth)["fields"]}
     assert fields["clock"]["json_schema"]["x-xeda-input-only"] is True
     assert "clock" not in VivadoSynth.Settings.model_fields
 

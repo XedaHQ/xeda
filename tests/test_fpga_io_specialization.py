@@ -372,7 +372,7 @@ def test_selected_producer_output_can_feed_a_narrow_static_input(tmp_path):
 
 
 def test_dry_run_exposes_selected_types_and_catalog_keeps_the_vocabulary_union(tmp_path):
-    from xeda.introspect import flow_info
+    from xeda.introspect import flow_class_info
 
     from .plan_documents import plan_nodes
 
@@ -386,7 +386,7 @@ def test_dry_run_exposes_selected_types_and_catalog_keeps_the_vocabulary_union(t
     assert node["input_types"]["sdc"] == ["Sdc"]
     assert node["output_types"]["config"] == ["EcpConfig"]
     constraints = next(
-        entry for entry in flow_info(Nextpnr)["inputs"] if entry["name"] == "constraints"
+        entry for entry in flow_class_info(Nextpnr)["inputs"] if entry["name"] == "constraints"
     )
     assert constraints["types"] == ["Lpf", "Pcf", "Pdc", "Xdc"]
     assert not (tmp_path / "run").exists()

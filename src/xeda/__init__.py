@@ -49,6 +49,9 @@ _LAZY_EXPORTS = {
     "UNSET": (".types", "UNSET"),
     "Unset": (".types", "Unset"),
     "Workspace": (".workspace", "Workspace"),
+    "load": (".workspace_verbs", "load"),
+    "run": (".workspace_verbs", "run"),
+    "scrub": (".workspace_verbs", "scrub"),
 }
 
 __all__ = [
@@ -89,6 +92,9 @@ __all__ = [
     "Unset",
     "Workspace",
     "__version__",
+    "load",
+    "run",
+    "scrub",
 ]
 
 if TYPE_CHECKING:
@@ -155,6 +161,11 @@ if TYPE_CHECKING:
     )
     from .workspace import (
         Workspace as Workspace,
+    )
+    from .workspace_verbs import (
+        load as load,
+        run as run,
+        scrub as scrub,
     )
 
 

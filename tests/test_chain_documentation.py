@@ -32,7 +32,12 @@ from xeda.frozen import thaw
 from xeda.flow_runner.bindings import split_bindings
 from xeda.flow_runner.chains import complete_request, parse_request
 from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
-from xeda.introspect import all_flow_classes, design_schema, flow_info, settings_info
+from xeda.introspect import (
+    all_flow_classes,
+    design_schema,
+    flow_class_info,
+    settings_class_info,
+)
 
 from . import tool_utils
 from .flow_registry import is_product_flow
@@ -247,7 +252,7 @@ def test_a_saved_binding_is_resolver_input_and_not_a_flow_setting(tmp_path):
     """`inputs` is documented as wiring: no flow lists it as a setting, a flow section that
     holds it still validates once it is split out, and what runs records no such setting."""
     for flow in ("yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"):
-        listed = {f["name"] for f in settings_info(get_flow_class(flow))["fields"]}
+        listed = {f["name"] for f in settings_class_info(get_flow_class(flow))["fields"]}
         assert "inputs" not in listed, flow
     result = CliRunner().invoke(cli, ["list-settings", "nextpnr", "--json"])
     assert "inputs" not in {f["name"] for f in json.loads(result.stdout)["fields"]}
@@ -796,7 +801,7 @@ def test_flows_without_outputs_end_a_chain_and_only_a_flow_that_reads_sources_bi
         info = listed[flow]
         assert info["can_precede"] == [], flow
         assert [i["name"] for i in info["inputs"]] == ["design"] and info["outputs"] == [], flow
-        assert [i["name"] for i in flow_info(get_flow_class(flow))["inputs"]] == ["design"]
+        assert [i["name"] for i in flow_class_info(get_flow_class(flow))["inputs"]] == ["design"]
     assert listed["bsc_sim"]["can_follow"] == []
     assert [e["flow"] for e in listed["vivado_project"]["can_follow"]] == ["bsc"]
     assert [e["flow"] for e in listed["bsc"]["can_follow"]] == []

@@ -68,19 +68,13 @@ from .utils import json_encodable, unique, with_json_keys
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "all_flow_classes",
-    "boards_info",
-    "design_info",
-    "design_schema",
-    "flow_info",
     "flows_info",
-    "json_safe",
-    "optimizers_info",
-    "platforms_info",
-    "provider_status",
-    "results_info",
+    "flow_info",
     "settings_info",
-    "settings_completion_info",
+    "results_info",
+    "design_schema",
+    "boards_info",
+    "platforms_info",
 ]
 
 
@@ -137,6 +131,13 @@ def flow_executables() -> List[str]:
     return unique([name for cls in all_flow_classes() for name in cls.executables])
 
 
+def _flow_named(flow: str) -> Type[Flow]:
+    """Return the flow class named `flow`, or raise `FlowNotFoundError`."""
+    if not isinstance(flow, str):
+        raise TypeError(f"expected a flow name (a str), not {type(flow).__name__}")
+    return get_flow_class(flow)
+
+
 def _resolve(flow: Union[str, Type[Flow]]) -> Type[Flow]:
     if isinstance(flow, str):
         return get_flow_class(flow)
@@ -187,7 +188,7 @@ def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     }
 
 
-def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+def flow_info(flow: str) -> Dict[str, Any]:
     """Return everything known about a flow without instantiating it.
 
     `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
@@ -199,6 +200,11 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     `target_dependent` when a union of types decides it and the target settings narrow that
     union. The resolved plan is authoritative.
     """
+    return flow_class_info(_flow_named(flow))
+
+
+def flow_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+    """Return `flow_info` for a flow class, also one that is not registered."""
     cls = _resolve(flow)
     candidates = all_flow_classes()
     return {
@@ -289,7 +295,7 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
 
 def flows_info() -> List[Dict[str, Any]]:
     """Return `flow_info` for every registered flow, ordered by canonical name."""
-    return [flow_info(cls) for cls in all_flow_classes()]
+    return [flow_class_info(cls) for cls in all_flow_classes()]
 
 
 #: The JSON Schema dialect that pydantic 2 emits. The published document declares it, so that a
@@ -607,7 +613,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
     return entries
 
 
-def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+def settings_info(flow: str) -> Dict[str, Any]:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
@@ -619,6 +625,11 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     that declares none is `common`. `group` is None outside a group. `definitions` describes the
     nested models.
     """
+    return settings_class_info(_flow_named(flow))
+
+
+def settings_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+    """Return `settings_info` for a flow class, also one that is not registered."""
     cls = _resolve(flow)
     schema = cls.Settings.model_json_schema(by_alias=True)
     return {
@@ -891,13 +902,18 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
     return entries
 
 
-def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+def results_info(flow: str) -> Dict[str, Any]:
     """Return the metrics and the artifacts that a flow can write to `results.json`.
 
     Each metric is `{path, description, type, unit}`. The other fields of the record (`outcome`,
     `runtime`, ...) are no metrics and are not listed. Each artifact is `{key, description,
     when}`: one file of the run directory, present when the run wrote it.
     """
+    return results_class_info(_flow_named(flow))
+
+
+def results_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+    """Return `results_info` for a flow class, also one that is not registered."""
     cls = _resolve(flow)
     metrics = [
         {
@@ -1126,7 +1142,7 @@ def _accept_single_items(schema: Dict[str, Any]) -> None:
                 properties[name] = _widen(spec, [spec["items"]])
 
 
-def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
+def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
     """Return the JSON Schema of a Xeda design file (YAML, TOML or JSON).
 
     By default the schema describes the input syntax: everything a design file may contain,
