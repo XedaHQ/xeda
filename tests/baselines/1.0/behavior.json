@@ -2,952 +2,1460 @@
   "cli": {
     "xeda": {
       "removed_d_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "-d"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_debug_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--debug"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_q_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "-q"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_quiet_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--quiet"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_v_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "-v"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_verbose_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--verbose"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "version": {
+        "default": "Sentinel",
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--version"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda completion": {
       "stdout": {
+        "default": "Sentinel",
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--stdout"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda design-schema": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "json",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda dse": {
       "config": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--config"
-        ]
+        ],
+        "required": false,
+        "type": "file"
       },
       "design_allow_extra": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design-allow-extra",
           "--no-design-allow-extra"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "design_name": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--design-name"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "detailed_logs": {
+        "default": true,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--detailed-logs",
           "--no-detailed-logs"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "dse_settings": {
+        "default": [],
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--dse-settings"
-        ]
+        ],
+        "required": false,
+        "type": "tuple"
       },
       "flow_settings": {
+        "default": [],
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--settings",
           "-s"
-        ]
+        ],
+        "required": false,
+        "type": "tuple"
       },
       "init_freq_high": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--init-freq-high"
-        ]
+        ],
+        "required": false,
+        "type": "float"
       },
       "init_freq_low": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--init-freq-low"
-        ]
+        ],
+        "required": false,
+        "type": "float"
       },
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "log_level": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--log-level"
-        ]
+        ],
+        "required": false,
+        "type": "integer"
       },
       "max_workers": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--max-workers"
-        ]
+        ],
+        "required": false,
+        "type": "integer"
       },
       "no_config": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--no-config"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "no_target": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--no-target"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "optimizer": {
+        "default": "fmax_optimizer",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--optimizer"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "optimizer_settings": {
+        "default": [],
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--optimizer-settings"
-        ]
+        ],
+        "required": false,
+        "type": "tuple"
       },
       "removed_d_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "-d"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_debug_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--debug"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_design_file_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design-file"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_design_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_flow_settings_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--flow-settings"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_init_freq_high_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--init_freq_high"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_init_freq_low_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--init_freq_low"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "run_root": {
+        "default": "xeda_run",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--run-root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "target": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--target"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "xeda_run_dir": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--xeda-run-dir"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "xedaproject": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--xedaproject"
-        ]
+        ],
+        "required": false,
+        "type": "file"
       }
     },
     "xeda help": {
       "search": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--search"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       }
     },
     "xeda list-boards": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda list-flows": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda list-optimizers": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda list-platforms": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda list-results": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda list-settings": {
       "common": {
+        "default": true,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--common",
           "--no-common"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       },
       "tier": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--tier"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       }
     },
     "xeda pdk": {},
     "xeda pdk help": {
       "search": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--search"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       }
     },
     "xeda pdk install": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       },
       "platform_file": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--platform-file"
-        ]
+        ],
+        "required": false,
+        "type": "file"
       },
       "provider": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--provider"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       },
       "root": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "version": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--version"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "yes": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--yes"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda pdk list": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       },
       "root": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       }
     },
     "xeda pdk path": {
       "corner": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--corner"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "output_format": {
+        "default": "table",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--format"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       },
       "platform_file": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--platform-file"
-        ]
+        ],
+        "required": false,
+        "type": "file"
       },
       "provider": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--provider"
-        ]
+        ],
+        "required": false,
+        "type": "choice"
       },
       "root": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "version": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--version"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       }
     },
     "xeda remote": {},
     "xeda remote attach": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "run_root": {
+        "default": "xeda_run",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--run-root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       }
     },
     "xeda remote cancel": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "run_root": {
+        "default": "xeda_run",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--run-root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       }
     },
     "xeda remote check": {
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda remote clean": {
       "everything": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--all"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "older_than": {
+        "default": 30.0,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--older-than"
-        ]
+        ],
+        "required": false,
+        "type": "float range"
       },
       "yes": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--yes"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda remote help": {
       "search": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--search"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       }
     },
     "xeda run": {
       "cached_dependencies": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--cached-dependencies",
           "--no-cached-dependencies"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "clean": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--clean"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "config": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--config"
-        ]
+        ],
+        "required": false,
+        "type": "file"
       },
       "cwd": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--cwd"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "design_allow_extra": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design-allow-extra",
           "--no-design-allow-extra"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "design_name": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--design-name"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "design_updates": {
+        "default": [],
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--design-updates"
-        ]
+        ],
+        "required": false,
+        "type": "tuple"
       },
       "detailed_logs": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--detailed-logs",
           "--no-detailed-logs"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "dry_run": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--dry-run"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "fetch_all": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--fetch-all"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "flow_settings": {
+        "default": [],
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--settings",
           "-s"
-        ]
+        ],
+        "required": false,
+        "type": "tuple"
       },
       "hashed_run_dirs": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--hashed-run-dirs"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "incremental": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--incremental",
           "--no-incremental"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "keep_running": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--keep-running"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "log_level": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--log-level"
-        ]
+        ],
+        "required": false,
+        "type": "integer"
       },
       "no_config": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--no-config"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "no_target": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--no-target"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "outputs_to": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--outputs-to"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "overwrite_outputs": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--overwrite-outputs"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "post_cleanup": {
+        "default": "Sentinel",
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--post-cleanup"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "post_cleanup_purge": {
+        "default": "Sentinel",
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--post-cleanup-purge"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "prune_variants": {
+        "default": "Sentinel",
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--prune-variants"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "rebuild_all": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--rebuild-all"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "remote": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--remote"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_d_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "-d"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_debug_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--debug"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_design_file_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design-file"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_design_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_design_overrides_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--design-overrides"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_flow_settings_option": {
+        "default": null,
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--flow-settings"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "removed_help_settings_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--help-settings"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_list_settings_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--list-settings"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "removed_scrub_option": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--scrub"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "run_root": {
+        "default": "xeda_run",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--run-root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "target": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--target"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "xeda_run_dir": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--xeda-run-dir"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "xedaproject": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--xedaproject"
-        ]
+        ],
+        "required": false,
+        "type": "file"
       },
       "yes": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--yes"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda scrub": {
       "incremental": {
+        "default": null,
         "flag": true,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--incremental",
           "--no-incremental"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "json_flag": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--json"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       },
       "run_root": {
+        "default": "xeda_run",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--run-root"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "target": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--target"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "xeda_run_dir": {
+        "default": "Sentinel",
         "flag": false,
         "hidden": true,
+        "multiple": false,
         "names": [
           "--xeda-run-dir"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       },
       "yes": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--yes"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda skill": {},
     "xeda skill help": {
       "search": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--search"
-        ]
+        ],
+        "required": false,
+        "type": "text"
       }
     },
     "xeda skill install": {
       "dest_dir": {
+        "default": null,
         "flag": false,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--dir"
-        ]
+        ],
+        "required": false,
+        "type": "directory"
       },
       "force": {
+        "default": false,
         "flag": true,
         "hidden": false,
+        "multiple": false,
         "names": [
           "--force"
-        ]
+        ],
+        "required": false,
+        "type": "boolean"
       }
     },
     "xeda skill reference": {}

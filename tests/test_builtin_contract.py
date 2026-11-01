@@ -1,5 +1,6 @@
 """Check the built-in flows and stable behavior against their release baseline."""
 
+import ast
 import copy
 import json
 
@@ -128,11 +129,22 @@ def test_the_private_files_have_their_names_places_and_keys() -> None:
     )
 
 
+def _literal_values(node: ast.expr) -> set[str]:
+    """The texts that an expression can evaluate to: a literal, or a branch of `or` or `if`."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value:
+        return {node.value}
+    if isinstance(node, ast.BoolOp):
+        return set().union(*map(_literal_values, node.values))
+    if isinstance(node, ast.IfExp):
+        return _literal_values(node.body) | _literal_values(node.orelse)
+    return set()
+
+
 def test_all_literal_codes_are_in_the_inventory() -> None:
-    import ast
     from pathlib import Path
     from xeda.flow_runner.error_codes import ALL_CODES, _SETTINGS_CODES
     from xeda import records
+    from xeda.flow_runner import error_codes
 
     found = set(_SETTINGS_CODES.values())
     found.update(
@@ -140,16 +152,17 @@ def test_all_literal_codes_are_in_the_inventory() -> None:
         for name in records.__all__
         if name.isupper() and isinstance(getattr(records, name), str)
     )
+    found.update(
+        value
+        for name, value in vars(error_codes).items()
+        if name.isupper() and isinstance(value, str) and value.islower()
+    )
     for path in (Path(__file__).parent.parent / "src" / "xeda").rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call):
-                found.update(
-                    k.value.value
-                    for k in node.keywords
-                    if k.arg == "code"
-                    and isinstance(k.value, ast.Constant)
-                    and isinstance(k.value.value, str)
-                )
+                for k in node.keywords:
+                    if k.arg == "code":
+                        found.update(_literal_values(k.value))
     assert found <= set().union(*ALL_CODES.values())
 
 

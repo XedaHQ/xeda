@@ -89,6 +89,9 @@
     "XedaError": [
       "internal_error"
     ],
+    "cli": [
+      "usage_error"
+    ],
     "launch": [
       "canceled",
       "cleanup_failed",

@@ -218,6 +218,7 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
             "flow_not_importable",
         ]
     ),
+    "cli": frozenset(["usage_error"]),
     "launch": frozenset(
         [
             "generator_failed",

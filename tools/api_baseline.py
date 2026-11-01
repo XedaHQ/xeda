@@ -372,6 +372,17 @@ def builtin_contract() -> dict[str, Any]:
     return {"flows": flows, "codes": {name: sorted(codes) for name, codes in ALL_CODES.items()}}
 
 
+def _option_default(value: Any) -> Any:
+    """A literal default as itself; any other default (a callable, a sentinel) by its type name."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (tuple, list)) and all(
+        isinstance(v, (bool, int, float, str)) for v in value
+    ):
+        return list(value)
+    return type(value).__name__
+
+
 def behavior_snapshot() -> dict[str, Any]:
     """Return the stable name grammars, private files, session variables, run-directory hash length
     and command-line interface."""
@@ -388,7 +399,15 @@ def behavior_snapshot() -> dict[str, Any]:
 
     def visit(command: Any, path: str) -> None:
         commands[path] = {
-            p.name: {"names": p.opts + p.secondary_opts, "flag": p.is_flag, "hidden": p.hidden}
+            p.name: {
+                "names": p.opts + p.secondary_opts,
+                "flag": p.is_flag,
+                "hidden": p.hidden,
+                "type": p.type.name,
+                "required": p.required,
+                "multiple": p.multiple,
+                "default": _option_default(p.default),
+            }
             for p in command.params
             if isinstance(p, click.Option)
         }
