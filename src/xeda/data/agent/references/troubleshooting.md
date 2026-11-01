@@ -160,7 +160,7 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
   Fix: end the testbench with `$finish` (VHDL `std.env.finish`).
 - `$finish`, VHDL `std.env.finish` and `std.env.stop` are accepted. Verilog `$stop` is an
   error-rank event and fails at the default threshold, except on `xezim`, which reports `$stop` as
-  `$finish`, so it passes there: a failing `xezim` testbench must use `$error` or `$fatal`. A nonzero exit always fails.
+  `$finish`, so it passes there: a failing `xezim` testbench must use `$error` or `$fatal`, or a UVM error or fatal report. A nonzero exit always fails.
 - cocotb: at least one test must run and none may fail; an all-skipped run fails. `cocotb.tests: 0`
   in `results.json` means no test was collected: check `tb.sources`.
 - Every simulator has `timeout` (per subprocess invocation that contains simulation) and

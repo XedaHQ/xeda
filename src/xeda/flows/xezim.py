@@ -223,8 +223,8 @@ class Xezim(SimFlow):
     annotation, code coverage and VCD and FST waveforms. A run passes on the native end line of
     this run and its diagnostics. xezim ends a run at a `$stop` as at a `$finish`, and reports
     both the same way, so a Verilog `$stop` passes here, unlike on other simulators. A
-    testbench that reports a failure must use `$error` or `$fatal`. Verified with xezim 0.11.2
-    and 0.11.4.
+    testbench that reports a failure must use `$error` or `$fatal`, or a UVM error or fatal
+    report. Verified with xezim 0.11.2 and 0.11.4.
     """
 
     executables = ("xezim",)

@@ -123,7 +123,7 @@ Artifacts: `log`, `waveform`, `saif`
 
 *supports cocotb testbenches | can follow: `bsc`*
 
-Simulate a Verilog or SystemVerilog design with xezim, a 4-state event-driven simulator. One process compiles and simulates. The flow supports cocotb testbenches, UVM, SDF timing annotation, code coverage and VCD and FST waveforms. A run passes on the native end line of this run and its diagnostics. xezim ends a run at a `$stop` as at a `$finish`, and reports both the same way, so a Verilog `$stop` passes here, unlike on other simulators. A testbench that reports a failure must use `$error` or `$fatal`. Verified with xezim 0.11.2 and 0.11.4.
+Simulate a Verilog or SystemVerilog design with xezim, a 4-state event-driven simulator. One process compiles and simulates. The flow supports cocotb testbenches, UVM, SDF timing annotation, code coverage and VCD and FST waveforms. A run passes on the native end line of this run and its diagnostics. xezim ends a run at a `$stop` as at a `$finish`, and reports both the same way, so a Verilog `$stop` passes here, unlike on other simulators. A testbench that reports a failure must use `$error` or `$fatal`, or a UVM error or fatal report. Verified with xezim 0.11.2 and 0.11.4.
 
 15 flow-specific settings (plus the common ones): `xeda list-settings xezim --json`
 

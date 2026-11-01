@@ -2860,14 +2860,16 @@ UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms.
 * A run passes on the end line that ``xezim`` writes in this run, and on its diagnostics. The
   line comes after all output of the design, so output of the design cannot stand in for it.
   ``** Fatal`` and ``UVM_FATAL`` end the run with ``sim.ended_by`` ``fatal``. ``** Error``,
-  ``UVM_ERROR``, ``[xezim][error]`` and a ``let`` error count as errors, and ``** Warning``,
-  ``UVM_WARNING``, ``[xezim][warning]`` and ``[WARN]`` during the simulation count as warnings.
+  ``UVM_ERROR``, ``[xezim][error]`` and a ``let`` error count as errors. ``** Warning`` and
+  ``UVM_WARNING`` count as warnings, and so do ``[xezim][warning]`` and ``[WARN]`` during the
+  simulation, except the warning that the default phase timeout of UVM prints on every UVM run.
   So a failed assertion, an ``illegal_bins`` hit, a timing violation and a failed UVM test fail at
   the default ``fail_severity``, although ``xezim`` exits with status 0 for all of them. A line
   that a testbench prints in one of these forms counts too. A plain ``Error:`` line does not.
   ``sim.time`` is in the finest time precision of the design.
 * ``xezim`` reports a Verilog ``$stop`` as ``$finish``. A ``$stop`` passes on this flow, unlike on
-  the other simulators. A testbench that reports a failure must use ``$error`` or ``$fatal``.
+  the other simulators. A testbench that reports a failure must use ``$error`` or ``$fatal``, or
+  a UVM error or fatal report.
 * A run that a signal stops fails, although ``xezim`` exits with status 0.
 * ``stop_time`` must be a positive whole number of nanoseconds. Planning refuses any other value.
   Without ``stop_time``, the flow lifts the default limit of 100 ms of simulated time, and a run
