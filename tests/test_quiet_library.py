@@ -480,5 +480,6 @@ def test_registering_a_flow_class_logs_only_at_debug(caplog):
         class QuietlyRegistered(Flow):
             """A flow that only registers."""
 
-    assert [r for r in caplog.records if "registering flow" in r.getMessage()]
+    ours = [r for r in caplog.records if "registering flow QuietlyRegistered " in r.getMessage()]
+    assert [r.levelno for r in ours] == [logging.DEBUG]
     assert [r for r in caplog.records if r.levelno > logging.DEBUG] == []
