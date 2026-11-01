@@ -134,7 +134,7 @@ def store(tmp_path: Path) -> Path:
 def test_list_platforms_lists_nangate45_as_not_installed_in_an_empty_home(home):
     proc = run_xeda("list-platforms", "--json", home=home)
     assert proc.returncode == 0, proc.stderr
-    rows = {row["platform"]: row for row in document(proc)}
+    rows = {row["platform"]: row for row in document(proc)["platforms"]}
     assert list(rows) == ["nangate45", "sky130hd"]
     entry = load_residue("nangate45").providers.orfs
     assert entry is not None
@@ -160,7 +160,7 @@ def test_list_platforms_lists_nangate45_as_not_installed_in_an_empty_home(home):
 def test_list_platforms_says_where_an_installed_platform_is(home):
     root = home / ".ciel"
     touch_all(nangate_directory(root), load_residue("nangate45"))
-    row = document(run_xeda("list-platforms", "--json", home=home))[0]
+    row = document(run_xeda("list-platforms", "--json", home=home))["platforms"][0]
     assert row["installed"] is True
     assert row["directory"] == str(nangate_directory(root))
 
@@ -169,7 +169,8 @@ def test_list_platforms_says_where_an_installed_ciel_platform_is(home):
     root = home / ".ciel"
     install_sky130(root)
     rows = {
-        row["platform"]: row for row in document(run_xeda("list-platforms", "--json", home=home))
+        row["platform"]: row
+        for row in document(run_xeda("list-platforms", "--json", home=home))["platforms"]
     }
     assert rows["sky130hd"]["installed"] is True
     assert rows["sky130hd"]["directory"] == str(sky130_directory(root))

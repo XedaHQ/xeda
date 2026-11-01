@@ -345,7 +345,7 @@ def test_inherited_declarations_keep_their_order_and_cardinality():
 def test_list_flows_json_publishes_the_declarations():
     result = CliRunner().invoke(cli, ["list-flows", "--json"])
     assert result.exit_code == 0, result.output
-    flows = {item["name"]: item for item in json.loads(result.stdout)}
+    flows = {item["name"]: item for item in json.loads(result.stdout)["flows"]}
     assert flows["t_taker"]["inputs"] == flow_class_info(TTaker)["inputs"]
     assert flows["t_maker"]["outputs"] == flow_class_info(TMaker)["outputs"]
     assert flows["t_taker"]["dependencies"] == ["t_maker"]

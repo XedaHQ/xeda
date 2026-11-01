@@ -57,6 +57,26 @@ def json_stdout(proc: subprocess.CompletedProcess):
         pytest.fail(f"stdout was not a single JSON document ({e})\nstdout:\n{proc.stdout}")
 
 
+@pytest.mark.parametrize(
+    "command,key",
+    [
+        (["list-flows"], "flows"),
+        (["list-settings", "vivado_synth"], "fields"),
+        (["list-results", "vivado_synth"], "metrics"),
+        (["list-boards"], "boards"),
+        (["list-platforms"], "platforms"),
+        (["list-optimizers"], "optimizers"),
+    ],
+)
+def test_list_json_document_is_versioned(command, key):
+    proc = run_xeda(*command, "--json")
+    assert proc.returncode == 0, proc.stderr
+    document = json_stdout(proc)
+    assert isinstance(document, dict)
+    assert document["schema_version"] == 1
+    assert isinstance(document[key], list)
+
+
 # --------------------------------------------------------------- errors always produce a document
 
 
@@ -181,7 +201,9 @@ def test_group_level_json_is_itself_a_usage_error():
 def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
     proc = run_xeda(*command, "--json", home=tmp_path)
     assert proc.returncode == 0, proc.stderr
-    assert {row["platform"] for row in json_stdout(proc)} == set(bundled_platform_names())
+    result = json_stdout(proc)
+    rows = result["platforms"] if command == ["list-platforms"] else result
+    assert {row["platform"] for row in rows} == set(bundled_platform_names())
 
 
 @pytest.mark.parametrize(
@@ -249,7 +271,7 @@ def test_the_removed_open_xc7_is_refused_by_name_with_its_replacements(name):
     assert proc.returncode != 0
     assert message in json_stdout(proc)["error"]["message"]
     listed = json_stdout(run_xeda("list-flows", "--json"))
-    names = [flow["name"] for flow in listed]
+    names = [flow["name"] for flow in listed["flows"]]
     assert "fpga_pack" in names and not [name for name in names if "xc7" in name.lower()]
 
 

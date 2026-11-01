@@ -244,7 +244,7 @@ def list_flows(output_format: str, json_flag: bool):
     fmt = resolve_format(output_format, json_flag)
     info = flows_info()
     if fmt != "table":
-        emit_structured(info, fmt)
+        emit_structured({"schema_version": 1, "flows": info} if fmt == "json" else info, fmt)
         return
     table = info_table(
         "Available flows",
@@ -327,7 +327,11 @@ def list_results(flow, output_format: str, json_flag: bool):
     fmt = resolve_format(output_format, json_flag)
     info = results_info(flow)
     if fmt != "table":
-        emit_structured(info, fmt, records=[{"flow": info["flow"], **m} for m in info["metrics"]])
+        emit_structured(
+            {"schema_version": 1, **info} if fmt == "json" else info,
+            fmt,
+            records=[{"flow": info["flow"], **m} for m in info["metrics"]],
+        )
         return
     table = info_table(
         f"{info['flow']} results",
@@ -386,7 +390,7 @@ def list_boards(output_format: str, json_flag: bool):
     fmt = resolve_format(output_format, json_flag)
     info = boards_info()
     if fmt != "table":
-        emit_structured(info, fmt)
+        emit_structured({"schema_version": 1, "boards": info} if fmt == "json" else info, fmt)
         return
     table = info_table(
         "Bundled FPGA boards",
@@ -417,7 +421,7 @@ def list_platforms(output_format: str, json_flag: bool):
     fmt = resolve_format(output_format, json_flag)
     info = platforms_info()
     if fmt != "table":
-        emit_structured(info, fmt)
+        emit_structured({"schema_version": 1, "platforms": info} if fmt == "json" else info, fmt)
         return
     table = info_table(
         "Bundled ASIC platforms",
@@ -497,7 +501,7 @@ def list_optimizers(output_format: str, json_flag: bool):
     fmt = resolve_format(output_format, json_flag)
     info = optimizers_info()
     if fmt != "table":
-        emit_structured(info, fmt)
+        emit_structured({"schema_version": 1, "optimizers": info} if fmt == "json" else info, fmt)
         return
     for optimizer in info:
         table = info_table(

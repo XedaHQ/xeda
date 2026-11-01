@@ -112,7 +112,7 @@ def test_query_command_yaml_is_parseable(command: List[str]):
 
 
 def test_list_flows_json_reports_the_name_of_each_flow():
-    flows = json.loads(run_xeda("list-flows", "--json").stdout)
+    flows = json.loads(run_xeda("list-flows", "--json").stdout)["flows"]
     by_name = {f["name"]: f for f in flows}
     for required in ("name", "class", "category", "dependencies", "description"):
         assert all(required in f for f in flows)
@@ -194,7 +194,7 @@ def test_list_settings_no_common_excludes_shared_settings():
 
 def test_list_results_lists_each_metric_with_a_type_and_a_unit():
     info = json.loads(run_xeda("list-results", "vivado_synth", "--json").stdout)
-    assert set(info) == {"flow", "metrics", "artifacts", "note"}
+    assert set(info) == {"schema_version", "flow", "metrics", "artifacts", "note"}
     metrics = {m["path"]: m for m in info["metrics"]}
     assert all(set(m) == {"path", "description", "type", "unit"} for m in metrics.values())
     assert (metrics["fmax"]["type"], metrics["fmax"]["unit"]) == ("number", "MHz")
