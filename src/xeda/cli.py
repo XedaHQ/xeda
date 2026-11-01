@@ -48,6 +48,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         print_results,
         print_run_tables,
         resolve_format,
+        dse_document,
         scrub_document,
     )
     from .console import console
@@ -62,8 +63,8 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
-    from .flow_runner.dse.dse_runner import RESULTS_SHOWN
-    from .flow_runner.error_codes import public_error, request_error_info
+    from .flow_runner.dse.dse_runner import RESULTS_SHOWN, DseResult
+    from .flow_runner.error_codes import NO_SUCCESSFUL_RUN, public_error, request_error_info
     from .flow_runner.launch_report import results_of
     from .records import CANCELED, INTERNAL_ERROR, ErrorInfo
     from .flow_runner.scrub import ScrubResult, removed_summary
@@ -75,7 +76,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         design_schema,
         flow_chain_cells,
         flows_info,
-        json_safe,
         optimizers_info,
         platforms_info,
         results_info,
@@ -1278,7 +1278,9 @@ def run(
                 "json",
             )
         # A bug keeps its traceback.
-        if not json_flag and (info.code == INTERNAL_ERROR or not isinstance(error, XedaException)):
+        # A refusal is a user error, even when it comes as a raw pydantic error.
+        bug = info.code == INTERNAL_ERROR or not isinstance(error, XedaException)
+        if not json_flag and not refused and bug:
             raise error
         sys.exit(2 if refused else 1)
 
@@ -1388,13 +1390,6 @@ def run(
     if json_flag:
         emit_structured(result.to_dict(), "json")
     sys.exit(0 if result.passed else 1)
-
-
-def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
-    """Return the best `FlowOutcome` of a design-space exploration as JSON-safe data."""
-    if best is None:
-        return None
-    return json_safe(best.as_json_value())
 
 
 @cli.command(
@@ -1547,7 +1542,9 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
         "logs go to stderr."
     ),
 )
+@click.pass_context
 def dse(
+    ctx: click.Context,
     flow: str,
     design: Optional[Path],
     flow_settings: Tuple[str, ...],
@@ -1574,38 +1571,62 @@ def dse(
         machine_readable_mode()
 
     if design and design_name:
-        raise click.UsageError("give DESIGN or --design-name, not both")
+        raise click.UsageError("give DESIGN or --design-name, not both", ctx=ctx)
     _refuse_both_config_options(config, no_config)
     dse: Dse | None = None
     selected_target = _selected_target(target, no_target)
 
-    def dse_failure(error_type: str, message: str, exc: Optional[BaseException] = None) -> None:
-        log.critical("%s", message)
+    def report(
+        outcome: Outcome | None,
+        error: ErrorInfo | None,
+        result: DseResult | None = None,
+    ) -> None:
+        """Print the document of the command: what the exploration did, or the error that ended it."""
         if json_flag:
             emit_structured(
-                {
-                    "flow": flow,
-                    **design_info(
-                        design or design_name, dse.design_name if dse is not None else None
+                dse_document(
+                    outcome=outcome,
+                    error=error,
+                    flow=flow,
+                    design=dse.design_name if dse is not None else None,
+                    target=(dse.target if dse is not None else None) or target,
+                    optimizer=optimizer,
+                    best=None if result is None or result.best is None else result.best.record,
+                    best_run_dir=(
+                        None if result is None or result.best is None else result.best.run_path
                     ),
-                    "target": (dse.target if dse is not None else None) or target,
-                    "optimizer": optimizer,
-                    "success": False,
-                    "best": None,
-                    "error": {"type": error_type, "message": message},
-                },
+                    points=() if result is None else result.points,
+                ),
                 "json",
             )
-        sys.exit(1)
+
+    def not_ended(error: BaseException) -> NoReturn:
+        """Report an exception that ended the command before the exploration gave its result.
+
+        An invalid request started no exploration: its document has no outcome, and the exit
+        status is 2. Any other exception, one of the optimizer included, ends the exploration
+        with the outcome `failed` and the exit status 1. A bug keeps its traceback."""
+        public = public_error(error)
+        info = request_error_info(error)
+        log.critical("%s", _error_message(error))
+        # Once the exploration started, every exception ends it: an optimizer may raise any error.
+        started = dse is not None and dse.result is not None
+        refused = isinstance(public, (SpecError, RemoteError)) and not started
+        report(None if refused else Outcome.FAILED, info, None if dse is None else dse.result)
+        # A refusal is a user error, even when it comes as a raw pydantic error.
+        bug = info.code == INTERNAL_ERROR or not isinstance(error, XedaException)
+        if not json_flag and not refused and bug:
+            raise error
+        sys.exit(2 if refused else 1)
 
     # Resolving the optimizer inside Dse() raises an AttributeError that names nothing useful,
     # so check it here, where the available names are known.
     known_optimizers = {o["name"] for o in optimizers_info()}
     if optimizer not in known_optimizers and "." not in optimizer:
-        dse_failure(
-            "OptimizerNotFound",
+        raise click.UsageError(
             f"Unknown optimizer '{optimizer}'. Available optimizers: "
             f"{', '.join(sorted(known_optimizers))}. See `xeda list-optimizers`.",
+            ctx=ctx,
         )
 
     if log_level is None:
@@ -1618,8 +1639,7 @@ def dse(
         opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
         dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
     except XedaException as e:  # a key given as a value and as a table
-        dse_failure(type(e).__name__, _error_message(e), e)
-        raise  # unreachable: dse_failure exits
+        not_ended(e)
     if max_workers:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 
@@ -1638,6 +1658,7 @@ def dse(
         **opt_settings,  # optimizer_settings overrides other options
     }
 
+    token = CancelToken()
     try:
         project = _selected_project(xedaproject, design)
         local = _cli_local_settings(project, design, config, no_config)
@@ -1647,40 +1668,47 @@ def dse(
             run_root=_cli_run_root(run_root, local),
             **dse_settings_dict,
         )
+        dse.cancel = token
         # The tables go to stderr with --json (`machine_readable_mode`).
         dse.best_so_far = lambda best: print_results(
             best.results, title="Best so far", subset=RESULTS_SHOWN, skip_if_false=True
         )
-        best = dse.run(
-            flow,
-            design=_load_design(design or design_name, project, (), selected_target),
-            flow_settings=list(flow_settings),
-            local_settings=local,
-        )
+        # The first Ctrl-C ends the exploration after the runs of its round stop.
+        with _cancel_on_interrupt(token):
+            result = dse.run(
+                flow,
+                design=_load_design(design or design_name, project, (), selected_target),
+                flow_settings=list(flow_settings),
+                local_settings=local,
+            )
     except SystemExit:
         raise
-    except BaseException as e:
-        dse_failure(type(e).__name__, _error_message(e), e)
-        raise  # unreachable: dse_failure exits
-    if best is not None:
-        print_results(best.results, title="Best results", subset=RESULTS_SHOWN)
-    if json_flag:
-        document = {
-            "flow": flow,
-            **design_info(design or design_name, dse.design_name),
-            "target": dse.target,
-            "optimizer": optimizer,
-            "success": best is not None,
-            "best": _dse_best_document(best),
-        }
-        if best is None:
-            document["error"] = {
-                "type": "NoSuccessfulRun",
-                "message": "The exploration produced no successful run.",
-            }
-        emit_structured(document, "json")
-    # An exploration with no successful run is a failure.
-    sys.exit(0 if best is not None else 1)
+    except KeyboardInterrupt:
+        # A second Ctrl-C, or one before the exploration could stop.
+        interrupted = ErrorInfo(CANCELED, "Ctrl-C ended the exploration.", None, None, None)
+        log.critical("%s", interrupted.message)
+        report(Outcome.CANCELED, interrupted, None if dse is None else dse.result)
+        sys.exit(1)
+    except Exception as e:
+        not_ended(e)
+    if result.best is not None:
+        print_results(result.best.results, title="Best results", subset=RESULTS_SHOWN)
+    error: ErrorInfo | None
+    if result.canceled:
+        error = ErrorInfo(CANCELED, "Ctrl-C ended the exploration.", None, None, None)
+        outcome = Outcome.CANCELED
+    elif result.best is None:
+        error = ErrorInfo(
+            NO_SUCCESSFUL_RUN, "The exploration produced no successful run.", None, None, None
+        )
+        outcome = Outcome.FAILED
+    else:
+        error, outcome = None, Outcome.PASSED
+    if error is not None:
+        log.critical("%s", error.message)
+    report(outcome, error, result)
+    # An exploration with no successful run is a failure, and so is one that was canceled.
+    sys.exit(0 if outcome is Outcome.PASSED else 1)
 
 
 @cli.command(

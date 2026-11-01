@@ -761,10 +761,21 @@ commands of ``xeda remote`` print one document each. A failure is ``{"success": 
     ``success``, ``host``, ``launch`` and ``survivors``, the number of processes that SIGKILL did
     not stop. ``success`` is false when ``survivors`` is not zero.
 
-``xeda dse ... --json`` prints ``flow``, ``design``, ``design_file``, ``target``, ``optimizer``,
-``success`` and ``best``. The value of ``best`` is ``null`` or an object with the ``settings``,
-``results``, ``timestamp`` and ``run_path`` of the best run. When the exploration found no
-successful run, the document has an ``error`` of type ``NoSuccessfulRun``, and the exit status is 1.
+``xeda dse ... --json`` prints one document with ``schema_version``, ``outcome``, ``error``,
+``flow``, ``design``, ``target``, ``optimizer``, ``best``, ``best_run_dir`` and ``points``. Each
+round of the optimizer is one sweep of the Python API. ``points`` lists every point that the
+exploration tried, in order, as ``{"outcome": ..., "error": ..., "run_dir": ...}``: a point that
+failed is a point, with the ``error`` of its run. ``run_dir`` is ``null`` for a run directory that
+the exploration deleted (``post_cleanup_purge``). ``best`` is ``null`` or the ``results.json``
+document of the best run (see :ref:`results-json`), and its ``outcome`` is ``passed``.
+``best_run_dir`` is the run directory of that run, written as ``run_dir`` of a point, or ``null``
+when there is no best run. The ``outcome`` of the document is ``passed`` when there is a best run.
+Without one, it is ``failed`` with the error code ``no_successful_run``, and the exit status is 1.
+A Ctrl-C ends the exploration with the outcome ``canceled`` and the error code ``canceled``;
+``best``, ``best_run_dir`` and ``points`` hold what the exploration found before. A failure of the
+optimizer itself ends the command with the outcome ``failed`` and its error, and the same keys hold
+what the exploration found before. A request that starts no exploration (a usage error, an unknown
+optimizer, an invalid setting) has ``outcome: null`` and exits with status 2.
 
 Removing run directories
 ========================
@@ -832,7 +843,7 @@ when the ``outcome`` is ``passed`` and with 1 for every other outcome (``rejecte
 setting, design, project or chain, a mistake in the command line, and a remote host that Xeda cannot
 reach or set up. ``xeda dse`` fails when the
 exploration found no successful run. A failed exploration and a failed ``scrub`` exit with status 1.
-A usage error of any other command, ``scrub`` included, exits with status 2.
+A usage error of any other command, ``scrub`` and ``dse`` included, exits with status 2.
 
 Planning a run
 ==============

@@ -6,8 +6,8 @@ Two regressions this guards, both invisible to the rest of the suite:
    object for a class -- so it mutated the original globally. v2 compiles a model's validator at
    class creation, so the relaxation now has to be a real subclass.
 2. The subclass is built at runtime, so a `spawn`ed child process has no such attribute to look
-   up. `xeda dse` ships designs to `pebble` workers by pickle; without `__reduce__` every DSE
-   run dies with `BrokenProcessPool`.
+   up. A sweep ships designs to its worker processes by pickle; without `__reduce__` every sweep
+   with workers dies with `BrokenProcessPool`.
 """
 
 import multiprocessing as mp

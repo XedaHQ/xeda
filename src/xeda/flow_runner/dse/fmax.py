@@ -105,8 +105,9 @@ class FmaxOptimizer(Optimizer):
         # TODO: remove
         self.batch_hashes = set()
 
-        # A list of {key: choice} mappings, indexed by the index of the flow.
-        self.variation_choices: List[Dict[str, int]] = []
+        # The variation of each point of the last batch, by the position of the point in the batch:
+        # a mapping of each key to the choice that the point ran with.
+        self.variation_choices: List[Dict[str, Any]] = []
 
         assert isinstance(self.settings, self.Settings)
         assert self.settings.init_freq_high > self.settings.init_freq_low
@@ -271,6 +272,7 @@ class FmaxOptimizer(Optimizer):
 
         if not self.update_bounds():
             return None
+        self.variation_choices = []
 
         n = self.max_workers
         if self.num_variations > 1:
@@ -336,13 +338,11 @@ class FmaxOptimizer(Optimizer):
 
             for freq in frequencies:
                 clock_period = round(1000.0 / freq, 4)
-                choice_indices = {}
+                chosen = {}
                 variations = {}
                 for k, v in self.variations.items():
                     if v:
-                        choice = rand_choice(len(v), max_var)
-                        choice_indices[k] = choice
-                        variations[k] = v[choice]
+                        variations[k] = chosen[k] = v[rand_choice(len(v), max_var)]
                 assert self.flow_class is not None
                 settings = merge_layers(
                     base_settings,
@@ -363,7 +363,7 @@ class FmaxOptimizer(Optimizer):
                     )
                     # remove_frequencies.append(freq)
                 else:
-                    self.variation_choices.append(choice_indices)
+                    self.variation_choices.append(chosen)
                     batch_settings.append(settings)
                     self.batch_hashes.add(h)
                     if len(batch_settings) >= self.max_workers:
@@ -391,8 +391,16 @@ class FmaxOptimizer(Optimizer):
         self.num_iterations += 1
         return batch_settings
 
+    def _has_fewer_luts(self, outcome: FlowOutcome) -> bool:
+        """Return whether `outcome` and the best run both report LUTs, and `outcome` uses fewer."""
+        assert self.best is not None
+        lut, best_lut = outcome.results.get("lut"), self.best.results.get("lut")
+        return lut is not None and best_lut is not None and lut < best_lut
+
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
-        """Process the outcome of one run. Return True if it is the best result so far."""
+        """Process the outcome of one run, which the run took at position `idx` of the batch.
+
+        Return True if it is the best result so far."""
         assert isinstance(self.settings, self.Settings)
 
         best_freq = self.best_freq
@@ -427,9 +435,10 @@ class FmaxOptimizer(Optimizer):
                 )
                 return False
 
-        def promote(lst: List[Any], idx: int):
-            if idx > 0 and lst:
-                lst.insert(0, lst.pop(idx))
+        def promote(lst: List[Any], choice: Any):
+            # By value: an earlier promotion of this round has moved the choices already.
+            if lst and lst[0] != choice and choice in lst:
+                lst.insert(0, lst.pop(lst.index(choice)))
 
         if best_freq is None or fmax > best_freq:
             log.info(
@@ -440,9 +449,18 @@ class FmaxOptimizer(Optimizer):
             self.base_settings = outcome.settings
             self.improved_idx = idx
             if self.num_variations > 1:
-                var_choices = self.variation_choices[idx]
-                for k, i in var_choices.items():
-                    promote(self.variations[k], i)
+                for k, choice in self.variation_choices[idx].items():
+                    promote(self.variations[k], choice)
+            return True
+        elif fmax == best_freq and self._has_fewer_luts(outcome):
+            # The same frequency in less area is a better run, but no gain in frequency: the bounds
+            # and the count of iterations without an improvement stay as they are.
+            log.info("Same maximum frequency (%0.2f MHz) with fewer LUTs", fmax)
+            self.best = outcome
+            self.base_settings = outcome.settings
+            if self.num_variations > 1:
+                for k, choice in self.variation_choices[idx].items():
+                    promote(self.variations[k], choice)
             return True
         else:
             log.debug(

@@ -1526,7 +1526,7 @@ def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
     makes pydantic build the schema again, and it keeps the relaxation within the subclass.
 
     The result is cached, and its instances have a custom reducer that rebuilds the derived class
-    in a child process. The DSE runner ships a `Design` across a process boundary with `pebble`,
+    in a child process. A sweep ships a `Spec`, and with it a `Design`, to its worker processes,
     so relying on pickle to resolve this class, which exists only at run time, by `__module__`
     and `__qualname__` fails.
     """
@@ -1535,8 +1535,7 @@ def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
     def __reduce__(self):
         # The class is built at run time, so a child process (spawn) has no such attribute to
         # look up. Pickle the base class, which is an ordinary importable class, and rebuild
-        # the derived class on the far side. The DSE runner ships designs to `pebble` workers
-        # this way.
+        # the derived class on the far side. A sweep ships designs to its workers this way.
         return (_rebuild_with_allow_extra, (cls, self.__getstate__()))
 
     derived = type(

@@ -68,23 +68,6 @@ def run_xeda(*args: str, cwd: Path, fake_tools: bool = False) -> subprocess.Comp
     )
 
 
-def assert_one_error_document(proc, error_type: str, *mentions: str) -> dict:
-    """stdout is one JSON document reporting `error_type`, and the message names its kind once."""
-    assert proc.returncode == 1, proc.stderr
-    try:
-        document = json.loads(proc.stdout)
-    except json.JSONDecodeError as e:
-        pytest.fail(f"stdout is not one JSON document ({e}):\n{proc.stdout}\n{proc.stderr}")
-    assert document["success"] is False
-    error = document["error"]
-    assert error["type"] == error_type, error
-    assert f"{error_type}: {error_type}" not in error["message"], error["message"]
-    for mention in mentions:
-        assert mention in error["message"], error["message"]
-    assert "Traceback" not in proc.stderr, proc.stderr
-    return document
-
-
 def assert_unstarted_document(proc, code: str, *mentions: str) -> dict:
     """stdout is one document of a run that started no launch, with the error `code`."""
     assert proc.returncode == 2, proc.stderr
@@ -223,9 +206,16 @@ def test_xeda_dse_reports_an_invalid_design_file_once(tmp_path, json_flag):
     args += ["--init-freq-low", "100", "--init-freq-high", "200"]
     proc = run_xeda(*args, *(["--json"] if json_flag else []), cwd=tmp_path)
     if json_flag:
-        assert_one_error_document(proc, "DesignValidationError", str(path), "rtl.top")
+        assert proc.returncode == 2, proc.stderr
+        document = json.loads(proc.stdout)
+        assert document["outcome"] is None
+        error = document["error"]
+        assert error["code"] == "invalid_design", error
+        assert str(path) in error["message"] and "rtl.top" in error["message"], error
+        assert "DesignValidationError" not in error["message"], error
+        assert "Traceback" not in proc.stderr, proc.stderr
     else:
-        assert proc.returncode == 1
+        assert proc.returncode == 2
         assert "Traceback" not in proc.stderr, proc.stderr
         assert "DesignValidationError: DesignValidationError" not in proc.stderr
 

@@ -437,7 +437,6 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
     from enum import Enum
 
     from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
     from xeda.introspect import json_safe
     from xeda.utils import json_encodable
 
@@ -458,12 +457,6 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
         "source": design.rtl.sources[0],
         "unchecked_source": design.rtl.sources[1],
         "settings": Flow.Settings(verbosity="verbose"),
-        "outcome": FlowOutcome(
-            settings=Flow.Settings(),
-            results=Flow.Results(success=True),
-            timestamp=None,
-            run_path=tmp_path,
-        ),
         "path": tmp_path / "x",
         "enum": Plain.RED,
         "nested": [(1, {"k": Plain.RED}), {tmp_path}],
@@ -474,94 +467,6 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
     assert json_safe(design.rtl.sources[1]) == {"path": str(tmp_path / "gen" / "later.v")}
     # ... and a library caller's `model_dump_json()` is that same document
     assert json.loads(design.model_dump_json()) == json_safe(design)
-
-
-def test_a_dse_outcome_is_one_view_wherever_it_is_written(tmp_path):
-    """A search writes its best outcome to the best-run file as it improves
-    (`fmax_<design>_<flow>_<timestamp>.json`), and the CLI prints the
-    same outcome in its `--json` document. Both used to build that view by hand -- one of them
-    by dumping the outcome's `__dict__`, which left `run_path` as a `Path` for the encoder to
-    stringify by luck rather than by rule."""
-    from xeda.cli import _dse_best_document
-    from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
-
-    outcome = FlowOutcome(
-        settings=Flow.Settings(),
-        results=Flow.Results(success=True, fmax=123.4),
-        timestamp="2026-01-01",
-        run_path=tmp_path / "run",
-    )
-
-    written = tmp_path / "best.json"
-    dump_json({"best": outcome}, written, backup=False)
-    from_file = json.loads(written.read_text())["best"]
-
-    assert from_file == _dse_best_document(outcome)
-    assert from_file["run_path"] == str(tmp_path / "run"), "a path is written as text"
-    assert from_file["results"]["fmax"] == 123.4
-    assert from_file["settings"]["nthreads"] == Flow.Settings().nthreads
-
-
-# ---------------------------------------------------------------------------------------------
-# A DSE outcome is built in a worker process and has to arrive intact
-# ---------------------------------------------------------------------------------------------
-
-
-def _outcome_built_in_a_worker(_):
-    """Built in the child, exactly as the pool-mapped `Optimizer.__call__` builds it."""
-    from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
-
-    return FlowOutcome(
-        settings=Flow.Settings(verbosity="debug"),
-        results=Flow.Results(success=True, fmax=456.7),
-        timestamp="from-the-worker",
-        run_path=Path("/tmp/child-run"),
-    )
-
-
-def test_a_dse_outcome_survives_the_process_it_was_built_in():
-    """`Dse` runs its flows in a `pebble.ProcessPool`: the worker builds the `FlowOutcome` and
-    `pool.map` carries it back, so one that cannot be pickled -- or that loses a field on the
-    way -- breaks every design-space exploration.
-
-    `FlowOutcome` was declared `@define(slots=False)` to leave an instance `__dict__` behind for
-    a serializer to read. It needs neither: `attrs` generates the pickle protocol for a slotted
-    class, and JSON goes through `as_json_value()`. Both halves are pinned here, because the
-    `__dict__` is what a JSON encoder silently fell back on.
-    """
-    from pebble.pool.process import ProcessPool
-
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
-
-    with ProcessPool(max_workers=1) as pool:
-        (outcome,) = list(pool.map(_outcome_built_in_a_worker, [0]).result())
-
-    assert isinstance(outcome, FlowOutcome)
-    assert not hasattr(outcome, "__dict__"), "an outcome carries no instance dict to serialize"
-    assert outcome.timestamp == "from-the-worker"
-    assert outcome.run_path == Path("/tmp/child-run")
-    assert (outcome.results.fmax, outcome.results.success) == (456.7, True)
-    assert outcome.settings.verbosity == "debug", "a pydantic settings model crossed with it"
-
-
-def test_a_dse_outcome_pickles_without_losing_anything(tmp_path):
-    """The transport above reduces to pickle; this is the same requirement without the pool, so
-    a failure says whether the object or the pool is at fault."""
-    import pickle
-
-    from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
-
-    outcome = FlowOutcome(
-        settings=Flow.Settings(verbosity="verbose"),
-        results=Flow.Results(success=True, fmax=123.4),
-        timestamp="2026-01-01",
-        run_path=tmp_path / "run",
-    )
-
-    assert pickle.loads(pickle.dumps(outcome)).as_json_value() == outcome.as_json_value()
 
 
 def test_a_printed_mapping_has_the_keys_xeda_writes_to_a_file():

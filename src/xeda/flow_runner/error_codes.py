@@ -64,6 +64,9 @@ GENERATOR_FAILED = "generator_failed"
 #: The code of a launch-level error: a clean-up after the run failed, and every root had passed.
 CLEANUP_FAILED = "cleanup_failed"
 
+#: The code of the error of an exploration (`xeda dse`) that found no run that passed.
+NO_SUCCESSFUL_RUN = "no_successful_run"
+
 #: The code of a node error: a worker process of a sweep could not import the module of a flow.
 FLOW_NOT_IMPORTABLE = "flow_not_importable"
 
@@ -80,6 +83,7 @@ __all__ = [
     "MISSING_OUTPUT",
     "MISSING_REPORT",
     "NONZERO_EXIT",
+    "NO_SUCCESSFUL_RUN",
     "PRODUCER_FAILED",
     "REJECTED",
     "REPORTED_FAILURE",
@@ -110,6 +114,7 @@ _SETTINGS_CODES = {
     "unscoped_setting": "unscoped_setting",
     "unknown_node": "unknown_node",
     "removed_setting": "removed_setting",
+    "removed_key": "removed_setting",  # a launcher setting: the same code as a flow setting
     "removed_alias": "removed_alias",
     "settings_group": "unsupported_setting",
     "unsupported_setting": "unsupported_setting",

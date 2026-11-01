@@ -47,16 +47,17 @@ def _invoke(args, env=None):
 
 def _refused(command, document, message):
     """Check the document of a usage error. `run` prints the document of a launch that did not
-    start, and `scrub` the document of a scrub that did not start, both with the code
-    `usage_error`. Every other command prints `success` and the error type."""
-    if command in ("run", "scrub"):
-        assert document["outcome"] is None
-        assert document["spec"] is None if command == "run" else document["removed"] == []
-        assert document["error"]["code"] == "usage_error"
-        assert document["error"]["message"] == message
+    start, `scrub` the document of a scrub that did not start, and `dse` the document of an
+    exploration that did not start, all with the code `usage_error`."""
+    assert document["outcome"] is None
+    if command == "run":
+        assert document["spec"] is None
+    elif command == "scrub":
+        assert document["removed"] == []
     else:
-        assert document["success"] is False
-        assert document["error"] == {"type": "UsageError", "message": message}
+        assert document["points"] == [] and document["best"] is None
+    assert document["error"]["code"] == "usage_error"
+    assert document["error"]["message"] == message
 
 
 @pytest.mark.parametrize("command", COMMANDS)

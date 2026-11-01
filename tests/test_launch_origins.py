@@ -30,11 +30,11 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import FlowLauncher
 from xeda.flow_runner.dse import dse_runner
-from xeda.flow_runner.dse.dse_runner import Dse, Executioner
+from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
 from xeda.flow_runner.trace import as_recorded
 
 from .io_flows import TPlace, TTaker
-from .test_dse_run import _DeclaredOptimizer
+from .test_dse_run import TDseLeaf, _DeclaredOptimizer
 from .scoping import node_settings
 
 PART = "LFE5U-25F-6BG256C"
@@ -187,39 +187,69 @@ def test_an_exploration_resolves_the_nodes_planning_names(tmp_path, monkeypatch,
     assert plans[-1].node("t_place").settings.fpga.part == PART
 
 
+class _OnePoint(Optimizer):
+    """One round of one point: the base settings themselves."""
+
+    default_variations = {"t_place": {}}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.started = False
+
+    def next_batch(self):
+        if self.started:
+            return None
+        self.started = True
+        return [self.base_settings.model_dump()]
+
+
 @pytest.mark.parametrize("where", SECTIONS)
-def test_an_exploration_worker_launches_the_nodes_planning_names(tmp_path, where):
-    """A worker is handed no request: it resolves each candidate from the design it was given."""
+def test_an_exploration_point_launches_the_nodes_planning_names(tmp_path, where):
+    """A point is planned from the design it was given, as a launch is."""
     design = _design(tmp_path, where)
     planned = _planned(tmp_path, design)
-    runner = DefaultRunner(tmp_path / "worker", display_results=False)
+    runner = Dse(_OnePoint, run_root=tmp_path / "run", variations={}, max_workers=1)
 
-    outcome, index = Executioner(runner, design, TPlace)((7, {}))
+    result = runner.run(TPlace, design)
 
-    assert outcome is not None and index == 7
-    assert _launched(runner) == planned
+    assert [str(point.outcome) for point in result.points] == ["passed"]
+    launched = sorted(
+        (json.loads(file.read_text())["flow"], json.loads(file.read_text())["identity"])
+        for file in (tmp_path / "run").glob("d/*/results.json")
+    )
+    assert launched == sorted(planned)
 
 
-def test_an_exploration_worker_keeps_tool_output_in_the_logs(tmp_path, monkeypatch):
-    """Candidates run side by side, so a worker launches its flow with tool output `log`, even
-    when the caller (the command line) shows tool output on the terminal."""
-    design = _design(tmp_path, "requested")
-    runner = DefaultRunner(tmp_path / "worker", display_results=False)
+def test_an_exploration_keeps_tool_output_in_the_logs(tmp_path, monkeypatch):
+    """Candidates run side by side, so each launches its flow with tool output `log`, even when
+    the caller (the command line) shows tool output on the terminal."""
     seen = []
-    launch = runner.launch_flow
+    run = TDseLeaf.run
 
-    def recording(*args, **kwargs):
+    def recording(self):
         seen.append(proc_utils.TOOL_OUTPUT.get())
-        return launch(*args, **kwargs)
+        run(self)
 
-    monkeypatch.setattr(runner, "launch_flow", recording)
+    monkeypatch.setattr(TDseLeaf, "run", recording)
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     token = proc_utils.TOOL_OUTPUT.set("terminal")
     try:
-        outcome, _ = Executioner(runner, design, TPlace)((0, {}))
-        assert proc_utils.TOOL_OUTPUT.get() == "terminal", "the worker restores the caller's"
+        result = runner.run(
+            TDseLeaf,
+            design,
+            flow_settings=node_settings(
+                TDseLeaf,
+                {
+                    "fpga": {"part": PART},
+                    "clocks": {"main_clock": {"period": "10 ns"}},
+                },
+            ),
+        )
+        assert proc_utils.TOOL_OUTPUT.get() == "terminal", "the exploration restores the caller's"
     finally:
         proc_utils.TOOL_OUTPUT.reset(token)
-    assert outcome is not None and seen and set(seen) == {"log"}  # the producer's launch too
+    assert result.best is not None and seen == ["log"] * 3
 
 
 @pytest.mark.parametrize("door", DOORS)
