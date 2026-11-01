@@ -141,6 +141,9 @@ namespaces = false
     "*.xcf",
     "*.xdc",
     "*.ys",
+    # Every template of every flow, and the bootstrap script of the remote host.
+    "**/templates/**/*",
+    "remote/*.sh",
 ]
 # The residue file of each platform, its Yosys techmaps and the attribution of the values in them.
 "xeda.platforms" = ["*/platform.yaml", "*/*.v", "NOTICE.md"]

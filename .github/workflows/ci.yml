@@ -256,6 +256,26 @@ jobs:
       - name: Build the documentation
         run: "python -m tox -e docs"
 
+  # The installed wheel, not the checkout, must hold every template, data file and remote script:
+  # a missing glob in pyproject.toml shows only there (tools/check_wheel.py).
+  wheel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up Python 3.15
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - name: Install tox
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade tox tox-gh-actions
+      - name: Check the built wheel
+        run: "python -m tox -e wheel"
+
   quality:
     runs-on: ubuntu-24.04
     steps:
