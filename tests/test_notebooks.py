@@ -8,6 +8,7 @@ examples through the `XEDA_EXAMPLES` variable. A notebook writes only under its 
 import ast
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,8 @@ NOTEBOOK_PROBES: dict[str, tuple] = {
         tool_utils.require_nextpnr_ecp5,
     ),
     "02-simulation": (tool_utils.require_verilator,),
+    "03-sweep": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
+    "05-generated": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
 }
 
 # The probe of each flow that a notebook may launch, and of the cocotb testbenches.
@@ -258,3 +261,59 @@ def test_the_harness_rejects_an_unknown_tag(tmp_path):
     nb = run_notebook(path, cwd=tmp_path, env={})
     with pytest.raises(KeyError, match="two"):
         cell_output(nb, "two")
+
+
+def test_the_sweep_notebook(executions):
+    # The second run reuses the runs of the first, so only the first run has `shared` nodes.
+    work, nb, again = executions("03-sweep")
+    assert cell_output(again, "sweep-counts") == "{'passed': 6, 'failed': 1}"
+    assert cell_output(nb, "colliding-run-dirs") == "colliding_run_dirs\n(0, 1, 2, 3, 4, 5, 6)"
+    assert cell_output(nb, "sweep-counts") == "{'passed': 6, 'failed': 1}"
+    # Three depths: the two seeds of a depth share one synthesis. The 2 ns point has its own.
+    assert cell_output(nb, "shared-producer") == "{'ran': 4, 'shared': 3}"
+    reason = cell_output(nb, "failed-point").splitlines()
+    assert reason[0] == "6 failed reported_failure"
+    assert reason[1].startswith("nextpnr: timing constraints are not met")
+    assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
+    assert cell_output(nb, "empty-history").startswith("no runs yet")
+    missing = cell_output(nb, "missing-metric").splitlines()
+    assert missing[0] == "every value is empty: True"
+    assert missing[1].startswith("'fmx' is not a metric of nextpnr. Its metrics are: ")
+    assert "fmax" in missing[1]
+    work = work / "notebook-output"
+    rows = (work / "fifo-sweep.csv").read_text().splitlines()
+    assert len(rows) == 1 + 7
+    # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
+    assert len(list((work / "xeda_run" / "fifo").glob("nextpnr_*/results.json"))) == 7
+
+
+def _generated_by(design_dir: Path, width: int, tmp_path: Path) -> bytes:
+    """The file that the generator of the notebook writes for `width`, from a separate run."""
+    storage = tmp_path / f"expected{width}"
+    subprocess.run(
+        [sys.executable, str(design_dir / "gen_counter.py"), str(width), str(storage)],
+        check=True,
+        cwd=tmp_path,
+    )
+    return (storage / "counter.v").read_bytes()
+
+
+def test_the_generated_notebook_compares_variants_by_their_exact_bytes(executions, tmp_path):
+    work, nb, again = executions("05-generated")
+    out = work / "notebook-output"
+    assert cell_output(nb, "sweep-counts") == "{'passed': 3}"
+    expected = {w: _generated_by(out / "design", w, tmp_path) for w in (8, 16, 32)}
+    assert len(set(expected.values())) == 3
+    # What each run read: the exact bytes of its own storage, and no other variant's.
+    for width, data in expected.items():
+        (stored,) = (out / "xeda_run" / ".generated" / f"counter{width}").glob("*/counter.v")
+        assert stored.read_bytes() == data
+    # What the notebook printed for the bytes that `open()` gave.
+    assert cell_output(nb, "variant-bytes").splitlines() == [
+        f"counter{w} {len(d)} module counter{w} (" for w, d in expected.items()
+    ]
+    # The delivery is the variant of width 16, byte for byte, and nothing else is delivered.
+    assert [p.name for p in (out / "delivered").iterdir()] == ["counter.v"]
+    assert (out / "delivered" / "counter.v").read_bytes() == expected[16]
+    for run in (nb, again):
+        assert cell_output(run, "delivered-bytes").splitlines() == ["True", "[('generator', True)]"]
