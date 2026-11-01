@@ -329,8 +329,11 @@ does not know, and it keeps an error code or an event kind that it does not know
 outcome and the disposition are closed sets: a value that a reader does not know makes the document
 corrupt (``corrupt_record``).
 
-The record has these fields:
+The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (see
+:ref:`document-schemas`). The record has these fields:
 
+``schema_version``
+    The version of the schema, the integer 1.
 ``run_id``
     The id of this execution. It is new for each execution, a failed one included. The trace of the
     run and every consumer of its outputs name the same id.
@@ -368,7 +371,11 @@ The record has these fields:
     ``kind`` is the name of the source type, or ``design``. ``cardinality`` is ``one``,
     ``optional`` or ``many``. ``names`` are the files the run wrote, relative to the run
     directory, and ``digests`` are their content digests, in the same order. Both are ``[]`` when
-    the run wrote none. ``design`` holds the derived design of a converter.
+    the run wrote none. ``design`` is ``null`` unless the kind is ``design`` and the run wrote it.
+    It then holds the derived design of a converter: ``top``, ``input_design`` (the design it came
+    from) and ``sources``, in order. A source of it has a ``type`` and is either a file that the
+    converter generated (``generated``, a name in ``names``) or a source of the input design that
+    passes through (``source``, its index, and ``file``).
 ``artifacts``
     The files that the run wrote for a reader, by key, as names relative to the run directory. A
     key names one file, and the flow documents it (see :ref:`artifact-keys`). A key is present only
@@ -380,7 +387,9 @@ The record has these fields:
     One entry for each declared input: ``name``, ``origin`` (``source``,
     ``producer`` or ``none``), ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir``
     (relative to the run root) and the ``sources`` that the input read, each as
-    ``{path, generated, digest, dependency, producer, generation}``. For a generated source,
+    ``{path, generated, digest, dependency, producer, generation}``. ``path`` is relative to the
+    design root, ``digest`` is the content digest, and ``dependency`` is the index of the source's
+    dependency in ``dependencies``, or ``null``. For a generated source,
     ``path`` is its name in the output of its producer, and ``producer`` tells which one wrote it:
     ``null`` for the generator of the design itself, the name of the design for the generator of a
     dependency, and the name of the node for a converter. The ``design`` input of a flow that reads
@@ -403,7 +412,8 @@ The record has these fields:
 ``inherited_variables``
     A list of inherited variables; empty for now.
 
-The record names no file of the run by an absolute path. The run root and the run directory
+The record holds no deliveries: ``deliveries`` of a node in the document of ``xeda run --json``
+lists them. The record names no file of the run by an absolute path. The run root and the run directory
 follow from where the file is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
 ``timestamp``, ``tools`` and ``design`` as a result key are gone. In Python,
 ``Workspace.load(run_dir)`` returns the record as an immutable ``RunRecord``, and
@@ -633,6 +643,9 @@ hand-over check of a consumer is a ``producer_failed``. A flow can also fail ear
 own check. For example, ``nextpnr`` fails with ``reported_failure`` and names the configuration setting
 and the path of an enabled configuration that its tool did not write.
 
+
+.. _no-launch:
+
 A request that starts no launch
 -------------------------------
 
@@ -700,16 +713,30 @@ Error codes
 
 An ``error`` is ``{code, message, node, exit_status, log}``. The ``code`` is lower snake case, never
 the name of a class, and stable enough to branch on. The set of codes is open: a later release can
-add codes, so keep an unknown code as text. ``message`` is the text for a person, without the name of a class in front of it (the log line has
-the name). ``node`` names the
-node that the error belongs to, or is ``null`` for an error of the whole launch. ``exit_status`` is
-the exit status of the tool for ``nonzero_exit``. ``log`` is the key of the artifact to read for the cause (see :ref:`artifact-keys`), or ``null``.
+add codes, so keep an unknown code as text. ``message`` is the text for a person, without the name
+of a class in front of it (the log line has the name). ``node`` names the node that the error
+belongs to, or is ``null`` for an error of the whole launch. ``exit_status`` is the exit status of
+the tool for ``nonzero_exit``. ``log`` is the key of the artifact to read for the cause (see
+:ref:`artifact-keys`), or ``null``.
+
+Each code below is listed under its category. A code can have more than one category: the same
+code then has the meaning that its entry gives in each. The categories ``node`` and ``launch`` are
+the codes of the ``error`` of a node and of a launch. The categories that end in ``Error`` are the
+codes of the error classes of ``xeda.errors``. A request that starts no launch has the code of
+its error class (see :ref:`no-launch`).
+
+Errors of a node (``node``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The code of an error of a node, in its ``record.error`` and in the top-level ``error`` when it is
-the cause:
+the cause.
 
-``nonzero_exit``, ``timeout``, ``executable_not_found``
-    The tool failed, took too long, or is not installed.
+``nonzero_exit``
+    A tool exited with a nonzero status. ``exit_status`` holds it.
+``timeout``
+    A tool took longer than its time limit.
+``executable_not_found``
+    A tool is not installed, or is not on the path that the node uses.
 ``reported_failure``
     The flow raised an error of its own, or its reports or checks did not pass although the tool
     exited with status 0. A flow can give a message of its own. For example, ``openfpgaloader`` says
@@ -719,10 +746,8 @@ the cause:
     message names the files.
 ``missing_output``
     The flow passed its own checks, but an enabled declared output is absent, unreadable, outside
-    the run directory or not written by this run.
-``missing_generated``
-    A source that the generator of the design should write, and that the flow reads, matches no file
-    in the output of the generator. The message names the entry of ``rtl.sources``.
+    the run directory or not written by this run. A hand-over check of a consumer that finds an
+    output of a producer missing or changed also has this code.
 ``invalid_metric``
     A metric is not finite or not of its declared type. The other metrics stay.
 ``rejected``
@@ -735,43 +760,250 @@ the cause:
 ``storage_error``
     A file or directory error of the operating system, or a path that leaves the run directory,
     ended the node. The record may be missing.
+``internal_error``
+    A bug of Xeda.
+``missing_generated``
+    A source that the generator of the design should write, and that the flow reads, matches no file
+    in the output of the generator. The message names the entry of ``rtl.sources``.
 ``flow_not_importable``
     A worker process of a sweep could not import the module of a flow. The message names the
     module.
+
+Errors of a launch (``launch``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The code of an error of the whole launch (``node`` is ``null``).
+
+``generator_failed``
+    The generator of the design failed or could not be started or judged. It comes before any node
+    runs, so every node is ``skipped``, and Xeda leaves no output of the generator behind.
+``delivery_failed``
+    Xeda could not deliver an output that a setting, ``--outputs-to`` or the ``outputs_to`` of a
+    generator named. Every node keeps the outcome it had.
+``cleanup_failed``
+    Every requested flow passed, and then the clean-up after the run (``--post-cleanup`` or
+    ``--post-cleanup-purge``) failed. The message names the run directory and the cause. Every node
+    keeps the outcome it had.
+``canceled``
+    The launch was canceled, for example by Ctrl-C.
+``remote_failed``
+    With ``--remote``, the launch failed on the host or before Xeda knew its request.
+``remote_fetch_failed``
+    With ``--remote``, Xeda could not fetch the results of the launch from the host.
+``remote_detached``
+    With ``--remote``, the client left a launch that keeps running on the host.
+``no_successful_run``
+    The error of ``xeda dse``: no point of the exploration passed.
+
+A launch that has another cause already keeps it: a failed delivery comes before a failed clean-up,
+and a requested flow that did not pass keeps its own error. Xeda only logs the clean-up failure
+then.
+
+A bad setting (``SettingsError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The request has a setting that Xeda refuses. ``error.suggestions`` holds the names or addresses
+that Xeda suggests for an unknown name.
+
+``unknown_setting``
+    The flow has no such setting.
+``required_setting``
+    A setting that the flow cannot run without has no value.
+``invalid_quantity``
+    A setting that takes a quantity has a value that is not a valid quantity, for example a number
+    without a unit.
+``boolean_text``
+    A boolean setting got text that is not ``true`` or ``false``.
+``list_text``
+    A list setting got text that is not a comma-separated list.
+``deliverable_switch``
+    A setting that names a file to deliver got ``true`` or ``false`` instead of a location.
+``invalid_value``
+    A setting has a value that its type refuses, and no other code of this category fits.
+``shared_setting_conflict``
+    Two flows of a chain declare a shared setting, and the values differ.
+``conflicting_keys``
+    Two keys, or two bindings, set one setting to two values.
+``removed_setting``
+    A setting that Xeda removed. The message names the setting to use, if there is one.
+``removed_alias``
+    Another spelling of a setting name that stays. The message names the spelling to write.
+``unsupported_setting``
+    The flow does not support this setting or value.
+``unscoped_setting``
+    A ``-s`` key does not start with the flow that it addresses. ``error.suggestions`` holds the
+    addresses to write.
+``unknown_node``
+    A ``-s`` key names a flow that is not a node of the run. ``error.suggestions`` holds the
+    address to write.
+
+A bad design file (``DesignError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``design_file_not_found``
+    The design file does not exist.
+``invalid_design``
+    The design file cannot be read, or its content is not a valid design.
+``unknown_target``
+    The request names a target that the design does not have.
+``target_required``
+    The default target of the project file is not a target of the design. Select a target, or select
+    no target.
+``removed_alias``
+    A key of the design file is another spelling of a key that stays.
+``removed_key``
+    A key of the design file that Xeda removed. The message names the key to write.
+``fetch_failed``
+    Planning could not resolve or fetch a Git dependency. ``field`` names it.
+``dependency_cycle``
+    The dependencies of a design lead back to a design on the same chain. The message names the
+    chain.
+
+A bad project file (``ProjectError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``project_file_not_found``
+    The project file does not exist.
+``invalid_project``
+    The project file cannot be loaded.
+``design_name_required``
+    The project file has several designs, and the request names none.
+``unknown_design``
+    The project file has no design of that name.
+``several_project_files``
+    A directory has more than one project file. Keep one.
+``use_design_name``
+    The request names a design of the project file as a design file. Select it with
+    ``--design-name``.
+``invalid_local_settings``
+    A private settings file is invalid. The message names the file.
+``removed_alias``
+    A key of the project file is another spelling of a key that stays.
+
+A flow that does not exist (``FlowNotFoundError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``flow_not_found``
+    The request names a flow that does not exist. The message suggests close names.
+
+A bad chain (``ChainError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``invalid_chain``
+    The chain text is malformed, for example it has an empty element.
+``repeated_flow``
+    A flow occurs twice in the chain.
+``action_not_last``
+    A flow that only acts (for example, programs a device) is not last, and no later flow reads its
+    outputs.
+``no_edge``
+    The producer has no output that the next flow takes as an input, directly or through other
+    flows.
+``unknown_output``
+    The flow has no output of that name.
+``ambiguous_output``
+    More than one output of the producer fits the input. Name the output.
+``cardinality_mismatch``
+    An output of many files feeds an input that takes one file.
+``type_mismatch``
+    No output of the producer has a type that the input takes.
+``several_roots_unsupported``
+    The chain text has a comma. A request is one chain, and Xeda does not support several chains
+    yet.
+
+A bad run root (``RunRootError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``invalid_run_root``
+    The directory named as the run root is not one that Xeda can take for its own. For example, it
+    cannot be read, or a link lies where Xeda would write.
+
+A request that Python refuses (``SpecError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These codes belong to the calls ``Workspace.plan``, ``Workspace.run`` and ``Workspace.sweep``. The
+command line gives ``delivery_refused`` and ``unsupported_with_remote`` too.
+
+``equal_specs``
+    Two points of a sweep are the same run once units are compared. Remove the repeated spec.
+``colliding_run_dirs``
+    Two points with different configurations use one run directory. Use ``hashed_run_dirs``, or give
+    each design its own name.
+``shared_destination``
+    Two points of a sweep deliver different files to one destination.
+``delivery_refused``
+    A delivery is refused before any node runs.
+``run_root_mismatch``
+    The design comes from a project whose run root is not the run root of the workspace.
+``plan_options``
+    A call got a plan and also got launch options. A plan has its own options: pass them to
+    ``plan``.
+``missing_dependency``
+    A call needs an optional package that is not installed (``to_pandas`` needs pandas).
+``unsupported_with_remote``
+    The request has a flow or an option that cannot run with ``--remote``: a flow that programs a
+    device on this machine, or an option that removes run directories on the host.
+
+A stale plan (``StalePlanError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``stale_plan``
+    The files that a plan was made from changed. ``difference`` says what changed. Plan again.
+
+A record that Python cannot read (``RecordError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``missing_record``
+    The run directory has no ``results.json``, or the node has no record.
+``corrupt_record``
+    ``results.json`` cannot be read, is not JSON or is not a valid record.
+``unsupported_schema``
+    ``results.json`` has no ``schema_version``, or one that this Xeda does not read.
+``not_written``
+    The run did not write the output that the call asked for.
+``several_files``
+    The output that the call asked for holds many files. Read ``outputs`` of the record.
+
+A run that another run replaced (``RunReplacedError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``run_replaced``
+    Another run replaced the run that the record describes.
+
+A remote host (``RemoteError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Both codes come before Xeda sends the launch, so the request has no outcome and no nodes.
+
+``remote_unreachable``
+    Xeda cannot reach the host.
+``remote_setup_failed``
+    Xeda cannot make the host ready.
+
+A launch that did not pass (``RunFailedError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``run_failed``
+    ``Result.require_passed`` was called on a launch that did not pass. ``result`` holds the launch.
+
+A lock that the thread holds (``LeaseHeldError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``lease_held``
+    The calling thread holds a lock of Xeda, and a launch, a sweep or a scrub would wait for it.
+
+A bug of Xeda (``XedaError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 ``internal_error``
-    A bug of Xeda.
+    An exception that is no refusal of the request ended the launch.
 
-The code of an error of the whole launch (``node`` is ``null``): ``generator_failed``,
-``delivery_failed`` (Xeda could not deliver an output that a setting, ``--outputs-to`` or the
-``outputs_to`` of a generator named), ``cleanup_failed`` (see below), ``canceled``, and, for
-``--remote``, ``remote_failed``, ``remote_fetch_failed`` and
-``remote_detached``. ``no_successful_run`` is the error of ``xeda dse``.
+The command line (``cli``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The code of an error of a request that started no launch is the code of the setting, design,
-project, chain or run root problem. For a bad setting: ``unknown_setting``, ``required_setting``,
-``invalid_quantity``, ``invalid_value``, ``boolean_text``, ``list_text``, ``conflicting_keys``,
-``unscoped_setting`` and ``unknown_node`` (a ``-s`` key that names no flow of the run; ``error.suggestions`` holds the address to write),
-``removed_setting``, ``removed_alias`` (another spelling of a name that stays), ``unsupported_setting`` and others. For a chain: ``invalid_chain``,
-``several_roots_unsupported``, ``repeated_flow``, ``no_edge``, ``unknown_output`` and others. Others are ``invalid_design``,
-``design_file_not_found``, ``unknown_target``, ``target_required``, ``unknown_design``,
-``design_name_required``, ``use_design_name``, ``several_project_files``, ``invalid_project``,
-``invalid_local_settings`` (a private settings file is invalid; the message names the file),
-``removed_alias`` and ``removed_key`` (a design or project key that Xeda refuses; the message names the key to write),
-``fetch_failed`` (planning could not resolve or fetch a Git dependency; ``field`` names it),
-``dependency_cycle`` (the dependencies of a design lead back to a design on the same chain; the
-message names the chain),
-``flow_not_found``, ``invalid_run_root``, ``delivery_refused``, ``usage_error``, and, for
-``--remote``, ``remote_unreachable``, ``remote_setup_failed`` and ``unsupported_with_remote``.
-
-``generator_failed`` says that the generator of the design failed or could not be started or
-judged. It comes before any node runs, so every node is ``skipped``, and Xeda leaves no output of
-the generator behind. With ``delivery_failed`` and ``cleanup_failed``, every node keeps the outcome
-it had.
-``cleanup_failed`` says that every requested flow passed, and then the clean-up after the run
-(``--post-cleanup`` or ``--post-cleanup-purge``) failed. The message names the run directory and the
-cause. A launch that has another cause already keeps it: a failed delivery comes before a failed
-clean-up, and a requested flow that did not pass keeps its own error. Xeda only logs the clean-up
-failure then.
+``usage_error``
+    The command line has a mistake that has no code of its own: an unknown option, no design, or
+    options that need each other.
 
 Other documents of executional commands
 ---------------------------------------
