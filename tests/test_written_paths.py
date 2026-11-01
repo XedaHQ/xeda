@@ -57,6 +57,7 @@ ROLES = {
     ("Nvc.Settings", "fst"): D,
     ("Iverilog.Settings", "vcd"): D,
     ("Iverilog.Settings", "fst"): D,
+    ("Xezim.Settings", "fst"): D,
     ("VivadoSim.Settings", "saif"): D,
     ("VivadoSim.Settings", "xelab_log"): W,
     ("VivadoPower.Settings", "power_report_xml"): D,

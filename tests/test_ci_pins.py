@@ -57,6 +57,8 @@ OLD_UV = "0.12.23"
 NEW_UV = "0.13.1"
 OLD_NVC = "1.22.1"
 NEW_NVC = "1.23.0"
+OLD_XEZIM = "0.11.4"
+NEW_XEZIM = "0.12.0"
 
 CI_TEXT = f"""\
 jobs:
@@ -79,6 +81,10 @@ jobs:
         run: |
           curl -fsSL -o bsc.tar.gz "https://example.org/${{BSC_VERSION}}/bsc.tar.gz"
           echo "${{BSC_SHA256}}  bsc.tar.gz" | sha256sum -c -
+      - name: Pin xezim
+        env:
+          XEZIM_VERSION: "{OLD_XEZIM}"
+        run: echo "XEZIM_VERSION=${{XEZIM_VERSION}}" >> "$GITHUB_ENV"
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -179,6 +185,11 @@ def nvc_release(number: Any, ubuntu: str = "24.04", **flags: bool) -> dict[str, 
     )
 
 
+def xezim_release(tag: Any, **flags: bool) -> dict[str, Any]:
+    """An xezim release: it is built from source, so it has no asset."""
+    return release(tag, **flags)
+
+
 def uv_release(tag: Any, linux: bool = True, **flags: bool) -> dict[str, Any]:
     """A uv release: its Linux archive is what `setup-uv` downloads."""
     names = ["uv-aarch64-apple-darwin.tar.gz"]
@@ -214,12 +225,18 @@ class Upstream:
         orfs_tags=None,
         uv_releases=None,
         nvc_releases=None,
+        xezim_releases=None,
     ):
         self.answers = {
             f"/repos/{pins.NVC_REPOSITORY}/releases?per_page=30": (
                 nvc_releases
                 if nvc_releases is not None
                 else [nvc_release(NEW_NVC), nvc_release("1.22.2"), nvc_release(OLD_NVC)]
+            ),
+            f"/repos/{pins.XEZIM_REPOSITORY}/releases?per_page=30": (
+                xezim_releases
+                if xezim_releases is not None
+                else [xezim_release(NEW_XEZIM), xezim_release(OLD_XEZIM)]
             ),
             f"/repos/{pins.UV_REPOSITORY}/releases?per_page=30": (
                 uv_releases
@@ -268,6 +285,7 @@ def current_upstream() -> Upstream:
         orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
         uv_releases=[uv_release(OLD_UV)],
         nvc_releases=[nvc_release(OLD_NVC)],
+        xezim_releases=[xezim_release(OLD_XEZIM)],
     )
 
 
@@ -296,6 +314,8 @@ def test_the_workflow_files_of_the_repository_hold_pins_the_script_reads(pin_):
     elif pin_.kind == "nvc":
         # a number, never `latest`: the step installs what it names, and nothing else
         assert pins.NVC_NUMBER.fullmatch(pins.read_nvc(text))
+    elif pin_.kind == "xezim":
+        assert pins.XEZIM_TAG.fullmatch(pins.read_xezim(text))
     elif pin_.kind == "bsc":
         version, sha256 = pins.read_bsc(text)
         assert pins.BSC_TAG.fullmatch(version) and pins.SHA256.fullmatch(sha256)
@@ -338,6 +358,7 @@ def test_each_pin_is_read():
     assert pins.read_oss_cad(CI_TEXT) == "2026-09-15"
     assert pins.read_nvc(CI_TEXT) == OLD_NVC
     assert pins.read_bsc(CI_TEXT) == ("2026.07.1", OLD_SHA256)
+    assert pins.read_xezim(CI_TEXT) == OLD_XEZIM
     assert pins.read_installer(OPENXC7_TEXT) == OLD_COMMIT
     assert pins.read_orfs_image(ORFS_TEXT) == (OLD_ORFS_TAG, OLD_ORFS_DIGEST)
     assert pins.read_uv(ORFS_TEXT) == OLD_UV
@@ -467,6 +488,14 @@ def test_the_nvc_pin_is_the_version_of_its_own_step_and_no_other():
         ),
         pytest.param(ORFS_TEXT + ORFS_TEXT, "uv", "step", id="uv step twice"),
         pytest.param(
+            CI_TEXT.replace(f'"{OLD_XEZIM}"', "latest"), "xezim", "XEZIM", id="xezim latest"
+        ),
+        pytest.param(
+            CI_TEXT.replace(f'"{OLD_XEZIM}"', f'"v{OLD_XEZIM}"'), "xezim", "XEZIM", id="xezim v"
+        ),
+        pytest.param(CI_TEXT.replace(f'"{OLD_XEZIM}"', '"0.11"'), "xezim", "XEZIM", id="xezim two"),
+        pytest.param(CI_TEXT + CI_TEXT, "xezim", "XEZIM", id="xezim twice"),
+        pytest.param(
             CI_TEXT.replace('"2026-09-15"', '"2026-09-15"'.translate(ARABIC_INDIC)),
             "oss",
             "version",
@@ -482,6 +511,7 @@ def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
         "installer": pins.read_installer,
         "orfs": pins.read_orfs_image,
         "uv": pins.read_uv,
+        "xezim": pins.read_xezim,
     }
     with pytest.raises(pins.PinError, match=message):
         read[reader](text)
@@ -495,6 +525,9 @@ def test_replacing_a_pin_changes_that_line_and_no_other():
     rewritten = pins.write_nvc(CI_TEXT, NEW_NVC)
     assert pins.read_nvc(rewritten) == NEW_NVC
     assert rewritten.replace(NEW_NVC, OLD_NVC) == CI_TEXT
+    rewritten = pins.write_xezim(CI_TEXT, NEW_XEZIM)
+    assert pins.read_xezim(rewritten) == NEW_XEZIM
+    assert rewritten.replace(NEW_XEZIM, OLD_XEZIM) == CI_TEXT
     rewritten = pins.write_bsc(CI_TEXT, "2026.10", NEW_SHA256)
     assert pins.read_bsc(rewritten) == ("2026.10", NEW_SHA256)
     assert rewritten.replace("2026.10", "2026.07.1").replace(NEW_SHA256, OLD_SHA256) == CI_TEXT
@@ -812,6 +845,7 @@ def test_nothing_is_updated_when_upstream_is_where_the_pins_are():
         ("oss_cad", CI_TEXT),
         ("nvc", CI_TEXT),
         ("bsc", CI_TEXT),
+        ("xezim", CI_TEXT),
         ("installer", OPENXC7_TEXT),
         ("orfs", ORFS_TEXT),
     ):
@@ -849,6 +883,33 @@ def test_a_newer_nvc_is_an_update_with_its_links():
         "compare": f"https://github.com/nickg/nvc/compare/r{OLD_NVC}...r{NEW_NVC}",
     }
     assert pins.apply_update(CI_TEXT, update) == pins.write_nvc(CI_TEXT, NEW_NVC)
+
+
+def test_the_newest_xezim_release_is_a_plain_number_and_never_moves_back():
+    answer = [
+        xezim_release("0.13.0", draft=True),
+        xezim_release("0.12.1", prerelease=True),
+        xezim_release("v0.12.2"),  # a `v`: not a tag of this project
+        xezim_release("0.12.3rc1"),
+        xezim_release("0.9.0"),
+        xezim_release("0.11.10"),
+    ]
+    assert pins.newest_xezim(answer) == "0.11.10"  # ordered as numbers, not as text
+    for releases in ([xezim_release("0.11.3"), xezim_release("0.9.0")], [xezim_release(OLD_XEZIM)]):
+        upstream = newer_upstream(xezim_releases=releases)
+        assert pins.find_update(pin("xezim"), CI_TEXT, upstream.fetch, upstream.digest) is None
+    with pytest.raises(pins.PinError, match="xezim"):
+        pins.newest_xezim([xezim_release("v1.0.0")])
+
+
+def test_a_newer_xezim_is_an_update_with_its_links():
+    upstream = newer_upstream()
+    update = pins.find_update(pin("xezim"), CI_TEXT, upstream.fetch, upstream.digest)
+    assert (update.old, update.new) == (OLD_XEZIM, NEW_XEZIM)
+    assert (
+        dict(update.links)["release"] == f"https://github.com/aionhw/xezim/releases/tag/{NEW_XEZIM}"
+    )
+    assert pins.apply_update(CI_TEXT, update) == pins.write_xezim(CI_TEXT, NEW_XEZIM)
 
 
 def test_nvc_never_moves_back_and_a_pin_at_the_newest_is_not_an_update():
@@ -1051,7 +1112,14 @@ def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_othe
         log=log.append,
         warn=warnings.append,
     )
-    assert [u.pin.kind for u in updates] == ["oss_cad", "nvc", "installer", "orfs", "uv"]
+    assert [u.pin.kind for u in updates] == [
+        "oss_cad",
+        "nvc",
+        "xezim",
+        "installer",
+        "orfs",
+        "uv",
+    ]
     assert pins.read_bsc((tmp_path / pins.CI).read_text()) == ("2026.07.1", OLD_SHA256)
     assert pins.read_bsc((tmp_path / pins.ORFS).read_text()) == ("2026.07.1", OLD_UBUNTU_22_SHA256)
     assert warnings == [
@@ -1248,6 +1316,7 @@ def test_a_dry_run_finds_every_update_and_writes_nothing(tmp_path):
         "oss_cad",
         "nvc",
         "bsc",
+        "xezim",
         "installer",
         "orfs",
         "uv",
@@ -1264,7 +1333,11 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
     pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=False, log=lambda line: None)
     after = contents(tmp_path)
     assert after[str(pins.CI)] == pins.write_bsc(
-        pins.write_nvc(pins.write_oss_cad(CI_TEXT, "2026-10-07"), NEW_NVC), "2026.10", NEW_SHA256
+        pins.write_xezim(
+            pins.write_nvc(pins.write_oss_cad(CI_TEXT, "2026-10-07"), NEW_NVC), NEW_XEZIM
+        ),
+        "2026.10",
+        NEW_SHA256,
     )
     assert after[str(pins.OPENXC7)] == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
     assert after[str(pins.ORFS)] == pins.write_bsc(
@@ -1288,7 +1361,7 @@ def test_a_file_that_does_not_exist_has_no_pin_to_update(tmp_path):
     log: list[str] = []
     upstream = newer_upstream()
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
-    assert [u.pin.kind for u in updates] == ["oss_cad", "nvc", "bsc"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "nvc", "bsc", "xezim"]
     assert any("openxc7.yml" in line and "does not exist" in line for line in log)
     assert any("openroad.yml" in line and "does not exist" in line for line in log)
 
@@ -1312,7 +1385,8 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     updates = [
         pins.find_update(p, text, upstream.fetch, upstream.digest)
         for p, text in zip(
-            pins.PINS, (CI_TEXT, CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT, ORFS_TEXT)
+            pins.PINS,
+            (CI_TEXT, CI_TEXT, CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT, ORFS_TEXT),
         )
     ]
     title, body = pins.pull_request_text(updates)
@@ -1368,6 +1442,7 @@ def test_the_text_names_only_the_tools_that_changed():
         orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
         uv_releases=[uv_release(OLD_UV)],
         nvc_releases=[nvc_release(OLD_NVC)],
+        xezim_releases=[xezim_release(OLD_XEZIM)],
     )
     update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
     _, body = pins.pull_request_text([update])

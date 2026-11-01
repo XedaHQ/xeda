@@ -159,7 +159,8 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
   fails. A testbench that ends with `wait;` needs `std.env.finish` or `$finish`, or a `stop_time`.
   Fix: end the testbench with `$finish` (VHDL `std.env.finish`).
 - `$finish`, VHDL `std.env.finish` and `std.env.stop` are accepted. Verilog `$stop` is an
-  error-rank event and fails at the default threshold. A nonzero exit always fails.
+  error-rank event and fails at the default threshold, except on `xezim`, which reports `$stop` as
+  `$finish`, so it passes there: a failing `xezim` testbench must use `$error` or `$fatal`. A nonzero exit always fails.
 - cocotb: at least one test must run and none may fail; an all-skipped run fails. `cocotb.tests: 0`
   in `results.json` means no test was collected: check `tb.sources`.
 - Every simulator has `timeout` (per subprocess invocation that contains simulation) and
@@ -178,6 +179,11 @@ The `metrics` of `results.json` hold `sim.evidence` (the normalized record), `si
   `vivado_sim` and `vivado_postsynth_sim` refuse an SDF file when neither `sdf.root` nor `tb.uut`
   is set. `prerun_time` opens the SAIF after the pre-run (the VCD
   starts at time 0).
+- `xezim` has no binaries upstream: build it from source with Cargo. `stop_time` must be a positive
+  whole number of nanoseconds. Without it, the 100 ms default limit is lifted. A run that a signal
+  stopped fails. `sdf_file` paths are dotted paths from the simulation top (`uut.u1`), and a run
+  that annotates no signal fails. `uvm: true` needs `XEZIM_UVM_DIR`. `vcd` needs `$dumpfile` and
+  `$dumpvars` in the testbench and is refused with cocotb: use `fst`.
 - `vcs` has no `ucli` setting (Xeda always runs VCS with `-ucli`); `ucli_script` sets the
   script that drives `simv`.
 - `iverilog` (Icarus Verilog 13.0 or newer) needs a C compiler and the VPI headers for non-cocotb

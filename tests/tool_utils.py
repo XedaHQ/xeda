@@ -54,6 +54,7 @@ __all__ = [
     "require_tclsh",
     "require_verilator",
     "require_vivado",
+    "require_xezim",
     "require_yosys",
     "require_yosys_config",
     "require_yosys_ghdl_plugin",
@@ -378,6 +379,15 @@ def require_verilator() -> None:
     # reported as such rather than as a broken Verilator.
     require_c_toolchain()
     _require("verilator", _probe_verilator(), "`verilator --cc --build` of a trivial module")
+
+
+@lru_cache(maxsize=None)
+def _probe_xezim() -> bool:
+    return bool(shutil.which("xezim")) and _command_succeeds(["xezim", "-V"])
+
+
+def require_xezim() -> None:
+    _require("xezim", _probe_xezim(), "`xezim -V`")
 
 
 @lru_cache(maxsize=None)

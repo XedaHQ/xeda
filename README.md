@@ -224,6 +224,10 @@ generated scripts, reports and the effective settings are in the run root, `xeda
     with the top module that the user names. The user's harness owns the clocks, the reset, the
     initial state and the assumptions. The flow always runs and never reuses a formal result. It
     refuses a design that mixes VHDL with Verilog or SystemVerilog
+- [xezim](https://github.com/aionhw/xezim): open-source Verilog/SystemVerilog simulator in Rust
+  - `xezim`: compiles and simulates in one command. It supports cocotb testbenches, UVM, SDF
+    timing annotation, code coverage, and VCD and FST waveforms. Upstream ships no binaries: build
+    it from source with Cargo
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator

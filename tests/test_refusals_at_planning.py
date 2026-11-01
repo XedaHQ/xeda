@@ -49,6 +49,7 @@ from xeda.flows import (
     VivadoPostsynthSim,
     VivadoSim,
     VivadoSynth,
+    Xezim,
     Yosys,
     YosysFpga,
     YosysSim,
@@ -228,6 +229,14 @@ CASES: dict[str, Case] = {
         "`prerun_time` is .*not a whole number of femtoseconds",
         {"prerun_time": "0.5 fs"},
     ),
+    "xezim-stop-time-in-picoseconds": Case(
+        Xezim, "positive whole number of nanoseconds", {"stop_time": "1500 ps"}
+    ),
+    "xezim-owned-flag": Case(Xezim, "which the flow sets itself", {"xezim_flags": ["--wave"]}),
+    "xezim-refinement-without-its-setting": Case(
+        Xezim, "`sdf_type` refines `sdf_file`", {"sdf_type": "max"}
+    ),
+    "xezim-vcd-with-cocotb": Case(Xezim, "use `fst`", {"vcd": True}, _verilog(tb=COCOTB)),
     "yosys-sim-stop-time": Case(YosysSim, "cannot enforce stop_time", {"stop_time": "1us"}),
     "yosys-platform-with-gates": Case(
         Yosys,

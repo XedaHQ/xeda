@@ -30,6 +30,7 @@ from .vivado.vivado_power import VivadoPower
 from .vivado.vivado_project import VivadoProject
 from .vivado.vivado_sim import VivadoSim
 from .vivado.vivado_synth import VivadoSynth
+from .xezim import Xezim
 from .yosys import Yosys, YosysFpga, YosysSim
 
 __builtin_flows__: List[Type[Flow]] = []
@@ -63,6 +64,7 @@ __all__ = [
     "VivadoProject",
     "VivadoSim",
     "VivadoSynth",
+    "Xezim",
     "Yosys",
     "YosysFpga",
     "YosysSim",

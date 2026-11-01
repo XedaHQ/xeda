@@ -55,7 +55,7 @@ RTL_FLOWS = (
 ).split()
 RTL_AND_TB_FLOWS = (
     "bsc bsc_sim ghdl_sim iverilog modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
-    "vivado_sim yosys_sim"
+    "vivado_sim xezim yosys_sim"
 ).split()
 
 

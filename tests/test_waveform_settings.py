@@ -247,6 +247,8 @@ HONORED: dict[tuple[str, str | None, str], list[tuple[tuple, str]]] = {
     ("verilator", None, "vcd"): [(("tool", "verilator", None), "--trace-vcd")],
     ("verilator", None, "fst"): [(("tool", "verilator", None), "--trace-fst")],
     ("verilator", None, "saif"): [(("tool", "verilator", None), "--trace-saif")],
+    ("xezim", None, "vcd"): [(("tool", "xezim", None), "--wave")],
+    ("xezim", None, "fst"): [(("tool", "xezim", None), "--fst")],
     ("bsc_sim", "bluesim", "vcd"): [(("last",), "-V"), (("last",), "dump.vcd")],
     ("bsc_sim", "verilator", "vcd"): [(("last",), "+bscvcd")],
     ("bsc_sim", "modelsim", "vcd"): [(("script", "bsc_modelsim_runtime.tcl"), "+bscvcd=dump.vcd")],

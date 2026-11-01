@@ -58,6 +58,7 @@ SIMULATORS = (
     "vivado_postsynth_sim",
     "yosys_sim",
     "verilator",
+    "xezim",
     "bsc_sim",
 )
 BSC_BACKENDS = (
@@ -166,7 +167,7 @@ def launch_case(
             or (name == "nvc" and "-r" in words)
             or name == "vsim"
             or (name == "vcs" and "-R" in words)
-            or name in ("simv", "top", "mkTop", "tb", "vvp", "xsim")
+            or name in ("simv", "top", "mkTop", "tb", "vvp", "xsim", "xezim")
             or (name == "vivado" and "-source" in words)
         )
         if runtime:
@@ -204,6 +205,15 @@ def launch_case(
                 kwargs, "XEDA_FAKE_VCS_STATE", "finish5" if positive else "silent"
             )
             return use_fake_vcs_execute(original, tool, executable, args, kwargs)
+        if case.flow == "xezim" and name == "xezim":
+            # the fake prints the native lines, so no run is positive unless it says so
+            kwargs = _with_fake_state(
+                kwargs, "XEDA_FAKE_XEZIM_STATE", "finish" if positive else "silent"
+            )
+            result = original(tool, executable, *args, **kwargs)
+            assert (cwd / "fake_xezim.invocations").is_file()
+            (cwd / "oracle.runtime").write_text("runtime executed")
+            return result
         if (case.flow == "modelsim" or case.backend in ("modelsim", "questa")) and name == "vsim":
             kwargs = _with_fake_state(
                 kwargs, "XEDA_FAKE_MODELSIM_STATE", "finish0" if positive else "silent"

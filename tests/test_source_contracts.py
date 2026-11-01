@@ -116,6 +116,7 @@ EXPECTED_READS = {
     "nvc": "Vhdl",
     "modelsim": "Verilog SystemVerilog Vhdl",
     "vcs": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader",
+    "xezim": "Verilog SystemVerilog VerilogHeader SVHeader",
     "vivado_sim": "Verilog SystemVerilog Vhdl",
     "vivado_postsynth_sim": "Verilog SystemVerilog Vhdl",
     "bsc": "Bluespec Verilog SystemVerilog",

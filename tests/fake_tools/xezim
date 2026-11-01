@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Synthetic xezim: prints the native lines of xezim 0.11.4 and runs no design.
+
+Xezim has no Tcl, so this stand-in is plain Python, like `vcs_runtime.py`. The environment
+variable `XEDA_FAKE_XEZIM_STATE` picks what a run reports (default `finish`):
+
+- `finish`, `stop`: `($finish called)`. xezim reports `$stop` the same way, so both are one state.
+- `drained`: the event queue is empty, no suffix.
+- `error`, `warning`, `fatal`: a diagnostic with its `Time:` line, then a finish. `fatal` exits 1.
+- `interrupted`: the `[xezim] interrupted` line, then a finish with exit 0.
+- `capped`: the hang report of `--max-time`.
+- `silent`: no output at all.
+- `sdf_none`: with `--sdf`, nothing is annotated.
+
+The time is in ticks of 1 ps. A run of `-do "run Nns"` ends at N ns, as xezim does.
+"""
+
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+words = sys.argv[1:]
+if words == ["-V"]:
+    print("xezim version 0.11.4\ngit 0000000 (2026-10-31T00:00:00-07:00)\ntag 0.11.4")
+    sys.exit(0)
+with Path("fake_xezim.invocations").open("a") as stream:
+    stream.write(json.dumps(words) + "\n")
+state = os.environ.get("XEDA_FAKE_XEZIM_STATE", "finish")
+if state == "silent":
+    sys.exit(0)
+
+limit = None
+if "-do" in words:
+    run = re.fullmatch(r"run (\d+)ns", words[words.index("-do") + 1])
+    limit = int(run[1]) * 1000 if run else None
+time = limit if limit is not None else 5000 if state != "drained" else 7000
+
+if "--dump-timescales" in words:
+    print("=== module timescales (1 modules) ===")
+    print("  tb                           1ns / 1ps")
+    print("======================================")
+if "--sdf" in words:
+    print(
+        "[SDF] annotated 0 signals with delays"
+        if state == "sdf_none"
+        else "[SDF] annotated 4 signals with delays"
+    )
+if "--wave" in words:
+    Path("dump.vcd").write_text("$date\n$end\n")
+if "--fst" in words:
+    Path(words[words.index("--fst") + 1]).write_text("fake fst\n")
+coverage = next((w for w in words if w.startswith("--code-coverage=")), None)
+if coverage:
+    kinds = [{"stmt": "statement"}.get(k, k) for k in coverage.split("=", 1)[1].split(",")]
+    body = {k: {"covered": 3, "total": 4, "percent": 75.0} for k in kinds}
+    Path("xezim_cov.json").write_text(json.dumps({"code_coverage": {"kinds": kinds, **body}}))
+
+if state in ("error", "warning", "fatal"):
+    severity = state.capitalize()
+    print(f"** {severity}: msg")
+    print("   Time: 3000  Scope: tb")
+if state == "interrupted":
+    print(f"[xezim] interrupted at time {time}")
+if state == "capped":
+    print("[xezim][hang-report] simulation reached --max-time (100 ms)")
+suffix = "" if state in ("drained", "capped") else " ($finish called)"
+print(f"Simulation finished at time {time}{suffix}")
+sys.exit(1 if state == "fatal" else 0)

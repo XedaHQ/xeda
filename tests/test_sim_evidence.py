@@ -55,6 +55,7 @@ def test_every_simulator_flow_requires_evidence_without_an_exemption():
         "vcs",
         "vivado_sim",
         "vivado_postsynth_sim",
+        "xezim",
         "bsc_sim",
     }
     assert _sim_flows() == converted

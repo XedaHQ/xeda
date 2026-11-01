@@ -82,6 +82,34 @@ jobs:
           rm bsc.tar.gz
           echo "$BSC_DIR/bin" >> "$GITHUB_PATH"
           "$BSC_DIR/bin/bsc" -v
+      # xezim has no prebuilt binary, crates.io package or Homebrew formula, so it is built from
+      # its pinned release tag (no `v` prefix) and the binary is cached by pin and runner OS. It
+      # needs Rust 1.92 or newer; the toolchain on the runner is not pinned by the image, so a
+      # cache miss first updates it to the current stable release (minimal profile). A cache hit
+      # skips both the toolchain and the build (about six minutes).
+      - name: Pin xezim
+        if: matrix.python-version == env.FULL_PYTHON
+        env:
+          XEZIM_VERSION: "0.11.4"
+        run: echo "XEZIM_VERSION=${XEZIM_VERSION}" >> "$GITHUB_ENV"
+      - name: Cache xezim
+        if: matrix.python-version == env.FULL_PYTHON
+        id: xezim-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/xezim
+          key: xezim-${{ env.XEZIM_VERSION }}-${{ runner.os }}
+      - name: Install xezim
+        if: matrix.python-version == env.FULL_PYTHON
+        run: |
+          if [ "${{ steps.xezim-cache.outputs.cache-hit }}" != "true" ]; then
+            rustup toolchain install stable --profile minimal
+            rustup default stable
+            cargo install --locked --git https://github.com/aionhw/xezim \
+              --tag "${XEZIM_VERSION}" --bin xezim --root "$HOME/xezim"
+          fi
+          echo "$HOME/xezim/bin" >> "$GITHUB_PATH"
+          "$HOME/xezim/bin/xezim" -V
       # The full-Python leg installs bash, zsh and fish with bsc above.
       - name: Install shells for completion tests
         if: matrix.python-version != env.FULL_PYTHON
