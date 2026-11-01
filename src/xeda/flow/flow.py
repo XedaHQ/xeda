@@ -1401,7 +1401,7 @@ class Flow(metaclass=ABCMeta):
             )
         cls_name = cls.__name__
         mod_name = cls.__module__
-        log.info("registering flow %s from %s", cls_name, mod_name)
+        log.debug("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
             if not FLOW_NAME.fullmatch(cls.name) or cls.name in RESERVED_FLOW_NAMES:
