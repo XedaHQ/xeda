@@ -1,0 +1,4609 @@
+{
+  "design": {
+    "$defs": {
+      "Clock": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "port": {
+            "title": "Port",
+            "type": "string"
+          }
+        },
+        "required": [
+          "port"
+        ],
+        "title": "Clock",
+        "type": "object"
+      },
+      "ClockOverlay": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "port": {
+            "title": "Port",
+            "type": "string"
+          }
+        },
+        "title": "Clock",
+        "type": "object"
+      },
+      "CocotbTestbench": {
+        "properties": {
+          "module": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Module"
+          },
+          "testcase": {
+            "default": [],
+            "description": "The names of the cocotb test cases to run for this design. The flow setting `cocotb.testcase` overrides them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Testcase",
+            "type": "array"
+          },
+          "toplevel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Toplevel"
+          }
+        },
+        "title": "CocotbTestbench",
+        "type": "object"
+      },
+      "DesignReference": {
+        "properties": {
+          "rtl": {
+            "$ref": "#/$defs/RtlDep",
+            "default": {
+              "pos": 0
+            }
+          },
+          "tb": {
+            "$ref": "#/$defs/TbDep",
+            "default": {
+              "pos": 0
+            }
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri"
+        ],
+        "title": "DesignReference",
+        "type": "object"
+      },
+      "Generator": {
+        "properties": {
+          "always_runs": {
+            "default": false,
+            "description": "Run this generator on every launch: what it reads cannot be judged (it is not files, or they cannot be listed), so Xeda keeps no record that could show its output to be current. A generator that declares no `sources` runs on every launch anyway.",
+            "title": "Always Runs",
+            "type": "boolean"
+          },
+          "args": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The arguments the executable is run with: a list, or one string split on whitespace (as `command` is).",
+            "title": "Args"
+          },
+          "check": {
+            "default": true,
+            "title": "Check",
+            "type": "boolean"
+          },
+          "class": {
+            "description": "The class of the generator. Without it, the table is a plain generator that runs `command`, `executable` or `shell`.",
+            "enum": [
+              "chisel"
+            ],
+            "type": "string"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cwd"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Env"
+          },
+          "executable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Executable"
+          },
+          "generated_sources": {
+            "description": "The entries of `rtl.sources` that this generator produces, when it produces only some of them. An entry names one of them, or a directory that holds some. Empty, every entry of `rtl.sources` is the generator's. An entry of `rtl.sources` is wholly the generator's or wholly written by hand: a pattern that would match both is an error. A generator's entry is a path (or a pattern) below the design root that the generator writes, or `$XEDA_GENERATED/<name>` for a file in the storage of the generator. An item selects the entries of its own kind. `$XEDA_GENERATED` alone selects every storage entry, and a storage entry that no item selects is an error.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Generated Sources",
+            "type": "array"
+          },
+          "outputs_to": {
+            "anyOf": [
+              {
+                "format": "path",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A directory that receives a copy of the generated sources, each under its path (a tree entry `gen/top.v` goes to `<outputs_to>/gen/top.v`) or under its name in the storage of the generator (`$XEDA_GENERATED/gen/top.v` goes to the same place). A copy onto a tree entry is refused, since the next run would read it. Give a location: an absolute path, or a path below `$DESIGN_ROOT`, `$DESIGN_DIR` or `$PWD`. The copy is made at the end of a launch that passed, as every delivery is (`--overwrite-outputs` replaces a changed copy). The flows never read the copy, and it is no part of any identity.",
+            "title": "Outputs To"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Parameters",
+            "type": "object"
+          },
+          "shell": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A command line that a shell runs, such as `python soc.py --build`. Xeda expands nothing in it: the shell does. `shell` excludes `command` and `executable`.",
+            "title": "Shell"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "path",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "format": "path",
+                "type": "string"
+              }
+            ],
+            "description": "The sources this generator reads, as a design's `sources` name them: a path relative to the design root, or a pattern where `*` is the only pattern character. Each one's content is what decides whether the generator runs again, so each has to exist. A directory counts as every file in it, so name what the generator reads from outside the design too (a library tree, an editable clone). Xeda assumes nothing about the generator's language or environment.",
+            "title": "Sources"
+          }
+        },
+        "title": "Generator",
+        "type": "object"
+      },
+      "Language": {
+        "properties": {
+          "verilog": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/LanguageSettings"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": {
+              "standard": null
+            }
+          },
+          "vhdl": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/VhdlSettings"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": {
+              "standard": null,
+              "synopsys": false
+            }
+          }
+        },
+        "title": "Language",
+        "type": "object"
+      },
+      "LanguageSettings": {
+        "properties": {
+          "standard": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": null,
+            "description": "The version of the language standard.",
+            "title": "Standard"
+          }
+        },
+        "title": "LanguageSettings",
+        "type": "object"
+      },
+      "Rtl": {
+        "description": "The RTL: sources, top module, clocks, generator, attributes, parameters and defines.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "default": {},
+            "description": "\n        HDL attributes for modules, ports and other objects. The flow that reads an attribute\n        decides its meaning and behavior.\n        Write the attributes as a mapping of attr_name->(path->attr_value):\n        - the key is the name of the attribute\n        - the value is a mapping of path->attr_value:\n            - the key is the path or scope on which the attribute applies\n            - the value is the value of the attribute\n        ",
+            "title": "Attributes",
+            "type": "object"
+          },
+          "clock": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Clock"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "maxProperties": 0,
+                "type": "object"
+              }
+            ],
+            "description": "Single design clock shorthand. Prefer an object with `port`. `null` means no clock.",
+            "x-xeda-input-only": true
+          },
+          "clocks": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Clock"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxProperties": 0,
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Clock"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maxProperties": 0,
+                    "type": "object"
+                  }
+                ]
+              }
+            ],
+            "default": [],
+            "title": "Clocks"
+          },
+          "defines": {
+            "additionalProperties": true,
+            "default": {},
+            "description": "Verilog preprocessor macros, as a mapping of macro name to value. A value of `null` defines the macro without a value.",
+            "title": "Defines",
+            "type": "object"
+          },
+          "generator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "$ref": "#/$defs/Generator"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generator"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "value": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "default": {},
+            "description": "Parameters of the top module (Verilog parameters or VHDL generics): a mapping, or a list of `{name, value}` objects.",
+            "title": "Parameters"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "oneOf": [
+                        {
+                          "required": [
+                            "file"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "path"
+                          ]
+                        }
+                      ],
+                      "properties": {
+                        "file": {
+                          "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Source type. Inferred from the file extension when omitted.",
+                          "enum": [
+                            "Verilog",
+                            "VerilogHeader",
+                            "SystemVerilog",
+                            "SVHeader",
+                            "Vhdl",
+                            "Bluespec",
+                            "Xdc",
+                            "Sdc",
+                            "MemoryFile",
+                            "Tcl",
+                            "Chisel",
+                            "Cpp",
+                            "Cocotb",
+                            "Lpf",
+                            "Pcf",
+                            "Pdc",
+                            "JsonNetlist",
+                            "EcpConfig",
+                            "IceAsc",
+                            "Fasm",
+                            "Bitstream",
+                            "VerilogNetlist",
+                            "VhdlNetlist",
+                            "Blif",
+                            "Edif",
+                            "Ucf",
+                            "Xcf",
+                            "Qsf",
+                            "Ldc",
+                            "Fdc",
+                            "Sdf",
+                            "Spef",
+                            "Saif",
+                            "Vcd",
+                            "Fst",
+                            "Ghw",
+                            "Vpd",
+                            "Fsdb",
+                            "Checkpoint",
+                            "Liberty",
+                            "Def",
+                            "Odb",
+                            "Gds",
+                            "Cdl",
+                            "Chipdb",
+                            "C",
+                            "CHeader",
+                            "ObjectFile",
+                            "Vlt",
+                            "Data",
+                            "FpgaNetlist",
+                            "SynthCheckpoint",
+                            "RoutedCheckpoint",
+                            "FpgaTimingNetlist",
+                            "OpenroadDbPlaced",
+                            "OpenroadDbCts",
+                            "OpenroadDbGlobalRouted",
+                            "OpenroadDbRouted",
+                            "OpenroadSdcPlaced",
+                            "OpenroadSdcCts",
+                            "OpenroadSdcGlobalRouted",
+                            "OpenroadSdcRouted",
+                            "GenericVerilogNetlist"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ],
+                  "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                  "title": "Source"
+                },
+                "type": "array"
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "oneOf": [
+                      {
+                        "required": [
+                          "file"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ],
+                    "properties": {
+                      "file": {
+                        "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                        "type": "string"
+                      },
+                      "path": {
+                        "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Source type. Inferred from the file extension when omitted.",
+                        "enum": [
+                          "Verilog",
+                          "VerilogHeader",
+                          "SystemVerilog",
+                          "SVHeader",
+                          "Vhdl",
+                          "Bluespec",
+                          "Xdc",
+                          "Sdc",
+                          "MemoryFile",
+                          "Tcl",
+                          "Chisel",
+                          "Cpp",
+                          "Cocotb",
+                          "Lpf",
+                          "Pcf",
+                          "Pdc",
+                          "JsonNetlist",
+                          "EcpConfig",
+                          "IceAsc",
+                          "Fasm",
+                          "Bitstream",
+                          "VerilogNetlist",
+                          "VhdlNetlist",
+                          "Blif",
+                          "Edif",
+                          "Ucf",
+                          "Xcf",
+                          "Qsf",
+                          "Ldc",
+                          "Fdc",
+                          "Sdf",
+                          "Spef",
+                          "Saif",
+                          "Vcd",
+                          "Fst",
+                          "Ghw",
+                          "Vpd",
+                          "Fsdb",
+                          "Checkpoint",
+                          "Liberty",
+                          "Def",
+                          "Odb",
+                          "Gds",
+                          "Cdl",
+                          "Chipdb",
+                          "C",
+                          "CHeader",
+                          "ObjectFile",
+                          "Vlt",
+                          "Data",
+                          "FpgaNetlist",
+                          "SynthCheckpoint",
+                          "RoutedCheckpoint",
+                          "FpgaTimingNetlist",
+                          "OpenroadDbPlaced",
+                          "OpenroadDbCts",
+                          "OpenroadDbGlobalRouted",
+                          "OpenroadDbRouted",
+                          "OpenroadSdcPlaced",
+                          "OpenroadSdcCts",
+                          "OpenroadSdcGlobalRouted",
+                          "OpenroadSdcRouted",
+                          "GenericVerilogNetlist"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                ],
+                "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                "title": "Source"
+              }
+            ],
+            "description": "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and `$DESIGN_DIR` name it too), or a table, in YAML `{file: ..., type: ...}` (`path` in place of `file` for one not written yet). A path containing `*` is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` names exactly that file. In `rtl.sources` of a design with a generator, an entry that the generator writes is a path below the design root (it need not exist yet), or `$XEDA_GENERATED/<name>` for a file in the storage of the generator.",
+            "title": "Sources"
+          },
+          "top": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The RTL top module (a Verilog module or a VHDL entity).",
+            "title": "Top"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "Rtl",
+        "type": "object"
+      },
+      "RtlDep": {
+        "properties": {
+          "pos": {
+            "default": 0,
+            "title": "Pos",
+            "type": "integer"
+          }
+        },
+        "title": "RtlDep",
+        "type": "object"
+      },
+      "RtlOverlay": {
+        "description": "The RTL: sources, top module, clocks, generator, attributes, parameters and defines.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "default": {},
+            "description": "\n        HDL attributes for modules, ports and other objects. The flow that reads an attribute\n        decides its meaning and behavior.\n        Write the attributes as a mapping of attr_name->(path->attr_value):\n        - the key is the name of the attribute\n        - the value is a mapping of path->attr_value:\n            - the key is the path or scope on which the attribute applies\n            - the value is the value of the attribute\n        ",
+            "title": "Attributes",
+            "type": "object"
+          },
+          "clock": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ClockOverlay"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "maxProperties": 0,
+                "type": "object"
+              }
+            ],
+            "description": "Single design clock shorthand. Prefer an object with `port`. `null` means no clock.",
+            "x-xeda-input-only": true
+          },
+          "clocks": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Clock"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxProperties": 0,
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Clock"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maxProperties": 0,
+                    "type": "object"
+                  }
+                ]
+              }
+            ],
+            "default": [],
+            "title": "Clocks"
+          },
+          "defines": {
+            "additionalProperties": true,
+            "default": {},
+            "description": "Verilog preprocessor macros, as a mapping of macro name to value. A value of `null` defines the macro without a value.",
+            "title": "Defines",
+            "type": "object"
+          },
+          "generator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "$ref": "#/$defs/Generator"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generator"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "value": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "default": {},
+            "description": "Parameters of the top module (Verilog parameters or VHDL generics): a mapping, or a list of `{name, value}` objects.",
+            "title": "Parameters"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "oneOf": [
+                        {
+                          "required": [
+                            "file"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "path"
+                          ]
+                        }
+                      ],
+                      "properties": {
+                        "file": {
+                          "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Source type. Inferred from the file extension when omitted.",
+                          "enum": [
+                            "Verilog",
+                            "VerilogHeader",
+                            "SystemVerilog",
+                            "SVHeader",
+                            "Vhdl",
+                            "Bluespec",
+                            "Xdc",
+                            "Sdc",
+                            "MemoryFile",
+                            "Tcl",
+                            "Chisel",
+                            "Cpp",
+                            "Cocotb",
+                            "Lpf",
+                            "Pcf",
+                            "Pdc",
+                            "JsonNetlist",
+                            "EcpConfig",
+                            "IceAsc",
+                            "Fasm",
+                            "Bitstream",
+                            "VerilogNetlist",
+                            "VhdlNetlist",
+                            "Blif",
+                            "Edif",
+                            "Ucf",
+                            "Xcf",
+                            "Qsf",
+                            "Ldc",
+                            "Fdc",
+                            "Sdf",
+                            "Spef",
+                            "Saif",
+                            "Vcd",
+                            "Fst",
+                            "Ghw",
+                            "Vpd",
+                            "Fsdb",
+                            "Checkpoint",
+                            "Liberty",
+                            "Def",
+                            "Odb",
+                            "Gds",
+                            "Cdl",
+                            "Chipdb",
+                            "C",
+                            "CHeader",
+                            "ObjectFile",
+                            "Vlt",
+                            "Data",
+                            "FpgaNetlist",
+                            "SynthCheckpoint",
+                            "RoutedCheckpoint",
+                            "FpgaTimingNetlist",
+                            "OpenroadDbPlaced",
+                            "OpenroadDbCts",
+                            "OpenroadDbGlobalRouted",
+                            "OpenroadDbRouted",
+                            "OpenroadSdcPlaced",
+                            "OpenroadSdcCts",
+                            "OpenroadSdcGlobalRouted",
+                            "OpenroadSdcRouted",
+                            "GenericVerilogNetlist"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ],
+                  "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                  "title": "Source"
+                },
+                "type": "array"
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "oneOf": [
+                      {
+                        "required": [
+                          "file"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ],
+                    "properties": {
+                      "file": {
+                        "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                        "type": "string"
+                      },
+                      "path": {
+                        "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Source type. Inferred from the file extension when omitted.",
+                        "enum": [
+                          "Verilog",
+                          "VerilogHeader",
+                          "SystemVerilog",
+                          "SVHeader",
+                          "Vhdl",
+                          "Bluespec",
+                          "Xdc",
+                          "Sdc",
+                          "MemoryFile",
+                          "Tcl",
+                          "Chisel",
+                          "Cpp",
+                          "Cocotb",
+                          "Lpf",
+                          "Pcf",
+                          "Pdc",
+                          "JsonNetlist",
+                          "EcpConfig",
+                          "IceAsc",
+                          "Fasm",
+                          "Bitstream",
+                          "VerilogNetlist",
+                          "VhdlNetlist",
+                          "Blif",
+                          "Edif",
+                          "Ucf",
+                          "Xcf",
+                          "Qsf",
+                          "Ldc",
+                          "Fdc",
+                          "Sdf",
+                          "Spef",
+                          "Saif",
+                          "Vcd",
+                          "Fst",
+                          "Ghw",
+                          "Vpd",
+                          "Fsdb",
+                          "Checkpoint",
+                          "Liberty",
+                          "Def",
+                          "Odb",
+                          "Gds",
+                          "Cdl",
+                          "Chipdb",
+                          "C",
+                          "CHeader",
+                          "ObjectFile",
+                          "Vlt",
+                          "Data",
+                          "FpgaNetlist",
+                          "SynthCheckpoint",
+                          "RoutedCheckpoint",
+                          "FpgaTimingNetlist",
+                          "OpenroadDbPlaced",
+                          "OpenroadDbCts",
+                          "OpenroadDbGlobalRouted",
+                          "OpenroadDbRouted",
+                          "OpenroadSdcPlaced",
+                          "OpenroadSdcCts",
+                          "OpenroadSdcGlobalRouted",
+                          "OpenroadSdcRouted",
+                          "GenericVerilogNetlist"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                ],
+                "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                "title": "Source"
+              }
+            ],
+            "description": "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and `$DESIGN_DIR` name it too), or a table, in YAML `{file: ..., type: ...}` (`path` in place of `file` for one not written yet). A path containing `*` is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` names exactly that file. In `rtl.sources` of a design with a generator, an entry that the generator writes is a path below the design root (it need not exist yet), or `$XEDA_GENERATED/<name>` for a file in the storage of the generator.",
+            "title": "Sources"
+          },
+          "top": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The RTL top module (a Verilog module or a VHDL entity).",
+            "title": "Top"
+          }
+        },
+        "title": "Rtl",
+        "type": "object"
+      },
+      "TbDep": {
+        "properties": {
+          "pos": {
+            "default": 0,
+            "title": "Pos",
+            "type": "integer"
+          }
+        },
+        "title": "TbDep",
+        "type": "object"
+      },
+      "Testbench": {
+        "description": "The testbench: sources, top modules, unit under test, cocotb, parameters and defines.",
+        "properties": {
+          "cocotb": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CocotbTestbench"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "default": null,
+            "description": "Set this when the testbench is based on the cocotb framework: `true` for the defaults, or a table of cocotb settings. `false` means no cocotb testbench. A source of type `Cocotb` sets it automatically."
+          },
+          "defines": {
+            "additionalProperties": true,
+            "default": {},
+            "description": "Verilog preprocessor macros, as a mapping of macro name to value. A value of `null` defines the macro without a value.",
+            "title": "Defines",
+            "type": "object"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "value": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "default": {},
+            "description": "Parameters of the top module (Verilog parameters or VHDL generics): a mapping, or a list of `{name, value}` objects.",
+            "title": "Parameters"
+          },
+          "python_packages": {
+            "default": [],
+            "description": "Python packages that the testbench imports, for example cocotb. Xeda checks that they are installed before a simulation, and installs the same versions on a remote host.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Python Packages",
+            "type": "array"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "oneOf": [
+                        {
+                          "required": [
+                            "file"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "path"
+                          ]
+                        }
+                      ],
+                      "properties": {
+                        "file": {
+                          "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Source type. Inferred from the file extension when omitted.",
+                          "enum": [
+                            "Verilog",
+                            "VerilogHeader",
+                            "SystemVerilog",
+                            "SVHeader",
+                            "Vhdl",
+                            "Bluespec",
+                            "Xdc",
+                            "Sdc",
+                            "MemoryFile",
+                            "Tcl",
+                            "Chisel",
+                            "Cpp",
+                            "Cocotb",
+                            "Lpf",
+                            "Pcf",
+                            "Pdc",
+                            "JsonNetlist",
+                            "EcpConfig",
+                            "IceAsc",
+                            "Fasm",
+                            "Bitstream",
+                            "VerilogNetlist",
+                            "VhdlNetlist",
+                            "Blif",
+                            "Edif",
+                            "Ucf",
+                            "Xcf",
+                            "Qsf",
+                            "Ldc",
+                            "Fdc",
+                            "Sdf",
+                            "Spef",
+                            "Saif",
+                            "Vcd",
+                            "Fst",
+                            "Ghw",
+                            "Vpd",
+                            "Fsdb",
+                            "Checkpoint",
+                            "Liberty",
+                            "Def",
+                            "Odb",
+                            "Gds",
+                            "Cdl",
+                            "Chipdb",
+                            "C",
+                            "CHeader",
+                            "ObjectFile",
+                            "Vlt",
+                            "Data",
+                            "FpgaNetlist",
+                            "SynthCheckpoint",
+                            "RoutedCheckpoint",
+                            "FpgaTimingNetlist",
+                            "OpenroadDbPlaced",
+                            "OpenroadDbCts",
+                            "OpenroadDbGlobalRouted",
+                            "OpenroadDbRouted",
+                            "OpenroadSdcPlaced",
+                            "OpenroadSdcCts",
+                            "OpenroadSdcGlobalRouted",
+                            "OpenroadSdcRouted",
+                            "GenericVerilogNetlist"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ],
+                  "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                  "title": "Source"
+                },
+                "type": "array"
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "oneOf": [
+                      {
+                        "required": [
+                          "file"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ],
+                    "properties": {
+                      "file": {
+                        "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                        "type": "string"
+                      },
+                      "path": {
+                        "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Source type. Inferred from the file extension when omitted.",
+                        "enum": [
+                          "Verilog",
+                          "VerilogHeader",
+                          "SystemVerilog",
+                          "SVHeader",
+                          "Vhdl",
+                          "Bluespec",
+                          "Xdc",
+                          "Sdc",
+                          "MemoryFile",
+                          "Tcl",
+                          "Chisel",
+                          "Cpp",
+                          "Cocotb",
+                          "Lpf",
+                          "Pcf",
+                          "Pdc",
+                          "JsonNetlist",
+                          "EcpConfig",
+                          "IceAsc",
+                          "Fasm",
+                          "Bitstream",
+                          "VerilogNetlist",
+                          "VhdlNetlist",
+                          "Blif",
+                          "Edif",
+                          "Ucf",
+                          "Xcf",
+                          "Qsf",
+                          "Ldc",
+                          "Fdc",
+                          "Sdf",
+                          "Spef",
+                          "Saif",
+                          "Vcd",
+                          "Fst",
+                          "Ghw",
+                          "Vpd",
+                          "Fsdb",
+                          "Checkpoint",
+                          "Liberty",
+                          "Def",
+                          "Odb",
+                          "Gds",
+                          "Cdl",
+                          "Chipdb",
+                          "C",
+                          "CHeader",
+                          "ObjectFile",
+                          "Vlt",
+                          "Data",
+                          "FpgaNetlist",
+                          "SynthCheckpoint",
+                          "RoutedCheckpoint",
+                          "FpgaTimingNetlist",
+                          "OpenroadDbPlaced",
+                          "OpenroadDbCts",
+                          "OpenroadDbGlobalRouted",
+                          "OpenroadDbRouted",
+                          "OpenroadSdcPlaced",
+                          "OpenroadSdcCts",
+                          "OpenroadSdcGlobalRouted",
+                          "OpenroadSdcRouted",
+                          "GenericVerilogNetlist"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                ],
+                "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                "title": "Source"
+              }
+            ],
+            "default": [],
+            "description": "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and `$DESIGN_DIR` name it too), or a table, in YAML `{file: ..., type: ...}` (`path` in place of `file` for one not written yet). A path containing `*` is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` names exactly that file. In `rtl.sources` of a design with a generator, an entry that the generator writes is a path below the design root (it need not exist yet), or `$XEDA_GENERATED/<name>` for a file in the storage of the generator.",
+            "title": "Sources"
+          },
+          "top": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "maxItems": 1,
+                "minItems": 1,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": [],
+            "description": "The testbench top modules: the primary top module and, optionally, a secondary one. Give one string, or a list of at most two.",
+            "title": "Top"
+          },
+          "uut": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The instance name of the unit under test in the testbench.",
+            "title": "Uut"
+          }
+        },
+        "title": "Testbench",
+        "type": "object"
+      },
+      "TestbenchOverlay": {
+        "description": "The testbench: sources, top modules, unit under test, cocotb, parameters and defines.",
+        "properties": {
+          "cocotb": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CocotbTestbench"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "default": null,
+            "description": "Set this when the testbench is based on the cocotb framework: `true` for the defaults, or a table of cocotb settings. `false` means no cocotb testbench. A source of type `Cocotb` sets it automatically."
+          },
+          "defines": {
+            "additionalProperties": true,
+            "default": {},
+            "description": "Verilog preprocessor macros, as a mapping of macro name to value. A value of `null` defines the macro without a value.",
+            "title": "Defines",
+            "type": "object"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "value": {
+                      "not": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "default": {},
+            "description": "Parameters of the top module (Verilog parameters or VHDL generics): a mapping, or a list of `{name, value}` objects.",
+            "title": "Parameters"
+          },
+          "python_packages": {
+            "default": [],
+            "description": "Python packages that the testbench imports, for example cocotb. Xeda checks that they are installed before a simulation, and installs the same versions on a remote host.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Python Packages",
+            "type": "array"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "oneOf": [
+                        {
+                          "required": [
+                            "file"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "path"
+                          ]
+                        }
+                      ],
+                      "properties": {
+                        "file": {
+                          "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                          "type": "string"
+                        },
+                        "path": {
+                          "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Source type. Inferred from the file extension when omitted.",
+                          "enum": [
+                            "Verilog",
+                            "VerilogHeader",
+                            "SystemVerilog",
+                            "SVHeader",
+                            "Vhdl",
+                            "Bluespec",
+                            "Xdc",
+                            "Sdc",
+                            "MemoryFile",
+                            "Tcl",
+                            "Chisel",
+                            "Cpp",
+                            "Cocotb",
+                            "Lpf",
+                            "Pcf",
+                            "Pdc",
+                            "JsonNetlist",
+                            "EcpConfig",
+                            "IceAsc",
+                            "Fasm",
+                            "Bitstream",
+                            "VerilogNetlist",
+                            "VhdlNetlist",
+                            "Blif",
+                            "Edif",
+                            "Ucf",
+                            "Xcf",
+                            "Qsf",
+                            "Ldc",
+                            "Fdc",
+                            "Sdf",
+                            "Spef",
+                            "Saif",
+                            "Vcd",
+                            "Fst",
+                            "Ghw",
+                            "Vpd",
+                            "Fsdb",
+                            "Checkpoint",
+                            "Liberty",
+                            "Def",
+                            "Odb",
+                            "Gds",
+                            "Cdl",
+                            "Chipdb",
+                            "C",
+                            "CHeader",
+                            "ObjectFile",
+                            "Vlt",
+                            "Data",
+                            "FpgaNetlist",
+                            "SynthCheckpoint",
+                            "RoutedCheckpoint",
+                            "FpgaTimingNetlist",
+                            "OpenroadDbPlaced",
+                            "OpenroadDbCts",
+                            "OpenroadDbGlobalRouted",
+                            "OpenroadDbRouted",
+                            "OpenroadSdcPlaced",
+                            "OpenroadSdcCts",
+                            "OpenroadSdcGlobalRouted",
+                            "OpenroadSdcRouted",
+                            "GenericVerilogNetlist"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ],
+                  "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                  "title": "Source"
+                },
+                "type": "array"
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "oneOf": [
+                      {
+                        "required": [
+                          "file"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "path"
+                        ]
+                      }
+                    ],
+                    "properties": {
+                      "file": {
+                        "description": "Path to an existing file. Mutually exclusive with 'path'.",
+                        "type": "string"
+                      },
+                      "path": {
+                        "description": "Path that is not checked for existence. Mutually exclusive with 'file'.",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Source type. Inferred from the file extension when omitted.",
+                        "enum": [
+                          "Verilog",
+                          "VerilogHeader",
+                          "SystemVerilog",
+                          "SVHeader",
+                          "Vhdl",
+                          "Bluespec",
+                          "Xdc",
+                          "Sdc",
+                          "MemoryFile",
+                          "Tcl",
+                          "Chisel",
+                          "Cpp",
+                          "Cocotb",
+                          "Lpf",
+                          "Pcf",
+                          "Pdc",
+                          "JsonNetlist",
+                          "EcpConfig",
+                          "IceAsc",
+                          "Fasm",
+                          "Bitstream",
+                          "VerilogNetlist",
+                          "VhdlNetlist",
+                          "Blif",
+                          "Edif",
+                          "Ucf",
+                          "Xcf",
+                          "Qsf",
+                          "Ldc",
+                          "Fdc",
+                          "Sdf",
+                          "Spef",
+                          "Saif",
+                          "Vcd",
+                          "Fst",
+                          "Ghw",
+                          "Vpd",
+                          "Fsdb",
+                          "Checkpoint",
+                          "Liberty",
+                          "Def",
+                          "Odb",
+                          "Gds",
+                          "Cdl",
+                          "Chipdb",
+                          "C",
+                          "CHeader",
+                          "ObjectFile",
+                          "Vlt",
+                          "Data",
+                          "FpgaNetlist",
+                          "SynthCheckpoint",
+                          "RoutedCheckpoint",
+                          "FpgaTimingNetlist",
+                          "OpenroadDbPlaced",
+                          "OpenroadDbCts",
+                          "OpenroadDbGlobalRouted",
+                          "OpenroadDbRouted",
+                          "OpenroadSdcPlaced",
+                          "OpenroadSdcCts",
+                          "OpenroadSdcGlobalRouted",
+                          "OpenroadSdcRouted",
+                          "GenericVerilogNetlist"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                ],
+                "description": "A design source file: either a path string (relative paths are resolved against the design file's directory) or an object. The source type is inferred from the file extension unless 'type' is given explicitly.",
+                "title": "Source"
+              }
+            ],
+            "default": [],
+            "description": "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and `$DESIGN_DIR` name it too), or a table, in YAML `{file: ..., type: ...}` (`path` in place of `file` for one not written yet). A path containing `*` is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` names exactly that file. In `rtl.sources` of a design with a generator, an entry that the generator writes is a path below the design root (it need not exist yet), or `$XEDA_GENERATED/<name>` for a file in the storage of the generator.",
+            "title": "Sources"
+          },
+          "top": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "maxItems": 1,
+                "minItems": 1,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "default": [],
+            "description": "The testbench top modules: the primary top module and, optionally, a secondary one. Give one string, or a list of at most two.",
+            "title": "Top"
+          },
+          "uut": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The instance name of the unit under test in the testbench.",
+            "title": "Uut"
+          }
+        },
+        "title": "Testbench",
+        "type": "object"
+      },
+      "VhdlSettings": {
+        "properties": {
+          "standard": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": null,
+            "description": "The version of the language standard.",
+            "title": "Standard"
+          },
+          "synopsys": {
+            "default": false,
+            "title": "Synopsys",
+            "type": "boolean"
+          }
+        },
+        "title": "VhdlSettings",
+        "type": "object"
+      },
+      "_GitReferenceInput": {
+        "description": "The Git mapping form accepted by `DesignReference.from_data`.",
+        "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "design_file": {
+            "title": "Design File",
+            "type": "string"
+          },
+          "repo_url": {
+            "title": "Repo Url",
+            "type": "string"
+          },
+          "rtl": {
+            "$ref": "#/$defs/RtlDep"
+          },
+          "tb": {
+            "$ref": "#/$defs/TbDep"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_url",
+          "design_file"
+        ],
+        "title": "_GitReferenceInput",
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "authors": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "default": [],
+        "description": "The authors of the design, each in \"Name <email>\" format (the RFC 5322 mailbox format), for example [\"Jane Doe <jane@example.com>\", \"John Doe <john@example.com>\"].",
+        "title": "Authors"
+      },
+      "dependencies": {
+        "default": [],
+        "items": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/DesignReference"
+            },
+            {
+              "$ref": "#/$defs/_GitReferenceInput"
+            }
+          ]
+        },
+        "title": "Dependencies",
+        "type": "array"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "A brief description of the design.",
+        "title": "Description"
+      },
+      "flows": {
+        "additionalProperties": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "default": {},
+        "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+        "title": "Flows",
+        "type": "object"
+      },
+      "generation_units": {
+        "default": [],
+        "hidden_from_schema": true,
+        "items": {},
+        "title": "Generation Units",
+        "type": "array"
+      },
+      "language": {
+        "$ref": "#/$defs/Language",
+        "description": "HDL language settings"
+      },
+      "license": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "License"
+      },
+      "name": {
+        "description": "The unique name of the design. It starts with a letter and has only letters, digits, `_` and `-`. Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*.",
+        "title": "Name",
+        "type": "string"
+      },
+      "resolved_dependencies": {
+        "default": [],
+        "hidden_from_schema": true,
+        "items": {},
+        "title": "Resolved Dependencies",
+        "type": "array"
+      },
+      "rtl": {
+        "$ref": "#/$defs/Rtl"
+      },
+      "targets": {
+        "additionalProperties": {
+          "properties": {
+            "authors": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "default": [],
+              "description": "The authors of the design, each in \"Name <email>\" format (the RFC 5322 mailbox format), for example [\"Jane Doe <jane@example.com>\", \"John Doe <john@example.com>\"].",
+              "title": "Authors"
+            },
+            "dependencies": {
+              "default": [],
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/DesignReference"
+                  },
+                  {
+                    "$ref": "#/$defs/_GitReferenceInput"
+                  }
+                ]
+              },
+              "title": "Dependencies",
+              "type": "array"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "A brief description of the design.",
+              "title": "Description"
+            },
+            "flows": {
+              "additionalProperties": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "default": {},
+              "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+              "title": "Flows",
+              "type": "object"
+            },
+            "generation_units": {
+              "default": [],
+              "hidden_from_schema": true,
+              "items": {},
+              "title": "Generation Units",
+              "type": "array"
+            },
+            "language": {
+              "$ref": "#/$defs/Language",
+              "description": "HDL language settings"
+            },
+            "license": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "License"
+            },
+            "name": false,
+            "resolved_dependencies": {
+              "default": [],
+              "hidden_from_schema": true,
+              "items": {},
+              "title": "Resolved Dependencies",
+              "type": "array"
+            },
+            "rtl": {
+              "$ref": "#/$defs/RtlOverlay"
+            },
+            "target": false,
+            "targets": false,
+            "tb": {
+              "$ref": "#/$defs/TestbenchOverlay",
+              "default": {
+                "cocotb": null,
+                "defines": {},
+                "parameters": {},
+                "python_packages": [],
+                "sources": [],
+                "top": [],
+                "uut": null
+              }
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Url"
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Version"
+            }
+          },
+          "type": "object"
+        },
+        "description": "Named targets (for example, one per board), each an overlay on the design: it takes the design's own keys, merged over them. Mappings merge key by key; `sources` are appended after the design's; any other list replaces the design's. One is selected with `--target NAME`; without it, the design is used with no target. A target name cannot be the name of a flow.",
+        "propertyNames": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "type": "object"
+      },
+      "tb": {
+        "$ref": "#/$defs/Testbench",
+        "default": {
+          "cocotb": null,
+          "defines": {},
+          "parameters": {},
+          "python_packages": [],
+          "sources": [],
+          "top": [],
+          "uut": null
+        }
+      },
+      "url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Url"
+      },
+      "version": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Version"
+      }
+    },
+    "schema_version": 1,
+    "title": "Design",
+    "type": "object"
+  },
+  "dry-run": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "dependencies": {
+        "items": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "nodes": {
+        "items": {
+          "properties": {
+            "action": {
+              "type": "boolean"
+            },
+            "deliveries": {
+              "items": {
+                "properties": {
+                  "destination": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "replaces": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "destination",
+                  "key",
+                  "replaces"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "flow": {
+              "type": "string"
+            },
+            "identity": {
+              "type": "string"
+            },
+            "input_types": {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "inputs": {
+              "items": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "origin": {
+                    "enum": [
+                      "source",
+                      "producer",
+                      "none"
+                    ],
+                    "type": "string"
+                  },
+                  "output": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "producer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "sources": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name",
+                  "origin",
+                  "output",
+                  "producer",
+                  "reason",
+                  "sources"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "name": {
+              "type": "string"
+            },
+            "output_types": {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            "outputs_enabled": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "run_dir": {
+              "type": "string"
+            },
+            "settings": {
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "fresh",
+                "rejected",
+                "stale",
+                "unknown",
+                "blocked"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "deliveries",
+            "flow",
+            "identity",
+            "input_types",
+            "inputs",
+            "name",
+            "output_types",
+            "outputs_enabled",
+            "reason",
+            "run_dir",
+            "settings",
+            "state"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "options": {
+        "properties": {
+          "clean": {
+            "type": "boolean"
+          },
+          "outputs_to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overwrite_outputs": {
+            "type": "boolean"
+          },
+          "post_cleanup": {
+            "type": "boolean"
+          },
+          "post_cleanup_purge": {
+            "type": "boolean"
+          },
+          "prune_variants": {
+            "type": "boolean"
+          },
+          "rebuild_all": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clean",
+          "outputs_to",
+          "overwrite_outputs",
+          "post_cleanup",
+          "post_cleanup_purge",
+          "prune_variants",
+          "rebuild_all"
+        ],
+        "type": "object"
+      },
+      "roots": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "spec": {
+        "properties": {
+          "design": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "design_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "flow": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "design",
+          "design_file",
+          "flow",
+          "settings",
+          "target"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "dependencies",
+      "nodes",
+      "options",
+      "roots",
+      "schema_version",
+      "spec"
+    ],
+    "title": "xeda run --dry-run --json",
+    "type": "object"
+  },
+  "dse": {
+    "$defs": {
+      "results": {
+        "properties": {
+          "artifacts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "configuration": {
+            "type": "object"
+          },
+          "dependencies": {
+            "items": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "design": {
+            "type": "string"
+          },
+          "error": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "exit_status": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "log": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "node": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "exit_status",
+              "log",
+              "message",
+              "node"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "finished": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "flow": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "string"
+          },
+          "inherited_variables": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "origin": {
+                  "enum": [
+                    "source",
+                    "producer",
+                    "none"
+                  ],
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer_run_dir": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer_run_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sources": {
+                  "items": {
+                    "properties": {
+                      "dependency": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "generated": {
+                        "type": "boolean"
+                      },
+                      "generation": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "producer": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "dependency",
+                      "digest",
+                      "generated",
+                      "generation",
+                      "path",
+                      "producer"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "origin",
+                "output",
+                "producer",
+                "producer_run_dir",
+                "producer_run_id",
+                "sources"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "metric_info": {
+            "additionalProperties": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "number",
+                    "integer",
+                    "boolean",
+                    "text",
+                    "text_list",
+                    "counts",
+                    "numbers",
+                    "object"
+                  ],
+                  "type": "string"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "description",
+                "type",
+                "unit"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "rejected",
+              "failed",
+              "canceled"
+            ],
+            "type": "string"
+          },
+          "outputs": {
+            "additionalProperties": {
+              "properties": {
+                "cardinality": {
+                  "enum": [
+                    "one",
+                    "optional",
+                    "many"
+                  ],
+                  "type": "string"
+                },
+                "design": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "digests": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "names": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "cardinality",
+                "design",
+                "digests",
+                "kind",
+                "names"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "number"
+          },
+          "schema_version": {
+            "type": "integer"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "started": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "xeda_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifacts",
+          "configuration",
+          "dependencies",
+          "design",
+          "error",
+          "finished",
+          "flow",
+          "identity",
+          "inherited_variables",
+          "inputs",
+          "metric_info",
+          "metrics",
+          "outcome",
+          "outputs",
+          "run_id",
+          "runtime",
+          "schema_version",
+          "settings",
+          "started",
+          "target",
+          "xeda_version"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "best": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/results"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "best_run_dir": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "design": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "error": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "exit_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "exit_status",
+          "log",
+          "message",
+          "node"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "flow": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "optimizer": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "outcome": {
+        "enum": [
+          "passed",
+          "rejected",
+          "failed",
+          "blocked",
+          "skipped",
+          "canceled",
+          "detached",
+          null
+        ],
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "points": {
+        "items": {
+          "properties": {
+            "error": {
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "exit_status": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "log": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "node": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "exit_status",
+                "log",
+                "message",
+                "node"
+              ],
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "outcome": {
+              "enum": [
+                "passed",
+                "rejected",
+                "failed",
+                "blocked",
+                "skipped",
+                "canceled",
+                "detached"
+              ],
+              "type": "string"
+            },
+            "run_dir": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "error",
+            "outcome",
+            "run_dir"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "target": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "best",
+      "best_run_dir",
+      "design",
+      "error",
+      "flow",
+      "optimizer",
+      "outcome",
+      "points",
+      "schema_version",
+      "target"
+    ],
+    "title": "xeda dse --json",
+    "type": "object"
+  },
+  "list-boards": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "boards": {
+        "items": {
+          "properties": {
+            "board": {
+              "type": "string"
+            },
+            "fpga": {
+              "type": "object"
+            },
+            "lpf": {
+              "type": "string"
+            },
+            "openfpgaloader_board": {
+              "type": "string"
+            },
+            "pcf": {
+              "type": "string"
+            },
+            "pdc": {
+              "type": "string"
+            },
+            "xdc": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "board"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "boards",
+      "schema_version"
+    ],
+    "title": "xeda list-boards --json",
+    "type": "object"
+  },
+  "list-flows": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "flows": {
+        "items": {
+          "properties": {
+            "action_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "can_follow": {
+              "items": {
+                "properties": {
+                  "binds": {
+                    "items": {
+                      "properties": {
+                        "flow": {
+                          "type": "string"
+                        },
+                        "input": {
+                          "type": "string"
+                        },
+                        "output": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "flow",
+                        "input",
+                        "output"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "flow": {
+                    "type": "string"
+                  },
+                  "output": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "target_dependent": {
+                    "type": "boolean"
+                  },
+                  "through": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "binds",
+                  "flow",
+                  "output",
+                  "target_dependent",
+                  "through"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "can_precede": {
+              "items": {
+                "properties": {
+                  "binds": {
+                    "items": {
+                      "properties": {
+                        "flow": {
+                          "type": "string"
+                        },
+                        "input": {
+                          "type": "string"
+                        },
+                        "output": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "flow",
+                        "input",
+                        "output"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "flow": {
+                    "type": "string"
+                  },
+                  "output": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "target_dependent": {
+                    "type": "boolean"
+                  },
+                  "through": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "binds",
+                  "flow",
+                  "output",
+                  "target_dependent",
+                  "through"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "category": {
+              "type": "string"
+            },
+            "class": {
+              "type": "string"
+            },
+            "dependencies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "inputs": {
+              "items": {
+                "properties": {
+                  "cardinality": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "equivalence": {
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "optional": {
+                    "type": "boolean"
+                  },
+                  "output": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "paired": {
+                    "type": "boolean"
+                  },
+                  "producer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "same_producer_as": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "types": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "via": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "cardinality",
+                  "description",
+                  "equivalence",
+                  "name",
+                  "optional",
+                  "output",
+                  "paired",
+                  "producer",
+                  "required",
+                  "same_producer_as",
+                  "types",
+                  "value",
+                  "via"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "module": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "outputs": {
+              "items": {
+                "properties": {
+                  "cardinality": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "enabled_by": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "types": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cardinality",
+                  "description",
+                  "enabled_by",
+                  "name",
+                  "types",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "qualified_name": {
+              "type": "string"
+            },
+            "settings_class": {
+              "type": "string"
+            },
+            "supports_cocotb": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action_reason",
+            "can_follow",
+            "can_precede",
+            "category",
+            "class",
+            "dependencies",
+            "description",
+            "inputs",
+            "module",
+            "name",
+            "outputs",
+            "qualified_name",
+            "settings_class",
+            "supports_cocotb"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "flows",
+      "schema_version"
+    ],
+    "title": "xeda list-flows --json",
+    "type": "object"
+  },
+  "list-optimizers": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "optimizers": {
+        "items": {
+          "properties": {
+            "class": {
+              "type": "string"
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "module": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "settings": {
+              "items": {
+                "properties": {
+                  "default": {},
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "default",
+                  "description",
+                  "name",
+                  "required",
+                  "type",
+                  "unit"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "class",
+            "description",
+            "module",
+            "name",
+            "settings"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "optimizers",
+      "schema_version"
+    ],
+    "title": "xeda list-optimizers --json",
+    "type": "object"
+  },
+  "list-platforms": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "platforms": {
+        "items": {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "directory": {
+              "type": "string"
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "problem": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "installed",
+            "platform",
+            "provider",
+            "version"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "platforms",
+      "schema_version"
+    ],
+    "title": "xeda list-platforms --json",
+    "type": "object"
+  },
+  "list-results": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "artifacts": {
+        "items": {
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "when": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "key",
+            "when"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "flow": {
+        "type": "string"
+      },
+      "metrics": {
+        "items": {
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "number",
+                "integer",
+                "boolean",
+                "text",
+                "text_list",
+                "counts",
+                "numbers",
+                "object"
+              ],
+              "type": "string"
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "description",
+            "path",
+            "type",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "note": {
+        "type": "string"
+      },
+      "schema_version": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "artifacts",
+      "flow",
+      "metrics",
+      "note",
+      "schema_version"
+    ],
+    "title": "xeda list-results --json",
+    "type": "object"
+  },
+  "list-settings": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "definitions": {
+        "type": "object"
+      },
+      "fields": {
+        "items": {
+          "properties": {
+            "common": {
+              "type": "boolean"
+            },
+            "declared_by": {
+              "type": "string"
+            },
+            "default": {},
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "enum": {
+              "items": {},
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "group": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "json_schema": {
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            },
+            "opaque_keys": {
+              "type": "boolean"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "tier": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "writes": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "common",
+            "declared_by",
+            "default",
+            "description",
+            "enum",
+            "group",
+            "json_schema",
+            "name",
+            "opaque_keys",
+            "required",
+            "tier",
+            "type",
+            "writes"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "flow": {
+        "type": "string"
+      },
+      "json_schema": {
+        "type": "object"
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "settings_class": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "definitions",
+      "fields",
+      "flow",
+      "json_schema",
+      "schema_version",
+      "settings_class"
+    ],
+    "title": "xeda list-settings --json",
+    "type": "object"
+  },
+  "results": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "artifacts": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "configuration": {
+        "type": "object"
+      },
+      "dependencies": {
+        "items": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "design": {
+        "type": "string"
+      },
+      "error": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "exit_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "exit_status",
+          "log",
+          "message",
+          "node"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "finished": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "flow": {
+        "type": "string"
+      },
+      "identity": {
+        "type": "string"
+      },
+      "inherited_variables": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "inputs": {
+        "items": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "enum": [
+                "source",
+                "producer",
+                "none"
+              ],
+              "type": "string"
+            },
+            "output": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "producer": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "producer_run_dir": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "producer_run_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sources": {
+              "items": {
+                "properties": {
+                  "dependency": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "digest": {
+                    "type": "string"
+                  },
+                  "generated": {
+                    "type": "boolean"
+                  },
+                  "generation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "producer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "dependency",
+                  "digest",
+                  "generated",
+                  "generation",
+                  "path",
+                  "producer"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "origin",
+            "output",
+            "producer",
+            "producer_run_dir",
+            "producer_run_id",
+            "sources"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "metric_info": {
+        "additionalProperties": {
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "number",
+                "integer",
+                "boolean",
+                "text",
+                "text_list",
+                "counts",
+                "numbers",
+                "object"
+              ],
+              "type": "string"
+            },
+            "unit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "description",
+            "type",
+            "unit"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "metrics": {
+        "type": "object"
+      },
+      "outcome": {
+        "enum": [
+          "passed",
+          "rejected",
+          "failed",
+          "canceled"
+        ],
+        "type": "string"
+      },
+      "outputs": {
+        "additionalProperties": {
+          "properties": {
+            "cardinality": {
+              "enum": [
+                "one",
+                "optional",
+                "many"
+              ],
+              "type": "string"
+            },
+            "design": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "digests": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "names": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "cardinality",
+            "design",
+            "digests",
+            "kind",
+            "names"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "run_id": {
+        "type": "string"
+      },
+      "runtime": {
+        "type": "number"
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "settings": {
+        "type": "object"
+      },
+      "started": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "target": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "xeda_version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "artifacts",
+      "configuration",
+      "dependencies",
+      "design",
+      "error",
+      "finished",
+      "flow",
+      "identity",
+      "inherited_variables",
+      "inputs",
+      "metric_info",
+      "metrics",
+      "outcome",
+      "outputs",
+      "run_id",
+      "runtime",
+      "schema_version",
+      "settings",
+      "started",
+      "target",
+      "xeda_version"
+    ],
+    "title": "results.json",
+    "type": "object"
+  },
+  "run": {
+    "$defs": {
+      "results": {
+        "properties": {
+          "artifacts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "configuration": {
+            "type": "object"
+          },
+          "dependencies": {
+            "items": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "design": {
+            "type": "string"
+          },
+          "error": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "exit_status": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "log": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "node": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "exit_status",
+              "log",
+              "message",
+              "node"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "finished": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "flow": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "string"
+          },
+          "inherited_variables": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "origin": {
+                  "enum": [
+                    "source",
+                    "producer",
+                    "none"
+                  ],
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer_run_dir": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer_run_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sources": {
+                  "items": {
+                    "properties": {
+                      "dependency": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "generated": {
+                        "type": "boolean"
+                      },
+                      "generation": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "producer": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "dependency",
+                      "digest",
+                      "generated",
+                      "generation",
+                      "path",
+                      "producer"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "origin",
+                "output",
+                "producer",
+                "producer_run_dir",
+                "producer_run_id",
+                "sources"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "metric_info": {
+            "additionalProperties": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "number",
+                    "integer",
+                    "boolean",
+                    "text",
+                    "text_list",
+                    "counts",
+                    "numbers",
+                    "object"
+                  ],
+                  "type": "string"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "description",
+                "type",
+                "unit"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "rejected",
+              "failed",
+              "canceled"
+            ],
+            "type": "string"
+          },
+          "outputs": {
+            "additionalProperties": {
+              "properties": {
+                "cardinality": {
+                  "enum": [
+                    "one",
+                    "optional",
+                    "many"
+                  ],
+                  "type": "string"
+                },
+                "design": {
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "digests": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "names": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "cardinality",
+                "design",
+                "digests",
+                "kind",
+                "names"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "number"
+          },
+          "schema_version": {
+            "type": "integer"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "started": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "xeda_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifacts",
+          "configuration",
+          "dependencies",
+          "design",
+          "error",
+          "finished",
+          "flow",
+          "identity",
+          "inherited_variables",
+          "inputs",
+          "metric_info",
+          "metrics",
+          "outcome",
+          "outputs",
+          "run_id",
+          "runtime",
+          "schema_version",
+          "settings",
+          "started",
+          "target",
+          "xeda_version"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "error": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "exit_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "exit_status",
+          "log",
+          "message",
+          "node"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "launch_id": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "nodes": {
+        "items": {
+          "properties": {
+            "blocked_by": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "deliveries": {
+              "items": {
+                "properties": {
+                  "delivered": {
+                    "type": "boolean"
+                  },
+                  "destination": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "delivered",
+                  "destination",
+                  "key"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "disposition": {
+              "enum": [
+                "ran",
+                "shared",
+                "reused",
+                "not_run"
+              ],
+              "type": "string"
+            },
+            "elapsed": {
+              "type": "number"
+            },
+            "error": {
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "exit_status": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "log": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "node": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "exit_status",
+                "log",
+                "message",
+                "node"
+              ],
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "flow": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "outcome": {
+              "enum": [
+                "passed",
+                "rejected",
+                "failed",
+                "blocked",
+                "skipped",
+                "canceled",
+                "detached"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "record": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/results"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "run_dir": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "blocked_by",
+            "deliveries",
+            "disposition",
+            "elapsed",
+            "error",
+            "flow",
+            "name",
+            "outcome",
+            "reason",
+            "record",
+            "run_dir"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "outcome": {
+        "enum": [
+          "passed",
+          "rejected",
+          "failed",
+          "blocked",
+          "skipped",
+          "canceled",
+          "detached",
+          null
+        ],
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "roots": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "spec": {
+        "properties": {
+          "design": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "design_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "flow": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "design",
+          "design_file",
+          "flow",
+          "settings",
+          "target"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "error",
+      "launch_id",
+      "nodes",
+      "outcome",
+      "roots",
+      "schema_version",
+      "spec"
+    ],
+    "title": "xeda run --json",
+    "type": "object"
+  },
+  "scrub": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "design": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "error": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "exit_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "exit_status",
+          "log",
+          "message",
+          "node"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "flow": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "gone": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "kept": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "outcome": {
+        "enum": [
+          "passed",
+          "rejected",
+          "failed",
+          "blocked",
+          "skipped",
+          "canceled",
+          "detached",
+          null
+        ],
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "removed": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "run_root": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "scanned": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "skipped": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "target": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "design",
+      "error",
+      "flow",
+      "gone",
+      "kept",
+      "outcome",
+      "removed",
+      "run_root",
+      "scanned",
+      "schema_version",
+      "skipped",
+      "target"
+    ],
+    "title": "xeda scrub --json",
+    "type": "object"
+  }
+}

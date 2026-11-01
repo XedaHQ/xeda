@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dependencies": {
+      "items": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "nodes": {
+      "items": {
+        "properties": {
+          "action": {
+            "type": "boolean"
+          },
+          "deliveries": {
+            "items": {
+              "properties": {
+                "destination": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "replaces": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "destination",
+                "key",
+                "replaces"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "flow": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "string"
+          },
+          "input_types": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "origin": {
+                  "enum": [
+                    "source",
+                    "producer",
+                    "none"
+                  ],
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "producer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "sources": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "origin",
+                "output",
+                "producer",
+                "reason",
+                "sources"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "output_types": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "outputs_enabled": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "run_dir": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "state": {
+            "enum": [
+              "fresh",
+              "rejected",
+              "stale",
+              "unknown",
+              "blocked"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "deliveries",
+          "flow",
+          "identity",
+          "input_types",
+          "inputs",
+          "name",
+          "output_types",
+          "outputs_enabled",
+          "reason",
+          "run_dir",
+          "settings",
+          "state"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "options": {
+      "properties": {
+        "clean": {
+          "type": "boolean"
+        },
+        "outputs_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overwrite_outputs": {
+          "type": "boolean"
+        },
+        "post_cleanup": {
+          "type": "boolean"
+        },
+        "post_cleanup_purge": {
+          "type": "boolean"
+        },
+        "prune_variants": {
+          "type": "boolean"
+        },
+        "rebuild_all": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "clean",
+        "outputs_to",
+        "overwrite_outputs",
+        "post_cleanup",
+        "post_cleanup_purge",
+        "prune_variants",
+        "rebuild_all"
+      ],
+      "type": "object"
+    },
+    "roots": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "spec": {
+      "properties": {
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "design_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flow": {
+          "type": "string"
+        },
+        "settings": {
+          "type": "object"
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "design",
+        "design_file",
+        "flow",
+        "settings",
+        "target"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "dependencies",
+    "nodes",
+    "options",
+    "roots",
+    "schema_version",
+    "spec"
+  ],
+  "title": "xeda run --dry-run --json",
+  "type": "object"
+}

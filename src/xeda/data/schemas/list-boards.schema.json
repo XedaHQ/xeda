@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "boards": {
+      "items": {
+        "properties": {
+          "board": {
+            "type": "string"
+          },
+          "fpga": {
+            "type": "object"
+          },
+          "lpf": {
+            "type": "string"
+          },
+          "openfpgaloader_board": {
+            "type": "string"
+          },
+          "pcf": {
+            "type": "string"
+          },
+          "pdc": {
+            "type": "string"
+          },
+          "xdc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "board"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "boards",
+    "schema_version"
+  ],
+  "title": "xeda list-boards --json",
+  "type": "object"
+}

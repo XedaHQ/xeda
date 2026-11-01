@@ -1077,7 +1077,17 @@ def test_an_unknown_outcome_is_a_corrupt_record(tmp_path):
 
 @pytest.mark.parametrize(
     "name",
-    sorted(path.name for path in DOCUMENTS.glob("*-1.[0-9]*.json")) if DOCUMENTS.is_dir() else [],
+    # The other fixtures (`dry-run`, `list-*`) are documents that Xeda only writes: the schema
+    # tests validate them (`tests/test_schema_baseline.py`).
+    (
+        sorted(
+            path.name
+            for path in DOCUMENTS.glob("*-1.[0-9]*.json")
+            if path.name.startswith(("results-", "run-"))
+        )
+        if DOCUMENTS.is_dir()
+        else []
+    ),
 )
 def test_the_historical_fixtures_still_load(tmp_path, name):
     if name.startswith("results-"):

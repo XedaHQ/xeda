@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "platforms": {
+      "items": {
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "directory": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "installed",
+          "platform",
+          "provider",
+          "version"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "platforms",
+    "schema_version"
+  ],
+  "title": "xeda list-platforms --json",
+  "type": "object"
+}

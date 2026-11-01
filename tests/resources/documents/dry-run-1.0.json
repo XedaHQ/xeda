@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "flow": "vivado_synth",
+    "design": "sqrt",
+    "design_file": "/work/sqrt.yaml",
+    "target": null,
+    "settings": {
+      "vivado_synth": {
+        "clocks": {
+          "main_clock": {
+            "period": "5.5 ns"
+          }
+        }
+      }
+    }
+  },
+  "roots": [
+    "vivado_synth"
+  ],
+  "options": {
+    "rebuild_all": false,
+    "clean": false,
+    "prune_variants": false,
+    "outputs_to": null,
+    "overwrite_outputs": false,
+    "post_cleanup": false,
+    "post_cleanup_purge": false
+  },
+  "dependencies": [],
+  "nodes": [
+    {
+      "name": "vivado_synth",
+      "flow": "vivado_synth",
+      "run_dir": "/work/xeda_run/sqrt/vivado_synth",
+      "identity": "576a2a64f28d2a6468a3c3cc4fe7152dc6b86f5573475b868bd429e1511274eb",
+      "state": "fresh",
+      "reason": "",
+      "action": false,
+      "settings": {
+        "verbosity": "normal",
+        "nthreads": null,
+        "reports_dir": "reports",
+        "docker": false,
+        "clocks": {
+          "main_clock": {
+            "name": "main_clock",
+            "period": "5.5 ns",
+            "rise": "0 ns",
+            "duty_cycle": 0.5,
+            "uncertainty": null,
+            "skew": null,
+            "port": null
+          }
+        },
+        "fpga": {
+          "part": "xc7a100tftg256-2L",
+          "device": "xc7a100t",
+          "vendor": "xilinx",
+          "family": "artix-7",
+          "generation": "7",
+          "type": null,
+          "speed": "-2L",
+          "package": "ftg",
+          "capacity": "100K",
+          "pins": 256,
+          "grade": null
+        }
+      },
+      "inputs": [],
+      "outputs_enabled": [],
+      "input_types": {},
+      "output_types": {
+        "netlist": [
+          "FpgaNetlist"
+        ],
+        "netlist_timing": [
+          "FpgaTimingNetlist"
+        ],
+        "sdf": [
+          "Sdf"
+        ],
+        "checkpoint_route": [
+          "RoutedCheckpoint"
+        ],
+        "bitstream": [
+          "Bitstream"
+        ],
+        "checkpoint_synth": [
+          "SynthCheckpoint"
+        ],
+        "sdf_min": [
+          "Sdf"
+        ]
+      },
+      "deliveries": []
+    }
+  ]
+}

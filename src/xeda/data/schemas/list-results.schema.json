@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "key",
+          "when"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "flow": {
+      "type": "string"
+    },
+    "metrics": {
+      "items": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "number",
+              "integer",
+              "boolean",
+              "text",
+              "text_list",
+              "counts",
+              "numbers",
+              "object"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "path",
+          "type",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "note": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "artifacts",
+    "flow",
+    "metrics",
+    "note",
+    "schema_version"
+  ],
+  "title": "xeda list-results --json",
+  "type": "object"
+}

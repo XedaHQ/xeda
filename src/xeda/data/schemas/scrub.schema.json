@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "design": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "exit_status": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "log": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "exit_status",
+        "log",
+        "message",
+        "node"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "flow": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "gone": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "kept": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "rejected",
+        "failed",
+        "blocked",
+        "skipped",
+        "canceled",
+        "detached",
+        null
+      ],
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "removed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "run_root": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scanned": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "skipped": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "design",
+    "error",
+    "flow",
+    "gone",
+    "kept",
+    "outcome",
+    "removed",
+    "run_root",
+    "scanned",
+    "schema_version",
+    "skipped",
+    "target"
+  ],
+  "title": "xeda scrub --json",
+  "type": "object"
+}

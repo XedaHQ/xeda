@@ -164,6 +164,7 @@ namespaces = false
     "boards/**/*.xdc",
     "boards/**/*.lpf",
     "boards/*/*.md",
+    "schemas/*.json",
 ]
 "xeda.data.agent" = [
     "SKILL.md",
