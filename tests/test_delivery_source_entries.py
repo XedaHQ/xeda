@@ -201,8 +201,8 @@ def test_a_delivery_onto_the_tree_place_of_a_storage_name_is_allowed(tmp_path, d
     )
     (design.root / "scripts" / "gen.py").write_text("")
     target = design.root / "gen" / "top.v"
-    assert [e.text for e in design.source_entries()] == ["scripts/gen.py"]
-    assert not any(e.matches(target) for e in design.source_entries())
+    assert [e.text for e in design._source_entries()] == ["scripts/gen.py"]
+    assert not any(e.matches(target) for e in design._source_entries())
 
     class BlindDeliverer(deliverer):  # type: ignore[valid-type, misc]
         """Reads no generated source: the storage need not hold one."""
@@ -227,7 +227,7 @@ def test_a_delivery_is_still_refused_after_the_design_is_updated(tmp_path, deliv
         "target": lambda: design.with_target("t"),
         "nothing": lambda: design.with_updates({}),
     }[change]()
-    assert changed.source_entries() == design.source_entries()
+    assert changed._source_entries() == design._source_entries()
     with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
         _launch(tmp_path, deliverer, changed, design.root / "src" / "new.v")
     assert not RUNS
@@ -295,7 +295,7 @@ def test_the_entry_of_a_source_is_private_and_no_part_of_its_identity(tmp_path):
     assert named.as_json_value() == matched.as_json_value()
     assert not hasattr(named, "entry") and not hasattr(named, "entry_root")
     assert design_configuration_hash(by_name) == design_configuration_hash(by_pattern)
-    assert by_name.source_entries() != by_pattern.source_entries(), "only the reader sees them"
+    assert by_name._source_entries() != by_pattern._source_entries(), "only the reader sees them"
     with preserved_flow_registry():
         flow = reader_flow()
         hashes = [
@@ -315,7 +315,7 @@ def test_a_pattern_whose_matches_are_all_listed_already_stays_an_entry(tmp_path,
     (root / "src").mkdir(parents=True)
     (root / "src" / "seed.v").write_text("module seed; endmodule\n")
     design = Design(name="d", root=root, rtl={"sources": ["src/seed.v", "src/*.v"], "top": "seed"})
-    assert [e.text for e in design.source_entries()] == ["src/seed.v", "src/*.v"]
+    assert [e.text for e in design._source_entries()] == ["src/seed.v", "src/*.v"]
     target = root / "src" / "new.v"
     with pytest.raises(DeliveryError, match=r"`src/\*.v` entry of `rtl.sources`"):
         _launch(tmp_path, deliverer, design, target)
@@ -346,7 +346,7 @@ def test_a_file_listed_twice_stays_one_source_and_the_entries_are_no_identity(tm
     twice = Design(name="d", root=root, rtl={"sources": ["src/a.v", "src/*.v"], "top": "a"})
     assert once.rtl.sources == twice.rtl.sources and len(twice.rtl.sources) == 1
     assert once.rtl.sources[0].as_json_value() == twice.rtl.sources[0].as_json_value()
-    assert len(twice.source_entries()) == 2
+    assert len(twice._source_entries()) == 2
 
 
 # ---------------------------------------------------------------- links in the design tree

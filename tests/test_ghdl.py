@@ -206,7 +206,7 @@ def test_ghdl_synth_output_name_collision_is_reported_before_synthesis(
     require_ghdl()
     design = _same_stem_design(tmp_path)
     monkeypatch.setattr(
-        Design, "source_artifact_name", lambda self, src, suffix="": "same" + suffix
+        Design, "_source_artifact_name", lambda self, src, suffix="": "same" + suffix
     )
     with pytest.raises(FlowException) as excinfo:
         DefaultRunner(tmp_path / "xeda_run").run_flow(GhdlSynth, design, {"verilog_output": "vout"})

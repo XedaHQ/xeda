@@ -298,3 +298,11 @@ def test_a_frozen_flows_section_goes_straight_to_the_settings(tmp_path):
     for refused in ({"ncpus": 1}, {"nthreads": "yes"}):
         with pytest.raises(FlowSettingsError):
             VivadoSynth.Settings.from_input(FrozenDict({**section, **refused}))
+
+
+def test_dependencies_are_read_only_mappings_of_the_reference_fields(tmp_path):
+    design = Design(name="d", root=tmp_path, rtl={"sources": []}, dependencies=["dep/dep.yaml"])
+    assert design.dependencies[0]["uri"] == "dep/dep.yaml"
+    with pytest.raises(TypeError):
+        design.dependencies[0]["uri"] = "other.yaml"  # type: ignore[index]
+    assert design._dependency_references[0].uri == "dep/dep.yaml"

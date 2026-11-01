@@ -91,7 +91,7 @@ def test_design_parts_is_one_frozenset_and_the_old_name_is_gone() -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# The helpers: `Design.parts_hash`, `trace_inputs.design_files`
+# The helpers: `Design._parts_hash`, `trace_inputs.design_files`
 # ---------------------------------------------------------------------------------------------
 
 
@@ -110,20 +110,20 @@ def _small_design(root: Path, tb: str = "module tb; endmodule\n", rtl: str = "")
 def test_parts_hash_covers_the_parts_it_is_given(tmp_path: Path) -> None:
     # each hash is taken before the next design rewrites the files: sources are read when hashed
     before = _small_design(tmp_path)
-    rtl, both = before.parts_hash(RTL), before.parts_hash(BOTH)
+    rtl, both = before._parts_hash(RTL), before._parts_hash(BOTH)
     after = _small_design(tmp_path, tb="module tb; wire changed; endmodule\n")
-    assert after.parts_hash(RTL) == rtl
-    assert after.parts_hash(BOTH) != both
+    assert after._parts_hash(RTL) == rtl
+    assert after._parts_hash(BOTH) != both
     assert rtl != both
     again = _small_design(tmp_path, rtl="module b; endmodule\n")
-    assert again.parts_hash(RTL) != rtl
+    assert again._parts_hash(RTL) != rtl
 
 
 def test_both_parts_are_the_hash_a_design_always_had(tmp_path: Path) -> None:
     """A simulation's `design_hash` does not move with this change: both parts hash as the whole
     design did (`rtl_hash` and `tb_hash`, in that order)."""
     design = _small_design(tmp_path)
-    assert design.parts_hash(BOTH) == semantic_hash(
+    assert design._parts_hash(BOTH) == semantic_hash(
         dict(rtl_hash=design.rtl_hash, tb_hash=design.tb_hash)
     )
 
@@ -131,16 +131,16 @@ def test_both_parts_are_the_hash_a_design_always_had(tmp_path: Path) -> None:
 def test_parts_hash_does_not_depend_on_the_order_the_parts_are_named_in(tmp_path: Path) -> None:
     design = _small_design(tmp_path)
     assert (
-        design.parts_hash(["tb", "rtl"])
-        == design.parts_hash(("rtl", "tb"))
-        == design.parts_hash(BOTH)
+        design._parts_hash(["tb", "rtl"])
+        == design._parts_hash(("rtl", "tb"))
+        == design._parts_hash(BOTH)
     )
 
 
 def test_parts_hash_refuses_a_part_a_design_does_not_have(tmp_path: Path) -> None:
     design = _small_design(tmp_path)
     with pytest.raises(ValueError, match="nonsense"):
-        design.parts_hash(frozenset({"rtl", "nonsense"}))
+        design._parts_hash(frozenset({"rtl", "nonsense"}))
 
 
 def test_design_files_cover_the_parts_they_are_given(tmp_path: Path) -> None:
@@ -372,7 +372,7 @@ def test_the_trace_of_a_flow_names_the_files_of_the_parts_it_reads(project: Proj
 # ---------------------------------------------------------------------------------------------
 
 #: The calls that take a `tb` argument, and the number of positional arguments that precede it.
-TB_TAKERS = {"sources_of_type": None, "header_dirs": 1, "sources_read": 1}
+TB_TAKERS = {"_sources_of_type": None, "header_dirs": 1, "sources_read": 1}
 
 #: Flows declared `{"rtl"}` that nevertheless read `tb`, each with why it is allowed. Nothing is
 #: allowed today: a part wrongly left out is a stale reuse of other sources, and a read that
@@ -384,7 +384,7 @@ READS_TB_THOUGH_RTL_ONLY: dict[str, str] = {}
 #: and says to narrow the flow's parts.
 DECLARES_TB_THOUGH_NOT_A_SIMULATION: dict[str, str] = {
     "bsc": "BscFlow._path_flags adds the testbench's Verilog directories to -vsearch "
-    "(`sources_of_type(..., rtl=True, tb=True)`); declared both until that read is narrowed",
+    "(`_sources_of_type(..., rtl=True, tb=True)`); declared both until that read is narrowed",
     "vivado_project": "the project's simulation fileset holds the testbench "
     "(`vivado_project.tcl`: `sources_read(rtl=false, tb=true)`, `design.tb.top`)",
 }
@@ -396,7 +396,7 @@ def python_tb_reads(
     """Where the Python in `source` reads the design's testbench, as `line: what`.
 
     A read is: an attribute `.tb` (`design.tb`, `self.design.tb.top`); `getattr(x, "tb")`; a call
-    of `sources_of_type`, `header_dirs` or `sources_read` that is not told `tb=False` outright
+    of `_sources_of_type`, `header_dirs` or `sources_read` that is not told `tb=False` outright
     (one that forwards its own parameter `tb` is fine when that parameter defaults to False,
     which `test_the_defaults_of_the_calls_that_take_tb_are_false` pins); an argument expansion
     into such a call. Top-level classes named in `skip_classes` are not visited: a module holds
@@ -496,37 +496,37 @@ def test_the_scan_sees_each_way_of_reading_the_testbench() -> None:
     code = {
         "attribute": "def f(self): return self.design.tb.top",
         "getattr": "def f(d): return getattr(d, 'tb')",
-        "tb=True": "def f(d): return d.sources_of_type('*', rtl=True, tb=True)",
+        "tb=True": "def f(d): return d._sources_of_type('*', rtl=True, tb=True)",
         "tb=name": "def f(d, flag): return d.sources_read(tb=flag)",
         "positional": "def f(d): return d.header_dirs(True, True)",
-        "expansion": "def f(d, **kw): return d.sources_of_type('*', **kw)",
-        "forwarded default True": "def f(d, tb=True): return d.sources_of_type('*', tb=tb)",
+        "expansion": "def f(d, **kw): return d._sources_of_type('*', **kw)",
+        "forwarded default True": "def f(d, tb=True): return d._sources_of_type('*', tb=tb)",
     }
     for what, source in code.items():
         assert python_tb_reads(source), what
     clean = {
-        "tb=False": "def f(d): return d.sources_of_type('*', rtl=True, tb=False)",
-        "no tb": "def f(d): return d.sources_of_type('*') + d.header_dirs()",
-        "forwarded default False": "def f(d, tb=False): return d.sources_of_type('*', tb=tb)",
+        "tb=False": "def f(d): return d._sources_of_type('*', rtl=True, tb=False)",
+        "no tb": "def f(d): return d._sources_of_type('*') + d.header_dirs()",
+        "forwarded default False": "def f(d, tb=False): return d._sources_of_type('*', tb=tb)",
         "forwarded default False, keyword only": "def f(d, *, tb=False): return d.sources_read(tb=tb)",
         "a skipped class": "class Other:\n    def f(self): return self.design.tb\n",
     }
     for what, source in clean.items():
         assert not python_tb_reads(source, skip_classes=["Other"]), what
 
-    flag = "{% set include_tb = read_tb_sources|default(false) -%}\n{{ design.sources_of_type('*', tb=include_tb) }}"
+    flag = "{% set include_tb = read_tb_sources|default(false) -%}\n{{ design._sources_of_type('*', tb=include_tb) }}"
     assert template_tb_reads("{{ design.tb.top[0] }}", set())
     assert template_tb_reads("{% for s in sources_read(rtl=false, tb=true) %}{% endfor %}", set())
     assert template_tb_reads(flag, {"read_tb_sources"})
     assert not template_tb_reads(flag, set())
-    assert not template_tb_reads("{{ design.sources_of_type('*', rtl=true, tb=false) }}", set())
+    assert not template_tb_reads("{{ design._sources_of_type('*', rtl=true, tb=false) }}", set())
 
 
 def test_the_defaults_of_the_calls_that_take_tb_are_false() -> None:
     """A call that does not name `tb` reads none, which holds only while every default is False."""
     from xeda.design import Design as D
 
-    for function in (D.sources_of_type, D.header_dirs, Flow.sources_read):
+    for function in (D._sources_of_type, D.header_dirs, Flow.sources_read):
         default = inspect.signature(function).parameters["tb"].default
         assert default is False, function.__qualname__
 

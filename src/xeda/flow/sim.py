@@ -408,7 +408,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         That means `Cpp` sources among its RTL and testbench sources. `yosys_sim` takes any `Cpp`
         source for a main and runs it in place of its own. (`verilator` asks its `main`
         setting.)"""
-        return bool(design.sim_sources_of_type(SourceType.Cpp))
+        return bool(design._sim_sources_of_type(SourceType.Cpp))
 
     @classmethod
     def runs_without_testbench_top(

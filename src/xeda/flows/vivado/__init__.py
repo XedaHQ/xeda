@@ -35,7 +35,7 @@ SOURCE_FILE_TYPES = {
 
 def vivado_file_type(source: Source) -> str:
     """Return the project file type of a source, whatever its file name extension."""
-    return SOURCE_FILE_TYPES[source.type]
+    return SOURCE_FILE_TYPES[SourceType(source.type)]
 
 
 __all__ = [

@@ -387,7 +387,7 @@ def package_inputs(
         host, listed once, as it is on this side."""
         entries: list[Any] = []
         dumped = unit.model_dump(mode="json")["dependencies"]
-        for ref, entry in zip(unit.dependencies, dumped):
+        for ref, entry in zip(unit._dependency_references, dumped):
             if isinstance(ref, GitReference):
                 entries.append(entry)
                 continue

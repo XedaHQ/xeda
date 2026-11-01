@@ -207,7 +207,7 @@ def _design_record(flow: Flow, name: str, value: Any, problems: list[str]) -> di
                 {
                     "source": entry.index,
                     "file": _source_file(flow.design, entry.index),
-                    "type": listed[entry.index].type.name,
+                    "type": SourceType(listed[entry.index].type).name,
                 }
             )
             continue
@@ -236,7 +236,7 @@ def _design_record(flow: Flow, name: str, value: Any, problems: list[str]) -> di
     return {
         "kind": DESIGN_RECORD_KIND,
         "top": value.top,
-        "input_design": flow.design.parts_hash(DESIGN_PARTS),
+        "input_design": flow.design._parts_hash(DESIGN_PARTS),
         "sources": sources,
     }
 

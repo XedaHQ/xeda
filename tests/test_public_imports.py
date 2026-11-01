@@ -6,10 +6,18 @@ or an example that imports anything else teaches a name that can change.
 """
 
 import ast
+import collections.abc
+import enum
 import importlib
+import inspect
+import pathlib
 import re
+import sys
 import textwrap
+import types
+import typing
 from pathlib import Path
+from typing import Any, ParamSpec, TypeVar
 
 import pytest
 
@@ -161,3 +169,178 @@ def test_the_checker_finds_a_name_that_is_not_public() -> None:
         "xeda.introspect.Flow",
         "xeda.introspect.Tool",
     ]
+
+
+# --- The annotations of the public names -------------------------------------------------------
+
+STANDARD_MODULES = {
+    "builtins",
+    "typing",
+    "typing_extensions",
+    "collections.abc",
+    "os",
+    "pathlib",
+    "datetime",
+    "enum",
+    "dataclasses",
+    "types",
+}
+
+
+def _public_objects() -> dict[str, object]:
+    """Return every public name of the three public modules and `xeda.workspace_verbs`."""
+    found: dict[str, object] = {}
+    for module in (*PUBLIC_MODULES, "xeda.workspace_verbs"):
+        loaded = importlib.import_module(module)
+        names = loaded.__all__ if module != "xeda.workspace_verbs" else _VERB_NAMES
+        found.update({f"{module}.{name}": getattr(loaded, name) for name in names})
+    return found
+
+
+_VERB_NAMES = ("plan", "run", "sweep", "load", "records", "scrub")
+PUBLIC_OBJECTS = _public_objects()
+PUBLIC_NAMES = sorted(PUBLIC_OBJECTS)
+_PUBLIC_IDS = {id(value) for value in PUBLIC_OBJECTS.values()}
+# The names that a string annotation of a public module may use under `TYPE_CHECKING`.
+_NAMESPACE = {
+    name: value
+    for qualified, value in PUBLIC_OBJECTS.items()
+    for name in [qualified.rpartition(".")[2]]
+}
+
+
+try:
+    import pandas as _pandas
+except ImportError:  # pandas is optional: a stand-in with the same module name
+    _frame = type("DataFrame", (), {"__module__": "pandas.core.frame"})
+    _pandas = types.SimpleNamespace(DataFrame=_frame)  # type: ignore[assignment]
+
+
+def _leaves(annotation: object) -> list[object]:
+    """Return the classes and aliases that an annotation names, without the arguments of `Literal`."""
+    if annotation is None or annotation is Ellipsis or annotation is type(None):
+        return []
+    if isinstance(annotation, (TypeVar, ParamSpec)):
+        return []
+    origin = typing.get_origin(annotation)
+    if origin is typing.Literal:
+        return []
+    if origin is typing.Annotated:
+        return _leaves(typing.get_args(annotation)[0])
+    if origin is not None:
+        found = [] if origin in (typing.Union, types.UnionType) else [origin]
+        for argument in typing.get_args(annotation):
+            found += _leaves(list(argument) if isinstance(argument, list) else argument)
+        return found
+    if isinstance(annotation, (list, tuple)):
+        return [leaf for item in annotation for leaf in _leaves(item)]
+    return [annotation]
+
+
+def _allowed(leaf: object) -> bool:
+    if id(leaf) in _PUBLIC_IDS:
+        return True
+    module = getattr(leaf, "__module__", None)
+    return (
+        module in STANDARD_MODULES
+        or str(module).split(".")[0] == "pandas"
+        or (isinstance(leaf, type) and leaf.__module__ == "xeda.errors")
+    )
+
+
+def _annotation_problems_of(owner: str, hints: dict[str, object]) -> list[str]:
+    return [
+        f"{owner} `{name}` names {getattr(leaf, '__module__', '?')}.{getattr(leaf, '__qualname__', leaf)}"
+        for name, annotation in hints.items()
+        for leaf in _leaves(annotation)
+        if not _allowed(leaf)
+    ]
+
+
+def _hints(target: object) -> dict[str, object]:
+    """Return the public annotations that `target` itself declares, each one evaluated alone.
+
+    A name that is not defined (a private type imported under `TYPE_CHECKING`) evaluates to a
+    marker that `_allowed` refuses."""
+    namespace = {**_NAMESPACE, "pandas": _pandas}
+    module = sys.modules.get(getattr(target, "__module__", ""), None)
+    scope = {**vars(module), **namespace} if module else namespace
+    if hasattr(inspect, "get_annotations") and sys.version_info >= (3, 14):
+        import annotationlib
+
+        raw = inspect.get_annotations(target, format=annotationlib.Format.FORWARDREF)  # type: ignore[arg-type]
+    else:
+        raw = inspect.get_annotations(target)
+    found: dict[str, object] = {}
+    for name, hint in raw.items():
+        if name.startswith("_") or name in ("self", "cls"):
+            continue
+        text = hint if isinstance(hint, str) else getattr(hint, "__forward_arg__", None)
+        while text is not None:
+            try:
+                hint = eval(text, scope)  # noqa: S307 - the annotations of the package itself
+            except NameError as error:
+                hint = _Undefined(str(error))
+            text = hint if isinstance(hint, str) else getattr(hint, "__forward_arg__", None)
+        found[name] = hint
+    return found
+
+
+class _Undefined:
+    def __init__(self, text: str) -> None:
+        self.__module__ = "undefined"
+        self.__qualname__ = text
+
+
+def annotation_problems(obj: Any) -> list[str]:
+    """Return the annotations of a public name that name something not public.
+
+    A public signature, return or attribute annotation may name a public name, a builtin, or a
+    type of `typing`, `collections.abc`, `os`, `pathlib`, `datetime`, `enum`, `dataclasses`
+    or `types`. An empty list means the annotations are fine."""
+    found: list[str] = []
+    qualname = getattr(obj, "__qualname__", repr(obj))
+    if not inspect.isclass(obj):
+        return _annotation_problems_of(qualname, _hints(obj)) if callable(obj) else []
+    if not issubclass(obj, enum.Enum):
+        for base in obj.__mro__:
+            if base.__module__.startswith("xeda"):
+                found += _annotation_problems_of(qualname, _hints(base))
+    for name in dir(obj):
+        if name.startswith("_") and name != "__init__":
+            continue
+        member = inspect.getattr_static(obj, name)
+        defining = next((c for c in obj.__mro__ if name in vars(c)), None)
+        if defining is None or not defining.__module__.startswith("xeda"):
+            continue
+        if isinstance(member, (staticmethod, classmethod)):
+            member = member.__func__
+        elif isinstance(member, property):
+            member = member.fget
+        if inspect.isfunction(member):
+            found += _annotation_problems_of(f"{qualname}.{name}", _hints(member))
+    return found
+
+
+@pytest.mark.parametrize("name", PUBLIC_NAMES)
+def test_public_annotations_name_public_or_standard_types(name: str) -> None:
+    found = set(annotation_problems(PUBLIC_OBJECTS[name]))
+    assert found == set()
+
+
+class _Internal:
+    pass
+
+
+def test_the_annotation_check_finds_an_internal_type() -> None:
+    def fine(value: pathlib.Path | None = None) -> collections.abc.Mapping[str, xeda.Spec]: ...
+
+    def bad(value: _Internal) -> list[int]: ...
+
+    class Holder:
+        __module__ = "xeda.holder"  # the check reads the classes of the package only
+        field: dict[str, _Internal]
+
+    assert annotation_problems(fine) == []
+    assert len(annotation_problems(bad)) == 1
+    assert len(annotation_problems(Holder)) == 1

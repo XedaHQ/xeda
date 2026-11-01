@@ -607,7 +607,7 @@ class ReadInputs:
                 self._add_file(path, None if st is None else (st.st_dev, st.st_ino))
 
     def add_source_entries(self, entries: Iterable[SourceEntry]) -> None:
-        """Register the entries of a design that name source files (`Design.source_entries`).
+        """Register the entries of a design that name source files (`Design._source_entries`).
 
         A file that does not exist yet is an input of the run when an entry names it, so no
         delivery goes there (`source_entry_reading`)."""

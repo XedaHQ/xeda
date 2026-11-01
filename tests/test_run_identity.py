@@ -622,7 +622,7 @@ def test_a_parameter_is_counted_by_its_one_value(tmp_path):
 
 
 def test_naming_an_artifact_after_a_source_keeps_two_sources_apart(tmp_path):
-    """A flow that writes one file per source names it with `Design.source_artifact_name`.
+    """A flow that writes one file per source names it with `Design._source_artifact_name`.
 
     Sources are distinct files but their stems are not, so GHDL's `--out=verilog`, which writes
     one Verilog file per VHDL source, used to name both `rtl/a/fifo.vhd` and `rtl/b/fifo.vhd`
@@ -645,7 +645,7 @@ def test_naming_an_artifact_after_a_source_keeps_two_sources_apart(tmp_path):
             "top": "top",
         },
     )
-    names = [design.source_artifact_name(src, ".v") for src in design.rtl.sources]
+    names = [design._source_artifact_name(src, ".v") for src in design.rtl.sources]
     assert names == ["top.v", "rtl_a_fifo.v", "rtl_b_fifo.v", "shared_pkg.v"]
     assert len(set(names)) == len(names)
 
@@ -675,11 +675,11 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
     )
     assert len(design.rtl.sources) == 6
 
-    names = [design.source_artifact_name(src, ".v") for src in design.rtl.sources]
+    names = [design._source_artifact_name(src, ".v") for src in design.rtl.sources]
     assert len(set(names)) == len(names), names
     assert names[4] == "rtl_alone.v", "a name nothing collides with is left alone"
     # The same source always gets the same name, whichever list it is found through.
-    assert design.source_artifact_name(design.rtl.sources[0], ".v") == names[0]
+    assert design._source_artifact_name(design.rtl.sources[0], ".v") == names[0]
 
 
 # ------------------------------------------- a platform names no installation

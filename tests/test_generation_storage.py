@@ -846,9 +846,9 @@ def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_pat
         (source,) = executable.rtl.sources
         seen.append(
             (
-                executable.source_artifact_name(source, ".v"),
-                executable.parts_hash({"rtl"}),
-                executable.source_path_as_named(source),
+                executable._source_artifact_name(source, ".v"),
+                executable._parts_hash({"rtl"}),
+                executable._source_path_as_named(source),
             )
         )
     assert seen[0] == seen[1]

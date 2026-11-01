@@ -790,7 +790,7 @@ def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_pa
 #: The one selection: what a flow reads of the design's sources is what it declares.
 SELECTION = "sources_read"
 #: Calls and attributes that read the design's sources around the declaration.
-DIRECT_CALLS = frozenset({"sources_of_type", "sim_sources_of_type", "header_dirs"})
+DIRECT_CALLS = frozenset({"_sources_of_type", "_sim_sources_of_type", "header_dirs"})
 DIRECT_ATTRIBUTES = frozenset({"sources", "sim_sources"})
 #: Methods that judge a design instead of choosing what a tool reads: the contract's own checks
 #: (`check_design_supported` and what it asks) and the selection itself. A read in one of them
@@ -813,7 +813,7 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     "are the testbench's, to find the package of its top",
     "xeda.flows.yosys.cxx_rtl:YosysSim.run: sources": "whether the testbench is VHDL, which "
     "decides the unit GHDL elaborates",
-    "xeda.flows.ghdl:GhdlSynth.synth_args: sources_of_type": "the VHDL sources of a one-shot "
+    "xeda.flows.ghdl:GhdlSynth.synth_args: _sources_of_type": "the VHDL sources of a one-shot "
     "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
     "xeda.flows.bsc:Bsc._derived_sources: sources": "which sources of the design pass through "
     "into the design it derives, by their index: no tool is handed any of them from here",
@@ -822,7 +822,7 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     "xeda.flow.derived:planned_design: sources": "the sources of the design that pass through, by "
     "their index: data of a design, handed to no tool",
     "xeda.cocotb:Cocotb.env: sources": "whether a cocotb testbench lists any source",
-    "xeda.cocotb:Cocotb.env: sources_of_type": "the `Cocotb` (Python) sources, whose last names "
+    "xeda.cocotb:Cocotb.env: _sources_of_type": "the `Cocotb` (Python) sources, whose last names "
     "the test module cocotb imports: no simulator reads them",
     "xeda.flows.modelsim.sim_evidence:parse_modelsim_evidence: sim_sources": "the VHDL sources, "
     "to tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
@@ -834,7 +834,7 @@ DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 TEMPLATE_SELECTION = re.compile(r"\bsources_read\s*\(")
 TEMPLATE_DIRECT = re.compile(
-    r"\b(sources_of_type|sim_sources_of_type|sim_sources|header_dirs)\b|\.sources\b"
+    r"\b(_sources_of_type|_sim_sources_of_type|sim_sources|header_dirs)\b|\.sources\b"
 )
 
 
@@ -881,7 +881,7 @@ def python_source_reads(
             found.append((".".join(self.scope) or "<module>", node.lineno, what))
 
         def visit_Attribute(self, node: ast.Attribute) -> None:
-            # a call or not: `design.sources_of_type(...)`, and `read = design.sources_of_type`
+            # a call or not: `design._sources_of_type(...)`, and `read = design._sources_of_type`
             if node.attr == SELECTION or node.attr in DIRECT_CALLS | DIRECT_ATTRIBUTES:
                 self._hit(node, node.attr)
             self.generic_visit(node)
@@ -1084,13 +1084,16 @@ def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
         "tb.sources": ("def run(self): return [s for s in self.design.tb.sources]", "sources"),
         "a part by name": ("def run(d, p): return getattr(d, p).sources", "sources"),
         "sim_sources": ("def run(self): return self.design.sim_sources", "sim_sources"),
-        "sources_of_type": ("def run(d): return d.sources_of_type('*')", "sources_of_type"),
-        "sim_sources_of_type": ("def f(d): return d.sim_sources_of_type(1)", "sim_sources_of_type"),
+        "_sources_of_type": ("def run(d): return d._sources_of_type('*')", "_sources_of_type"),
+        "_sim_sources_of_type": (
+            "def f(d): return d._sim_sources_of_type(1)",
+            "_sim_sources_of_type",
+        ),
         "header_dirs": ("def run(d): return d.header_dirs(tb=True)", "header_dirs"),
         "the selection": ("def run(self): return self.sources_read(tb=True)", SELECTION),
         "a method taken": (
-            "def run(d): read = d.sources_of_type; return read('*')",
-            "sources_of_type",
+            "def run(d): read = d._sources_of_type; return read('*')",
+            "_sources_of_type",
         ),
         "a function passed": ("def run(f): return map(header_dirs, f)", "header_dirs"),
     }
@@ -1113,7 +1116,7 @@ def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
     for line, expected in [
         ("{% for s in design.sim_sources %}", "sim_sources"),
         ("{% for s in design.rtl.sources %}", "sources"),
-        ("{% set v = design.sources_of_type('Vhdl', rtl=true) %}", "sources_of_type"),
+        ("{% set v = design._sources_of_type('Vhdl', rtl=true) %}", "_sources_of_type"),
     ]:
         assert template_source_reads(line) == [(1, expected)], line
     assert not template_source_reads("{{ design.rtl.top }} {{ settings.sdc_files }}")

@@ -1666,7 +1666,7 @@ class FlowLauncher:
         # the deliveries of every flow, before any flow is entered: a refusal never comes after
         # the tool of an earlier flow ran.
         self._read_inputs.add(design_files(design))
-        self._read_inputs.add_source_entries(design.source_entries())
+        self._read_inputs.add_source_entries(design._source_entries())
         if plan_node is None:
             for planned in plan.nodes:
                 register_read_settings(
@@ -1704,7 +1704,7 @@ class FlowLauncher:
                 self._adopt_completed(plan, design, runner_cwd)
         # What the flows read: the design with the files of its generated sources in place.
         execution = self._execution_of(design)
-        design_hash = execution.parts_hash(
+        design_hash = execution._parts_hash(
             flow_class.design_parts, flow_class.design_scope(input_settings)
         )
         policy = self._run_dir_policy()
@@ -1781,7 +1781,7 @@ class FlowLauncher:
                     # The derived design is checked as the plan checked the planned one. One the
                     # plan did not foresee is refused before the flow exists.
                     check_launchable(flow_class, input_settings, derived)
-                    design_hash = derived.parts_hash(
+                    design_hash = derived._parts_hash(
                         flow_class.design_parts, flow_class.design_scope(input_settings)
                     )
                     derived_files = design_files(derived)
@@ -2925,7 +2925,7 @@ class FlowLauncher:
             root.name, completed, delivering=True, generation=generation
         )
         self._read_inputs.add(design_files(design))
-        self._read_inputs.add_source_entries(design.source_entries())
+        self._read_inputs.add_source_entries(design._source_entries())
         for planned in plan.nodes:
             register_read_settings(
                 self._read_inputs, planned.settings, planned.run_path, self.run_root
@@ -3018,7 +3018,7 @@ class FlowLauncher:
         Nothing is asked and nothing is written."""
         self._read_inputs = ReadInputs(self._launch_inputs)
         self._read_inputs.add(design_files(design))
-        self._read_inputs.add_source_entries(design.source_entries())
+        self._read_inputs.add_source_entries(design._source_entries())
         for planned in plan.nodes:
             register_read_settings(
                 self._read_inputs, planned.settings, planned.run_path, self._run_root

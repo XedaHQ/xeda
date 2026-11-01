@@ -440,7 +440,7 @@ class GhdlSynth(Ghdl, SynthFlow):
     def _per_source_outputs(self, output_dir: Path) -> dict[Path, Source]:
         """Return the Verilog file that each VHDL source is converted to, in source order.
 
-        Each file is named after the path of its source (`Design.source_artifact_name`), because
+        Each file is named after the path of its source (`Design._source_artifact_name`), because
         two sources in different directories can share a stem (`rtl/a/fifo.vhd`,
         `rtl/b/fifo.vhd`). Two sources whose names still coincide are an error that names both,
         since one output would silently replace the other.
@@ -448,7 +448,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         design = self.design
         outputs: dict[Path, Source] = {}
         for src in self.sources_read():
-            out_file = output_dir / design.source_artifact_name(src, ".v")
+            out_file = output_dir / design._source_artifact_name(src, ".v")
             other = outputs.get(out_file)
             if other is not None:
                 raise FlowException(
@@ -471,7 +471,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags += setting_flag(ss.assume_asserts, name="assume_asserts")
         flags.extend(ss.generics_flags(design.rtl.parameters))
         if one_shot_elab:
-            flags += map(str, design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False))
+            flags += map(str, design._sources_of_type(SourceType.Vhdl, rtl=True, tb=False))
         return flags
 
 

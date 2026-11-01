@@ -504,17 +504,17 @@ def _pattern_design(root: Path) -> Design:
 
 def test_an_update_keeps_the_entries_that_named_the_sources(tmp_path):
     design = _pattern_design(tmp_path)
-    entries = design.source_entries()
+    entries = design._source_entries()
     assert [entry.text for entry in entries] == ["src/*.v", "tb.sv"]
     for changed in (
         design.with_updates({}),
         design.with_updates({"rtl.parameters.W": 2}),
         design.with_updates({"tb": {"top": "other"}}).with_updates({"rtl.top": "b"}),
     ):
-        assert changed.source_entries() == entries
+        assert changed._source_entries() == entries
         assert changed.rtl.sources == design.rtl.sources
     replaced = design.with_updates({"rtl.sources": ["tb.sv"]})
-    assert [entry.text for entry in replaced.source_entries()] == ["tb.sv", "tb.sv"]
+    assert [entry.text for entry in replaced._source_entries()] == ["tb.sv", "tb.sv"]
     assert [s.path.name for s in replaced.rtl.sources] == ["tb.sv"]
 
 
@@ -550,7 +550,7 @@ def test_with_target_expands_nothing_again(tmp_path):
     assert _sources_of(chosen) == ["src/a.sv", "board/b.sv", "board/c.sv"]
     assert _sources_of(chosen.with_target("u")) == ["src/a.sv", "board/b.sv"]
     assert _sources_of(chosen.with_target(None)) == ["src/a.sv"]
-    assert [e.text for e in chosen.source_entries()] == ["src/*.sv", "board/*.sv"]
+    assert [e.text for e in chosen._source_entries()] == ["src/*.sv", "board/*.sv"]
     # the same design loaded again sees the files as they are now
     assert _sources_of(Design.load(file, target="t")) == [
         "src/new.sv",
@@ -619,7 +619,7 @@ def test_with_target_replays_an_update_that_replaced_the_sources_as_they_were(tm
     (tmp_path / "src" / "a.sv").unlink()
     for chosen in (updated.with_target("t"), updated.with_target("t").with_target("u")):
         assert _sources_of(chosen) == ["src/a.sv"]
-        assert [e.text for e in chosen.source_entries()] == ["src/*.sv"]
+        assert [e.text for e in chosen._source_entries()] == ["src/*.sv"]
     # the arguments are kept as given
     assert thaw(updated.updates[0]) == {"rtl.sources": ["src/*.sv"]}
     # the same call made now sees the files as they are now

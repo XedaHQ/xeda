@@ -136,33 +136,33 @@ def test_a_hash_scoped_to_types_ignores_the_other_sources_and_keeps_the_rest(
     tmp_path: Path,
 ) -> None:
     before = _design(tmp_path)
-    plain = before.parts_hash(RTL)
-    scoped = before.parts_hash(RTL, PINS)
+    plain = before._parts_hash(RTL)
+    scoped = before._parts_hash(RTL, PINS)
     assert scoped != plain
     # the Verilog file is not part of it, the pin file is, and so is the order of two pin files
     verilog = _design(tmp_path, verilog="module a; wire x; endmodule\n")
-    assert verilog.parts_hash(RTL, PINS) == scoped
-    assert verilog.parts_hash(RTL) != plain
+    assert verilog._parts_hash(RTL, PINS) == scoped
+    assert verilog._parts_hash(RTL) != plain
     pins = _design(tmp_path, lpf="LOCATE changed;\n")
-    assert pins.parts_hash(RTL, PINS) != scoped
+    assert pins._parts_hash(RTL, PINS) != scoped
     other = Design(
         name="d",
         root=tmp_path,
         rtl={"sources": ["a.v", "two.lpf", "one.lpf"], "top": "a"},
     )
-    assert other.parts_hash(RTL, PINS) != _design(tmp_path).parts_hash(RTL, PINS)
+    assert other._parts_hash(RTL, PINS) != _design(tmp_path)._parts_hash(RTL, PINS)
     # the design's metadata is whole
     moved = Design(
         name="d",
         root=tmp_path,
         rtl={"sources": ["a.v", "one.lpf", "two.lpf"], "top": "other"},
     )
-    assert moved.parts_hash(RTL, PINS) != _design(tmp_path).parts_hash(RTL, PINS)
+    assert moved._parts_hash(RTL, PINS) != _design(tmp_path)._parts_hash(RTL, PINS)
 
 
 def test_no_scope_is_the_hash_a_design_always_had(tmp_path: Path) -> None:
     design = _design(tmp_path)
-    assert design.parts_hash(RTL, None) == design.parts_hash(RTL)
+    assert design._parts_hash(RTL, None) == design._parts_hash(RTL)
 
 
 def test_design_files_follow_the_scope_and_the_guards_keep_the_whole_design(
