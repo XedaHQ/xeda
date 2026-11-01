@@ -1,1 +1,4 @@
 src/xeda/_version.py export-subst
+# The release baselines are pinned by the digest of their bytes.
+tests/baselines/** -text
+tests/snapshots/** -text
