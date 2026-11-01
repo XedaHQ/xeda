@@ -60,7 +60,7 @@
 | `... ; simulate a Bluespec testbench with bsc_sim` | A Verilog simulator cannot read a Bluespec `tb`. Run `bsc_sim`. |
 | `` the design defines `BSV_POSITIVE_RESET`, which bsc defines itself when `positive_reset` is true: remove the define, or set `positive_reset: false` `` | `bsc` and `bsc_sim` refuse a design that defines the macro while `positive_reset` is on. Remove the define, or set `positive_reset: false`. |
 | `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s <flow>.fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
-| `<flow> cannot run cocotb tests; use one of: ghdl_sim, iverilog, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
+| `<flow> cannot run cocotb tests; use one of: ghdl_sim, iverilog, nvc, verilator, xezim` | Pick a cocotb simulator, or drop the `.py` testbench. |
 
 ### Chains
 

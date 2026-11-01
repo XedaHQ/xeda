@@ -233,6 +233,11 @@ def test_a_stop_time_that_is_no_positive_whole_nanosecond_is_refused(stop_time: 
         ("-l", "the log of the run"),
         ("--cache", "a run writes only in its run directory"),
         ("--cache-dir=c", "a run writes only in its run directory"),
+        ("--preprocess", "`xezim` always simulates"),
+        ("--sdf-max", "`sdf_type`"),
+        ("--sv2017", "`language.verilog.standard`"),
+        ("-sv17compat", "`language.verilog.standard`"),
+        ("+cover=sb", "`code_coverage`"),
     ],
 )
 def test_an_option_of_the_flow_is_refused_in_the_flags(flag: str, setting: str) -> None:
