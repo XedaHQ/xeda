@@ -212,7 +212,7 @@ def check_commands(python: Path, empty: Path) -> None:
     xeda = str(python.with_name("xeda"))
     run([xeda, "--help"], empty, "xeda --help")
     run([str(python), "-I", "-m", "xeda", "--help"], empty, "python -m xeda --help")
-    flows = json_output([xeda, "list-flows", "--json"], empty)
+    flows = json_output([xeda, "list-flows", "--json"], empty)["flows"]
     names = [flow["name"] for flow in flows]
     if not names:
         raise CheckFailed("`xeda list-flows --json` lists no flow")
