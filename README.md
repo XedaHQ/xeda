@@ -246,6 +246,13 @@ Run `xeda list-flows` for the complete list in the installed version. Run
 `xeda list-settings <flow>` and `xeda list-results <flow>` for the settings and the results of a
 flow.
 
+## Stability
+
+From version 1.0.0, the Python modules `xeda`, `xeda.errors` and `xeda.introspect`, the command-line
+interface, the JSON documents, and the built-in flows follow stable rules. Read the
+[Stability](https://xeda.readthedocs.io/en/latest/stability.html) page for what is public and how
+breaking changes are handled.
+
 ## Development
 
 ```bash
