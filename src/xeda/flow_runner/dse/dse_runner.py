@@ -398,7 +398,7 @@ class Dse(FlowLauncher):
         )
         if as_recorded(bare) == as_recorded(flow_settings):
             return {}
-        context = dict(design_root=design.root, runner_cwd=Path.cwd())
+        context = dict(design_root=design.root, runner_cwd=self._start)
         return _variation_delta(
             as_recorded(flow_class.Settings.from_input(flow_settings, **context)),
             as_recorded(flow_class.Settings.from_input(bare, **context)),
