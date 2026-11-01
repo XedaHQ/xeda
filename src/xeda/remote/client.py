@@ -1654,8 +1654,15 @@ def _failed(run: _Run, error: Exception) -> Result:
             remote = run.localize()
         except Exception:  # pylint: disable=broad-except
             log.debug("The result of the remote launch cannot be shown", exc_info=True)
+    parsed: Optional[Result] = None
     if remote is not None:
-        parsed = result_from_dict(remote)
+        try:
+            parsed = result_from_dict(remote)
+        except (ValueError, RecordError):
+            # A failure report keeps its own cause: a document it cannot read is no result.
+            log.debug("The result of the remote launch cannot be read", exc_info=True)
+            remote = None
+    if remote is not None and parsed is not None:
         nodes, roots = dict(parsed.nodes), parsed.roots
         node_documents = remote["nodes"]
     else:
