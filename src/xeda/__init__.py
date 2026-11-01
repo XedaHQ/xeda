@@ -1,8 +1,6 @@
 """Xeda's public package API."""
 
 import logging
-import sys
-import types
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -52,11 +50,8 @@ _LAZY_EXPORTS = {
     "Unset": (".types", "Unset"),
     "Workspace": (".workspace", "Workspace"),
     "load": (".workspace_verbs", "load"),
-    "plan": (".workspace_verbs", "plan"),
-    "records": (".workspace_verbs", "records"),
     "run": (".workspace_verbs", "run"),
     "scrub": (".workspace_verbs", "scrub"),
-    "sweep": (".workspace_verbs", "sweep"),
 }
 
 __all__ = [
@@ -98,11 +93,8 @@ __all__ = [
     "Workspace",
     "__version__",
     "load",
-    "plan",
-    "records",
     "run",
     "scrub",
-    "sweep",
 ]
 
 if TYPE_CHECKING:
@@ -172,28 +164,9 @@ if TYPE_CHECKING:
     )
     from .workspace_verbs import (
         load as load,
-        plan as plan,
-        records as records,
         run as run,
         scrub as scrub,
-        sweep as sweep,
     )
-
-
-class _Package(types.ModuleType):
-    """The module `xeda`, which keeps three verbs that are also names of submodules.
-
-    Importing the submodule `xeda.plan` (or `xeda.records`, `xeda.sweep`) binds it as the
-    attribute `plan` of this package. That binding must not replace the function `xeda.plan`.
-    `from xeda.plan import Plan` is unaffected, because it reads `sys.modules`."""
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name in _LAZY_EXPORTS and isinstance(value, types.ModuleType):
-            return
-        super().__setattr__(name, value)
-
-
-sys.modules[__name__].__class__ = _Package
 
 
 def __getattr__(name: str) -> Any:

@@ -1,2 +1,2 @@
-- `xeda.plan`, `xeda.run`, `xeda.sweep`, `xeda.load`, `xeda.records` and `xeda.scrub` are
-  functions with typed signatures. Each one makes a `Workspace` and calls the method of that name.
+- `xeda.run`, `xeda.load` and `xeda.scrub` are functions with typed signatures. `run` and `scrub`
+  make a `Workspace` and call the method of that name. `load` needs no workspace.

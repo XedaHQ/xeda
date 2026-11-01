@@ -515,7 +515,8 @@ class Workspace:
         finally:
             TOOL_OUTPUT.reset(token)
 
-    def load(self, run_dir: PathLike, /) -> RunRecord:
+    @staticmethod
+    def load(run_dir: PathLike, /) -> RunRecord:
         """Return the record that the run directory `run_dir` holds now.
 
         The run root of the record follows from where the directory is: a run directory is

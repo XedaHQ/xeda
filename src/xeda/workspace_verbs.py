@@ -238,10 +238,8 @@ def load(
     in mind: compare `run_id`. Raise `RecordError` with the code `missing_record`,
     `corrupt_record` or `unsupported_schema`.
 
-    This call makes a `Workspace` and needs none of its options."""
-    return Workspace().load(
-        run_dir,
-    )
+    This function needs no workspace and none of its options."""
+    return Workspace.load(run_dir)
 
 
 def records(

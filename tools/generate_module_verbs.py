@@ -1,8 +1,8 @@
 """Generate `src/xeda/workspace_verbs.py`: the module-level verbs, typed, from `Workspace`.
 
 Each verb is the `Workspace` method of that name, plus the workspace options that affect it, as
-keyword-only parameters. Its body builds the workspace and calls the method. The signatures are
-written out as source, so that type checkers and editors see them.
+keyword-only parameters. Its body calls the method, building a workspace when needed. The
+signatures are written out as source, so that type checkers and editors see them.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def _paragraph(options: tuple[str, ...], refuse_plan: str | None) -> str:
             "makes. They have the same meaning and defaults as the parameters of `Workspace`."
         )
     else:
-        text = "This call makes a `Workspace` and needs none of its options."
+        text = "This function needs no workspace and none of its options."
     if refuse_plan:
         text += (
             " Unlike `Workspace.run`, this function takes a `Spec` only, and each launch option "
@@ -197,6 +197,8 @@ def _return(
             return "()"
         return "(\n" + "".join(f"        {a},\n" for a in arguments) + "    )"
 
+    if name == "load":
+        return "    return Workspace.load(run_dir)\n"
     made = call([f"{option}={option}" for option in options])
     given = call([*(n for n, _ in positional), *(f"{k}={k}" for k in keywords)])
     return f"    return Workspace{made}.{name}{given}\n"
