@@ -472,3 +472,13 @@ def test_scrub_prints_nothing_and_hands_its_listing_and_result_to_the_caller(tmp
     assert capfd.readouterr() == ("", "")
     assert [candidate.path for candidate in asked[0]] == [run_dir]
     assert result.removed == [run_dir] and not run_dir.exists()
+
+
+def test_registering_a_flow_class_logs_only_at_debug(caplog):
+    with preserved_flow_registry(), caplog.at_level(logging.DEBUG, logger="xeda"):
+
+        class QuietlyRegistered(Flow):
+            """A flow that only registers."""
+
+    assert [r for r in caplog.records if "registering flow" in r.getMessage()]
+    assert [r for r in caplog.records if r.levelno > logging.DEBUG] == []
