@@ -282,6 +282,7 @@ class Dse(FlowLauncher):
         )
         timeout: int = Field(
             90 * 60,
+            gt=0,
             description="Time limit of one round, in seconds. When it passes, the points of the "
             "round that have not finished end as canceled, and the exploration goes on with the "
             "next round.",

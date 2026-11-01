@@ -398,6 +398,24 @@ def test_a_removed_setting_of_an_exploration_has_the_code_of_a_removed_flow_sett
     assert "`debug` was removed" in document["error"]["message"]
 
 
+def test_a_removed_setting_of_an_exploration_has_no_traceback_without_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.toml").write_text(
+        'name = "bad"\n[rtl]\nsources = ["missing.vhdl"]\ntop = "bad"\n'
+    )
+    args = ["dse", "vivado_synth", "bad.toml", "--dse-settings", "debug=true"]
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 2 and isinstance(result.exception, SystemExit), result.exception
+
+
+@pytest.mark.parametrize("timeout", [0, -1])
+def test_an_exploration_refuses_a_timeout_that_is_not_positive(timeout):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Dse.Settings(timeout=timeout)
+
+
 def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     """A search without a device says so before starting any run."""
     proc, document = _dse(tmp_path, BARE, "--init-freq-low", "100", "--init-freq-high", "300")
@@ -1457,6 +1475,15 @@ def test_a_promotion_follows_the_variation_of_the_point_in_its_own_batch(monkeyp
     assert [s["tag"] for s in second] == ["d", "a"]
     assert optimizer.process_outcome(_fmax_outcome(120.0), 1)
     assert optimizer.variations["tag"][0] == "a"
+
+
+def test_a_tie_with_fewer_luts_promotes_the_variation_it_ran_with(monkeypatch):
+    """The run that wins a tie is the base of the next round, so its variation comes first."""
+    optimizer = _tagging_search(monkeypatch, [3, 1])
+    optimizer.next_batch()
+    assert optimizer.process_outcome(_fmax_outcome(100.0, lut=50), 0)
+    assert optimizer.process_outcome(_fmax_outcome(100.0, lut=40), 1)
+    assert optimizer.variations["tag"][0] == "b"
 
 
 def test_promotions_in_one_round_follow_the_variations_by_value(monkeypatch):

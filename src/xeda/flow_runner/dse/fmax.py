@@ -458,6 +458,9 @@ class FmaxOptimizer(Optimizer):
             log.info("Same maximum frequency (%0.2f MHz) with fewer LUTs", fmax)
             self.best = outcome
             self.base_settings = outcome.settings
+            if self.num_variations > 1:
+                for k, choice in self.variation_choices[idx].items():
+                    promote(self.variations[k], choice)
             return True
         else:
             log.debug(

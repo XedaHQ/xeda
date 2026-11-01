@@ -1278,7 +1278,9 @@ def run(
                 "json",
             )
         # A bug keeps its traceback.
-        if not json_flag and (info.code == INTERNAL_ERROR or not isinstance(error, XedaException)):
+        # A refusal is a user error, even when it comes as a raw pydantic error.
+        bug = info.code == INTERNAL_ERROR or not isinstance(error, XedaException)
+        if not json_flag and not refused and bug:
             raise error
         sys.exit(2 if refused else 1)
 
@@ -1609,7 +1611,9 @@ def dse(
         log.critical("%s", _error_message(error))
         refused = isinstance(public, (SpecError, RemoteError))
         report(None if refused else Outcome.FAILED, info, None if dse is None else dse.result)
-        if not json_flag and (info.code == INTERNAL_ERROR or not isinstance(error, XedaException)):
+        # A refusal is a user error, even when it comes as a raw pydantic error.
+        bug = info.code == INTERNAL_ERROR or not isinstance(error, XedaException)
+        if not json_flag and not refused and bug:
             raise error
         sys.exit(2 if refused else 1)
 
