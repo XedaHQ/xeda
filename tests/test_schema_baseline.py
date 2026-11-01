@@ -216,6 +216,24 @@ def _property(schema: dict[str, Any], **extra: Any) -> dict[str, Any]:
         ("design", {"enum": ["a"]}, {"enum": ["a", "b"]}, "adds"),
         (
             "design",
+            {"type": "array", "prefixItems": [EITHER, STRING]},
+            {"type": "array", "prefixItems": [STRING, STRING]},
+            "breaks",
+        ),
+        (
+            "design",
+            {"type": "array", "prefixItems": [STRING, STRING]},
+            {"type": "array", "prefixItems": [EITHER, STRING]},
+            "adds",
+        ),
+        (
+            "run",
+            {"type": "array", "prefixItems": [STRING]},
+            {"type": "array", "prefixItems": [STRING, STRING]},
+            "breaks",
+        ),
+        (
+            "design",
             {"type": "array", "items": STRING},
             {"type": "array", "items": NULLABLE},
             "adds",

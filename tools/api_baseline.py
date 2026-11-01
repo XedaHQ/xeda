@@ -1088,6 +1088,11 @@ def _classify_schema(
             visit(f"{path}.items", old_items, new_items, roots, reader, seen)
         elif bool(old_items) != bool(new_items):
             (add if reader and not new_items else brk).append(f"{path}: items changed")
+        old_tuple, new_tuple = before.get("prefixItems", []), after.get("prefixItems", [])
+        if len(old_tuple) != len(new_tuple):
+            brk.append(f"{path}: tuple length changed")
+        for index, (a, b) in enumerate(zip(old_tuple, new_tuple)):
+            visit(f"{path}.prefixItems[{index}]", a, b, roots, reader, seen)
 
     def alternatives(
         path: str, left: list[Any], right: list[Any], roots: tuple[Any, Any], reader: bool,
