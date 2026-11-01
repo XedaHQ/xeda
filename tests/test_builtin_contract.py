@@ -3,6 +3,7 @@
 import ast
 import copy
 import json
+import re
 
 import pytest
 
@@ -140,6 +141,28 @@ def _literal_values(node: ast.expr) -> set[str]:
     return set()
 
 
+def _is_code_table(node: ast.Assign) -> bool:
+    """A module table of codes, such as `_MISSING_FILE_CODES`, that code reads to pick a code."""
+    return any(
+        isinstance(t, ast.Name) and t.id.endswith("_CODES") and t.id != "ALL_CODES"
+        for t in node.targets
+    )
+
+
+def _table_codes(node: ast.expr) -> set[str]:
+    """The snake-case texts of a table: the values of a mapping, or the members of a collection."""
+    parts = node.values if isinstance(node, ast.Dict) else [node]
+    return {
+        c.value
+        for part in parts
+        if part is not None
+        for c in ast.walk(part)
+        if isinstance(c, ast.Constant)
+        and isinstance(c.value, str)
+        and re.fullmatch(r"[a-z][a-z0-9_]*", c.value)
+    }
+
+
 def test_all_literal_codes_are_in_the_inventory() -> None:
     from pathlib import Path
     from xeda.flow_runner.error_codes import ALL_CODES, _SETTINGS_CODES
@@ -163,6 +186,8 @@ def test_all_literal_codes_are_in_the_inventory() -> None:
                 for k in node.keywords:
                     if k.arg == "code":
                         found.update(_literal_values(k.value))
+            elif isinstance(node, ast.Assign) and _is_code_table(node):
+                found.update(_table_codes(node.value))
     assert found <= set().union(*ALL_CODES.values())
 
 
