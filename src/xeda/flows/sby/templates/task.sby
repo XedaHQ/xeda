@@ -10,6 +10,9 @@ depth {{ depth }}
 {% if timeout is not none -%}
 timeout {{ timeout }}
 {% endif -%}
+{% if settings.multiclock -%}
+multiclock on
+{% endif -%}
 [engines]
 {{ engine }}
 [script]
@@ -31,6 +34,16 @@ hierarchy -check -top {{ design.rtl.top|word }}
 select -assert-none A:blackbox A:whitebox a:anyconst a:anyseq a:allconst a:allseq t:$anyconst t:$anyseq t:$allconst t:$allseq t:$live t:$fair t:$check r:FLAVOR=live %i t:$check r:FLAVOR=fair %i
 select -assert-any t:${{ obligation }} t:$check r:FLAVOR={{ obligation }} %i
 prep -top {{ design.rtl.top|word }}
+{% if not settings.multiclock -%}
+{#- `formalff -clk2ff` of SBY assumes one clock and does not check it, so the flow reads a flattened
+    copy of the model. SBY gets the prepared model unchanged. -#}
+design -save xeda_prepared
+flatten
+opt_clean
+write_json {{ timing_model }}
+design -load xeda_prepared
+select -clear
+{% endif -%}
 {% if parameters_root -%}
 {#- slang ignores a `-G` name that the top does not have, but refuses a named assignment of a
     parameter that the top lacks. -#}

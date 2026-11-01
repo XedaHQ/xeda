@@ -22,9 +22,10 @@ import psutil
 import pytest
 
 from xeda import Design
+from xeda.design import Source, SourceType
 from xeda.flow import FlowException, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
-from xeda.flows.sby import Sby
+from xeda.flows.sby import Sby, staged_names, timing_problems
 from xeda.utils import ExecutableNotFound, settings_to_dict
 
 from . import tool_utils
@@ -82,6 +83,10 @@ if spec.get("model", True):
     modules = spec.get("modules", [top])
     (work / "model" / "design.json").write_text(json.dumps({"modules": modules}))
     (work / "model" / "design.log").write_text("yosys\n")
+if spec.get("timing_model", True):
+    empty = {"attributes": {"top": "1"}, "netnames": {}, "ports": {}, "cells": {}}
+    (work / "src").mkdir(exist_ok=True)
+    (work / "src" / "xeda_timing.json").write_text(json.dumps({"modules": {"top": empty}}))
 for index in range(spec.get("traces", 0)):
     (work / "engine_0").mkdir(exist_ok=True)
     (work / "engine_0" / f"trace{index}.vcd").write_text(f"trace {index}\n")
@@ -263,6 +268,131 @@ def test_the_task_timeout_is_a_whole_positive_number_of_seconds(tmp_path, fake_s
         _run(tmp_path, _design(tmp_path), timeout=timeout)
 
 
+def _generated_design(root: Path, entries: list, files: dict[str, str], **rtl: Any) -> Design:
+    """A design in `root` with `entries` in `rtl.sources`, whose generator writes `files` (a name
+    in the storage has the prefix `@`)."""
+    (root / "gen.py").write_text(
+        "import os, pathlib\n"
+        f"for name, text in {files!r}.items():\n"
+        "    place = pathlib.Path(os.environ['XEDA_GENERATED']) / name[1:] "
+        "if name[0] == '@' else pathlib.Path(name)\n"
+        "    place.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    place.write_text(text)\n"
+    )
+    generator = {
+        "shell": f"{sys.executable} gen.py",
+        "sources": ["gen.py"],
+        "generated_sources": [entry for entry in entries if isinstance(entry, str)],
+    }
+    return Design(
+        name="d", root=root, rtl={"generator": generator, "sources": entries, "top": "top", **rtl}
+    )
+
+
+TREE_FILES = {"gen/top.sv": SV_TOP}
+
+
+@pytest.mark.parametrize(
+    "entries, files, staged",
+    [
+        (["gen/top.sv"], TREE_FILES, "gen/top.sv"),
+        (["gen/*.sv"], TREE_FILES, "gen/top.sv"),
+        (["$XEDA_GENERATED/top.sv"], {"@top.sv": SV_TOP}, "xeda_generated/top.sv"),
+    ],
+    ids=["tree", "pattern", "storage"],
+)
+@pytest.mark.parametrize("run_root", ["inside", "outside"])
+def test_a_generated_source_keeps_its_name_wherever_the_run_root_is(
+    tmp_path, fake_sby, entries, files, staged, run_root
+):
+    root = tmp_path / "project"
+    root.mkdir()
+    design = _generated_design(root, entries, files)
+    runs = root / "xeda_run" if run_root == "inside" else tmp_path / "elsewhere"
+    flow = DefaultRunner(runs, display_results=False).run_flow(Sby, design, {"mode": "bmc"})
+    assert flow is not None and flow.outcome == "passed", _document(flow).get("error")
+    assert (flow.run_path / "sby_stage" / staged).is_file()
+    assert f"{staged} sby_stage/{staged}" in (flow.run_path / "task.sby").read_text()
+
+
+def test_planning_reads_no_working_directory_for_a_generated_source(
+    tmp_path, fake_sby, monkeypatch
+):
+    root = tmp_path / "project"
+    root.mkdir()
+    (tmp_path / "other").mkdir()
+    monkeypatch.chdir(tmp_path / "other")
+    Sby.check_design_supported(_generated_design(root, ["gen/top.sv"], TREE_FILES))
+
+
+def test_a_dependency_outside_the_design_root_keeps_its_own_tree(tmp_path, fake_sby):
+    library = tmp_path / "library"
+    (library / "src").mkdir(parents=True)
+    (library / "src" / "top.sv").write_text(SV_TOP)
+    (library / "library.yaml").write_text(
+        "name: library\nrtl.sources: [src/top.sv]\nrtl.top: top\n"
+    )
+    root = tmp_path / "project"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "own.sv").write_text("module own; endmodule\n")
+    design_file = root / "project.yaml"
+    design_file.write_text(
+        "name: project\ndependencies: [../library/library.yaml]\n"
+        "rtl.sources: [src/own.sv]\nrtl.top: top\n"
+    )
+    design = Design.load(design_file)
+    runs = root / "xeda_run"
+    flow = DefaultRunner(runs, display_results=False).run_flow(Sby, design, {"mode": "bmc"})
+    assert flow is not None and flow.outcome == "passed", _document(flow).get("error")
+    assert (flow.run_path / "sby_stage" / "src" / "own.sv").is_file()
+    assert (flow.run_path / "sby_stage" / "xeda_dependencies" / "0" / "src" / "top.sv").is_file()
+
+
+def test_a_source_named_like_the_timing_model_is_refused(tmp_path, fake_sby):
+    with pytest.raises(FlowSettingsException, match="writes xeda_timing.json"):
+        (tmp_path / "Xeda_Timing.json").write_text("{}")
+        source = Source(tmp_path / "Xeda_Timing.json", typ=SourceType.MemoryFile)
+        staged_names(_design(tmp_path), [source])
+
+
+def test_a_reserved_directory_of_the_task_is_refused(tmp_path, fake_sby):
+    design = _design(tmp_path, {"XEDA_Dependencies/top.sv": SV_TOP})
+    with pytest.raises(FlowSettingsException, match="keeps xeda_generated"):
+        Sby.check_design_supported(design)
+
+
+def test_two_files_under_one_name_are_refused_and_one_file_twice_is_not(tmp_path, fake_sby):
+    (tmp_path / "gen").mkdir()
+    (tmp_path / "gen" / "top.sv").write_text(SV_TOP)
+    design = _generated_design(tmp_path, ["gen/top.sv"], TREE_FILES)
+    assert list(staged_names(design, list(design.rtl.sources) * 2)) == ["gen/top.sv"]
+    written = Source(tmp_path / "gen" / "top.sv", typ=SourceType.SystemVerilog)
+    with pytest.raises(FlowSettingsException, match="cannot stage both"):
+        staged_names(design, [*design.rtl.sources, written])
+
+
+def test_two_spellings_of_one_name_are_one_name(tmp_path, fake_sby):
+    design = _design(tmp_path)
+    declared = [
+        Source.declaration(name, SourceType.SystemVerilog) for name in ("x/top.sv", "./x/top.sv")
+    ]
+    assert list(staged_names(design, declared[:1])) == list(staged_names(design, declared[1:]))
+
+
+def test_a_file_named_as_a_directory_of_another_is_refused(tmp_path, fake_sby):
+    design = _design(tmp_path)
+    (tmp_path / "sub").write_text("")
+    generated = Source.declaration("sub/top.sv", SourceType.SystemVerilog)
+    with pytest.raises(FlowSettingsException, match="is a file of the design"):
+        staged_names(design, [Source(tmp_path / "sub", typ=SourceType.Verilog), generated])
+
+
+@pytest.mark.parametrize("name", ["../top.sv", "gen/../../top.sv", "/top.sv"])
+def test_a_generated_name_cannot_leave_the_stage(tmp_path, fake_sby, name):
+    with pytest.raises(FlowSettingsException, match="(leaves the stage|outside the design root)"):
+        staged_names(_design(tmp_path), [Source.declaration(name, SourceType.SystemVerilog)])
+
+
 # ---- the generated task --------------------------------------------------------------------
 
 
@@ -296,6 +426,193 @@ def test_the_systemverilog_task_keeps_every_property_and_reads_strictly(tmp_path
     assert any("a:anyconst" in lines[i] and "-assert-none" in lines[i] for i in guards)
     assert any("r:FLAVOR=assert" in lines[i] and "-assert-any" in lines[i] for i in guards)
     assert "chformal" not in config and "setundef" not in config
+
+
+def test_only_the_default_model_inspects_the_clocks(tmp_path, fake_sby):
+    default = (_run(tmp_path / "a", _design(tmp_path)).run_path / "task.sby").read_text()
+    assert "multiclock" not in default
+    assert default.index("write_json xeda_timing.json") > default.index("prep -top")
+    assert default.index("design -load xeda_prepared") > default.index("write_json")
+    other = _run(tmp_path / "b", _design(tmp_path), multiclock=True)
+    text = (other.run_path / "task.sby").read_text()
+    assert "\nmulticlock on\n" in text and "write_json" not in text
+
+
+def _timing_model(cells: dict[str, dict], *inputs: str, **wires: list) -> dict:
+    """A flattened Yosys model: each name in `inputs` is one input bit, numbered from 2."""
+    numbered = {name: [index] for index, name in enumerate(inputs, 2)}
+    return {
+        "modules": {
+            "top": {
+                "attributes": {"top": "00000000000000000000000000000001"},
+                "ports": {
+                    name: {"direction": "input", "bits": bits} for name, bits in numbered.items()
+                },
+                "netnames": {name: {"bits": bits} for name, bits in {**numbered, **wires}.items()},
+                "cells": cells,
+            }
+        }
+    }
+
+
+def _flop(clock: Any, kind: str = "$dff", polarity: str = "1", data: Any = 100) -> dict:
+    return {
+        "type": kind,
+        "parameters": {"CLK_POLARITY": polarity},
+        "connections": {"CLK": [clock], "D": [data], "Q": [101]},
+        "port_directions": {"CLK": "input", "D": "input", "Q": "output"},
+    }
+
+
+def _check(trigger: list, polarity: str = "1", enable: str = "1", data: Any = 100) -> dict:
+    return {
+        "type": "$check",
+        "parameters": {"TRG_ENABLE": enable, "TRG_POLARITY": polarity},
+        "connections": {"TRG": trigger, "A": [data], "EN": ["1"]},
+        "port_directions": {"TRG": "input", "A": "input", "EN": "input"},
+    }
+
+
+def _memory(read: Any = "x", write: Any = 2, read_reset: Any = "0") -> dict:
+    return {
+        "type": "$mem_v2",
+        "parameters": {
+            "RD_CLK_ENABLE": "0" if read == "x" else "1",
+            "RD_CLK_POLARITY": "1",
+            "WR_CLK_ENABLE": "1",
+            "WR_CLK_POLARITY": "1",
+        },
+        "connections": {"RD_CLK": [read], "WR_CLK": [write], "RD_ARST": [read_reset]},
+        "port_directions": {"RD_CLK": "input", "WR_CLK": "input", "RD_ARST": "input"},
+    }
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        {},
+        {"a": _flop(2), "b": _flop(2, "$sdffe"), "c": _check([2]), "m": _memory(write=2)},
+        {"a": _check([], enable="0", polarity="x"), "b": {**_flop(2)}},
+        {"a": {**_flop(2, "$ff"), "connections": {"D": [100], "Q": [101]}}},
+        {
+            "a": _flop(2),
+            "b": {
+                **_check([2]),
+                "connections": {**_check([2])["connections"], "ARGS": [2]},
+                "port_directions": {**_check([2])["port_directions"], "ARGS": "input"},
+            },
+        },
+    ],
+    ids=[
+        "combinational",
+        "one-clock",
+        "unclocked-check",
+        "global-clock-only",
+        "clock-in-a-message",
+    ],
+)
+def test_the_default_model_holds_one_rising_top_level_clock(cells):
+    assert timing_problems(_timing_model(cells, "clk")) == []
+
+
+@pytest.mark.parametrize(
+    "cells, problem",
+    [
+        ({"a": _flop(2), "b": _flop(3)}, "2 clocks: clk, other"),
+        ({"a": _flop(2), "b": _check([3])}, "2 clocks: clk, other"),
+        ({"a": _flop(2), "m": _memory(read=3)}, "2 clocks: clk, other"),
+        ({"a": _flop(2), "b": _check([2, 3], polarity="11")}, "2 clocks: clk, other"),
+        ({"a": _flop(2), "b": {**_flop(2, "$ff"), "connections": {"Q": [101]}}}, "2 clocks"),
+        ({"a": _flop(2, polarity="0")}, "falling clock edge"),
+        ({"a": _check([2], polarity="0")}, "falling clock edge"),
+        ({"a": _flop(9)}, "clock derived is no top-level input"),
+        ({"a": _flop("0")}, "clock 0 is no top-level input"),
+        ({"a": _flop(2), "b": _flop(2, data=2)}, "clock clk is also read as data"),
+        ({"a": _flop(2), "b": _check([2], data=2)}, "clock clk is also read as data"),
+        ({"a": _flop(2, "$adff")}, "$adff can change between clock edges"),
+        ({"a": _flop(2, "$dlatch")}, "$dlatch can change between clock edges"),
+        ({"a": _flop(2), "m": _memory(read=2, read_reset=3)}, "asynchronous reset"),
+        ({"a": _flop(2, "$memrd_v2")}, "timing that the flow does not know"),
+        ({"a": _flop(2), "b": {**_check([2]), "type": "submodule"}}, "does not know"),
+    ],
+    ids=[
+        "two-flop-clocks",
+        "clock-only-of-an-assertion",
+        "memory-port",
+        "two-triggers",
+        "global-clock-beside-a-clock",
+        "falling-flop",
+        "falling-assertion",
+        "derived",
+        "constant",
+        "clock-as-flop-data",
+        "clock-in-an-assertion",
+        "async-reset",
+        "latch",
+        "memory-async-reset",
+        "unknown-cell",
+        "kept-hierarchy",
+    ],
+)
+def test_the_default_model_refuses_what_it_cannot_hold(cells, problem):
+    found = timing_problems(_timing_model(cells, "clk", "other", derived=[9]))
+    assert any(problem in text for text in found), found
+
+
+def test_two_bits_of_one_input_are_two_clocks():
+    model = _timing_model({"a": _flop(2), "b": _flop(3)})
+    top = model["modules"]["top"]
+    top["ports"]["clk"] = {"direction": "input", "bits": [2, 3]}
+    top["netnames"]["clk"] = {"bits": [2, 3]}
+    assert timing_problems(model) == ["it has 2 clocks: clk[0], clk[1]"]
+
+
+def test_a_model_of_another_shape_raises():
+    with pytest.raises(ValueError, match="0 top modules"):
+        timing_problems({"modules": {}})
+
+
+def test_a_pass_without_a_timing_model_fails(tmp_path, fake_sby, monkeypatch):
+    _spec(monkeypatch, timing_model=False)
+    flow = _run(tmp_path, _design(tmp_path))
+    assert flow.outcome == "failed"
+    assert "no readable timing model" in _document(flow)["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "default disable iff (rst);",
+        "default\n  disable /* c */ iff (rst);",
+    ],
+)
+def test_default_disable_iff_is_refused(tmp_path, fake_sby, text):
+    design = _design(tmp_path, {"top.sv": f"module top; {text} endmodule\n"})
+    with pytest.raises(FlowException, match="`default disable iff` in top.sv"):
+        _run(tmp_path, design)
+    assert not (tmp_path / "xeda_run" / "d" / "sby" / "sby_stage").exists()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "// default disable iff (rst);\n",
+        "/* default disable iff (rst); */",
+        'string s = "default disable iff (rst);";',
+        "assert property (@(posedge clk) disable iff (rst) a);",
+    ],
+)
+def test_text_that_only_looks_like_default_disable_iff_is_read(tmp_path, fake_sby, text):
+    flow = _run(tmp_path, _design(tmp_path, {"top.sv": f"module top; {text} endmodule\n"}))
+    assert flow.outcome == "passed", _document(flow).get("error")
+
+
+def test_a_rejection_names_the_failed_property(tmp_path, fake_sby, monkeypatch):
+    log = "SBY [w] engine_0: ##   0:00:00  Assert failed in top: top.sv:5.29-5.54 (_witness_.c)\n"
+    _spec(monkeypatch, status="FAIL", log=log)
+    flow = _run(tmp_path, _design(tmp_path))
+    assert flow.outcome == "rejected"
+    assert "(in top: top.sv:5.29-5.54 (_witness_.c))" in _document(flow)["error"]["message"]
 
 
 def test_the_cover_task_asks_for_a_cover_goal(tmp_path, fake_sby, monkeypatch):
@@ -1252,6 +1569,148 @@ def test_real_tautology_is_a_valid_proof(tmp_path):
     source = "module top(input clk, input a); always @(posedge clk) assert(a == a); endmodule\n"
     flow = _real(tmp_path, {"top.sv": source})
     assert flow.outcome == "passed", _document(flow).get("error")
+
+
+TWO_CLOCKS = """module top(input logic clk, input logic other);
+  logic a = 0;
+  logic b = 0;
+  always_ff @(posedge clk) a <= ~a;
+  always_ff @(posedge other) b <= ~b;
+  assert property (@(posedge clk) a == b);
+endmodule
+"""
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize("mode", ["bmc", "prove"])
+def test_real_two_clocks_fail_by_default_and_are_refuted_with_multiclock(
+    tmp_path, ric3_scratch, mode
+):
+    require_sby_ric3(mode)
+    (tmp_path / "default").mkdir()
+    (tmp_path / "multi").mkdir()
+    flow = _real(tmp_path / "default", {"top.sv": TWO_CLOCKS}, mode=mode)
+    assert flow.outcome == "failed"
+    assert "it has 2 clocks: clk, other" in _document(flow)["error"]["message"]
+    settings = {"depth": 12} if mode == "bmc" else {}
+    flow = _real(tmp_path / "multi", {"top.sv": TWO_CLOCKS}, mode=mode, multiclock=True, **settings)
+    assert flow.outcome == "rejected", _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "source, problem",
+    [
+        (
+            """module top(input logic [1:0] clk);
+              logic a = 0;
+              logic b = 0;
+              always_ff @(posedge clk[0]) a <= ~a;
+              always_ff @(posedge clk[1]) b <= ~b;
+              assert property (@(posedge clk[0]) a == b);
+            endmodule""",
+            "2 clocks: clk[0], clk[1]",
+        ),
+        (
+            """module top(input logic clk, input logic other, input logic d);
+              logic q = 0;
+              always_ff @(posedge clk) q <= d;
+              assert property (@(posedge other) !clk || q);
+            endmodule""",
+            "2 clocks: clk, other",
+        ),
+        (
+            """module top(input logic clk);
+              logic q = 0;
+              always_ff @(posedge clk) q <= clk;
+              assert property (@(posedge clk) q == 0);
+            endmodule""",
+            "clock clk is also read as data",
+        ),
+        (
+            """module top(input logic clk, input logic rst);
+              logic a = 1;
+              always_ff @(posedge clk or posedge rst) if (rst) a <= 0; else a <= 1;
+              assume property (@(posedge clk) rst == 0);
+              assert property (@(posedge clk) a == 1);
+            endmodule""",
+            "can change between clock edges",
+        ),
+    ],
+    ids=["clock-bus", "assertion-only-clock", "clock-as-data", "async-reset"],
+)
+def test_real_a_design_outside_the_one_clock_model_never_passes(tmp_path, source, problem):
+    require_sby()
+    flow = _real(tmp_path, {"top.sv": source})
+    assert flow.outcome == "failed"
+    assert problem in _document(flow)["error"]["message"]
+
+
+@pytest.mark.real_tool
+def test_real_inspection_leaves_a_bound_memory_design_passing(tmp_path):
+    require_sby()
+    source = """module top(input logic clk, input logic [1:0] addr, input logic [3:0] d);
+      logic [3:0] mem [0:3];
+      logic [3:0] q;
+      logic [3:0] previous;
+      logic valid = 0;
+      always_ff @(posedge clk) begin
+        mem[addr] <= d;
+        q <= mem[addr];
+        previous <= q;
+        valid <= 1;
+      end
+      assert property (@(posedge clk) !valid || previous == $past(q));
+    endmodule"""
+    flow = _real(tmp_path, {"top.sv": source})
+    assert flow.outcome == "passed", _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+def test_real_unsupported_sva_keeps_its_place_and_says_what_to_write(tmp_path):
+    require_sby()
+    source = """module top(input logic clk, input logic a, input logic b);
+      assert property (@(posedge clk) a |=> b);
+    endmodule"""
+    flow = _real(tmp_path, {"top.sv": source})
+    assert flow.outcome == "failed"
+    message = _document(flow)["error"]["message"]
+    assert "top.sv:2" in message and "write `|->`, `|=>` and `##` as a Boolean" in message
+
+
+@pytest.mark.real_tool
+def test_real_a_rejection_names_a_bound_checker(tmp_path):
+    require_sby()
+    sources = {
+        "top.sv": "module top(input logic clk); logic q = 0; always_ff @(posedge clk) q <= 1; "
+        "endmodule\n",
+        "check.sv": "module check(input logic clk, input logic q);\n"
+        "  assert property (@(posedge clk) q == 0);\nendmodule\n",
+        "bound.sv": "bind top check checker_instance(.clk(clk), .q(q));\n",
+    }
+    flow = _real(tmp_path, sources)
+    assert flow.outcome == "rejected", _document(flow).get("error")
+    assert "check.sv:2" in _document(flow)["error"]["message"]
+
+
+@pytest.mark.real_tool
+def test_real_a_generated_file_and_a_written_header_include_each_other_as_in_the_tree(tmp_path):
+    require_sby()
+    root = tmp_path / "project"
+    (root / "hdr" / "sub").mkdir(parents=True)
+    header = root / "hdr" / "sub" / "values.svh"
+    header.write_text("`define LIMIT 9\n")
+    top = COUNTER.replace("LIMIT = 9", "LIMIT = `LIMIT")
+    design = _generated_design(
+        root,
+        ["gen/deep/top.sv", {"file": "hdr/sub/values.svh", "type": "SVHeader"}],
+        {"gen/deep/top.sv": '`include "../../hdr/sub/values.svh"\n' + top},
+    )
+    runs = tmp_path / "elsewhere"
+    flow = DefaultRunner(runs, display_results=False).run_flow(
+        Sby, design, {"mode": "bmc", "depth": 6}
+    )
+    assert flow is not None and flow.outcome == "passed", _document(flow).get("error")
 
 
 @pytest.mark.real_tool

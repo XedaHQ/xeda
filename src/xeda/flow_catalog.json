@@ -9001,6 +9001,15 @@
         "assignable": true,
         "help": "The number of steps: the search bound of `bmc` and `cover` (20 when unset). A `bmc` pass holds only up to this bound. `prove` has no bound and refuses `depth`."
       },
+      "multiclock": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Model every clock edge and asynchronous change (SBY `multiclock on`). `depth` then counts global sampling steps, and a regular clock needs two for each cycle. When false, the run fails for a design that has more than one clock, a falling edge, a derived clock, a clock that is read as data, an asynchronous reset or a latch."
+      },
       "timeout": {
         "children": false,
         "assignable": true,
