@@ -27,6 +27,14 @@ xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize with Vivado
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4ns   # change one setting
 ```
 
+Two scripts run the same designs through the Python API. Run them from any directory. Each exits
+with 0 only if every run passes:
+
+```bash
+python examples/vhdl/sqrt/test.py [--long]             # simulate at several widths, then synthesize
+python examples/vhdl/pipeline/synthesize.py [--no-docker]   # synthesize with Quartus (in Docker)
+```
+
 Other VHDL examples:
 
 - `vhdl/pipeline/pipelined_adder.yaml`: a VHDL pipelined adder with a valid/ready interface.
