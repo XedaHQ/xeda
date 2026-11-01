@@ -25,7 +25,7 @@ from xeda.flow.io import (
     selected_types,
     switch_on,
 )
-from xeda.introspect import flow_info
+from xeda.introspect import flow_class_info
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TChainUndeclared, TMaker, TPlace, TTaker
@@ -230,7 +230,7 @@ def test_a_declaration_names_at_least_one_source_type():
 
 
 def test_list_flows_publishes_the_declarations():
-    info = flow_info(TTaker)
+    info = flow_class_info(TTaker)
     assert info["inputs"] == [
         {
             "name": "made",
@@ -249,7 +249,7 @@ def test_list_flows_publishes_the_declarations():
         }
     ]
     assert info["dependencies"] == ["t_maker"]
-    assert flow_info(TMaker)["outputs"] == [
+    assert flow_class_info(TMaker)["outputs"] == [
         {
             "name": "made",
             "value": "files",
@@ -346,8 +346,8 @@ def test_list_flows_json_publishes_the_declarations():
     result = CliRunner().invoke(cli, ["list-flows", "--json"])
     assert result.exit_code == 0, result.output
     flows = {item["name"]: item for item in json.loads(result.stdout)}
-    assert flows["t_taker"]["inputs"] == flow_info(TTaker)["inputs"]
-    assert flows["t_maker"]["outputs"] == flow_info(TMaker)["outputs"]
+    assert flows["t_taker"]["inputs"] == flow_class_info(TTaker)["inputs"]
+    assert flows["t_maker"]["outputs"] == flow_class_info(TMaker)["outputs"]
     assert flows["t_taker"]["dependencies"] == ["t_maker"]
 
 

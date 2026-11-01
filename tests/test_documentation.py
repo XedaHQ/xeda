@@ -24,7 +24,12 @@ from xeda.flow.metrics import COCOTB_METRICS, METRIC_PATH, metric_unit_known
 from xeda.flow.settings_group import SettingsGroup
 from xeda.flow.sim import SimFlow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
-from xeda.introspect import all_flow_classes, flow_info, results_info, settings_info
+from xeda.introspect import (
+    all_flow_classes,
+    flow_class_info,
+    results_class_info,
+    settings_class_info,
+)
 
 from .flow_registry import is_product_flow, preserved_flow_registry
 
@@ -54,7 +59,7 @@ def test_flow_has_its_own_description(flow_class):
 def test_every_setting_is_documented(flow_class):
     undocumented = sorted(
         field["name"]
-        for field in settings_info(flow_class)["fields"]
+        for field in settings_class_info(flow_class)["fields"]
         if not field["description"]
         and (flow_class.name, field["name"]) not in SETTINGS_WITHOUT_DESCRIPTION
     )
@@ -68,7 +73,7 @@ def undocumented_group_settings(flow_class) -> List[str]:
     """The entries of `xeda list-settings` for the fields of a settings group that lack a
     description or, for a field that is no group, a tier. An entry says what is missing."""
     problems: List[str] = []
-    for field in settings_info(flow_class)["fields"]:
+    for field in settings_class_info(flow_class)["fields"]:
         if field["group"] is None:
             continue
         *parents, leaf = field["name"].split(".")
@@ -176,7 +181,7 @@ def test_every_choice_setting_advertises_its_choices(flow_class):
     """`enum` in `list-settings` is derived from the JSON Schema, whose shape pydantic chooses:
     a one-value `Literal["rtl"]` became `{"const": "rtl"}` in pydantic 2 and silently lost its
     choice. Check it against the Python annotations instead, so a shape change cannot hide one."""
-    fields = {field["name"]: field for field in settings_info(flow_class)["fields"]}
+    fields = {field["name"]: field for field in settings_class_info(flow_class)["fields"]}
     mismatched = {
         name: {"advertised": fields[name]["enum"], "declared": declared}
         for name, model_field in flow_class.Settings.model_fields.items()
@@ -285,7 +290,7 @@ def test_a_cocotb_simulator_describes_the_cocotb_metrics(flow_class):
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_results_info_lists_the_declared_metrics(flow_class):
-    info = results_info(flow_class)
+    info = results_class_info(flow_class)
     assert set(info) == {"flow", "metrics", "artifacts", "note"}
     assert [a["key"] for a in info["artifacts"]] == list(flow_class.artifacts_description)
     for artifact in info["artifacts"]:
@@ -420,7 +425,7 @@ def test_readme_catalog_lists_every_flow():
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_every_declared_input_and_output_is_documented(flow_class):
     """`xeda list-flows --json` shows what each declared input and output is."""
-    info = flow_info(flow_class)
+    info = flow_class_info(flow_class)
     undocumented = [d["name"] for d in info["inputs"] + info["outputs"] if not d["description"]]
     assert not undocumented, f"{flow_class.name}: {undocumented}"
 
@@ -437,9 +442,9 @@ def test_every_simulator_exposes_shared_settings_and_evidence_results():
     simulator_flows = [cls for cls in FLOW_CLASSES if issubclass(cls, SimFlow)]
     assert simulator_flows
     for flow_class in simulator_flows:
-        settings = {field["name"] for field in settings_info(flow_class)["fields"]}
+        settings = {field["name"] for field in settings_class_info(flow_class)["fields"]}
         assert {"timeout", "fail_severity"} <= settings, flow_class.name
-        results = {item["path"] for item in results_info(flow_class)["metrics"]}
+        results = {item["path"] for item in results_class_info(flow_class)["metrics"]}
         assert required_results <= results, (flow_class.name, required_results - results)
 
 
@@ -754,7 +759,7 @@ def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class)
             (flow.name, name, made) for flow, name, made in link.binds
         ], request
 
-    info = flow_info(flow_class)
+    info = flow_class_info(flow_class)
     for edge in info["can_precede"]:
         qualifier = f".{edge['output']}" if edge["output"] else ""
         published(edge, f"{info['name']}{qualifier}+{edge['flow']}")

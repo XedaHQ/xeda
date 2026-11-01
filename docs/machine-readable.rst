@@ -1060,7 +1060,7 @@ The same information is available in a process, without a shell. The functions o
 
     from xeda.introspect import (
         flows_info, settings_info, results_info, design_schema,
-        boards_info, platforms_info, optimizers_info,
+        boards_info, platforms_info,
     )
 
     print(flows_info())                     # every flow

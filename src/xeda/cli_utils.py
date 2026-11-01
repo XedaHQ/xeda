@@ -50,7 +50,7 @@ from .console import console, console_target, redirect_console, restore_console
 from .flow import Flow
 from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
-from .introspect import settings_info, type_str, unit_of
+from .introspect import settings_class_info, type_str, unit_of
 from .outcomes import Result
 from .units import is_number_text, is_quantity_unit
 from .utils import json_encodable, with_json_keys
@@ -788,7 +788,7 @@ def print_flow_settings(
     `advanced`). A table lists the `common` settings of the flow first, then a table for each
     further tier that has settings, then the settings that every flow accepts."""
     flow_class = discover_flow_class(flow) if isinstance(flow, str) else flow
-    info = settings_info(flow_class)
+    info = settings_class_info(flow_class)
     shown = TIER_NAMES if tier is None else TIER_NAMES[: TIER_NAMES.index(tier) + 1]
     fields: List[Dict[str, Any]] = [
         f

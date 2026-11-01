@@ -16,7 +16,13 @@ from xeda.cli import cli
 from xeda.dataclass import Field, extras, tier, WORKING
 from xeda.flow import Flow
 from xeda.flow.settings_group import Flag, SettingsGroup
-from xeda.introspect import all_flow_classes, flow_info, settings_info
+from xeda.introspect import (
+    all_flow_classes,
+    flow_class_info,
+    flow_info,
+    settings_class_info,
+    settings_info,
+)
 
 from .flow_registry import preserved_flow_registry
 
@@ -88,7 +94,7 @@ OWN = ["before", "outer", "after"]
 
 def _own_entries(flow) -> list[dict[str, Any]]:
     """The entries of the toy settings, without the settings that every flow has."""
-    return [f for f in settings_info(flow)["fields"] if not f["common"]]
+    return [f for f in settings_class_info(flow)["fields"] if not f["common"]]
 
 
 def _names(document: dict[str, Any]) -> list[str]:
@@ -197,7 +203,7 @@ def test_no_flow_of_the_product_lists_a_dotted_name_yet():
     assert not [
         f["name"]
         for cls in all_flow_classes()
-        for f in settings_info(cls)["fields"]
+        for f in settings_class_info(cls)["fields"]
         if "." in f["name"] and f["group"] is None
     ]
 
@@ -322,7 +328,7 @@ def test_the_table_of_a_flow_without_groups_has_one_table_of_its_own_settings():
 
 
 def test_the_agent_reference_counts_top_level_settings_and_summarizes_each_group(listing_flow):
-    section = _flow_section(flow_info(listing_flow))
+    section = _flow_section(flow_class_info(listing_flow))
     own = len([f for f in _own_entries(listing_flow) if f["group"] is None])
     assert f"{own} flow-specific settings (plus the common ones)" in section
     assert own == len(OWN)
@@ -382,7 +388,7 @@ def shared_group_flow(monkeypatch):
 
 
 def test_the_entries_of_a_group_that_every_flow_accepts_are_common(shared_group_flow):
-    by_name = {f["name"]: f for f in settings_info(shared_group_flow)["fields"]}
+    by_name = {f["name"]: f for f in settings_class_info(shared_group_flow)["fields"]}
     shared = [f for name, f in by_name.items() if name.split(".")[0] == "shared"]
     assert len(shared) == 8 and all(f["common"] for f in shared)
     own = [f for name, f in by_name.items() if name.split(".")[0] == "own"]
@@ -398,7 +404,7 @@ def test_no_common_hides_a_group_that_every_flow_accepts(shared_group_flow):
 
 
 def test_the_agent_reference_does_not_count_a_group_that_every_flow_accepts(shared_group_flow):
-    section = _flow_section(flow_info(shared_group_flow))
+    section = _flow_section(flow_class_info(shared_group_flow))
     assert "1 flow-specific settings" in section
     assert "Group `own`" in section
     assert "Group `shared`" not in section

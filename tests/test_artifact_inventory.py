@@ -31,7 +31,7 @@ from xeda.flow.metrics import (
     program_logs,
 )
 from xeda.flow_runner import DefaultRunner
-from xeda.introspect import all_flow_classes, results_info
+from xeda.introspect import all_flow_classes, results_class_info
 from xeda.records import RunRecord, read_record
 from xeda.tool import Tool
 
@@ -134,7 +134,7 @@ def test_a_description_checks_its_keys_and_values():
 
 @pytest.mark.parametrize("flow_class", FLOWS, ids=FLOW_IDS)
 def test_results_info_lists_each_artifact_with_its_condition(flow_class):
-    listed = results_info(flow_class)["artifacts"]
+    listed = results_class_info(flow_class)["artifacts"]
     assert [item["key"] for item in listed] == list(flow_class.artifacts_description)
     assert all(set(item) == {"key", "description", "when"} for item in listed)
 
