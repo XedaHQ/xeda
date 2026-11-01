@@ -571,8 +571,8 @@ digest of the environment that the generator inherited. The generator therefore 
 when one of its inputs changed. Indirect tools and the packages that the generator uses stay
 outside this identity. The run hash of a flow that reads a generated source holds a digest of the
 recipe of its generator, so two recipes (other ``args``, say) are two runs. The digest leaves out
-``always_runs``, ``check``, ``generated_sources`` and ``outputs_to``, and the configuration of a
-run shows no value of the recipe. A change of a file that the generator reads only makes the run
+``always_runs``, ``check``, ``generated_sources``, ``outputs_to`` and ``sources``, counts ``cwd`` as
+its place below the design root, and the configuration of a run shows no value of the recipe. A change of a file that the generator reads only makes the run
 stale. The generator starts in the design root, or in its ``cwd`` below it. It writes each
 generated source under ``$XEDA_GENERATED``, the storage, or into the design tree, as the
 entry of ``rtl.sources`` says. Xeda copies a tree file that the generation wrote into the storage,

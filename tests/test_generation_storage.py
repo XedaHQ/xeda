@@ -343,7 +343,9 @@ def test_no_document_of_a_run_or_a_plan_shows_a_value_of_the_generator_env(tmp_p
     assert SECRET not in (result.nodes[flow.name].record.run_dir / "results.json").read_text()
 
 
-@pytest.mark.parametrize("field", ["always_runs", "check", "outputs_to", "generated_sources"])
+@pytest.mark.parametrize(
+    "field", ["always_runs", "check", "outputs_to", "generated_sources", "sources"]
+)
 def test_a_field_that_does_not_shape_the_output_keeps_the_identity(tmp_path, field):
     flow = reader_flow()
     world = World(tmp_path)
@@ -354,6 +356,7 @@ def test_a_field_that_does_not_shape_the_output_keeps_the_identity(tmp_path, fie
         "check": False,
         "outputs_to": str(tmp_path / "copy"),
         "generated_sources": ["$XEDA_GENERATED"],
+        "sources": ["gen.py"],
     }[field]
     changed = design.with_updates({f"rtl.generator.{field}": value})
     assert changed.rtl.generator[field] != design.rtl.generator.get(field)

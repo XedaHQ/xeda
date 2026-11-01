@@ -27,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from typing import Any
 
-from ..design import Design, Source, SourceType, generator_model
+from ..design import Design, Source, SourceType, generator_cwd, generator_model
 from ..flow import Flow
 from ..flow.derived import DesignConversion
 from ..frozen import thaw
@@ -56,10 +56,12 @@ def conversion_descriptor(producer: str, conversion: DesignConversion) -> dict[s
     }
 
 
-#: The fields of a recipe that do not change the files that the generator writes: whether Xeda
-#: checks its exit status, whether it runs on every launch, which entries of `rtl.sources` are its
-#: own, and where a copy of its output goes. `sources` counts as written, outside the model, which
-#: checks that its files exist and makes its paths absolute.
+#: The fields of a recipe that are no part of its digest. These do not change the files that the
+#: generator writes: whether Xeda checks its exit status, whether it runs on every launch, which
+#: entries of `rtl.sources` are its own, and where a copy of its output goes. `sources` names the
+#: files whose content decides whether the generator runs again: that content is evidence of
+#: freshness (and part of the key of the storage), and the names are paths that a remote launch
+#: rewrites, so they count nowhere in the identity.
 NOT_SHAPING = frozenset({"check", "always_runs", "generated_sources", "outputs_to", "sources"})
 
 
@@ -68,12 +70,14 @@ def generated_by(design: Design, source: Source) -> str | None:
     that no generator writes.
 
     The generator is that of `design`, or that of the unit of generation that owns the source
-    (`Source.owner`, `Design.generation_units`). The digest covers only the fields of the recipe
-    that shape what the generator writes (all but `NOT_SHAPING`, with `sources` as written). It
-    holds no file content and no file digest, and no value of the recipe (an `env` value may be a
-    secret) appears in the configuration: two recipes that differ in their arguments give two
-    configurations, and an edit of a file that the generator reads is evidence of freshness
-    only."""
+    (`Source.owner`, `Design.generation_units`). The digest covers the fields of the recipe that
+    shape what the generator writes (all but `NOT_SHAPING`). It holds no file content and no file
+    digest, and no value of the recipe (an `env` value may be a secret) appears in the
+    configuration. It is location-free and the same on a remote host: `cwd` counts as its place
+    below the design root (`design.generator_cwd`, the form that packaging sends), and the other
+    fields count as written, which packaging keeps. Two recipes that differ in their arguments
+    give two configurations, and an edit of a file that the generator reads is evidence of
+    freshness only."""
     if not source.generated:
         return None
     if source.owner is None:
@@ -85,17 +89,14 @@ def generated_by(design: Design, source: Source) -> str | None:
         unit = units[source.owner]
     if unit.rtl.generator is None:
         return None
-    table = thaw(unit.rtl.generator)
-    written = table.pop("sources", [])
+    table = {key: value for key, value in thaw(unit.rtl.generator).items() if key != "sources"}
     generator = generator_model(table, unit.root)
     assert generator is not None
-    return semantic_hash(
-        {
-            "class": type(generator).__name__,
-            "recipe": generator.model_dump(mode="json", exclude=set(NOT_SHAPING)),
-            "sources": [str(item) for item in ([written] if isinstance(written, str) else written)],
-        }
-    )
+    recipe = generator.model_dump(mode="json", exclude=set(NOT_SHAPING))
+    # None and the design root are one place, however it is written.
+    cwd = generator.cwd
+    recipe["cwd"] = "." if cwd is None else generator_cwd(cwd, unit.root).as_posix()
+    return semantic_hash({"class": type(generator).__name__, "recipe": recipe})
 
 
 def source_entries(
