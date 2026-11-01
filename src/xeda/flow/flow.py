@@ -1116,8 +1116,8 @@ class Flow(metaclass=ABCMeta):
         ] = Field(
             [],
             description="Additional libraries, as a list of (name, path) tuples. The name or the "
-            "path can be none, but not both. GHDL and NVC take a relative path as relative to "
-            "the design root.",
+            "path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as "
+            "relative to the design root.",
         )
         env: Dict[str, str] = Field(
             {},

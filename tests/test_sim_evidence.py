@@ -47,6 +47,7 @@ def test_every_simulator_flow_requires_evidence_without_an_exemption():
     assert not PARTLY_CONVERTED
     converted = {
         "verilator",
+        "iverilog",
         "ghdl_sim",
         "nvc",
         "yosys_sim",

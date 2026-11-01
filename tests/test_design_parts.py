@@ -54,7 +54,7 @@ RTL_FLOWS = (
     "vivado_power vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (
-    "bsc bsc_sim ghdl_sim modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
+    "bsc bsc_sim ghdl_sim iverilog modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
     "vivado_sim yosys_sim"
 ).split()
 

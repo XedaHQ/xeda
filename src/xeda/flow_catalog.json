@@ -5,6 +5,7 @@
         "dc",
         "diamond_synth",
         "ise_synth",
+        "iverilog",
         "modelsim",
         "quartus",
         "sby",
@@ -32,6 +33,7 @@
         "dc",
         "diamond_synth",
         "ise_synth",
+        "iverilog",
         "modelsim",
         "quartus",
         "sby",
@@ -76,7 +78,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -692,7 +694,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -1362,7 +1364,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -1669,7 +1671,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -1925,7 +1927,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -2156,7 +2158,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -2505,7 +2507,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -2808,7 +2810,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -3033,6 +3035,210 @@
       "bsc"
     ]
   },
+  "iverilog": {
+    "followers": {
+      "": []
+    },
+    "settings": {
+      "verbosity": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "debug",
+          "normal",
+          "quiet",
+          "verbose"
+        ],
+        "help": "How much the tools say. `quiet` asks them for less. `verbose` and `debug` ask for more, and `debug` also keeps the traces that a tool drops. Each level adds only its own options: `debug` does not add the options of `verbose`. The level changes the command lines and the logs, so a run with another level is another run."
+      },
+      "nthreads": {
+        "children": false,
+        "assignable": true,
+        "help": "Maximum number of threads."
+      },
+      "lib_paths": {
+        "children": false,
+        "assignable": true,
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
+      },
+      "env": {
+        "children": true,
+        "assignable": false,
+        "dynamic": true,
+        "help": "Environment variables for the processes of the flow, `NUM_TV: \"8\"` for example, cocotb test processes included. They come after the environment that the flow inherits and before the variables that the flow sets itself. A name is letters, digits and `_`, and does not start with a digit. A value is text. The variables are part of the identity of the run."
+      },
+      "inherit_env": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Whether the processes of the flow get the environment of the caller. With `false`, they get only the essential variables (`PATH`, `HOME`, `LANG`, ...), the variables that locate the tool or its license, and `env`. Neither mode is hermetic. The environment of the caller is evidence: a changed value runs the flow again."
+      },
+      "docker": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Run the tools in Docker."
+      },
+      "docker_image": {
+        "children": false,
+        "assignable": true,
+        "help": "The Docker image to run the tools in, instead of the default image of the flow. It has an effect only with `docker`."
+      },
+      "timeout": {
+        "children": false,
+        "assignable": true,
+        "help": "Stop and fail each subprocess invocation that contains simulation after this much wall-clock time, a time with a unit, such as `90 s` or `2 min`. An invocation can combine analysis, elaboration and simulation. The limit applies to each invocation, not to their total. None sets no limit."
+      },
+      "fail_severity": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "error",
+          "failure",
+          "fatal",
+          "warning"
+        ],
+        "help": "The least severe runtime diagnostic that fails the simulation: warning, error, failure or fatal. Failure and fatal have the same rank. Diagnostics below the threshold are recorded. Assertions that the design disables explicitly keep the documented behavior of the simulator. A nonzero exit status always fails."
+      },
+      "vcd": {
+        "children": false,
+        "assignable": true,
+        "help": "Write the waveform as VCD (`vvp -vcd`). `true` selects it. Without cocotb, the testbench's `$dumpvars` writes the file `dump.vcd`, and any other name or a location here is refused. With cocotb, the value is the file that Xeda's dump module writes: `true` writes `dump.vcd`, a name without an extension gets `.vcd`, and a location is delivered. Only one of `vcd` and `fst` may be set."
+      },
+      "stop_time": {
+        "children": false,
+        "assignable": true,
+        "help": "Stop the simulation at this simulated time, a time with a unit, such as `100 us`."
+      },
+      "cocotb": {
+        "children": true,
+        "assignable": false,
+        "help": "Settings for the cocotb testbench, used when `tb.cocotb` is set."
+      },
+      "cocotb.coverage": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Collect coverage data if supported by simulation tool."
+      },
+      "cocotb.reduced_log_fmt": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Display shorter log lines in the terminal."
+      },
+      "cocotb.resolve_x": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "ONES",
+          "RANDOM",
+          "VALUE_ERROR",
+          "ZEROS"
+        ],
+        "help": "How to resolve bits with a value of X, Z, U or W when they are converted to an integer."
+      },
+      "cocotb.testcase": {
+        "children": false,
+        "assignable": true,
+        "help": "Names of the cocotb tests to run; all of them if empty. A name selects exactly the test of that name (`check` never selects `foo_check`); on cocotb 2.x it may be qualified by its module (`tb.check`). Can also be given as a comma-separated string."
+      },
+      "cocotb.random_seed": {
+        "children": false,
+        "assignable": true,
+        "help": "Seed of the Python random module (`COCOTB_RANDOM_SEED`): the same seed recreates the same test stimulus. \"random\" lets cocotb draw a new seed on every run, so the flow then always runs and is never reused."
+      },
+      "cocotb.gpi_extra": {
+        "children": false,
+        "assignable": true,
+        "help": "A comma-separated list of extra libraries that are dynamically loaded at runtime."
+      },
+      "compile_flags": {
+        "children": false,
+        "assignable": true,
+        "help": "Extra flags passed to `iverilog`."
+      },
+      "warn_flags": {
+        "children": false,
+        "assignable": true,
+        "help": "Warning flags of `iverilog`, such as `-Wall` and `-Wno-timescale`. `-Wall` leaves out `-Winfloop`."
+      },
+      "include_dirs": {
+        "children": false,
+        "assignable": true,
+        "help": "Directories searched for `include` files (`-I`). A relative path is relative to the design root."
+      },
+      "verilog_libs": {
+        "children": false,
+        "assignable": true,
+        "help": "Verilog library files (`-l`): their modules are elaborated only when instantiated. A relative path is relative to the design root."
+      },
+      "specify": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Honor specify blocks and `$sdf_annotate` (`-gspecify`). Without it, Icarus Verilog omits them."
+      },
+      "delay_selection": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "max",
+          "min",
+          "typ"
+        ],
+        "help": "The delay of a `min:typ:max` expression that the simulation uses (`-T`). Icarus Verilog's default is `typ`, with a warning."
+      },
+      "time_unit": {
+        "children": false,
+        "assignable": true,
+        "help": "Time unit of a module without a `` `timescale `` directive (`+timescale+`), a time with a unit. Icarus Verilog takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ns` or `10 ps`."
+      },
+      "time_resolution": {
+        "children": false,
+        "assignable": true,
+        "help": "Time precision of a module without a `` `timescale `` directive (`+timescale+`), a time with a unit, no longer than `time_unit`. Icarus Verilog takes 1, 10 or 100 of s, ms, us, ns, ps or fs, such as `1 ps` or `100 fs`."
+      },
+      "run_flags": {
+        "children": false,
+        "assignable": true,
+        "help": "Extra flags passed to `vvp`, before the compiled design."
+      },
+      "plusargs": {
+        "children": false,
+        "assignable": true,
+        "help": "Arguments for the simulation that `$test$plusargs` and `$value$plusargs` read, such as `+seed=3`. Each starts with `+`."
+      },
+      "vpi_modules": {
+        "children": false,
+        "assignable": true,
+        "help": "VPI modules that `vvp` loads (`-m`), as paths of files. A relative path is relative to the design root."
+      },
+      "fst": {
+        "children": false,
+        "assignable": true,
+        "help": "Write the waveform as FST (`vvp -fst`), far more compact than VCD. Used as `vcd` is: `true` selects the format, and the file is `dump.fst`."
+      }
+    },
+    "default_producers": [
+      "bsc"
+    ]
+  },
   "modelsim": {
     "followers": {
       "": []
@@ -3057,7 +3263,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -3240,7 +3446,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -3830,7 +4036,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -4170,7 +4376,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -4501,7 +4707,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -5371,7 +5577,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -6005,7 +6211,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -6641,7 +6847,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -8602,7 +8808,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -8955,7 +9161,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -9035,7 +9241,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -9393,7 +9599,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -9730,7 +9936,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -10161,7 +10367,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -10523,7 +10729,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -10915,7 +11121,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -11144,7 +11350,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -11572,7 +11778,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -11824,7 +12030,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -12255,7 +12461,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -12417,7 +12623,7 @@
       "ghdl.lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "ghdl.env": {
         "children": true,
@@ -13742,7 +13948,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -13955,7 +14161,7 @@
       "ghdl.lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "ghdl.env": {
         "children": true,
@@ -14754,7 +14960,7 @@
       "lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "env": {
         "children": true,
@@ -14942,7 +15148,7 @@
       "ghdl.lib_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL and NVC take a relative path as relative to the design root."
+        "help": "Additional libraries, as a list of (name, path) tuples. The name or the path can be none, but not both. GHDL, NVC and Icarus Verilog take a relative path as relative to the design root."
       },
       "ghdl.env": {
         "children": true,

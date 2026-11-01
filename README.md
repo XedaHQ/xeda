@@ -184,6 +184,10 @@ generated scripts, reports and the effective settings are in the run root, `xeda
   - `quartus`: FPGA synthesis and implementation flow
 - Lattice Diamond
   - `diamond_synth`: synthesis, place & route and bitstream generation for Lattice devices
+- [Icarus Verilog](https://github.com/steveicarus/iverilog): open-source Verilog/SystemVerilog
+  simulator
+  - `iverilog`: compiles the design and simulates it. It supports cocotb testbenches, and VCD and
+    FST waveforms
 - [NVC](https://github.com/nickg/nvc) VHDL simulator
   - `nvc`: VHDL simulation
 - Siemens (Mentor) [ModelSim](https://eda.sw.siemens.com/en-US/ic/modelsim/)

@@ -144,12 +144,13 @@ namespaces = false
 ]
 # The residue file of each platform, its Yosys techmaps and the attribution of the values in them.
 "xeda.platforms" = ["*/platform.yaml", "*/*.v", "NOTICE.md"]
-"xeda.flow" = ["templates/*.h"]
+"xeda.flow" = ["templates/*.h", "templates/*.c"]
 "xeda.flows.modelsim" = ["templates/*.tcl"]
 "xeda.flows.vivado" = ["templates/*.tcl"]
 "xeda.flows.nvc" = ["templates/*.cpp"]
 "xeda.flows.openroad" = ["templates/*.j2", "templates/**/*.j2", "data/*"]
-"xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl", "templates/*.c"]
+"xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl"]
+"xeda.flows.iverilog" = ["templates/*.v"]
 "xeda.flows.yosys" = ["templates/*.h", "templates/*.cpp", "data/asic/*"]
 # The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
 "xeda.data" = [

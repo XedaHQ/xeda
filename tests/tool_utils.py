@@ -12,6 +12,7 @@ fails on the first real invocation.
 """
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -44,6 +45,8 @@ __all__ = [
     "require_ghdl",
     "require_git",
     "require_iverilog",
+    "require_iverilog_evidence",
+    "cocotb_safe_vvp",
     "require_nextpnr_ecp5",
     "require_nvc",
     "require_nvc_evidence",
@@ -712,6 +715,116 @@ def _probe_iverilog() -> bool:
 
 def require_iverilog() -> None:
     _require("iverilog", _probe_iverilog(), "`iverilog` + `vvp` of a trivial module")
+
+
+@lru_cache(maxsize=None)
+def _probe_iverilog_evidence() -> bool:
+    """Icarus Verilog 13 or newer, with Xeda's monitor built against its `vpi_user.h`."""
+    from importlib.resources import files
+
+    iverilog, vvp, compiler = shutil.which("iverilog"), shutil.which("vvp"), shutil.which("cc")
+    if iverilog is None or vvp is None or compiler is None:
+        return False
+    try:
+        banner = subprocess.run([iverilog, "-V"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    found = re.search(r"version (\d+)", banner.stdout)
+    if found is None or int(found[1]) < 13:
+        return False
+    prefix = Path(iverilog).resolve().parent.parent
+    flags = (
+        ["-bundle", "-undefined", "dynamic_lookup"]
+        if sys.platform == "darwin"
+        else ["-shared", "-fPIC"]
+    )
+    with tempfile.TemporaryDirectory(prefix="xeda-iverilog-evidence-") as tmp:
+        root = Path(tmp)
+        for name, package in (
+            ("iverilog_evidence.c", "xeda.flow"),
+            ("sim_record.h", "xeda.flow"),
+        ):
+            (root / name).write_text(files(package).joinpath("templates", name).read_text())
+        (root / "tb.v").write_text("module tb; initial #5 $finish; endmodule\n")
+        if not (
+            _command_succeeds(
+                [
+                    compiler,
+                    *flags,
+                    "-I",
+                    str(prefix / "include" / "iverilog"),
+                    "iverilog_evidence.c",
+                    "-o",
+                    "iverilog_evidence.vpi",
+                ],
+                cwd=tmp,
+            )
+            and _command_succeeds([iverilog, "-o", "tb.vvp", "tb.v"], cwd=tmp)
+        ):
+            return False
+        try:
+            result = subprocess.run(
+                [vvp, "-n", "-m", "./iverilog_evidence.vpi", "tb.vvp"],
+                cwd=tmp,
+                capture_output=True,
+                timeout=30,
+                env={**os.environ, "XEDA_END_RECORD": "xeda_end.json"},
+            )
+            record = json.loads((root / "xeda_end.json").read_text())
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0 and record.get("ended_by") == "finish"
+
+
+def require_iverilog_evidence() -> None:
+    """Icarus Verilog 13 or newer, a C toolchain and a working VPI end monitor."""
+    require_iverilog()
+    require_c_toolchain()
+    _require(
+        "iverilog simulation evidence",
+        _probe_iverilog_evidence(),
+        "Icarus Verilog 13+, and building/loading the end monitor against vpi_user.h",
+    )
+
+
+@pytest.fixture
+def cocotb_safe_vvp(monkeypatch, tmp_path_factory) -> None:
+    """Put a `vvp` on PATH that leaves the Python and the libraries of cocotb alone.
+
+    The `vvp` of OSS CAD Suite is a shell script that sets `PYTHONHOME` to the suite's own
+    Python, so cocotb from another Python stops with "Failed to import encodings module". On
+    Linux, its library path also finds the older cocotb libraries of the suite first. The copy
+    has the two Python lines removed, puts the libraries of cocotb first, and finds the suite
+    through the original directory.
+    """
+    found = shutil.which("vvp")
+    if found is None:
+        return
+    try:
+        text = Path(found).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return  # a binary: nothing to repair
+    if "PYTHONHOME" not in text:
+        return
+    lines = [line for line in text.splitlines() if "PYTHONHOME" not in line]
+    lines = [line for line in lines if "PYTHONEXECUTABLE" not in line]
+    spec = importlib.util.find_spec("cocotb")
+    if spec is None or spec.origin is None:
+        return
+    libraries = Path(spec.origin).parent / "libs"
+    fixed = (
+        "\n".join(lines)
+        .replace('$(dirname "${BASH_SOURCE[0]}")', str(Path(found).resolve().parent))
+        .replace(
+            '--library-path "$release_topdir_abs"',
+            f'--library-path {libraries}:"$release_topdir_abs"',
+        )
+    )
+    directory = tmp_path_factory.mktemp("safe_vvp")
+    script = directory / "vvp"
+    script.write_text(fixed + "\n", encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
 # ---------------------------------------------------------------------------------------------

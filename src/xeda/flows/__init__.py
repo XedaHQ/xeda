@@ -13,6 +13,7 @@ from .diamond import DiamondSynth
 from .fpga_pack import FpgaPack
 from .ghdl import GhdlSim, GhdlSynth
 from .ise import IseSynth
+from .iverilog import Iverilog
 from .modelsim import Modelsim
 from .nextpnr import Nextpnr
 from .nvc import Nvc
@@ -42,6 +43,7 @@ __all__ = [
     "GhdlSim",
     "GhdlSynth",
     "IseSynth",
+    "Iverilog",
     "Modelsim",
     "Nextpnr",
     "Nvc",

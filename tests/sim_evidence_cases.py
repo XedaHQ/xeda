@@ -50,6 +50,7 @@ class SimCase:
 
 SIMULATORS = (
     "ghdl_sim",
+    "iverilog",
     "nvc",
     "modelsim",
     "vcs",
@@ -256,7 +257,9 @@ def launch_case(
             program = "from pathlib import Path\n"
             program += f"Path({str(marker)!r}).write_text('runtime executed')\n"
             if positive and record:
-                program += f"Path({record!r}).write_text({json.dumps({'ended_by': 'finish', 'time': 0, 'time_unit': '1ps', 'events': []})!r})\n"
+                events = [{"kind": "finish", "time": 0}] if case.flow == "iverilog" else []
+                shape = {"ended_by": "finish", "time": 0, "time_unit": "1ps", "events": events}
+                program += f"Path({record!r}).write_text({json.dumps(shape)!r})\n"
             if positive and case.backend == "bluesim":
                 program += (
                     'Path(\'bluesim_events.jsonl\').write_text(\'{"kind":"finish","time":0}\\n\')\n'
@@ -269,6 +272,8 @@ def launch_case(
                 program += (
                     'Path(\'cxxrtl_end.json\').write_text(\'{"ended_by":"exit","events":[]}\')\n'
                 )
+            if case.flow == "iverilog":
+                program += "print('XEDA_ICARUS_RUNTIME_START', flush=True)\n"
             if case.flow == "nvc":
                 program += "print('XEDA_NVC_RUNTIME_START', flush=True)\n"
                 if positive:

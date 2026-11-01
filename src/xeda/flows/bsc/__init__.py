@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import sys
 from importlib.resources import files
 from abc import ABCMeta
 from collections.abc import Iterable, Sequence
@@ -39,6 +38,7 @@ from ...flow import (
 from ...flow.derived import DerivedSources, DesignConversion, Generated, Passed
 from ...flow.metrics import program_logs
 from ...flow.sim import SimEvidence
+from ..iverilog import MONITOR, build_end_monitor
 from .sim_evidence import (
     bluesim_evidence,
     iverilog_evidence,
@@ -1746,7 +1746,7 @@ class BscSim(BscFlow, SimFlow):
             hook_flags, link_env = self._build_verilator_hooks()
             link_flags += hook_flags
         elif ss.simulator == "iverilog":
-            self._build_iverilog_monitor()
+            build_end_monitor(self, self.bsc)
         _check_link_paths([*path_flags, *link_flags, executable, *link_files])
         self._compile(backend, sources, tb_top, top_file, flags)
 
@@ -1799,7 +1799,7 @@ class BscSim(BscFlow, SimFlow):
             simulation = self.bsc.derive(
                 "vvp", version_flag=None, minimum_version=None, log_key="simulation_log"
             )
-            sim_args = ["-i", "-n", "-m", "./iverilog_evidence.vpi", str(executable), *sim_args]
+            sim_args = ["-i", "-n", "-m", MONITOR, str(executable), *sim_args]
         simulation.highlight_rules = None
         try:
             env = None
@@ -2009,35 +2009,6 @@ class BscSim(BscFlow, SimFlow):
         # no whitespace, which make would split at: `_check_link_paths` refuses the run path
         # with any (the hooks' object is in it too).
         return flags, {"MAKEFILES": str(self.run_path / HOOKS_MAKEFILE)}
-
-    def _build_iverilog_monitor(self) -> None:
-        """Build the VPI registration adapter, with local headers or the container's own."""
-        self.copy_from_template("sim_record.h")
-        source = self.copy_from_template("iverilog_evidence.c")
-        if self.bsc.dockerized:
-            executable = self.bsc.derive(
-                "sh", version_flag=None, minimum_version=None
-            ).run_get_stdout("-c", 'readlink -f "$(command -v iverilog)"')
-            prefix = Path(executable.strip()).parent.parent if executable else None
-            platform = "linux"
-        else:
-            executable_path = self.bsc.derive(
-                "iverilog", version_flag=None, minimum_version=None
-            ).executable_path()
-            prefix = executable_path.parent.parent if executable_path else None
-            platform = sys.platform
-        flags = (
-            ["-bundle", "-undefined", "dynamic_lookup"]
-            if platform == "darwin"
-            else ["-shared", "-fPIC"]
-        )
-        if prefix is not None:
-            flags += ["-I", str(prefix / "include" / "iverilog")]
-        target = self.run_directory.writable("iverilog_evidence.vpi")
-        self.run_directory.remove(target)
-        self.bsc.derive("cc", version_flag=None, minimum_version=None).run(
-            *flags, source, "-o", target, timeout=120
-        )
 
     def _link_flags(self, bluesim: bool) -> list[str]:
         """Return what the link step needs besides the paths.

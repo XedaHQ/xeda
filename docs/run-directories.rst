@@ -616,8 +616,8 @@ either. Its outcome is ``blocked``, and its ``blocked_by`` names the producer.
 
 These checks reject a run:
 
-- A simulation (``ghdl_sim``, ``nvc``, ``verilator``, ``modelsim``, ``vcs``, ``bsc_sim``,
-  ``yosys_sim``, ``vivado_sim`` and ``vivado_postsynth_sim``): an end record that shows the
+- A simulation (``ghdl_sim``, ``nvc``, ``iverilog``, ``verilator``, ``modelsim``, ``vcs``,
+  ``bsc_sim``, ``yosys_sim``, ``vivado_sim`` and ``vivado_postsynth_sim``): an end record that shows the
   simulation did not end as intended, an event at or above ``fail_severity``, or cocotb results
   that Xeda read and that show failed tests. A missing end record, missing cocotb results and a
   missing waveform are failures, not rejections.
