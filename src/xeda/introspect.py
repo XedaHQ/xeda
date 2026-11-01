@@ -1146,6 +1146,8 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
     # Declare the draft that pydantic actually produced, so that validators pick the right one.
     # Do not stamp a draft that the document does not follow.
     schema["$schema"] = JSON_SCHEMA_DIALECT
+    # Every document has an integer `schema_version`. A JSON Schema validator ignores the keyword.
+    schema["schema_version"] = 1
     if not input_syntax:
         return schema
     _accept_clock_forms(schema)

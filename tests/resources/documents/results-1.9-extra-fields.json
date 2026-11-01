@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "run_id": "4150a29a30fa438f807bf42600dc7cae",
+  "xeda_version": "0.4.4.dev432+g4f28a84d2",
+  "flow": "t_copy",
+  "design": "d",
+  "target": null,
+  "identity": "8daaa75b704973bb13017a88a4c15181f9fa91d2018a5c5a7738e746d512036e",
+  "configuration": {
+    "rtl": {
+      "top": "t",
+      "parameters": {},
+      "defines": {},
+      "clocks": [],
+      "attributes": {}
+    },
+    "language": {
+      "vhdl": {
+        "standard": null,
+        "synopsys": false
+      },
+      "verilog": {
+        "standard": null
+      }
+    }
+  },
+  "outcome": "passed",
+  "error": null,
+  "metrics": {
+    "size": 6
+  },
+  "metric_info": {
+    "size": {
+      "description": "The size of the data.",
+      "type": "integer",
+      "unit": null
+    }
+  },
+  "outputs": {
+    "copy": {
+      "kind": "Data",
+      "cardinality": "one",
+      "names": [
+        "copy.txt"
+      ],
+      "digests": [
+        "131d86ae8a44aa83e438438252fd19e0"
+      ],
+      "design": null,
+      "future_field": 1
+    }
+  },
+  "artifacts": {},
+  "settings": {
+    "verbosity": "normal",
+    "nthreads": null,
+    "reports_dir": "reports",
+    "checkpoints_dir": "checkpoints",
+    "outputs_dir": "outputs",
+    "lib_paths": [],
+    "env": {},
+    "inherit_env": true,
+    "docker": false,
+    "docker_image": null
+  },
+  "inputs": [
+    {
+      "name": "data",
+      "origin": "source",
+      "producer": null,
+      "output": null,
+      "producer_run_id": null,
+      "producer_run_dir": null,
+      "sources": [
+        {
+          "path": "given.dat",
+          "generated": false,
+          "digest": "131d86ae8a44aa83e438438252fd19e0",
+          "dependency": null,
+          "producer": null,
+          "generation": null,
+          "future_field": null
+        }
+      ],
+      "future_field": [
+        "x"
+      ]
+    }
+  ],
+  "started": "2026-11-01T04:42:54.244162+00:00",
+  "finished": "2026-11-01T04:42:54.264730+00:00",
+  "runtime": 0.01844808296300471,
+  "dependencies": [],
+  "inherited_variables": [
+    "HOME",
+    "PATH"
+  ],
+  "future_field": {
+    "added": "in a later minor version"
+  }
+}
