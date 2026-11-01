@@ -14,7 +14,7 @@ The shape is that of a part of `Design.to_dict()`:
 - for each part of `Flow.design_parts` (`rtl`, `tb`): its metadata (`Design.part_metadata`) and,
   for a node that reads the design's sources, its `sources`, a list of `{path, type}` (a file of a
   Git dependency also says which dependency, and its path is in the checkout; a generated source
-  also holds the recipe of its generator as written, `generated_by`);
+  also holds the digest of the recipe of its generator, `generated_by`);
 - `language`, when the node reads `rtl`;
 - for a design that a converter derives, the conversion (`converted_from`, `transforms`,
   `produces`) and no `sources`.
@@ -27,11 +27,10 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from typing import Any
 
-from ..design import Design, Source, SourceType, generator_of
+from ..design import Design, Source, SourceType, generator_model
 from ..flow import Flow
 from ..flow.derived import DesignConversion
 from ..frozen import thaw
-from ..generation import recipe_identity
 from ..utils import plain_json, semantic_hash
 
 __all__ = [
@@ -57,14 +56,24 @@ def conversion_descriptor(producer: str, conversion: DesignConversion) -> dict[s
     }
 
 
-def generated_by(design: Design, source: Source) -> dict[str, Any] | None:
-    """Return the recipe of the generator that writes `source` (`generation.recipe_identity`),
-    or None for a source that no generator writes.
+#: The fields of a recipe that do not change the files that the generator writes: whether Xeda
+#: checks its exit status, whether it runs on every launch, which entries of `rtl.sources` are its
+#: own, and where a copy of its output goes. `sources` counts as written, outside the model, which
+#: checks that its files exist and makes its paths absolute.
+NOT_SHAPING = frozenset({"check", "always_runs", "generated_sources", "outputs_to", "sources"})
+
+
+def generated_by(design: Design, source: Source) -> str | None:
+    """Return the digest of the recipe of the generator that writes `source`, or None for a source
+    that no generator writes.
 
     The generator is that of `design`, or that of the unit of generation that owns the source
-    (`Source.owner`, `Design.generation_units`). The recipe is as written: it holds no content
-    and no digest, so two designs whose generators differ only in their arguments read two
-    configurations, and an edit of a generator's script is evidence of freshness only."""
+    (`Source.owner`, `Design.generation_units`). The digest covers only the fields of the recipe
+    that shape what the generator writes (all but `NOT_SHAPING`, with `sources` as written). It
+    holds no file content and no file digest, and no value of the recipe (an `env` value may be a
+    secret) appears in the configuration: two recipes that differ in their arguments give two
+    configurations, and an edit of a file that the generator reads is evidence of freshness
+    only."""
     if not source.generated:
         return None
     if source.owner is None:
@@ -74,8 +83,19 @@ def generated_by(design: Design, source: Source) -> dict[str, Any] | None:
         if source.owner not in units:
             raise ValueError(f"no unit of generation of {design.name} owns {source.path}")
         unit = units[source.owner]
-    generator = generator_of(unit.rtl, root=unit.root)
-    return None if generator is None else recipe_identity(generator)
+    if unit.rtl.generator is None:
+        return None
+    table = thaw(unit.rtl.generator)
+    written = table.pop("sources", [])
+    generator = generator_model(table, unit.root)
+    assert generator is not None
+    return semantic_hash(
+        {
+            "class": type(generator).__name__,
+            "recipe": generator.model_dump(mode="json", exclude=set(NOT_SHAPING)),
+            "sources": [str(item) for item in ([written] if isinstance(written, str) else written)],
+        }
+    )
 
 
 def source_entries(

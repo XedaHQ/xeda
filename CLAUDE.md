@@ -141,7 +141,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   and its ordered input origins (`bindings.node_identity`). A producer's settings never depend on
   which consumer asked. The configuration holds what the node reads of the design, never content
   or a target label, and a source file that supplies an input counts by place and type (a
-  generated one also by its generator's recipe as written, `configuration.generated_by`,
+  generated one also by a digest of its generator's recipe, `configuration.generated_by`,
   `tests/test_generation_storage.py`); the remote host counts a moved path as the client does
   (`utils.path_identity`, `tests/test_remote_packaging.py`).
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,

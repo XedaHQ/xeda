@@ -395,8 +395,8 @@ def input_origins(
     the design root (`Design.source_place`) and the entry holds no content, so two netlists are
     two origins, and the same netlist in two checkouts is one. A file of a dependency is
     `(path, type, index)`: the index of its entry in `dependencies` tells the origins apart that
-    differ only in the dependency. A generated file also holds the recipe of its generator as
-    written (`configuration.generated_by`). The origin of an input that producers supply is its ordered `(producer identity, output key)` references, and none for an
+    differ only in the dependency. A generated file also holds the digest of the recipe of its
+    generator (`configuration.generated_by`). The origin of an input that producers supply is its ordered `(producer identity, output key)` references, and none for an
     absent input. `inputs` are the `ResolvedInput`s of a plan node. `identity_of` gives the
     identity of the plan node that a reference names, so producers are identified before their
     consumers. The order of the references and of the files counts. Where a binding was written
@@ -408,7 +408,7 @@ def input_origins(
         place, kind = design.source_place(source), source.type.name
         # A file of a dependency also says which entry of `dependencies` it comes from.
         found = (place, kind) if source.dependency is None else (place, kind, source.dependency)
-        # A generated file also says what recipe writes it.
+        # A generated file also says which recipe writes it.
         recipe = generated_by(design, source)
         return found if recipe is None else (*found, recipe)
 
