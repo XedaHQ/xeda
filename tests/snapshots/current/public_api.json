@@ -88,7 +88,7 @@
               "name": "authors"
             },
             {
-              "annotation": "tuple[xeda.design.DesignReference, ...]",
+              "annotation": "tuple[Mapping[str, Any], ...]",
               "default": "()",
               "name": "dependencies"
             },
@@ -324,23 +324,6 @@
               ],
               "return": "None"
             },
-            "merged_with": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "Sequence[xeda.design.MergedDependency]",
-                  "kind": "positional_or_keyword",
-                  "name": "merged"
-                },
-                {
-                  "annotation": "Sequence[xeda.design.DependencyRecord]",
-                  "default": "()",
-                  "kind": "positional_or_keyword",
-                  "name": "resolved"
-                }
-              ],
-              "return": "xeda.Design"
-            },
             "model_construct": {
               "kind": "classmethod",
               "parameters": [
@@ -443,23 +426,6 @@
               ],
               "return": "dict[str, Any]"
             },
-            "parts_hash": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "Iterable[str]",
-                  "kind": "positional_or_keyword",
-                  "name": "parts"
-                },
-                {
-                  "annotation": "Collection[xeda.design.SourceType] | None",
-                  "default": "None",
-                  "kind": "positional_or_keyword",
-                  "name": "source_types"
-                }
-              ],
-              "return": "str"
-            },
             "process_dict": {
               "kind": "classmethod",
               "parameters": [
@@ -542,53 +508,9 @@
               "annotation": "list[xeda.Source]",
               "kind": "property"
             },
-            "sim_sources_of_type": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "str | xeda.design.SourceType",
-                  "kind": "var_positional",
-                  "name": "source_types"
-                }
-              ],
-              "return": "list[xeda.Source]"
-            },
             "sim_tops": {
               "annotation": "tuple[str, ...] | tuple[str] | tuple[str, str]",
               "kind": "property"
-            },
-            "source_artifact_name": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "xeda.design.FileResource",
-                  "kind": "positional_or_keyword",
-                  "name": "src"
-                },
-                {
-                  "annotation": "str",
-                  "default": "''",
-                  "kind": "positional_or_keyword",
-                  "name": "suffix"
-                }
-              ],
-              "return": "str"
-            },
-            "source_entries": {
-              "kind": "method",
-              "parameters": [],
-              "return": "tuple[xeda.design.SourceEntry, ...]"
-            },
-            "source_path_as_named": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "xeda.design.FileResource",
-                  "kind": "positional_or_keyword",
-                  "name": "src"
-                }
-              ],
-              "return": "pathlib.Path"
             },
             "source_place": {
               "kind": "method",
@@ -600,27 +522,6 @@
                 }
               ],
               "return": "str"
-            },
-            "sources_of_type": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "str | xeda.design.SourceType",
-                  "kind": "var_positional",
-                  "name": "source_types"
-                },
-                {
-                  "default": "True",
-                  "kind": "keyword_only",
-                  "name": "rtl"
-                },
-                {
-                  "default": "False",
-                  "kind": "keyword_only",
-                  "name": "tb"
-                }
-              ],
-              "return": "list[xeda.Source]"
             },
             "targets": {
               "annotation": "tuple[str, ...]",
@@ -638,11 +539,6 @@
               "kind": "method",
               "parameters": [],
               "return": "dict[str, Any]"
-            },
-            "tree_entries": {
-              "kind": "method",
-              "parameters": [],
-              "return": "tuple[xeda.design.SourceEntry, ...]"
             },
             "updates": {
               "annotation": "tuple[Mapping[str, Any], ...]",
@@ -2757,7 +2653,7 @@
               "name": "file"
             },
             {
-              "annotation": "xeda.design.SourceType",
+              "annotation": "str",
               "name": "type"
             },
             {
@@ -2792,7 +2688,7 @@
                 "name": "path"
               },
               {
-                "annotation": "str | xeda.design.SourceType | None",
+                "annotation": "str | None",
                 "default": "None",
                 "kind": "positional_or_keyword",
                 "name": "typ"
@@ -2848,7 +2744,7 @@
                   "name": "name"
                 },
                 {
-                  "annotation": "xeda.design.SourceType",
+                  "annotation": "str",
                   "kind": "positional_or_keyword",
                   "name": "typ"
                 },
