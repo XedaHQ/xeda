@@ -330,9 +330,11 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 ## Changelog
 
-- Never edit `tests/baselines/`. After a change to the public API, run
+- Never edit a released baseline in `tests/baselines/`. After a change to the public API, run
   `python tools/api_baseline.py`; an additive change passes, and a breaking one needs a new major
-  version (`docs/stability.rst`, `tests/test_public_api.py`).
+  version (`docs/stability.rst`, `tests/test_public_api.py`). Until 1.0.0 is released, the 1.0
+  baseline is provisional: rewrite it with `--release 1.0` and update its pin in
+  `tests/test_baselines.py`.
 - A user-visible change adds `changelog.d/<slug>.<fixed|added|changed|removed>.md`: a kebab-case
   slug, one Markdown bullet wrapped at 100 columns (later lines indented two spaces), one or two
   short sentences for users (`tests/test_changelog_fragments.py`). Never edit `CHANGELOG.md` by

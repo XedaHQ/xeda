@@ -1031,6 +1031,14 @@ def _branches(node: dict[str, Any]) -> list[dict[str, Any]]:
     return [node]
 
 
+def _has_branches(node: dict[str, Any]) -> bool:
+    return "anyOf" in node or "oneOf" in node
+
+
+def _without_branches(node: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in node.items() if key not in ("anyOf", "oneOf")}
+
+
 def _branch_kind(node: dict[str, Any]) -> str:
     """What pairs a branch of an old schema with a branch of a new one."""
     if "enum" in node:
@@ -1068,7 +1076,10 @@ def _classify_schema(
         old_branches, new_branches = _branches(before), _branches(after)
         if len(old_branches) > 1 or len(new_branches) > 1:
             alternatives(path, old_branches, new_branches, roots, reader, seen)
-            return
+            if not (_has_branches(before) and _has_branches(after)):
+                return
+            # The keywords beside `anyOf` or `oneOf` hold for every branch: compare them too.
+            before, after = _without_branches(before), _without_branches(after)
         old_types, new_types = _type_set(before), _type_set(after)
         if old_types != new_types:
             grew = new_types is None or (old_types is not None and old_types < new_types)

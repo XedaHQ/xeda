@@ -294,3 +294,25 @@ def test_a_reference_is_compared_by_what_it_names() -> None:
 
     assert not any(_classify({"run": schema("string")}, {"run": schema("string")}))
     assert _classify({"run": schema("string")}, {"run": schema("integer")})[1]
+
+
+def _source_entry(types: list[str], keys: tuple[str, ...] = ("file", "path", "type")) -> dict:
+    """A design-file entry like a source: `oneOf` beside its own `properties`."""
+    properties = {key: STRING for key in keys}
+    if "type" in properties:
+        properties["type"] = {"type": "string", "enum": types}
+    return {
+        "type": "object",
+        "oneOf": [{"required": ["file"]}, {"required": ["path"]}],
+        "properties": properties,
+    }
+
+
+@pytest.mark.parametrize(
+    "new",
+    [_source_entry(["Verilog"]), _source_entry(["Verilog", "VHDL"], keys=("file", "type"))],
+    ids=["a narrower enum", "a removed key"],
+)
+def test_the_keywords_beside_one_of_are_compared(new: dict) -> None:
+    old = {"design": _source_entry(["Verilog", "VHDL"])}
+    assert tool.classify(old, {"design": new}, kind="schema")[1]
