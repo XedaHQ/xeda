@@ -389,7 +389,9 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     (relative to the run root) and the ``sources`` that the input read, each as
     ``{path, generated, digest, dependency, producer, generation}``. ``path`` is relative to the
     design root, ``digest`` is the content digest, and ``dependency`` is the index of the source's
-    dependency in ``dependencies``, or ``null``. For a generated source,
+    dependency in ``dependencies``, or ``null``. ``producer_run_id`` and ``producer_run_dir`` are
+    ``null`` when no producer run supplied the input, and ``producer`` and ``output`` are ``null``
+    when the input has no producer. For a generated source,
     ``path`` is its name in the output of its producer, and ``producer`` tells which one wrote it:
     ``null`` for the generator of the design itself, the name of the design for the generator of a
     dependency, and the name of the node for a converter. The ``design`` input of a flow that reads
@@ -763,8 +765,9 @@ the cause.
 ``internal_error``
     A bug of Xeda.
 ``missing_generated``
-    A source that the generator of the design should write, and that the flow reads, matches no file
-    in the output of the generator. The message names the entry of ``rtl.sources``.
+    A generated source that the flow reads matches no file in the output of the generator that owns
+    it: the generator of the design or of one of its dependencies. The message names the entry of
+    ``rtl.sources``.
 ``flow_not_importable``
     A worker process of a sweep could not import the module of a flow. The message names the
     module.
@@ -990,7 +993,9 @@ A lock that the thread holds (``LeaseHeldError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``lease_held``
-    The calling thread holds a lock of Xeda, and a launch, a sweep or a scrub would wait for it.
+    The calling thread holds a lock of Xeda, and a launch, a sweep or a scrub would wait for it. A
+    callback that runs while Xeda holds locks (``confirm`` or ``on_event``) gets the same code when
+    it asks for a new lock.
 
 A bug of Xeda (``XedaError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
