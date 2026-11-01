@@ -160,3 +160,6 @@ tests_run_dir/
 
 # Vim swap files
 *.swp
+
+# A local `uv sync` writes this lock file. It is not committed.
+uv.lock
