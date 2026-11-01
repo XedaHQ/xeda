@@ -341,9 +341,81 @@ def public_api_snapshot() -> dict[str, Any]:
     return {"modules": modules}
 
 
+def builtin_contract() -> dict[str, Any]:
+    """Return the declared built-in flow interfaces and error codes."""
+    from xeda.flow.io import declared_outputs
+    from xeda.flow_runner.error_codes import ALL_CODES
+    from xeda.flows import __builtin_flows__
+    from xeda.introspect import settings_class_info
+
+    flows = {}
+    for cls in sorted(__builtin_flows__, key=lambda c: c.name):
+        fields = settings_class_info(cls)["fields"]
+        flows[cls.name] = {
+            "settings": {
+                f["name"]: {
+                    **{k: f.get(k) for k in ("type", "unit")},
+                    **({"default": f.get("default")} if not f.get("required") else {}),
+                }
+                for f in fields
+            },
+            "outputs": {
+                name: {"kinds": [t.name for t in d.types], "cardinality": d.cardinality}
+                for name, d in declared_outputs(cls).items()
+            },
+            "metrics": {
+                name: {"type": spec.type, "unit": spec.unit}
+                for name, spec in cls.results_description.items()
+            },
+            "artifacts": sorted(cls.artifacts_description),
+        }
+    return {"flows": flows, "codes": {name: sorted(codes) for name, codes in ALL_CODES.items()}}
+
+
+def behavior_snapshot() -> dict[str, Any]:
+    """Return the stable name grammars, private files, session variables, run-directory hash length
+    and command-line interface."""
+    import click
+    from xeda.cli import cli
+    from xeda.flow.flow import FLOW_NAME
+    from xeda.flow.metrics import ARTIFACT_KEY, METRIC_PATH
+    from xeda.flow_runner.chains import OUTPUT_NAME
+    from xeda.generation import SESSION_VARIABLES
+    from xeda.local_settings import LOCAL_FILES
+    from xeda.run_dir import DIR_NAME_HASH_LEN
+
+    commands: dict[str, Any] = {}
+
+    def visit(command: Any, path: str) -> None:
+        commands[path] = {
+            p.name: {"names": p.opts + p.secondary_opts, "flag": p.is_flag, "hidden": p.hidden}
+            for p in command.params
+            if isinstance(p, click.Option)
+        }
+        if isinstance(command, click.Group):
+            for name, child in sorted(command.commands.items()):
+                visit(child, f"{path} {name}")
+
+    visit(cli, "xeda")
+    return {
+        "grammars": {
+            "flow": FLOW_NAME.pattern,
+            "output": OUTPUT_NAME.pattern,
+            "metric": METRIC_PATH.pattern,
+            "artifact": ARTIFACT_KEY.pattern,
+        },
+        "private_files": [[name, place, list(keys)] for name, place, keys in LOCAL_FILES],
+        "session_variables": sorted(SESSION_VARIABLES),
+        "run_directory_hash_length": DIR_NAME_HASH_LEN,
+        "cli": commands,
+    }
+
+
 #: The snapshot files: name, kind (for `classify`) and producer. A later snapshot is one more row.
 SNAPSHOTS: dict[str, tuple[SnapshotKind, Callable[[], dict[str, Any]]]] = {
     "public_api.json": ("api", public_api_snapshot),
+    "builtin.json": ("contract", builtin_contract),
+    "behavior.json": ("behavior", behavior_snapshot),
 }
 
 
@@ -500,8 +572,50 @@ def _classify_api(old: dict[str, Any], new: dict[str, Any], add: list[str], brk:
     add.extend(f"{m}: new module" for m in sorted(new["modules"].keys() - old["modules"].keys()))
 
 
+def _classify_contract(
+    old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    _diff_names("flows", "flow", old["flows"].keys(), new["flows"].keys(), add, brk)
+    for name in old["flows"].keys() & new["flows"].keys():
+        before, after = old["flows"][name], new["flows"][name]
+        for group in ("settings", "outputs", "metrics"):
+            a, b = before[group], after[group]
+            _diff_names(f"{name}.{group}", group, a.keys(), b.keys(), add, brk)
+            if group == "settings":
+                for key in b.keys() - a.keys():
+                    if "default" not in b[key]:
+                        add.remove(f"{name}.{group}.{key}: new {group}")
+                        brk.append(f"{name}.{group}.{key}: new required setting")
+            for key in a.keys() & b.keys():
+                if a[key] != b[key]:
+                    brk.append(f"{name}.{group}.{key}: changed from {a[key]} to {b[key]}")
+        _diff_names(name, "artifact", set(before["artifacts"]), set(after["artifacts"]), add, brk)
+    _diff_names("codes", "category", old["codes"].keys(), new["codes"].keys(), add, brk)
+    for name in old["codes"].keys() & new["codes"].keys():
+        _diff_names(name, "code", set(old["codes"][name]), set(new["codes"][name]), add, brk)
+
+
+def _classify_behavior(
+    old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    for key in old.keys() | new.keys():
+        if key != "cli" and old.get(key) != new.get(key):
+            brk.append(f"{key}: changed from {old.get(key)} to {new.get(key)}")
+    a, b = old["cli"], new["cli"]
+    _diff_names("cli", "command", a.keys(), b.keys(), add, brk)
+    for command in a.keys() & b.keys():
+        _diff_names(command, "option", a[command].keys(), b[command].keys(), add, brk)
+        for option in a[command].keys() & b[command].keys():
+            if a[command][option] != b[command][option]:
+                brk.append(
+                    f"{command}.{option}: changed from {a[command][option]} to {b[command][option]}"
+                )
+
+
 _CLASSIFIERS: dict[str, Callable[[dict[str, Any], dict[str, Any], list[str], list[str]], None]] = {
     "api": _classify_api,
+    "contract": _classify_contract,
+    "behavior": _classify_behavior,
 }
 
 

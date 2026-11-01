@@ -20,7 +20,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import KW_ONLY, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import yaml
 
@@ -40,6 +40,11 @@ LOCAL_SETTINGS_KEYS = ("flows", "env", "run_root")
 
 USER_FILE_NAME = "config.yaml"
 LOCAL_FILE_SUFFIX = ".local.yaml"
+
+LOCAL_FILES: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = (
+    (USER_FILE_NAME, "$XDG_CONFIG_HOME/xeda", LOCAL_SETTINGS_KEYS),
+    ("<stem>" + LOCAL_FILE_SUFFIX, "beside the project file", LOCAL_SETTINGS_KEYS),
+)
 
 
 @dataclass(frozen=True)

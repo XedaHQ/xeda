@@ -1,0 +1,1006 @@
+{
+  "cli": {
+    "xeda": {
+      "removed_d_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "-d"
+        ]
+      },
+      "removed_debug_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--debug"
+        ]
+      },
+      "removed_q_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "-q"
+        ]
+      },
+      "removed_quiet_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--quiet"
+        ]
+      },
+      "removed_v_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "-v"
+        ]
+      },
+      "removed_verbose_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--verbose"
+        ]
+      },
+      "version": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--version"
+        ]
+      }
+    },
+    "xeda completion": {
+      "stdout": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--stdout"
+        ]
+      }
+    },
+    "xeda design-schema": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      }
+    },
+    "xeda dse": {
+      "config": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--config"
+        ]
+      },
+      "design_allow_extra": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--design-allow-extra",
+          "--no-design-allow-extra"
+        ]
+      },
+      "design_name": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--design-name"
+        ]
+      },
+      "detailed_logs": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--detailed-logs",
+          "--no-detailed-logs"
+        ]
+      },
+      "dse_settings": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--dse-settings"
+        ]
+      },
+      "flow_settings": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--settings",
+          "-s"
+        ]
+      },
+      "init_freq_high": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--init-freq-high"
+        ]
+      },
+      "init_freq_low": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--init-freq-low"
+        ]
+      },
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "log_level": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--log-level"
+        ]
+      },
+      "max_workers": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--max-workers"
+        ]
+      },
+      "no_config": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--no-config"
+        ]
+      },
+      "no_target": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--no-target"
+        ]
+      },
+      "optimizer": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--optimizer"
+        ]
+      },
+      "optimizer_settings": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--optimizer-settings"
+        ]
+      },
+      "removed_d_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "-d"
+        ]
+      },
+      "removed_debug_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--debug"
+        ]
+      },
+      "removed_design_file_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--design-file"
+        ]
+      },
+      "removed_design_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--design"
+        ]
+      },
+      "removed_flow_settings_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--flow-settings"
+        ]
+      },
+      "removed_init_freq_high_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--init_freq_high"
+        ]
+      },
+      "removed_init_freq_low_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--init_freq_low"
+        ]
+      },
+      "run_root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--run-root"
+        ]
+      },
+      "target": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--target"
+        ]
+      },
+      "xeda_run_dir": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--xeda-run-dir"
+        ]
+      },
+      "xedaproject": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--xedaproject"
+        ]
+      }
+    },
+    "xeda help": {
+      "search": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--search"
+        ]
+      }
+    },
+    "xeda list-boards": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      }
+    },
+    "xeda list-flows": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      }
+    },
+    "xeda list-optimizers": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      }
+    },
+    "xeda list-platforms": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      }
+    },
+    "xeda list-results": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      }
+    },
+    "xeda list-settings": {
+      "common": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--common",
+          "--no-common"
+        ]
+      },
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      },
+      "tier": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--tier"
+        ]
+      }
+    },
+    "xeda pdk": {},
+    "xeda pdk help": {
+      "search": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--search"
+        ]
+      }
+    },
+    "xeda pdk install": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      },
+      "platform_file": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--platform-file"
+        ]
+      },
+      "provider": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--provider"
+        ]
+      },
+      "root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--root"
+        ]
+      },
+      "version": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--version"
+        ]
+      },
+      "yes": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--yes"
+        ]
+      }
+    },
+    "xeda pdk list": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      },
+      "root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--root"
+        ]
+      }
+    },
+    "xeda pdk path": {
+      "corner": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--corner"
+        ]
+      },
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "output_format": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--format"
+        ]
+      },
+      "platform_file": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--platform-file"
+        ]
+      },
+      "provider": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--provider"
+        ]
+      },
+      "root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--root"
+        ]
+      },
+      "version": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--version"
+        ]
+      }
+    },
+    "xeda remote": {},
+    "xeda remote attach": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "run_root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--run-root"
+        ]
+      }
+    },
+    "xeda remote cancel": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "run_root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--run-root"
+        ]
+      }
+    },
+    "xeda remote check": {
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      }
+    },
+    "xeda remote clean": {
+      "everything": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--all"
+        ]
+      },
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "older_than": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--older-than"
+        ]
+      },
+      "yes": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--yes"
+        ]
+      }
+    },
+    "xeda remote help": {
+      "search": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--search"
+        ]
+      }
+    },
+    "xeda run": {
+      "cached_dependencies": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--cached-dependencies",
+          "--no-cached-dependencies"
+        ]
+      },
+      "clean": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--clean"
+        ]
+      },
+      "config": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--config"
+        ]
+      },
+      "cwd": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--cwd"
+        ]
+      },
+      "design_allow_extra": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--design-allow-extra",
+          "--no-design-allow-extra"
+        ]
+      },
+      "design_name": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--design-name"
+        ]
+      },
+      "design_updates": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--design-updates"
+        ]
+      },
+      "detailed_logs": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--detailed-logs",
+          "--no-detailed-logs"
+        ]
+      },
+      "dry_run": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--dry-run"
+        ]
+      },
+      "fetch_all": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--fetch-all"
+        ]
+      },
+      "flow_settings": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--settings",
+          "-s"
+        ]
+      },
+      "hashed_run_dirs": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--hashed-run-dirs"
+        ]
+      },
+      "incremental": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--incremental",
+          "--no-incremental"
+        ]
+      },
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "keep_running": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--keep-running"
+        ]
+      },
+      "log_level": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--log-level"
+        ]
+      },
+      "no_config": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--no-config"
+        ]
+      },
+      "no_target": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--no-target"
+        ]
+      },
+      "outputs_to": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--outputs-to"
+        ]
+      },
+      "overwrite_outputs": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--overwrite-outputs"
+        ]
+      },
+      "post_cleanup": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--post-cleanup"
+        ]
+      },
+      "post_cleanup_purge": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--post-cleanup-purge"
+        ]
+      },
+      "prune_variants": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--prune-variants"
+        ]
+      },
+      "rebuild_all": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--rebuild-all"
+        ]
+      },
+      "remote": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--remote"
+        ]
+      },
+      "removed_d_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "-d"
+        ]
+      },
+      "removed_debug_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--debug"
+        ]
+      },
+      "removed_design_file_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--design-file"
+        ]
+      },
+      "removed_design_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--design"
+        ]
+      },
+      "removed_design_overrides_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--design-overrides"
+        ]
+      },
+      "removed_flow_settings_option": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--flow-settings"
+        ]
+      },
+      "removed_help_settings_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--help-settings"
+        ]
+      },
+      "removed_list_settings_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--list-settings"
+        ]
+      },
+      "removed_scrub_option": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--scrub"
+        ]
+      },
+      "run_root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--run-root"
+        ]
+      },
+      "target": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--target"
+        ]
+      },
+      "xeda_run_dir": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--xeda-run-dir"
+        ]
+      },
+      "xedaproject": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--xedaproject"
+        ]
+      },
+      "yes": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--yes"
+        ]
+      }
+    },
+    "xeda scrub": {
+      "incremental": {
+        "flag": true,
+        "hidden": true,
+        "names": [
+          "--incremental",
+          "--no-incremental"
+        ]
+      },
+      "json_flag": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--json"
+        ]
+      },
+      "run_root": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--run-root"
+        ]
+      },
+      "target": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--target"
+        ]
+      },
+      "xeda_run_dir": {
+        "flag": false,
+        "hidden": true,
+        "names": [
+          "--xeda-run-dir"
+        ]
+      },
+      "yes": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--yes"
+        ]
+      }
+    },
+    "xeda skill": {},
+    "xeda skill help": {
+      "search": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--search"
+        ]
+      }
+    },
+    "xeda skill install": {
+      "dest_dir": {
+        "flag": false,
+        "hidden": false,
+        "names": [
+          "--dir"
+        ]
+      },
+      "force": {
+        "flag": true,
+        "hidden": false,
+        "names": [
+          "--force"
+        ]
+      }
+    },
+    "xeda skill reference": {}
+  },
+  "grammars": {
+    "artifact": "[a-z][a-z0-9_]*",
+    "flow": "[a-z][a-z0-9_]*",
+    "metric": "[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*",
+    "output": "[a-z][a-z0-9_]*"
+  },
+  "private_files": [
+    [
+      "config.yaml",
+      "$XDG_CONFIG_HOME/xeda",
+      [
+        "flows",
+        "env",
+        "run_root"
+      ]
+    ],
+    [
+      "<stem>.local.yaml",
+      "beside the project file",
+      [
+        "flows",
+        "env",
+        "run_root"
+      ]
+    ]
+  ],
+  "run_directory_hash_length": 16,
+  "session_variables": [
+    "COLUMNS",
+    "ITERM_SESSION_ID",
+    "LINES",
+    "OLDPWD",
+    "PWD",
+    "SHLVL",
+    "SSH_AGENT_PID",
+    "SSH_AUTH_SOCK",
+    "SSH_CLIENT",
+    "SSH_CONNECTION",
+    "SSH_TTY",
+    "STY",
+    "TERM_SESSION_ID",
+    "TMUX",
+    "TMUX_PANE",
+    "WINDOWID",
+    "XDG_SESSION_ID",
+    "XEDA_DETAILED_LOGS",
+    "XEDA_LOG_LEVEL",
+    "XEDA_REMOTE",
+    "XEDA_RUN_ROOT",
+    "_"
+  ]
+}

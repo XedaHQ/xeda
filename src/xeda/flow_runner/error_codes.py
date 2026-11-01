@@ -9,9 +9,9 @@ can compare. The codes never follow class names. `error_info` gives the record o
 from __future__ import annotations
 
 import difflib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from pydantic import ValidationError
 
@@ -118,6 +118,118 @@ _SETTINGS_CODES = {
     "removed_alias": "removed_alias",
     "settings_group": "unsupported_setting",
     "unsupported_setting": "unsupported_setting",
+}
+
+
+ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
+    "SettingsError": frozenset(
+        [
+            "unknown_setting",
+            "required_setting",
+            "invalid_quantity",
+            "boolean_text",
+            "list_text",
+            "deliverable_switch",
+            "invalid_value",
+            "shared_setting_conflict",
+            "conflicting_keys",
+            "removed_setting",
+            "removed_alias",
+            "unsupported_setting",
+            "unscoped_setting",
+            "unknown_node",
+        ]
+    ),
+    "DesignError": frozenset(
+        [
+            "design_file_not_found",
+            "invalid_design",
+            "unknown_target",
+            "target_required",
+            "removed_alias",
+            "removed_key",
+            "fetch_failed",
+            "dependency_cycle",
+        ]
+    ),
+    "ProjectError": frozenset(
+        [
+            "project_file_not_found",
+            "invalid_project",
+            "design_name_required",
+            "unknown_design",
+            "several_project_files",
+            "use_design_name",
+            "invalid_local_settings",
+            "removed_alias",
+        ]
+    ),
+    "FlowNotFoundError": frozenset(["flow_not_found"]),
+    "ChainError": frozenset(
+        [
+            "invalid_chain",
+            "repeated_flow",
+            "action_not_last",
+            "no_edge",
+            "unknown_output",
+            "ambiguous_output",
+            "cardinality_mismatch",
+            "type_mismatch",
+            "several_roots_unsupported",
+        ]
+    ),
+    "RunRootError": frozenset(["invalid_run_root"]),
+    "SpecError": frozenset(
+        [
+            "equal_specs",
+            "colliding_run_dirs",
+            "shared_destination",
+            "delivery_refused",
+            "run_root_mismatch",
+            "plan_options",
+            "missing_dependency",
+            "unsupported_with_remote",
+        ]
+    ),
+    "StalePlanError": frozenset(["stale_plan"]),
+    "RecordError": frozenset(
+        ["missing_record", "corrupt_record", "unsupported_schema", "not_written", "several_files"]
+    ),
+    "RunReplacedError": frozenset(["run_replaced"]),
+    "RemoteError": frozenset(["remote_unreachable", "remote_setup_failed"]),
+    "RunFailedError": frozenset(["run_failed"]),
+    "LeaseHeldError": frozenset(["lease_held"]),
+    "XedaError": frozenset(["internal_error"]),
+    "node": frozenset(
+        [
+            "nonzero_exit",
+            "timeout",
+            "executable_not_found",
+            "reported_failure",
+            "missing_report",
+            "missing_output",
+            "invalid_metric",
+            "rejected",
+            "producer_failed",
+            "canceled",
+            "storage_error",
+            "internal_error",
+            "missing_generated",
+            "flow_not_importable",
+        ]
+    ),
+    "launch": frozenset(
+        [
+            "generator_failed",
+            "delivery_failed",
+            "remote_failed",
+            "remote_fetch_failed",
+            "remote_detached",
+            "canceled",
+            "no_successful_run",
+            "cleanup_failed",
+        ]
+    ),
 }
 
 
