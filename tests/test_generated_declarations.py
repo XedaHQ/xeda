@@ -177,9 +177,9 @@ def test_a_flow_that_takes_other_types_hashes_a_design_with_a_declaration(tmp_pa
             },
         },
     )
-    assert design.parts_hash({"rtl"}, {SourceType.Vhdl})
+    assert design._parts_hash({"rtl"}, {SourceType.Vhdl})
     with pytest.raises(FileNotFoundError, match="generator has not run"):
-        design.parts_hash({"rtl"})
+        design._parts_hash({"rtl"})
 
 
 def test_a_file_table_is_a_written_source_even_when_every_entry_is_generated(tmp_path):
@@ -505,20 +505,20 @@ def test_tree_entries_are_source_entries_and_storage_entries_are_not(tmp_path):
         ["gen/b.v", "$XEDA_GENERATED/a.v", "gen/*.sv", "top.v"],
         ["gen", "$XEDA_GENERATED"],
     )
-    assert design.tree_entries() == (
+    assert design._tree_entries() == (
         SourceEntry("rtl.sources", "gen/b.v", tmp_path),
         SourceEntry("rtl.sources", "gen/*.sv", tmp_path),
     )
-    texts = [(e.part, e.text) for e in design.source_entries()]
+    texts = [(e.part, e.text) for e in design._source_entries()]
     assert texts == [
         ("rtl.sources", "top.v"),
         ("rtl.sources", "gen/b.v"),
         ("rtl.sources", "gen/*.sv"),
         ("rtl.generator.sources", "gen.py"),
     ]
-    assert design.tree_entries()[0].matches(tmp_path / "gen" / "b.v")
-    assert design.tree_entries()[1].matches(tmp_path / "gen" / "x.sv")
-    assert not any(e.matches(tmp_path / "a.v") for e in design.source_entries())
+    assert design._tree_entries()[0].matches(tmp_path / "gen" / "b.v")
+    assert design._tree_entries()[1].matches(tmp_path / "gen" / "x.sv")
+    assert not any(e.matches(tmp_path / "a.v") for e in design._source_entries())
 
 
 def _app_with_dependency(tmp_path: Path, app_sources, dep_sources=("gen/a.v",)) -> Design:
@@ -549,11 +549,11 @@ def _app_with_dependency(tmp_path: Path, app_sources, dep_sources=("gen/a.v",)) 
 def test_the_tree_entries_of_a_merged_design_belong_to_the_unit_that_writes_them(tmp_path):
     merged = merged_design(_app_with_dependency(tmp_path, ["out/top.v"]), run_root=None)
     assert tree_declarations(merged) == ("out/top.v",), "the dependency's entry has an owner"
-    assert merged.tree_entries() == (
+    assert merged._tree_entries() == (
         SourceEntry("rtl.sources", "gen/a.v", tmp_path / "app" / "dep"),
         SourceEntry("rtl.sources", "out/top.v", tmp_path / "app"),
     )
-    assert [e.root for e in merged.source_entries() if e.part == "rtl.sources"] == [
+    assert [e.root for e in merged._source_entries() if e.part == "rtl.sources"] == [
         tmp_path / "app" / "dep",
         tmp_path / "app",
     ]

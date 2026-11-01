@@ -394,7 +394,7 @@ def _identity(design: Design) -> tuple[str, tuple[Any, ...]]:
     The file alone is not enough: a target can add dependencies, so the design of a file with its
     target and the same file loaded as a dependency, which takes no target, are two designs. When
     both parts repeat on the active path, so does everything below, which is a cycle."""
-    return os.path.realpath(design.generation_label), tuple(design.dependencies)
+    return os.path.realpath(design.generation_label), tuple(design._dependency_references)
 
 
 def _extend_chain(design: Design, chain: DependencyChain, field: str) -> DependencyChain:
@@ -421,7 +421,7 @@ def declared_designs(
     Remote checks leave missing files to the merge when `missing_ok` is true."""
     active = _extend_chain(design, chain, field)
     yield design
-    for position, ref in enumerate(design.dependencies):
+    for position, ref in enumerate(design._dependency_references):
         if isinstance(ref, GitReference):
             continue
         if missing_ok and not (design.root / ref.uri).is_file():
@@ -449,7 +449,7 @@ def _merge(
     a dependency come after, in the order they are met (`first` is `len(slots)` then)."""
     active = _extend_chain(design, chain, field)
     merged: list[MergedDependency] = []
-    for position, ref in enumerate(design.dependencies):
+    for position, ref in enumerate(design._dependency_references):
         field = f"dependencies[{position}]"
         index = position if first is None else len(slots)
         if first is not None:
@@ -485,7 +485,7 @@ def _merge(
         loaded = _merge(
             loaded, run_root, slots, len(slots), pins, (*where, position), active, field
         )
-        if isinstance(ref, GitReference) and (entries := loaded.tree_entries()):
+        if isinstance(ref, GitReference) and (entries := loaded._tree_entries()):
             raise _failure(
                 ref,
                 field,
@@ -496,7 +496,7 @@ def _merge(
             )
         merged.append(MergedDependency(ref, loaded, *marked))
     resolved = tuple(slot for slot in slots if slot is not None) if first is None else ()
-    return design.merged_with(merged, resolved)
+    return design._merged_with(merged, resolved)
 
 
 def merged_design(design: Design, *, run_root: RunRoot) -> Design:

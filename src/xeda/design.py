@@ -55,7 +55,6 @@ from .dataclass import (
     Field,
     PrivateAttr,
     SecondSpelling,
-    SerializeAsAny,
     ValidationError,
     XedaBaseModel,
     computed_field,
@@ -492,7 +491,7 @@ class FileResource:
     #: such as `src/*.v`) with the directory it resolves against. A file that two entries name is
     #: one source, and it keeps both. A generated source belongs to the output of a producer, so
     #: it has none. The entries are private: they are no part of the equality, the hash, the JSON
-    #: value or any identity of a source, and `Design.source_entries` is the only reader.
+    #: value or any identity of a source, and `Design._source_entries` is the only reader.
     _entries: tuple[tuple[str, Path], ...]
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -1024,7 +1023,7 @@ class Source(FileResource):
       `output_name` its name in the output.
     """
 
-    type: SourceType
+    type: str
     _stated: dict[str, Any]
     #: Whether the source belongs to the output of a producer (the generator of the design, or a
     #: converter flow) and is no file that the design's author wrote.
@@ -1051,7 +1050,7 @@ class Source(FileResource):
     def __init__(
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
-        typ: Union[str, SourceType, None] = None,
+        typ: str | None = None,
         _root_path: Optional[Path] = None,
         *,
         generated: bool = False,
@@ -1097,7 +1096,7 @@ class Source(FileResource):
 
     @classmethod
     def declaration(
-        cls, name: str, typ: SourceType, *, stated: bool = False, owner: str | None = None
+        cls, name: str, typ: str, *, stated: bool = False, owner: str | None = None
     ) -> Source:
         """Return the declaration of a generated source: a `name` or pattern in the output of the
         design's generator.
@@ -1110,8 +1109,9 @@ class Source(FileResource):
         attributes["_specified_path"] = Path(name)
         attributes["_checked"] = False
         attributes["_entries"] = ()
-        attributes["type"] = typ
-        attributes["_stated"] = {"type": str(typ)} if stated else {}
+        member = typ if isinstance(typ, SourceType) else source_type_named(typ)
+        attributes["type"] = member
+        attributes["_stated"] = {"type": str(member)} if stated else {}
         attributes["generated"] = True
         attributes["output_name"] = name
         attributes["owner"] = owner
@@ -2861,6 +2861,35 @@ class DesignReference(XedaBaseModel):
         return DesignReference(**data)  # type: ignore
 
 
+class _ReferenceTable(FrozenDict):
+    """The read-only fields of a dependency reference, with the reference that they came from.
+
+    `Design.dependencies` holds these tables. Xeda itself reads `reference` (see
+    `Design._dependency_references`)."""
+
+    __slots__ = ("reference",)
+
+    def __init__(self, reference: DesignReference) -> None:
+        super().__init__(freeze(reference.model_dump()))
+        self.reference = reference
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_ReferenceTable, (self.reference,))
+
+
+class _ReferenceField:
+    """A field annotation: the field takes anything that `DesignReference.from_data` takes and
+    holds a `_ReferenceTable`. A dump of the model holds the plain table."""
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        return core_schema.no_info_plain_validator_function(
+            lambda value: _ReferenceTable(DesignReference.from_data(value)),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                thaw, return_schema=core_schema.any_schema()
+            ),
+        )
+
+
 #: The user name and password of a URL's authority (`scheme://user:password@host`), up to its
 #: last `@`.
 _URL_USERINFO = re.compile(r"(?<=//)[^/?#]*(?=@)")
@@ -3050,7 +3079,7 @@ class DependencyRecord:
 
 @dataclass(frozen=True)
 class MergedDependency:
-    """A dependency of a design, as `Design.merged_with` takes it: the reference, the design that
+    """A dependency of a design, as `Design._merged_with` takes it: the reference, the design that
     it names (with the dependencies of that design merged), the index of its entry, and its root
     (the resolved checkout of a Git dependency, the design root of a local one)."""
 
@@ -3267,11 +3296,9 @@ class Design(XedaBaseModel):
         'mailbox format), for example ["Jane Doe <jane@example.com>", '
         '"John Doe <john@example.com>"].',
     )
-    # `SerializeAsAny`: a dependency is usually a `GitReference`, and pydantic 2 serializes a
-    # nested model by its annotated type unless told otherwise. That would silently drop
-    # `repo_url`, `design_file`, `branch`, `commit` and the clone settings that the package of a
-    # remote run relies on.
-    dependencies: Tuple[SerializeAsAny[DesignReference], ...] = ()
+    # Each entry is the read-only table of the fields of a reference (`_ReferenceTable`), which
+    # keeps the `GitReference` or `DesignReference` that Xeda reads.
+    dependencies: Tuple[Annotated[Mapping[str, Any], _ReferenceField()], ...] = ()
     rtl: Rtl
     tb: Testbench = Testbench()  # type: ignore
     # A table of the settings of `Language`, which `language_of(design)` gives as a model.
@@ -3439,6 +3466,11 @@ class Design(XedaBaseModel):
         if value and isinstance(value, (list, tuple)):
             value = [DesignReference.from_data(v) for v in value]
         return value
+
+    @property
+    def _dependency_references(self) -> tuple[DesignReference, ...]:
+        """The references of `dependencies`, as the models that Xeda reads."""
+        return tuple(table.reference for table in self.dependencies)  # type: ignore[attr-defined]
 
     @field_validator("authors", mode="before")
     @classmethod
@@ -4028,7 +4060,7 @@ class Design(XedaBaseModel):
         derives the table from the source when `cocotb` is missing, so the refusal is written.
         In the `python` mode the names of a merged flow table stay whole (`AtomicName`), so an
         update merges as the layers of a design did, and the sources stay `Source` objects with
-        their entries (`Design.source_entries`). In the `json` mode they are written with plain
+        their entries (`Design._source_entries`). In the `json` mode they are written with plain
         dots, as a design file writes them, and a reload reads the same names. Without
         `plain_names` the escaped text stays, as the package of a remote run needs it: the host
         reads the text as the names of the table that the layers merged (`escaped_names_atomic`),
@@ -4062,7 +4094,7 @@ class Design(XedaBaseModel):
             return Path(os.path.normpath(self._source_file)).as_posix()
         return f"{self.root.as_posix()}::{self.name}"
 
-    def merged_with(
+    def _merged_with(
         self,
         merged: Sequence[MergedDependency],
         resolved: Sequence[DependencyRecord] = (),
@@ -4204,12 +4236,12 @@ class Design(XedaBaseModel):
 
         Each directory appears once, in source order. A tool needs these directories as the
         include search path (`-I`, `+incdir+`) to find the headers."""
-        headers = self.sources_of_type(
+        headers = self._sources_of_type(
             SourceType.VerilogHeader, SourceType.SVHeader, rtl=rtl, tb=tb
         )
         return unique([src.path.parent for src in headers])
 
-    def sources_of_type(
+    def _sources_of_type(
         self, *source_types: Union[str, SourceType], rtl=True, tb=False
     ) -> List[Source]:
         source_types_str = [str(st).lower() for st in source_types]
@@ -4222,14 +4254,14 @@ class Design(XedaBaseModel):
             return sources
         return [src for src in sources if str(src.type).lower() in source_types_str]
 
-    def sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[Source]:
+    def _sim_sources_of_type(self, *source_types: Union[str, SourceType]) -> List[Source]:
         if not self.tb:
             return []
-        return self.sources_of_type(*source_types, rtl=True, tb=True)
+        return self._sources_of_type(*source_types, rtl=True, tb=True)
 
     @property
     def sim_sources(self) -> List[Source]:
-        return self.sim_sources_of_type(
+        return self._sim_sources_of_type(
             SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl
         )
 
@@ -4355,7 +4387,7 @@ class Design(XedaBaseModel):
                 [(e.value_key, str(e), "", "value_error")], data=dict(data)
             ) from e
 
-    def source_path_as_named(self, src: FileResource) -> Path:
+    def _source_path_as_named(self, src: FileResource) -> Path:
         """Return `src` as this design names it.
 
         The path is relative to the design root when `src` is under it, and otherwise the path
@@ -4371,7 +4403,7 @@ class Design(XedaBaseModel):
                 pass
         return src.get_specified_path()
 
-    def source_artifact_name(self, src: FileResource, suffix: str = "") -> str:
+    def _source_artifact_name(self, src: FileResource, suffix: str = "") -> str:
         """Return a filename-safe name for something that a flow writes about one source.
 
         Sources are distinct files, so their paths already tell them apart. A flow that writes
@@ -4410,11 +4442,11 @@ class Design(XedaBaseModel):
         """Return the path of `src`, as this design names it, as one filename-safe token."""
         parts = (
             re.sub(r"\W+", "_", part).strip("_")
-            for part in self.source_path_as_named(src).with_suffix("").parts
+            for part in self._source_path_as_named(src).with_suffix("").parts
         )
         return "_".join(part for part in parts if part)
 
-    def tree_entries(self) -> tuple[SourceEntry, ...]:
+    def _tree_entries(self) -> tuple[SourceEntry, ...]:
         """Return the generated entries that lie in a design tree: for each unit of generation
         (the dependencies with a generator, and this design), the entries of its own generator that
         are paths below its design root (`tree_declarations`). A storage entry is none of them.
@@ -4425,11 +4457,11 @@ class Design(XedaBaseModel):
             for name in tree_declarations(unit)
         )
 
-    def source_entries(self) -> tuple[SourceEntry, ...]:
+    def _source_entries(self) -> tuple[SourceEntry, ...]:
         """Return the entries of this design that name files it reads or its generators write
         into the design tree, as the files of the design wrote them: the written entries of
         `rtl.sources` and `tb.sources`, the entries of the dependencies merged into them, the tree
-        entries of the generators (`tree_entries`), and the `sources` of every generator (the
+        entries of the generators (`_tree_entries`), and the `sources` of every generator (the
         design's own and those of its dependencies). A storage entry is no entry: it names a file
         in the storage of its generator, never a file of the tree.
 
@@ -4440,7 +4472,7 @@ class Design(XedaBaseModel):
             for source in getattr(self, part).sources:
                 for text, entry_root in source._entries:
                     found[(f"{part}.sources", text, entry_root)] = None
-        for entry in self.tree_entries():
+        for entry in self._tree_entries():
             found[(entry.part, entry.text, entry.root)] = None
         for unit in (*self.generation_units, self):
             recipe = unit.rtl.generator
@@ -4616,7 +4648,7 @@ class Design(XedaBaseModel):
         log.debug("TB fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
 
-    def parts_hash(
+    def _parts_hash(
         self, parts: Iterable[str], source_types: Collection[SourceType] | None = None
     ) -> str:
         """Return the hash of the design's `parts` (`DESIGN_PARTS`: `rtl`, `tb`).

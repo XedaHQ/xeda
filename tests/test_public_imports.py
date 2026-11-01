@@ -322,39 +322,10 @@ def annotation_problems(obj: Any) -> list[str]:
     return found
 
 
-# Public annotations that still name a type of an internal module. The table only shrinks: a fix
-# removes its rows, and the second test fails for a row that no longer applies. `SourceType` is
-# the type of `Source.type`. The other rows are the helper methods of `Design`.
-KNOWN_LEAKS = {
-    "xeda.Design": {
-        "Design `dependencies` names xeda.design.DesignReference",
-        "Design.merged_with `merged` names xeda.design.MergedDependency",
-        "Design.merged_with `resolved` names xeda.design.DependencyRecord",
-        "Design.parts_hash `source_types` names xeda.design.SourceType",
-        "Design.sim_sources_of_type `source_types` names xeda.design.SourceType",
-        "Design.source_artifact_name `src` names xeda.design.FileResource",
-        "Design.source_entries `return` names xeda.design.SourceEntry",
-        "Design.source_path_as_named `src` names xeda.design.FileResource",
-        "Design.sources_of_type `source_types` names xeda.design.SourceType",
-        "Design.tree_entries `return` names xeda.design.SourceEntry",
-    },
-    "xeda.Source": {
-        "Source `type` names xeda.design.SourceType",
-        "Source.__init__ `typ` names xeda.design.SourceType",
-        "Source.declaration `typ` names xeda.design.SourceType",
-    },
-}
-
-
 @pytest.mark.parametrize("name", PUBLIC_NAMES)
 def test_public_annotations_name_public_or_standard_types(name: str) -> None:
     found = set(annotation_problems(PUBLIC_OBJECTS[name]))
-    assert found - KNOWN_LEAKS.get(name, set()) == set()
-
-
-@pytest.mark.parametrize("name", sorted(KNOWN_LEAKS))
-def test_every_known_leak_is_still_there(name: str) -> None:
-    assert KNOWN_LEAKS[name] <= set(annotation_problems(PUBLIC_OBJECTS[name]))
+    assert found == set()
 
 
 class _Internal:

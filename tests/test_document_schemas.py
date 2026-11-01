@@ -489,7 +489,7 @@ def test_a_list_output_and_a_bsc_design_output_have_names_and_digests(tmp_path, 
     assert output["digests"] == [content_digest(converter.run_path / "A.v")]
     assert output["design"] == {
         "top": "mkA",
-        "input_design": mixed.parts_hash({"rtl", "tb"}),
+        "input_design": mixed._parts_hash({"rtl", "tb"}),
         "sources": [
             {"generated": "A.v", "type": "Verilog"},
             {"source": 1, "file": "top.sv", "type": "SystemVerilog"},

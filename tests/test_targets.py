@@ -36,7 +36,7 @@ SINGLE = RESOURCES / "single.yaml"
 
 
 def design_hash(design: Design) -> str:
-    return design.parts_hash(DESIGN_PARTS)
+    return design._parts_hash(DESIGN_PARTS)
 
 
 def flows_as_read(design: Design) -> dict:

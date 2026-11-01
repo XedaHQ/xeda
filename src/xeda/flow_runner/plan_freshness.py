@@ -384,7 +384,7 @@ def judge_node(
         # that of the derived design.
         known = converter is None or (states[converter[0].name].state == "fresh" and lacks is None)
         design_hash = (
-            view.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
+            view._parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
             if known
             else ""
         )

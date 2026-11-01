@@ -380,7 +380,7 @@ class Sby(Flow):
             others = [src for src in read if src.type in kinds - {SourceType.Vhdl}]
             raise FlowSettingsException(
                 f"sby cannot read the design's Vhdl source(s) {vhdl} together with its "
-                f"{' and '.join(sorted({src.type.name for src in others}))} source(s) "
+                f"{' and '.join(sorted({SourceType(src.type).name for src in others}))} source(s) "
                 f"{', '.join(str(src.file) for src in others)}: a formal model is VHDL, or Verilog "
                 "and SystemVerilog, not both"
             )

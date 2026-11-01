@@ -800,7 +800,7 @@ class Flow(metaclass=ABCMeta):
     reads_sources: ClassVar[frozenset[SourceType] | None] = None
 
     #: The parts of the design this flow reads (`design.DESIGN_PARTS`: `rtl`, `tb`). They are
-    #: what identifies its run (`Design.parts_hash`, the `design_hash` of its trace and
+    #: what identifies its run (`Design._parts_hash`, the `design_hash` of its trace and
     #: `results.json`) and the design files that its trace records as inputs. An edit to a part
     #: it does not read leaves the flow up to date. This scopes only the flow's own freshness:
     #: a flow whose producer reads another part still runs again with its producer. A part
@@ -1027,7 +1027,7 @@ class Flow(metaclass=ABCMeta):
         rtl = by_part.get("rtl", [])
         if not issubclass(cls, SimFlow) or any(src is own for src in unread for own in rtl):
             return ""
-        languages = {src.type for src in unread}
+        languages = {SourceType(src.type) for src in unread}
         names = sorted(
             {
                 flow_class.name
@@ -1829,14 +1829,14 @@ class Flow(metaclass=ABCMeta):
         """Return the sources of the design that this flow reads (`reads_sources`), in design order.
 
         These are the sources that its code and scripts hand to the tool. `rtl` and `tb` select
-        the parts (`Design.sources_of_type`). A flow that declares no `reads_sources` reads no
+        the parts (`Design._sources_of_type`). A flow that declares no `reads_sources` reads no
         source, and asking it is an error."""
         if self.reads_sources is None:
             raise TypeError(
                 f"{self.name} declares no `reads_sources`, so it reads none of the design's "
                 "sources: declare the types it reads"
             )
-        sources = self.design.sources_of_type("*", rtl=rtl, tb=tb)
+        sources = self.design._sources_of_type("*", rtl=rtl, tb=tb)
         return [src for src in sources if src.type in self.reads_sources]
 
     def copy_from_template(

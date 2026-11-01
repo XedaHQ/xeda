@@ -487,7 +487,7 @@ class Cocotb(CocotbSettings, Tool):
                 raise ValueError(
                     f"[cocotb] In design {design.name}: Either `tb.top` or `rtl.top` must be specified."
                 )
-            cocotb_sources = design.sources_of_type(SourceType.Cocotb, rtl=False, tb=True)
+            cocotb_sources = design._sources_of_type(SourceType.Cocotb, rtl=False, tb=True)
             if cocotb_sources:
                 top_cocotb_source = cocotb_sources[-1].file
             else:

@@ -46,7 +46,7 @@ def _load(design_file: Path) -> Design:
 
 
 def _imports_verilog(design: Design) -> bool:
-    return bool(design.sources_of_type(SourceType.Verilog, SourceType.SystemVerilog))
+    return bool(design._sources_of_type(SourceType.Verilog, SourceType.SystemVerilog))
 
 
 def _run(flow_class: Any, design: Design, run_dir: Path, **settings: Any) -> Any:

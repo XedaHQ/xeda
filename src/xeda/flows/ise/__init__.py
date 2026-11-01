@@ -239,7 +239,7 @@ class IseSynth(FpgaSynthFlow):
             if inferred is not source.type:
                 copied = self.run_directory.writable(
                     Path("typed_sources")
-                    / self.design.source_artifact_name(source, extensions[source.type])
+                    / self.design._source_artifact_name(source, extensions[SourceType(source.type)])
                 )
                 copied.parent.mkdir(parents=True, exist_ok=True)
                 replacing_copy(path, copied)

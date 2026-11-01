@@ -571,8 +571,8 @@ def test_the_flow_is_hashed_and_recorded_on_the_derived_design(tmp_path) -> None
     derived = flow.design
     assert [s.file.name for s in derived.rtl.sources] == ["Top.v", "ext.v"]
     scope = reader.design_scope(flow.settings)
-    assert flow.design_hash == derived.parts_hash(reader.design_parts, scope)
-    assert flow.design_hash != design.parts_hash(reader.design_parts, scope)
+    assert flow.design_hash == derived._parts_hash(reader.design_parts, scope)
+    assert flow.design_hash != design._parts_hash(reader.design_parts, scope)
     # the dependency run is named first, and the record of the design input holds the files
     assert [p.name for p in the_runner.launched] == [converter.name, reader.name]
     trace = json.loads((flow.run_path / "trace.json").read_text())

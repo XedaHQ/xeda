@@ -453,7 +453,7 @@ def remote_read_inputs(
     mirror, and `run_root` for where the listings stop). A section that does not validate names
     nothing: the remote run of that flow fails before anything is delivered."""
     inputs = ReadInputs([*design_files(design), *launch_inputs])
-    inputs.add_source_entries(design.source_entries())
+    inputs.add_source_entries(design._source_entries())
     register_read_settings(inputs, input_settings, run_path, run_root)
     for name, section in sections.items():
         section_class = _get_flow_class_if_known(name)

@@ -196,7 +196,7 @@ def test_the_package_unpacks_into_the_design_it_describes(tmp_path):
     with tarfile.open(fileobj=archive) as tar:
         tar.extractall(remote, filter="data")
     loaded = Design.load(remote / package.design_file)
-    assert [loaded.source_path_as_named(src).as_posix() for src in loaded.rtl.sources] == [
+    assert [loaded._source_path_as_named(src).as_posix() for src in loaded.rtl.sources] == [
         "rtl/top.v",
         "rtl/defs.vh",
         "inc/defs.vh",

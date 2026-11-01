@@ -49,7 +49,7 @@ def test_a_launch_of_an_edited_design_records_the_hash_of_what_it_ran(
     second = DefaultRunner(root, display_results=False).launch_flow(VivadoSynth, design, settings)
     fresh = Design.load(work / "design0.toml")
     assert second.design_hash != first.design_hash
-    assert second.design_hash == fresh.parts_hash(VivadoSynth.design_parts)
+    assert second.design_hash == fresh._parts_hash(VivadoSynth.design_parts)
 
     # nothing changed since: the next launch, of a design loaded again, finds the run fresh
     third = DefaultRunner(root, display_results=False).launch_flow(VivadoSynth, fresh, settings)

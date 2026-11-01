@@ -3,7 +3,7 @@
 The configuration is a part of the identity of a node (`bindings.node_identity`), so two
 designs that differ in what a flow reads (its top, a parameter, the places and types of its
 sources) are two nodes with two run directories. The content of a source is no part of it: it
-is evidence of freshness (`Design.parts_hash`, the trace).
+is evidence of freshness (`Design._parts_hash`, the trace).
 
 This module is the one rule. The resolver freezes the configuration of every node in its plan,
 the launcher recomputes it from the same view of the design, and the record of a run
@@ -75,7 +75,10 @@ def source_entries(
     for source in sources:
         if scope is not None and source.type not in scope:
             continue
-        entry: dict[str, Any] = {"path": design.source_place(source), "type": source.type.name}
+        entry: dict[str, Any] = {
+            "path": design.source_place(source),
+            "type": SourceType(source.type).name,
+        }
         if source.dependency is not None:
             entry["dependency"] = source.dependency
         if ownership:

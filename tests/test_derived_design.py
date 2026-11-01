@@ -206,7 +206,7 @@ def test_a_converter_records_the_sources_of_the_derived_design(tmp_path) -> None
 
     assert set(record) == {"kind", "top", "input_design", "sources"}
     assert (record["kind"], record["top"]) == ("design", "mkTop")
-    assert record["input_design"] == design.parts_hash({"rtl", "tb"})
+    assert record["input_design"] == design._parts_hash({"rtl", "tb"})
     sources = record["sources"]
     generated = [item for item in sources if "generated" in item]
     passed = [item for item in sources if "source" in item]
@@ -289,7 +289,7 @@ def test_ran_or_reused_the_derived_design_is_the_same(tmp_path) -> None:
     reused = derive_design(design, reloaded, flow.run_directory.path)
     assert ran.model_dump(mode="json") == reused.model_dump(mode="json")
     for parts in ({"rtl"}, {"rtl", "tb"}):
-        assert ran.parts_hash(parts) == reused.parts_hash(parts)
+        assert ran._parts_hash(parts) == reused._parts_hash(parts)
     assert [entry.path for entry in entries] == [
         item["generated"] for item in record["sources"] if "generated" in item
     ]
@@ -316,7 +316,7 @@ def test_the_derived_design_replaces_the_converted_sources_and_carries_the_rest(
     assert (derived.rtl.top, derived.rtl.parameters, derived.rtl.generator) == ("mkTop", {}, None)
     assert derived.rtl.defines == design.rtl.defines and derived.rtl.clocks == design.rtl.clocks
     assert derived.tb.model_dump(mode="json") == design.tb.model_dump(mode="json")
-    assert derived.parts_hash({"rtl"}) != design.parts_hash({"rtl"})
+    assert derived._parts_hash({"rtl"}) != design._parts_hash({"rtl"})
 
 
 def test_deriving_a_design_validates_nothing_again(tmp_path, monkeypatch) -> None:
@@ -365,7 +365,7 @@ def test_the_hash_of_a_derived_design_does_not_depend_on_where_the_run_directory
     generated = [src.file for src in near.rtl.sources if src.file.name == "Top.v"]
     assert generated != [src.file for src in far.rtl.sources if src.file.name == "Top.v"]
     for parts in ({"rtl"}, {"rtl", "tb"}):
-        assert near.parts_hash(parts) == far.parts_hash(parts)
+        assert near._parts_hash(parts) == far._parts_hash(parts)
     assert near.rtl_hash == far.rtl_hash
     text = json.dumps(near.rtl_fingerprint)
     assert str(tmp_path) not in text and "run" not in text.replace("rtl", "")
@@ -490,7 +490,7 @@ def test_the_input_design_of_a_record_is_provenance_and_nothing_compares_it(tmp_
     design = _design(tmp_path / "d")
     flow = _launched(tmp_path, design)
     other = design.with_updates({"rtl": {"defines": {"STEP": "3"}}})
-    assert flow.results["outputs"]["design"]["input_design"] == design.parts_hash({"rtl", "tb"})
+    assert flow.results["outputs"]["design"]["input_design"] == design._parts_hash({"rtl", "tb"})
     derived, _entries = handed_design(flow, "design", other)
     assert derived.rtl.defines == {"STEP": "3"}
     flow.results["outputs"]["design"]["input_design"] = "provenance"
@@ -542,7 +542,7 @@ def test_bsc_records_the_design_from_what_it_collected(tmp_path, capfd) -> None:
     assert [name for kind, name in shape if kind == "G"][1:-2] == [name for _, name in library]
     assert all(len(set(item.values())) == len(item) for item in record["sources"])
     assert (record["top"], record["kind"]) == ("mkTop", "design")
-    assert record["input_design"] == design.parts_hash({"rtl", "tb"})
+    assert record["input_design"] == design._parts_hash({"rtl", "tb"})
 
     derived, entries = handed_design(flow, "design", design)
     assert [src.type for src in derived.rtl.sources].count(SourceType.Bluespec) == 0
