@@ -312,7 +312,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `proc_utils.child_stdout()`. Every failure, usage errors too, emits an `error`. `xeda run` prints `Result.to_dict()` (`outcome`, `error`,
   `nodes`); a request that starts no launch has `outcome: null` and exits 2, and a usage error
   also has `spec: null`. `xeda scrub` prints `outcome`, `error` and the lists of a
-  `ScrubResult`; a usage error has `outcome: null` and exits 2. The other commands print
+  `ScrubResult`; a usage error has `outcome: null` and exits 2. `xeda dse` prints `outcome`,
+  `error`, `best`, `best_run_dir` and `points`; a request that starts no exploration has
+  `outcome: null` and exits 2. The other commands print
   `{"success": false, "error": ...}` (`tests/test_cli_json_contract.py`).
 - The library never prompts: an unanswered question answers "no". Only `cli.py` asks, through the
   `confirm` callback it gives `Workspace`. `xeda run` and `xeda scrub` ask every question by

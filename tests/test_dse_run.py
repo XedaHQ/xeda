@@ -1338,6 +1338,31 @@ def test_a_point_that_changes_nothing_runs_with_the_settings_the_caller_gave(tmp
     assert outcome.settings.tag == "base"
 
 
+class TDseRewriting(TDseLeaf):
+    """A synthesis flow that changes its copy of `tag` while it runs, as a flow that makes an
+    output path absolute does."""
+
+    def run(self):
+        super().run()
+        self.settings.tag = "changed by the run"
+
+
+def test_the_optimizer_grows_the_next_round_from_the_settings_a_point_started_with(
+    tmp_path, monkeypatch
+):
+    """A value that the flow changed while it ran is no candidate change of the next round."""
+    monkeypatch.chdir(tmp_path)
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
+    runner = Dse(_UnchangedOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
+    given = TDseRewriting.Settings(
+        fpga={"part": "LFE5U-25F-6BG256C"}, clocks={"main_clock": {"period": "10 ns"}}
+    )
+    runner.run(TDseRewriting, design, flow_settings=given)
+    (outcome,) = runner.optimizer.outcomes
+    assert outcome.record.settings["tag"] == "changed by the run"
+    assert outcome.settings.tag == "base"
+
+
 def test_a_candidate_clock_outranks_the_clock_that_the_request_gave_a_producer(
     tmp_path, monkeypatch
 ):

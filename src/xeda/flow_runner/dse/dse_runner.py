@@ -727,8 +727,8 @@ class Dse(FlowLauncher):
                             )
                     # Every point of the round is a point of the result before the optimizer reads
                     # the first of them: an exception of the optimizer loses none.
-                    ran: List[Tuple[int, int, RunRecord]] = []
-                    for (position, _), point in zip(this_batch, swept):
+                    ran: List[Tuple[int, int, Dict[str, Any], RunRecord]] = []
+                    for (position, candidate), point in zip(this_batch, swept):
                         result = point.result
                         node = result.nodes[result.roots[0]] if result.roots else None
                         record = None if node is None else node.record
@@ -737,14 +737,15 @@ class Dse(FlowLauncher):
                         if record is None or record.outcome is Outcome.CANCELED:
                             log.warning("Flow #%d: no results (%s).", position, result.outcome)
                             continue
-                        ran.append((position, len(points) - 1, record))
-                    for position, index, record in ran:
+                        ran.append((position, len(points) - 1, candidate, record))
+                    for position, index, candidate, record in ran:
                         results = Flow.Results(thaw(record.metrics))
                         results.success = record.passed
-                        # The settings that ran, as the run recorded them.
+                        # The settings the point started from: a flow may change its copy while
+                        # it runs (an output path made absolute), and the next round grows from these.
                         outcome = FlowOutcome(
                             settings=flow_class.Settings.from_input(
-                                thaw(record.settings), design_root=design.root
+                                candidate, design_root=design.root
                             ),
                             results=results,
                             run_path=points[index].run_dir,
