@@ -86,7 +86,8 @@ jobs:
       # its pinned release tag (no `v` prefix) and the binary is cached by pin and runner OS. It
       # needs Rust 1.92 or newer; the toolchain on the runner is not pinned by the image, so a
       # cache miss first updates it to the current stable release (minimal profile). A cache hit
-      # skips both the toolchain and the build (about six minutes).
+      # skips both the toolchain and the build (about six minutes). Upstream commits no Cargo.lock,
+      # so the pin fixes the sources of xezim and xezim-core, not the versions of their crates.
       - name: Pin xezim
         if: matrix.python-version == env.FULL_PYTHON
         env:
@@ -105,7 +106,7 @@ jobs:
           if [ "${{ steps.xezim-cache.outputs.cache-hit }}" != "true" ]; then
             rustup toolchain install stable --profile minimal
             rustup default stable
-            cargo install --locked --git https://github.com/aionhw/xezim \
+            cargo install --git https://github.com/aionhw/xezim \
               --tag "${XEZIM_VERSION}" --bin xezim --root "$HOME/xezim"
           fi
           echo "$HOME/xezim/bin" >> "$GITHUB_PATH"

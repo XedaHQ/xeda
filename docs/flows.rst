@@ -2859,8 +2859,11 @@ UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms.
 
 * A run passes on the end line that ``xezim`` writes in this run, and on its diagnostics. The
   line comes after all output of the design, so output of the design cannot stand in for it.
-  ``** Fatal`` ends the run with ``sim.ended_by`` ``fatal``, and ``** Error`` and ``** Warning``
-  count against ``fail_severity``. ``sim.time`` is in the finest time precision of the design.
+  ``** Fatal`` ends the run with ``sim.ended_by`` ``fatal``. ``** Error``, ``[xezim][error]`` and
+  ``** Warning`` count against ``fail_severity``, so a failed assertion, an ``illegal_bins`` hit
+  and a timing violation fail at the default threshold, although ``xezim`` exits with status 0. A
+  line that a testbench prints in one of these forms counts too. ``sim.time`` is in the finest time
+  precision of the design.
 * ``xezim`` reports a Verilog ``$stop`` as ``$finish``. A ``$stop`` passes on this flow, unlike on
   the other simulators. A testbench that reports a failure must use ``$error`` or ``$fatal``.
 * A run that a signal stops fails, although ``xezim`` exits with status 0.

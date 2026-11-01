@@ -31,6 +31,7 @@ _INTERRUPTED = re.compile(r".*\[xezim\] interrupted at time \d+\b.*")
 _CAP_REACHED = re.compile(r".*\[xezim\]\[hang-report\] simulation reached --max-time \(.*")
 _DIAGNOSTIC = re.compile(r".*?\*\* (Error|Warning|Fatal)(?:: (.*))?")
 _DIAGNOSTIC_CONTEXT = re.compile(r"   Time: (\d+)  Scope: (.*)")
+_TOOL_ERROR = re.compile(r".*?\[xezim\]\[error\] (.*)")
 _TIMESCALES_HEADER = re.compile(r"=== module timescales \(\d+ modules?\) ===")
 _TIMESCALE_ENTRY = re.compile(r"  .+?\s+\d+\s*[a-z]+ / (\d+)\s*(s|ms|us|ns|ps|fs)\b.*")
 _NOTHING_ANNOTATED = "[SDF] annotated 0 signals with delays"
@@ -110,7 +111,12 @@ def parse_xezim_log(flow: Flow, path: Union[str, Path] = SIM_LOG) -> Optional[Si
     newline can only come before it on its line. All times are ticks of the finest precision of
     the design, which `--dump-timescales` prints before the run. xezim reports `$stop` as
     `$finish`, so a `$stop` reads as a finish here. A signal also ends a run with exit status 0
-    and a claim of `$finish`, so the interruption line takes precedence over that claim."""
+    and a claim of `$finish`, so the interruption line takes precedence over that claim.
+
+    Errors do not change the exit status, so these lines are the only record of them: `** Error`
+    (`$error`, assertions, `illegal_bins` and timing violations) and `[xezim][error]`. A line of
+    a testbench that spells either one counts too: a false failure is the safe side. A plain
+    `Error:` does not count, since testbenches print it in their own reports."""
     text = read_sim_log(flow, path)
     if text is None:
         return None
@@ -127,17 +133,25 @@ def parse_xezim_log(flow: Flow, path: Union[str, Path] = SIM_LOG) -> Optional[Si
     for index, line in enumerate(lines[:end]):
         interrupted = interrupted or _INTERRUPTED.fullmatch(line) is not None
         capped = capped or _CAP_REACHED.fullmatch(line) is not None
+        tool_error = _TOOL_ERROR.fullmatch(line)
+        if tool_error is not None:
+            evidence.events.append(SimEvent(kind="error", message=tool_error[1]))
+            continue
         diagnostic = _DIAGNOSTIC.fullmatch(line)
-        context = _DIAGNOSTIC_CONTEXT.fullmatch(lines[index + 1]) if diagnostic else None
-        if diagnostic is None or context is None:
+        if diagnostic is None:
             continue
         severity, message = diagnostic.groups()
         kind: Literal["fatal", "error", "warning"] = (
             "fatal" if severity == "Fatal" else "error" if severity == "Error" else "warning"
         )
         fatal = fatal or kind == "fatal"
-        described = f"{message + ' ' if message else ''}(in {context[2]})"
-        evidence.events.append(SimEvent(kind=kind, time=int(context[1]), message=described))
+        # `$error` and its kin have this line. A timing violation has none, and it is an error too.
+        context = _DIAGNOSTIC_CONTEXT.fullmatch(lines[index + 1])
+        event = SimEvent(kind=kind, message=message or "")
+        if context is not None:
+            event.time = int(context[1])
+            event.message = f"{message + ' ' if message else ''}(in {context[2]})"
+        evidence.events.append(event)
     stop_time = getattr(flow.settings, "stop_time", None)
     if fatal:
         evidence.ended_by = "fatal"

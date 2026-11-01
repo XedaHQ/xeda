@@ -94,9 +94,27 @@ def test_output_without_a_newline_cannot_hide_a_diagnostic(tmp_path: Path) -> No
     assert [event.kind for event in evidence.events] == ["error", "finish"]
 
 
-def test_a_display_of_diagnostic_text_is_no_event(tmp_path: Path) -> None:
-    """A native diagnostic has its context line."""
-    evidence = _evidence(tmp_path, "** Error: this is a log message\n" + FINISHED)
+def test_a_diagnostic_needs_no_context_line(tmp_path: Path) -> None:
+    """A timing violation has none, and a run with one still exits with status 0."""
+    violation = (
+        "** Error: $setup( d:10 ns, posedge ck:11 ns, 5 ns ) violation in t.u at time 11 ns\n"
+    )
+    evidence = _evidence(tmp_path, violation + FINISHED)
+    assert [event.kind for event in evidence.events] == ["error", "finish"]
+    assert evidence.events[0].time is None
+    assert "violation in t.u" in evidence.events[0].message
+
+
+def test_an_error_of_the_tool_is_an_error(tmp_path: Path) -> None:
+    """xezim counts these as errors too, and a run with one exits with status 0."""
+    text = "[xezim][error] $readmemh: 'a' does not name an unpacked memory (t=0)\n" + FINISHED
+    event = _evidence(tmp_path, text).events[0]
+    assert (event.kind, event.time) == ("error", None)
+    assert "does not name an unpacked memory" in event.message
+
+
+def test_text_of_a_testbench_that_only_says_error_is_no_event(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path, "Error: 0 mismatches\nERROR count = 0\n" + FINISHED)
     assert [event.kind for event in evidence.events] == ["finish"]
 
 
@@ -272,6 +290,55 @@ def test_a_warning_counts_only_at_its_severity(tmp_path: Path) -> None:
     testbench = 'module tb; initial begin $warning("w"); $finish; end endmodule\n'
     assert _simulate(tmp_path / "a", testbench).succeeded
     assert not _simulate(tmp_path / "b", testbench, fail_severity="warning").succeeded
+
+
+TIMING = (
+    "module ff(input d, input ck); reg n;\n"
+    "  specify $setup(d, posedge ck, 5, n); endspecify\n"
+    "endmodule\n"
+    "module tb; reg d = 0, c = 0; ff u(d, c);\n"
+    "  initial begin #10 d = 1; #1 c = 1; #1 $finish; end\n"
+    "endmodule\n"
+)
+
+
+@pytest.mark.real_tool
+def test_a_timing_violation_fails(tmp_path: Path) -> None:
+    flow = _simulate(tmp_path, TIMING)
+    assert not flow.succeeded
+    assert flow.results["sim.errors"] == 1
+    assert "violation in tb.u" in flow.results["error"]["message"]
+
+
+@pytest.mark.real_tool
+def test_an_error_of_the_tool_fails(tmp_path: Path) -> None:
+    testbench = 'module tb; reg a; initial begin $readmemh("m.hex", a); $finish; end endmodule\n'
+    flow = _simulate(tmp_path, testbench)
+    assert not flow.succeeded
+    assert "does not name an unpacked memory" in flow.results["error"]["message"]
+
+
+@pytest.mark.real_tool
+def test_a_failed_assertion_fails(tmp_path: Path) -> None:
+    testbench = (
+        "module tb; reg c = 0, a = 0; always #5 c = ~c;\n"
+        "  assert property (@(posedge c) a);\n"
+        "  initial #7 $finish;\n"
+        "endmodule\n"
+    )
+    assert not _simulate(tmp_path, testbench).succeeded
+
+
+@pytest.mark.real_tool
+def test_an_illegal_bin_fails(tmp_path: Path) -> None:
+    testbench = (
+        "module tb; reg c = 0; reg [1:0] v = 2;\n"
+        "  covergroup g @(posedge c); coverpoint v { illegal_bins bad = {2}; } endgroup\n"
+        "  g i = new;\n"
+        "  initial begin #1 c = 1; #1 $finish; end\n"
+        "endmodule\n"
+    )
+    assert not _simulate(tmp_path, testbench).succeeded
 
 
 @pytest.mark.real_tool
