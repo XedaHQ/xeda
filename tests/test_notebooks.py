@@ -24,7 +24,14 @@ NOTEBOOKS = sorted(NB.glob("[0-9][0-9]-*.ipynb"))
 EXAMPLES_ENV = {"XEDA_EXAMPLES": str(ROOT / "examples")}
 
 # The tools that run each notebook, by notebook name.
-NOTEBOOK_PROBES: dict[str, tuple] = {}
+NOTEBOOK_PROBES: dict[str, tuple] = {
+    "01-quickstart": (
+        tool_utils.require_verilator,
+        tool_utils.require_yosys,
+        tool_utils.require_nextpnr_ecp5,
+    ),
+    "02-simulation": (tool_utils.require_verilator,),
+}
 
 # The probe of each flow that a notebook may launch, and of the cocotb testbenches.
 FLOW_PROBES = {
@@ -59,17 +66,114 @@ def test_the_public_surface_exists():
     assert not NOT_EXPORTED_YET & set(xeda.__all__)
 
 
-def _run(name, tmp_path):
+def _run(name, tmp_path, env=EXAMPLES_ENV):
     for probe in NOTEBOOK_PROBES[name]:
         probe()
-    return run_notebook(NB / f"{name}.ipynb", cwd=tmp_path, env=EXAMPLES_ENV)
+    return run_notebook(NB / f"{name}.ipynb", cwd=tmp_path, env=env)
+
+
+@pytest.fixture(scope="module")
+def executions(tmp_path_factory):
+    """Run a notebook twice in one directory, once for the whole module, and give the work
+    directory and both executed notebooks. The second run finds the run directories of the first."""
+    done: dict[str, tuple] = {}
+
+    def get(name):
+        if name not in done:
+            work = tmp_path_factory.mktemp(name)
+            done[name] = (work, _run(name, work), _run(name, work))
+        return done[name]
+
+    return get
 
 
 @pytest.mark.parametrize("name", [p.stem for p in NOTEBOOKS])
-def test_every_notebook_writes_only_under_its_work_directory(tmp_path, name):
-    _run(name, tmp_path)
-    work = tmp_path / "notebook-output"
-    assert all(p == work or p.is_relative_to(work) for p in tmp_path.rglob("*"))
+def test_every_notebook_writes_only_under_its_work_directory(executions, name):
+    work, _, _ = executions(name)
+    output = work / "notebook-output"
+    assert all(p == output or p.is_relative_to(output) for p in work.rglob("*"))
+
+
+def test_the_quickstart_passes_and_reuses_its_runs(executions):
+    _, first, second = executions("01-quickstart")
+    for nb in (first, second):
+        assert cell_output(nb, "passed-outcome") == "passed True"
+        assert cell_output(nb, "synth-outcome") == "passed True"
+        assert cell_output(nb, "reused") == "reused reused"
+
+
+SIMULATION_OUTCOMES = {
+    "passed-outcome": "passed True",
+    "rejected-outcome": "rejected rejected",
+    "failed-outcome": "failed nonzero_exit",
+    "timeout-outcome": "failed timeout",
+    "canceled-outcome": "canceled canceled None",
+    "replaced-run": "run_replaced",
+    "hashed-runs": "still open: True",
+    "design-error": "design_file_not_found",
+}
+
+
+def test_the_simulation_notebook_shows_each_way_to_end(executions):
+    # The second run finds a rejected run to reuse, and still stops the endless testbench twice.
+    _, first, second = executions("02-simulation")
+    for nb in (first, second):
+        assert {tag: cell_output(nb, tag) for tag in SIMULATION_OUTCOMES} == SIMULATION_OUTCOMES
+
+
+def test_a_notebook_without_the_examples_says_what_to_set(tmp_path):
+    from nbclient.exceptions import CellExecutionError
+
+    with pytest.raises(CellExecutionError, match="XEDA_EXAMPLES"):
+        _run("01-quickstart", tmp_path, env={"XEDA_EXAMPLES": str(tmp_path / "missing")})
+    assert not (tmp_path / "notebook-output").exists()
+
+
+def _writes_environment(source: str) -> bool:
+    """Whether the code writes `os.environ` or calls `os.putenv` or `os.unsetenv`."""
+
+    def is_environ(node):
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "environ"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "os"
+        )
+
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Subscript) and is_environ(node.value):
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                return True
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if is_environ(node.func.value) and node.func.attr in {
+                "update",
+                "setdefault",
+                "pop",
+                "popitem",
+                "clear",
+            }:
+                return True
+            if (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "os"
+                and node.func.attr in {"putenv", "unsetenv"}
+            ):
+                return True
+    return False
+
+
+@pytest.mark.parametrize("name", [p.stem for p in NOTEBOOKS])
+def test_no_notebook_writes_the_environment(name):
+    for cell in nbformat.read(NB / f"{name}.ipynb", as_version=4).cells:
+        if cell.cell_type == "code":
+            assert not _writes_environment(cell.source), cell.source
+
+
+def test_the_environment_check_finds_a_write():
+    assert _writes_environment("import os\nos.environ['A'] = '1'")
+    assert _writes_environment("import os\nos.environ.update(A='1')")
+    assert _writes_environment("import os\nos.putenv('A', '1')")
+    assert not _writes_environment("import os\nx = os.environ.get('A', 'b')")
 
 
 def _flow_names(notebook: Path) -> set[str]:
