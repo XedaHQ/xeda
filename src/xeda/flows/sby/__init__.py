@@ -156,6 +156,10 @@ def _staged_name(
     }
     if src.generated:
         name = str(src.output_name)
+        if src.owner is not None and src.owner not in roots:
+            raise FlowSettingsException(
+                f"sby cannot stage {name!r}: the design has no generator {src.owner!r}"
+            )
         home = design.root if src.owner is None else roots[src.owner]
         stored = storage_name(name)
         if stored is not None:
@@ -350,7 +354,11 @@ def timing_problems(model: dict[str, Any]) -> list[str]:
                         events.add((ports[f"{prefix}_CLK"][index], polarities[index]))
             if any(bit != "0" for bit in ports["RD_ARST"]):
                 problems.add("a memory read port has an asynchronous reset")
-        elif not kind.startswith("$") or any("CLK" in port or port == "TRG" for port in ports):
+        elif (
+            not kind.startswith("$")
+            or (kind.startswith("$_") and any(state in kind for state in ("FF", "LATCH", "SR")))
+            or any("CLK" in port or port == "TRG" for port in ports)
+        ):
             problems.add(f"the cell {kind} has timing that the flow does not know")
         directions = cell["port_directions"]
         read.update(

@@ -379,6 +379,12 @@ def test_two_spellings_of_one_name_are_one_name(tmp_path, fake_sby):
     assert list(staged_names(design, declared[:1])) == list(staged_names(design, declared[1:]))
 
 
+def test_a_source_of_an_unknown_generator_is_refused(tmp_path, fake_sby):
+    source = Source.declaration("top.sv", SourceType.SystemVerilog, owner="nobody")
+    with pytest.raises(FlowSettingsException, match="no generator 'nobody'"):
+        staged_names(_design(tmp_path), [source])
+
+
 def test_a_file_named_as_a_directory_of_another_is_refused(tmp_path, fake_sby):
     design = _design(tmp_path)
     (tmp_path / "sub").write_text("")
@@ -533,6 +539,7 @@ def test_the_default_model_holds_one_rising_top_level_clock(cells):
         ({"a": _flop(2, "$dlatch")}, "$dlatch can change between clock edges"),
         ({"a": _flop(2), "m": _memory(read=2, read_reset=3)}, "asynchronous reset"),
         ({"a": _flop(2, "$memrd_v2")}, "timing that the flow does not know"),
+        ({"a": _flop(2, "$_DFF_P_")}, "timing that the flow does not know"),
         ({"a": _flop(2), "b": {**_check([2]), "type": "submodule"}}, "does not know"),
     ],
     ids=[
@@ -551,6 +558,7 @@ def test_the_default_model_holds_one_rising_top_level_clock(cells):
         "latch",
         "memory-async-reset",
         "unknown-cell",
+        "gate-level-flop",
         "kept-hierarchy",
     ],
 )
