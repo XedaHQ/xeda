@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "definitions": {
+      "type": "object"
+    },
+    "fields": {
+      "items": {
+        "properties": {
+          "common": {
+            "type": "boolean"
+          },
+          "declared_by": {
+            "type": "string"
+          },
+          "default": {},
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enum": {
+            "items": {},
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "json_schema": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "opaque_keys": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "writes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "common",
+          "declared_by",
+          "default",
+          "description",
+          "enum",
+          "group",
+          "json_schema",
+          "name",
+          "opaque_keys",
+          "required",
+          "tier",
+          "type",
+          "writes"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "flow": {
+      "type": "string"
+    },
+    "json_schema": {
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "settings_class": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "definitions",
+    "fields",
+    "flow",
+    "json_schema",
+    "schema_version",
+    "settings_class"
+  ],
+  "title": "xeda list-settings --json",
+  "type": "object"
+}

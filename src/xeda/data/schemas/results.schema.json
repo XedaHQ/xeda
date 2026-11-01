@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifacts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "configuration": {
+      "type": "object"
+    },
+    "dependencies": {
+      "items": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "design": {
+      "type": "string"
+    },
+    "error": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "exit_status": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "log": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "exit_status",
+        "log",
+        "message",
+        "node"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "finished": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "flow": {
+      "type": "string"
+    },
+    "identity": {
+      "type": "string"
+    },
+    "inherited_variables": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "inputs": {
+      "items": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "source",
+              "producer",
+              "none"
+            ],
+            "type": "string"
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "producer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "producer_run_dir": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "producer_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "dependency": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "generated": {
+                  "type": "boolean"
+                },
+                "generation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "path": {
+                  "type": "string"
+                },
+                "producer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "dependency",
+                "digest",
+                "generated",
+                "generation",
+                "path",
+                "producer"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "origin",
+          "output",
+          "producer",
+          "producer_run_dir",
+          "producer_run_id",
+          "sources"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "metric_info": {
+      "additionalProperties": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "number",
+              "integer",
+              "boolean",
+              "text",
+              "text_list",
+              "counts",
+              "numbers",
+              "object"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "description",
+          "type",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "outcome": {
+      "enum": [
+        "passed",
+        "rejected",
+        "failed",
+        "canceled"
+      ],
+      "type": "string"
+    },
+    "outputs": {
+      "additionalProperties": {
+        "properties": {
+          "cardinality": {
+            "enum": [
+              "one",
+              "optional",
+              "many"
+            ],
+            "type": "string"
+          },
+          "design": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "digests": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cardinality",
+          "design",
+          "digests",
+          "kind",
+          "names"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "runtime": {
+      "type": "number"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "settings": {
+      "type": "object"
+    },
+    "started": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "xeda_version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifacts",
+    "configuration",
+    "dependencies",
+    "design",
+    "error",
+    "finished",
+    "flow",
+    "identity",
+    "inherited_variables",
+    "inputs",
+    "metric_info",
+    "metrics",
+    "outcome",
+    "outputs",
+    "run_id",
+    "runtime",
+    "schema_version",
+    "settings",
+    "started",
+    "target",
+    "xeda_version"
+  ],
+  "title": "results.json",
+  "type": "object"
+}

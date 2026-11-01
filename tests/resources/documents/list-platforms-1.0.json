@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "platforms": [
+    {
+      "platform": "nangate45",
+      "description": "FreePDK45 with the Nangate Open Cell Library",
+      "provider": "orfs",
+      "version": "6b305a712966be72d8908695c04398acdbe273ca",
+      "installed": true,
+      "directory": "/home/user/.ciel/xeda/orfs/6b305a712966be72d8908695c04398acdbe273ca/flow/platforms/nangate45"
+    },
+    {
+      "platform": "sky130hd",
+      "description": "SkyWater SKY130 with the high density standard cell library (sky130_fd_sc_hd)",
+      "provider": "ciel",
+      "version": "8afc8346a57fe1ab7934ba5a6056ea8b43078e71",
+      "installed": false
+    }
+  ]
+}

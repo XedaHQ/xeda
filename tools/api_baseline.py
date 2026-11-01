@@ -1,7 +1,8 @@
 """Snapshot the public API, keep release baselines, and classify the difference between them.
 
-    python tools/api_baseline.py                  write tests/snapshots/current/ for review
-    python tools/api_baseline.py --check          fail when tests/snapshots/current/ is stale
+    python tools/api_baseline.py                  write tests/snapshots/current/ for review, and
+                                                  the schemas in src/xeda/data/schemas/
+    python tools/api_baseline.py --check          fail when a snapshot or a shipped schema is stale
     python tools/api_baseline.py --compare        classify the code against the newest baseline
     python tools/api_baseline.py --release X.Y    write tests/baselines/X.Y/ once, with a manifest
 
@@ -14,13 +15,16 @@ from __future__ import annotations
 
 import argparse
 import ast
+import collections.abc
 import dataclasses
+import datetime
 import enum
 import functools
 import hashlib
 import importlib
 import inspect
 import json
+import pathlib
 import re
 import sys
 import types
@@ -430,11 +434,378 @@ def behavior_snapshot() -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------------------------
+# The document schemas
+# ---------------------------------------------------------------------------------------------
+
+DIALECT = "https://json-schema.org/draft/2020-12/schema"
+SCHEMA_DIRECTORY = Path("src") / "xeda" / "data" / "schemas"
+
+_STRING: dict[str, Any] = {"type": "string"}
+_INTEGER: dict[str, Any] = {"type": "integer"}
+_NUMBER: dict[str, Any] = {"type": "number"}
+_BOOLEAN: dict[str, Any] = {"type": "boolean"}
+_OBJECT: dict[str, Any] = {"type": "object"}
+_ANY: dict[str, Any] = {}
+
+
+def _array(items: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "array", "items": items}
+
+
+def _nullable(schema: dict[str, Any]) -> dict[str, Any]:
+    """The schema, or null."""
+    kind = schema.get("type")
+    if isinstance(kind, str) and "enum" not in schema:
+        return {**schema, "type": [kind, "null"]}
+    if "enum" in schema:
+        return {**schema, "type": [kind, "null"], "enum": [*schema["enum"], None]}
+    return {"anyOf": [schema, {"type": "null"}]}
+
+
+def _object(
+    properties: dict[str, dict[str, Any]], optional: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """An object with these keys. The writer always emits each key that is not `optional`."""
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": sorted(set(properties) - set(optional)),
+    }
+
+
+#: A field that the codec writes under another name or as the key of a table, not as a field.
+_NOT_WRITTEN = {
+    "RunRecord": ("run_root", "run_dir"),
+    "OutputRecord": ("name",),
+    "MetricInfo": ("path",),
+    "ScrubResult": ("reasons",),
+}
+
+
+def _class_fields(cls: type) -> dict[str, Any]:
+    """The fields of a dataclass, an attrs class or a named tuple, with their types."""
+    if dataclasses.is_dataclass(cls):
+        raw = {f.name: f.type for f in dataclasses.fields(cls)}
+    elif hasattr(cls, "__attrs_attrs__"):
+        raw = {a.name: a.type for a in cls.__attrs_attrs__}
+    else:
+        raw = dict(cls.__annotations__)
+    skipped = _NOT_WRITTEN.get(cls.__name__, ())
+    return {k: v for k, v in _evaluate(raw, cls.__module__).items() if k not in skipped}
+
+
+class _Types:
+    """The JSON Schema of Python types. A class in `references` is a `$ref` to a definition."""
+
+    def __init__(self, references: dict[type, str] | None = None) -> None:
+        self.references = references or {}
+
+    def of(self, tp: Any) -> dict[str, Any]:  # noqa: C901
+        if tp is typing.Any:
+            return dict(_ANY)
+        if tp is type(None):
+            return {"type": "null"}
+        origin, args = typing.get_origin(tp), typing.get_args(tp)
+        if origin is typing.Annotated:
+            return self.of(args[0])
+        if origin is typing.Literal:
+            return {"type": "string", "enum": list(args)}
+        if origin is typing.Union or origin is types.UnionType:
+            plain = [a for a in args if a is not type(None)]
+            schemas = [self.of(a) for a in plain]
+            schema = schemas[0] if len(schemas) == 1 else {"anyOf": schemas}
+            return _nullable(schema) if len(plain) < len(args) else schema
+        if origin in (tuple, list, set, frozenset) or origin is collections.abc.Sequence:
+            return _array(self.of(args[0]))
+        if origin in (dict, collections.abc.Mapping):
+            return {"type": "object", **({} if args[1] is typing.Any else {"additionalProperties": self.of(args[1])})}  # fmt: skip
+        if tp is bool:
+            return dict(_BOOLEAN)
+        if tp is int:
+            return dict(_INTEGER)
+        if tp is float:
+            return dict(_NUMBER)
+        if tp is str or issubclass(tp, pathlib.PurePath):
+            return dict(_STRING)
+        if issubclass(tp, datetime.datetime):
+            return {"type": "string", "format": "date-time"}
+        if issubclass(tp, enum.Enum):
+            return {"type": "string", "enum": [member.value for member in tp]}
+        if tp in self.references:
+            return {"$ref": f"#/$defs/{self.references[tp]}"}
+        return self.cls(tp)
+
+    def cls(self, tp: type) -> dict[str, Any]:
+        return _object({name: self.of(hint) for name, hint in _class_fields(tp).items()})
+
+
+def _document(
+    title: str, schema: dict[str, Any], definitions: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    document = {"$schema": DIALECT, "title": title, **schema}
+    if definitions:
+        document["$defs"] = definitions
+    return document
+
+
+def _listing(title: str, key: str, entry: dict[str, Any]) -> dict[str, Any]:
+    return _document(title, _object({"schema_version": _INTEGER, key: _array(entry)}))
+
+
+def document_schemas() -> dict[str, dict[str, Any]]:
+    """One JSON Schema for each document that Xeda writes or reads, by the name of the document.
+
+    A schema comes from the code where the code has a type for the document: the fields of the
+    dataclasses (`RunRecord`, `NodeResult`, `PlanNode`, `LaunchOptions`, `ScrubResult`,
+    `DsePoint`) and the schema of the design model. The rest is the table below, written by hand:
+    the builders of the documents fill a plain `dict`, so no type says what its keys hold.
+    """
+    from xeda.flow_runner.dse.dse_runner import DsePoint
+    from xeda.flow_runner.launch_options import LaunchOptions
+    from xeda.flow_runner.scrub import ScrubResult
+    from xeda.introspect import design_schema
+    from xeda.outcomes import NodeResult, Outcome
+    from xeda.plan import PlanNode
+    from xeda.records import OUTCOMES, ErrorInfo, MetricInfo, RunRecord
+
+    simple = _Types()
+    results = simple.cls(RunRecord)
+    # A record never holds an outcome of a node that did not run.
+    results["properties"]["outcome"] = {"type": "string", "enum": list(OUTCOMES)}
+    error = simple.of(ErrorInfo)
+    outcome = simple.of(Outcome)
+    # The record of a node, and `best` of an exploration, are a `results.json`.
+    node = _Types({RunRecord: "results"}).cls(NodeResult)
+    defs = {"results": results}
+
+    # `spec_document` fills a plain `dict` from keyword arguments.
+    spec = _object(
+        {
+            "flow": _STRING,
+            "design": _nullable(_STRING),
+            "design_file": _nullable(_STRING),
+            "target": _nullable(_STRING),
+            "settings": _OBJECT,
+        }
+    )
+    # A launch that never started has no outcome, no launch id and no spec; its `error` says why.
+    run = _object(
+        {
+            "schema_version": _INTEGER,
+            "outcome": _nullable(outcome),
+            "error": _nullable(error),
+            "launch_id": _nullable(_STRING),
+            "spec": _nullable(spec),
+            "roots": _array(_STRING),
+            "nodes": _array(node),
+        }
+    )
+    dry_run = _object(
+        {
+            "schema_version": _INTEGER,
+            "spec": spec,
+            "roots": _array(_STRING),
+            "options": simple.of(LaunchOptions),
+            "dependencies": simple.of(typing.get_type_hints(RunRecord)["dependencies"]),
+            "nodes": _array(simple.of(PlanNode)),
+        }
+    )
+    scrub_lists = {k: simple.of(v) for k, v in _class_fields(ScrubResult).items()}
+    # `scrub_document` and `dse_document` take their parts as `Any` and fill a plain `dict`.
+    scrub = _object(
+        {
+            "schema_version": _INTEGER,
+            "outcome": _nullable(outcome),
+            "error": _nullable(error),
+            "flow": _nullable(_STRING),
+            "design": _nullable(_STRING),
+            "target": _nullable(_STRING),
+            "run_root": _nullable(_STRING),
+            **scrub_lists,
+        }
+    )
+    dse = _object(
+        {
+            "schema_version": _INTEGER,
+            "outcome": _nullable(outcome),
+            "error": _nullable(error),
+            "flow": _nullable(_STRING),
+            "design": _nullable(_STRING),
+            "target": _nullable(_STRING),
+            "optimizer": _nullable(_STRING),
+            "best": _nullable({"$ref": "#/$defs/results"}),
+            "best_run_dir": _nullable(_STRING),
+            "points": _array(simple.of(DsePoint)),
+        }
+    )
+
+    # The listings come from `introspect`, which builds each entry as a plain `dict`.
+    edge = _object(
+        {
+            "flow": _STRING,
+            "output": _nullable(_STRING),
+            "through": _array(_STRING),
+            "binds": _array(_object({"flow": _STRING, "input": _STRING, "output": _STRING})),
+            "target_dependent": _BOOLEAN,
+        }
+    )
+    declared = {"name": _STRING, "value": _STRING, "types": _array(_STRING)}
+    flow = _object(
+        {
+            "name": _STRING,
+            "class": _STRING,
+            "module": _STRING,
+            "qualified_name": _STRING,
+            "description": _STRING,
+            "category": _STRING,
+            "supports_cocotb": _BOOLEAN,
+            "dependencies": _array(_STRING),
+            "action_reason": _nullable(_STRING),
+            "inputs": _array(
+                _object(
+                    {
+                        **declared,
+                        "cardinality": _STRING,
+                        "required": _BOOLEAN,
+                        "optional": _BOOLEAN,
+                        "equivalence": _BOOLEAN,
+                        "producer": _nullable(_STRING),
+                        "output": _nullable(_STRING),
+                        "same_producer_as": _nullable(_STRING),
+                        "paired": _BOOLEAN,
+                        "via": _nullable(_STRING),
+                        "description": _STRING,
+                    }
+                )
+            ),
+            "outputs": _array(
+                _object(
+                    {
+                        **declared,
+                        "cardinality": _STRING,
+                        "enabled_by": _nullable(_STRING),
+                        "description": _STRING,
+                    }
+                )
+            ),
+            "can_follow": _array(edge),
+            "can_precede": _array(edge),
+            "settings_class": _STRING,
+        }
+    )
+    setting = _object(
+        {
+            "name": _STRING,
+            "type": _STRING,
+            "required": _BOOLEAN,
+            "unit": _nullable(_STRING),
+            "default": _ANY,
+            "description": _nullable(_STRING),
+            "enum": _nullable(_array(_ANY)),
+            "common": _BOOLEAN,
+            "declared_by": _STRING,
+            "writes": _nullable(_STRING),
+            "opaque_keys": _BOOLEAN,
+            "json_schema": _OBJECT,
+            "tier": _STRING,
+            "group": _nullable(_STRING),
+        },
+        optional=("unit",),  # a setting that only the input accepts has none
+    )
+    metric = _object(
+        {
+            "path": _STRING,
+            "description": _STRING,
+            "type": simple.of(_class_fields(MetricInfo)["type"]),
+            "unit": _nullable(_STRING),
+        }
+    )
+    artifact = _object({"key": _STRING, "description": _STRING, "when": _STRING})
+    # A board has the keys of its entry in `boards.toml`; only the name is always there.
+    from xeda.board import BOARD_ENTRY_KEYS
+
+    board = _object(
+        {"board": _STRING, **{k: _OBJECT if k == "fpga" else _STRING for k in BOARD_ENTRY_KEYS}},
+        optional=BOARD_ENTRY_KEYS,
+    )
+    platform = _object(
+        {
+            "platform": _STRING,
+            "description": _nullable(_STRING),
+            "provider": _STRING,
+            "version": _STRING,
+            "installed": _BOOLEAN,
+            "directory": _STRING,
+            "problem": _STRING,
+        },
+        optional=("directory", "problem"),  # the files are installed, or they name another version
+    )
+    optimizer = _object(
+        {
+            "name": _STRING,
+            "class": _STRING,
+            "module": _STRING,
+            "description": _nullable(_STRING),
+            "settings": _array(
+                _object(
+                    {
+                        "name": _STRING,
+                        "type": _STRING,
+                        "required": _BOOLEAN,
+                        "unit": _nullable(_STRING),
+                        "default": _ANY,
+                        "description": _nullable(_STRING),
+                    }
+                )
+            ),
+        }
+    )
+    listing_of_flow = {"schema_version": _INTEGER, "flow": _STRING}
+
+    return {
+        "results": _document("results.json", results),
+        "run": _document("xeda run --json", run, defs),
+        "dry-run": _document("xeda run --dry-run --json", dry_run),
+        "list-flows": _listing("xeda list-flows --json", "flows", flow),
+        "list-settings": _document(
+            "xeda list-settings --json",
+            _object(
+                {
+                    **listing_of_flow,
+                    "settings_class": _STRING,
+                    "fields": _array(setting),
+                    "definitions": _OBJECT,
+                    "json_schema": _OBJECT,
+                }
+            ),
+        ),
+        "list-results": _document(
+            "xeda list-results --json",
+            _object(
+                {
+                    **listing_of_flow,
+                    "metrics": _array(metric),
+                    "artifacts": _array(artifact),
+                    "note": _STRING,
+                }
+            ),
+        ),
+        "list-boards": _listing("xeda list-boards --json", "boards", board),
+        "list-platforms": _listing("xeda list-platforms --json", "platforms", platform),
+        "list-optimizers": _listing("xeda list-optimizers --json", "optimizers", optimizer),
+        "scrub": _document("xeda scrub --json", scrub),
+        "dse": _document("xeda dse --json", dse, defs),
+        "design": design_schema(),
+    }
+
+
 #: The snapshot files: name, kind (for `classify`) and producer. A later snapshot is one more row.
 SNAPSHOTS: dict[str, tuple[SnapshotKind, Callable[[], dict[str, Any]]]] = {
     "public_api.json": ("api", public_api_snapshot),
     "builtin.json": ("contract", builtin_contract),
     "behavior.json": ("behavior", behavior_snapshot),
+    "schemas.json": ("schema", document_schemas),
 }
 
 
@@ -631,10 +1002,165 @@ def _classify_behavior(
                 )
 
 
+#: The document whose schema describes what Xeda reads. The others describe what it writes.
+INPUT_DOCUMENTS = ("design",)
+
+
+def _resolve(node: Any, root: dict[str, Any]) -> Any:
+    """The schema that a local `$ref` names, with the keywords beside the reference."""
+    while isinstance(node, dict) and "$ref" in node:
+        target: Any = root
+        for part in node["$ref"].removeprefix("#/").split("/"):
+            target = target[part]
+        node = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+    return node
+
+
+def _type_set(node: dict[str, Any]) -> frozenset[str] | None:
+    """The JSON types that a schema names, or `None` for a schema that names none."""
+    kind = node.get("type")
+    if kind is None:
+        return None
+    return frozenset([kind] if isinstance(kind, str) else kind)
+
+
+def _branches(node: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("anyOf", "oneOf"):
+        if key in node:
+            return list(node[key])
+    return [node]
+
+
+def _has_branches(node: dict[str, Any]) -> bool:
+    return "anyOf" in node or "oneOf" in node
+
+
+def _without_branches(node: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in node.items() if key not in ("anyOf", "oneOf")}
+
+
+def _branch_kind(node: dict[str, Any]) -> str:
+    """What pairs a branch of an old schema with a branch of a new one."""
+    if "enum" in node:
+        return "enum"
+    kind = _type_set(node)
+    return "any" if kind is None else "|".join(sorted(kind))
+
+
+def _classify_schema(
+    old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    """Compare the schemas of the documents.
+
+    A document that Xeda writes keeps its types, its enums and its keys: a removed key, another
+    type, another enum or a key that is no longer required breaks a reader of it, and a new
+    optional key is an addition. The design file is what Xeda reads, so the direction reverses:
+    it may accept more and never less, and a new key must be optional. A `$ref` is compared by
+    what it names. Other keywords, such as `minimum` or `pattern`, are not compared."""
+    _diff_names("schemas", "document", set(old), set(new), add, brk)
+
+    def visit(
+        path: str, before: Any, after: Any, roots: tuple[Any, Any], reader: bool,
+        seen: frozenset[tuple[str, str]],
+    ) -> None:  # fmt: skip
+        if not (isinstance(before, dict) and isinstance(after, dict)):  # `true` or `false`
+            if before != after:
+                brk.append(f"{path}: schema changed")
+            return
+        pair = (str(before.get("$ref")), str(after.get("$ref")))
+        if pair != ("None", "None"):
+            if pair in seen:  # a recursive schema
+                return
+            seen = seen | {pair}
+        before, after = _resolve(before, roots[0]), _resolve(after, roots[1])
+        old_branches, new_branches = _branches(before), _branches(after)
+        if len(old_branches) > 1 or len(new_branches) > 1:
+            alternatives(path, old_branches, new_branches, roots, reader, seen)
+            if not (_has_branches(before) and _has_branches(after)):
+                return
+            # The keywords beside `anyOf` or `oneOf` hold for every branch: compare them too.
+            before, after = _without_branches(before), _without_branches(after)
+        old_types, new_types = _type_set(before), _type_set(after)
+        if old_types != new_types:
+            grew = new_types is None or (old_types is not None and old_types < new_types)
+            (add if grew and reader else brk).append(f"{path}: type changed")
+        old_enum, new_enum = before.get("enum"), after.get("enum")
+        if old_enum != new_enum:
+            grew = new_enum is None or (
+                old_enum is not None and {repr(v) for v in old_enum} < {repr(v) for v in new_enum}
+            )
+            # A document holds closed sets (an outcome, a disposition): a new member breaks a reader.
+            (add if grew and reader else brk).append(
+                f"{path}: enum {'widened' if grew else 'narrowed'}"
+            )
+        properties(path, before, after, roots, reader, seen)
+        old_items, new_items = before.get("items"), after.get("items")
+        if isinstance(old_items, dict) and isinstance(new_items, dict):
+            visit(f"{path}.items", old_items, new_items, roots, reader, seen)
+        elif bool(old_items) != bool(new_items):
+            (add if reader and not new_items else brk).append(f"{path}: items changed")
+        old_tuple, new_tuple = before.get("prefixItems", []), after.get("prefixItems", [])
+        if len(old_tuple) != len(new_tuple):
+            brk.append(f"{path}: tuple length changed")
+        for index, (a, b) in enumerate(zip(old_tuple, new_tuple)):
+            visit(f"{path}.prefixItems[{index}]", a, b, roots, reader, seen)
+
+    def alternatives(
+        path: str, left: list[Any], right: list[Any], roots: tuple[Any, Any], reader: bool,
+        seen: frozenset[tuple[str, str]],
+    ) -> None:  # fmt: skip
+        unmatched = list(right)
+        for branch in left:
+            kind = _branch_kind(_resolve(branch, roots[0]))
+            same = [n for n in unmatched if _branch_kind(_resolve(n, roots[1])) == kind]
+            if not same:
+                brk.append(f"{path}: alternative {kind} removed")
+                continue
+            unmatched.remove(same[0])
+            visit(path, branch, same[0], roots, reader, seen)
+        for branch in unmatched:
+            kind = _branch_kind(_resolve(branch, roots[1]))
+            (add if reader else brk).append(f"{path}: alternative {kind} added")
+
+    def properties(
+        path: str, before: dict[str, Any], after: dict[str, Any], roots: tuple[Any, Any],
+        reader: bool, seen: frozenset[tuple[str, str]],
+    ) -> None:  # fmt: skip
+        old_props, new_props = before.get("properties", {}), after.get("properties", {})
+        old_req, new_req = set(before.get("required", ())), set(after.get("required", ()))
+        for key in sorted(old_props.keys() - new_props.keys()):
+            brk.append(f"{path}.{key}: property removed")
+        for key in sorted(new_props.keys() - old_props.keys()):
+            required = reader and key in new_req
+            (brk if required else add).append(
+                f"{path}.{key}: " + ("new required property" if required else "new property")
+            )
+        for key in sorted(old_props.keys() & new_props.keys()):
+            if (key in old_req) != (key in new_req):
+                now_required = key in new_req
+                # A reader of a written document needs the key: it must not become optional.
+                # Xeda, as the reader of the design file, must not get a new demand.
+                breaking = now_required if reader else not now_required
+                (brk if breaking else add).append(
+                    f"{path}.{key}: now " + ("required" if now_required else "optional")
+                )
+            visit(f"{path}.{key}", old_props[key], new_props[key], roots, reader, seen)
+        old_extra, new_extra = before.get("additionalProperties"), after.get("additionalProperties")
+        if isinstance(old_extra, dict) and isinstance(new_extra, dict):
+            visit(f"{path}.*", old_extra, new_extra, roots, reader, seen)
+        elif reader and old_extra is not False and new_extra is False:
+            brk.append(f"{path}: unknown keys refused")
+
+    for name in sorted(old.keys() & new.keys()):
+        both = (old[name], new[name])
+        visit(name, both[0], both[1], both, name in INPUT_DOCUMENTS, frozenset())
+
+
 _CLASSIFIERS: dict[str, Callable[[dict[str, Any], dict[str, Any], list[str], list[str]], None]] = {
     "api": _classify_api,
     "contract": _classify_contract,
     "behavior": _classify_behavior,
+    "schema": _classify_schema,
 }
 
 
@@ -693,6 +1219,23 @@ def _write(directory: Path) -> None:
         target.write_text(_text(produce()), encoding="utf-8")
 
 
+def _shipped(root: Path) -> dict[Path, str]:
+    """The schema files that the package ships, with their text."""
+    return {
+        root / SCHEMA_DIRECTORY / f"{name}.schema.json": _text(schema)
+        for name, schema in document_schemas().items()
+    }
+
+
+def _write_shipped(root: Path) -> None:
+    shipped = root / SCHEMA_DIRECTORY
+    shipped.mkdir(parents=True, exist_ok=True)
+    for stale in shipped.glob("*.schema.json"):
+        stale.unlink()
+    for path, text in _shipped(root).items():
+        path.write_text(text, encoding="utf-8")
+
+
 def _manifest(directory: Path) -> str:
     files = sorted(p for p in directory.rglob("*") if p.is_file() and p.name != "MANIFEST.sha256")
     return "".join(
@@ -746,8 +1289,19 @@ def _check(root: Path) -> int:
         if not (current / name).is_file()
         or (current / name).read_text(encoding="utf-8") != _text(produce())
     ]
+    shipped = root / SCHEMA_DIRECTORY
+    stale += [
+        str(path.relative_to(root))
+        for path, text in _shipped(root).items()
+        if not path.is_file() or path.read_text(encoding="utf-8") != text
+    ]
+    stale += [
+        str(path.relative_to(root))
+        for path in sorted(shipped.glob("*.schema.json"))
+        if path not in _shipped(root)
+    ]
     if stale:
-        print(f"error: {', '.join(stale)} in {current} differ from the code.", file=sys.stderr)
+        print(f"error: {', '.join(stale)} differ from the code.", file=sys.stderr)
         print("Run `python tools/api_baseline.py` and commit the result.", file=sys.stderr)
         return 1
     return 0
@@ -782,6 +1336,7 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT) -> int:
     if args.release:
         return _release(root, args.release, args.accept_breaking)
     _write(root / "tests" / "snapshots" / "current")
+    _write_shipped(root)
     return 0
 
 

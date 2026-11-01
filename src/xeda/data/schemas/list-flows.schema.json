@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "flows": {
+      "items": {
+        "properties": {
+          "action_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "can_follow": {
+            "items": {
+              "properties": {
+                "binds": {
+                  "items": {
+                    "properties": {
+                      "flow": {
+                        "type": "string"
+                      },
+                      "input": {
+                        "type": "string"
+                      },
+                      "output": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "flow",
+                      "input",
+                      "output"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "flow": {
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "target_dependent": {
+                  "type": "boolean"
+                },
+                "through": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "binds",
+                "flow",
+                "output",
+                "target_dependent",
+                "through"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "can_precede": {
+            "items": {
+              "properties": {
+                "binds": {
+                  "items": {
+                    "properties": {
+                      "flow": {
+                        "type": "string"
+                      },
+                      "input": {
+                        "type": "string"
+                      },
+                      "output": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "flow",
+                      "input",
+                      "output"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "flow": {
+                  "type": "string"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "target_dependent": {
+                  "type": "boolean"
+                },
+                "through": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "binds",
+                "flow",
+                "output",
+                "target_dependent",
+                "through"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "category": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "dependencies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "properties": {
+                "cardinality": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "equivalence": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean"
+                },
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paired": {
+                  "type": "boolean"
+                },
+                "producer": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "same_producer_as": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "types": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "via": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "cardinality",
+                "description",
+                "equivalence",
+                "name",
+                "optional",
+                "output",
+                "paired",
+                "producer",
+                "required",
+                "same_producer_as",
+                "types",
+                "value",
+                "via"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outputs": {
+            "items": {
+              "properties": {
+                "cardinality": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "enabled_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "types": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cardinality",
+                "description",
+                "enabled_by",
+                "name",
+                "types",
+                "value"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "qualified_name": {
+            "type": "string"
+          },
+          "settings_class": {
+            "type": "string"
+          },
+          "supports_cocotb": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action_reason",
+          "can_follow",
+          "can_precede",
+          "category",
+          "class",
+          "dependencies",
+          "description",
+          "inputs",
+          "module",
+          "name",
+          "outputs",
+          "qualified_name",
+          "settings_class",
+          "supports_cocotb"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "flows",
+    "schema_version"
+  ],
+  "title": "xeda list-flows --json",
+  "type": "object"
+}

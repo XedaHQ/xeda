@@ -367,6 +367,10 @@ def check_data_users(expected: list[str]) -> None:
                 raise CheckFailed(f"the agent skill lacks {name}")
     if not flow_names():
         raise CheckFailed("the flow catalog lists no flow")
+    for name in (n for n in expected if n.startswith("xeda/data/schemas/")):
+        schema = json.loads(resources.files("xeda.data").joinpath(name[10:]).read_text("utf-8"))
+        if "$schema" not in schema:
+            raise CheckFailed(f"{name} is not a JSON Schema")
     # The path that `flows/openroad/final.py` hands to KLayout.
     script = Path(str(resources.files("xeda.flows.openroad").joinpath("data", "def2stream.py")))
     if not script.is_file():

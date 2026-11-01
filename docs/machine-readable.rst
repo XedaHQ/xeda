@@ -426,6 +426,50 @@ assume a draft. The schema describes the forms that the loader accepts. For exam
 every ``flows.<flow>`` is an open table. Take the schema of those settings from
 ``xeda list-settings <flow> --json`` (``json_schema``).
 
+.. _document-schemas:
+
+The schema of each document
+===========================
+
+Every document that Xeda writes or reads has a JSON Schema (draft 2020-12). The installed package
+holds the files in ``xeda/data/schemas/``. Validate a document against its file instead of
+guessing its shape:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Document
+     - Schema file
+   * - ``results.json`` (:ref:`results-json`)
+     - ``xeda/data/schemas/results.schema.json``
+   * - ``xeda run --json``
+     - ``xeda/data/schemas/run.schema.json``
+   * - ``xeda run --dry-run --json``
+     - ``xeda/data/schemas/dry-run.schema.json``
+   * - ``xeda list-flows --json``
+     - ``xeda/data/schemas/list-flows.schema.json``
+   * - ``xeda list-settings <flow> --json``
+     - ``xeda/data/schemas/list-settings.schema.json``
+   * - ``xeda list-results <flow> --json``
+     - ``xeda/data/schemas/list-results.schema.json``
+   * - ``xeda list-boards --json``
+     - ``xeda/data/schemas/list-boards.schema.json``
+   * - ``xeda list-platforms --json``
+     - ``xeda/data/schemas/list-platforms.schema.json``
+   * - ``xeda list-optimizers --json``
+     - ``xeda/data/schemas/list-optimizers.schema.json``
+   * - ``xeda scrub --json``
+     - ``xeda/data/schemas/scrub.schema.json``
+   * - ``xeda dse --json``
+     - ``xeda/data/schemas/dse.schema.json``
+   * - a design file (``xeda design-schema``)
+     - ``xeda/data/schemas/design.schema.json``
+
+A schema lists every key that the writer always emits under ``required``. It does not forbid a key
+that it does not name: a later minor version can add one. The schema of a design file is the one
+that ``xeda design-schema`` prints. Its direction is the other way: it describes what Xeda accepts.
+:doc:`stability` says what a release may change in a schema.
+
 Running a flow
 ==============
 
