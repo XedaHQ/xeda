@@ -387,7 +387,8 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     One entry for each declared input: ``name``, ``origin`` (``source``,
     ``producer`` or ``none``), ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir``
     (relative to the run root) and the ``sources`` that the input read, each as
-    ``{path, generated, digest, dependency, producer, generation}``. ``path`` is relative to the
+    ``{path, generated, digest, dependency, producer, generation}``. ``generated`` is ``true`` for a
+    source that a generator wrote and ``false`` for a written one. ``path`` is relative to the
     design root, ``digest`` is the content digest, and ``dependency`` is the index of the source's
     dependency in ``dependencies``, or ``null``. ``producer_run_id`` and ``producer_run_dir`` are
     ``null`` when no producer run supplied the input, and ``producer`` and ``output`` are ``null``
@@ -779,7 +780,8 @@ The code of an error of the whole launch (``node`` is ``null``).
 
 ``generator_failed``
     The generator of the design failed or could not be started or judged. It comes before any node
-    runs, so every node is ``skipped``, and Xeda leaves no output of the generator behind.
+    runs, so every node is ``skipped``. Xeda removes the storage of the failed generation, but a file
+    that the generator wrote in the design tree stays there.
 ``delivery_failed``
     Xeda could not deliver an output that a setting, ``--outputs-to`` or the ``outputs_to`` of a
     generator named. Every node keeps the outcome it had.
@@ -805,8 +807,8 @@ then.
 A bad setting (``SettingsError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The request has a setting that Xeda refuses. ``error.suggestions`` holds the names or addresses
-that Xeda suggests for an unknown name.
+The request has a setting that Xeda refuses. In Python, ``SettingsError.suggestions`` holds the
+names or addresses that Xeda suggests for an unknown name. The JSON ``error`` has no such field.
 
 ``unknown_setting``
     The flow has no such setting.
@@ -834,11 +836,11 @@ that Xeda suggests for an unknown name.
 ``unsupported_setting``
     The flow does not support this setting or value.
 ``unscoped_setting``
-    A ``-s`` key does not start with the flow that it addresses. ``error.suggestions`` holds the
-    addresses to write.
+    A ``-s`` key does not start with the flow that it addresses. ``SettingsError.suggestions`` holds
+    the addresses to write.
 ``unknown_node``
-    A ``-s`` key names a flow that is not a node of the run. ``error.suggestions`` holds the
-    address to write.
+    A ``-s`` key names a flow that is not a node of the run. ``SettingsError.suggestions``
+    holds the address to write.
 
 A bad design file (``DesignError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

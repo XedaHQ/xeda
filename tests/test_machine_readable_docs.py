@@ -72,6 +72,11 @@ def definitions(lines: list[str]) -> dict[str, list[str]]:
     return found
 
 
+def terms(lines: list[str]) -> list[str]:
+    """Return every term of the definition list in `lines`, in order, repeats included."""
+    return [term for line in lines if line.startswith("``") for term in literals(line)]
+
+
 def error_categories() -> dict[str, list[str]]:
     """Return the codes that the section lists under each category heading.
 
@@ -83,14 +88,14 @@ def error_categories() -> dict[str, list[str]]:
     for i, line in enumerate(lines):
         if line.strip() and i + 1 < len(lines) and lines[i + 1].startswith("~~~~"):
             if name is not None:
-                categories[name] = list(definitions(block))
+                categories[name] = terms(block)
             match = re.search(r"\(``(\w+)``\)$", line)
             assert match, f"the heading `{line}` does not end with its category in a literal"
             name, block = match.group(1), []
         elif name is not None:
             block.append(line)
     if name is not None:
-        categories[name] = list(definitions(block))
+        categories[name] = terms(block)
     return categories
 
 
