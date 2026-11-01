@@ -120,10 +120,12 @@ column are not breaking changes.
 How breaks are detected
 =======================
 
-The test suite compares the public Python API with a release baseline in
-``tests/baselines/<major>.<minor>/``. Nobody rewrites a baseline after its release. A test fails
-when the current API differs from the baseline in a breaking way. The other interfaces on this page
-have no baseline yet: their own tests check them.
+The test suite compares three snapshots with the release baseline in
+``tests/baselines/<major>.<minor>/``: the public Python API; the built-in flows and the error
+codes; and the name grammars, the private files, the session variables, the length of the run
+hash and the CLI. Nobody rewrites a baseline after its release. A breaking difference fails a
+test. Their own tests check the other rules on this page, such as the order of the settings layers
+and the exit statuses.
 
 For an additive change, regenerate the snapshot in ``tests/snapshots/current/`` and commit it:
 

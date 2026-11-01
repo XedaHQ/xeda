@@ -316,7 +316,7 @@ def test_the_classifier_finds_no_difference_in_equal_snapshots() -> None:
 
 def test_a_snapshot_kind_without_a_classifier_is_refused() -> None:
     with pytest.raises(NotImplementedError):
-        tool.classify({}, {}, kind="behavior")
+        tool.classify({}, {}, kind="schema")
 
 
 def _drop_a_parameter(monkeypatch: pytest.MonkeyPatch) -> None:
