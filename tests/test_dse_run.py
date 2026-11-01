@@ -1281,6 +1281,24 @@ def test_an_optimizer_failure_after_a_round_keeps_what_the_exploration_found(tmp
     assert document["best_run_dir"] == passed["run_dir"]
 
 
+class DseRoundTwoInvalid(DseVariants):
+    """The optimizer of `DseVariants`, which builds invalid settings for a second round."""
+
+    def next_batch(self):
+        if self.started:
+            return [self.flow_class.Settings(tag=5)]
+        return super().next_batch()
+
+
+def test_an_invalid_value_of_the_optimizer_after_a_round_is_a_failure_not_a_refusal(
+    tmp_path, monkeypatch
+):
+    result, document = _dse_command(tmp_path, monkeypatch, DseRoundTwoInvalid)
+    assert result.exit_code == 1
+    assert document["outcome"] == "failed"
+    assert len(document["points"]) == 2
+
+
 def test_a_failing_optimizer_loses_no_point_of_its_round(tmp_path, monkeypatch):
     """The points of a round are all collected before the optimizer reads the first of them."""
     result, document = _dse_command(_again(tmp_path), monkeypatch, DseBrokenOutcome)

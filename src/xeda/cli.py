@@ -1609,7 +1609,9 @@ def dse(
         public = public_error(error)
         info = request_error_info(error)
         log.critical("%s", _error_message(error))
-        refused = isinstance(public, (SpecError, RemoteError))
+        # Once the exploration started, every exception ends it: an optimizer may raise any error.
+        started = dse is not None and dse.result is not None
+        refused = isinstance(public, (SpecError, RemoteError)) and not started
         report(None if refused else Outcome.FAILED, info, None if dse is None else dse.result)
         # A refusal is a user error, even when it comes as a raw pydantic error.
         bug = info.code == INTERNAL_ERROR or not isinstance(error, XedaException)
