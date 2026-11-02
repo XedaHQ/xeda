@@ -10,6 +10,7 @@ import collections.abc
 import enum
 import importlib
 import inspect
+import json
 import pathlib
 import re
 import sys
@@ -43,6 +44,14 @@ DOCUMENTS = [
     ROOT / "src/xeda/data/agent/SKILL.md",
 ]
 EXAMPLES = sorted((ROOT / "examples").rglob("*.py"))
+# The old plot notebook imports `xeda.utils`. A new notebook replaces it: remove it from this
+# set when it goes.
+NOT_AUDITED_NOTEBOOKS = {"plot_fmax_vs_luts.ipynb"}
+NOTEBOOKS = [
+    path
+    for path in sorted((ROOT / "notebooks").glob("*.ipynb"))
+    if path.name not in NOT_AUDITED_NOTEBOOKS
+]
 
 RST_BLOCK = re.compile(r"^(?P<indent> *)\.\. code-block:: *python3? *$")
 MD_FENCE = re.compile(r"^```(?:python3?|py)\s*$")
@@ -79,6 +88,12 @@ def python_blocks(path: Path) -> list[tuple[int, str]]:
         else:
             index += 1
     return blocks
+
+
+def notebook_sources(path: Path) -> list[str]:
+    """Return the source of each code cell of a notebook."""
+    cells = json.loads(path.read_text(encoding="utf-8"))["cells"]
+    return ["".join(cell["source"]) for cell in cells if cell["cell_type"] == "code"]
 
 
 def problems(tree: ast.AST) -> list[str]:
@@ -153,6 +168,24 @@ def test_documents_import_only_public_names(path: Path) -> None:
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda path: str(path.relative_to(ROOT)))
 def test_examples_import_only_public_names(path: Path) -> None:
     assert problems(ast.parse(path.read_text(encoding="utf-8"))) == []
+
+
+@pytest.mark.parametrize("path", NOTEBOOKS, ids=lambda path: path.name)
+def test_notebooks_import_only_public_names(path: Path) -> None:
+    for source in notebook_sources(path):
+        assert problems(ast.parse(source)) == [], path.name
+
+
+def test_the_checker_reads_the_code_cells_of_a_notebook(tmp_path: Path) -> None:
+    notebook = tmp_path / "nb.ipynb"
+    cells = [
+        {"cell_type": "markdown", "source": ["from xeda.flows import GhdlSim\n"]},
+        {"cell_type": "code", "source": ["import xeda\n", "from xeda.flow_runner import Runner\n"]},
+    ]
+    notebook.write_text(json.dumps({"cells": cells}), encoding="utf-8")
+    assert [problems(ast.parse(source)) for source in notebook_sources(notebook)] == [
+        ["from xeda.flow_runner import ..."]
+    ]
 
 
 def test_the_checker_finds_a_name_that_is_not_public() -> None:
