@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from xeda import Design
 from xeda._internal.cli import cli
-from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow import FlowSettingsError, registered_flows
 from xeda._internal.flow_runner import DefaultRunner
 from xeda._internal.flow_runner.error_codes import public_error
 from xeda._internal.spec import Spec, spec_sections
@@ -133,6 +133,58 @@ def test_a_shared_setting_on_one_node_propagates_and_a_conflict_is_refused(tmp_p
             },
         )
     assert public_error(raised.value).code == "shared_setting_conflict"
+
+
+FPGA_CHAIN = "yosys_fpga+nextpnr"
+ASIC_CHAIN = "yosys+openroad_place"
+BAD_SHARED_VALUES = [
+    (FPGA_CHAIN, "nextpnr", {"fpga": {"part": 5}}),
+    (FPGA_CHAIN, "nextpnr", {"fpga": {"vendor": 5}}),
+    (FPGA_CHAIN, "nextpnr", {"board": 5}),
+    (FPGA_CHAIN, "nextpnr", {"out_of_context": "maybe"}),
+    (FPGA_CHAIN, "nextpnr", {"clocks": {"main_clock": {"period": 10}}}),
+    (FPGA_CHAIN, "nextpnr", {"clocks": {"main_clock": {"period": "10 MHz"}}}),
+    (FPGA_CHAIN, "nextpnr", {"clocks": {"main_clock": {"freq": 10}}}),
+    (FPGA_CHAIN, "nextpnr", {"clocks": {"main_clock": {"period": "1 ns", "uncertainty": 3}}}),
+    (FPGA_CHAIN, "nextpnr", {"clocks": {"main_clock": 5}}),
+    (ASIC_CHAIN, "openroad_place", {"hierarchical": "maybe"}),
+    (ASIC_CHAIN, "openroad_place", {"wire_rc": 5}),
+    (ASIC_CHAIN, "openroad_place", {"wire_rc": {"signal": 5}}),
+]
+
+
+def _plan_code(tmp_path, flow, settings):
+    with pytest.raises(Exception) as raised:
+        _runner(tmp_path).plan(flow, _design(tmp_path), flow_settings=settings)
+    return public_error(raised.value).code
+
+
+@pytest.mark.parametrize("chain, node, value", BAD_SHARED_VALUES, ids=str)
+def test_a_malformed_shared_value_gets_the_code_of_the_same_value_of_an_ordinary_setting(
+    tmp_path, chain, node, value
+):
+    flow = registered_flows[node][1]
+    with pytest.raises(FlowSettingsError) as raised:
+        flow.Settings.from_input(value, design_root=tmp_path, runner_cwd=tmp_path)
+    code = public_error(raised.value).code
+    assert code != "shared_setting_conflict"
+    assert _plan_code(tmp_path, chain, {node: value}) == code
+    assert _plan_code(tmp_path, node, {node: value}) == code
+
+
+@pytest.mark.parametrize(
+    "setting", [{"platform": "no_such_platform"}, {"platform_file": "missing.yaml"}]
+)
+def test_a_platform_that_cannot_be_read_is_unsupported_not_a_conflict(tmp_path, setting):
+    assert _plan_code(tmp_path, ASIC_CHAIN, {"openroad_place": setting}) == "unsupported_setting"
+
+
+def test_two_clock_periods_that_differ_are_a_shared_setting_conflict(tmp_path):
+    settings = {
+        "yosys_fpga": {"clocks": {"main_clock": {"period": "10 ns"}}},
+        "nextpnr": {"clocks": {"main_clock": {"period": "20 ns"}}},
+    }
+    assert _plan_code(tmp_path, FPGA_CHAIN, settings) == "shared_setting_conflict"
 
 
 def test_a_dollar_pwd_expands_when_the_spec_is_made(tmp_path):
