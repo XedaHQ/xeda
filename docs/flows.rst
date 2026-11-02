@@ -1079,9 +1079,9 @@ It is required, and it has no default:
   steps. It checks no assertions.
 - ``prove``: a proof that every assertion holds for all time, by the IC3 engine of rIC3.
 
-The ``depth`` setting is the number of steps of ``bmc`` and ``cover``. It defaults to 20. ``prove``
-has no depth: SBY gives none to rIC3, so Xeda refuses ``depth`` for ``prove``. It does not ignore
-it.
+The ``depth`` setting is the number of steps of ``bmc`` and ``cover``. It defaults to 20, or to 40
+with ``multiclock``, and it is at least 2. ``prove`` has no depth: SBY gives none to rIC3, so Xeda
+refuses ``depth`` for ``prove``. It does not ignore it.
 
 Sources and language
 --------------------
@@ -1170,16 +1170,33 @@ in the task, so the run fails after SBY ends. SBY gets the prepared model unchan
 Set ``multiclock`` to true to model every clock edge and asynchronous change (SBY ``multiclock on``).
 This changes the meaning of the run:
 
-- ``depth`` counts global sampling steps, and a regular clock needs two for each cycle. A failure
-  that ``depth`` 7 finds by default needs ``depth`` 12. An irregular clock has no fixed ratio.
+- ``depth`` counts global sampling steps, and a regular clock needs two for each cycle. So the
+  default ``depth`` is 40. A failure that ``depth`` 7 finds by default needs ``depth`` 12. An
+  irregular clock has no fixed ratio.
 - No clock has to toggle. An assertion that never gets a clock edge holds without a check, so state
   the clock in the harness, and use ``cover`` to show that the clocks run.
 - Inputs can change between clock edges, so state their stability in the harness if the design
   relies on it.
-- ``prove`` still has no check of the assumptions.
+- The check of the assumptions after ``prove`` is weak. A stalled clock meets every clocked
+  assumption, so that check finds little.
+
+SBY gives a clocked cell the value of its data one step before the clock edge. A simulator gives it
+the value at the edge. These differ in two cases, and the flow fails the run for both, because a
+PASS could be wrong:
+
+- Logic that reads its own clock as data, directly or through logic. ``q <= clk`` is an example.
+- Logic on a clock that state drives, when it reads state on the clock behind that state. If ``d``
+  is a flop on ``clk`` and clocks ``q``, then ``q <= e`` reads the new value of a flop ``e`` on
+  ``clk`` in a simulator and the old value in SBY. This also holds when a latch or an asynchronous
+  reset drives ``d``. A clock divider whose logic reads only its own state is accepted, with a
+  shared asynchronous reset as well.
+
+The second check does not compare clock edges. So it also refuses logic on ``d`` that reads a flop
+on the falling edge of ``clk``, which SBY reads correctly.
 
 In both models, a clocked property is checked one step after its clock edge, so the last step of
-``depth`` checks no clocked property. A failure at cycle 5 needs ``depth`` 7.
+``depth`` checks no clocked property. A failure at cycle 5 needs ``depth`` 7, and a ``depth`` of 1
+would check nothing, so the least value is 2.
 
 Solvers
 -------
@@ -1189,8 +1206,11 @@ Each mode runs one engine. Xeda selects no other solver, and it has no fallback:
 - ``bmc`` and ``cover`` run ``smtbmc`` with Bitwuzla. Before the search, the engine checks that the
   assumptions are satisfiable (presat). Contradictory assumptions fail the run. They do not pass.
 - ``prove`` runs ``btor rIC3 -e ic3``, the IC3 engine of rIC3 alone. The ``btor`` engine has no
-  presat check, so contradictory assumptions pass vacuously, and the result metrics do not show it.
-  Write the assumptions so that they are satisfiable.
+  presat check, so after a proof a second task keeps only the assumptions and checks them with
+  ``smtbmc`` and Bitwuzla for 20 steps (40 with ``multiclock``). The run fails if no trace meets
+  them. An assumption that excludes every trace only after those steps still passes vacuously, so
+  use ``cover`` to show that the proof reaches what matters. A counterexample meets the assumptions
+  along its trace, so a failed proof needs no second task. The ``timeout`` applies to each task.
 
 The default portfolio of rIC3 runs several engines and writes ``/tmp/rIC3``, outside the run root.
 On the tested tuple, the single IC3 engine avoids both. This is not a ranking of the engines. Xeda

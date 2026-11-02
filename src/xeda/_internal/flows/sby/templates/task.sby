@@ -1,9 +1,9 @@
 {#- One SBY task. It keeps SBY's default `expect pass`, so the exit code names the status, and
-    the default presat check of `smtbmc`; `btor` has none. `prove` has no depth: SBY would not give
-    it to rIC3. Every word that the design supplies goes through `word`, which refuses what would
+    the default presat check of `smtbmc`; `btor` has none, so `prove` runs this template again with
+    `assumptions_only`. `prove` has no depth: SBY would not give it to rIC3. Every word that the design supplies goes through `word`, which refuses what would
     split it. -#}
 [options]
-mode {{ settings.mode }}
+mode {{ task_mode }}
 {% if depth is not none -%}
 depth {{ depth }}
 {% endif -%}
@@ -34,9 +34,13 @@ hierarchy -check -top {{ design.rtl.top|word }}
 select -assert-none A:blackbox A:whitebox a:anyconst a:anyseq a:allconst a:allseq t:$anyconst t:$anyseq t:$allconst t:$allseq t:$live t:$fair t:$check r:FLAVOR=live %i t:$check r:FLAVOR=fair %i
 select -assert-any t:${{ obligation }} t:$check r:FLAVOR={{ obligation }} %i
 prep -top {{ design.rtl.top|word }}
-{% if not settings.multiclock -%}
-{#- `formalff -clk2ff` of SBY assumes one clock and does not check it, so the flow reads a flattened
-    copy of the model. SBY gets the prepared model unchanged. -#}
+{% if assumptions_only -%}
+{#- Only the assumptions stay, so that the presat check of `smtbmc` solves no assertion. -#}
+chformal -assert -cover -remove
+{% else -%}
+{#- `formalff -clk2ff` of SBY assumes one clock and does not check it, and `clk2fflogic` reads data
+    before a clock edge, so the flow reads a flattened copy of the model. SBY gets the prepared
+    model unchanged. -#}
 design -save xeda_prepared
 flatten
 opt_clean
