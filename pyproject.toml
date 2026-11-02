@@ -77,7 +77,7 @@ xeda = "xeda.cli:cli"
 # `test` and `examples`.
 [dependency-groups]
 # What the test suite needs.
-test = ["pytest>=9.1.1", "pytest-xdist", "jsonschema"]
+test = ["pytest>=9.2.0", "pytest-xdist", "jsonschema"]
 # What the cocotb testbenches of the examples need, and pyserial for the host programs of the
 # `uart_echo` and `uart_link` examples. The suite runs the testbenches.
 examples = [
