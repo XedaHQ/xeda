@@ -41,7 +41,7 @@ RETIRED = {
     "Cocotb",
 }
 DOCUMENTS = [
-    *sorted((ROOT / "docs").glob("*.rst")),
+    *sorted((ROOT / "docs").rglob("*.rst")),
     ROOT / ".claude/skills/xeda/SKILL.md",
     AGENT_DIR / "SKILL.md",
 ]
