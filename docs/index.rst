@@ -8,9 +8,9 @@ tools. One declarative design file drives all of them: you switch tools by namin
 
 New here? Start with the :doc:`quickstart`, then the :doc:`tutorial/index`.
 
-To drive Xeda from a script or a coding agent, read :doc:`machine-readable`. To use it from Python,
-start with the `notebooks <https://github.com/XedaHQ/xeda/tree/main/notebooks>`_: a quickstart and
-a tour of the ways a simulation can end.
+To use Xeda from Python, read :doc:`python-api`. To drive it from a shell or a coding agent, read
+:doc:`machine-readable`. The `notebooks <https://github.com/XedaHQ/xeda/tree/main/notebooks>`_ show
+the Python code with real output.
 
 .. toctree::
    :maxdepth: 2
@@ -24,8 +24,9 @@ a tour of the ways a simulation can end.
    platforms
    run-directories
    remote
-   machine-readable
+   python-api
    api/index
+   machine-readable
    stability
    bugs
    copyright

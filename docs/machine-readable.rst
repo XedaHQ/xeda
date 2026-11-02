@@ -1342,79 +1342,10 @@ Using Xeda as a library
 =======================
 
 The same information is available in a process, without a shell. The functions of
-``xeda.introspect`` return plain data that can be serialized as JSON:
-
-.. code-block:: python
-
-    from xeda.introspect import (
-        flows_info, settings_info, results_info, design_schema,
-        boards_info, platforms_info,
-    )
-
-    print(flows_info())                     # every flow
-    print(settings_info("vivado_synth"))    # one flow's settings
-    print(results_info("vivado_synth"))     # one flow's result keys
-
-To run a flow, describe the run in a ``Spec`` and give it to a ``Workspace``. A workspace holds
-the run root and the options of the session. It plans and runs a ``Spec``:
-
-.. code-block:: python
-
-    from xeda import Design, Spec, Workspace
-
-    design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
-    spec = Spec("vivado_synth", design, settings={"vivado_synth.clock.period": "5 ns"})
-    workspace = Workspace("xeda_run")
-    result = workspace.run(spec)
-    if result.passed:
-        print(result.record.metric("fmax"))
-    else:
-        print(result.outcome, result.error.message)
-
-``Workspace.run`` returns a ``Result``. A node that fails or is rejected is an outcome in the
-result, not an exception. ``result.nodes`` holds an outcome for every node of the run, and
-``result.record`` is the ``RunRecord`` of the requested flow. ``result.to_dict()`` is the document
-that ``xeda run --json`` prints. ``result.require_passed()`` raises a ``RunFailedError`` (from
-``xeda.errors``) if the launch did not pass.
-
-A ``Design`` and every value in it is read-only. An assignment raises an error, and a list or
-table in a design cannot change. A ``Spec`` copies its design.
-
-To inspect a plan without constructing or running flows:
-
-.. code-block:: python
-
-    from xeda import Design, Spec, Workspace
-
-    design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
-    spec = Spec("yosys_fpga", design, settings={"yosys_fpga.fpga.part": "LFE5U-25F-6BG381C"})
-    plan = Workspace("xeda_run").plan(spec)
-    for node in plan.nodes.values():
-        print(node.name, node.state, node.reason)
-    print(plan.to_dict())
-
-``plan.to_dict()`` returns the same plain data as ``--dry-run --json``. A ``Plan`` is read-only.
-``workspace.run(plan)`` plans the spec again under the locks of the launch. It raises
-``StalePlanError`` when the graph, an identity, a run directory, a delivery, the settings or the
-commit of a Git dependency differs from the plan. A changed source file is no difference: the launch
-checks freshness again, so a node that the plan showed as fresh can run.
-
-The records of earlier runs are on the disk. A workspace reads them without running a flow:
-
-.. code-block:: python
-
-    from xeda import Workspace
-
-    workspace = Workspace("xeda_run")
-    listing = workspace.records(design_name="sqrt", flow="vivado_synth")
-    for record in listing.records:
-        print(record.run_dir, record.outcome, record.runtime)
-    for problem in listing.problems:
-        print(problem.path, problem.code)
-
-``workspace.load(run_dir)`` returns the record of one run directory. ``workspace.scrub`` removes
-the run directories of a design (``workspace.scrub(design_name="sqrt")``) after the ``confirm``
-function of the workspace said yes. A workspace without ``confirm`` removes nothing.
+``xeda.introspect`` return plain data that can be serialized as JSON. ``Workspace.run`` returns a
+``Result``, and ``result.to_dict()`` is the document that ``xeda run --json`` prints. The page
+:doc:`python-api` explains how to run, plan, sweep and read records from Python, and
+:doc:`api/index` lists every public name.
 
 Notes for coding agents
 =======================
