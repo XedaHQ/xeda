@@ -110,7 +110,8 @@ def run_snippet(tmp_path: Path, name: str, body: str) -> str:
 
 
 def test_the_documents_carry_runnable_python_snippets() -> None:
-    assert any(python_blocks(ROOT / "docs" / "python-api.rst"))
+    for path in (ROOT / "docs" / "python-api.rst", SKILL_DIR / "SKILL.md", AGENT_DIR / "SKILL.md"):
+        assert any(python_blocks(path)), path
     names = [(path, name) for path in DOCUMENTS for name, _ in python_blocks(path)]
     assert len(names) == len(set(names)), "a document gives a snippet name twice"
 

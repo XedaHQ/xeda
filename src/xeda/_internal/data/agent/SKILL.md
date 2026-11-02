@@ -622,21 +622,35 @@ second spelling is refused, and the error names the right one.
 ## Library
 
 ```python
+# library.py
 from xeda import Design, Spec, Workspace
-from xeda.introspect import flows_info, settings_info, results_info, design_schema
+from xeda.errors import SpecError
 
 design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
 spec = Spec("vivado_synth", design, settings={"vivado_synth.clock.period": "5 ns"})
-result = Workspace("xeda_run").run(spec)  # a node that fails is an outcome, not an exception
+workspace = Workspace("xeda_run")
+try:
+    plan = workspace.plan(spec)  # a wrong request raises a SpecError before anything runs
+except SpecError as error:
+    raise SystemExit(f"{error.code}: {error}")
+result = workspace.run(plan)  # a node that fails is an outcome, not an exception
 if result.passed:
-    print(result.record.metric("fmax"))
+    print(result.record.metric("fmax"), result.record.metric_info["fmax"].unit)
+else:
+    print(result.outcome, result.error.code, result.error.message)
 ```
 
-`Workspace.plan(spec)` returns the `Plan` without a run. `Workspace.records()` lists the records of
-earlier runs. Import only from `xeda`, `xeda.errors` and `xeda.introspect`.
-
-A `Design` and everything in it is read-only (assigning raises an error). Change a copy with
-`design.model_copy(update=...)`, then call `invalidate_cached_properties()` on it.
+- `Workspace.run(spec)` returns a `Result`: `outcome`, `error`, `passed`, `nodes` (one `NodeResult`
+  per node) and `record` (the `RunRecord` of the requested flow, the `results.json` of its run
+  directory). `result.to_dict()` is the document of `xeda run --json`.
+- `Workspace.plan(spec)` returns the `Plan` without a run. `Workspace.records()` lists the records
+  of earlier runs, and `Workspace.load(run_dir)` reads one.
+- A `Design`, a `Spec` and everything in them is read-only (assigning raises an error). Make a
+  changed design with `design.with_updates({"rtl.parameters.WIDTH": 16})`; never use `model_copy`.
+- Use `hashed_run_dirs=True` when you compare configurations of one flow and design, or they
+  replace each other in one run directory.
+- Import only from `xeda`, `xeda.errors` and `xeda.introspect`. The full guide is the
+  documentation page "Use Xeda from Python".
 
 `xeda.introspect` returns the data the CLI renders. Each `list-* --json` document has
 `schema_version: 1`. Its entries are under `flows`, `fields`, `metrics`, `boards`, `platforms`,
