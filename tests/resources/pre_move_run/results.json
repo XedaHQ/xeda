@@ -1,0 +1,356 @@
+{
+    "schema_version": 1,
+    "run_id": "6d02270c312e4fdc850cf044dc6d15da",
+    "xeda_version": "0.4.4.dev456+g4e5120e40",
+    "flow": "nextpnr",
+    "design": "net",
+    "target": null,
+    "identity": "434e88e76aea5be1543890a2135d3a4e3ad464ad9f7930de5e534a29ccf79dc9",
+    "configuration": {
+        "rtl": {
+            "top": "top",
+            "parameters": {},
+            "defines": {},
+            "clocks": [],
+            "attributes": {}
+        },
+        "language": {
+            "vhdl": {
+                "standard": null,
+                "synopsys": false
+            },
+            "verilog": {
+                "standard": null
+            }
+        }
+    },
+    "outcome": "passed",
+    "error": null,
+    "metrics": {
+        "clock_domains": 1,
+        "fmax": 250.0,
+        "wns": 6.0,
+        "timing_met": true,
+        "clock_frequency": 100.0,
+        "clock_period": 10.0,
+        "cell_types": {
+            "TRELLIS_COMB": 1,
+            "TRELLIS_FF": 1
+        },
+        "lut": 1,
+        "ff": 1,
+        "lut_basis": {
+            "stage": "placed and routed",
+            "method": "TRELLIS_COMB bels in nextpnr's utilization report"
+        }
+    },
+    "metric_info": {
+        "clock_domains": {
+            "description": "Number of clock domains the timing analysis reported.",
+            "type": "integer",
+            "unit": null
+        },
+        "fmax": {
+            "description": "Maximum achievable clock frequency, derived from the constrained period and the worst negative slack. This is the achieved result, unlike `clock_frequency`. Each tool times a design with its own model: compare `fmax` only between runs of the same tool.",
+            "type": "number",
+            "unit": "MHz"
+        },
+        "wns": {
+            "description": "Worst negative slack over all setup paths. Negative means setup timing is not met.",
+            "type": "number",
+            "unit": "ns"
+        },
+        "timing_met": {
+            "description": "Whether every constrained clock domain met its constraint.",
+            "type": "boolean",
+            "unit": null
+        },
+        "clock_frequency": {
+            "description": "Constrained clock frequency. This is the constraint that was given to the tool, not the achieved maximum (see `fmax`).",
+            "type": "number",
+            "unit": "MHz"
+        },
+        "clock_period": {
+            "description": "Constrained clock period, as given to the tool.",
+            "type": "number",
+            "unit": "ns"
+        },
+        "cell_types": {
+            "description": "Number of bels used of each type, by the bel name that nextpnr gives (`TRELLIS_COMB`, `SLICE_LUTX`).",
+            "type": "counts",
+            "unit": null
+        },
+        "lut": {
+            "description": "Number of LUTs used.",
+            "type": "integer",
+            "unit": null
+        },
+        "ff": {
+            "description": "Number of flip-flops (registers) used.",
+            "type": "integer",
+            "unit": null
+        },
+        "lut_basis.stage": {
+            "description": "The stage that the canonical `lut` count describes.",
+            "type": "text",
+            "unit": null
+        },
+        "lut_basis.method": {
+            "description": "The method that gave the canonical `lut` count at that stage.",
+            "type": "text",
+            "unit": null
+        }
+    },
+    "outputs": {
+        "config": {
+            "kind": "EcpConfig",
+            "cardinality": "optional",
+            "names": [
+                "config.txt"
+            ],
+            "digests": [
+                "4c7a6f779c6885b7e188a015ec3fe8f9"
+            ],
+            "design": null
+        }
+    },
+    "artifacts": {
+        "log": "logs/nextpnr-ecp5.log",
+        "report": "report.json"
+    },
+    "settings": {
+        "verbosity": "normal",
+        "nthreads": null,
+        "reports_dir": "reports",
+        "checkpoints_dir": "checkpoints",
+        "outputs_dir": "outputs",
+        "lib_paths": [],
+        "env": {},
+        "inherit_env": true,
+        "docker": false,
+        "docker_image": null,
+        "clocks": {},
+        "fpga": {
+            "part": "LFE5U-25F-6BG381C",
+            "device": "LFE5U",
+            "vendor": "lattice",
+            "family": "ecp5",
+            "generation": null,
+            "type": "u",
+            "speed": "6",
+            "package": "BG",
+            "capacity": "25k",
+            "pins": 381,
+            "grade": "C"
+        },
+        "board": null,
+        "custom_boards_file": null,
+        "seed": null,
+        "randomize_seed": false,
+        "timing_allow_fail": false,
+        "ignore_loops": false,
+        "textcfg": "config.txt",
+        "asc": "config.asc",
+        "fasm": "config.fasm",
+        "out_of_context": false,
+        "lpf_allow_unconstrained": false,
+        "pcf_allow_unconstrained": false,
+        "placer": null,
+        "router": null,
+        "cstrweight": null,
+        "starttemp": null,
+        "placer_heap_alpha": null,
+        "placer_heap_beta": null,
+        "placer_heap_critexp": null,
+        "placer_heap_timingweight": null,
+        "tmg_ripup": false,
+        "no_tmdriv": false,
+        "ignore_rel_clk": false,
+        "sdc": null,
+        "pre_pack": null,
+        "pre_place": null,
+        "pre_route": null,
+        "post_route": null,
+        "no_promote_globals": false,
+        "opt_timing": false,
+        "disable_router_lutperm": false,
+        "override_basecfg": null,
+        "allow_fabric_eclk": false,
+        "promote_logic": false,
+        "no_promote_ce": false,
+        "no_pack_lutff": false,
+        "no_post_place_opt": false,
+        "carry_lutff_ratio": null,
+        "estimate_delay_mult": null,
+        "router2_alt_weights": false,
+        "placer_heap_no_ctrl_set": false,
+        "extra_args": [],
+        "py_script": null,
+        "write": null,
+        "sdf": null,
+        "log": "nextpnr.log",
+        "report": "report.json",
+        "detailed_timing_report": false,
+        "placed_svg": null,
+        "routed_svg": null,
+        "parallel_refine": false,
+        "prjxray_db": null,
+        "chipdb": null,
+        "delay_matrix": "build",
+        "hold_fix": false,
+        "hold_detour_max": null,
+        "placement": null
+    },
+    "inputs": [
+        {
+            "name": "netlist",
+            "origin": "source",
+            "producer": null,
+            "output": null,
+            "producer_run_id": null,
+            "producer_run_dir": null,
+            "sources": [
+                {
+                    "path": "n.json",
+                    "generated": false,
+                    "digest": "5e6008c7a59f448c61d0bb997b126682",
+                    "dependency": null,
+                    "producer": null,
+                    "generation": null
+                }
+            ]
+        },
+        {
+            "name": "constraints",
+            "origin": "none",
+            "producer": null,
+            "output": null,
+            "producer_run_id": null,
+            "producer_run_dir": null,
+            "sources": []
+        },
+        {
+            "name": "sdc",
+            "origin": "none",
+            "producer": null,
+            "output": null,
+            "producer_run_id": null,
+            "producer_run_dir": null,
+            "sources": []
+        }
+    ],
+    "started": "2026-11-02T20:42:30.390779+00:00",
+    "finished": "2026-11-02T20:42:30.586210+00:00",
+    "runtime": 0.1932698329910636,
+    "dependencies": [],
+    "inherited_variables": [
+        "AI_AGENT",
+        "BUNDLED_DEBUGPY_PATH",
+        "CAML_LD_LIBRARY_PATH",
+        "CLAUDECODE",
+        "CLAUDE_CODE_BRIDGE_SESSION_ID",
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_EXECPATH",
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_EFFORT",
+        "CLAUDE_JOB_DIR",
+        "CLAUDE_PID",
+        "CLAUDE_PLUGIN_DATA",
+        "CLICOLOR",
+        "CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS",
+        "CODEX_CI",
+        "CODEX_COMPANION_SESSION_ID",
+        "CODEX_COMPANION_TRANSCRIPT_PATH",
+        "CODEX_SESSION_ID",
+        "CODEX_THREAD_ID",
+        "CODEX_TOOL_CALL_ID",
+        "CODEX_VERSION",
+        "COLORTERM",
+        "COMMAND_MODE",
+        "COPILOT_DEBUG_NONCE",
+        "COREPACK_ENABLE_AUTO_PIN",
+        "CPPFLAGS",
+        "DISPLAY",
+        "DVT_LICENSE_FILE",
+        "EDITOR",
+        "FPATH",
+        "GH_PAGER",
+        "GIT_EDITOR",
+        "GIT_PAGER",
+        "GRB_LICENSE_FILE",
+        "HISTSIZE",
+        "HOME",
+        "HOMEBREW_CELLAR",
+        "HOMEBREW_EDITOR",
+        "HOMEBREW_NO_INSTALL_FROM_API",
+        "HOMEBREW_PREFIX",
+        "HOMEBREW_REPOSITORY",
+        "INFOPATH",
+        "INVOCATION_ID",
+        "JAVA_HOME",
+        "JENV_LOADED",
+        "JENV_SHELL",
+        "LANG",
+        "LAUNCHCTL_ENV_REEXEC",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LDFLAGS",
+        "LESS",
+        "LOGNAME",
+        "LSCOLORS",
+        "LS_COLORS",
+        "LaunchInstanceID",
+        "MILL_NO_SEPARATE_BSP_OUTPUT_DIR",
+        "MODULAR_HOME",
+        "MallocNanoZone",
+        "NIX_PROFILES",
+        "NIX_SSL_CERT_FILE",
+        "NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S",
+        "NO_COLOR",
+        "NoDefaultCurrentDirectoryInExePath",
+        "OCAML_TOPLEVEL_PATH",
+        "OPAMNOENVNOTICE",
+        "OPAM_SWITCH_PREFIX",
+        "OPENROUTER_API_KEY",
+        "OSLogRateLimit",
+        "OpenMP_ROOT",
+        "P9K_SSH",
+        "P9K_TTY",
+        "PAGER",
+        "PATH",
+        "PDK_ROOT",
+        "PS1",
+        "PYDEVD_DISABLE_FILE_VALIDATION",
+        "PYTHONSTARTUP",
+        "RAPIDWRIGHT_PATH",
+        "RISCV",
+        "SAVEHIST",
+        "SDKMAN_CANDIDATES_API",
+        "SDKMAN_CANDIDATES_DIR",
+        "SDKMAN_DIR",
+        "SDKMAN_PLATFORM",
+        "SECURITYSESSIONID",
+        "SHELL",
+        "TERM",
+        "TMPDIR",
+        "USER",
+        "UV_PYTHON",
+        "VIRTUAL_ENV",
+        "VIRTUAL_ENV_PROMPT",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD",
+        "XDG_DATA_DIRS",
+        "XPC_FLAGS",
+        "XPC_SERVICE_NAME",
+        "XZ_DEFAULTS",
+        "ZSH",
+        "_P9K_SSH_TTY",
+        "_P9K_TTY",
+        "__CF_USER_TEXT_ENCODING",
+        "__ETC_PROFILE_NIX_SOURCED"
+    ]
+}
