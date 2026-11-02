@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import Source, SourceType
-from xeda.flow.derived import derive_design, generated_name
+from xeda._internal.design import Source, SourceType
+from xeda._internal.flow.derived import derive_design, generated_name
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt", reason="the tests make symbolic links, which need privileges on Windows"

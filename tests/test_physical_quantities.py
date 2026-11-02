@@ -1,7 +1,7 @@
 """Every number in a settings model is a quantity or says what kind of number it is.
 
 A setting that holds a physical measurement (a time, a frequency, a capacitance, ...) is a
-quantity type of `xeda.units`, and the user writes its unit. Every other number carries one marker
+quantity type of `xeda._internal.units`, and the user writes its unit. Every other number carries one marker
 (`ratio`, `percent`, `count`, `library_units`, `data_size`) that says what the plain number is. A
 rule like this holds only while a test finds the next setting that breaks it. The sweep below walks
 every settings model, recursively, and fails on a number that is neither.
@@ -25,14 +25,14 @@ import annotated_types
 import pytest
 from pydantic import BaseModel
 
-from xeda.flow import MetricSpec
-from xeda.dataclass import Field, XedaBaseModel
-from xeda.flow import Flow, flowrun_hash
-from xeda.flow_runner.dse import Dse, Optimizer
-from xeda.flow_runner.trace import as_recorded
-from xeda.flows import Quartus
-from xeda.introspect import json_safe
-from xeda.units import (
+from xeda._internal.flow import MetricSpec
+from xeda._internal.dataclass import Field, XedaBaseModel
+from xeda._internal.flow import Flow, flowrun_hash
+from xeda._internal.flow_runner.dse import Dse, Optimizer
+from xeda._internal.flow_runner.trace import as_recorded
+from xeda._internal.flows import Quartus
+from xeda._internal.introspect import json_safe
+from xeda._internal.units import (
     MEASURE_KEY,
     MEASURES,
     Bounds,
@@ -50,7 +50,7 @@ from xeda.units import (
     percent,
     ratio,
 )
-from xeda.utils import dump_json, semantic_hash
+from xeda._internal.utils import dump_json, semantic_hash
 
 from .flow_registry import preserved_flow_registry
 from .settings_fields import (
@@ -648,7 +648,7 @@ def test_json_safe_writes_a_quantity_in_a_plain_container_as_text():
 def test_the_run_document_writes_a_quantity_in_the_metrics_as_text(tmp_path, monkeypatch):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     from .flow_registry import preserved_flow_registry
 

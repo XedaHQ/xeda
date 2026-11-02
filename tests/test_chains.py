@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsException, In, Out
-from xeda.flow.io import declared_outputs
-from xeda.flow_runner import FlowNotFoundError
-from xeda.flow_runner.bindings import NodeKey, ProducerRef, chain_bindings
-from xeda.flow_runner.chains import (
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowSettingsException, In, Out
+from xeda._internal.flow.io import declared_outputs
+from xeda._internal.flow_runner import FlowNotFoundError
+from xeda._internal.flow_runner.bindings import NodeKey, ProducerRef, chain_bindings
+from xeda._internal.flow_runner.chains import (
     ChainElement,
     ChainLink,
     FlowRequest,
@@ -35,7 +35,7 @@ from .io_flows import (
     TChainSimpleProducer,
     TChainUndeclared,
 )
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 # `io_flows` also registers the `t_route_*` and `t_loop_*` flows the suggestion tests name.
 
@@ -276,7 +276,7 @@ def test_suggestions_construct_no_flow_and_touch_no_run_root(monkeypatch, tmp_pa
 
 def test_a_suggestion_resolves_with_a_valid_design(tmp_path):
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     root = tmp_path / "design"
     root.mkdir()
@@ -298,7 +298,7 @@ def test_a_suggestion_resolves_with_a_valid_design(tmp_path):
 
 
 def test_a_link_passes_through_the_default_producers_between_its_flows():
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     request = parse_request("yosys_fpga+fpga_pack")
     validate_chain(request.elements)
@@ -307,7 +307,7 @@ def test_a_link_passes_through_the_default_producers_between_its_flows():
 
 
 def test_a_direct_link_passes_through_nothing_and_binds_the_inputs_of_its_consumer():
-    from xeda.flows import FpgaPack
+    from xeda._internal.flows import FpgaPack
 
     request = parse_request("nextpnr+fpga_pack")
     assert request.links == (ChainLink((), ((FpgaPack, "config", "config"),)),)
@@ -406,7 +406,7 @@ def test_a_request_has_one_link_for_each_pair_of_elements():
 def _classes():
     """The product's flows and this suite's chain fixtures: other test modules register flows of
     their own in the same process, which a relation under test must not depend on."""
-    from xeda.introspect import all_flow_classes
+    from xeda._internal.introspect import all_flow_classes
 
     return [
         cls
@@ -420,8 +420,8 @@ def _pairs(edges, attribute):
 
 
 def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
-    from xeda.flow_runner.chains import followers, predecessors
-    from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, VivadoImpl, YosysFpga
+    from xeda._internal.flow_runner.chains import followers, predecessors
+    from xeda._internal.flows import FpgaPack, Nextpnr, Openfpgaloader, VivadoImpl, YosysFpga
 
     classes = _product_classes()
     # the JSON netlist feeds nextpnr, and the EDIF netlist Vivado: each by its own output. The
@@ -481,7 +481,7 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
 
 
 def test_follow_relations_come_from_declarations_not_from_a_name_table():
-    from xeda.flow_runner.chains import followers, predecessors
+    from xeda._internal.flow_runner.chains import followers, predecessors
 
     classes = _classes()
     by_consumer = {}
@@ -516,7 +516,7 @@ def _link_of(producer, output, consumer):
 def test_a_follow_relation_is_exactly_a_link_the_chain_validator_accepts():
     """Every relation is a request that `xeda run` accepts: a direct link or one that passes
     through other flows. Nothing else is listed, and a direct link is listed before the others."""
-    from xeda.flow_runner.chains import followers, predecessors
+    from xeda._internal.flow_runner.chains import followers, predecessors
 
     classes = _classes()
     # once per producer: the last check below reads every list again for every consumer
@@ -552,8 +552,8 @@ def test_a_follow_relation_is_exactly_a_link_the_chain_validator_accepts():
 
 
 def test_a_link_that_passes_through_flows_is_listed_with_the_flows_it_binds():
-    from xeda.flow_runner.chains import followers
-    from xeda.flows import Nextpnr, YosysFpga
+    from xeda._internal.flow_runner.chains import followers
+    from xeda._internal.flows import Nextpnr, YosysFpga
 
     classes = _product_classes()
     (edge,) = [e for e in followers(YosysFpga, classes) if e.consumer.name == "fpga_pack"]
@@ -637,7 +637,7 @@ def test_a_link_that_passes_through_flows_is_listed_with_the_flows_it_binds():
     ],
 )
 def test_completion_of_an_unfinished_request_returns_the_full_token(incomplete, expected):
-    from xeda.flow_runner.chains import complete_request
+    from xeda._internal.flow_runner.chains import complete_request
 
     assert complete_request(incomplete, _classes()) == expected
 
@@ -647,7 +647,7 @@ def _product_classes():
 
 
 def test_completion_offers_the_direct_followers_first_and_then_the_ones_a_link_passes_through():
-    from xeda.flow_runner.chains import complete_request
+    from xeda._internal.flow_runner.chains import complete_request
 
     classes = _product_classes()
     assert complete_request("yosys_fpga+", classes) == [
@@ -672,7 +672,7 @@ def test_completion_offers_the_direct_followers_first_and_then_the_ones_a_link_p
 
 
 def test_completion_offers_no_flow_that_a_link_of_the_prefix_passes_through():
-    from xeda.flow_runner.chains import complete_request
+    from xeda._internal.flow_runner.chains import complete_request
 
     classes = _product_classes()
     # `yosys_fpga+fpga_pack` runs `nextpnr` in between, so `nextpnr` cannot come again
@@ -689,7 +689,7 @@ def test_completion_offers_no_flow_that_a_link_of_the_prefix_passes_through():
 
 
 def test_completion_does_not_offer_a_flow_that_an_earlier_link_skips():
-    from xeda.flow_runner.chains import complete_request
+    from xeda._internal.flow_runner.chains import complete_request
 
     skip = [
         getattr(io_flows, name)
@@ -717,7 +717,7 @@ def test_completion_does_not_offer_a_flow_that_an_earlier_link_skips():
 
 
 def test_completion_is_static(monkeypatch, tmp_path):
-    from xeda.flow_runner.chains import complete_request
+    from xeda._internal.flow_runner.chains import complete_request
 
     def forbidden_init(*args, **kwargs):
         raise AssertionError("completion never constructs a flow")
@@ -916,13 +916,13 @@ def test_the_default_graph_of_a_flow_reads_declarations_only(monkeypatch):
         raise AssertionError("the graph is static")
 
     monkeypatch.setattr(Flow, "__init__", forbidden_init)
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     assert default_graph(get_flow_class("fpga_pack")).flows()
 
 
 def test_the_graph_of_the_fpga_packer_passes_through_nextpnr():
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     fpga_pack, nextpnr, yosys_fpga = map(get_flow_class, ("fpga_pack", "nextpnr", "yosys_fpga"))
 
@@ -960,8 +960,8 @@ def test_the_graph_of_the_fpga_packer_passes_through_nextpnr():
     ],
 )
 def test_reserved_chain_syntax_and_a_malformed_output_are_refused_with_their_codes(text, code):
-    from xeda.flow_runner.chains import ChainRefusal
-    from xeda.flow_runner.error_codes import public_error
+    from xeda._internal.flow_runner.chains import ChainRefusal
+    from xeda._internal.flow_runner.error_codes import public_error
 
     with pytest.raises(ChainRefusal) as refused:
         parse_request(text)
@@ -990,7 +990,7 @@ def test_a_name_that_is_no_flow_is_flow_not_found_and_no_spelling_is_accepted(te
 
 
 def test_every_builtin_flow_name_fits_the_grammar():
-    from xeda.flow_runner.chains import FLOW_NAME, RESERVED_FLOW_NAMES
+    from xeda._internal.flow_runner.chains import FLOW_NAME, RESERVED_FLOW_NAMES
 
     names = [cls.name for cls in _product_classes()]
     assert len(names) >= 29
@@ -999,7 +999,7 @@ def test_every_builtin_flow_name_fits_the_grammar():
 
 @pytest.mark.parametrize("class_name", ["_Hidden", "Flows", "Design", "Settings"])
 def test_a_flow_name_outside_the_grammar_or_reserved_is_refused_at_registration(class_name):
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     before = dict(registered_flows)
     with pytest.raises(TypeError, match="flow name"):
@@ -1040,7 +1040,7 @@ def _action_with_a_receipt():
 
 
 def test_an_action_may_precede_a_reader_of_its_declared_output_and_no_other():
-    from xeda.flow_runner.chains import ChainRefusal
+    from xeda._internal.flow_runner.chains import ChainRefusal
 
     program, flash, check = _action_with_a_receipt()
     request = parse_request("t_program+t_check")

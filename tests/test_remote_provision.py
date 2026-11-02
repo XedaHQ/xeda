@@ -1,4 +1,4 @@
-"""Provisioning a remote host (`xeda.remote.provision` and `bootstrap.sh`), against the fake `ssh`
+"""Provisioning a remote host (`xeda._internal.remote.provision` and `bootstrap.sh`), against the fake `ssh`
 (`tests/fake_tools/remote/fake_ssh.py`), the fake `uv` and the fake `curl`. The remote host is this
 machine; its home is a directory of the test."""
 
@@ -15,24 +15,24 @@ from typing import List, Optional
 
 import pytest
 
-from xeda.package_paths import impl_module
-from xeda.remote import provision
-from xeda.remote.constants import UV_VERSION
-from xeda.remote.environment import (
+from xeda._internal.package_paths import impl_module
+from xeda._internal.remote import provision
+from xeda._internal.remote.constants import UV_VERSION
+from xeda._internal.remote.environment import (
     CodeSnapshot,
     DependencySpec,
     code_snapshot,
     dependency_key,
     python_choice,
 )
-from xeda.remote.errors import (
+from xeda._internal.remote.errors import (
     RemoteConfigError,
     RemoteConnectionError,
     RemoteProtocolError,
     RemoteProvisionError,
 )
-from xeda.remote.profile import HostProfile
-from xeda.remote.provision import (
+from xeda._internal.remote.profile import HostProfile
+from xeda._internal.remote.provision import (
     Probe,
     Provisioned,
     agent_command,
@@ -40,7 +40,7 @@ from xeda.remote.provision import (
     env_hash,
     probe,
 )
-from xeda.remote.ssh import SshSession, resolve_destination, sh_command
+from xeda._internal.remote.ssh import SshSession, resolve_destination, sh_command
 
 from .remote_fixtures import REMOTE_FAKES_DIR, FAKE_TARGET, FakeRemote, fake_remote, fake_ssh
 
@@ -142,7 +142,7 @@ def test_provisioned_names(fake_remote, snapshot):
 
 
 def probe_platform():
-    from xeda.remote.environment import RemotePlatform
+    from xeda._internal.remote.environment import RemotePlatform
 
     return RemotePlatform(system="Linux", machine="x86_64", libc="glibc", libc_version="2.39")
 

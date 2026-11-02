@@ -12,16 +12,16 @@ from typing import Callable, ClassVar, List, Optional, Tuple
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.dataclass import WORKING, Field, deliverable
-from xeda.design import SourceType
-from xeda.flow import Flow, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.tool import Docker, Tool
+from xeda._internal.dataclass import WORKING, Field, deliverable
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, Out, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.tool import Docker, Tool
 
 from .flow_registry import preserved_flow_registry
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: What the consumer does in `init()` and in `run()`, set by each test.
 CONSUMER_INIT: List[Callable[[Flow], None]] = []
@@ -355,7 +355,7 @@ def test_a_working_or_deliverable_setting_is_not_mounted(world):
 
 def test_every_file_and_directory_the_trace_records_from_a_setting_is_held(world):
     """The mounts and the trace's setting inputs come from one reading of the settings."""
-    from xeda.flow_runner.trace_inputs import setting_directories, setting_files
+    from xeda._internal.flow_runner.trace_inputs import setting_directories, setting_files
 
     tmp_path, design, commands = world
     outside = _outside(tmp_path)

@@ -14,11 +14,11 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
-from xeda.flow.io import declared_inputs, declared_outputs
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.cli import cli
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow.io import declared_inputs, declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
 
 from .scoping import scoped
 from .bluespec_sources import COUNTER_BSV

@@ -16,10 +16,10 @@ import pytest
 from xeda.errors import SpecError
 
 from xeda import Design
-from xeda.design import DesignValidationError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dependencies import merged_design
-from xeda.remote.packaging import package_inputs
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dependencies import merged_design
+from xeda._internal.remote.packaging import package_inputs
 
 from .generation_world import World
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
@@ -94,7 +94,7 @@ def test_a_generator_input_outside_the_design_root_cannot_be_sent(tmp_path, remo
     assert isinstance(outcome.error, DesignValidationError)
     assert world.runs == 0 and not connected(remote_host)
     # a local launch is not changed
-    from xeda.flow_runner.launch_generation import generate
+    from xeda._internal.flow_runner.launch_generation import generate
 
     world.run_root.mkdir()
     assert generate(world.load(), run_root=world.run_root.resolve(), environ=dict(os.environ))
@@ -445,7 +445,7 @@ def _rich_dependency(tmp_path: Path) -> Path:
 
 
 def test_a_unit_carries_its_whole_configuration_to_the_host(tmp_path, remote_host):
-    from xeda.flow_runner.launch_generation import generating_units, generation_key
+    from xeda._internal.flow_runner.launch_generation import generating_units, generation_key
 
     design_file = _rich_dependency(tmp_path)
     design = merged_design(Design.load(design_file), run_root=None)
@@ -642,8 +642,8 @@ def test_the_host_fetches_the_commit_the_client_resolved(
 ):
     """A branch that moves on the server between the plan of the client and the plan of the host
     changes nothing: the package holds the commit of the client, and the host fetches that one."""
-    import xeda.flow_runner.dependencies as dependencies
-    from xeda.flow_runner.dependencies import dependency_key
+    import xeda._internal.flow_runner.dependencies as dependencies
+    from xeda._internal.flow_runner.dependencies import dependency_key
 
     git = f"git+{remote.url}?branch=main#dep.yaml"
     world = _world(tmp_path, extra=f"dependencies:\n  - {git}\n")
@@ -683,8 +683,8 @@ def test_the_host_fetches_the_commit_of_a_dependency_of_a_git_dependency(
     B moves after the client resolved it, and the host still fetches the commit of the client."""
     import yaml
 
-    import xeda.flow_runner.dependencies as dependencies
-    from xeda.flow_runner.dependencies import dependency_key
+    import xeda._internal.flow_runner.dependencies as dependencies
+    from xeda._internal.flow_runner.dependencies import dependency_key
 
     from .test_git_dependencies import Remote
 
@@ -728,8 +728,8 @@ def test_two_entries_of_one_repository_get_each_its_own_commit_on_the_host(
     """One entry pins commit A, the other has no reference and so names the `HEAD`. The `HEAD`
     moves after the client resolved it. The host fetches A for the first entry and the commit of
     the client for the second, though both name one repository and one design file."""
-    import xeda.flow_runner.dependencies as dependencies
-    from xeda.flow_runner.dependencies import dependency_key
+    import xeda._internal.flow_runner.dependencies as dependencies
+    from xeda._internal.flow_runner.dependencies import dependency_key
 
     pinned = remote.first
     head = remote.advance()

@@ -19,13 +19,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda import pdk_cli
-from xeda.cli import cli
-from xeda.introspect import provider_status
-from xeda.platforms import Residue, load_residue, locate
-from xeda.platforms.providers import PROVIDERS
+from xeda._internal import pdk_cli
+from xeda._internal.cli import cli
+from xeda._internal.introspect import provider_status
+from xeda._internal.platforms import Residue, load_residue, locate
+from xeda._internal.platforms.providers import PROVIDERS
 from .tool_utils import HANG_GUARD
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -817,7 +817,7 @@ def tree(root: Path) -> list[str]:
 
 
 def install_orfs(root: Path, upstream: Upstream, **keywords: Any):
-    from xeda.platforms.providers import install
+    from xeda._internal.platforms.providers import install
 
     return install(nangate(), "orfs", upstream.commit, root, url=upstream.url, **keywords)
 
@@ -835,8 +835,8 @@ def test_an_orfs_install_fetches_only_the_platform_directory_of_the_commit(tmp_p
 
 
 def test_an_orfs_install_writes_a_receipt(tmp_path, upstream):
-    from xeda.platforms.providers import orfs_checkout_directory
-    from xeda.version import __version__
+    from xeda._internal.platforms.providers import orfs_checkout_directory
+    from xeda._internal.version import __version__
 
     root = tmp_path / "store"
     result = install_orfs(root, upstream)
@@ -869,7 +869,7 @@ def test_an_orfs_install_that_finds_the_files_runs_nothing_and_writes_nothing(tm
     root = tmp_path / "store"
     touch_all(nangate_directory(root, OTHER_COMMIT), nangate())
     before = tree(root)
-    from xeda.platforms.providers import install
+    from xeda._internal.platforms.providers import install
 
     # The URL leads nowhere: a git command would fail.
     result = install(nangate(), "orfs", OTHER_COMMIT, root, url=(tmp_path / "nowhere").as_uri())
@@ -879,7 +879,7 @@ def test_an_orfs_install_that_finds_the_files_runs_nothing_and_writes_nothing(tm
 
 
 def test_a_failed_orfs_fetch_leaves_the_store_as_it_was(tmp_path, upstream):
-    from xeda.platforms.providers import PdkInstallFailed, install
+    from xeda._internal.platforms.providers import PdkInstallFailed, install
 
     root = tmp_path / "store"
     unknown = "3" * 40  # a commit that the repository does not have
@@ -890,7 +890,7 @@ def test_a_failed_orfs_fetch_leaves_the_store_as_it_was(tmp_path, upstream):
 
 
 def test_an_install_whose_files_are_incomplete_is_removed(tmp_path, quiet_git):
-    from xeda.platforms.providers import PdkInstallFailed, install
+    from xeda._internal.platforms.providers import PdkInstallFailed, install
 
     damaged = Upstream(tmp_path / "damaged", missing="rcx_patterns.rules")
     root = tmp_path / "store"
@@ -901,7 +901,7 @@ def test_an_install_whose_files_are_incomplete_is_removed(tmp_path, quiet_git):
 
 
 def test_a_platform_directory_in_the_way_is_refused_and_left_alone(tmp_path, upstream):
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     directory = nangate_directory(root, upstream.commit)
@@ -916,7 +916,7 @@ def test_a_platform_directory_in_the_way_is_refused_and_left_alone(tmp_path, ups
 
 
 def test_two_platforms_of_one_commit_both_install_and_both_locate(tmp_path, upstream):
-    from xeda.platforms.providers import install, locate
+    from xeda._internal.platforms.providers import install, locate
 
     root = tmp_path / "store"
     first = install_orfs(root, upstream)
@@ -952,7 +952,7 @@ def test_an_orfs_install_keeps_only_the_platform_directory(tmp_path, upstream):
 
 
 def test_an_old_checkout_that_keeps_its_git_directory_still_locates(tmp_path, upstream):
-    from xeda.platforms.providers import locate
+    from xeda._internal.platforms.providers import locate
 
     root = tmp_path / "store"
     install_orfs(root, upstream)
@@ -964,7 +964,7 @@ def test_an_old_checkout_that_keeps_its_git_directory_still_locates(tmp_path, up
 def test_a_second_install_into_the_same_root_fails_and_says_who_holds_the_lock(tmp_path, upstream):
     import fcntl
 
-    from xeda.platforms.providers import PdkInstallBusy
+    from xeda._internal.platforms.providers import PdkInstallBusy
 
     root = tmp_path / "store"
     lock = root / "xeda" / ".lock"
@@ -988,7 +988,7 @@ def test_an_install_into_a_directory_that_does_not_exist_makes_it(tmp_path, upst
 
 
 def test_the_directory_provider_has_nothing_to_install(tmp_path):
-    from xeda.platforms.providers import install
+    from xeda._internal.platforms.providers import install
 
     with pytest.raises(ValueError, match="nothing to install"):
         install(nangate(), "directory", None, tmp_path / "store")
@@ -1072,7 +1072,7 @@ def fake_ciel(monkeypatch, tmp_path: Path, **keywords: Any) -> FakeCiel:
 
 
 def test_a_ciel_install_runs_ciel_with_a_clean_environment(tmp_path, monkeypatch):
-    from xeda.platforms.providers import CIEL_VERSION, install
+    from xeda._internal.platforms.providers import CIEL_VERSION, install
 
     fake = fake_ciel(monkeypatch, tmp_path)
     monkeypatch.setenv("PDK_ROOT", "/not/this")
@@ -1105,7 +1105,7 @@ def test_a_ciel_install_runs_ciel_with_a_clean_environment(tmp_path, monkeypatch
 def test_a_ciel_install_accepts_what_the_real_ciel_leaves(tmp_path, monkeypatch):
     """The real `ciel` unpacks the other variants of the family too, and it ends its output with
     the path of the build and no newline. The install checks the variant of the platform only."""
-    from xeda.platforms.providers import install
+    from xeda._internal.platforms.providers import install
 
     fake = fake_ciel(monkeypatch, tmp_path)
     root = tmp_path / "store"
@@ -1117,7 +1117,7 @@ def test_a_ciel_install_accepts_what_the_real_ciel_leaves(tmp_path, monkeypatch)
 
 
 def test_a_ciel_install_verifies_every_corner(tmp_path, monkeypatch):
-    from xeda.platforms.providers import PdkInstallFailed, install
+    from xeda._internal.platforms.providers import PdkInstallFailed, install
 
     fake = fake_ciel(monkeypatch, tmp_path, leave_out="libs.ref/tinylib/lib/tiny_fast.lib")
     with pytest.raises(PdkInstallFailed) as raised:
@@ -1126,7 +1126,7 @@ def test_a_ciel_install_verifies_every_corner(tmp_path, monkeypatch):
 
 
 def test_a_ciel_that_is_not_version_3_is_refused_before_it_fetches(tmp_path, monkeypatch):
-    from xeda.platforms.providers import PdkInstallFailed, install
+    from xeda._internal.platforms.providers import PdkInstallFailed, install
 
     fake = fake_ciel(monkeypatch, tmp_path, version="2.9.0")
     root = tmp_path / "store"
@@ -1138,7 +1138,7 @@ def test_a_ciel_that_is_not_version_3_is_refused_before_it_fetches(tmp_path, mon
 
 
 def test_a_failed_ciel_fetch_is_reported(tmp_path, monkeypatch):
-    from xeda.platforms.providers import PdkInstallFailed, install
+    from xeda._internal.platforms.providers import PdkInstallFailed, install
 
     fake = fake_ciel(monkeypatch, tmp_path, fail=True)
     with pytest.raises(PdkInstallFailed) as raised:
@@ -1426,7 +1426,7 @@ def test_a_hook_of_the_global_configuration_does_not_run(tmp_path, upstream, mon
 
 def test_git_gets_a_controlled_environment(tmp_path, monkeypatch):
     """A `git` that records its environment: only the variables that the install passes."""
-    from xeda.platforms.providers import install
+    from xeda._internal.platforms.providers import install
 
     fakes = tmp_path / "fakes"
     fakes.mkdir()
@@ -1444,7 +1444,7 @@ def test_git_gets_a_controlled_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("https_proxy", "http://proxy.example:3128")
     monkeypatch.setenv("NO_PROXY", "example.com")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/elsewhere/gitconfig")
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     with pytest.raises(PdkInstallFailed):
         install(nangate(), "orfs", PIN, tmp_path / "store")
@@ -1488,7 +1488,7 @@ def test_a_root_that_cannot_be_written_fails_with_one_document(monkeypatch, home
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")
 def test_a_receipt_that_cannot_be_written_fails_with_a_message(tmp_path, monkeypatch):
-    from xeda.platforms import providers
+    from xeda._internal.platforms import providers
 
     fake = fake_ciel(monkeypatch, tmp_path)
     root = tmp_path / "store"
@@ -1507,7 +1507,7 @@ def test_a_ciel_store_without_a_receipt_is_not_installed(tmp_path, monkeypatch):
     """ciel unpacks into the store, so a killed ciel can leave a truncated file that a check of
     the names accepts. Only the receipt, which comes after a verified install, says that it is
     complete."""
-    from xeda.platforms.providers import install, installed
+    from xeda._internal.platforms.providers import install, installed
 
     fake = fake_ciel(monkeypatch, tmp_path)
     root = tmp_path / "store"
@@ -1530,7 +1530,7 @@ def test_a_ciel_store_without_a_receipt_is_not_installed(tmp_path, monkeypatch):
 
 
 def test_an_orfs_store_needs_no_receipt(tmp_path):
-    from xeda.platforms.providers import installed
+    from xeda._internal.platforms.providers import installed
 
     root = tmp_path / "store"
     touch_all(nangate_directory(root), nangate())
@@ -1563,7 +1563,7 @@ def test_the_help_names_every_format_that_asks_no_question():
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")
 def test_an_orfs_install_whose_receipt_cannot_be_written_publishes_nothing(tmp_path, upstream):
-    from xeda.platforms.providers import PdkInstallFailed, installed
+    from xeda._internal.platforms.providers import PdkInstallFailed, installed
 
     root = tmp_path / "store"
     receipts = root / "xeda" / "receipts"
@@ -1581,7 +1581,7 @@ def test_an_orfs_install_whose_receipt_cannot_be_written_publishes_nothing(tmp_p
 
 
 def test_an_orfs_install_whose_rename_fails_leaves_no_receipt(tmp_path, upstream, monkeypatch):
-    from xeda.platforms.providers import PdkInstallFailed, installed
+    from xeda._internal.platforms.providers import PdkInstallFailed, installed
 
     def refuse(self, target):
         raise OSError(28, "No space left on device", str(target))
@@ -1629,7 +1629,7 @@ def test_a_platform_file_that_fails_when_merged_is_refused_by_the_option(
 
 def test_a_failed_rename_keeps_the_receipt_that_was_there(tmp_path, upstream, monkeypatch):
     """An earlier install left a receipt. A new attempt that fails restores its bytes."""
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     receipt = root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
@@ -1648,7 +1648,7 @@ def test_a_failed_rename_keeps_the_receipt_that_was_there(tmp_path, upstream, mo
 
 def test_a_failed_directory_creation_removes_the_parents_it_made(tmp_path, upstream, monkeypatch):
     """A mkdir that fails after others succeeded: the directories this install made go."""
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     real_mkdir = Path.mkdir
 
@@ -1742,7 +1742,7 @@ def test_an_orfs_install_refuses_a_link_in_the_store_and_writes_nothing(
 
 
 def test_an_orfs_install_refuses_a_link_at_the_lock_file(tmp_path, upstream):
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     elsewhere = tmp_path / "elsewhere"
@@ -1758,7 +1758,7 @@ def test_an_orfs_install_refuses_a_link_at_the_lock_file(tmp_path, upstream):
 
 
 def test_an_orfs_install_refuses_a_link_at_the_receipt(tmp_path, upstream):
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     elsewhere = tmp_path / "elsewhere"
@@ -1776,7 +1776,7 @@ def test_an_orfs_install_refuses_a_link_at_the_receipt(tmp_path, upstream):
 
 def test_a_link_to_a_complete_platform_is_refused_too(tmp_path, upstream):
     """The install refuses a link whether or not it leads to the files that the platform needs."""
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     complete = tmp_path / "complete"
@@ -1792,7 +1792,7 @@ def test_a_link_to_a_complete_platform_is_refused_too(tmp_path, upstream):
 def test_a_ciel_install_refuses_a_link_in_the_store_and_writes_nothing(
     tmp_path, monkeypatch, place
 ):
-    from xeda.platforms.providers import PdkInstallFailed, install
+    from xeda._internal.platforms.providers import PdkInstallFailed, install
 
     fake = fake_ciel(monkeypatch, tmp_path)
     root = tmp_path / "store"
@@ -1853,7 +1853,7 @@ def test_a_default_store_reached_through_a_link_still_installs(
 
 def test_a_ciel_install_is_not_affected_by_a_link_under_the_ciel_directory(tmp_path, monkeypatch):
     """ciel writes `<root>/ciel`, not Xeda, so a link there is ciel's business."""
-    from xeda.platforms.providers import install
+    from xeda._internal.platforms.providers import install
 
     fake = fake_ciel(monkeypatch, tmp_path)
     root = tmp_path / "store"
@@ -1869,8 +1869,8 @@ def test_a_link_that_appears_after_the_checks_stops_the_publication(
     """The store can change while `git` runs. The publication checks again, and a link that
     appeared leaves the store and the place that it leads to as they were, with the partial
     directory removed."""
-    from xeda.platforms import providers
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms import providers
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     elsewhere = seed_elsewhere(tmp_path / "elsewhere", "canary.txt")
@@ -1893,7 +1893,7 @@ def test_a_link_that_appears_after_the_checks_stops_the_publication(
 def test_a_rollback_never_writes_or_deletes_through_a_link(tmp_path, upstream, monkeypatch):
     """The move fails, and the directory of the receipts has become a link by then. The rollback
     leaves what the link leads to as it was."""
-    from xeda.platforms.providers import PdkInstallFailed
+    from xeda._internal.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
     elsewhere = seed_elsewhere(tmp_path / "elsewhere", f"{NANGATE}-{upstream.commit}.json")

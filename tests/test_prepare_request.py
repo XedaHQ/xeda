@@ -9,11 +9,11 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import PreparedRequest
-from xeda.flow_runner.dse import Dse
-from xeda.flow_runner.settings_layers import HOST_PROFILE_ORIGIN, host_profile_origin
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.default_runner import PreparedRequest
+from xeda._internal.flow_runner.dse import Dse
+from xeda._internal.flow_runner.settings_layers import HOST_PROFILE_ORIGIN, host_profile_origin
 
 from .test_dse_run import _DeclaredOptimizer
 from .io_flows import TMaker, TPlace, TTaker

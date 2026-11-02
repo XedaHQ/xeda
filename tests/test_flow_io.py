@@ -10,13 +10,13 @@ from typing import ClassVar
 import pytest
 from click.testing import CliRunner
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.dataclass import Field, ValidationError
-from xeda.design import SourceType
-from xeda.flow import Flow, In, Out, registered_flows
-from xeda.flow.io import (
+from xeda._internal.cli import cli
+from xeda._internal.dataclass import Field, ValidationError
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, Out, registered_flows
+from xeda._internal.flow.io import (
     InputDeclaration,
     OutputDeclaration,
     declared_inputs,
@@ -25,7 +25,7 @@ from xeda.flow.io import (
     selected_types,
     switch_on,
 )
-from xeda.introspect import flow_class_info
+from xeda._internal.introspect import flow_class_info
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TChainUndeclared, TMaker, TPlace, TTaker
@@ -134,7 +134,7 @@ def test_a_specialization_cannot_expand_the_declared_vocabulary():
 
 
 def test_a_required_specialized_input_can_be_supplied_without_a_default_producer(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     class TSourceOnly(Flow):
         """Read an explicitly supplied source of the selected type."""

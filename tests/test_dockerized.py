@@ -13,18 +13,18 @@ from typing import ClassVar, Optional
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.dataclass import Field
-from xeda.flow import Flow, In, Out
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, Modelsim, VivadoSynth, Yosys
-from xeda.flows.ghdl import GhdlTool
-from xeda.flows.vivado import VivadoTool
-from xeda.flows.yosys.common import YOSYS_DOCKER_IMAGE
-import xeda.tool
-from xeda.tool import Docker, Tool
+from xeda._internal.design import SourceType
+from xeda._internal.dataclass import Field
+from xeda._internal.flow import Flow, In, Out
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import GhdlSim, Modelsim, VivadoSynth, Yosys
+from xeda._internal.flows.ghdl import GhdlTool
+from xeda._internal.flows.vivado import VivadoTool
+from xeda._internal.flows.yosys.common import YOSYS_DOCKER_IMAGE
+import xeda._internal.tool
+from xeda._internal.tool import Docker, Tool
 
 from .flow_registry import preserved_flow_registry
 from .tool_utils import checkout_work_dir, require_docker, require_docker_image, require_modelsim
@@ -209,7 +209,9 @@ def test_a_containerized_tool_gets_its_default_arguments_once(monkeypatch, tmp_p
     """Not gated: the `docker run` command is captured, not run. A container's command held the
     tool's `default_args`, and `execute` passed them as well: `yosys -T -Q -T -Q`."""
     ran = []
-    monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
+    monkeypatch.setattr(
+        xeda._internal.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd])
+    )
     tool = Tool(executable="yosys", default_args=["-q"], docker=Docker(image="hdlc/impl"))
     tool.dockerized = True
     tool.run("-s", "script.ys", cwd=tmp_path)
@@ -222,7 +224,9 @@ def test_a_containerized_tool_never_relabels_the_users_files(monkeypatch, tmp_pa
     mounted directory for SELinux, which changes the attributes of the user's own files. The
     container runs without a label instead, so every mount is passed as it is."""
     ran = []
-    monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
+    monkeypatch.setattr(
+        xeda._internal.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd])
+    )
     design = tmp_path / "design"
     design.mkdir()
     docker = Docker(image="hdlc/impl", mounts={str(tmp_path / "cache"): "/cache"})

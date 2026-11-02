@@ -6,12 +6,12 @@ from copy import deepcopy
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.design import Design, DesignValidationError
-from xeda.flow import FlowSettingsError, flowrun_hash
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flows import VivadoSynth
-from xeda.introspect import settings_class_info
+from xeda._internal.cli import cli
+from xeda._internal.design import Design, DesignValidationError
+from xeda._internal.flow import FlowSettingsError, flowrun_hash
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.flows import VivadoSynth
+from xeda._internal.introspect import settings_class_info
 
 from .scoping import scoped
 

@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda.dataclass import model_with_allow_extra
-from xeda.design import Design, DesignValidationError
+from xeda._internal.dataclass import model_with_allow_extra
+from xeda._internal.design import Design, DesignValidationError
 
 pytestmark = pytest.mark.python_compat
 

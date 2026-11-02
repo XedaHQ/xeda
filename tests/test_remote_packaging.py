@@ -9,10 +9,10 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
-from xeda.remote.manifest import apply_sync, build_manifest, plan_sync, write_tar
-from xeda.remote.packaging import InputPackage, package_inputs
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.remote.manifest import apply_sync, build_manifest, plan_sync, write_tar
+from xeda._internal.remote.packaging import InputPackage, package_inputs
 
 from .io_flows import TReadsInstalled, TReadsInstalledNested  # noqa: F401  (registers the flows)
 from .test_git_dependencies import git_log, remote
@@ -300,9 +300,9 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     """Package a prepared request, put the package where the remote has it, load the document as
     the launch entry does and plan it. Return the package, the plan of the remote, the run root of
     the remote and the directory of the inputs."""
-    from xeda.utils import using_path_identities
-    from xeda.flow_runner import DefaultRunner
-    from xeda.remote.launch_entry import load_packaged_design
+    from xeda._internal.utils import using_path_identities
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.remote.launch_entry import load_packaged_design
 
     remote_dir = tmp_path / "remote_inputs"
     package = package_inputs(
@@ -356,7 +356,7 @@ def _remote_plan(tmp_path, prepared, local_root, flow, hashed):
     ],
 )
 def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     directory = _targets_copy(tmp_path)
     local_root = tmp_path / "local" / "xeda_run"
@@ -397,7 +397,7 @@ def test_the_remote_plans_the_nodes_of_the_local_plan(tmp_path, case, hashed):
 
 
 def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
-    from xeda.remote.manifest import plan_sync
+    from xeda._internal.remote.manifest import plan_sync
 
     data = _directory_input(tmp_path)
     design = _design(tmp_path)
@@ -440,7 +440,7 @@ def _assert_tables_reach_the_remote(tmp_path, prepared, local_root, flow, *path,
 
 
 def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whole(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     design_root = tmp_path / "design"
     design_root.mkdir()
@@ -469,7 +469,7 @@ def test_a_vivado_table_that_holds_a_name_inside_another_reaches_the_remote_whol
 
 
 def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     design_root = tmp_path / "design"
     design_root.mkdir()
@@ -503,7 +503,7 @@ def test_dotted_names_of_a_vivado_table_reach_the_remote_whole(tmp_path):
 
 
 def test_an_openroad_table_that_holds_a_name_inside_another_reaches_the_remote_whole(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .openroad_utils import openroad_design, openroad_settings, register_openroad_flows
     from .tiny_platform import tiny_store
@@ -530,7 +530,7 @@ def test_an_openroad_table_that_holds_a_name_inside_another_reaches_the_remote_w
 
 
 def test_a_user_design_file_never_takes_a_target_whatever_its_name(tmp_path):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     for name in ("design.yaml", "d.xeda.json"):
         path = tmp_path / name
@@ -544,7 +544,7 @@ def test_a_user_design_file_never_takes_a_target_whatever_its_name(tmp_path):
 
 
 def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
-    from xeda.dataclass import AtomicName
+    from xeda._internal.dataclass import AtomicName
 
     path = tmp_path / "d.xeda.json"
     document = {
@@ -567,7 +567,7 @@ def test_only_a_packaged_document_takes_escaped_names_in_a_flow_table(tmp_path):
 
 
 def test_a_packaged_document_names_its_target_by_the_rule_of_target_names(tmp_path):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     path = tmp_path / "d.xeda.json"
     path.write_text(json.dumps({"name": "d", "target": "../x", "rtl": {"sources": [], "top": "t"}}))
@@ -777,7 +777,7 @@ BINDING_CASES = {
 @pytest.mark.parametrize("hashed", [False, True])
 @pytest.mark.parametrize("case", BINDING_CASES.values(), ids=list(BINDING_CASES))
 def test_the_remote_plans_the_edges_of_the_local_plan(tmp_path, case, hashed):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     root = _bound_root(tmp_path)
     request: dict = {"design": _write_design(root, case.get("design"))}
@@ -850,8 +850,8 @@ def test_the_remote_has_the_identities_and_configurations_of_the_local_plan(tmp_
     """Packaging puts a source outside the design root among the flat sources and moves the files
     that parameters name. The host still computes the identities of the local plan, from the
     configuration as the client counted it."""
-    from xeda.flow_runner import DefaultRunner
-    from xeda.frozen import thaw
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.frozen import thaw
 
     design = _places_outside_the_root(tmp_path)
     local_root = tmp_path / "local" / "xeda_run"
@@ -882,8 +882,8 @@ def test_the_remote_has_the_identities_and_configurations_of_the_local_plan(tmp_
 
 
 def test_a_converted_design_has_the_same_identities_on_the_remote(tmp_path):
-    from xeda.flow_runner import DefaultRunner
-    from xeda.frozen import thaw
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.frozen import thaw
 
     from .flow_registry import preserved_flow_registry
     from .test_node_configuration import bluespec_design, converted_chain
@@ -954,7 +954,7 @@ def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_r
     """The origin of a declared input that the sources supply names the file by its place under
     the design root. Packaging moves a netlist from outside the root among the flat sources, and
     the host counts the place as the client does."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib" / "n.json").write_text("{}\n")
@@ -990,8 +990,8 @@ def test_the_netlist_of_a_design_outside_its_root_has_the_same_identity_on_the_r
 def test_a_testbench_with_cocotb_has_the_same_identity_on_the_remote(tmp_path):
     """The testbench part, its sources, its cocotb table and the defines (literal text, even when
     it looks like a path) are the same on both ends."""
-    from xeda.flow_runner import DefaultRunner
-    from xeda.frozen import thaw
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.frozen import thaw
 
     root = tmp_path / "design"
     root.mkdir()
@@ -1039,7 +1039,7 @@ def test_the_host_merges_local_and_git_dependencies_as_the_client_does(
     """The package carries the entries in the order they are listed: a local one as the design
     document and the files it declares, a Git one as its reference. The host merges once, so its
     indexes, its source order and its identities are the client's."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .test_git_dependencies import XILINX, _mixed
 
@@ -1099,8 +1099,8 @@ def _generator_recipes(root: Path) -> dict[str, dict]:
 def test_a_generator_recipe_has_the_same_identity_on_the_remote(tmp_path, recipe):
     """Packaging rewrites the paths of a recipe (it expands `sources` and names them and `cwd`
     relative to the root on the host). The host still computes the identities of the client."""
-    from xeda.flow_runner import DefaultRunner
-    from xeda.frozen import thaw
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.frozen import thaw
 
     root = _generating_root(tmp_path / "design")
     design = _generating_design(root, **_generator_recipes(root)[recipe])
@@ -1119,7 +1119,7 @@ def test_a_generator_recipe_has_the_same_identity_on_the_remote(tmp_path, recipe
 
 
 def test_a_dependency_generator_has_the_same_identity_on_the_remote(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     lib = _generating_root(tmp_path / "lib")
     (lib / "lib.yaml").write_text(
@@ -1149,7 +1149,7 @@ def test_a_dependency_generator_has_the_same_identity_on_the_remote(tmp_path):
 
 @pytest.mark.parametrize("recipe", ["glob", "absolute", "design-root", "cwd"])
 def test_a_moved_design_tree_with_a_generator_keeps_its_identity(tmp_path, recipe):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     identities = []
     for place in ("here", "there/deeper"):

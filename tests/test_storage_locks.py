@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow_runner import run_lock
-from xeda.flow_runner.run_lock import lock_file, storage_lock
-from xeda.run_dir import RunDirectoryError
+from xeda._internal.flow_runner import run_lock
+from xeda._internal.flow_runner.run_lock import lock_file, storage_lock
+from xeda._internal.run_dir import RunDirectoryError
 
 from .tool_utils import HANG_GUARD
 

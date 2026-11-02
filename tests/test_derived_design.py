@@ -16,10 +16,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.deliver import outputs_to_deliveries, recorded_artifacts
-from xeda.design import Source, SourceType
-from xeda.flow import FlowDependencyFailure, FlowSettingsException
-from xeda.flow.derived import (
+from xeda._internal.deliver import outputs_to_deliveries, recorded_artifacts
+from xeda._internal.design import Source, SourceType
+from xeda._internal.flow import FlowDependencyFailure, FlowSettingsException
+from xeda._internal.flow.derived import (
     DerivedSources,
     DesignConversion,
     Generated,
@@ -29,9 +29,9 @@ from xeda.flow.derived import (
     planned_design,
     recorded_files,
 )
-from xeda.flow_runner import DefaultRunner
-from xeda.records import read_record
-from xeda.flow_runner.outputs import (
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.records import read_record
+from xeda._internal.flow_runner.outputs import (
     recorded_outputs,
     declared_output_files,
     handed_design,
@@ -39,7 +39,7 @@ from xeda.flow_runner.outputs import (
     handed_over,
     recorded_entries,
 )
-from xeda.flows import Bsc, BscSim
+from xeda._internal.flows import Bsc, BscSim
 
 from .scoping import node_settings
 from .design_edits import with_updates

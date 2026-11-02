@@ -19,10 +19,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.openroad import OpenroadPlace
-from xeda.run_root import ensure_run_root
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.openroad import OpenroadPlace
+from xeda._internal.run_root import ensure_run_root
 
 from .openroad_flags import (
     Installed,
@@ -542,7 +542,7 @@ def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
     store = require_pdk_store()
     if ("sky130hd", "lambdapdk") not in pdk_test_pairs():
         pytest.skip("set XEDA_TESTS_PDK_PROVIDERS to sky130hd:lambdapdk for this test")
-    from xeda.platforms import load_residue
+    from xeda._internal.platforms import load_residue
 
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     chosen = ["platform=sky130hd", "pdk_provider=lambdapdk"]

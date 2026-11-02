@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping, Sequence
 
-from xeda.frozen import thaw
-from xeda.records import RECORD_SCHEMA_VERSION, read_record
+from xeda._internal.frozen import thaw
+from xeda._internal.records import RECORD_SCHEMA_VERSION, read_record
 
 #: A digest that no file has, for a test that never checks one.
 NO_DIGEST = "0" * 32

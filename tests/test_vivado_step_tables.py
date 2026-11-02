@@ -18,10 +18,10 @@ import pytest
 from pydantic import ConfigDict
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSynth
-from xeda.flows.vivado import vivado_alt_synth as alt
-from xeda.flows.vivado.vivado_synth import RunOptions
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSynth
+from xeda._internal.flows.vivado import vivado_alt_synth as alt
+from xeda._internal.flows.vivado.vivado_synth import RunOptions
 
 from .test_vivado_impl import SETTINGS as IMPL_SETTINGS
 from .test_vivado_impl import _edif_design

@@ -22,18 +22,18 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda import tool as tool_module
-from xeda.flows.openroad import Openroad, OpenroadStage, base, final
-from xeda.flows.openroad.final import EffectiveFinal, effective
-from xeda.flows.openroad.groups import ViaInPin
-from xeda.platforms.model import CellPort
-from xeda.run_dir import RunDirectory
-from xeda.units import Capacitance, Power, Resistance, Voltage
-from xeda.tool import NonZeroExitCode, Tool
-from xeda.utils import ExecutableNotFound
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal import tool as tool_module
+from xeda._internal.flows.openroad import Openroad, OpenroadStage, base, final
+from xeda._internal.flows.openroad.final import EffectiveFinal, effective
+from xeda._internal.flows.openroad.groups import ViaInPin
+from xeda._internal.platforms.model import CellPort
+from xeda._internal.run_dir import RunDirectory
+from xeda._internal.units import Capacitance, Power, Resistance, Voltage
+from xeda._internal.tool import NonZeroExitCode, Tool
+from xeda._internal.utils import ExecutableNotFound
 
 from .openroad_utils import (
     openroad_design,
@@ -46,7 +46,7 @@ from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, fake_returns, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "route_defaults.tcl"
@@ -870,7 +870,7 @@ def test_the_via_in_pin_range_comes_from_the_setting(tmp_path):
 def test_the_flow_reads_the_database_of_the_global_route_and_no_source():
     assert Openroad.design_parts == frozenset({"rtl"})
     assert Openroad.reads_sources is None
-    from xeda.flow.io import declared_inputs
+    from xeda._internal.flow.io import declared_inputs
 
     types = {name: inp.types for name, inp in declared_inputs(Openroad).items()}
     assert types == {
@@ -1042,7 +1042,7 @@ def restart_header(flow: Openroad, variables: str) -> list[str]:
 
 
 def test_the_restart_header_reads_the_database_that_the_driver_names_and_else_its_input(tmp_path):
-    from xeda.utils import tcl_word
+    from xeda._internal.utils import tcl_word
 
     flow = final_flow(tmp_path)
     reads = lambda header: [line for line in header if line.startswith("read_db")]  # noqa: E731
@@ -2393,7 +2393,7 @@ LISTED = "<lef-files>/a/tech.lef</lef-files><lef-files>/b/cells &amp; &lt;x&gt;.
     ],
 )
 def test_the_list_of_lef_files_replaces_every_element_with_one_list(text, expected):
-    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+    from xeda._internal.flows.openroad.final import klayout_tech_with_lef_files
 
     assert klayout_tech_with_lef_files(text, LEFS) == expected
 
@@ -2426,13 +2426,13 @@ def test_the_list_of_lef_files_replaces_every_element_with_one_list(text, expect
     ],
 )
 def test_a_comment_or_a_cdata_section_is_no_element_and_stays_as_it_is(text, expected):
-    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+    from xeda._internal.flows.openroad.final import klayout_tech_with_lef_files
 
     assert klayout_tech_with_lef_files(text, LEFS) == expected
 
 
 def test_a_text_with_neither_an_element_nor_a_section_gets_no_list():
-    from xeda.flows.openroad.final import klayout_tech_with_lef_files
+    from xeda._internal.flows.openroad.final import klayout_tech_with_lef_files
 
     assert klayout_tech_with_lef_files("<technology/>\n", LEFS) is None
 
@@ -3283,7 +3283,7 @@ def test_the_rules_file_of_the_platform_is_no_input_when_the_setting_gives_anoth
 
 
 def test_the_rules_file_of_the_setting_is_an_input_of_the_run(tmp_path):
-    from xeda.flow_runner.trace_inputs import setting_read_paths
+    from xeda._internal.flow_runner.trace_inputs import setting_read_paths
 
     mine = rules_of_setting(tmp_path)
     flow = final_flow(tmp_path, {"extraction": {"rules_file": str(mine)}})
@@ -3440,7 +3440,7 @@ def test_the_timing_model_comes_after_the_reports_with_the_source_latency_at_zer
 
 
 def test_the_timing_model_is_an_output_only_with_its_switch():
-    from xeda.flow.io import declared_outputs
+    from xeda._internal.flow.io import declared_outputs
 
     outputs = declared_outputs(Openroad)
     assert outputs["timing_model"].enabled_by == "write_timing_model"
@@ -3959,7 +3959,7 @@ def test_the_files_of_the_platform_come_before_the_libraries_of_the_settings(tmp
 
 
 def test_a_library_of_the_settings_is_an_input_of_the_run(tmp_path):
-    from xeda.flow_runner.trace_inputs import setting_read_paths
+    from xeda._internal.flow_runner.trace_inputs import setting_read_paths
 
     library = tmp_path / "macro.gds"
     library.write_bytes(b"x\n")

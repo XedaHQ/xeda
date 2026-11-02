@@ -5,14 +5,14 @@ import tempfile
 from pathlib import Path
 
 from xeda import Design
-from xeda.flow import FPGA
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Quartus
-from xeda.flows.quartus import parse_csv, try_num
-from xeda.tool import Tool
+from xeda._internal.flow import FPGA
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Quartus
+from xeda._internal.flows.quartus import parse_csv, try_num
+from xeda._internal.tool import Tool
 
 from .tool_utils import fake_calls, use_fake_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"

@@ -1,7 +1,7 @@
 """The documents of the nodes of a plan that the launcher resolved, for the tests of the resolver."""
 
-from xeda.flow_runner.plan_freshness import NodeFreshness
-from xeda.plan import node_document, plan_node
+from xeda._internal.flow_runner.plan_freshness import NodeFreshness
+from xeda._internal.plan import node_document, plan_node
 
 
 def plan_nodes(plan) -> list[dict]:

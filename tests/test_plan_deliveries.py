@@ -18,20 +18,20 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-import xeda.deliver as deliver
-from xeda.flow import MetricSpec
+import xeda._internal.deliver as deliver
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import _prompt_removal, cli
-from xeda.console import console
-from xeda.dataclass import Field, deliverable
-from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner, launch_locks
-from xeda.flow_runner.run_lock import lock_file
-from xeda.run_dir import RunDirectoryError
-from xeda.workspace import _removal_question
-from xeda.run_root import ensure_run_root
+from xeda._internal.cli import _prompt_removal, cli
+from xeda._internal.console import console
+from xeda._internal.dataclass import Field, deliverable
+from xeda._internal.deliver import Deliveries, DeliveryError, OutputExistsError
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
+from xeda._internal.flow_runner import DefaultRunner, launch_locks
+from xeda._internal.flow_runner.run_lock import lock_file
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.workspace import _removal_question
+from xeda._internal.run_root import ensure_run_root
 
 RUNS: List[str] = []
 #: what a test does while the first producer's tool runs (a user editing a file meanwhile)

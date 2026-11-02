@@ -25,15 +25,15 @@ from typing import Any, Optional, get_args
 import pytest
 
 from xeda import Design
-from xeda.dataclass import ValidationError
-from xeda.design import SourceType
-from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
-from xeda.flow.io import declared_outputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys, YosysFpga
-from xeda.flows import yosys as yosys_flows
-from xeda.flows.yosys.asic_groups import AbcGroup
-from xeda.tool import ExecutableNotFound
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowException, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow.io import declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys, YosysFpga
+from xeda._internal.flows import yosys as yosys_flows
+from xeda._internal.flows.yosys.asic_groups import AbcGroup
+from xeda._internal.tool import ExecutableNotFound
 
 from .flow_registry import preserved_flow_registry
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_settings, tiny_store
@@ -42,7 +42,7 @@ from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys
 from .tool_utils import HANG_GUARD
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 MAC = (
     "module mul8(input [7:0] a, b, output [15:0] p);\n"
@@ -1092,7 +1092,7 @@ def test_a_liberty_file_that_includes_another_is_refused_before_yosys_starts(tmp
     """The Liberty reader of yosys does not read `include_file`, so the flow refuses it, in the
     launch and in the dry run, for the files of `liberty`, for the files of a platform and for
     `sequential.dff_liberty`. It refuses before the script of yosys is written."""
-    from xeda.flow import FlowException
+    from xeda._internal.flow import FlowException
     from .tool_utils import use_fake_asic_tools
 
     use_fake_asic_tools(monkeypatch, tmp_path / "bin")

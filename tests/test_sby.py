@@ -22,11 +22,11 @@ import psutil
 import pytest
 
 from xeda import Design
-from xeda.design import Source, SourceType
-from xeda.flow import FlowException, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.sby import Sby, staged_names, timing_problems
-from xeda.utils import ExecutableNotFound, settings_to_dict
+from xeda._internal.design import Source, SourceType
+from xeda._internal.flow import FlowException, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.sby import Sby, staged_names, timing_problems
+from xeda._internal.utils import ExecutableNotFound, settings_to_dict
 
 from . import tool_utils
 

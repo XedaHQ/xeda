@@ -10,19 +10,14 @@ from typing import Any, ClassVar, Literal, Optional
 import pytest
 from click.testing import CliRunner
 
-from xeda.flow import MetricSpec
-from xeda.agent_skill import _flow_section
-from xeda.cli import cli
-from xeda.dataclass import Field, extras, tier, WORKING
-from xeda.flow import Flow
-from xeda.flow.settings_group import Flag, SettingsGroup
-from xeda.introspect import (
-    all_flow_classes,
-    flow_class_info,
-    flow_info,
-    settings_class_info,
-    settings_info,
-)
+from xeda._internal.flow import MetricSpec
+from xeda._internal.agent_skill import _flow_section
+from xeda._internal.cli import cli
+from xeda._internal.dataclass import Field, extras, tier, WORKING
+from xeda._internal.flow import Flow
+from xeda._internal.flow.settings_group import Flag, SettingsGroup
+from xeda.introspect import flow_info, settings_info
+from xeda._internal.introspect import all_flow_classes, flow_class_info, settings_class_info
 
 from .flow_registry import preserved_flow_registry
 
@@ -349,8 +344,8 @@ def test_the_agent_reference_has_no_group_line_for_a_flow_without_groups():
 
 
 def test_the_tier_option_offers_the_tiers_of_a_setting():
-    from xeda.cli_types import TIER_NAMES
-    from xeda.dataclass import TIERS
+    from xeda._internal.cli_types import TIER_NAMES
+    from xeda._internal.dataclass import TIERS
 
     assert TIER_NAMES == TIERS == ("common", "advanced", "expert")
     command = cli.commands["list-settings"]

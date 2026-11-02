@@ -1,5 +1,5 @@
 """The make fragment that hands the declaration of Xeda's Verilator hooks to verilated.cpp alone
-(`xeda/flows/verilator/templates/xeda_hooks.mk`), read by the make of the host (macOS has GNU make
+(`xeda/_internal/flows/verilator/templates/xeda_hooks.mk`), read by the make of the host (macOS has GNU make
 3.81) through the environment variable MAKEFILES."""
 
 import os
@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flows.verilator import HOOKS_MAKEFILE
-from xeda.package_paths import impl_module
+from xeda._internal.flows.verilator import HOOKS_MAKEFILE
+from xeda._internal.package_paths import impl_module
 
 #: A stand-in for Verilator's makefile: a global `CPPFLAGS`, a runtime object and a model object.
 MAKEFILE = """\

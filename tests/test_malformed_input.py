@@ -19,14 +19,14 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.cli_utils import OptionEatAll
-from xeda.dataclass import ValidationError
-from xeda.design import Design, DesignValidationError
-from xeda.flow import FPGA, FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.yosys.yosys_fpga import YosysFpga
-from xeda.utils import XedaException
+from xeda._internal.cli import cli
+from xeda._internal.cli_utils import OptionEatAll
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.design import Design, DesignValidationError
+from xeda._internal.flow import FPGA, FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
+from xeda._internal.utils import XedaException
 
 from .project_files import PROJECT_FILE
 from .settings_samples import PROBES, flow_classes, minimal_settings

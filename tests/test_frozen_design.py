@@ -16,13 +16,13 @@ import pydantic
 import pytest
 
 from xeda import Design
-from xeda import design as design_module
-from xeda.design import Rtl, Source, SourceType, cocotb_of, generator_of, language_of
-from xeda.flow_runner.configuration import design_configuration_hash
-from xeda.flows import GhdlSim
-from xeda.frozen import FrozenDict
-from xeda.introspect import json_safe
-from xeda.utils import dump_json
+from xeda._internal import design as design_module
+from xeda._internal.design import Rtl, Source, SourceType, cocotb_of, generator_of, language_of
+from xeda._internal.flow_runner.configuration import design_configuration_hash
+from xeda._internal.flows import GhdlSim
+from xeda._internal.frozen import FrozenDict
+from xeda._internal.introspect import json_safe
+from xeda._internal.utils import dump_json
 
 from .flow_registry import preserved_flow_registry
 from .test_converted_designs import Events, consumer_flows, launch
@@ -136,7 +136,7 @@ def test_the_models_are_built_from_the_tables(design):
     ],
 )
 def test_an_invalid_recipe_fails_when_the_design_loads(tmp_path, rtl, message):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     with pytest.raises(DesignValidationError, match=message):
         Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", **rtl})
@@ -145,7 +145,7 @@ def test_an_invalid_recipe_fails_when_the_design_loads(tmp_path, rtl, message):
 
 
 def test_an_invalid_cocotb_recipe_fails_when_the_design_loads(tmp_path):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     with pytest.raises(DesignValidationError, match="testcase"):
         Design(
@@ -193,7 +193,7 @@ def test_the_design_loads_again_from_its_own_dump(design):
 
 
 def test_a_dependency_is_merged_into_a_design_that_cannot_change(tmp_path):
-    from xeda.flow_runner.dependencies import merged_design
+    from xeda._internal.flow_runner.dependencies import merged_design
 
     root = tmp_path / "d"
     (root / "dep").mkdir(parents=True)
@@ -273,8 +273,8 @@ def test_a_vhdl_source_is_assigned_as_vhdl_to_quartus(tmp_path, monkeypatch):
 def test_a_frozen_flows_section_goes_straight_to_the_settings(tmp_path):
     """Every model reads a read-only table as it reads a `dict`: the clock converts `freq`, the
     FPGA reads its part, and a removed spelling or a boolean given as text is still refused."""
-    from xeda.flow import FlowSettingsError
-    from xeda.flows import VivadoSynth
+    from xeda._internal.flow import FlowSettingsError
+    from xeda._internal.flows import VivadoSynth
 
     design = Design(
         name="d",

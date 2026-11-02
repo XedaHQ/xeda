@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.flow_runner import DefaultRunner
-from xeda.run_root import (
+from xeda._internal.cli import cli
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.run_root import (
     CACHEDIR_TAG,
     RUN_ROOT_MARKER,
     RunRootError,
@@ -117,7 +117,7 @@ def test_a_root_that_another_xeda_marks_meanwhile_is_used(tmp_path, monkeypatch)
     """Two launches that start on one new run root at once both use it. One finds the root
     unmarked and empty; the other marks it before the first looks again: the first finds the
     marker among the files, and does not take the root for a directory of the user's."""
-    import xeda.run_root as run_root
+    import xeda._internal.run_root as run_root
 
     root = tmp_path / "runs"
     root.mkdir()

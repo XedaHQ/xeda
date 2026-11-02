@@ -10,13 +10,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import SHELLS, cli
-from xeda.flow import registered_flows
+from xeda._internal.cli import SHELLS, cli
+from xeda._internal.flow import registered_flows
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 from .flow_registry import preserved_flow_registry
 from .tool_utils import HANG_GUARD
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -386,7 +386,7 @@ _xeda_completion
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_completion_instructions_are_printed_without_wrapping(shell, monkeypatch):
-    from xeda.console import console
+    from xeda._internal.console import console
 
     monkeypatch.setattr(console, "width", 30)
     result = CliRunner().invoke(cli, ["completion", shell], env={"SHELL": f"/bin/{shell}"})

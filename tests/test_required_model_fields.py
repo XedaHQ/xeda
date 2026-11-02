@@ -13,12 +13,12 @@ from typing import ClassVar, Optional
 import pytest
 import yaml
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.dataclass import Field, field_validator, model_validator
-from xeda.flow import Flow, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.project import Project
+from xeda._internal.dataclass import Field, field_validator, model_validator
+from xeda._internal.flow import Flow, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.project import Project
 from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
@@ -164,7 +164,7 @@ def test_a_value_its_model_validator_refuses_is_refused_by_the_complete_settings
 ):
     """The settings given in parts are never judged by a validator that needs them all: the
     complete settings are, once every part is composed."""
-    from xeda.flow import FlowSettingsError
+    from xeda._internal.flow import FlowSettingsError
 
     cls = TRequiredChecked
     bad = {"where": "a/b", "label": "very bad"}

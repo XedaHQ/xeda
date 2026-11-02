@@ -74,7 +74,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 TESTS = Path(__file__).parent
@@ -124,8 +124,8 @@ def _package_of(path: Path) -> str:
 def _module_names(tree: ast.AST, package: str | None = None) -> dict[str, str]:
     """Local name -> dotted xeda module, for every xeda module this source imports.
 
-    Covers `import xeda.flow_runner.default_runner as runner`, `import xeda.tool` (which binds
-    `xeda`), `from xeda.flow_runner import default_runner` and, with `package`, xeda's own
+    Covers `import xeda._internal.flow_runner.default_runner as runner`, `import xeda._internal.tool` (which binds
+    `xeda`), `from xeda._internal.flow_runner import default_runner` and, with `package`, xeda's own
     relative form `from .flow_runner import resolver as plan_resolver` -- the `from` cases only
     when the imported name really is a module, so a class or function imported the same way is
     not mistaken for one.
@@ -138,7 +138,7 @@ def _module_names(tree: ast.AST, package: str | None = None) -> dict[str, str]:
                     continue
                 if alias.asname:
                     names[alias.asname] = alias.name
-                else:  # `import xeda.tool` binds `xeda`
+                else:  # `import xeda._internal.tool` binds `xeda`
                     names[alias.name.split(".")[0]] = alias.name.split(".")[0]
         elif isinstance(node, ast.ImportFrom):
             if node.level and package:  # `from .flow_runner import resolver`
@@ -159,7 +159,7 @@ def _split_module(dotted: str) -> tuple[str, str] | None:
     """Split `"xeda.a.b.name"` into a module and the one name patched on it, or None.
 
     Only a path with exactly one component after the module is a module-attribute patch.
-    `"xeda.tool.Tool.version_gte"` and `"xeda.flow_runner.default_runner.console.input"` reach
+    `"xeda._internal.tool.Tool.version_gte"` and `"xeda._internal.flow_runner.default_runner.console.input"` reach
     *through* the module to patch an attribute of a class or an object, which is out of scope
     (see the module docstring): the name on the module is not what is replaced.
     """
@@ -180,7 +180,9 @@ def _patched(source: str, where: str) -> Iterator[PatchTarget]:
         # a script a test writes out and runs in a child process patches the same way
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if "import" in node.value and "xeda" in node.value:
-                yield from _patched(node.value, f"{where}:{node.lineno} (embedded script)")
+                yield from _patched(
+                    layout_script(node.value), f"{where}:{node.lineno} (embedded script)"
+                )
             continue
         module = name = None
         line = 0  # taken from the matched node, which always carries one
@@ -607,7 +609,7 @@ ON_A_SUCCESSFUL_LAUNCH = sorted(LAUNCHER_TARGETS)
 
 def _intercepting(monkeypatch, names):
     """Wrap each `name` on the launcher module with a recorder that still delegates."""
-    from xeda.flow_runner import default_runner
+    from xeda._internal.flow_runner import default_runner
 
     seen: set[str] = set()
     for name in names:
@@ -630,7 +632,7 @@ def test_patching_a_launcher_stage_name_intercepts_a_real_launch(tmp_path, monke
     elsewhere records nothing and fails here, whatever the source still says.
     """
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .io_flows import TMaker
 
@@ -655,7 +657,7 @@ def _a_flow_whose_run_raises():
     `Flow.__init_subclass__` registers every subclass globally, and a test must leave no
     registered flow behind (it would reach every later sweep, in this worker and under `-n`).
     """
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     from .io_flows import TMaker
 
@@ -675,7 +677,7 @@ def _a_flow_whose_run_raises():
 def test_patching_the_failed_run_artifact_drop_intercepts_a_failing_launch(tmp_path, monkeypatch):
     """The same, for the one name only a failing run reaches."""
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     seen = _intercepting(monkeypatch, ["_drop_unwritten_artifacts"])
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
@@ -706,7 +708,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_exe
     (a test can replace the filter on it, to see a failed run's artifacts).
     """
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .tool_utils import use_fake_tools
 
@@ -735,7 +737,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_exe
 
 def test_the_failing_fixture_flow_leaves_the_registry_as_it_was():
     """The guard on the guard: a leaked registration would reach every later sweep."""
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     from . import io_flows  # noqa: F401  # its import registers flows: import before the snapshot
 

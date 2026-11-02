@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from xeda.dataclass import ValidationError
-from xeda.design import Design, SourceType
-from xeda.flow import FlowSettingsError
-from xeda.tool import Tool
-from xeda.utils import dump_json, semantic_hash
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.design import Design, SourceType
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.tool import Tool
+from xeda._internal.utils import dump_json, semantic_hash
 
 from .settings_fields import assign, dotted, follow, kind_of
 from .settings_samples import (
@@ -64,7 +64,7 @@ def test_a_setting_every_flow_shares_has_the_same_type_in_every_flow(cls):
     """A setting that every flow has (`verbosity`, `nthreads`) has one type in every flow. `nextpnr`
     once redeclared the former `verbose` as a `bool`, so `-s verbose=2` worked for every flow
     but that one."""
-    from xeda.flow import Flow
+    from xeda._internal.flow import Flow
 
     common = Flow.Settings.model_fields
     retyped = {
@@ -287,9 +287,9 @@ def test_semantic_hash_of_a_whole_design_terminates():
 
 def _all_model_classes():
     """Find model classes whose invariants must hold."""
-    import xeda.flow_runner.dse  # noqa: F401 - registers the optimizer models
-    import xeda.flows  # noqa: F401 - registers every flow, tool and platform model
-    from xeda.dataclass import XedaBaseModel
+    import xeda._internal.flow_runner.dse  # noqa: F401 - registers the optimizer models
+    import xeda._internal.flows  # noqa: F401 - registers every flow, tool and platform model
+    from xeda._internal.dataclass import XedaBaseModel
 
     seen, pending = set(), [XedaBaseModel]
     while pending:
@@ -326,7 +326,7 @@ def test_invalidating_cached_properties_clears_the_inherited_ones_too():
 
 def test_a_tool_derived_from_a_tool_subclass_does_not_keep_its_version():
     """A tool derived from a tool subclass does not keep its version."""
-    from xeda.flows.vivado import VivadoTool
+    from xeda._internal.flows.vivado import VivadoTool
 
     vivado = VivadoTool()  # type: ignore[call-arg]
     vivado.__dict__.update(version=("2023", "2"), version_output="Vivado v2023.2")

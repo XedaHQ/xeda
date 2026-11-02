@@ -37,11 +37,11 @@ from typing import List
 
 import pytest
 
-from xeda.flow import MetricSpec
-from xeda.flow_runner.default_runner import FlowLauncher
-from xeda.flows import VivadoAltSynth, VivadoSynth
-from xeda.flows.vivado import vivado_alt_synth as alt
-from xeda.tool import Tool
+from xeda._internal.flow import MetricSpec
+from xeda._internal.flow_runner.default_runner import FlowLauncher
+from xeda._internal.flows import VivadoAltSynth, VivadoSynth
+from xeda._internal.flows.vivado import vivado_alt_synth as alt
+from xeda._internal.tool import Tool
 
 from . import state_snapshot as ss
 from .flow_registry import is_product_flow
@@ -55,7 +55,7 @@ from .test_isolation import (
     _world,
     process_leftovers,
 )
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -193,7 +193,7 @@ def test_the_sweep_sees_a_flow_that_shares_the_default_of_a_setting(tmp_path, mo
 
 def test_the_sweep_skips_a_quantity_and_still_sees_a_mutable_object_beside_it() -> None:
     """A quantity is immutable, so sharing one is harmless; a list next to it is not."""
-    from xeda.units import Time
+    from xeda._internal.units import Time
 
     shared = [1]
     found = ss.reachable({"period": Time("10 ns"), "table": shared}, "root")

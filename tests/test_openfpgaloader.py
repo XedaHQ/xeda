@@ -14,16 +14,16 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
-from xeda.board import WithFpgaBoardSettings
-from xeda.flow import FlowSettingsError, FlowSettingsException
-from xeda.flow.io import declared_inputs, declared_outputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Openfpgaloader
-from xeda.flows.openfpgaloader import OpenfpgaloaderTool
+from xeda._internal.board import WithFpgaBoardSettings
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException
+from xeda._internal.flow.io import declared_inputs, declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Openfpgaloader
+from xeda._internal.flows.openfpgaloader import OpenfpgaloaderTool
 
 from . import tool_utils
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ECP5 = "LFE5U-25F-6BG381C"
 BITSTREAM = b"\x00\xffXEDA bitstream\x00"
@@ -146,7 +146,7 @@ def test_the_loader_needs_release_0_13_1_or_newer():
     line): with an older loader, a load that left DONE low would look like any other. The tag
     v0.13.0 names its version 0.12.1 (its CMakeLists), so `-V` cannot tell it from the release
     before it; 0.13.1 is the first to name itself."""
-    from xeda.flows.openfpgaloader import MIN_OPENFPGALOADER_VERSION
+    from xeda._internal.flows.openfpgaloader import MIN_OPENFPGALOADER_VERSION
 
     assert MIN_OPENFPGALOADER_VERSION == (0, 13, 1)
     # read from the model: making the tool would start the loader to ask for its version
@@ -172,7 +172,7 @@ def test_an_older_loader_is_refused_before_it_programs_and_the_message_names_bot
     tmp_path, fake_loader, monkeypatch, version
 ):
     """The version comes from the loader's `-V` (the only start that is no programming call)."""
-    from xeda.tool import ToolException
+    from xeda._internal.tool import ToolException
 
     monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", f"openFPGALoader {version}")
     with pytest.raises(ToolException) as raised:
@@ -197,7 +197,7 @@ def test_an_older_loader_is_refused_before_it_programs_and_the_message_names_bot
 def test_an_older_loader_is_refused_before_any_producer_runs(tmp_path, fake_loader, monkeypatch):
     """The loader is asked for its version when the flow is prepared (`init`), which comes before
     the producers: neither synthesis, placement nor packing runs for a launch that is refused."""
-    from xeda.tool import ToolException
+    from xeda._internal.tool import ToolException
 
     monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", "openFPGALoader v0.12.1")
     assert_fake_loader()
@@ -236,7 +236,7 @@ def test_a_loader_whose_version_cannot_be_read_is_not_compared(tmp_path, fake_lo
 
 
 def test_a_base_class_reason_to_always_run_comes_first(tmp_path, monkeypatch):
-    from xeda.flow import Flow
+    from xeda._internal.flow import Flow
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     flow = Openfpgaloader(Openfpgaloader.Settings(fpga={"part": ECP5}), design, tmp_path / "loader")
@@ -537,7 +537,7 @@ BUNDLED_BOARDS = {
 
 
 def test_the_table_of_bundled_boards_below_names_every_bundled_board():
-    from xeda.board import bundled_boards
+    from xeda._internal.board import bundled_boards
 
     assert set(BUNDLED_BOARDS) == set(bundled_boards())
     # each has the name openFPGALoader knows it by, as text
@@ -811,7 +811,7 @@ def test_outputs_to_a_programmer_of_a_design_source_is_refused_before_it_runs(
 ):
     """The loader writes no outputs, and what it programs here is the design's own file:
     `--outputs-to` has nothing to deliver, and says so before anything runs."""
-    from xeda.deliver import DeliveryError
+    from xeda._internal.deliver import DeliveryError
 
     with pytest.raises(DeliveryError, match="openfpgaloader writes no outputs") as raised:
         _program(

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, List, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module, impl_root
 
 __all__ = [
     "HANG_GUARD",
@@ -429,9 +429,8 @@ def require_yosys_config() -> None:
 @lru_cache(maxsize=None)
 def _probe_cxxrtl_evidence() -> bool:
     """Generate/link a real RTL assertion and execute the shipped monitor at both thresholds."""
-    import xeda
 
-    package = Path(xeda.__file__).parent
+    package = impl_root()
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         for relative in (
@@ -1263,8 +1262,8 @@ def require_openxc7() -> Path:
     `openFPGALoader` is not looked for: nothing here programs a device."""
     if not _opted_in("XEDA_TESTS_OPENXC7"):
         pytest.skip("set XEDA_TESTS_OPENXC7=1 to run the tests that run the openXC7 toolchain")
-    from xeda.flow import FlowFatalError
-    from xeda.flows.xilinx import find_xilinx_layout, select_xilinx
+    from xeda._internal.flow import FlowFatalError
+    from xeda._internal.flows.xilinx import find_xilinx_layout, select_xilinx
 
     nextpnr = shutil.which("nextpnr-himbaechel")
     if nextpnr is None:
@@ -1441,7 +1440,7 @@ def pdk_test_platforms() -> List[str]:
     Without `XEDA_TESTS_PDK_ROOT`, return every bundled platform, so that pytest collects the
     tests of each one and each skips with the variable named (`require_pdk_store`). With it,
     `XEDA_TESTS_PLATFORMS` is required, and each name in it must be a bundled platform."""
-    from xeda.platforms import bundled_platform_names
+    from xeda._internal.platforms import bundled_platform_names
 
     bundled = bundled_platform_names()
     if not os.environ.get("XEDA_TESTS_PDK_ROOT", ""):
@@ -1474,7 +1473,7 @@ def pdk_test_pairs() -> List[Tuple[str, Optional[str]]]:
     listed, so that pytest collects the tests and each skips with the variable named. With it, an
     entry must name a listed platform and a provider that serves it, other than the default one
     and `directory`; anything else fails."""
-    from xeda.platforms import load_residue
+    from xeda._internal.platforms import load_residue
 
     platforms = pdk_test_platforms()
     pairs: List[Tuple[str, Optional[str]]] = [(name, None) for name in platforms]
@@ -1548,8 +1547,8 @@ def require_modelsim() -> None:
     explicitly enables the proprietary layer, and an incompatible installed image fails.
     """
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flows.modelsim import Modelsim, ModelsimTool
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flows.modelsim import Modelsim, ModelsimTool
 
     docker = ModelsimTool.model_fields["docker"].default
     assert docker is not None
@@ -1603,7 +1602,7 @@ def yosys_json_attribute_holders(netlist: Path, attribute: str) -> list[str]:
 #: How a stale reason begins for an input the last run was found to read only afterwards (a
 #: depfile's entry), on another file system than its run directory's, of which no record from
 #: before that run exists: whether it changed during the run is unknown, and no clock of another
-#: file system decides it (`xeda.digest.UNRECORDED_BEFORE_RUN`).
+#: file system decides it (`xeda._internal.digest.UNRECORDED_BEFORE_RUN`).
 UNRECORDED_BEFORE_RUN_REASON = "input first read by the last run, on another file system"
 
 
@@ -1644,8 +1643,8 @@ def check_after_the_racy_window(monkeypatch: pytest.MonkeyPatch) -> None:
     is read by content, found unchanged, and -- having settled since -- the trace is refreshed
     (`trace.check_trace`, `Freshness.refreshed`). What a slow machine does by itself, between two
     runs more than `digest.RACY_NS` apart, without the wait or the luck."""
-    from xeda import digest
-    from xeda.flow_runner import trace
+    from xeda._internal import digest
+    from xeda._internal.flow_runner import trace
 
     window = 10**12
     monkeypatch.setattr(digest, "RACY_NS", window)
@@ -1663,7 +1662,7 @@ def run_outputs_state(*run_dirs: Path) -> dict[Path, tuple[Any, ...]]:
     directory fresh may still rewrite the trace (it refreshes the records of a file that settled,
     `trace.check_trace`), so a test that says "nothing was rewritten" compares this, never a
     listing of the whole directory."""
-    from xeda.flow_runner.trace import run_directory_files
+    from xeda._internal.flow_runner.trace import run_directory_files
 
     state: dict[Path, tuple[Any, ...]] = {}
     for run_dir in run_dirs:
@@ -1685,8 +1684,8 @@ def terminal_output(stream: Any = None) -> Iterator[None]:
 
     Tool output goes to the standard output, or to `stream` when given (the command line moves it
     to the standard error under `--json`). The mode and the stream are put back after the block."""
-    from xeda.console import console_target, redirect_console, restore_console
-    from xeda.proc_utils import TOOL_OUTPUT
+    from xeda._internal.console import console_target, redirect_console, restore_console
+    from xeda._internal.proc_utils import TOOL_OUTPUT
 
     previous = console_target()
     token = TOOL_OUTPUT.set("terminal")

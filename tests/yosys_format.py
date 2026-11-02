@@ -13,7 +13,7 @@ from typing import Iterator, Literal, Optional
 
 import pytest
 
-from xeda.flows import Yosys
+from xeda._internal.flows import Yosys
 
 ScriptFormat = Literal["ys", "tcl"]
 

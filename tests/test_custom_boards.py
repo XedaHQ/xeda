@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-import xeda.board
+import xeda._internal.board
 from xeda import Design, introspect
-from xeda.dataclass import ValidationError
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
-from xeda.flows.nextpnr import NextpnrTool
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import FpgaPack, Nextpnr, Openfpgaloader
+from xeda._internal.flows.nextpnr import NextpnrTool
 
 from .test_nextpnr import write_nextpnr_config
 
@@ -176,9 +176,9 @@ def test_board_database_is_read_only_when_board_or_database_changes(tmp_path, mo
         {"board": "MY_BOARD", "custom_boards_file": str(boards)}, design_root=tmp_path
     )
     reads = []
-    get_board_data = xeda.board.get_board_data
+    get_board_data = xeda._internal.board.get_board_data
     monkeypatch.setattr(
-        xeda.board, "get_board_data", lambda *a: reads.append(a) or get_board_data(*a)
+        xeda._internal.board, "get_board_data", lambda *a: reads.append(a) or get_board_data(*a)
     )
 
     settings.seed = 3
@@ -193,7 +193,7 @@ def test_unreadable_bundled_database_is_named(monkeypatch):
     def unreadable(path):
         raise OSError("unreadable")
 
-    monkeypatch.setattr(xeda.board, "toml_loads", unreadable)
+    monkeypatch.setattr(xeda._internal.board, "toml_loads", unreadable)
     with pytest.raises(FlowSettingsError, match="Cannot read the bundled board database"):
         Nextpnr.Settings.from_input({"board": "ulx3s_85f"})
 
@@ -252,7 +252,7 @@ def test_nextpnr_records_the_board_lpf_it_reads_as_an_implicit_input(tmp_path, m
 
 def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, monkeypatch):
     board = {"fpga": {"part": "LFE5U-85F-6BG381C"}, "lpf": "boards/ulx3s/board.lpf"}
-    monkeypatch.setattr(xeda.board, "get_board_data", lambda name, custom=None: board)
+    monkeypatch.setattr(xeda._internal.board, "get_board_data", lambda name, custom=None: board)
     settings = Nextpnr.Settings.from_input({"board": "LOCAL_LPF"}, design_root=tmp_path)
 
     args = nextpnr_args(tmp_path, settings, monkeypatch)
@@ -261,7 +261,7 @@ def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, m
     assert len(lpfs) == 1
     assert (
         Path(lpfs[0].removeprefix("--lpf=")).read_text()
-        == (Path(xeda.board.__file__).parent / "data/boards/ulx3s/board.lpf").read_text()
+        == (Path(xeda._internal.board.__file__).parent / "data/boards/ulx3s/board.lpf").read_text()
     )
 
 
@@ -307,7 +307,7 @@ def test_the_same_database_in_toml_and_yaml_is_the_same_board(tmp_path):
         data[filename] = (
             settings.board_data(),
             settings.fpga,
-            xeda.board.read_board_database(path),
+            xeda._internal.board.read_board_database(path),
         )
     assert data["boards.toml"] == data["boards.yaml"] == data["boards.yml"]
     assert data["boards.toml"][0] == {
@@ -424,18 +424,21 @@ def test_a_yaml_database_goes_through_the_strict_loader(tmp_path):
     # Where text fits, it stays the text that was written.
     path = tmp_path / "text.yaml"
     path.write_text(prefix + "    package: on\n  openfpgaloader_board: no\n")
-    board = xeda.board.get_board_data("MY_BOARD", path)
+    board = xeda._internal.board.get_board_data("MY_BOARD", path)
     assert board["openfpgaloader_board"] == "no"
     assert board["fpga"]["package"] == "on"
 
 
 def test_the_yaml_reader_is_the_shared_strict_loader(tmp_path, monkeypatch):
-    """No second YAML reader: the database is read by `xeda.yaml_loader.load_yaml`."""
+    """No second YAML reader: the database is read by `xeda._internal.yaml_loader.load_yaml`."""
     path = write_database(tmp_path, "boards.yaml")
     seen = []
-    load_yaml = xeda.board.load_yaml
-    monkeypatch.setattr(xeda.board, "load_yaml", lambda p: seen.append(p) or load_yaml(p))
-    assert xeda.board.get_board_data("MY_BOARD", path)["openfpgaloader_board"] == "programmer_board"
+    load_yaml = xeda._internal.board.load_yaml
+    monkeypatch.setattr(xeda._internal.board, "load_yaml", lambda p: seen.append(p) or load_yaml(p))
+    assert (
+        xeda._internal.board.get_board_data("MY_BOARD", path)["openfpgaloader_board"]
+        == "programmer_board"
+    )
     assert seen == [path]
 
 
@@ -470,7 +473,7 @@ def test_an_unknown_database_suffix_is_an_error_saying_what_is_accepted(tmp_path
     path.write_text(BOARD_TOML)  # valid TOML: the suffix alone decides, nothing is guessed
     expected = f'Cannot load board database "{path}": {reason}; {ACCEPTED}'
     with pytest.raises(ValueError) as direct:
-        xeda.board.board_database_format(path)
+        xeda._internal.board.board_database_format(path)
     assert str(direct.value) == expected
     for data in ({"board": "MY_BOARD"}, {}):  # a database nobody has asked a board of too
         with pytest.raises(FlowSettingsError) as raised:
@@ -484,7 +487,7 @@ def test_a_directory_is_no_database_and_says_so_like_any_suffixless_path(tmp_pat
     directory = tmp_path / "boards"
     directory.mkdir()
     with pytest.raises(ValueError) as raised:
-        xeda.board.board_database_format(directory)
+        xeda._internal.board.board_database_format(directory)
     assert str(raised.value) == (
         f'Cannot load board database "{directory}": no file suffix; {ACCEPTED}'
     )
@@ -505,7 +508,7 @@ def test_a_yaml_database_that_is_broken_names_the_file(tmp_path):
         f'Cannot load board database "{binary}": not UTF-8 text: invalid start byte at byte 10'
     )
     with pytest.raises(ValueError) as direct:
-        xeda.board.read_board_database(binary)
+        xeda._internal.board.read_board_database(binary)
     assert str(direct.value) == expected
     with pytest.raises(FlowSettingsError) as raised:
         Nextpnr.Settings.from_input(
@@ -517,9 +520,9 @@ def test_a_yaml_database_that_is_broken_names_the_file(tmp_path):
 def test_an_empty_yaml_database_has_no_boards(tmp_path):
     path = tmp_path / "empty.yaml"
     path.write_text("")
-    assert xeda.board.read_board_database(path) == {}
+    assert xeda._internal.board.read_board_database(path) == {}
     with pytest.raises(ValueError) as raised:
-        xeda.board.get_board_data("MY_BOARD", path)
+        xeda._internal.board.get_board_data("MY_BOARD", path)
     assert str(raised.value) == f"Unknown board 'MY_BOARD' in {path}"
 
 
@@ -531,12 +534,12 @@ def test_a_missing_yaml_database_is_named(tmp_path):
 
 
 def test_the_bundled_database_is_still_toml_and_loads():
-    assert xeda.board.get_board_data("ulx3s_85f")["fpga"] == {"part": "LFE5U-85F-6BG381C"}
+    assert xeda._internal.board.get_board_data("ulx3s_85f")["fpga"] == {"part": "LFE5U-85F-6BG381C"}
     names = [row["board"] for row in introspect.boards_info()]
     assert "ulx3s_85f" in names
     assert names == sorted(names)
-    assert xeda.board.read_board_database(
-        Path(xeda.board.__file__).parent / "data" / "boards.toml"
+    assert xeda._internal.board.read_board_database(
+        Path(xeda._internal.board.__file__).parent / "data" / "boards.toml"
     ) == {
         row["board"]: {k: v for k, v in row.items() if k != "board"}
         for row in introspect.boards_info()
@@ -683,12 +686,14 @@ def test_every_key_the_flows_read_from_a_board_entry_is_accepted(tmp_path):
     keys = "\n".join(f"  {key}: x" for key in ("lpf", "pcf", "pdc", "xdc", "openfpgaloader_board"))
     path = tmp_path / "boards.yaml"
     path.write_text(f"MY_BOARD:\n{keys}\n  fpga.part: LFE5U-25F-6BG381C\n")
-    assert xeda.board.get_board_data("MY_BOARD", path)["fpga"] == {"part": "LFE5U-25F-6BG381C"}
+    assert xeda._internal.board.get_board_data("MY_BOARD", path)["fpga"] == {
+        "part": "LFE5U-25F-6BG381C"
+    }
 
 
 def test_the_bundled_database_passes_the_rule_of_every_board_entry():
-    for name in xeda.board.bundled_boards():
-        assert xeda.board.get_board_data(name)
+    for name in xeda._internal.board.bundled_boards():
+        assert xeda._internal.board.get_board_data(name)
 
 
 @pytest.mark.parametrize(

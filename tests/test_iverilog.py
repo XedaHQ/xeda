@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow import FlowFatalError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
 
 from .test_cocotb import _TEST_HEADER, _cocotb_test
 from .tool_utils import cocotb_safe_vvp, require_cocotb, require_iverilog_evidence  # noqa: F401

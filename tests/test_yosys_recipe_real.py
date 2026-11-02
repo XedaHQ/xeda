@@ -22,8 +22,8 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import YosysFpga
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import YosysFpga
 
 from .tool_utils import require_yosys, require_yosys_config
 from .tool_utils import HANG_GUARD
@@ -314,7 +314,7 @@ def test_the_mode_reads_a_plain_verilog_source_as_yosys_does_and_the_default_rea
     failure with a netlist. With the flags the mode requires (`[]`), xeda reads it and writes
     the netlist the native pass writes, cell for cell and name for name.
     """
-    from xeda.flow import FlowSettingsError
+    from xeda._internal.flow import FlowSettingsError
 
     # the full recipe, default `-sv`: the source does not read
     failed = _keyword_launch(tmp_path, "default-recipe")
@@ -347,7 +347,7 @@ def test_the_mode_reads_a_systemverilog_source_as_yosys_does(tmp_path):
     one, name for name. The default front end (the slang plugin) is refused before any tool
     runs; that front end is not run here, so nothing is claimed about what it would write.
     """
-    from xeda.flow import FlowSettingsError
+    from xeda._internal.flow import FlowSettingsError
 
     design = _design(tmp_path, "top.sv", SV_SOURCE)
 

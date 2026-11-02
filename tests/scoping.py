@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Mapping
 
-from xeda.flow import registered_flows
+from xeda._internal.flow import registered_flows
 
 
 def scoped(node: str, items: Iterable[str]) -> list[str]:
@@ -19,8 +19,8 @@ def node_settings(flow, settings):
     """Return `settings`, the settings of the requested flow of `flow` (a flow class, a flow name
     or the text of a chain), as the node-scoped layer that a launcher takes. A settings instance,
     an empty layer, and a layer that names its nodes already stay as they are."""
-    from xeda.flow import Flow
-    from xeda.flow_runner.chains import parse_request
+    from xeda._internal.flow import Flow
+    from xeda._internal.flow_runner.chains import parse_request
 
     if not settings or isinstance(settings, Flow.Settings):
         return settings
@@ -47,7 +47,7 @@ def node_settings(flow, settings):
                 out[f"{name}.{key}"] = value
         return out
     if any(isinstance(item, dict) for item in settings):
-        from xeda.utils import settings_to_dict
+        from xeda._internal.utils import settings_to_dict
 
         table = settings_to_dict(scoped(name, [item for item in settings if isinstance(item, str)]))
         for item in settings:

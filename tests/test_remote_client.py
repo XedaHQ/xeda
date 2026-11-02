@@ -21,21 +21,21 @@ import psutil
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.flow_runner import DefaultRunner, run_lock
-from xeda.outcomes import result_from_dict
-from xeda.records import read_record
+from xeda._internal.cli import cli
+from xeda._internal.flow_runner import DefaultRunner, run_lock
+from xeda._internal.outcomes import result_from_dict
+from xeda._internal.records import read_record
 from xeda.errors import RemoteError as PublicRemoteError
 from xeda.errors import RunRootError, SpecError
-from xeda.run_root import ensure_run_root
-from xeda.remote import client
-from xeda.remote.client import new_launch_id, workspace_key
-from xeda.remote.errors import (
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.remote import client
+from xeda._internal.remote.client import new_launch_id, workspace_key
+from xeda._internal.remote.errors import (
     RemoteCanceled,
     RemoteConnectionError,
     RemoteProtocolError,
 )
-from xeda.remote.ssh import Destination, SshSession
+from xeda._internal.remote.ssh import Destination, SshSession
 
 from .remote_fixtures import (
     RemoteHost,
@@ -47,7 +47,7 @@ from .remote_fixtures import (
 from .test_proc_utils import DEFAULT_SIGINT
 from .tool_utils import HANG_GUARD
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
@@ -755,7 +755,7 @@ def test_dropped_connection_cancels(tmp_path, remote_host, monkeypatch):
 
 
 def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     design, mirror = _earlier_success(tmp_path)
     ready = Ready(tmp_path, remote_host)
@@ -779,7 +779,7 @@ def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
 
 
 def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote_host, monkeypatch):
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     design, mirror = _earlier_success(tmp_path)
     waiting = threading.Event()
@@ -808,7 +808,7 @@ def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote
 def test_a_canceled_token_during_the_delivery_cancels_the_launch(
     tmp_path, remote_host, monkeypatch
 ):
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     design, _ = _earlier_success(tmp_path)
     token, dropped = CancelToken(), threading.Event()
@@ -834,7 +834,7 @@ def test_a_canceled_token_during_the_delivery_cancels_the_launch(
 def test_a_canceled_token_ends_the_wait_for_the_lock_of_the_mirror(
     tmp_path, remote_host, monkeypatch
 ):
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     design, mirror = _earlier_success(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"

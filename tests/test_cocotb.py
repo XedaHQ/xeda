@@ -7,12 +7,12 @@ from typing import Any, Callable, Dict, List, Tuple
 import pytest
 
 from xeda import Design
-from xeda.cocotb import Cocotb
-from xeda.cocotb import TestResults as CocotbTestResults  # alias: pytest collects `Test*`
-from xeda.flow import SimFlow
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import __builtin_flows__
-from xeda.tool import ToolException
+from xeda._internal.cocotb import Cocotb
+from xeda._internal.cocotb import TestResults as CocotbTestResults  # alias: pytest collects `Test*`
+from xeda._internal.flow import SimFlow
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import __builtin_flows__
+from xeda._internal.tool import ToolException
 
 from .tool_utils import (
     cocotb_safe_vvp,  # noqa: F401  (a fixture, used by name)

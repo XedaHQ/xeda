@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError
-from xeda.flow_runner.dependencies import merged_design
-from xeda.flow_runner.launch_generation import generating_units, inspect_generation
-from xeda.outcomes import Outcome
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow_runner.dependencies import merged_design
+from xeda._internal.flow_runner.launch_generation import generating_units, inspect_generation
+from xeda._internal.outcomes import Outcome
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import reader_flow
@@ -103,13 +103,13 @@ class Chain:
         return merged_design(self.load(), run_root=None)
 
     def runner(self, **settings):
-        from xeda.flow_runner import DefaultRunner
+        from xeda._internal.flow_runner import DefaultRunner
 
         return DefaultRunner(self.run_root, display_results=False, **settings)
 
     def launch(self, flow, **settings):
-        from xeda.flow_runner.launch_result import launch_result
-        from xeda.spec import Spec
+        from xeda._internal.flow_runner.launch_result import launch_result
+        from xeda._internal.spec import Spec
 
         runner = self.runner(**settings)
         design = self.load()
@@ -284,8 +284,8 @@ def test_launches_that_merge_the_same_dependencies_in_other_orders_do_not_wait_f
     dependencies listed in opposite orders, both finish."""
     import threading
 
-    from xeda.flow_runner.launch_result import launch_result
-    from xeda.spec import Spec
+    from xeda._internal.flow_runner.launch_result import launch_result
+    from xeda._internal.spec import Spec
     from tests.tool_utils import HANG_GUARD
 
     chain = Chain(tmp_path, depth=1)
@@ -328,7 +328,7 @@ def test_a_storage_whose_key_changed_while_another_unit_generated_is_not_leased(
     """The generator of one unit changes a declared input of an earlier unit. Under the leases the
     launch compares the current key of each unit with the key of the storage it holds, and
     generates the earlier unit again."""
-    from xeda.flow_runner.launch_generation import generated, generation_key
+    from xeda._internal.flow_runner.launch_generation import generated, generation_key
 
     chain = Chain(tmp_path, depth=2)
     script = tmp_path / "lib1" / "gen.py"
@@ -366,9 +366,9 @@ def two_designs_in_one_directory(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_two_dependency_designs_in_one_directory_are_two_units(tmp_path):
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flow_runner.launch_result import launch_result
-    from xeda.spec import Spec
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner.launch_result import launch_result
+    from xeda._internal.spec import Spec
 
     log, design_file = two_designs_in_one_directory(tmp_path)
     design = merged_design(Design.load(design_file), run_root=None)

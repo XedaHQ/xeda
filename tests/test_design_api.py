@@ -14,9 +14,9 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.design import DesignFileParseError, DesignValidationError
-from xeda.frozen import thaw
+from xeda._internal.cli import cli
+from xeda._internal.design import DesignFileParseError, DesignValidationError
+from xeda._internal.frozen import thaw
 
 DESIGN_FILE = """\
 name: a
@@ -325,7 +325,7 @@ def test_the_old_option_names_its_successor(tmp_path):
 
 
 def test_with_updates_equals_the_design_updates_option(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     file = _tree(tmp_path)
     updates = {"tb.top": "other", "rtl.parameters.W": 2}
@@ -364,7 +364,7 @@ def _cocotb_design(root: Path, **tb: object) -> Design:
 
 
 def test_an_explicit_cocotb_refusal_survives_an_update_and_a_reload(tmp_path):
-    from xeda.flow_runner.configuration import design_configuration
+    from xeda._internal.flow_runner.configuration import design_configuration
 
     refused = _cocotb_design(tmp_path, cocotb=False)
     derived = _cocotb_design(tmp_path)
@@ -424,7 +424,7 @@ def _property_design(root: Path, **kwargs: object) -> Design:
 
 def _properties(design: Design) -> dict[str, object]:
     """The property table as the flow reads it."""
-    from xeda.flows import VivadoSynth
+    from xeda._internal.flows import VivadoSynth
 
     settings = VivadoSynth.Settings.from_input(thaw(design.flows["vivado_synth"]))
     return dict(settings.set_synth_properties)
@@ -470,7 +470,7 @@ def test_the_package_of_a_remote_run_keeps_a_name_and_a_name_inside_it_apart(tmp
     so the package writes the escaped text and the host reads it back as the merged names."""
     import json
 
-    from xeda.dataclass import AtomicName
+    from xeda._internal.dataclass import AtomicName
 
     design = Design(
         name="a",

@@ -14,13 +14,13 @@ from typing import Any, get_args
 
 import pytest
 
-from xeda.dataclass import tier_of
-from xeda.flow import FlowException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys
-from xeda.flows.yosys import abc_strategy_script, asic_groups
-from xeda.flows.yosys.abc_strategies import Composition
-from xeda.units import Time
+from xeda._internal.dataclass import tier_of
+from xeda._internal.flow import FlowException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys import abc_strategy_script, asic_groups
+from xeda._internal.flows.yosys.abc_strategies import Composition
+from xeda._internal.units import Time
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
 from .test_yosys_asic_groups import no_liberty_message, _abc_script, _refused, _run

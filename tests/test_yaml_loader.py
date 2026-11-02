@@ -5,11 +5,11 @@ import math
 import pytest
 import yaml
 
-from xeda.design import Design, DesignFileParseError, DesignValidationError
-from xeda.frozen import thaw
+from xeda._internal.design import Design, DesignFileParseError, DesignValidationError
+from xeda._internal.frozen import thaw
 from xeda.errors import ProjectError
-from xeda.project import Project
-from xeda.yaml_loader import load_yaml
+from xeda._internal.project import Project
+from xeda._internal.yaml_loader import load_yaml
 
 pytestmark = pytest.mark.python_compat
 

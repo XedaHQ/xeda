@@ -18,9 +18,9 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Bsc, BscSim, Yosys
+from xeda._internal.design import SourceType
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Bsc, BscSim, Yosys
 
 from .bsc_outputs import collected_verilog
 from .tool_utils import (

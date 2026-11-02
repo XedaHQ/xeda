@@ -13,13 +13,12 @@ from pathlib import Path
 
 import pytest
 
-import xeda
-from xeda import flows
-from xeda.flow import Flow
-from xeda.flow_runner import FlowNotFoundError, get_flow_class
+from xeda._internal import flows
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner import FlowNotFoundError, get_flow_class
 
 from .flow_registry import preserved_flow_registry
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import IMPL, impl_module, impl_root
 from .source_layout import layout_script
 
 # The product's flows. The registry also holds the flows other test modules define: they are
@@ -71,14 +70,14 @@ def test_flow_name_lookup_is_exact():
 
 # --- The list of built-in flows ----------------------------------------------------------------
 
-PACKAGE = Path(xeda.__file__).parent
+PACKAGE = impl_root()
 
 
 def _module_name(path: Path) -> str:
-    parts = list(path.relative_to(PACKAGE.parent).with_suffix("").parts)
+    parts = list(path.relative_to(PACKAGE).with_suffix("").parts)
     if parts[-1] == "__init__":
         parts.pop()
-    return ".".join(parts)
+    return ".".join([IMPL, *parts])
 
 
 def _base_name(base: ast.expr) -> str:
@@ -151,7 +150,7 @@ def test_builtin_flows_have_no_duplicate_and_are_sorted_by_name():
 
 
 def _discover_in(monkeypatch, tmp_path: Path, files: dict[str, str]):
-    """Run the discovery over a package of `files` that has the name `xeda.flows.<tmp name>`."""
+    """Run the discovery over a package of `files` that has the name `xeda._internal.flows.<tmp name>`."""
     for name, text in files.items():
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)

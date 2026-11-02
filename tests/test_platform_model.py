@@ -17,7 +17,7 @@ import pytest
 import tomllib
 import yaml
 
-from xeda.platforms import (
+from xeda._internal.platforms import (
     Located,
     PlatformModel,
     Residue,
@@ -25,12 +25,18 @@ from xeda.platforms import (
     bundled_platform_names,
     load_residue,
 )
-from xeda.platforms.build import residue_problems
-from xeda.platforms.model import Number, Track, leaf_annotation, nest_leaves, normalize_leaf
-from xeda.platforms.residue import ResidueError, effective_residue
-from xeda.yaml_loader import load_yaml
+from xeda._internal.platforms.build import residue_problems
+from xeda._internal.platforms.model import (
+    Number,
+    Track,
+    leaf_annotation,
+    nest_leaves,
+    normalize_leaf,
+)
+from xeda._internal.platforms.residue import ResidueError, effective_residue
+from xeda._internal.yaml_loader import load_yaml
 from .source_layout import IMPL_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 REPO = Path(__file__).parent.parent
 PLATFORMS = IMPL_DIR / "platforms"

@@ -11,20 +11,20 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.dataclass import Field
-from xeda.deliver import Deliveries, DeliveryError
-from xeda.design import SourceType
+from xeda._internal.dataclass import Field
+from xeda._internal.deliver import Deliveries, DeliveryError
+from xeda._internal.design import SourceType
 from xeda.errors import SpecError, StalePlanError
-from xeda.flow import Flow, MetricSpec, Out
-from xeda.flow_runner import DefaultRunner, launch_locks, run_lock
-from xeda.flow_runner.plan_check import plan_difference
-from xeda.local_settings import LocalSettings
-from xeda.outcomes import Result
-from xeda.plan import plan_from_dict
-from xeda.proc_utils import TOOL_OUTPUT
-from xeda.run_root import ensure_run_root
-from xeda.spec import Spec
-from xeda.workspace import Workspace
+from xeda._internal.flow import Flow, MetricSpec, Out
+from xeda._internal.flow_runner import DefaultRunner, launch_locks, run_lock
+from xeda._internal.flow_runner.plan_check import plan_difference
+from xeda._internal.local_settings import LocalSettings
+from xeda._internal.outcomes import Result
+from xeda._internal.plan import plan_from_dict
+from xeda._internal.proc_utils import TOOL_OUTPUT
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, reader_flow

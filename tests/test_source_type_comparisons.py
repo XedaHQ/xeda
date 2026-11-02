@@ -9,7 +9,7 @@ comparisons.
 
 import re
 
-from xeda.design import SourceType
+from xeda._internal.design import SourceType
 from .source_layout import IMPL_DIR
 
 SRC = IMPL_DIR

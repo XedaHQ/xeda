@@ -15,8 +15,15 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSim, VivadoSynth, YosysFpga
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import (
+    VivadoAltSynth,
+    VivadoImpl,
+    VivadoProject,
+    VivadoSim,
+    VivadoSynth,
+    YosysFpga,
+)
 
 from .design_edits import with_updates
 from .tool_utils import (
@@ -314,7 +321,7 @@ def test_xsim_native_vhdl_evidence(work_dir, body, passes, ending, errors, warni
 
 def test_xsim_native_power_uses_successful_declared_activity(work_dir):
     """A real routed netlist supplies checked activity; only its producer reports a verdict."""
-    from xeda.flows import VivadoPower
+    from xeda._internal.flows import VivadoPower
 
     root = work_dir / "design"
     _write(root / "inv.v", INVERTER_V)

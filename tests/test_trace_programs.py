@@ -11,14 +11,20 @@ from typing import ClassVar
 
 import pytest
 
-import xeda.tool
-from xeda.flow import MetricSpec
-from xeda import Design, digest
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner import DefaultRunner, trace
-from xeda.flow_runner.trace import locate_program
-from xeda.proc_utils import DOCKER_IMAGE_PREFIX, note_program, recording_programs, run_process
-from xeda.tool import Docker, Tool
+import xeda._internal.tool
+from xeda._internal.flow import MetricSpec
+from xeda import Design
+from xeda._internal import digest
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner import DefaultRunner, trace
+from xeda._internal.flow_runner.trace import locate_program
+from xeda._internal.proc_utils import (
+    DOCKER_IMAGE_PREFIX,
+    note_program,
+    recording_programs,
+    run_process,
+)
+from xeda._internal.tool import Docker, Tool
 from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
@@ -108,7 +114,7 @@ def test_a_missing_image_or_docker_has_no_location(monkeypatch):
 
 
 def test_running_in_a_container_records_the_image(monkeypatch, tmp_path):
-    monkeypatch.setattr(xeda.tool, "run_process", lambda *args, **kwargs: None)
+    monkeypatch.setattr(xeda._internal.tool, "run_process", lambda *args, **kwargs: None)
     with recording_programs() as names:
         Docker(image="hdlc/ghdl", tag="yosys").run("ghdl", "--version", cwd=tmp_path)
         Docker(image="alpine", tag=None).run("true", cwd=tmp_path)

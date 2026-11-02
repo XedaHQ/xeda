@@ -14,19 +14,19 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import DESIGN, Flow, FlowSettingsException, In, Out
-from xeda.flow.derived import DerivedSources, DesignConversion
-from xeda.flow.io import (
+from xeda._internal.design import SourceType
+from xeda._internal.flow import DESIGN, Flow, FlowSettingsException, In, Out
+from xeda._internal.flow.derived import DerivedSources, DesignConversion
+from xeda._internal.flow.io import (
     IO_MARKER,
     check_io_declarations,
     declared_inputs,
     declared_outputs,
 )
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.chains import (
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.chains import (
     converter_edges,
     is_converter,
     default_graph,
@@ -37,9 +37,10 @@ from xeda.flow_runner.chains import (
     parse_request,
     predecessors,
 )
-from xeda.flow_runner.settings_layers import transitive_dependencies
-from xeda.flows import Bsc, BscSim, GhdlSim, Nextpnr, OpenroadPlace, Verilator, Yosys
-from xeda.introspect import flow_chain_cells, flow_info
+from xeda._internal.flow_runner.settings_layers import transitive_dependencies
+from xeda._internal.flows import Bsc, BscSim, GhdlSim, Nextpnr, OpenroadPlace, Verilator, Yosys
+from xeda.introspect import flow_info
+from xeda._internal.introspect import flow_chain_cells
 
 from .plan_documents import plan_nodes
 

@@ -19,10 +19,10 @@ from typing import Annotated, Any, Literal, Optional, Union
 import jinja2
 import pytest
 
-from xeda import introspect
-from xeda.dataclass import BaseModel, Field, ValidationError, XedaBaseModel, extras, tier
-from xeda.flow.flow import Flow
-from xeda.units import (
+from xeda._internal import introspect
+from xeda._internal.dataclass import BaseModel, Field, ValidationError, XedaBaseModel, extras, tier
+from xeda._internal.flow.flow import Flow
+from xeda._internal.units import (
     Bounds,
     Capacitance,
     Frequency,
@@ -43,7 +43,7 @@ from xeda.units import (
     percent,
     ratio,
 )
-from xeda.utils import dump_json, json_encodable, location_free, semantic_hash
+from xeda._internal.utils import dump_json, json_encodable, location_free, semantic_hash
 
 pytestmark = pytest.mark.python_compat
 

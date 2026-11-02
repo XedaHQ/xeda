@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda.tool import Docker, Tool
-from xeda.utils import ToolException
+from xeda._internal.tool import Docker, Tool
+from xeda._internal.utils import ToolException
 
 
 def _program(path: Path, text: str = "ok") -> Path:

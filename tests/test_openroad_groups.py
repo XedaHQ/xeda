@@ -11,17 +11,17 @@ from typing import Any, Optional, get_args
 
 import pytest
 
-from xeda.flow import FlowSettingsError
-from xeda.flow.settings_group import SettingsGroup, render_flags
-from xeda.flow_runner.settings_layers import compose_flow_settings
-from xeda.flows.openroad import OpenroadCts, OpenroadGrt, OpenroadPlace
-from xeda.flows.openroad import groups
-from xeda.units import Length, Quantity, Time
-from xeda.utils import tcl_word
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow.settings_group import SettingsGroup, render_flags
+from xeda._internal.flow_runner.settings_layers import compose_flow_settings
+from xeda._internal.flows.openroad import OpenroadCts, OpenroadGrt, OpenroadPlace
+from xeda._internal.flows.openroad import groups
+from xeda._internal.units import Length, Quantity, Time
+from xeda._internal.utils import tcl_word
 
 from .openroad_utils import OPENROAD_FLOWS
 from .test_documentation import undocumented_group_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 
 def settings_of(flow, *items: Any):
@@ -260,7 +260,7 @@ def test_every_leaf_of_an_item_model_of_the_groups_has_a_tier():
     """A list of items (a blockage, a pin, a rule) holds models that are no groups. Their leaves
     carry the tier of the setting that holds the list, so that their description in the schema
     says how often a user needs them."""
-    from xeda.dataclass import tier_of
+    from xeda._internal.dataclass import tier_of
     from tests.settings_fields import reachable_models
 
     exempt = {"WireRcSettings", "PdnGrid", "Settings"}
@@ -282,7 +282,7 @@ def test_every_leaf_of_an_item_model_of_the_groups_has_a_tier():
 
 
 def test_the_placement_flow_and_the_later_flows_share_the_legalization_options():
-    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+    from xeda._internal.flows.openroad.place_groups import DetailedPlacementGroup
 
     assert issubclass(DetailedPlacementGroup, groups.Legalize)
     for name in ("max_displacement", "legalizer", "cell_padding"):
@@ -297,7 +297,7 @@ def test_the_placement_flow_and_the_later_flows_share_the_legalization_options()
 
 
 def test_the_range_of_layers_for_a_via_in_a_pin_is_one_shared_group():
-    from xeda.flows.openroad import final_groups, grt_groups
+    from xeda._internal.flows.openroad import final_groups, grt_groups
 
     assert groups.ViaInPin.__module__ == impl_module("flows.openroad.groups")
     assert "ViaInPin" in groups.__all__ and "ViaInPin" not in final_groups.__all__
@@ -920,7 +920,7 @@ def test_the_routing_layers_take_a_range_and_a_table_of_adjustments():
 
 
 def test_the_platform_grid_type_is_the_one_of_the_platform_model():
-    from xeda.platforms.model import Pdn
+    from xeda._internal.platforms.model import Pdn
 
     grid = settings_of(
         OpenroadPlace,
@@ -1117,7 +1117,7 @@ def test_the_defaults_of_the_clock_tree_and_the_global_route_are_the_stage_defau
 
 
 def test_the_defaults_of_the_last_flow_are_the_stage_defaults():
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     last = Openroad.Settings()
     assert (last.write_gds, last.save_images) == (False, False)
@@ -1295,7 +1295,7 @@ def test_the_global_route_settings_refuse_a_value_out_of_range(item):
 
 
 def test_the_last_flow_refuses_what_cannot_work():
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     assert "`detailed_route.reroute_swap_factor` has no effect without" in refused(
         Openroad, "detailed_route.reroute_swap_factor=2"
@@ -1323,14 +1323,14 @@ def test_the_last_flow_refuses_what_cannot_work():
     ],
 )
 def test_the_last_flow_refuses_a_value_out_of_range(item):
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     with pytest.raises(Exception):
         settings_of(Openroad, item)
 
 
 def test_the_last_flow_prints_the_flags_of_the_detailed_route():
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     route = settings_of(
         Openroad,
@@ -1747,7 +1747,7 @@ HELP_OF_IO_GROUP = {
 
 
 def hatch_group(name: str):
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     flow, key, _ = HATCHES[name]
     return (flow or Openroad).Settings.model_fields[key].annotation
@@ -1763,7 +1763,7 @@ def test_a_hatch_accepts_exactly_the_listed_flags(command):
 
 @pytest.mark.parametrize("command", sorted(HATCHES))
 def test_an_allowed_flag_with_its_value_passes_and_prints_after_the_typed_flags(command):
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     flow, key, flags = HATCHES[command]
     flow = flow or Openroad
@@ -1775,7 +1775,7 @@ def test_an_allowed_flag_with_its_value_passes_and_prints_after_the_typed_flags(
 
 @pytest.mark.parametrize("command", sorted(HATCHES))
 def test_an_unknown_flag_in_a_hatch_is_refused_with_the_allowed_flags(command):
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     flow, key, flags = HATCHES[command]
     message = refused(flow or Openroad, f"{key}.extra_args=-bogus")
@@ -1784,7 +1784,7 @@ def test_an_unknown_flag_in_a_hatch_is_refused_with_the_allowed_flags(command):
 
 
 def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting():
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     message = refused(Openroad, "detailed_route.extra_args=-droute_end_iter,3")
     assert (
@@ -1794,7 +1794,7 @@ def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting():
 
 
 def test_a_hatch_must_start_with_a_flag():
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     message = refused(Openroad, "detailed_route.extra_args=5,-clean_patches")
     assert "`detailed_route.extra_args` must start with a flag, not `5`" in message
@@ -1803,7 +1803,7 @@ def test_a_hatch_must_start_with_a_flag():
 def test_every_flag_of_the_legalization_and_the_placement_commands_has_a_setting():
     """No flag of the global placement or of the pin placement is left for a hatch, and neither
     is one of the legalization: the others are internal, deprecated or write a file."""
-    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+    from xeda._internal.flows.openroad.place_groups import DetailedPlacementGroup
 
     assert "extra_args" not in DetailedPlacementGroup.model_fields
     assert not DetailedPlacementGroup.EXTRA_FLAGS
@@ -1866,7 +1866,7 @@ def test_every_flag_that_a_group_prints_is_in_the_help_of_the_installed_tool(com
 
 
 def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_tool():
-    from xeda.flows.openroad import Openroad
+    from xeda._internal.flows.openroad import Openroad
 
     place = OpenroadPlace.Settings.model_fields
     placement = place["global_placement"].annotation.model_fields

@@ -14,13 +14,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from xeda.flow import Flow, FlowSettingsException
-from xeda.flow_runner import DefaultRunner, resolver
-from xeda.flow_runner.resolver import SHARED_SETTINGS
-from xeda.flow_runner.trace_inputs import setting_read_paths
-from xeda.flows import Yosys
-from xeda.flows.openroad import Openroad, OpenroadCts, OpenroadGrt, OpenroadPlace
-from xeda.utils import tcl_word
+from xeda._internal.flow import Flow, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner, resolver
+from xeda._internal.flow_runner.resolver import SHARED_SETTINGS
+from xeda._internal.flow_runner.trace_inputs import setting_read_paths
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.openroad import Openroad, OpenroadCts, OpenroadGrt, OpenroadPlace
+from xeda._internal.utils import tcl_word
 
 from .openroad_utils import (
     openroad_design,
@@ -275,7 +275,7 @@ def test_the_units_of_ten_and_a_hundred_are_compared_by_value(tmp_path):
 def test_a_platform_unit_in_another_spelling_is_compared_by_value(tmp_path):
     """The platform model can state its unit as `1 ns`; the stages scale by its value, so a
     Liberty file with the unit `1ns` is the same unit."""
-    from xeda.flows.openroad.base import model_time_unit_seconds
+    from xeda._internal.flows.openroad.base import model_time_unit_seconds
 
     assert model_time_unit_seconds("1 ns") == model_time_unit_seconds("0.001us")
     assert model_time_unit_seconds("1 ns") == pytest.approx(1e-9)

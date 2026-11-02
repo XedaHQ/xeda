@@ -7,10 +7,10 @@ import json
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.bsc import BscSim
-from xeda.flows.iverilog import build_end_monitor
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.bsc import BscSim
+from xeda._internal.flows.iverilog import build_end_monitor
 
 from .tool_utils import require_bluesim_evidence
 from .tool_utils import HANG_GUARD
@@ -368,7 +368,7 @@ def require_bsc_backend(backend):
 
 @pytest.mark.parametrize("backend", ["cvc", "cver", "isim", "ncverilog", "veriwell"])
 def test_uncertified_legacy_backend_is_rejected_before_compilation(tmp_path, monkeypatch, backend):
-    from xeda.tool import Tool
+    from xeda._internal.tool import Tool
 
     design = bsv_design(tmp_path / "design", "")
     flow = BscSim({"simulator": backend}, design, tmp_path / "run")
@@ -393,7 +393,7 @@ def test_uncertified_legacy_backend_is_rejected_before_compilation(tmp_path, mon
 def test_bsc_simulator_adapter_manifest_covers_every_declared_backend(tmp_path):
     from typing import get_args
 
-    from xeda.flows.bsc import SimulatorName
+    from xeda._internal.flows.bsc import SimulatorName
 
     design = bsv_design(tmp_path / "design", "")
     for backend in get_args(SimulatorName):
@@ -610,7 +610,7 @@ def test_iverilog_helper_compiles_with_installed_headers(tmp_path):
 
 
 def test_verilator_bsc_requires_p1_hook_version_before_compiling(tmp_path, monkeypatch):
-    from xeda.tool import Tool, ToolException
+    from xeda._internal.tool import Tool, ToolException
 
     design = bsv_design(tmp_path / "design", "")
     flow = BscSim({"simulator": "verilator"}, design, tmp_path / "run")

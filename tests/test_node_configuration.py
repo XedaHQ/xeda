@@ -23,14 +23,14 @@ import yaml
 from pydantic import Field
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, MetricSpec
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
-from xeda.flow_runner.resolver import PlanNode
-from xeda.frozen import thaw
-from xeda.utils import location_free
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, MetricSpec
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.default_runner import DIR_NAME_HASH_LEN
+from xeda._internal.flow_runner.resolver import PlanNode
+from xeda._internal.frozen import thaw
+from xeda._internal.utils import location_free
 
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
@@ -150,8 +150,8 @@ def converted_chain() -> tuple[type[Flow], type[Flow], str]:
 
 def assert_identity_formula(nodes: Iterable[PlanNode]) -> None:
     """The identity of every node is made of the three parts in one formula."""
-    from xeda.flow_runner.bindings import node_identity
-    from xeda.flow_runner.configuration import configuration_hash
+    from xeda._internal.flow_runner.bindings import node_identity
+    from xeda._internal.flow_runner.configuration import configuration_hash
 
     nodes = list(nodes)
     assert nodes
@@ -681,7 +681,7 @@ def test_a_netlist_edit_moves_no_identity(tmp_path):
 
 
 def test_the_identity_formula_takes_the_three_parts_in_order():
-    from xeda.flow_runner.bindings import node_identity
+    from xeda._internal.flow_runner.bindings import node_identity
 
     origins = (("netlist", "source"),)
     base = node_identity("settings", "configuration", origins)
@@ -694,8 +694,8 @@ def test_the_identity_formula_takes_the_three_parts_in_order():
 
 
 def test_the_configuration_hash_depends_on_the_values_and_not_on_the_key_order():
-    from xeda.flow_runner.configuration import configuration_hash
-    from xeda.frozen import freeze
+    from xeda._internal.flow_runner.configuration import configuration_hash
+    from xeda._internal.frozen import freeze
 
     one = {"rtl": {"top": "a", "sources": [{"path": "a.v", "type": "Verilog"}]}, "language": {}}
     reordered = {
@@ -792,7 +792,7 @@ def test_a_changed_source_is_not_a_changed_configuration(tmp_path):
 
 
 def test_the_trace_holds_the_hash_of_the_configuration(tmp_path):
-    from xeda.flow_runner.configuration import configuration_hash
+    from xeda._internal.flow_runner.configuration import configuration_hash
 
     reader = source_reader()
     launcher = runner(tmp_path, hashed_run_dirs=False)

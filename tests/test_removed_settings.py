@@ -6,14 +6,14 @@ from typing import get_args
 import pytest
 from pydantic import BaseModel
 
-from xeda.flow import Flow, FlowSettingsError, registered_flows
-from xeda.dataclass import SecondSpelling, removed_message
-from xeda.flows import Openroad
-from xeda.project import Project
+from xeda._internal.flow import Flow, FlowSettingsError, registered_flows
+from xeda._internal.dataclass import SecondSpelling, removed_message
+from xeda._internal.flows import Openroad
+from xeda._internal.project import Project
 
 from .project_files import project_listing
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 FLOWS = sorted({cls for _, cls in registered_flows.values()}, key=lambda c: c.name)
 
@@ -68,7 +68,7 @@ REMOVED_OPEN_XC7 = "`open_xc7` was removed: use fpga_pack to build, openfpgaload
     "name", ["open_xc7", "openxc7", "OpenXC7", "open-xc7", "OPEN_XC7", "OpenXc7", " open_xc7 "]
 )
 def test_open_xc7_was_removed_and_names_what_replaced_it(name):
-    from xeda.flow_runner import FlowNotFoundError, get_flow_class
+    from xeda._internal.flow_runner import FlowNotFoundError, get_flow_class
 
     with pytest.raises(FlowNotFoundError) as error:
         get_flow_class(name)
@@ -78,11 +78,11 @@ def test_open_xc7_was_removed_and_names_what_replaced_it(name):
 def test_no_open_xc7_flow_module_alias_or_tombstone_is_left():
     import importlib
 
-    import xeda.flows
+    import xeda._internal.flows
     from xeda.introspect import flows_info
 
     assert not [name for name in registered_flows if "xc7" in name.lower()]
-    assert not [name for name in dir(xeda.flows) if "xc7" in name.lower()]
+    assert not [name for name in dir(xeda._internal.flows) if "xc7" in name.lower()]
     assert not [flow["name"] for flow in flows_info() if "xc7" in flow["name"]]
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(impl_module("flows.openxc7"))
@@ -90,7 +90,7 @@ def test_no_open_xc7_flow_module_alias_or_tombstone_is_left():
 
 def test_launching_open_xc7_through_the_api_says_it_was_removed(tmp_path):
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+    from xeda._internal.flow_runner import DefaultRunner, FlowNotFoundError
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "d"})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -119,7 +119,7 @@ def _design_with_sections(tmp_path, sections):
 def test_a_design_s_open_xc7_section_is_an_error_naming_the_replacement(name, tmp_path):
     """A removed flow is not an unknown plugin: its section configures nothing any more, and
     saying nothing would leave the design's settings silently unused."""
-    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+    from xeda._internal.flow_runner import DefaultRunner, FlowNotFoundError
 
     design = _design_with_sections(tmp_path, {name: {"fpga": {"part": "xc7a100tcsg324-1"}}})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -131,7 +131,7 @@ def test_a_design_s_open_xc7_section_is_an_error_naming_the_replacement(name, tm
 
 
 def test_a_project_s_open_xc7_section_is_an_error_naming_the_replacement(tmp_path):
-    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+    from xeda._internal.flow_runner import DefaultRunner, FlowNotFoundError
 
     (tmp_path / "d.v").write_text(_COUNTER)
     project = tmp_path / "xedaproject.yaml"
@@ -153,7 +153,7 @@ def test_a_project_s_open_xc7_section_is_an_error_naming_the_replacement(tmp_pat
 
 
 def test_an_open_xc7_section_given_as_a_setting_is_an_error_naming_the_replacement(tmp_path):
-    from xeda.flow_runner import DefaultRunner, FlowNotFoundError
+    from xeda._internal.flow_runner import DefaultRunner, FlowNotFoundError
 
     design = _design_with_sections(tmp_path, {})
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -197,7 +197,7 @@ def test_the_command_line_reports_a_design_file_s_open_xc7_section(tmp_path):
 
 def test_a_section_of_a_flow_that_is_not_installed_is_still_tolerated(tmp_path):
     """A plugin flow that is not installed here: its section is nobody's settings."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     design = _design_with_sections(tmp_path, {"some_plugin_flow": {"anything": 1}})
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan("yosys_fpga", design)
@@ -250,7 +250,7 @@ def test_scrub_still_removes_a_removed_flow_s_run_directories(name, tmp_path):
     import subprocess
     import sys
 
-    from xeda.run_root import ensure_run_root
+    from xeda._internal.run_root import ensure_run_root
 
     root = ensure_run_root(tmp_path / "run")
     for directory in ("open_xc7", "open_xc7_0123456789abcdef", "nextpnr"):
@@ -308,7 +308,7 @@ CLOCK_PERIOD_REMOVED = (
 
 
 def _synth_flows():
-    from xeda.flow.synth import SynthFlow
+    from xeda._internal.flow.synth import SynthFlow
 
     return [flow for flow in FLOWS if issubclass(flow, SynthFlow)]
 
@@ -324,7 +324,7 @@ def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin)
     import json
 
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")

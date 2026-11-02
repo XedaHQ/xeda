@@ -19,9 +19,9 @@ import re
 
 import pytest
 
-from xeda.flow import FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import YosysFpga
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import YosysFpga
 
 from .test_yosys_fpga_clean_netlist import MAPPED_CELLS, XC7, _cells_of, _netlist, _synthesize
 from .test_yosys_fpga_flags import RELEASES, TARGETS
@@ -194,7 +194,7 @@ def _plan(tmp_path, part, **sides):
 
 
 def test_out_of_context_is_a_shared_setting() -> None:
-    from xeda.flow_runner.resolver import SHARED_SETTINGS
+    from xeda._internal.flow_runner.resolver import SHARED_SETTINGS
 
     assert SHARED_SETTINGS[-1] == "out_of_context"
 

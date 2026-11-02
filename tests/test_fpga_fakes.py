@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow_runner import DefaultRunner
 
 from . import tool_utils
 from .tool_utils import HANG_GUARD

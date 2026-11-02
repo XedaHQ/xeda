@@ -22,10 +22,10 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import FlowFatalError
-from xeda.flow_runner import DefaultRunner
-from xeda.run_dir import RunDirectoryError
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.run_dir import RunDirectoryError
 
 from .design_edits import design_of_target
 from .flow_registry import preserved_flow_registry
@@ -419,7 +419,7 @@ def test_a_target_is_not_named_as_a_flow_s_run_directory_at_the_path_boundary(tm
 
 def test_targets_that_differ_only_in_letter_case_are_refused_at_load(tmp_path):
     """One directory on a file system that ignores case: the loader refuses the table."""
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     path = write_design(tmp_path, {"Arty": {}, "arty": {}})
     with pytest.raises(DesignValidationError, match="differ only in letter case"):
@@ -430,7 +430,7 @@ def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     launcher = runner(tmp_path)
     design = Design.load(write_design(tmp_path, {"a": {}}), target="a")
     plan_root = tmp_path / "xeda_run"
-    from xeda.run_root import ensure_run_root
+    from xeda._internal.run_root import ensure_run_root
 
     ensure_run_root(plan_root, start=tmp_path)
     outside = tmp_path / "outside"
@@ -521,7 +521,7 @@ REMOVED = ["open_xc7", "openxc7", "open-xc7", "OpenXc7", "OpenXC7", "OPEN_XC7"]
 @pytest.mark.parametrize("name", REMOVED)
 def test_a_removed_flow_s_name_is_refused_as_a_target_name(tmp_path, name):
     """`<design>/open_xc7` may be a legacy run directory: a target may not take its place."""
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     with pytest.raises(DesignValidationError, match="name of a flow"):
         Design.load(write_design(tmp_path, {name: {}}))

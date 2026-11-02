@@ -17,22 +17,23 @@ from pathlib import Path
 
 import pytest
 
-import xeda.cancel
-import xeda.flow_runner.dependencies
+from xeda._internal.package_paths import impl_root
+import xeda._internal.cancel
+import xeda._internal.flow_runner.dependencies
 from xeda import Design
-from xeda.cancel import CancelToken, never_canceled, observing
+from xeda._internal.cancel import CancelToken, never_canceled, observing
 from xeda.errors import LeaseHeldError
-from xeda.events import Event
-from xeda.flow_runner import run_lock
-from xeda.flow_runner.default_runner import FlowLauncher
-from xeda.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
-from xeda.outcomes import Disposition, Outcome
-from xeda.proc_utils import ProcessCanceled, run_child, run_process
-from xeda.records import read_record
-from xeda.run_root import ensure_run_root
-from xeda.spec import Spec
-from xeda.utils import Canceled
-from xeda.workspace import Workspace
+from xeda._internal.events import Event
+from xeda._internal.flow_runner import run_lock
+from xeda._internal.flow_runner.default_runner import FlowLauncher
+from xeda._internal.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
+from xeda._internal.outcomes import Disposition, Outcome
+from xeda._internal.proc_utils import ProcessCanceled, run_child, run_process
+from xeda._internal.records import read_record
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.spec import Spec
+from xeda._internal.utils import Canceled
+from xeda._internal.workspace import Workspace
 
 from .cancel_flows import cut_design, cut_flows
 from .flow_registry import preserved_flow_registry
@@ -165,7 +166,7 @@ def test_a_token_that_is_canceled_before_the_launch_starts_nothing(tmp_path):
 
 def test_the_timeout_counts_from_construction(monkeypatch):
     now = [100.0]
-    monkeypatch.setattr(xeda.cancel, "monotonic", lambda: now[0])
+    monkeypatch.setattr(xeda._internal.cancel, "monotonic", lambda: now[0])
     token = CancelToken(timeout=5)
     now[0] = 104.9
     assert not token.canceled
@@ -522,7 +523,7 @@ def test_only_reviewed_code_opts_out_of_the_request_of_a_launch():
     """A call that opts out is a call that a canceled launch does not stop. The three reviewed ones
     run because the launch was canceled: the stop of a container, the clean-up of a mirror, and the
     clean-up of the nodes of a canceled sweep."""
-    root = Path(xeda.__file__).parent
+    root = impl_root()
     found = _names_used(root, {"never_canceled"})
     found.pop("cancel.py")
     assert found == {
@@ -534,7 +535,7 @@ def test_only_reviewed_code_opts_out_of_the_request_of_a_launch():
 
 def test_only_reviewed_code_starts_a_process_other_than_through_run_process():
     """A process that bypasses `run_process` and `run_child` does not observe the request."""
-    root = Path(xeda.__file__).parent
+    root = impl_root()
     starters = {("subprocess", name) for name in ("run", "Popen", "call", "check_call")} | {
         ("subprocess", "check_output"),
         ("os", "system"),
@@ -698,7 +699,7 @@ def test_cancel_while_planning_fetches_a_git_dependency(
     thread.join()
     _assert_nothing_planned(result, seen)
     _wait_until(lambda: not _is_running(_read_pid(started)), "git was stopped")
-    storage = xeda.flow_runner.dependencies.DEPENDENCIES_DIRECTORY
+    storage = xeda._internal.flow_runner.dependencies.DEPENDENCIES_DIRECTORY
     assert [p.name for p in (workspace.run_root / storage).iterdir() if p.suffix != ".lock"] == []
 
 
@@ -707,8 +708,9 @@ def test_cancel_while_planning_waits_for_the_lock_of_a_dependency(
 ):
     cut_flows()
     workspace = Workspace(ensure_run_root(tmp_path / "xeda_run"))
-    storage = xeda.flow_runner.dependencies.dependency_storage(
-        workspace.run_root, xeda.flow_runner.dependencies.dependency_key(remote.url, remote.first)
+    storage = xeda._internal.flow_runner.dependencies.dependency_storage(
+        workspace.run_root,
+        xeda._internal.flow_runner.dependencies.dependency_key(remote.url, remote.first),
     )
     waiting = threading.Event()
     monkeypatch.setattr(run_lock, "wait_hook", lambda path: waiting.set())

@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-from xeda.dataclass import SettingText
+from xeda._internal.dataclass import SettingText
 
 
 def text_items(texts: Iterable[str]) -> dict[str, SettingText]:

@@ -11,10 +11,10 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.dataclass import LOCATOR, WORKING, Field, XedaBaseModel, is_locator
-from xeda.flow import flowrun_hash
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.trace_inputs import setting_path_leaves
+from xeda._internal.dataclass import LOCATOR, WORKING, Field, XedaBaseModel, is_locator
+from xeda._internal.flow import flowrun_hash
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import setting_path_leaves
 
 from .io_flows import TInstalledTaker, TReadsInstalled, TReadsInstalledNested, _Where
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request

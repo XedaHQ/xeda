@@ -1,4 +1,4 @@
-"""The package layout has one source (`xeda.package_paths`): no module path, file depth or source
+"""The package layout has one source (`xeda._internal.package_paths`): no module path, file depth or source
 path is written out anywhere else, so a change of the layout touches that module only."""
 
 import ast
@@ -8,6 +8,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import types
 from importlib import resources
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,12 +18,15 @@ import pytest
 import yaml
 
 import xeda
-from xeda import Design, package_paths
-from xeda.plan import Plan
-from xeda.spec import Spec
-from xeda.workspace import Workspace
-from xeda.introspect import flows_info, optimizers_info, results_info, settings_info
-from xeda.package_paths import impl_module
+from xeda import Design
+from xeda._internal import package_paths
+from xeda._internal.plan import Plan
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
+from xeda.errors import DesignError
+from xeda.introspect import flows_info, results_info, settings_info
+from xeda._internal.introspect import optimizers_info
+from xeda._internal.package_paths import impl_module
 
 from .tool_utils import require_git, use_fake_tools
 from .source_layout import (
@@ -167,7 +172,7 @@ def test_no_file_depth_arithmetic():
 
 
 def test_remote_module_names_come_from_one_place():
-    from xeda.remote.provision import boot_script
+    from xeda._internal.remote.provision import boot_script
 
     assert "@XEDA_AGENT_MODULE@" not in boot_script()
     assert f"-m {impl_module('remote.agent')}" in boot_script()
@@ -413,3 +418,77 @@ def test_a_run_root_from_before_the_move_plans(tmp_path, fixed_world):
     node = workspace.plan(spec).nodes["nextpnr"]
     assert node.state == "stale"
     assert node.reason
+
+
+# ---------------------------------------------------------------------------------------------
+# The layout of the package
+# ---------------------------------------------------------------------------------------------
+
+
+def test_only_the_public_modules_are_outside_the_private_package():
+    found = sorted(p.name for p in SRC_XEDA.iterdir() if p.name != "__pycache__")
+    # `data` holds the JSON Schemas, which are public files.
+    assert found == [
+        "__init__.py",
+        "__main__.py",
+        "_internal",
+        "data",
+        "errors.py",
+        "introspect.py",
+        "py.typed",
+    ]
+    assert sorted(p.name for p in (SRC_XEDA / "data").iterdir() if p.name != "__pycache__") == [
+        "__init__.py",
+        "schemas",
+    ]
+
+
+def test_an_old_internal_class_path_names_the_short_form(tmp_path):
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "a.v").write_text("module a; endmodule\n")
+    recipe = {"class": "xeda.design.ChiselGenerator", "executable": "sbt"}
+    document = {"name": "d", "rtl": {"sources": ["a.v"], "top": "a", "generator": recipe}}
+    (root / "d.yaml").write_text(yaml.safe_dump(document))
+    with pytest.raises(DesignError) as raised:
+        Design.load(root / "d.yaml")
+    assert raised.value.code == "invalid_design"
+    assert raised.value.field == "rtl.generator.class"
+    assert "class: chisel" in raised.value.message
+
+
+def test_an_old_optimizer_class_path_names_the_new_module():
+    from xeda._internal.flow_runner.dse.dse_runner import Dse
+
+    with pytest.raises(ValueError, match=re.escape(impl_module("flow_runner.dse"))):
+        Dse("xeda.flow_runner.dse.fmax.fmax_optimizer")
+
+
+def test_the_catalog_is_written_where_it_is_installed():
+    assert not (SRC_XEDA / "flow_catalog.json").exists()
+    assert (IMPL_DIR / "flow_catalog.json").is_file()
+    done = subprocess.run(
+        [sys.executable, str(TOOLS / "generate_flow_catalog.py"), "--check"],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+
+
+def test_internal_helpers_are_not_reexported():
+    import xeda.introspect
+
+    assert not hasattr(xeda.introspect, "all_flow_classes")
+    assert sorted(xeda.introspect.__all__) == sorted(
+        name for name in dir(xeda.introspect) if not name.startswith("_")
+    )
+
+
+def test_the_api_has_no_difference_to_the_baseline():
+    path = TOOLS / "api_baseline.py"
+    tool = types.ModuleType("api_baseline")  # not imported: that would write bytecode
+    tool.__file__ = str(path)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), tool.__dict__)
+    baseline = json.loads((tool.newest_baseline() / "public_api.json").read_text(encoding="utf-8"))
+    additive, breaking = tool.classify(baseline, tool.public_api_snapshot(), kind="api")
+    assert not additive and not breaking

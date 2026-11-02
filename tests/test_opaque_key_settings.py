@@ -20,8 +20,8 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.dataclass import (
+from xeda._internal.cli import cli
+from xeda._internal.dataclass import (
     AtomicName,
     BaseModel,
     annotation_kind,
@@ -29,17 +29,17 @@ from xeda.dataclass import (
     name_inside_another,
     opaque_key_fields_of,
 )
-from xeda.flow import Flow, FlowSettingsException
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import _atomic_table, merge_layers
-from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
-from xeda.utils import ConflictingKeys, settings_to_dict
+from xeda._internal.flow import Flow, FlowSettingsException
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import _atomic_table, merge_layers
+from xeda._internal.flows import VivadoAltSynth, VivadoProject, VivadoSynth
+from xeda._internal.utils import ConflictingKeys, settings_to_dict
 
 from .project_files import project_listing
 from .tool_utils import fake_calls, use_fake_tools
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 PART = "xc7a12tcsg325-1"
 SYNTH_NAME = "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM"

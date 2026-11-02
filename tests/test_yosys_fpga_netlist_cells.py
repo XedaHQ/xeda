@@ -25,8 +25,8 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import YosysFpga
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import YosysFpga
 
 from .tool_utils import require_yosys
 

@@ -22,18 +22,18 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner.chains import parse_request
-from xeda.flows import VivadoSynth
-from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
-from xeda.flow_runner.dse.fmax import FmaxOptimizer
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.project import Project
-from xeda.dataclass import Field
-from xeda.units import Time
-from xeda.utils import camelcase_to_snakecase, replacing_file
-from xeda.flow import FpgaSynthFlow, MetricSpec
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flows import VivadoSynth
+from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
+from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.project import Project
+from xeda._internal.dataclass import Field
+from xeda._internal.units import Time
+from xeda._internal.utils import camelcase_to_snakecase, replacing_file
+from xeda._internal.flow import FpgaSynthFlow, MetricSpec
 from .scoping import node_settings
 from .design_edits import design_from_dump
 from .io_flows import TPlace
@@ -202,7 +202,7 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
 
 
 def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, monkeypatch):
-    from xeda.flow import FlowSettingsError
+    from xeda._internal.flow import FlowSettingsError
 
     monkeypatch.chdir(tmp_path)
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
@@ -217,7 +217,7 @@ def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, mo
 
 
 def test_declared_dse_adjustments_are_resolved_before_any_write(tmp_path, monkeypatch):
-    from xeda.flow_runner.dse import dse_runner
+    from xeda._internal.flow_runner.dse import dse_runner
 
     monkeypatch.chdir(tmp_path)
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
@@ -431,7 +431,7 @@ def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
 def test_coordinator_purge_waits_for_a_worker_directory_reader(tmp_path):
     import select
 
-    from xeda.flow_runner.run_lock import lock_file, run_dir_read_lock
+    from xeda._internal.flow_runner.run_lock import lock_file, run_dir_read_lock
     from .test_read_locks import _environment, _message
 
     path = tmp_path / "run" / "d" / "worker"
@@ -484,7 +484,7 @@ class _PromotingOptimizer(_DeclaredOptimizer):
         self.round = 0
 
     def next_batch(self):
-        from xeda.flow_runner.settings_layers import merge_layers
+        from xeda._internal.flow_runner.settings_layers import merge_layers
 
         self.round += 1
         if self.round > 2:
@@ -641,8 +641,8 @@ def test_a_search_reorders_its_own_variations_never_the_callers(tmp_path, monkey
 
 def test_a_promotion_leaves_the_default_table_as_it_was(monkeypatch):
     """The promotion itself: the best run's choices move to the front of the search's lists."""
-    from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
+    from xeda._internal.flow import Flow
+    from xeda._internal.flow_runner.dse.dse_runner import FlowOutcome
 
     pristine = copy.deepcopy(FmaxOptimizer.default_variations)
     monkeypatch.setattr(FmaxOptimizer, "default_variations", copy.deepcopy(pristine))
@@ -681,7 +681,7 @@ def test_a_search_removes_its_log_handler_when_the_cleanup_after_it_fails(tmp_pa
     is gone all the same."""
     import logging
 
-    from xeda.flow_runner.dse import dse_runner
+    from xeda._internal.flow_runner.dse import dse_runner
 
     class SecondInterrupt(Exception):
         pass
@@ -871,7 +871,7 @@ class _ClockWritingOptimizer(_DeclaredOptimizer):
 
 
 def test_dse_refuses_the_openroad_flows_before_any_worker(tmp_path):
-    from xeda.flows.openroad import OpenroadPlace
+    from xeda._internal.flows.openroad import OpenroadPlace
 
     from .flow_registry import preserved_flow_registry
     from .openroad_utils import openroad_design, register_openroad_flows
@@ -1142,7 +1142,7 @@ def test_every_failed_point_is_kept(tmp_path, monkeypatch):
 
 def test_a_round_is_one_sweep(tmp_path, monkeypatch):
     """The variants of a round go to `Workspace.sweep` in one call."""
-    from xeda.flow_runner.dse import dse_runner
+    from xeda._internal.flow_runner.dse import dse_runner
 
     real = dse_runner.Workspace.sweep
     calls = []
@@ -1314,7 +1314,7 @@ def test_a_failing_optimizer_loses_no_point_of_its_round(tmp_path, monkeypatch):
 
 
 def test_a_cancellation_during_the_report_of_a_round_ends_the_exploration(tmp_path, monkeypatch):
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     runner, design, arguments = _leaf_dse(tmp_path, monkeypatch, _PromotingOptimizer, TDsePlace)
     runner.cancel = token = CancelToken()
@@ -1326,7 +1326,7 @@ def test_a_cancellation_during_the_report_of_a_round_ends_the_exploration(tmp_pa
 
 
 def test_the_timeout_of_a_round_is_no_cancellation_of_the_exploration(tmp_path, monkeypatch):
-    from xeda.flow_runner.dse import dse_runner
+    from xeda._internal.flow_runner.dse import dse_runner
 
     class Expired(dse_runner._RoundToken):
         @property
@@ -1456,8 +1456,8 @@ def test_the_timeout_describes_what_it_limits():
 
 
 def _fmax_outcome(fmax, lut=None, success=True):
-    from xeda.flow import Flow
-    from xeda.flow_runner.dse.dse_runner import FlowOutcome
+    from xeda._internal.flow import Flow
+    from xeda._internal.flow_runner.dse.dse_runner import FlowOutcome
 
     results = Flow.Results()
     results["fmax"] = fmax
@@ -1470,7 +1470,7 @@ def _fmax_outcome(fmax, lut=None, success=True):
 def _tagging_search(monkeypatch, choices):
     """A search of four tags for `tag`, and `choices`, the index of the tag that each point of
     the next batches takes."""
-    from xeda.flow_runner.dse import fmax
+    from xeda._internal.flow_runner.dse import fmax
 
     optimizer = FmaxOptimizer(max_workers=2, init_freq_low=100.0, init_freq_high=200.0)
     optimizer.flow_class = TDseLeaf

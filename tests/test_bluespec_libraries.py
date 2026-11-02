@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dependencies import merged_design
-from xeda.flows import Bsc, BscSim
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dependencies import merged_design
+from xeda._internal.flows import Bsc, BscSim
 
 from .design_edits import with_updates
 from .tool_utils import require_bluesim, require_bsc, run_report

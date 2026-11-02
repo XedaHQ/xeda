@@ -23,9 +23,9 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.digest import TIME_MARKER_PREFIX
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, Nvc
+from xeda._internal.digest import TIME_MARKER_PREFIX
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import GhdlSim, Nvc
 
 from .tool_utils import require_ghdl, require_nvc_evidence
 from .source_layout import layout_script

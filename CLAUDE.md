@@ -3,10 +3,12 @@
 Most rules below are enforced by the test named in parentheses; that test is the specification,
 so read it before you change the behavior.
 
-Xeda drives simulation, synthesis and implementation flows of commercial and open-source EDA
-tools from one declarative design file. Package `src/xeda`, entry point `xeda.cli:cli`. Python
-3.11-3.15; pyproject, tox and CI must agree (`tests/test_python_support.py`). For the CLI and
-design files, read `.claude/skills/xeda/SKILL.md`. Write new designs and examples in YAML.
+Xeda drives simulation, synthesis and implementation flows of commercial and open-source EDA tools
+from one declarative design file. Package `src/xeda`; the implementation is `src/xeda/_internal`,
+and the module paths below are relative to it; entry point `xeda._internal.cli:cli`. Only `xeda`,
+`xeda.errors` and `xeda.introspect` are public (`tests/test_public_imports.py`). Python 3.11-3.15;
+pyproject, tox and CI must agree (`tests/test_python_support.py`). For the CLI and design files,
+read `.claude/skills/xeda/SKILL.md`. Write new designs and examples in YAML.
 
 ## Commands
 
@@ -15,7 +17,7 @@ uv sync                                   # or: python -m pip install -U --edita
 pytest tests/ -n logical                  # full suite (pytest-xdist); serial: pytest tests/
 tox -e mypy,black,ruff,docs               # the quality gates CI runs; all must exit 0
 tox                                       # py311..py314-compat + full py315 + mypy, black, ruff
-python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/flow_catalog.json
+python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/_internal/flow_catalog.json
 ```
 
 - Gates: `mypy src`; `black --check src tests tools` (line length 100); `ruff check --select
@@ -63,8 +65,8 @@ User-facing rules: `docs/run-directories.rst`.
   module of free functions (`launch_*.py`, `plan_freshness.py`, `scrub.py`) that never imports
   `default_runner` (`tests/test_launcher_modules.py`). Patch a name on the module whose code
   looks it up (`tests/test_patch_targets.py`). `resolver.py` plans every run before any flow is
-  built. `xeda/introspect.py` is the one source of metadata for the CLI, docs and skill.
-- `--remote` (`xeda/remote/`) runs the whole launch on the host through one OpenSSH master per
+  built. `introspect.py` is the one source of metadata for the CLI, docs and skill.
+- `--remote` (`remote/`) runs the whole launch on the host through one OpenSSH master per
   launch (no option that weakens authentication or host keys); both ends run the same provisioned
   code, so there is no version check (`tests/test_remote_client.py`, `tests/test_remote_agent.py`).
 
@@ -156,7 +158,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 - A change to a flow's names, settings, outputs, metrics or artifact keys runs
   `python tools/api_baseline.py` (`tests/test_builtin_contract.py`).
-- Add the class to the import list and to `__all__` in `xeda/flows/__init__.py`
+- Add the class to the import list and to `__all__` in `flows/__init__.py`
   (`tests/test_flow_registry.py`). After a change to flows, I/O, settings models, or
   `action_reason`, run `python tools/generate_flow_catalog.py` and commit the catalog
   (`tests/test_flow_catalog.py`).
@@ -180,7 +182,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`tests/test_source_contracts.py`, `tests/test_design_parts.py`). Compare
   `src.type is SourceType.X`, never text. Append `SourceType` members, never reorder.
 - Every written setting has a role: `WORKING` (a name in the run directory),
-  `deliverable(conventional=...)` (the run writes that name; `xeda/deliver.py` copies it to the
+  `deliverable(conventional=...)` (the run writes that name; `deliver.py` copies it to the
   given location after the launch) or `waveform(<ext>)`; add it to `ROLES` in
   `tests/test_written_paths.py`. The identity counts the name the run writes, never the
   destination (`tests/test_deliverable_identity.py`).
@@ -195,8 +197,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 - `class Settings(<Base>.Settings)` is a pydantic 2 `XedaBaseModel`: `extra = forbid`,
   `validate_assignment`, `validate_default=True` (never opt out; the validator must accept the
-  default). Import `field_validator` / `model_validator` from `xeda.dataclass`, never from
-  pydantic, with `@classmethod` under each.
+  default). Import `field_validator` / `model_validator` from `xeda._internal.dataclass`, never
+  from pydantic, with `@classmethod` under each.
 - Every `Flow.Settings` field needs a default (`Optional[X] = None`; else a `TypeError` at class
   creation). A setting the flow cannot run without goes in `Flow.required_settings`, never on the
   model or in `run()` (`tests/test_required_settings.py`). No custom `__init__`; user input goes
@@ -219,8 +221,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   text (the `SettingText` that `utils.settings_to_dict` marks) goes through
   `setting_text.parse_setting_text` by the field's annotation where the layers merge; values from
   Python and files are never converted (`tests/test_setting_text.py`).
-- A physical measurement is a quantity type from `xeda.units` with a unit, never a bare number;
-  every other numeric setting carries one marker (`count`, `ratio`, `percent`, `library_units`,
+- A physical measurement is a quantity type from `xeda._internal.units` with a unit, never a bare
+  number; every other numeric setting carries one marker (`count`, `ratio`, `percent`, `library_units`,
   `data_size`); the test's `NOT_MIGRATED_YET` table, which only shrinks, lists what is left
   (`tests/test_physical_quantities.py`).
 - Validators are idempotent (assignment and `settings.json` reload re-run them), log nothing
@@ -244,7 +246,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   always runs, through `Flow.always_runs`, and gets no digest.
 - Add no `os.chdir` and start every process with `cwd=`; the reviewed exceptions are listed in
   `tests/test_working_directory_reads.py`.
-- Every write in a run directory goes through `RunDirectory` (`xeda/run_dir.py`):
+- Every write in a run directory goes through `RunDirectory` (`run_dir.py`):
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow
   through a symbolic link: a tool may leave links anywhere in its run directory.

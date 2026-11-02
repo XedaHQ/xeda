@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import ClassVar
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, In, MetricSpec, Out
-from xeda.tool import Tool
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, MetricSpec, Out
+from xeda._internal.tool import Tool
 
 
 def cut_flows(program: str | None = None) -> tuple[type[Flow], type[Flow]]:

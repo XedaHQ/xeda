@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.digest import content_digest
-from xeda.equivalence import NORMALIZERS, digests, equivalence_digest
-from xeda.flow import Flow, In
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr, YosysFpga
+from xeda._internal.design import SourceType
+from xeda._internal.digest import content_digest
+from xeda._internal.equivalence import NORMALIZERS, digests, equivalence_digest
+from xeda._internal.flow import Flow, In
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nextpnr, YosysFpga
 
 from .settings_samples import flow_classes
 from .test_declared_fpga_flows import BLINK, PART, tools  # noqa: F401  (the stand-in tools)
@@ -199,7 +199,7 @@ def test_an_input_that_opts_in_needs_a_type_that_has_a_normalizer():
 
 
 def test_only_nextpnr_s_netlist_opts_in():
-    from xeda.flow.io import declared_inputs
+    from xeda._internal.flow.io import declared_inputs
 
     opted = {
         (cls.name, name)

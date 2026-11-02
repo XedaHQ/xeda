@@ -21,17 +21,16 @@ from typing import ClassVar
 
 import pytest
 
-import xeda
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.board import WithFpgaBoardSettings
-from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
-from xeda.flow import Flow, FlowSettingsException, In
-from xeda.flow.flow import registered_flows
-from xeda.flow.io import declared_inputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.chains import converter_edges
-from xeda.flows import Nextpnr
+from xeda._internal.board import WithFpgaBoardSettings
+from xeda._internal.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
+from xeda._internal.flow import Flow, FlowSettingsException, In
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow.io import declared_inputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.chains import converter_edges
+from xeda._internal.flows import Nextpnr
 
 from .design_edits import with_updates
 from .flow_registry import preserved_flow_registry
@@ -40,7 +39,7 @@ from .test_design_parts import _mro, reachable_templates
 from .test_tcl_paths import needs_tclsh
 from .tool_utils import fake_calls, use_fake_tools
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module, impl_root
 
 MAIN_SCRIPTS = {
     "vivado_synth.tcl",
@@ -163,7 +162,7 @@ REFUSED = [
     # a language that a converter turns into one the flow reads is no refusal of the `rtl`
     if not (part == "rtl" and CONVERTED.get(flow, set()) & {member})
 ]
-FLOWS_DIR = Path(xeda.__file__).parent / "flows"
+FLOWS_DIR = impl_root() / "flows"
 
 
 def _suffix(member: SourceType) -> str:
@@ -1391,7 +1390,7 @@ EXAMPLE_FILES = sorted(
 def _example_requests(path: Path):
     """Each design `path` holds, with every flow its sections or its project's name and the
     project's section for that flow."""
-    from xeda.project import Project
+    from xeda._internal.project import Project
 
     if path.stem == "xedaproject":
         project = Project.load(path)

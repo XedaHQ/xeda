@@ -1,4 +1,4 @@
-"""`xeda.edif.modules_used_as_library_cells`: the one thing `vivado_impl` asks of an EDIF netlist
+"""`xeda._internal.edif.modules_used_as_library_cells`: the one thing `vivado_impl` asks of an EDIF netlist
 before it hands the file to Vivado."""
 
 import random
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda import edif
-from xeda.edif import modules_used_as_library_cells
+from xeda._internal import edif
+from xeda._internal.edif import modules_used_as_library_cells
 
 HEADER = "(edif top (edifVersion 2 0 0) (edifLevel 0) (keywordMap (keywordLevel 0))\n"
 

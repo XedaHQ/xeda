@@ -3,8 +3,8 @@
 `tests/test_project.py` holds the tests of reading it.
 """
 
-from xeda.project import Project
-from xeda.xedaproject import PROJECT_FILE_NAMES, find_default_xedaproject
+from xeda._internal.project import Project
+from xeda._internal.xedaproject import PROJECT_FILE_NAMES, find_default_xedaproject
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 

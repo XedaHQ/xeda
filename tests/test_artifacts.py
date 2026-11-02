@@ -12,13 +12,13 @@ from typing import ClassVar
 import pytest
 from box import Box
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.artifacts import filter_artifact_paths, iter_artifact_paths, map_artifact_paths
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.cli_utils import artifact_rows as _artifact_rows
-from xeda.run_root import ensure_run_root
+from xeda._internal.artifacts import filter_artifact_paths, iter_artifact_paths, map_artifact_paths
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.cli_utils import artifact_rows as _artifact_rows
+from xeda._internal.run_root import ensure_run_root
 
 from .tool_utils import use_fake_tools
 

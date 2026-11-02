@@ -11,16 +11,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from xeda.flow import Flow  # noqa: E402
-from xeda.flow.io import declared_outputs  # noqa: E402
-from xeda.flow_runner.chains import (  # noqa: E402
+from xeda._internal.flow import Flow  # noqa: E402
+from xeda._internal.flow.io import declared_outputs  # noqa: E402
+from xeda._internal.flow_runner.chains import (  # noqa: E402
     ChainElement,
     complete_request,
     default_graph,
     validate_chain,
 )
-from xeda.introspect import all_flow_classes, settings_completion_info  # noqa: E402
-from xeda.package_paths import impl_module, impl_root, source_root  # noqa: E402
+from xeda._internal.introspect import all_flow_classes, settings_completion_info  # noqa: E402
+from xeda._internal.package_paths import impl_module, impl_root, source_root  # noqa: E402
 
 
 def builtin_classes() -> list[type[Flow]]:

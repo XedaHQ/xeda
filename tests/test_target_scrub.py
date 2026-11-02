@@ -28,20 +28,20 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import _prompt_removal, cli
-from xeda.console import console
-from xeda.flow_runner import DefaultRunner, run_lock
-from xeda.flow_runner import scrub as scrub_module
-from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
-from xeda.run_dir import RunDirectoryError
-from xeda.run_root import ensure_run_root
-from xeda.utils import replacing_file
-from xeda.workspace import _removal_question
+from xeda._internal.cli import _prompt_removal, cli
+from xeda._internal.console import console
+from xeda._internal.flow_runner import DefaultRunner, run_lock
+from xeda._internal.flow_runner import scrub as scrub_module
+from xeda._internal.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.utils import replacing_file
+from xeda._internal.workspace import _removal_question
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
 from .scrub_utils import ask_scrub_design, ask_scrub_runs, on_a_terminal
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -1070,7 +1070,7 @@ def test_a_candidate_that_became_a_link_out_of_the_run_root_or_to_nowhere_makes_
 def test_a_link_to_a_directory_in_the_run_root_and_the_directory_share_one_lock(tmp_path):
     """`get_flow_run_path` uses a run directory that is a link resolving inside the run root:
     a launch through the link's name and one through the real name serialize."""
-    from xeda.flow_runner.run_lock import lock_file, run_dir_lock
+    from xeda._internal.flow_runner.run_lock import lock_file, run_dir_lock
 
     tree = Tree(tmp_path)
     real = tree.a[0]
@@ -1095,7 +1095,7 @@ def test_a_link_to_a_directory_in_the_run_root_and_the_directory_share_one_lock(
 
 
 def test_without_a_run_root_a_lock_is_beside_the_name_it_is_given(tmp_path):
-    from xeda.flow_runner.run_lock import lock_file
+    from xeda._internal.flow_runner.run_lock import lock_file
 
     tree = Tree(tmp_path)
     outside = tmp_path / "outside"
@@ -1107,7 +1107,7 @@ def test_without_a_run_root_a_lock_is_beside_the_name_it_is_given(tmp_path):
 
 @pytest.mark.parametrize("leads_to", ["outside", "nowhere"])
 def test_a_link_out_of_the_run_root_or_nowhere_is_not_locked(tmp_path, leads_to):
-    from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
+    from xeda._internal.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 
     tree = Tree(tmp_path)
     outside = tmp_path / "outside"
@@ -1128,7 +1128,7 @@ def test_a_link_out_of_the_run_root_or_nowhere_is_not_locked(tmp_path, leads_to)
 
 
 def test_a_run_directory_reached_through_a_link_out_of_the_run_root_is_not_locked(tmp_path):
-    from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
+    from xeda._internal.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 
     tree = Tree(tmp_path)
     outside = tmp_path / "outside"

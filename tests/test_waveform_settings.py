@@ -15,7 +15,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
-from xeda.dataclass import (
+from xeda._internal.dataclass import (
     COMPRESSED_FORMATS,
     WAVEFORM_SUFFIXES,
     WaveformText,
@@ -25,11 +25,11 @@ from xeda.dataclass import (
     waveform_format_of,
     waveform_value,
 )
-from xeda.flow import FlowSettingsError, FlowSettingsException, SimFlow
-from xeda.flow.flow import identity_settings
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flows import GhdlSim, Nvc
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException, SimFlow
+from xeda._internal.flow.flow import identity_settings
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.flows import GhdlSim, Nvc
 
 from .settings_samples import flow_classes, minimal_settings
 from .sim_evidence_cases import CASES, SimCase, launch_case
@@ -712,7 +712,7 @@ def test_nvc_filters_the_waveform_with_the_globs(tmp_path):
 def test_a_flow_built_directly_writes_the_design_name_into_a_template(tmp_path):
     """Only the launcher delivers, but a flow made without it resolves `true` for `saif` to the
     path it writes, by the function the launcher uses."""
-    from xeda.flows import VivadoSim
+    from xeda._internal.flows import VivadoSim
 
     from .test_vivado import _vivado_sim_design
 

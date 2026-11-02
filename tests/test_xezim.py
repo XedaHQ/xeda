@@ -11,12 +11,12 @@ from typing import Any, Dict, Optional
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flows import Xezim
-from xeda.flows.xezim import XezimTool, parse_xezim_log
-from xeda.units import Time
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.flows import Xezim
+from xeda._internal.flows.xezim import XezimTool, parse_xezim_log
+from xeda._internal.units import Time
 
 from .tool_utils import HANG_GUARD, require_cocotb, require_xezim
 

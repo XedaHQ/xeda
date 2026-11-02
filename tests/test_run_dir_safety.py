@@ -36,16 +36,16 @@ from typing import Any, ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import scrub_runs
-from xeda.flows import Bsc, BscSim, DiamondSynth, Verilator, VivadoSim, VivadoSynth
-from xeda.run_dir import RunDirectoryError
-from xeda.run_root import RUN_ROOT_MARKER, RunRootError, ensure_run_root
-from xeda.utils import XedaException
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowSettingsError, In, Out, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.default_runner import scrub_runs
+from xeda._internal.flows import Bsc, BscSim, DiamondSynth, Verilator, VivadoSim, VivadoSynth
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.run_root import RUN_ROOT_MARKER, RunRootError, ensure_run_root
+from xeda._internal.utils import XedaException
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, producers_of, use_fake_tools
 from .scoping import node_settings
@@ -372,7 +372,7 @@ def test_a_name_that_would_leave_the_run_root_is_refused(tmp_path, name):
     """A design name that does not name one directory inside the run root is refused, naming it,
     both when the design is made and when a launcher is asked for its run directory. (A flow's
     name comes from the registry, so there is no flow half to refuse.)"""
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     with pytest.raises((ValueError, DesignValidationError), match="design name"):
         Design(name=name, root=tmp_path, rtl={"sources": []})
@@ -855,7 +855,7 @@ def test_a_cocotb_results_file_given_as_a_location_is_delivered_never_deleted(
     works in: the run writes `results.xml` in its own directory, and the file already at the
     location is neither deleted nor replaced unless the user says so -- the launch is refused
     before any tool runs."""
-    from xeda.deliver import OutputExistsError
+    from xeda._internal.deliver import OutputExistsError
 
     _no_tools(monkeypatch)
     canary = tmp_path / "results.xml"
@@ -926,7 +926,7 @@ def test_replacing_file_and_copy_replace_a_link(tmp_path):
     """`utils.replacing_file` and `utils.replacing_copy` write like `open(path, "w")` and
     `shutil.copy`, but replace a link at the destination instead of writing through it; the new
     file gets the permissions `open` would give it."""
-    from xeda.utils import replacing_copy, replacing_file
+    from xeda._internal.utils import replacing_copy, replacing_file
 
     work = tmp_path / "run"
     work.mkdir()
@@ -954,7 +954,7 @@ def test_replacing_copy_leaves_the_destination_untouched_if_copymode_fails(tmp_p
     new content with the wrong permission bits: `replacing_copy` sets the temporary file's mode
     before it is committed, so a failed `copymode` leaves the original destination -- content and
     mode -- exactly as it was, and no temporary file behind."""
-    from xeda import utils
+    from xeda._internal import utils
 
     source = tmp_path / "source.v"
     source.write_text("module m; endmodule\n")
@@ -980,7 +980,7 @@ def test_replacing_copy_leaves_the_destination_untouched_if_copymode_fails(tmp_p
 def test_replacing_file_never_commits_a_partly_written_file(tmp_path):
     """A body that writes part of the new content and fails leaves the file it would have
     replaced as it was, and no temporary file behind."""
-    from xeda.utils import replacing_file
+    from xeda._internal.utils import replacing_file
 
     target = tmp_path / "settings.json"
     target.write_text(PRECIOUS)
@@ -997,7 +997,7 @@ def test_replacing_file_never_commits_a_partly_written_file(tmp_path):
 def test_dump_json_never_commits_a_partly_serialized_document(tmp_path):
     """`settings.json` is written a second time, without a backup, after a run: a value that
     fails to serialize half-way leaves the first document whole."""
-    from xeda.utils import dump_json
+    from xeda._internal.utils import dump_json
 
     target = tmp_path / "settings.json"
     dump_json({"first": 1}, target, backup=False)
@@ -1017,8 +1017,8 @@ def test_dump_json_never_commits_a_partly_serialized_document(tmp_path):
 def test_a_failed_tool_keeps_its_redirected_output(tmp_path):
     """A tool whose output a flow redirects to a file, and which fails, still leaves that
     output: it is the diagnostic of the failure."""
-    from xeda.proc_utils import run_process
-    from xeda.utils import NonZeroExitCode
+    from xeda._internal.proc_utils import run_process
+    from xeda._internal.utils import NonZeroExitCode
 
     log = tmp_path / "tool.log"
     with pytest.raises(NonZeroExitCode):
@@ -1032,7 +1032,7 @@ def test_a_failed_tool_keeps_its_redirected_output(tmp_path):
 def test_removing_a_read_only_directory_never_changes_a_linked_file(tmp_path):
     """The retry that makes a read-only entry writable acts on the entry, never through a
     tool-made link to a user's file."""
-    from xeda.run_dir import rmtree
+    from xeda._internal.run_dir import rmtree
 
     outside = tmp_path / "user.txt"
     outside.write_text("mine")

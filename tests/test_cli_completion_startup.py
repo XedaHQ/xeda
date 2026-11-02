@@ -8,7 +8,7 @@ import sys
 
 import pytest
 from .tool_utils import HANG_GUARD
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
@@ -22,6 +22,7 @@ BLOCKED_MODULES = (
     impl_module("cli_utils"),
     impl_module("console"),
     "xeda.introspect",
+    impl_module("introspect"),
     impl_module("tool"),
     impl_module("units"),
     "click_extra",

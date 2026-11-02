@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import ClassVar
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, In, MetricSpec
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.launch_result import launch_result
-from xeda.outcomes import Result
-from xeda.spec import Spec
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, MetricSpec
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.launch_result import launch_result
+from xeda._internal.outcomes import Result
+from xeda._internal.spec import Spec
 
 #: Writes `gen/top.v` from `spec.txt`, notes where it ran, and counts its runs. Its arguments are
 #: the counter file, a width that goes into the text, and an optional note file. A file named

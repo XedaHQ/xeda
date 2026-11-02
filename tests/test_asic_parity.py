@@ -22,14 +22,14 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.flows import Yosys
-from xeda.introspect import all_flow_classes
-from xeda.platforms import bundled_platform_names
-from xeda.units import Time
+from xeda._internal.flows import Yosys
+from xeda._internal.introspect import all_flow_classes
+from xeda._internal.platforms import bundled_platform_names
+from xeda._internal.units import Time
 
 from .record_documents import record_document
 from .tool_utils import AsicQorTools, require_asic_qor
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ROOT = Path(__file__).parent.parent
 TOOL = ROOT / "tools" / "asic_parity.py"
@@ -372,7 +372,7 @@ def test_the_openroad_settings_of_a_design_file_validate(
     spec: str, flow: str, tmp_path: Path
 ) -> None:
     _skip_without_platform(spec)
-    from xeda.introspect import all_flow_classes
+    from xeda._internal.introspect import all_flow_classes
 
     cls = next(c for c in all_flow_classes() if c.name == flow)
     config = tool.load_design_config(tool.design_config_path(spec))

@@ -1,4 +1,4 @@
-# Pin-only derivative of xeda/data/boards/ulx3s/board.lpf (ULX3S v2/v3).
+# Pin-only derivative of xeda/_internal/data/boards/ulx3s/board.lpf (ULX3S v2/v3).
 # The flow settings supply the 25 MHz clock constraint.
 LOCATE COMP "clk_25mhz" SITE "G2";
 IOBUF  PORT "clk_25mhz" PULLMODE=NONE IO_TYPE=LVCMOS33;

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flows import Dc
+from xeda._internal.flows import Dc
 
 from .tool_utils import fake_calls, use_fake_tools
 

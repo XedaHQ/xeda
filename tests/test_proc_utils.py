@@ -31,9 +31,9 @@ from pathlib import Path
 import psutil
 import pytest
 
-from xeda import utils as xeda_utils
-from xeda.proc_utils import run_process
-from xeda.utils import NonZeroExitCode, live_log
+from xeda._internal import utils as xeda_utils
+from xeda._internal.proc_utils import run_process
+from xeda._internal.utils import NonZeroExitCode, live_log
 
 from .tool_utils import terminal_output
 
@@ -232,7 +232,7 @@ def test_non_zero_exit_still_raises(capsys):
 
 from pathlib import Path  # noqa: E402
 
-from xeda.tool import Docker, Tool  # noqa: E402
+from xeda._internal.tool import Docker, Tool  # noqa: E402
 
 
 def test_merge_stderr_captures_a_stderr_only_banner(tmp_path):
@@ -315,10 +315,10 @@ def test_docker_mounts_the_design_read_only_and_the_run_directory_read_write(mon
 def _docker_run_overrides():
     """Every `Docker` subclass that overrides `run`, however deeply nested.
 
-    Importing `xeda.flows` walks the flow subpackages, so a tool class declaring its own
+    Importing `xeda._internal.flows` walks the flow subpackages, so a tool class declaring its own
     container wrapper is registered as a subclass by the time this runs.
     """
-    import xeda.flows  # noqa: F401
+    import xeda._internal.flows  # noqa: F401
 
     found, seen, stack = [], set(), list(Docker.__subclasses__())
     while stack:
@@ -374,7 +374,7 @@ def test_docker_run_overrides_mount_the_design_read_only(docker_cls, monkeypatch
 
 
 def test_tool_output_goes_to_the_terminal_only_in_terminal_mode():
-    from xeda import proc_utils
+    from xeda._internal import proc_utils
 
     assert proc_utils.tool_output_redirect() is None
     assert proc_utils.tool_output_stream() is sys.stdout
@@ -404,7 +404,7 @@ def test_run_process_pipes_output_when_the_redirect_has_no_file_descriptor():
 # ---- a time limit and an output copy ---------------------------------------------------------
 import time  # noqa: E402
 
-from xeda.proc_utils import ProcessTimeout  # noqa: E402
+from xeda._internal.proc_utils import ProcessTimeout  # noqa: E402
 
 #: Time limits, in seconds, for a test whose tool must get somewhere (print a line, start a
 #: child) before the limit expires. The limit starts when the tool starts, so the test cannot wait
@@ -838,9 +838,9 @@ def test_the_time_limit_stops_a_child_in_another_process_group(tmp_path):
 import subprocess  # noqa: E402
 import threading  # noqa: E402
 
-import xeda.tool as xeda_tool  # noqa: E402
-from xeda.proc_utils import _Deadline  # noqa: E402
-from xeda.package_paths import impl_module
+import xeda._internal.tool as xeda_tool  # noqa: E402
+from xeda._internal.proc_utils import _Deadline  # noqa: E402
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
@@ -962,7 +962,7 @@ def _interrupting_after_the_child_ran(monkeypatch, started: Path):
     """Make the first wait of a tool on `Popen` (`wait` or `communicate`) end with a
     `KeyboardInterrupt`, as Ctrl-C does, once the grandchild of the tool wrote its process id to
     `started`. This does not send a signal to the test process, which a `pytest &` ignores."""
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     class Interrupted(subprocess.Popen):
         interrupted = False
@@ -1009,7 +1009,7 @@ def test_an_interrupt_without_a_time_limit_stops_what_the_tool_started(
     tmp_path, monkeypatch, route
 ):
     """Ctrl-C while a tool runs, with no time limit, ends the child that the tool started."""
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     started = tmp_path / "started"
     trigger = "interrupt now"
@@ -1186,7 +1186,7 @@ def test_non_group_cleanup_needs_no_sigkill(monkeypatch, stop):
     """Windows has Popen.kill(), but no signal.SIGKILL; test both forced-stop paths."""
     from types import SimpleNamespace
 
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     class Running:
         args = ["stubborn"]
@@ -1262,7 +1262,7 @@ def test_exception_cleanup_allows_a_graceful_exit(tmp_path, monkeypatch, error):
     the tool flush its output before killing surviving group members."""
     import signal
 
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     # A bound, not a wait: the cleanup returns when the tool exits, which takes about 0.15 s
     monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 30.0)
@@ -1304,7 +1304,7 @@ def test_exception_cleanup_kills_a_tool_after_the_grace_period(monkeypatch, erro
     """A tool ignoring the graceful signal still gets stopped after the bounded grace."""
     import signal
 
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     default, grace = pu.PROCESS_STOP_GRACE, 0.25
     monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", grace)
@@ -1444,7 +1444,7 @@ def test_an_interrupt_while_copying_output_stops_a_child_that_outlived_the_tool(
 ):
     """The child of a tool that ended keeps the pipe of the tool open, so Xeda still copies lines
     when Ctrl-C comes."""
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     started = tmp_path / "started"
     trigger = "interrupt now"
@@ -1548,7 +1548,7 @@ def test_a_stop_signal_during_the_stopping_is_held_until_it_is_done(monkeypatch,
     starts (`kill`; the tool ignores SIGINT and SIGTERM). Then the hook ran, the tool is killed and
     reaped, the handlers are the caller's again, and the signal still ends the wait: as a
     `KeyboardInterrupt` in place of any other error."""
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     def caller(number, frame):
         pass
@@ -1599,7 +1599,7 @@ def test_a_stop_signal_during_the_stopping_is_held_until_it_is_done(monkeypatch,
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_a_second_ctrl_c_during_the_stopping_kills_the_tool_and_still_runs_the_hook(monkeypatch):
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     def second_ctrl_c(self):
         raise KeyboardInterrupt
@@ -1738,7 +1738,7 @@ def test_a_slow_stop_hook_never_delays_the_stopping_of_the_process():
         holder["proc"] = real_popen(*args, **kwargs)
         return holder["proc"]
 
-    import xeda.proc_utils as pu
+    import xeda._internal.proc_utils as pu
 
     pu.subprocess.Popen = recording_popen  # type: ignore[misc]
     try:

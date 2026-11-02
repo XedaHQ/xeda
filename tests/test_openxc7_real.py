@@ -26,10 +26,10 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.launch_report import results_of
-from xeda.flows import FpgaPack
-from xeda.records import read_record
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.launch_report import results_of
+from xeda._internal.flows import FpgaPack
+from xeda._internal.records import read_record
 
 from . import tool_utils
 from .tool_utils import HANG_GUARD

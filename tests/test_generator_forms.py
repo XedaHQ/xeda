@@ -16,10 +16,10 @@ import pydantic
 import pytest
 
 from xeda import Design
-from xeda.design import POSIX_SHELL, DesignValidationError, Rtl, generator_of
-from xeda.flow_runner.dependencies import merged_design
-from xeda.flow_runner.launch_generation import generate
-from xeda.generation import GenerationError
+from xeda._internal.design import POSIX_SHELL, DesignValidationError, Rtl, generator_of
+from xeda._internal.flow_runner.dependencies import merged_design
+from xeda._internal.flow_runner.launch_generation import generate
+from xeda._internal.generation import GenerationError
 
 
 def _load(root: Path, generator: object) -> Design:

@@ -1,6 +1,6 @@
 """A design generator runs again when what it reads or produced changed -- judged by content.
 
-The decision is `xeda.generation`'s: the key of a generation names a storage under the run root,
+The decision is `xeda._internal.generation`'s: the key of a generation names a storage under the run root,
 and the record in that storage holds the digest of every generated source that the last generation
 left, and the digest of the environment that the generator inherited. No modification time decides
 anything, so each of these tests would have the wrong answer under a mtime rule: a stale source
@@ -23,11 +23,11 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError
-from xeda.flow_runner.launch_generation import Generation, generate, generation_key
-from xeda.generation import GenerationError, RECORD_NAME, generation_storage
-from xeda.run_dir import RunDirectoryError
-from xeda.package_paths import impl_module
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow_runner.launch_generation import Generation, generate, generation_key
+from xeda._internal.generation import GenerationError, RECORD_NAME, generation_storage
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 #: Writes `gen/top.v` from `spec.txt` into its storage, and appends a line to the file named by its
@@ -251,7 +251,7 @@ def test_inputs_are_rechecked_after_waiting_for_the_storage_lock(tmp_path, monke
     storage of the old key must not hold the output of the new input."""
     from contextlib import contextmanager
 
-    from xeda.flow_runner import launch_generation
+    from xeda._internal.flow_runner import launch_generation
 
     world = World(tmp_path)
     spec = world.root / "spec.txt"
@@ -295,7 +295,7 @@ def test_direct_executable_content_is_part_of_the_generation_key(tmp_path):
 
 @pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
 def test_execution_uses_the_same_tool_selected_from_generator_cwd_and_path(tmp_path):
-    from xeda.design import Generator
+    from xeda._internal.design import Generator
 
     root = tmp_path / "design"
     child_cwd = root / "build"
@@ -319,7 +319,7 @@ def test_execution_uses_the_same_tool_selected_from_generator_cwd_and_path(tmp_p
 
 @pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
 def test_generator_execution_preserves_a_symlink_executable_alias_in_argv0(tmp_path):
-    from xeda.design import Generator
+    from xeda._internal.design import Generator
 
     root = tmp_path / "design"
     root.mkdir()
@@ -340,7 +340,7 @@ def test_generator_execution_preserves_a_symlink_executable_alias_in_argv0(tmp_p
 
 @pytest.mark.skipif(os.name == "nt", reason="temporary executable scripts need POSIX execute bits")
 def test_chisel_identity_and_run_share_the_selected_mill_and_bloop_commands(tmp_path, monkeypatch):
-    from xeda.design import ChiselGenerator
+    from xeda._internal.design import ChiselGenerator
 
     root = tmp_path / "design"
     root.mkdir()
@@ -384,7 +384,7 @@ def test_chisel_identity_and_run_share_the_selected_mill_and_bloop_commands(tmp_
 def test_bloop_project_discovery_ignores_empty_whitespace_entries(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
-    from xeda.design import ChiselGenerator
+    from xeda._internal.design import ChiselGenerator
 
     calls = []
 
@@ -405,7 +405,7 @@ def test_bloop_project_discovery_ignores_empty_whitespace_entries(monkeypatch, t
 def test_bloop_project_discovery_reports_empty_output(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
-    from xeda.design import ChiselGenerator
+    from xeda._internal.design import ChiselGenerator
 
     monkeypatch.setattr(
         ChiselGenerator,
@@ -418,7 +418,7 @@ def test_bloop_project_discovery_reports_empty_output(monkeypatch, tmp_path):
 
 
 def test_bloop_rejects_an_empty_project(monkeypatch, tmp_path):
-    from xeda.design import ChiselGenerator
+    from xeda._internal.design import ChiselGenerator
 
     monkeypatch.setattr(ChiselGenerator, "run_cmd", lambda self, command, **kwargs: command)
 
@@ -517,7 +517,7 @@ def test_a_generator_writing_bytecode_into_a_source_directory_records_on_its_sec
 def test_a_launch_generates_again_until_nothing_changes_while_it_reads(tmp_path):
     """The lease of a launch is of a storage that its record vouches for: when the first run
     changed its own inputs, the launch runs the generator once more and then holds the storage."""
-    from xeda.flow_runner.launch_generation import generated
+    from xeda._internal.flow_runner.launch_generation import generated
 
     _library(tmp_path)
     world = _world_reading(tmp_path, "bytecode")
@@ -824,8 +824,8 @@ def test_digests_have_one_entry_per_name_whatever_order_the_paths_come_in(tmp_pa
     """A link given as itself is followed (its content is what a design declares) and, listed
     inside its directory, is recorded as a link: two digests for one name. The declared path's
     wins, whichever comes first, so collapsing equal pairs would not have been enough."""
-    from xeda.digest import record_file
-    from xeda.generation import _digests
+    from xeda._internal.digest import record_file
+    from xeda._internal.generation import _digests
 
     root = tmp_path.resolve()
     (root / "gen").mkdir()
@@ -853,7 +853,7 @@ def test_generator_args_written_as_text_are_words_and_as_a_list_stay_as_given():
     """A string `args` is split on whitespace exactly as `command` is, so the argv is the same
     whichever spelling a design used; a list is the words already. Both generator kinds read the
     one stored list."""
-    from xeda.design import ChiselGenerator, Generator
+    from xeda._internal.design import ChiselGenerator, Generator
 
     text = Generator(executable="python3", args="gen.py  out.log")
     words = Generator(executable="python3", args=["gen.py", "out.log"])
@@ -872,7 +872,7 @@ def test_generator_args_written_as_text_are_words_and_as_a_list_stay_as_given():
 def test_generator_args_survive_assignment_and_reload():
     """Validators run again on assignment and on every reload: the list a string became is the
     list it stays."""
-    from xeda.design import Generator
+    from xeda._internal.design import Generator
 
     generator = Generator(executable="python3", args="gen.py out.log")
     generator.args = generator.args
@@ -945,7 +945,7 @@ def test_a_generator_with_a_command_is_named_by_it(tmp_path, caplog):
 
 
 def test_a_generator_without_an_executable_is_named_by_its_kind():
-    from xeda.design import ChiselGenerator, Generator
+    from xeda._internal.design import ChiselGenerator, Generator
 
     assert Generator().describe("d") == "the generator of design 'd' (Generator)"
     assert (
@@ -955,7 +955,7 @@ def test_a_generator_without_an_executable_is_named_by_its_kind():
 
 
 def test_bloop_without_a_project_is_named_by_its_kind():
-    from xeda.design import ChiselGenerator
+    from xeda._internal.design import ChiselGenerator
 
     generator = ChiselGenerator(build_system="bloop")
 

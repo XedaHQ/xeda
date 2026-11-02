@@ -9,10 +9,10 @@ the confirmation. The prompt takes the question of a workspace, so the helpers w
 from pathlib import Path
 from typing import Optional
 
-import xeda.cli as cli_module
-from xeda.cli import _print_scrub_result, _prompt_removal
-from xeda.flow_runner import scrub as scrub_module
-from xeda.workspace import _removal_question
+import xeda._internal.cli as cli_module
+from xeda._internal.cli import _print_scrub_result, _prompt_removal
+from xeda._internal.flow_runner import scrub as scrub_module
+from xeda._internal.workspace import _removal_question
 
 
 def on_a_terminal(monkeypatch) -> None:

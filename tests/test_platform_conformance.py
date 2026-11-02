@@ -26,15 +26,20 @@ from xml.etree import ElementTree
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys
-from xeda.flows.openroad.final import klayout_tech_with_lef_files
-from xeda.platforms import PdkNotInstalled, Residue, build_platform, bundled_platform_names
-from xeda.platforms import load_residue, locate
-from xeda.platforms.build import residue_problems
-from xeda.platforms.derive import derive
-from xeda.platforms.providers import verify_pin
-from xeda.platforms.upstream import read_upstream
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.openroad.final import klayout_tech_with_lef_files
+from xeda._internal.platforms import (
+    PdkNotInstalled,
+    Residue,
+    build_platform,
+    bundled_platform_names,
+)
+from xeda._internal.platforms import load_residue, locate
+from xeda._internal.platforms.build import residue_problems
+from xeda._internal.platforms.derive import derive
+from xeda._internal.platforms.providers import verify_pin
+from xeda._internal.platforms.upstream import read_upstream
 
 from .record_documents import assert_metrics_recorded
 from .tool_utils import (

@@ -1,5 +1,5 @@
 # Basys-3 pins for the board-agnostic top (ports CLK, rxd, txd, led[3:0], sw[3:0], btn).
-# Pins and standards are from src/xeda/data/boards/basys3/board.xdc (clock, UART, LEDs, center
+# Pins and standards are from src/xeda/_internal/data/boards/basys3/board.xdc (clock, UART, LEDs, center
 # button) and the Digilent Basys-3 master XDC (switches). Only the port names differ.
 # No create_clock: the flow's clock setting writes it. Pins only, one set_property per port.
 

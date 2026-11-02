@@ -20,7 +20,7 @@ from typing import Any, Callable, ClassVar, Dict
 
 
 from xeda import Design
-from xeda.dataclass import (
+from xeda._internal.dataclass import (
     WHOLE,
     Field,
     annotation_form,
@@ -37,12 +37,12 @@ from xeda.dataclass import (
     table_entries,
     unspecified,
 )
-from xeda.design import DesignValidationError, Rtl
-from xeda.flow import FlowSettingsError
-from xeda.flow.fpga import FPGA
-from xeda.flow.synth import SynthFlow
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flows import VivadoSynth, Yosys
+from xeda._internal.design import DesignValidationError, Rtl
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow.fpga import FPGA
+from xeda._internal.flow.synth import SynthFlow
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.flows import VivadoSynth, Yosys
 
 from .design_edits import design_of
 from .settings_samples import flow_classes, minimal_settings
@@ -182,7 +182,7 @@ def test_every_form_a_field_accepts_stands_for_a_table_and_validates_as_it():
 def test_the_sweep_finds_a_form_that_has_no_table(monkeypatch):
     """The mutation check: when the merge cannot read a standard as a table, the sweep names the
     field that still accepts it."""
-    import xeda.dataclass as dataclass_module
+    import xeda._internal.dataclass as dataclass_module
 
     read = dataclass_module.mapping_form
 
@@ -200,7 +200,7 @@ def test_the_sweep_finds_a_form_that_has_no_table(monkeypatch):
 
 def test_the_sweep_finds_a_null_that_is_declared_valid_and_refused(monkeypatch):
     """`unspecified` is for a field that takes `None`: `clocks` takes a table alone."""
-    from xeda.dataclass import unspecified
+    from xeda._internal.dataclass import unspecified
 
     monkeypatch.setattr(SynthFlow.Settings, "field_shorthands", {"clocks": unspecified})
     found = [problem for problem in problems_of_the_forms() if "clocks" in problem]
@@ -208,7 +208,7 @@ def test_the_sweep_finds_a_null_that_is_declared_valid_and_refused(monkeypatch):
 
 
 def test_the_sweep_finds_a_field_shorthand_that_was_dropped(monkeypatch):
-    from xeda.design import DesignPart
+    from xeda._internal.design import DesignPart
 
     monkeypatch.setattr(DesignPart, "field_shorthands", {})
     assert any("parameters" in problem for problem in problems_of_the_forms())
@@ -295,7 +295,7 @@ def test_an_entry_that_is_no_table_is_kept_whatever_table_is_written_over_it():
 def test_the_sweep_finds_a_table_that_replaces_a_malformed_entry(monkeypatch):
     """The mutation check: when the merge does not know the entries are tables, the sweep names
     the dictionaries."""
-    import xeda.flow_runner.settings_layers as layers
+    import xeda._internal.flow_runner.settings_layers as layers
 
     monkeypatch.setattr(layers, "table_entries", lambda annotation: None)
     found = problems_of_the_entries()
@@ -319,7 +319,7 @@ def test_the_forms_that_stand_for_a_table():
     """The forms themselves, one by one."""
     assert FPGA.as_mapping("xc7a35tcpg236-1") == {"part": "xc7a35tcpg236-1"}
     assert FPGA.as_mapping(5) is None
-    from xeda.design import Clock, CocotbTestbench, LanguageSettings, VhdlSettings
+    from xeda._internal.design import Clock, CocotbTestbench, LanguageSettings, VhdlSettings
 
     assert Clock.as_mapping("CLK") == {"port": "CLK"}
     assert Clock.as_mapping(3) is None

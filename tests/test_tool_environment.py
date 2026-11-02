@@ -19,12 +19,12 @@ from typing import Any, ClassVar
 
 import pytest
 
-import xeda.tool
+import xeda._internal.tool
 from xeda import Design
-from xeda.cocotb import Cocotb
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, MetricSpec
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.environment import (
+from xeda._internal.cocotb import Cocotb
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException, MetricSpec
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.environment import (
     ESSENTIAL_VARIABLES,
     SESSION_VARIABLES,
     EnvironmentSnapshot,
@@ -33,11 +33,11 @@ from xeda.flow_runner.environment import (
     environment_evidence,
     node_environment,
 )
-from xeda.flow_runner.trace import read_trace
-from xeda.flows import Verilator
-from xeda.local_settings import LocalSettings
-from xeda.records import read_record
-from xeda.tool import Docker, Tool
+from xeda._internal.flow_runner.trace import read_trace
+from xeda._internal.flows import Verilator
+from xeda._internal.local_settings import LocalSettings
+from xeda._internal.records import read_record
+from xeda._internal.tool import Docker, Tool
 
 from .launch_utils import empty_project
 from .scoping import node_settings
@@ -380,7 +380,7 @@ def docker_calls(monkeypatch):
     """The `docker` commands that tools start: their arguments and keywords."""
     calls: list[tuple[list[str], dict[str, Any]]] = []
     monkeypatch.setattr(
-        xeda.tool,
+        xeda._internal.tool,
         "run_process",
         lambda executable, args=None, **kwargs: calls.append(
             ([str(a) for a in args or []], kwargs)
@@ -543,7 +543,7 @@ def test_a_variable_that_cocotb_sets_is_refused_and_names_its_setting(tmp_path):
 
 def test_no_flow_module_reads_os_environ():
     """Only `flow_runner/environment.py` of the flow code reads the process environment."""
-    source = Path(xeda.tool.__file__).parent
+    source = Path(xeda._internal.tool.__file__).parent
     files = [
         *(source / "flows").rglob("*.py"),
         *(source / "flow").rglob("*.py"),
@@ -559,7 +559,7 @@ def test_no_flow_module_reads_os_environ():
 
 
 def test_the_session_variables_are_the_ones_the_generators_leave_out():
-    from xeda.generation import SESSION_VARIABLES as GENERATOR_SESSION_VARIABLES
+    from xeda._internal.generation import SESSION_VARIABLES as GENERATOR_SESSION_VARIABLES
 
     assert SESSION_VARIABLES == GENERATOR_SESSION_VARIABLES
 

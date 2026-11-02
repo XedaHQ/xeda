@@ -10,9 +10,9 @@ import re
 
 import pytest
 
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoAltSynth, VivadoProject, VivadoSynth
 
 from .test_vivado_step_tables import PART, _design, _run, _script, needs_tclsh
 from .tool_utils import use_fake_tools

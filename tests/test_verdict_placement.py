@@ -14,8 +14,8 @@ from typing import Any, Callable, Dict, List, Set, Tuple
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow
-from xeda.flows import (
+from xeda._internal.flow import Flow
+from xeda._internal.flows import (
     DiamondSynth,
     IseSynth,
     Nextpnr,
@@ -23,11 +23,11 @@ from xeda.flows import (
     VivadoAltSynth,
     VivadoSynth,
 )
-from xeda.introspect import all_flow_classes
-from xeda.run_dir import RunDirectory
+from xeda._internal.introspect import all_flow_classes
+from xeda._internal.run_dir import RunDirectory
 
 from .settings_samples import minimal_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: Settings that gate a verdict in the code of a flow.
 SWITCHES = {"fail_timing", "timing_allow_fail", "allow_dsps", "allow_brams"}
@@ -88,7 +88,8 @@ def _is_results(node: ast.AST) -> bool:
 
 def called_functions(owner: type, function: Callable[..., Any]) -> List[Tuple[str, Callable]]:
     """Return what `function` calls in the code of the flows, transitively, by name: the methods
-    of `self` and the functions that receive `self`. Code outside `xeda.flows` is not swept."""
+    of `self` and the functions that receive `self`. Code outside `xeda._internal.flows` is not swept.
+    """
     found: List[Tuple[str, Callable]] = []
     seen: Set[str] = {function.__name__}
     pending = [function]

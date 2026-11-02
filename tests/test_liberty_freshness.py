@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowDependencyFailure
+from xeda._internal.flow import FlowDependencyFailure
 
 from .test_openroad_flows import NAMES, chain, launch, openroad_flows  # noqa: F401
 from .tiny_platform import tiny_store

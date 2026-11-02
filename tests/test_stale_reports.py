@@ -25,15 +25,15 @@ from typing import ClassVar
 import pytest
 from pydantic import Field
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
 
 from .settings_samples import flow_classes, minimal_settings
 from .test_isolation import EXTRA_SETTINGS, FAKED, FPGA_FAKED, SQRT
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: the design's sources for a flow whose tool does not read VHDL
 SOURCES = {"bsc": (["Top.bsv"], "mkTop"), "bsc_sim": (["Top.bsv"], "mkTop")}
@@ -187,7 +187,7 @@ def test_a_report_a_previous_run_left_is_never_read(flow_class, tmp_path, monkey
 
 def test_a_report_this_run_wrote_is_read(tmp_path, monkeypatch):
     """The control: the same reports, written by this run (the fake Vivado's), are read."""
-    from xeda.flows import VivadoSynth
+    from xeda._internal.flows import VivadoSynth
 
     use_fake_tools(monkeypatch)
     work = _design_directory(tmp_path / "design")
@@ -223,7 +223,7 @@ def test_report_file_says_whether_this_run_wrote_it(tmp_path):
         assert flow.parse_regex(tmp_path / "old.rpt", r"(?P<x>old)") is None
         assert flow.parse_regex(tmp_path / "new.rpt", r"(?P<x>new)") == {"x": "new"}
     finally:
-        from xeda.flow import registered_flows
+        from xeda._internal.flow import registered_flows
 
         for name in (ProbeReports.name, ProbeReports.__name__):
             registered_flows.pop(name, None)
@@ -283,7 +283,7 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
     """The reports such a flow reads, passing ones: written by this run they are read and it
     passes; left by a previous run -- there, unchanged, since the run started -- none is read,
     and the run does not pass."""
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     flow_name, settings, files_of = DIRECT[case]
     flow_class = get_flow_class(flow_name)

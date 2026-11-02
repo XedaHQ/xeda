@@ -18,18 +18,23 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.board import get_board_data
-from xeda.flow import FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.chains import ChainElement, parse_request, predecessors, request_text
-from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN, transitive_dependencies
-from xeda.flows import Openfpgaloader
+from xeda._internal.board import get_board_data
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.chains import (
+    ChainElement,
+    parse_request,
+    predecessors,
+    request_text,
+)
+from xeda._internal.flow_runner.settings_layers import COMMAND_LINE_ORIGIN, transitive_dependencies
+from xeda._internal.flows import Openfpgaloader
 from xeda.introspect import boards_info
 
 from .scoping import node_settings
 from .project_files import project_listing
 from .settings_samples import flow_classes
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 PRODUCT_FLOWS = [cls for cls, _name in flow_classes()]
 #: every product flow that takes a board, from the registry: one that gains `board` is swept too

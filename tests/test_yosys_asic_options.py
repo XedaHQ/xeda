@@ -19,11 +19,11 @@ from typing import Any, get_args
 import pytest
 
 from xeda import Design
-from xeda.dataclass import tier_of
-from xeda.flow import FlowException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys
-from xeda.flows.yosys import asic_groups
+from xeda._internal.dataclass import tier_of
+from xeda._internal.flow import FlowException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys import asic_groups
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
 from .test_yosys_asic_groups import no_liberty_message, _refused, _run
@@ -651,7 +651,7 @@ def test_both_extract_kinds_off_with_the_adder_map_on_gives_one_message():
 
 
 def test_the_extract_fa_descriptions_say_when_the_adder_map_runs():
-    from xeda.flows.yosys.asic_groups import ArithmeticGroup, ExtractFaGroup
+    from xeda._internal.flows.yosys.asic_groups import ArithmeticGroup, ExtractFaGroup
 
     for description in (
         ArithmeticGroup.model_fields["extract_fa"].description,
@@ -690,7 +690,7 @@ def _keys_all(**given: Any) -> list[tuple[str, str]]:
 
 
 def test_the_descriptions_name_the_synth_options_that_wrapping_leaves_out():
-    from xeda.flows.yosys.asic_groups import HierarchyGroup
+    from xeda._internal.flows.yosys.asic_groups import HierarchyGroup
 
     assert "wrap_operators" in HierarchyGroup.model_fields["cross_boundary_opt"].description
     assert "wrap_operators" in Yosys.Settings.model_fields["synth_flags"].description

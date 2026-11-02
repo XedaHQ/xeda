@@ -18,7 +18,7 @@ subprocess, on the fake tools) and records, per run directory it entered:
   checkpoints, SAIF file, liberty files, the merged library, the maps and the scripts, and every
   file a script names in turn (a text file's digest is taken after the paths in it are replaced by
   placeholders, so no digest names a directory);
-* the record in `results.json` (`xeda.records`), minus what names the run rather than what it did:
+* the record in `results.json` (`xeda._internal.records`), minus what names the run rather than what it did:
   its outcome and error, its metrics, the kind and the files of each output, and its artifacts.
 
 Every request is spelled with the flat `-s flows.<flow>.<key>=...` of a producer's own section,
@@ -60,9 +60,9 @@ from typing import Any
 
 import pytest
 
-import xeda
-from xeda.records import read_record
-from xeda.units import Time
+from xeda._internal.package_paths import impl_root
+from xeda._internal.records import read_record
+from xeda._internal.units import Time
 
 from .scoping import scoped
 from .tiny_platform import TINY_RESIDUE, tiny_store
@@ -75,7 +75,7 @@ from .tool_utils import (
 
 GOLDENS = Path(__file__).parent / "resources" / "tool_input_equivalence"
 CAPTURE = os.environ.get("XEDA_TESTS_CAPTURE_GOLDENS", "").lower() in ("1", "true", "yes", "on")
-PLATFORMS = Path(xeda.__file__).parent / "platforms"
+PLATFORMS = impl_root() / "platforms"
 
 #: What a conversion legitimately changes, each entry a path into a golden (`/`-separated, `*`
 #: for any one key; a key that itself holds `/`, such as a file's path, is named whole) and the
@@ -422,7 +422,7 @@ class Placeholders:
             (work / "design", "<DESIGN>"),
             (work, "<WORK>"),
             (PLATFORMS, "<PLATFORMS>"),
-            (Path(xeda.__file__).parent, "<XEDA>"),
+            (impl_root(), "<XEDA>"),
         ]
         self.replacements = sorted(
             {(str(path), mark) for path, mark in pairs}

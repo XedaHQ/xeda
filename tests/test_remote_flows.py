@@ -16,11 +16,11 @@ from xeda.errors import SpecError
 import yaml
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.launch_report import results_of
-from xeda.outcomes import result_from_dict
-from xeda.records import decode_record, encode_record, read_record
-from xeda.run_root import ensure_run_root
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.launch_report import results_of
+from xeda._internal.outcomes import result_from_dict
+from xeda._internal.records import decode_record, encode_record, read_record
+from xeda._internal.run_root import ensure_run_root
 
 from .io_flows import TInputTaker, TJoin, TMaker, TPartialMaker, TPlace, TTaker
 from .remote_fixtures import (
@@ -238,7 +238,7 @@ def test_a_vivado_composite_resolves_the_same_declared_graph(tmp_path, remote_ho
 def test_the_fpga_graph_runs_on_the_remote_and_mirrors_its_bitstream(tmp_path, remote_host):
     """`fpga_pack` on the remote: its producers run there in their own run directories, and the
     recorded bitstream comes back, verified, into the mirror."""
-    from xeda.digest import content_digest
+    from xeda._internal.digest import content_digest
 
     root = tmp_path / "design"
     root.mkdir()
@@ -715,7 +715,7 @@ def test_a_declared_graph_has_the_same_input_origin_on_the_remote(tmp_path, remo
 
 
 def test_declared_outputs_are_mirrored_and_delivered_without_artifact_labels(tmp_path, remote_host):
-    from xeda.digest import content_digest
+    from xeda._internal.digest import content_digest
 
     remote_host.load_test_flows()
     design = _declared_design(tmp_path / "design")

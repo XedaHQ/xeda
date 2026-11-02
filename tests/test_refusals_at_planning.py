@@ -27,15 +27,15 @@ from typing import Any, Callable
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow, FlowSettingsException
-from xeda.flow.flow import registered_flows
+from xeda._internal.flow import Flow, FlowSettingsException
+from xeda._internal.flow.flow import registered_flows
 
 from .tiny_platform import TINY_RESIDUE
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 from .tool_utils import use_fake_tools
-from xeda.flow_runner import DefaultRunner
-from xeda.units import convert_unit
-from xeda.flows import (
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.units import convert_unit
+from xeda._internal.flows import (
     Openfpgaloader,
     VivadoPower,
     Bsc,
@@ -55,7 +55,7 @@ from xeda.flows import (
     YosysSim,
 )
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 VERILOG = "module top(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
 TESTBENCH = "module tb; reg clk = 0; top dut(clk); initial #10 $finish; endmodule\n"
@@ -669,7 +669,7 @@ def run_time_refusals(cls: type) -> dict[str, int]:
 
 
 def product_flows() -> list[type[Flow]]:
-    import xeda.flows  # noqa: F401  (registers the built-in flows)
+    import xeda._internal.flows  # noqa: F401  (registers the built-in flows)
 
     return sorted(
         {
@@ -799,7 +799,9 @@ def test_the_scan_follows_a_function_called_through_a_module():
 
 class TThroughAnotherModule(TProbe):
     def init(self):
-        convert_unit("1 parsec", "ns")  # a helper of `xeda.units`, which raises on a bad unit
+        convert_unit(
+            "1 parsec", "ns"
+        )  # a helper of `xeda._internal.units`, which raises on a bad unit
 
 
 def test_the_scan_follows_a_helper_in_another_xeda_module():

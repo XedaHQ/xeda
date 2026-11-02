@@ -15,9 +15,9 @@ from typing import Any, Optional
 
 import pytest
 
-from xeda.flow import FlowFatalError
-from xeda.platforms import PdkNotInstalled, Residue, locate
-from xeda.platforms.providers import (
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.platforms import PdkNotInstalled, Residue, locate
+from xeda._internal.platforms.providers import (
     CIEL_VERSION,
     ORFS_URL,
     PROVIDERS,
@@ -28,7 +28,7 @@ from xeda.platforms.providers import (
     platform_directory,
     verify_pin,
 )
-from xeda.platforms.residue import effective_residue
+from xeda._internal.platforms.residue import effective_residue
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
 

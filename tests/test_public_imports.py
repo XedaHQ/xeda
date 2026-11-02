@@ -24,7 +24,7 @@ import pytest
 
 import xeda
 from .source_layout import AGENT_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_MODULES = ("xeda", "xeda.errors", "xeda.introspect")
@@ -174,28 +174,28 @@ def test_notebooks_import_only_public_names(path: Path) -> None:
 def test_the_checker_reads_the_code_cells_of_a_notebook(tmp_path: Path) -> None:
     notebook = tmp_path / "nb.ipynb"
     cells = [
-        {"cell_type": "markdown", "source": ["from xeda.flows import GhdlSim\n"]},
+        {"cell_type": "markdown", "source": ["from xeda._internal.flows import GhdlSim\n"]},
         {
             "cell_type": "code",
-            "source": ["import xeda\n", "from xeda.flow_runner import Runner\n"],
+            "source": ["import xeda\n", "from xeda._internal.flow_runner import Runner\n"],
         },
     ]
     notebook.write_text(json.dumps({"cells": cells}), encoding="utf-8")
     assert [problems(ast.parse(source)) for source in notebook_sources(notebook)] == [
-        ["from xeda.flow_runner import ..."]
+        ["from xeda._internal.flow_runner import ..."]
     ]
 
 
 def test_the_checker_finds_a_name_that_is_not_public() -> None:
     tree = ast.parse(
-        "import xeda\nfrom xeda import DefaultRunner\nfrom xeda.flows import GhdlSim\n"
+        "import xeda\nfrom xeda import DefaultRunner\nfrom xeda._internal.flows import GhdlSim\n"
         "xeda.Tool\nfrom xeda.errors import SpecError\n"
         "import xeda.introspect\nxeda.introspect.Flow\nxeda.introspect.flows_info()\n"
         "import xeda.introspect as xi\nxi.Tool\nxeda.Workspace.run\n"
     )
     assert sorted(problems(tree)) == [
         "from xeda import DefaultRunner",
-        "from xeda.flows import ...",
+        "from xeda._internal.flows import ...",
         "xeda.Tool",
         "xeda.introspect.Flow",
         "xeda.introspect.Tool",

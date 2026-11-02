@@ -14,13 +14,13 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
-from xeda.flow.io import declared_inputs, declared_outputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
-from xeda.flows.nextpnr import NextpnrTool
-from xeda.units import Time
-from xeda.project import Project
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow.io import declared_inputs, declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
+from xeda._internal.flows.nextpnr import NextpnrTool
+from xeda._internal.units import Time
+from xeda._internal.project import Project
 
 from .scoping import node_settings
 from .project_files import PROJECT_FILE
@@ -140,7 +140,7 @@ def test_the_declared_flows():
 def test_a_declared_flow_reads_another_flow_only_through_its_inputs(flow_class):
     """Plan 2's oracle 3, for every declared flow: no reading of another flow's settings, run
     directory or artifacts by way of the flows it depends on."""
-    from xeda.flow import Flow
+    from xeda._internal.flow import Flow
 
     tree = ast.parse(
         "\n".join(
@@ -306,7 +306,7 @@ def test_nextpnr_reads_nothing_of_yosys_fpga_s_but_its_netlist(tmp_path, monkeyp
     ],
 )
 def test_invalid_target_is_rejected_by_pure_planning(tmp_path, monkeypatch, settings):
-    from xeda.flow import FlowSettingsException
+    from xeda._internal.flow import FlowSettingsException
 
     design = _design(tmp_path / "d")
 
@@ -349,7 +349,7 @@ def test_enabled_family_configuration_is_recorded(
 def test_missing_or_stale_configuration_fails(
     tmp_path, monkeypatch, tools, part, setting, filename, stale
 ):
-    from xeda.flow import FlowFatalError
+    from xeda._internal.flow import FlowFatalError
 
     runner = _runner(tmp_path, monkeypatch)
     design = _design(tmp_path / "d")

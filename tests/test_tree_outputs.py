@@ -11,16 +11,16 @@ from pathlib import Path
 
 import pytest
 
-from xeda import tree_outputs
-from xeda.design import TREE_DIRECTORY
-from xeda.generation import (
+from xeda._internal import tree_outputs
+from xeda._internal.design import TREE_DIRECTORY
+from xeda._internal.generation import (
     GenerationError,
     delivered_name,
     matches_in,
     output_name_of,
     stored_pattern,
 )
-from xeda.tree_outputs import copy_tree_file, observe, part_matches, written_names
+from xeda._internal.tree_outputs import copy_tree_file, observe, part_matches, written_names
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="tree entries need POSIX")
 

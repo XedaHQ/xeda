@@ -31,15 +31,15 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.remote.constants import UV_VERSION
-from xeda.remote.provision import env_file_text
-from xeda.remote.ssh import SshSession
+from xeda._internal.cli import cli
+from xeda._internal.remote.constants import UV_VERSION
+from xeda._internal.remote.provision import env_file_text
+from xeda._internal.remote.ssh import SshSession
 
 from .remote_fixtures import host_profile_of, remote_request
 from .test_proc_utils import DEFAULT_SIGINT
 from .test_remote_client import TIMEOUT, Program
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 HOST = os.environ.get("XEDA_TESTS_REMOTE_HOST", "")

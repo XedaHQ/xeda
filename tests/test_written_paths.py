@@ -9,13 +9,18 @@ import pytest
 from pydantic import BaseModel
 
 from xeda import Design
-from xeda.dataclass import DELIVERABLE_ROLE, WORKING_ROLE, conventional_output, written_role
-from xeda.deliver import split_deliveries
-from xeda.flow import FlowSettingsError
-from xeda.flow.flow import _annotation_contains_path, written_path_problems
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.trace_inputs import setting_files, setting_path_leaves
-from xeda.utils import LOCATION_FORMS, PATH_VARIABLES
+from xeda._internal.dataclass import (
+    DELIVERABLE_ROLE,
+    WORKING_ROLE,
+    conventional_output,
+    written_role,
+)
+from xeda._internal.deliver import split_deliveries
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow.flow import _annotation_contains_path, written_path_problems
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import setting_files, setting_path_leaves
+from xeda._internal.utils import LOCATION_FORMS, PATH_VARIABLES
 
 from .settings_samples import flow_classes, minimal_settings
 
@@ -261,7 +266,7 @@ def test_a_written_path_is_not_an_input(tmp_path):
 
 
 def test_vcs_writes_a_relative_waveform_in_its_run_directory(tmp_path):
-    from xeda.flows import Vcs
+    from xeda._internal.flows import Vcs
 
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "tb.sv").write_text("module tb; endmodule\n")

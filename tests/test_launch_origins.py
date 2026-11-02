@@ -24,14 +24,15 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda import Design, proc_utils
-from xeda.cli import cli
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import FlowLauncher
-from xeda.flow_runner.dse import dse_runner
-from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
-from xeda.flow_runner.trace import as_recorded
+from xeda import Design
+from xeda._internal import proc_utils
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.default_runner import FlowLauncher
+from xeda._internal.flow_runner.dse import dse_runner
+from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
+from xeda._internal.flow_runner.trace import as_recorded
 
 from .io_flows import TPlace, TTaker
 from .test_dse_run import TDseLeaf, _DeclaredOptimizer

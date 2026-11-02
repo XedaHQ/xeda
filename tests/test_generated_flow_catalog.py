@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow.io import declared_outputs
+from xeda._internal.flow.io import declared_outputs
 
 from . import io_flows
 from .flow_registry import preserved_flow_registry
@@ -37,7 +37,7 @@ def test_catalog_generator_excludes_registered_extension_flows():
 import json
 import runpy
 from xeda.flow import Flow
-from xeda.introspect import all_flow_classes
+from xeda._internal.introspect import all_flow_classes
 
 generator = runpy.run_path("tools/generate_flow_catalog.py")
 
@@ -72,7 +72,7 @@ def test_builtin_completion_matches_the_runtime_chain_validator():
 from xeda.flow_runner.chains import complete_request
 from xeda.flow.io import declared_outputs
 from xeda.flow_catalog import complete_builtin_request
-from xeda.introspect import all_flow_classes
+from xeda._internal.introspect import all_flow_classes
 
 classes = [
     cls for cls in all_flow_classes()
@@ -213,8 +213,8 @@ def _flows_that_skip():
 
 def test_completion_from_the_catalog_matches_the_runtime_across_a_skipped_flow(monkeypatch):
     """No built-in chain repeats a flow through a link that skips it, so the toy flows do."""
-    from xeda import flow_catalog
-    from xeda.flow_runner.chains import complete_request
+    from xeda._internal import flow_catalog
+    from xeda._internal.flow_runner.chains import complete_request
 
     with preserved_flow_registry():
         classes = _flows_that_skip()
@@ -252,7 +252,7 @@ def test_completion_from_the_catalog_matches_the_runtime_across_a_skipped_flow(m
 
 
 def test_a_catalog_without_routes_completes_every_follower_as_a_direct_one(monkeypatch):
-    from xeda import flow_catalog
+    from xeda._internal import flow_catalog
 
     records = {
         "a": {"followers": {"": ["b", "c"]}},

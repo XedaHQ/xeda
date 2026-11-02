@@ -11,19 +11,20 @@ from pathlib import Path
 
 import pytest
 
+from xeda._internal.package_paths import impl_root
 from xeda import Design
-from xeda.dataclass import (
+from xeda._internal.dataclass import (
     DELIVERABLE_ROLE,
     conventional_output,
     waveform_format_of,
     written_always,
     written_role,
 )
-from xeda.deliver import split_deliveries
-from xeda.flow import FlowSettingsError, flowrun_hash
-from xeda.flow.io import declared_outputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.launch_input import setting_naming
+from xeda._internal.deliver import split_deliveries
+from xeda._internal.flow import FlowSettingsError, flowrun_hash
+from xeda._internal.flow.io import declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.launch_input import setting_naming
 
 from . import tool_utils
 from .scoping import node_settings
@@ -172,9 +173,7 @@ def _fallbacks(fields):
     default chosen in a helper, a template), so it narrows the review and does not replace it."""
     import ast
 
-    import xeda
-
-    root = Path(xeda.__file__).parent
+    root = impl_root()
     found = set()
     for source in sorted((root / "flows").rglob("*.py")):
         tree = ast.parse(source.read_text())

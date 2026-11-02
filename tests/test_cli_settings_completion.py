@@ -18,17 +18,17 @@ except ImportError:  # Windows does not provide POSIX pseudo-terminals.
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.cli_settings_completion import (
+from xeda._internal.cli import cli
+from xeda._internal.cli_settings_completion import (
     _completion_records,
     _parse_request_words,
     _settings_candidates,
 )
-from xeda.flow_catalog import _builtin_flows
+from xeda._internal.flow_catalog import _builtin_flows
 
 from .test_cli_completion import _require_shell
 from .tool_utils import HANG_GUARD
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
@@ -399,7 +399,7 @@ def test_runtime_completion_does_not_mutate_cached_builtin_records(monkeypatch) 
     before = dict(dict(_builtin_flows())["vivado_synth"])
     monkeypatch.setitem(
         sys.modules,
-        "xeda.introspect",
+        impl_module("introspect"),
         SimpleNamespace(settings_completion_info=lambda flow: {"temporary": {}}),
     )
     runtime = SimpleNamespace(
@@ -428,7 +428,7 @@ def test_loaded_extension_chain_uses_runtime_route_validation() -> None:
 
 def test_runtime_override_uses_runtime_output_qualifiers(monkeypatch) -> None:
     from tests import io_flows
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     original_name = io_flows.TChainProducer.name
     original_class_name = io_flows.TChainProducer.__name__
@@ -454,7 +454,7 @@ def test_runtime_override_uses_runtime_output_qualifiers(monkeypatch) -> None:
 
 def test_runtime_override_does_not_use_stale_catalog_default_scopes(monkeypatch) -> None:
     from tests import io_flows
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     original_name = io_flows.TChainProducer.name
     io_flows.TChainProducer.name = "fpga_pack"

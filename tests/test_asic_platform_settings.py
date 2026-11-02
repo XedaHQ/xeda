@@ -19,15 +19,21 @@ from typing import ClassVar, Optional
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.dataclass import Field
-from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, FlowSettingsException, In
-from xeda.flow.asic import AsicPlatformFlow, AsicPlatformSettings
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.trace_inputs import registered_input_files
-from xeda.platforms import PdkNotInstalled
+from xeda._internal.design import SourceType
+from xeda._internal.dataclass import Field
+from xeda._internal.flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowSettingsError,
+    FlowSettingsException,
+    In,
+)
+from xeda._internal.flow.asic import AsicPlatformFlow, AsicPlatformSettings
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import registered_input_files
+from xeda._internal.platforms import PdkNotInstalled
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -324,7 +330,7 @@ def test_a_given_provider_takes_its_own_pin(tmp_path):
 
 
 def test_a_bundled_platform_gives_its_pin(tmp_path):
-    from xeda.platforms import load_residue
+    from xeda._internal.platforms import load_residue
 
     entry = load_residue("nangate45").providers.orfs
     assert entry is not None
@@ -334,7 +340,7 @@ def test_a_bundled_platform_gives_its_pin(tmp_path):
 
 
 def test_the_provider_that_is_given_takes_its_own_pin_from_its_own_entry(tmp_path):
-    from xeda.platforms import load_residue
+    from xeda._internal.platforms import load_residue
 
     entry = load_residue("sky130hd").providers.lambdapdk
     assert entry is not None
@@ -669,7 +675,7 @@ def test_locating_the_platform_uses_the_corner_and_the_pin(tmp_path):
 
 
 def test_the_location_is_a_locator_and_the_other_settings_are_not():
-    from xeda.dataclass import is_locator
+    from xeda._internal.dataclass import is_locator
 
     names = list(AsicPlatformSettings.model_fields)
     for name in (
@@ -697,7 +703,7 @@ def test_nothing_in_the_package_compares_a_platform_as_a_model():
 
 
 def test_the_mixin_leaves_the_registry_to_the_flows():
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     assert "AsicPlatformFlow" not in registered_flows
     assert "asic_platform_flow" not in registered_flows

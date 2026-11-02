@@ -1,6 +1,6 @@
 """The table of netlist, checkpoint and database types, and the two netlists of `yosys`.
 
-`xeda.artifact_kinds.KINDS` has one row for each such member. The tests check the table against an
+`xeda._internal.artifact_kinds.KINDS` has one row for each such member. The tests check the table against an
 independent list, against the declarations of the flows, and against what `yosys` writes. The
 documentation shows the same table (`docs/design-file.rst`), and a test compares the two.
 """
@@ -13,17 +13,22 @@ from pathlib import Path
 
 import pytest
 
-from xeda.artifact_kinds import (
+from xeda._internal.artifact_kinds import (
     KINDS,
     Abstraction,
     Container,
     TargetKind,
     member_for,
 )
-from xeda.design import SourceType
-from xeda.flow.io import declared_inputs, declared_outputs, output_required, selected_types
-from xeda.flows import Yosys
-from xeda.introspect import all_flow_classes
+from xeda._internal.design import SourceType
+from xeda._internal.flow.io import (
+    declared_inputs,
+    declared_outputs,
+    output_required,
+    selected_types,
+)
+from xeda._internal.flows import Yosys
+from xeda._internal.introspect import all_flow_classes
 
 from .scoping import scoped
 from .tool_utils import require_yosys
@@ -106,7 +111,7 @@ def test_no_flow_declares_a_legacy_member():
 
 
 def test_the_members_are_type_only_and_no_suffix_names_them():
-    from xeda.design import SOURCE_SUFFIXES, TYPE_ONLY
+    from xeda._internal.design import SOURCE_SUFFIXES, TYPE_ONLY
 
     assert SourceType.GenericVerilogNetlist in TYPE_ONLY
     assert SourceType.GenericVerilogNetlist not in set(SOURCE_SUFFIXES.values())
@@ -231,7 +236,7 @@ def test_without_the_verilog_switch_neither_netlist_is_produced():
 
 
 def test_the_generic_netlist_fits_no_input():
-    from xeda.flow_runner.chains import fitting_outputs
+    from xeda._internal.flow_runner.chains import fitting_outputs
 
     for flow in all_flow_classes():
         if not flow.__module__.startswith("xeda."):
@@ -337,8 +342,8 @@ def test_a_consumer_of_the_generic_netlist_is_handed_it_and_the_mapped_one_is_no
     """The hand-over of the output that the settings produce works, and the other output of the
     same switch is neither required nor recorded. The consumer is a test flow."""
     from xeda import Design
-    from xeda.flow import Flow, In
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow import Flow, In
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .flow_registry import preserved_flow_registry
 

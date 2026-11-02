@@ -15,11 +15,11 @@ import pytest
 
 from xeda import Design
 from xeda.errors import LeaseHeldError
-from xeda.console import console
-from xeda.flow_runner import DefaultRunner, default_runner
-from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock
-from xeda.run_dir import RunDirectoryError
-from xeda.run_root import ensure_run_root
+from xeda._internal.console import console
+from xeda._internal.flow_runner import DefaultRunner, default_runner
+from xeda._internal.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.run_root import ensure_run_root
 
 from .io_flows import TMaker, TTaker
 from .tool_utils import producers_of
@@ -134,7 +134,7 @@ def test_a_launch_made_while_a_consumer_holds_its_producer_is_refused(tmp_path, 
 def test_a_changed_completed_run_is_refused_before_hand_over(tmp_path, monkeypatch, untraced):
     """Even identical declared bytes do not vouch for a producer's other files."""
     from contextlib import contextmanager
-    from xeda.flow import FlowDependencyFailure
+    from xeda._internal.flow import FlowDependencyFailure
 
     runner = DefaultRunner(
         tmp_path / "xeda_run", display_results=False, dump_results_json=not untraced
@@ -405,7 +405,7 @@ print("done", flush=True)
 
 @pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="needs unreadable output")
 def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_path, monkeypatch):
-    from xeda.flow import FlowDependencyFailure
+    from xeda._internal.flow import FlowDependencyFailure
 
     design = _design(tmp_path, monkeypatch)
     ran = []
@@ -610,8 +610,8 @@ def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_wa
 def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path, monkeypatch):
     import errno
     from click.testing import CliRunner
-    from xeda.cli import cli
-    from xeda.flow_runner import run_lock
+    from xeda._internal.cli import cli
+    from xeda._internal.flow_runner import run_lock
 
     monkeypatch.chdir(tmp_path)
     design = tmp_path / "d.toml"

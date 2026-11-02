@@ -5,16 +5,16 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
-from xeda.flow.sim import time_in_fs
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Verilator
-from xeda.run_dir import RunDirectoryError
+from xeda._internal.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow.sim import time_in_fs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Verilator
+from xeda._internal.run_dir import RunDirectoryError
 
 from .test_cli_structured_output import run_xeda
 from .tool_utils import require_cocotb, require_verilator
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -495,7 +495,7 @@ if __name__ == "__main__":
 
 
 def test_verilator_defaults_do_not_randomize(tmp_path):
-    from xeda.flows.verilator import MIN_VERILATOR_VERSION
+    from xeda._internal.flows.verilator import MIN_VERILATOR_VERSION
 
     ss = Verilator.Settings()
     assert ss.random_init is False and ss.x_initial == "0" and ss.x_assign == "0"

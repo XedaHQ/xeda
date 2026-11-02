@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import (
+from xeda._internal.design import (
     STORAGE_PREFIX,
     TREE_DIRECTORY,
     DesignValidationError,
@@ -21,9 +21,9 @@ from xeda.design import (
     storage_name,
     tree_declarations,
 )
-from xeda.flow_runner.configuration import design_configuration_hash
-from xeda.flow_runner.dependencies import merged_design
-from xeda.flow_runner.launch_generation import generation_key
+from xeda._internal.flow_runner.configuration import design_configuration_hash
+from xeda._internal.flow_runner.dependencies import merged_design
+from xeda._internal.flow_runner.launch_generation import generation_key
 
 
 def _design(root: Path, sources, generated_sources=None, *, inputs=None, **recipe) -> Design:
@@ -201,7 +201,7 @@ def test_a_file_table_that_generated_sources_owns_is_refused(tmp_path):
 def test_a_written_entry_of_a_generator_design_gets_a_message_that_names_generated_sources(
     tmp_path,
 ):
-    from xeda.generation import MissingGenerated
+    from xeda._internal.generation import MissingGenerated
 
     message = str(MissingGenerated("lib/a.v", "the generator of design 'd' (gen.py)"))
     assert "`generated_sources`" in message and "lib/a.v" in message

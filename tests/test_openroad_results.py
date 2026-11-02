@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flows.openroad.metrics import (
+from xeda._internal.flows.openroad.metrics import (
     MetricsError,
     count,
     final_results,

@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import VhdlSettings
-from xeda.flow import FlowException, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, GhdlSynth
-from xeda.flows.ghdl import GhdlTool
+from xeda._internal.design import VhdlSettings
+from xeda._internal.flow import FlowException, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import GhdlSim, GhdlSynth
+from xeda._internal.flows.ghdl import GhdlTool
 
 from .tool_utils import require_ghdl
 
@@ -409,7 +409,7 @@ def test_ghdl_cocotb_time_limit(tmp_path):
 
 @pytest.mark.parametrize("flag", ["--assert-level=none", "--assert-level=failure"])
 def test_ghdl_rejects_conflicting_severity_flag(tmp_path, flag):
-    from xeda.flow import FlowSettingsException
+    from xeda._internal.flow import FlowSettingsException
 
     design = _evidence_design(tmp_path, "std.env.finish;")
     with pytest.raises(FlowSettingsException, match="fail_severity"):
@@ -419,7 +419,7 @@ def test_ghdl_rejects_conflicting_severity_flag(tmp_path, flag):
 
 
 def test_ghdl_evidence_uses_runtime_only_and_copies_flags(tmp_path, monkeypatch):
-    from xeda.proc_utils import run_process
+    from xeda._internal.proc_utils import run_process
     import sys
 
     design = _evidence_design(tmp_path, "std.env.finish;")
@@ -523,7 +523,7 @@ def test_ghdl_evidence_clears_previous_log_before_runtime(tmp_path, monkeypatch)
     ],
 )
 def test_ghdl_native_log_evidence(tmp_path, text, ended, time, event):
-    from xeda.flow.sim_evidence import parse_ghdl_log
+    from xeda._internal.flow.sim_evidence import parse_ghdl_log
 
     design = _evidence_design(tmp_path, "")
     flow = GhdlSim({}, design, tmp_path)

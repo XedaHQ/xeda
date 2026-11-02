@@ -33,13 +33,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from xeda.package_paths import impl_module, schemas_dir, source_root
+from xeda._internal.package_paths import IMPL, impl_module, schemas_dir, source_root
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: The public modules, and the module that holds the six module-level verbs until `xeda.__all__`
-#: exports all of them. A module maps to the names it snapshots. `VERB_KEY` is the key of the verbs
-#: in the snapshot, and it stays the same wherever the module is.
+#: The public modules, and the module that holds the six module-level verbs. A module maps to the
+#: names it snapshots. `VERB_KEY` is the key of the verbs in the snapshot, and it stays the same
+#: wherever the module is.
 PUBLIC_MODULES = ("xeda", "xeda.errors", "xeda.introspect")
 VERB_MODULE = impl_module("workspace_verbs")
 VERB_KEY = "xeda.workspace_verbs"
@@ -91,6 +91,9 @@ def _class_name(cls: type) -> str:
     # `pathlib._local.Path` (3.13) and `pathlib.Path` (3.11) are one name.
     if not module.startswith("xeda"):
         module = module.split(".")[0]
+    # An internal class has the same name wherever the implementation lives.
+    elif module == IMPL or module.startswith(f"{IMPL}."):
+        module = "xeda" + module[len(IMPL) :]
     return f"{module}.{cls.__qualname__}"
 
 
@@ -351,10 +354,10 @@ def public_api_snapshot() -> dict[str, Any]:
 
 def builtin_contract() -> dict[str, Any]:
     """Return the declared built-in flow interfaces and error codes."""
-    from xeda.flow.io import declared_outputs
-    from xeda.flow_runner.error_codes import ALL_CODES
-    from xeda.flows import __builtin_flows__
-    from xeda.introspect import settings_class_info
+    from xeda._internal.flow.io import declared_outputs
+    from xeda._internal.flow_runner.error_codes import ALL_CODES
+    from xeda._internal.flows import __builtin_flows__
+    from xeda._internal.introspect import settings_class_info
 
     flows = {}
     for cls in sorted(__builtin_flows__, key=lambda c: c.name):
@@ -395,13 +398,13 @@ def behavior_snapshot() -> dict[str, Any]:
     """Return the stable name grammars, private files, session variables, run-directory hash length
     and command-line interface."""
     import click
-    from xeda.cli import cli
-    from xeda.flow.flow import FLOW_NAME
-    from xeda.flow.metrics import ARTIFACT_KEY, METRIC_PATH
-    from xeda.flow_runner.chains import OUTPUT_NAME
-    from xeda.generation import SESSION_VARIABLES
-    from xeda.local_settings import LOCAL_FILES
-    from xeda.run_dir import DIR_NAME_HASH_LEN
+    from xeda._internal.cli import cli
+    from xeda._internal.flow.flow import FLOW_NAME
+    from xeda._internal.flow.metrics import ARTIFACT_KEY, METRIC_PATH
+    from xeda._internal.flow_runner.chains import OUTPUT_NAME
+    from xeda._internal.generation import SESSION_VARIABLES
+    from xeda._internal.local_settings import LOCAL_FILES
+    from xeda._internal.run_dir import DIR_NAME_HASH_LEN
 
     commands: dict[str, Any] = {}
 
@@ -567,13 +570,13 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     `DsePoint`) and the schema of the design model. The rest is the table below, written by hand:
     the builders of the documents fill a plain `dict`, so no type says what its keys hold.
     """
-    from xeda.flow_runner.dse.dse_runner import DsePoint
-    from xeda.flow_runner.launch_options import LaunchOptions
-    from xeda.flow_runner.scrub import ScrubResult
+    from xeda._internal.flow_runner.dse.dse_runner import DsePoint
+    from xeda._internal.flow_runner.launch_options import LaunchOptions
+    from xeda._internal.flow_runner.scrub import ScrubResult
     from xeda.introspect import design_schema
-    from xeda.outcomes import NodeResult, Outcome
-    from xeda.plan import PlanNode
-    from xeda.records import OUTCOMES, ErrorInfo, MetricInfo, RunRecord
+    from xeda._internal.outcomes import NodeResult, Outcome
+    from xeda._internal.plan import PlanNode
+    from xeda._internal.records import OUTCOMES, ErrorInfo, MetricInfo, RunRecord
 
     simple = _Types()
     results = simple.cls(RunRecord)
@@ -724,7 +727,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     )
     artifact = _object({"key": _STRING, "description": _STRING, "when": _STRING})
     # A board has the keys of its entry in `boards.toml`; only the name is always there.
-    from xeda.board import BOARD_ENTRY_KEYS
+    from xeda._internal.board import BOARD_ENTRY_KEYS
 
     board = _object(
         {"board": _STRING, **{k: _OBJECT if k == "fpga" else _STRING for k in BOARD_ENTRY_KEYS}},

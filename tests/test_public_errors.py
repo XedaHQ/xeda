@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 from xeda import errors
-from xeda.deliver import DeliveryError
-from xeda.design import DesignFileParseError, DesignValidationError
-from xeda.flow import (
+from xeda._internal.deliver import DeliveryError
+from xeda._internal.design import DesignFileParseError, DesignValidationError
+from xeda._internal.flow import (
     Flow,
     FlowDependencyFailure,
     FlowFatalError,
@@ -19,25 +19,25 @@ from xeda.flow import (
     FlowSettingsException,
     registered_flows,
 )
-from xeda.flow.flow import FlowException
-from xeda.flow.sim import SimFlow, judge_evidence
-from xeda.flow_runner import DefaultRunner, chains
-from xeda.flow_runner.chains import ChainRefusal, parse_request
-from xeda.flow_runner.error_codes import (
+from xeda._internal.flow.flow import FlowException
+from xeda._internal.flow.sim import SimFlow, judge_evidence
+from xeda._internal.flow_runner import DefaultRunner, chains
+from xeda._internal.flow_runner.chains import ChainRefusal, parse_request
+from xeda._internal.flow_runner.error_codes import (
     error_info,
     missing_report_info,
     public_error,
     settings_codes,
 )
-from xeda.flow_runner.launch_report import adoptable_document
-from xeda.flow_runner.resolver import check_launchable
-from xeda.flow_runner.settings_layers import FlowNotFoundError, FlowRemovedError
-from xeda.flows import Nextpnr
-from xeda.proc_utils import ProcessTimeout
-from xeda.records import ErrorInfo, decode_record
-from xeda.run_dir import RunDirectoryError
-from xeda.run_root import RunRootError, ensure_run_root
-from xeda.utils import ConflictingKeys, ExecutableNotFound, NonZeroExitCode, ToolException
+from xeda._internal.flow_runner.launch_report import adoptable_document
+from xeda._internal.flow_runner.resolver import check_launchable
+from xeda._internal.flow_runner.settings_layers import FlowNotFoundError, FlowRemovedError
+from xeda._internal.flows import Nextpnr
+from xeda._internal.proc_utils import ProcessTimeout
+from xeda._internal.records import ErrorInfo, decode_record
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.run_root import RunRootError, ensure_run_root
+from xeda._internal.utils import ConflictingKeys, ExecutableNotFound, NonZeroExitCode, ToolException
 from xeda.errors import ProjectError
 
 from . import test_failure_results as failing
@@ -158,7 +158,7 @@ def test_an_error_record_round_trips_through_json():
 
 def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
     """A launch-level code is stable text, and the docs and both copies of the skill list it."""
-    from xeda.flow_runner import error_codes
+    from xeda._internal.flow_runner import error_codes
 
     assert (error_codes.DELIVERY_FAILED, error_codes.CLEANUP_FAILED) == (
         "delivery_failed",
@@ -506,7 +506,7 @@ def test_a_required_report_that_is_absent_still_names_the_cause_beside_an_option
 def test_an_absent_power_report_is_a_missing_report(tmp_path):
     from types import SimpleNamespace
 
-    from xeda.flows.vivado.vivado_synth import power_report_written
+    from xeda._internal.flows.vivado.vivado_synth import power_report_written
 
     flow = SimpleNamespace(
         name="vivado_synth",
@@ -621,7 +621,11 @@ def test_a_report_read_twice_is_named_once():
 
 
 def test_a_launch_outcome_of_the_remote_is_not_a_setup_failure():
-    from xeda.remote.errors import RemoteCanceled, RemoteConnectionError, RemoteProvisionError
+    from xeda._internal.remote.errors import (
+        RemoteCanceled,
+        RemoteConnectionError,
+        RemoteProvisionError,
+    )
 
     assert public_error(RemoteConnectionError("down")).code == "remote_unreachable"
     assert public_error(RemoteProvisionError("env-failed", "x")).code == "remote_setup_failed"
@@ -636,7 +640,7 @@ def test_a_refusal_of_a_delivery_before_the_run_is_a_request_error():
 
 
 def test_a_link_in_the_run_root_and_an_escaped_name_are_request_errors():
-    from xeda.utils import EscapedName
+    from xeda._internal.utils import EscapedName
 
     linked = public_error(RunDirectoryError("`d` is a symbolic link"))
     assert isinstance(linked, errors.SpecError) and linked.code == "invalid_run_root"
@@ -653,7 +657,7 @@ def test_a_required_setting_names_the_flow_that_needs_it():
 
 
 def test_the_message_of_a_request_error_is_in_plain_terms():
-    from xeda.flow_runner.error_codes import plain_message, request_error_info
+    from xeda._internal.flow_runner.error_codes import plain_message, request_error_info
 
     class DesignValidationError(Exception):
         pass

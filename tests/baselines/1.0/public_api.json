@@ -3456,6 +3456,131 @@
           ],
           "return": "xeda.RunRecord"
         },
+        "local_settings": {
+          "kind": "function",
+          "parameters": [
+            {
+              "annotation": "xeda.Project | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "project"
+            },
+            {
+              "annotation": "str | pathlib.Path | os.PathLike | None | Literal[Unset.UNSET]",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "config"
+            }
+          ],
+          "return": "xeda.LocalSettings"
+        },
+        "plan": {
+          "kind": "function",
+          "parameters": [
+            {
+              "annotation": "xeda.Spec",
+              "kind": "positional_only",
+              "name": "spec"
+            },
+            {
+              "annotation": "str | pathlib.Path | os.PathLike | xeda.Unset",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "run_root"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "hashed_run_dirs"
+            },
+            {
+              "annotation": "xeda.Remote | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "remote"
+            },
+            {
+              "annotation": "xeda.LocalSettings | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "local_settings"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "rebuild_all"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "clean"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "prune_variants"
+            },
+            {
+              "annotation": "str | pathlib.Path | os.PathLike | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "outputs_to"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "overwrite_outputs"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "post_cleanup"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "post_cleanup_purge"
+            }
+          ],
+          "return": "xeda.Plan"
+        },
+        "records": {
+          "kind": "function",
+          "parameters": [
+            {
+              "annotation": "str | pathlib.Path | os.PathLike | xeda.Unset",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "run_root"
+            },
+            {
+              "annotation": "str | xeda.Unset",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "design_name"
+            },
+            {
+              "annotation": "str | xeda.Unset",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "flow"
+            },
+            {
+              "annotation": "str | None | xeda.Unset",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "target"
+            }
+          ],
+          "return": "xeda.RunListing"
+        },
         "run": {
           "kind": "function",
           "parameters": [
@@ -3591,6 +3716,89 @@
             }
           ],
           "return": "xeda.ScrubResult"
+        },
+        "sweep": {
+          "kind": "function",
+          "parameters": [
+            {
+              "annotation": "Iterable[xeda.Spec]",
+              "kind": "positional_only",
+              "name": "specs"
+            },
+            {
+              "annotation": "str | pathlib.Path | os.PathLike | xeda.Unset",
+              "default": "UNSET",
+              "kind": "keyword_only",
+              "name": "run_root"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "hashed_run_dirs"
+            },
+            {
+              "annotation": "Literal[\"log\", \"terminal\"]",
+              "default": "'log'",
+              "kind": "keyword_only",
+              "name": "tool_output"
+            },
+            {
+              "annotation": "xeda.Remote | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "remote"
+            },
+            {
+              "annotation": "xeda.LocalSettings | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "local_settings"
+            },
+            {
+              "annotation": "int",
+              "default": "1",
+              "kind": "keyword_only",
+              "name": "max_workers"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "rebuild_all"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "clean"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "post_cleanup"
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "post_cleanup_purge"
+            },
+            {
+              "annotation": "xeda.CancelToken | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "cancel"
+            },
+            {
+              "annotation": "Callable[[xeda.Event], None] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "on_event"
+            }
+          ],
+          "return": "xeda.SweepResult"
         }
       }
     },

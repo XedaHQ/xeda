@@ -16,13 +16,13 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.flow import FlowFatalError
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner
 
 from . import tool_utils
 from .test_fpga_pack import A100T, _design, _other_database, _runner, _tools
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 PART_JSON = '{"idcode": "0x3651093"}\n'
 
@@ -65,13 +65,13 @@ PARTS = {
 
 
 def _select(database: Path, part: str):
-    from xeda.flows import xilinx
+    from xeda._internal.flows import xilinx
 
     return xilinx.select_xilinx_part(part, database)
 
 
 def _locate(database: Path, part: str):
-    from xeda.flows import xilinx
+    from xeda._internal.flows import xilinx
 
     return xilinx.locate_part_data(_select(database, part))
 

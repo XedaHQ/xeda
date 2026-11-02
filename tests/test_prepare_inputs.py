@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError
-from xeda.flow_runner import DefaultRunner, default_runner
-from xeda.dataclass import Field
-from xeda.proc_utils import run_process
-from xeda.flow_runner.trace_inputs import registered_input_files
-from xeda.flows import xilinx
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner, default_runner
+from xeda._internal.dataclass import Field
+from xeda._internal.proc_utils import run_process
+from xeda._internal.flow_runner.trace_inputs import registered_input_files
+from xeda._internal.flows import xilinx
 
 from . import tool_utils
 from .io_flows import TTaker
@@ -191,8 +191,8 @@ def test_cache_planning_has_no_preparation_or_tools(tmp_path, generation, monkey
 
 
 def test_nextpnr_prepares_chipdb_without_losing_typed_pin_inputs(tmp_path, generation, monkeypatch):
-    import xeda.flows.nextpnr as nextpnr_module
-    from xeda.flows.nextpnr import Nextpnr
+    import xeda._internal.flows.nextpnr as nextpnr_module
+    from xeda._internal.flows.nextpnr import Nextpnr
 
     pins = tmp_path / "pins.xdc"
     pins.write_text("set_property PACKAGE_PIN E3 [get_ports clk]\n")
@@ -217,8 +217,8 @@ def test_nextpnr_prepares_chipdb_without_losing_typed_pin_inputs(tmp_path, gener
 def test_nextpnr_accepts_validated_explicit_chipdb_without_generation(
     tmp_path, generation, monkeypatch, path_style
 ):
-    import xeda.flows.nextpnr as nextpnr_module
-    from xeda.flows.nextpnr import Nextpnr
+    import xeda._internal.flows.nextpnr as nextpnr_module
+    from xeda._internal.flows.nextpnr import Nextpnr
 
     chipdb = tmp_path / "explicit.bin"
     chipdb.write_bytes(_binary())
@@ -352,7 +352,7 @@ def test_planning_does_not_prepare_inputs(tmp_path, monkeypatch):
 def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, monkeypatch):
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     events = []
-    from xeda.flow import Flow
+    from xeda._internal.flow import Flow
 
     original_expectation = default_runner.expectation
     original_snapshot = default_runner.snapshot_inputs
@@ -490,7 +490,7 @@ def test_a_corrupt_cache_entry_is_unknown_even_when_every_flow_is_forced_to_run(
 def test_a_cached_board_file_is_what_the_package_holds_or_it_is_refused(tmp_path):
     """The check a dry run and a launch share, for a board file of an archive copied into the
     run root's cache."""
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     cached = tmp_path / "board.lpf"
     cached.write_bytes(b"LOCATE COMP clk SITE A;\n")
@@ -504,8 +504,8 @@ def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypa
     """Hashing the installation and the device data is most of the cost of finding the chip
     database: preparation forms the identity, and the locating step the launch then checks it
     by reuses it; a dry run, which prepares nothing, forms it itself."""
-    from xeda.flows import nextpnr as module
-    from xeda.run_dir import RunDirectory
+    from xeda._internal.flows import nextpnr as module
+    from xeda._internal.run_dir import RunDirectory
 
     formed, located_with = [], []
     monkeypatch.setattr(module, "which", lambda name: "/opt/openxc7/bin/nextpnr-himbaechel")

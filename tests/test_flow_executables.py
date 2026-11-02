@@ -11,11 +11,11 @@ import importlib
 import pkgutil
 from pathlib import Path
 
-import xeda.flows
-from xeda.introspect import all_flow_classes, flow_executables
-from xeda.package_paths import impl_module
+import xeda._internal.flows
+from xeda._internal.introspect import all_flow_classes, flow_executables
+from xeda._internal.package_paths import impl_module, impl_root
 
-SOURCE = Path(xeda.__file__).parent
+SOURCE = impl_root()
 
 #: Programs that the code names and no flow starts, with the reason.
 NOT_STARTED = {
@@ -62,7 +62,7 @@ def _named_programs(path: Path) -> set[str]:
 
 
 def _shipped_flows() -> list[type]:
-    for module in pkgutil.walk_packages(xeda.flows.__path__, impl_module("flows.")):
+    for module in pkgutil.walk_packages(xeda._internal.flows.__path__, impl_module("flows.")):
         importlib.import_module(module.name)
     return [cls for cls in all_flow_classes() if cls.__module__.startswith(impl_module("flows."))]
 

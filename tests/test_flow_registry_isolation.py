@@ -1,6 +1,6 @@
 """A test that restores the flow registry must keep the built-in flows.
 
-`xeda.flows` registers the built-ins when it is first imported, and a test file run alone imports
+`xeda._internal.flows` registers the built-ins when it is first imported, and a test file run alone imports
 it late. A restore of an earlier snapshot then removes the built-ins for good. The shared helper
 loads them before it takes the snapshot, and no test restores the registry by any other means.
 
@@ -16,14 +16,14 @@ from pathlib import Path
 import pytest
 from .tool_utils import HANG_GUARD
 from .source_layout import layout_script
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 TESTS = Path(__file__).parent
 HELPER = "flow_registry.py"
 
 
 def _run(script: str) -> str:
-    """Run `script` in a fresh interpreter, in which nothing has imported `xeda.flows` yet."""
+    """Run `script` in a fresh interpreter, in which nothing has imported `xeda._internal.flows` yet."""
     done = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(script)],
         cwd=TESTS.parent,
@@ -72,7 +72,8 @@ def test_a_snapshot_taken_before_the_built_ins_load_would_lose_them():
 
 def _is_registry(node: ast.expr, aliases: frozenset[str] = frozenset()) -> bool:
     """Whether `node` names the registry: `registered_flows`, any `<module>.registered_flows`
-    (`flow_module.registered_flows`, `xeda.flow.flow.registered_flows`), or a name bound to one."""
+    (`flow_module.registered_flows`, `xeda._internal.flow.flow.registered_flows`), or a name bound to one.
+    """
     if isinstance(node, ast.Name):
         return node.id == "registered_flows" or node.id in aliases
     return isinstance(node, ast.Attribute) and node.attr == "registered_flows"
@@ -80,7 +81,7 @@ def _is_registry(node: ast.expr, aliases: frozenset[str] = frozenset()) -> bool:
 
 def _registry_aliases(tree: ast.AST) -> frozenset[str]:
     """The names a file binds to the registry: `table = flow_module.registered_flows`,
-    `from xeda.flow import registered_flows as table`, and a name bound to such a name
+    `from xeda._internal.flow import registered_flows as table`, and a name bound to such a name
     (`alias = table`), to a fixed point."""
     aliases: set[str] = set()
     # (targets, value) of each plain or annotated assignment that has a value
@@ -134,7 +135,7 @@ def _restoring_by_hand(path: Path) -> list[int]:
                 and _is_registry(func.value, aliases)
             )
             # `setattr(module, "registered_flows", ...)`, `monkeypatch.setattr(module,
-            # "registered_flows", ...)` and `monkeypatch.setattr("xeda.flow.flow.registered_flows",
+            # "registered_flows", ...)` and `monkeypatch.setattr("xeda._internal.flow.flow.registered_flows",
             # ...)`
             swapped = (
                 (isinstance(func, ast.Attribute) and func.attr == "setattr")
@@ -230,14 +231,14 @@ REVIEWED = "tests.io_flows"
 
 def _flow(name: str, module: str, **attributes) -> type:
     """A concrete flow class named `name`, as if the module `module` defined it."""
-    from xeda.flow import Flow
+    from xeda._internal.flow import Flow
 
     namespace = {"__module__": module, "results_description": {}, "run": lambda self: None}
     return type(name, (Flow,), {**namespace, **attributes})
 
 
 def _builtin() -> type:
-    from xeda.flows import __builtin_flows__
+    from xeda._internal.flows import __builtin_flows__
 
     return __builtin_flows__[0]
 
@@ -268,7 +269,7 @@ def test_a_reviewed_flow_that_replaces_a_builtin_name_is_reported():
 
 
 def test_a_builtin_that_replaces_the_name_of_a_reviewed_flow_is_reported():
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     from .conftest import _import_registration_problems
 
@@ -282,7 +283,7 @@ def test_a_builtin_that_replaces_the_name_of_a_reviewed_flow_is_reported():
 
 
 def test_a_reviewed_flow_that_its_module_unregisters_is_no_problem():
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     from .conftest import _import_registration_problems
 
@@ -292,7 +293,7 @@ def test_a_reviewed_flow_that_its_module_unregisters_is_no_problem():
 
 
 def test_a_builtin_name_that_an_import_removed_is_reported():
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     from .conftest import _import_registration_problems
 

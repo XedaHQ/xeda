@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from xeda.flow import FlowSettingsError
-from xeda.flows import Yosys, YosysFpga, YosysSim
-from xeda.tool import NonZeroExitCode
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flows import Yosys, YosysFpga, YosysSim
+from xeda._internal.tool import NonZeroExitCode
 
 from .test_yosys_asic import _design, _tiny
 from .test_yosys_asic_tcl import ADDER, HIERARCHY_DESIGN, _launch
@@ -74,8 +74,8 @@ def test_script_format_was_removed(flow, value):
 def test_a_failed_tcl_script_names_the_setting_that_needs_tcl(tmp_path, monkeypatch, caplog):
     """A yosys built without Tcl cannot run the Tcl script. The log of Xeda names the setting
     that selected it, and the error of the tool stays the error of the run."""
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flows.yosys.common import YosysBase
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flows.yosys.common import YosysBase
 
     def fail(self, *args: Any) -> None:
         raise NonZeroExitCode(["yosys", "-c", "yosys_synth.tcl"], 1)

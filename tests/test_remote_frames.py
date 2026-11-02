@@ -7,8 +7,8 @@ import threading
 
 import pytest
 
-from xeda.remote.errors import RemoteProtocolError
-from xeda.remote.frames import (
+from xeda._internal.remote.errors import RemoteProtocolError
+from xeda._internal.remote.frames import (
     BEAT,
     CANCEL,
     DATA,

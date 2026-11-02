@@ -12,13 +12,13 @@ from typing import Any
 
 import pytest
 
-from xeda.dataclass import ValidationError
-from xeda.flow import FlowSettingsError, flowrun_hash
-from xeda.flows import Yosys, YosysFpga, YosysSim
-from xeda.flows.yosys.abc_strategies import Composition, composed_abc_script
-from xeda.flows.yosys.asic_groups import AbcGroup
-from xeda.units import Capacitance, Time, measure_of
-from xeda.utils import semantic_hash
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.flow import FlowSettingsError, flowrun_hash
+from xeda._internal.flows import Yosys, YosysFpga, YosysSim
+from xeda._internal.flows.yosys.abc_strategies import Composition, composed_abc_script
+from xeda._internal.flows.yosys.asic_groups import AbcGroup
+from xeda._internal.units import Capacitance, Time, measure_of
+from xeda._internal.utils import semantic_hash
 
 from .test_yosys_asic import SCRIPT_FORMATS, _commands, _scripted_launch, _tiny, _words
 from .test_yosys_asic_groups import _abc_script, _run
@@ -293,7 +293,7 @@ def test_a_plain_number_of_a_yosys_flow_says_what_it_measures(flow, path):
 
 
 def test_the_markers_keep_the_tiers():
-    from xeda.dataclass import tier_of
+    from xeda._internal.dataclass import tier_of
 
     model, leaf = _model_and_field(Yosys, "abc.clock_derating")
     assert tier_of(model, leaf) == "expert"

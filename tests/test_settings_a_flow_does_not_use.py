@@ -12,11 +12,11 @@ import shutil
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError, FlowSettingsException, NoReplacement, SimFlow
-from xeda.dataclass import SecondSpelling, input_names
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import (
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException, NoReplacement, SimFlow
+from xeda._internal.dataclass import SecondSpelling, input_names
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import (
     Nvc,
     VivadoAltSynth,
     VivadoProject,
@@ -447,7 +447,7 @@ def test_a_removal_entry_is_on_a_flow_that_had_the_setting(flow) -> None:
 
 
 def test_vivado_project_refuses_every_setting_of_a_simulation() -> None:
-    from xeda.flows import VivadoSim
+    from xeda._internal.flows import VivadoSim
 
     for spelling, field in input_names(VivadoSim.Settings).items():
         if field in VivadoSynth.Settings.model_fields:

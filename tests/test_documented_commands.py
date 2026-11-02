@@ -27,8 +27,8 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.design import Design
+from xeda._internal.cli import cli
+from xeda._internal.design import Design
 from xeda.introspect import results_info
 
 from . import tool_utils

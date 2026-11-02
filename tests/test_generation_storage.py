@@ -20,16 +20,16 @@ import yaml
 
 from typing import ClassVar
 
-from xeda.design import SourceType
-from xeda.flow import Flow, MetricSpec
-from xeda.flow_runner import run_lock
-from xeda.frozen import thaw
-from xeda.flow_runner.launch_generation import generation_key
-from xeda.flow_runner.run_lock import lock_file
-from xeda.generation import RECORD_FORMAT, RECORD_NAME
-from xeda.outcomes import Outcome
-from xeda.spec import Spec
-from xeda.workspace import Workspace
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, MetricSpec
+from xeda._internal.flow_runner import run_lock
+from xeda._internal.frozen import thaw
+from xeda._internal.flow_runner.launch_generation import generation_key
+from xeda._internal.flow_runner.run_lock import lock_file
+from xeda._internal.generation import RECORD_FORMAT, RECORD_NAME
+from xeda._internal.outcomes import Outcome
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, blocking_reader_flow, input_reader_flow, reader_flow
@@ -163,7 +163,7 @@ def test_equivalent_generator_working_directories_have_one_key(tmp_path, cwd):
 
 @pytest.mark.parametrize("cwd", ["$DESIGN_ROOT/../outside", "${DESIGN_DIR}/../outside"])
 def test_an_expanded_generator_working_directory_cannot_leave_the_design_root(tmp_path, cwd):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     world = World(tmp_path, generator={"cwd": cwd})
     (tmp_path / "outside").mkdir()
@@ -172,7 +172,7 @@ def test_an_expanded_generator_working_directory_cannot_leave_the_design_root(tm
 
 
 def test_a_generator_built_before_loading_keeps_variables_until_the_root_is_known(tmp_path):
-    from xeda.design import Generator
+    from xeda._internal.design import Generator
 
     generator = Generator(cwd="$DESIGN_ROOT/../outside")
     with pytest.raises(ValueError, match="below the design root"):
@@ -741,7 +741,7 @@ def test_a_forced_regeneration_waits_while_a_tool_reads_the_storage(tmp_path, mo
 
 
 def test_a_scrub_waits_for_a_reader_of_the_storage(tmp_path, monkeypatch):
-    from xeda.flow_runner.scrub import scrub_generations
+    from xeda._internal.flow_runner.scrub import scrub_generations
 
     started, gate = _fifos(tmp_path)
     flow = blocking_reader_flow(started, gate)
@@ -780,7 +780,7 @@ def test_a_scrub_waits_for_a_reader_of_the_storage(tmp_path, monkeypatch):
 
 
 def test_a_scrub_of_generations_asks_first_and_removes_only_that_design(tmp_path):
-    from xeda.flow_runner.scrub import scrub_generations
+    from xeda._internal.flow_runner.scrub import scrub_generations
 
     flow = reader_flow()
     world = World(tmp_path)
@@ -804,7 +804,7 @@ def test_a_generated_source_passes_through_a_converter_by_its_name(tmp_path):
     """The generator writes Bluespec and Verilog. The converter converts the first and passes the
     second through, and the record of the converter names the second one by its name in the output
     of the generator, with no path to a storage. A second launch reuses both nodes."""
-    from xeda.outcomes import Disposition
+    from xeda._internal.outcomes import Disposition
 
     from .test_converted_designs import Events, consumer_flows
 
@@ -857,8 +857,8 @@ def test_a_generator_that_changes_what_it_reads_on_every_run_fails_the_launch(tm
 def test_the_lease_is_of_the_files_the_judgment_under_it_found(tmp_path, monkeypatch):
     """The files of the generation that just ran may be stale when the lease is taken: the
     storage is described by what the judgment under the lease returns."""
-    from xeda.flow_runner import launch_generation
-    from xeda.flow_runner.launch_generation import Generation, generated
+    from xeda._internal.flow_runner import launch_generation
+    from xeda._internal.flow_runner.launch_generation import Generation, generated
 
     world = World(tmp_path)
     world.run_root.mkdir()
@@ -878,8 +878,8 @@ def test_the_lease_is_of_the_files_the_judgment_under_it_found(tmp_path, monkeyp
 
 
 def test_a_scrub_refuses_a_storage_that_became_a_link_after_the_confirmation(tmp_path):
-    from xeda.flow_runner.scrub import scrub_generations
-    from xeda.run_dir import RunDirectoryError
+    from xeda._internal.flow_runner.scrub import scrub_generations
+    from xeda._internal.run_dir import RunDirectoryError
 
     world = World(tmp_path)
     assert world.launch(reader_flow()).outcome is Outcome.PASSED
@@ -901,8 +901,8 @@ def test_a_scrub_refuses_a_storage_that_became_a_link_after_the_confirmation(tmp
 
 
 def test_a_scrub_does_not_delete_through_a_link_to_another_storage(tmp_path):
-    from xeda.flow_runner.scrub import scrub_generations
-    from xeda.run_dir import RunDirectoryError
+    from xeda._internal.flow_runner.scrub import scrub_generations
+    from xeda._internal.run_dir import RunDirectoryError
 
     world = World(tmp_path)
     assert world.launch(reader_flow()).outcome is Outcome.PASSED
@@ -928,7 +928,7 @@ def test_the_lease_ends_when_the_end_of_a_launch_is_interrupted(
 ):
     """An interrupt or an error while the launch delivers or cleans up must not keep the lease
     of the storage, whether the launch passed or failed."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     flow = reader_flow()
     world = World(tmp_path)
@@ -959,7 +959,7 @@ def test_a_plan_sees_the_files_of_a_generated_input_as_the_launch_does(tmp_path)
 
 
 def test_a_generated_source_is_named_and_hashed_whatever_the_run_root_is(tmp_path):
-    from xeda.flow_runner.launch_generation import Generations, execution_design, generate
+    from xeda._internal.flow_runner.launch_generation import Generations, execution_design, generate
 
     seen = []
     for run_root in (tmp_path / "one" / "xeda_run", tmp_path / "elsewhere" / "deeper" / "run"):
@@ -1009,7 +1009,7 @@ def test_an_old_record_makes_the_generator_run_again_in_the_same_storage(tmp_pat
 
 
 def test_a_recipe_env_may_not_set_pwd(tmp_path):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     world = World(tmp_path, generator={"env": {"PWD": "/elsewhere"}})
     with pytest.raises(DesignValidationError, match="PWD"):

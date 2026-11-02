@@ -55,16 +55,16 @@ import yaml
 from click.testing import CliRunner
 
 import xeda
-import xeda.tool as xeda_tool
-import xeda.tree_outputs
-from xeda.flow import MetricSpec
+import xeda._internal.tool as xeda_tool
+import xeda._internal.tree_outputs
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import Flow, SimFlow
-from xeda.design import SourceType
-from xeda.flow_runner import DefaultRunner
-from xeda.proc_utils import run_process
-from xeda.run_root import ensure_run_root
+from xeda._internal.cli import cli
+from xeda._internal.flow import Flow, SimFlow
+from xeda._internal.design import SourceType
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.proc_utils import run_process
+from xeda._internal.run_root import ensure_run_root
 
 from . import state_snapshot as ss
 from .settings_samples import flow_classes, minimal_settings
@@ -80,7 +80,7 @@ from .tool_utils import (
     use_stand_in_programs,
 )
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module, impl_root
 
 pytestmark = pytest.mark.python_compat
 
@@ -88,7 +88,7 @@ pytestmark = pytest.mark.python_compat
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 #: The Bluespec example, for the flows whose tools read Bluespec
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
-PACKAGE = Path(xeda.__file__).parent
+PACKAGE = impl_root()
 
 #: Where the stand-in FPGA tools are installed, in the run root
 FAKE_TOOLCHAIN = ".fake-toolchain"
@@ -390,10 +390,13 @@ def _written(event: str, args: tuple) -> List[object]:
     return []
 
 
+_DELIVER_MODULE = (impl_root() / "deliver.py").resolve()
+
+
 def _from_deliver() -> bool:
     frame = sys._getframe(2)
     while frame is not None:
-        if frame.f_code.co_filename.endswith(os.path.join("xeda", "deliver.py")):
+        if Path(frame.f_code.co_filename).resolve() == _DELIVER_MODULE:
             return True
         frame = frame.f_back
     return False
@@ -439,7 +442,12 @@ _DIR_FD = {
 #: Modules that open a path relative to a directory descriptor (`shutil.rmtree` and `os.fwalk`
 #: walk a tree that way, and so does the scan of the generated files in a design tree); the `open`
 #: event does not carry the descriptor.
-_DIR_FD_OPENERS = (shutil.__file__, os.__file__, "<frozen os>", xeda.tree_outputs.__file__)
+_DIR_FD_OPENERS = (
+    shutil.__file__,
+    os.__file__,
+    "<frozen os>",
+    xeda._internal.tree_outputs.__file__,
+)
 _IN_HOOK = threading.local()
 
 
@@ -526,7 +534,7 @@ def watching(
     world: World, delivered: Optional[list] = None, moved: Optional[list] = None
 ) -> Iterator[list]:
     """Audit the launches in the block: yields the violations; `delivered` collects every file
-    `xeda/deliver.py` renamed into place, and `moved` each file it moved out of a run directory
+    `xeda/_internal/deliver.py` renamed into place, and `moved` each file it moved out of a run directory
     to a delivery's temporary name (the first of the two renames of a delivery by move)."""
     violations: list = []
     _WATCH.update(
@@ -544,7 +552,7 @@ def watching(
 def test_the_oracle_sees_every_change_outside_the_run_root(tmp_path):
     """The teeth of the sweep and the audit hook: each way of changing a path outside the run
     root is seen by both, a write inside the run root by neither, and a write under a named
-    destination is admitted only from `xeda/deliver.py`."""
+    destination is admitted only from `xeda/_internal/deliver.py`."""
     world = _world(tmp_path)
     world.root.mkdir()
     world.delivered.mkdir()
@@ -567,7 +575,7 @@ def test_the_oracle_sees_every_change_outside_the_run_root(tmp_path):
         shutil.rmtree(work / "xsim.dir")
     seen = Counter(v.split()[0] for v in violations)
     assert seen == {
-        "open": 3,  # notes.txt, delivered/out.txt (not from xeda.deliver), copyfile's destination
+        "open": 3,  # notes.txt, delivered/out.txt (not from xeda._internal.deliver), copyfile's destination
         "os.remove": 1,
         "os.rename": 4,  # both paths, of os.rename and of os.replace
         "os.mkdir": 1,
@@ -1175,7 +1183,7 @@ def _flow_in_the_stack() -> Flow | None:
 
 
 #: The code that makes the scratch directory of a probe: a version query of a tool, and the CPU
-#: query of a container (`xeda/tool.py`, by qualified name). A directory that any other code
+#: query of a container (`xeda/_internal/tool.py`, by qualified name). A directory that any other code
 #: makes is no probe's, whatever its name.
 PROBE_ALLOCATORS = ("Tool.probe_stdout", "Docker.cpuinfo")
 _TOOL_MODULE = Path(xeda_tool.__file__).resolve()
@@ -1365,8 +1373,8 @@ def test_a_tool_is_handed_no_file_of_another_flow_but_its_declared_inputs(
 def _starts_a_process_wrongly(how: str, world: World, monkeypatch) -> None:
     """Patch `nextpnr` so that, besides its own work, it starts `true --wrong` the way `how`
     says (`WRONG_STARTS`), or, for the starts outside its `run()`, in the place `how` names."""
-    from xeda.flow_runner import launch_run
-    from xeda.flows import Nextpnr
+    from xeda._internal.flow_runner import launch_run
+    from xeda._internal.flows import Nextpnr
 
     run = Nextpnr.run
 
@@ -1437,7 +1445,7 @@ def test_the_process_check_finds_a_process_that_does_not_start_in_its_run_direct
     in a directory named like a probe's that no probe made, with no flow running it, or in a
     flow's constructor that then raises, is a finding that names the flow (or none), the command
     and the directory, and the part that failed. The one wrong start is the only finding."""
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     world = _world(tmp_path)
     _starts_a_process_wrongly(how, world, monkeypatch)
@@ -1455,8 +1463,8 @@ def test_the_process_check_finds_a_process_that_does_not_start_in_its_run_direct
 def test_a_version_probe_in_a_flow_method_is_no_finding(tmp_path, monkeypatch):
     """A probe (`Tool.probe_stdout`) runs in its scratch directory, which no run directory
     holds: it is allowed, and the event shows it was a probe."""
-    from xeda.flows import Nextpnr
-    from xeda.tool import Tool
+    from xeda._internal.flows import Nextpnr
+    from xeda._internal.tool import Tool
 
     run = Nextpnr.run
 
@@ -1494,9 +1502,9 @@ def test_the_runtime_check_sees_a_consumer_handed_its_producer_s_declared_files(
 def _reads_the_producer_s_results(how: str):
     """A `Nextpnr.run` that, besides its own work, hands the producer's `results.json` (not a
     declared input) to a process or a script, the way `how` says."""
-    from xeda.flows import Nextpnr
-    from xeda.proc_utils import run_process
-    from xeda.tool import Tool
+    from xeda._internal.flows import Nextpnr
+    from xeda._internal.proc_utils import run_process
+    from xeda._internal.tool import Tool
 
     run = Nextpnr.run
 
@@ -1541,7 +1549,7 @@ def test_the_runtime_check_finds_a_consumer_handed_a_file_that_it_did_not_declar
     """The producer's `results.json` is not a declared input of `nextpnr`: a tool that is handed
     it, in an argument or a script, written in full or relative to the run directory, by a `Tool`
     or by any other way to start a process, is a finding."""
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     monkeypatch.setattr(Nextpnr, "run", _reads_the_producer_s_results(how))
     world = _world(tmp_path)
@@ -1603,8 +1611,8 @@ def test_a_tool_is_handed_the_files_of_the_design_edge_and_no_other_file_of_its_
 
 
 def _reads_the_converter_s_results(monkeypatch) -> None:
-    from xeda.flows import Yosys
-    from xeda.tool import Tool
+    from xeda._internal.flows import Yosys
+    from xeda._internal.tool import Tool
 
     run = Yosys.run
 
@@ -1718,7 +1726,7 @@ def test_a_launch_that_runs_a_generator_writes_only_under_the_run_root(tmp_path)
     """Loading a design runs nothing and writes nothing. The generation of a launch writes its
     storage and the lock beside it under the run root, and nothing in the design's tree: a
     second generation of the unchanged design generates nothing at all."""
-    from xeda.flow_runner.launch_generation import generate
+    from xeda._internal.flow_runner.launch_generation import generate
 
     world = _world(tmp_path)
     ensure_run_root(world.root)
@@ -1769,7 +1777,7 @@ def test_a_launch_that_copies_a_tree_entry_writes_nothing_below_the_design_root(
     """The generator writes `gen/top.v` below the design root, and Xeda copies the file into the
     storage. The audit hook sees no write of Xeda outside the run root, and the design tree
     changes only where the generator wrote."""
-    from xeda.flow_runner.launch_generation import generate
+    from xeda._internal.flow_runner.launch_generation import generate
 
     world = _world(tmp_path)
     ensure_run_root(world.root)
@@ -1966,7 +1974,7 @@ DELETING_CALLS = {
 
 
 def _python_deletions(package: Path) -> Counter:
-    """Every call in xeda's Python code, but `xeda.run_dir` (the checked operation itself)
+    """Every call in xeda's Python code, but `xeda._internal.run_dir` (the checked operation itself)
     and calls on a `run_directory`, that deletes, moves over or overwrites a file by name --
     by (module, source line), counted: a second copy of a reviewed line is a new site."""
     found: Counter = Counter()
@@ -2149,7 +2157,7 @@ REVIEWED_PY_DELETIONS = {
 
 def test_nothing_deletes_but_through_the_run_directory():
     """A mechanical oracle over all of xeda's Python code, by its syntax tree: nothing deletes,
-    moves over or overwrites a file or a tree but through `RunDirectory` (`xeda.run_dir`), or
+    moves over or overwrites a file or a tree but through `RunDirectory` (`xeda._internal.run_dir`), or
     one of the sites reviewed in `REVIEWED_PY_DELETIONS` -- each counted, so a copy of one is a
     new site."""
     found = _python_deletions(PACKAGE)
@@ -2912,10 +2920,10 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
     is removed as a link before the run, never what it leads to; and `--outputs-to` skips a link
     that leads out, to a file or a directory, and refuses one that leads nowhere with a
     `DeliveryError` naming it, while a link inside delivers what it leads to."""
-    from xeda.dataclass import WORKING, Field
-    from xeda.deliver import DeliveryError
-    from xeda.flow import Flow, registered_flows
-    from xeda.flow_runner.default_runner import scrub_runs
+    from xeda._internal.dataclass import WORKING, Field
+    from xeda._internal.deliver import DeliveryError
+    from xeda._internal.flow import Flow, registered_flows
+    from xeda._internal.flow_runner.default_runner import scrub_runs
 
     outside = tmp_path / "install"
     (outside / "bin").mkdir(parents=True)
@@ -3035,8 +3043,8 @@ def test_only_local_settings_and_the_command_line_open_the_private_settings_file
     """A planning or a launch opens neither `config.yaml` nor `*.local.yaml`: the library is
     handed what they hold. `local_settings()` and the command line read them."""
     global _PRIVATE_OPENS, _PRIVATE_ROOT
-    from xeda.local_settings import local_settings
-    from xeda.project import Project
+    from xeda._internal.local_settings import local_settings
+    from xeda._internal.project import Project
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

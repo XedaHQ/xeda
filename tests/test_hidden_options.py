@@ -13,8 +13,8 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.cli_utils import XedaCommand, XedaHelpGroup
+from xeda._internal.cli import cli
+from xeda._internal.cli_utils import XedaCommand, XedaHelpGroup
 
 
 def _commands(

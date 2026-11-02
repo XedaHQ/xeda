@@ -9,10 +9,14 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoSim, VivadoSynth
-from xeda.flows.vivado.vivado_synth import parse_hier_util, run_steps, vivado_synth_generics
+from xeda._internal.flow import FPGA, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoAltSynth, VivadoSim, VivadoSynth
+from xeda._internal.flows.vivado.vivado_synth import (
+    parse_hier_util,
+    run_steps,
+    vivado_synth_generics,
+)
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -220,8 +224,8 @@ def test_reports_share_the_same_columns() -> None:
 def test_num_critical_paths_setting_reaches_the_templates() -> None:
     """`num_critical_paths` drives how many paths every critical path report asks
     for, in both the project-based and the alternate synthesis flow."""
-    from xeda.flows import VivadoAltSynth
-    from xeda.flows.vivado.vivado_alt_synth import flatten_options, synth_design_options
+    from xeda._internal.flows import VivadoAltSynth
+    from xeda._internal.flows.vivado.vivado_alt_synth import flatten_options, synth_design_options
 
     design = Design.load(RESOURCES_DIR / "design0/design0.toml")
     assert VivadoSynth.Settings(fpga=FPGA(part="abcd"), clocks={"main_clock": {"period": "5.5 ns"}}).num_critical_paths == 100  # type: ignore

@@ -11,13 +11,13 @@ from pydantic import Field
 import pytest
 from click.testing import CliRunner
 
-from xeda.flow import MetricSpec
-from xeda.cancel import launch_canceled
-from xeda.cli import cli
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowFatalError, In, Out, registered_flows
-from xeda.utils import Canceled
-from xeda.workspace import Workspace
+from xeda._internal.flow import MetricSpec
+from xeda._internal.cancel import launch_canceled
+from xeda._internal.cli import cli
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowFatalError, In, Out, registered_flows
+from xeda._internal.utils import Canceled
+from xeda._internal.workspace import Workspace
 
 pytestmark = pytest.mark.python_compat
 
@@ -240,7 +240,7 @@ def test_the_cli_prints_the_document_of_the_result_it_got(toys, design, monkeypa
 def test_a_bug_inside_the_launch_is_a_failed_launch_with_no_node(toys, design, monkeypatch):
     """An exception that is no refusal of the request ends the launch with an error of its own
     (`internal_error`). The command knows no plan then, so the document lists no node."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     def broken(self, request, plan):
         raise RuntimeError("a bug")
@@ -256,7 +256,7 @@ def test_a_bug_inside_the_launch_is_a_failed_launch_with_no_node(toys, design, m
 
 
 def test_a_bug_before_the_plan_is_a_failed_launch_with_no_node(toys, design, monkeypatch):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     def broken(self, *args, **kwargs):
         raise RuntimeError("a bug")
@@ -275,7 +275,7 @@ def test_ctrl_c_while_planning_prints_one_document_without_an_outcome(
 ):
     """A Ctrl-C before the launch starts (while Xeda loads the design or plans) started no
     launch: the run document has no outcome, the error `canceled` and no nodes."""
-    from xeda.flow_runner.default_runner import DefaultRunner
+    from xeda._internal.flow_runner.default_runner import DefaultRunner
 
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt

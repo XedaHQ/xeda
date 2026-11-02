@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Verilator
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Verilator
 
 from .design_edits import with_updates
 from .tool_utils import require_bsc, require_cocotb, require_verilator, run_report

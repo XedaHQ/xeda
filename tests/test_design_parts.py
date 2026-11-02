@@ -31,14 +31,14 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import DESIGN_PARTS
-from xeda.flow import Flow, SimFlow
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.trace_inputs import design_files
-from xeda.utils import semantic_hash
+from xeda._internal.design import DESIGN_PARTS
+from xeda._internal.flow import Flow, SimFlow
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import design_files
+from xeda._internal.utils import semantic_hash
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -524,7 +524,7 @@ def test_the_scan_sees_each_way_of_reading_the_testbench() -> None:
 
 def test_the_defaults_of_the_calls_that_take_tb_are_false() -> None:
     """A call that does not name `tb` reads none, which holds only while every default is False."""
-    from xeda.design import Design as D
+    from xeda._internal.design import Design as D
 
     for function in (D._sources_of_type, D.header_dirs, Flow.sources_read):
         default = inspect.signature(function).parameters["tb"].default

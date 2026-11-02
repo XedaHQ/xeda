@@ -8,10 +8,10 @@ from typing import Any, ClassVar, Literal
 import pytest
 from pydantic import AliasChoices
 
-from xeda.dataclass import Field, XedaBaseModel, field_validator
-from xeda.flow import Flow
-from xeda.flow.settings_group import SettingsGroup
-from xeda.introspect import settings_completion_info
+from xeda._internal.dataclass import Field, XedaBaseModel, field_validator
+from xeda._internal.flow import Flow
+from xeda._internal.flow.settings_group import SettingsGroup
+from xeda._internal.introspect import settings_completion_info
 from .flow_registry import preserved_flow_registry
 from .tool_utils import HANG_GUARD
 
@@ -107,7 +107,7 @@ def completion_flow():
 
 
 def test_fpga_completion_exposes_nested_fields_and_the_string_short_form() -> None:
-    from xeda.flows.fpga_pack import FpgaPack
+    from xeda._internal.flows.fpga_pack import FpgaPack
 
     info = settings_completion_info(FpgaPack)
 
@@ -118,8 +118,8 @@ def test_fpga_completion_exposes_nested_fields_and_the_string_short_form() -> No
 
 
 def test_pure_maps_and_model_or_map_fields_are_hierarchical_only(completion_flow) -> None:
-    from xeda.flow import FlowSettingsError
-    from xeda.flows.nextpnr import Nextpnr
+    from xeda._internal.flow import FlowSettingsError
+    from xeda._internal.flows.nextpnr import Nextpnr
 
     info = settings_completion_info(completion_flow)
     assert info["labels"] == {"children": True, "assignable": False, "dynamic": True}
@@ -137,8 +137,8 @@ def test_pure_maps_and_model_or_map_fields_are_hierarchical_only(completion_flow
 
 
 def test_the_clock_table_of_a_synthesis_flow_is_indexed_by_a_wildcard_name() -> None:
-    from xeda.flows.fpga_pack import FpgaPack
-    from xeda.flows.yosys.yosys_fpga import YosysFpga
+    from xeda._internal.flows.fpga_pack import FpgaPack
+    from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
 
     fpga = settings_completion_info(FpgaPack)
     assert fpga["clocks"]["children"] is True
@@ -150,7 +150,7 @@ def test_the_clock_table_of_a_synthesis_flow_is_indexed_by_a_wildcard_name() -> 
 
 
 def test_list_settings_remain_assignable_from_cli_text() -> None:
-    from xeda.flows.yosys.yosys_fpga import YosysFpga
+    from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
 
     settings = YosysFpga.Settings.from_input(
         {"read_verilog_flags": "-sv", "synth_flags": "-flatten,-noflatten"}
@@ -185,8 +185,8 @@ def test_map_value_templates_walk_scalar_and_nested_map_types(completion_flow) -
 
 
 def test_finite_values_only_offer_cli_spellings_accepted_by_the_model(completion_flow) -> None:
-    from xeda.flow import FlowSettingsError
-    from xeda.flows.nvc import Nvc
+    from xeda._internal.flow import FlowSettingsError
+    from xeda._internal.flows.nvc import Nvc
 
     info = settings_completion_info(completion_flow)
     assert "values" not in info["literal_flag"]
@@ -233,7 +233,7 @@ def test_model_field_scalar_schema_is_used_for_validation_aliases(completion_flo
     assert info["selected-text"]["assignable"] is True
     settings = completion_flow.Settings.model_validate({"selected-text": "19"})
     assert settings.selected_text.frequency == 19
-    from xeda.cli_settings_completion import _settings_candidates
+    from xeda._internal.cli_settings_completion import _settings_candidates
 
     candidates = _settings_candidates(
         ["completion"], "completion.selected-tex", {"completion": {"settings": info}}

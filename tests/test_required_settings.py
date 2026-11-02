@@ -12,12 +12,12 @@ from typing import Optional
 
 import pytest
 
-import xeda.flows  # noqa: F401  (registers every flow)
+import xeda._internal.flows  # noqa: F401  (registers every flow)
 from xeda import Design
-from xeda.dataclass import Field
-from xeda.flow import Flow, FlowSettingsException, FpgaSynthFlow
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.dataclass import Field
+from xeda._internal.flow import Flow, FlowSettingsException, FpgaSynthFlow
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner
 
 from .design_edits import with_updates
 from .settings_samples import flow_classes
@@ -82,7 +82,7 @@ def test_an_fpga_flow_launched_without_a_device_names_the_setting(
 def test_a_device_supplied_through_a_producer_section_counts(design, tmp_path, monkeypatch):
     """`nextpnr` shares `fpga` with the `yosys_fpga` that makes its netlist, along their declared
     edge, and adopts one given only in `flows.yosys_fpga` -- so that satisfies it."""
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     monkeypatch.setenv("PATH", "")
     monkeypatch.chdir(tmp_path)
@@ -107,8 +107,8 @@ def test_a_producer_s_own_section_is_no_part_of_the_consumer_s_settings():
     """A producer's settings are written under its own section only: a flow's section is its
     own, and its producers' sections are theirs. The device given only for `yosys_fpga` reaches
     `nextpnr` along their declared edge, in the resolver."""
-    from xeda.flow_runner.settings_layers import compose_flow_settings
-    from xeda.flows import Nextpnr, Openfpgaloader
+    from xeda._internal.flow_runner.settings_layers import compose_flow_settings
+    from xeda._internal.flows import Nextpnr, Openfpgaloader
 
     sections = {
         "yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}, "abc9": False},
@@ -122,7 +122,7 @@ def test_a_producer_s_own_section_is_no_part_of_the_consumer_s_settings():
 def test_a_device_given_only_for_the_synthesis_dependency_is_enough(design, tmp_path, monkeypatch):
     """`fpga` given only in `[flows.yosys_fpga]` reaches `nextpnr`, which has no device of its
     own: it must not die on a missing one after yosys has run."""
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     monkeypatch.setenv("PATH", "")
     monkeypatch.chdir(tmp_path)

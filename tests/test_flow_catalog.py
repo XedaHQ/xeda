@@ -30,7 +30,7 @@ from xeda.flow_catalog import flow_names
 
 catalog_names = flow_names()
 
-from xeda.introspect import all_flow_classes
+from xeda._internal.introspect import all_flow_classes
 
 runtime_names = sorted(
     {cls.name for cls in all_flow_classes()}
@@ -41,8 +41,8 @@ assert catalog_names == runtime_names
 
 
 def test_flow_names_include_already_registered_extension_flows() -> None:
-    from xeda.flow import Flow, registered_flows
-    from xeda.flow_catalog import flow_names
+    from xeda._internal.flow import Flow, registered_flows
+    from xeda._internal.flow_catalog import flow_names
 
     class CatalogExtensionFlow(Flow):
         def run(self) -> None:

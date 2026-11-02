@@ -11,7 +11,7 @@ import pkgutil
 import pytest
 
 import xeda
-import xeda.flows
+import xeda._internal.flows
 
 MODULES = ["xeda", *(info.name for info in pkgutil.walk_packages(xeda.__path__, "xeda."))]
 BUILTINS = [name for name in vars(builtins) if not name.startswith("_")]
@@ -34,6 +34,6 @@ def test_no_module_replaces_a_builtin(name) -> None:
 
 
 def test_the_vivado_package_exports_its_flow_base_and_tool() -> None:
-    from xeda.flows import vivado
+    from xeda._internal.flows import vivado
 
     assert sorted(vivado.__all__) == ["Vivado", "VivadoTool"]

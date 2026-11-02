@@ -23,9 +23,9 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from xeda.flow import MetricSpec
-from xeda.flow import Flow
-from xeda.flows.openfpgaloader import (
+from xeda._internal.flow import MetricSpec
+from xeda._internal.flow import Flow
+from xeda._internal.flows.openfpgaloader import (
     FAILURE_ENDINGS,
     FAILURE_PREFIXES,
     LOADER_LOG,
@@ -44,7 +44,7 @@ from .test_openfpgaloader import (
 )
 from .test_proc_utils_terminal import Terminal
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 RESOURCES = Path(__file__).parent / "resources/openfpgaloader"
 
@@ -1207,7 +1207,7 @@ def test_the_oracle_sees_an_action_that_takes_the_exit_status_for_the_verdict():
     try:
         assert unjudged_actions([Silent, Judging, Checking]) == ["silent"]
     finally:
-        from xeda.flow import registered_flows
+        from xeda._internal.flow import registered_flows
 
         for cls in (Silent, Judging, Checking):
             registered_flows.pop(cls.name, None)

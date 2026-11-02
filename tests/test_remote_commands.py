@@ -17,11 +17,11 @@ import psutil
 import pytest
 from click.testing import CliRunner, Result
 
-from xeda.cli import cli
-from xeda.introspect import flow_executables
+from xeda._internal.cli import cli
+from xeda._internal.introspect import flow_executables
 
 from .remote_fixtures import FakeRemote, fake_remote, fake_ssh, remote_host
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -95,7 +95,9 @@ def test_check_looks_for_the_executables_of_the_flows_and_is_not_an_error_for_a_
 
 
 def test_check_reports_a_missing_executable(remote_host, monkeypatch):
-    monkeypatch.setattr("xeda.introspect.flow_executables", lambda: ["sh", "no-such-tool-xeda"])
+    monkeypatch.setattr(
+        "xeda._internal.introspect.flow_executables", lambda: ["sh", "no-such-tool-xeda"]
+    )
 
     document = _document(_invoke("check", "somewhere", "--json"))
 

@@ -44,7 +44,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 import xeda
-from xeda.units import Quantity
+from xeda._internal.units import Quantity
 
 #: Module variables that are Python's own bookkeeping.
 MODULE_BOOKKEEPING = frozenset(

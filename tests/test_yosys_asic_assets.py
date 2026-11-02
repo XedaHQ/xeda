@@ -11,7 +11,7 @@ from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path
 from .source_layout import IMPL_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 REPO = Path(__file__).parent.parent
 ASSETS = IMPL_DIR / "flows" / "yosys" / "data" / "asic"

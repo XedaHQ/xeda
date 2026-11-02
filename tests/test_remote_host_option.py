@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.remote import client
+from xeda._internal.cli import cli
+from xeda._internal.remote import client
 
 
 def _design(tmp_path: Path) -> Path:

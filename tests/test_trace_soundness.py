@@ -21,12 +21,12 @@ from typing import ClassVar, Optional
 import pytest
 from pydantic import Field
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.proc_utils import note_program
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, Out, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.proc_utils import note_program
 
 from .tool_utils import producers_of
 
@@ -318,7 +318,7 @@ def test_an_input_recorded_before_the_run_is_judged_by_identity_not_a_clock(
     inode change time, inode -- never by comparing its times with a clock: edited during the run
     on a file system whose clock is far behind (here, one no clock comparison can see at all),
     it is still unknown, and the next launch runs again."""
-    from xeda.flow_runner import trace_inputs
+    from xeda._internal.flow_runner import trace_inputs
 
     cls = probes["ProbeDepfile"]
     _launch(root, cls)
@@ -503,7 +503,7 @@ def test_a_program_replaced_during_the_run_is_stale(probes, root, tmp_path):
 def test_a_file_that_vanishes_while_the_trace_is_built_is_unknown(probes, root, monkeypatch):
     """A depfile entry removed between being listed and being recorded cannot be vouched for:
     it is recorded as unknown (the next launch runs again), not a crash after a good run."""
-    from xeda.flow_runner import trace_inputs
+    from xeda._internal.flow_runner import trace_inputs
 
     cls = probes["ProbeDepfile"]
     listed = trace_inputs.implicit_input_files
@@ -554,7 +554,7 @@ def test_edited_external_file_with_controlled_mtime_is_unknown(probes, root):
 
 def test_file_valued_abc_script_is_an_input_and_changes_make_yosys_stale(root):
     """The script `init()` resolves is known before the run: an input recorded before it."""
-    from xeda.flows.yosys.common import YosysSynthesisBase
+    from xeda._internal.flows.yosys.common import YosysSynthesisBase
 
     class ProbeYosys(YosysSynthesisBase):
         """A no-tool Yosys flow that exercises the real settings initializer."""
@@ -822,14 +822,14 @@ def test_a_directory_the_run_left_unlistable_is_an_unknown_output(root):
 def no_racy_window(monkeypatch):
     """No racy window: a record is trusted by its metadata as soon as it was taken, so whether
     a file is read depends on the metadata compared alone."""
-    from xeda import digest
+    from xeda._internal import digest
 
     monkeypatch.setattr(digest, "RACY_NS", 0)
 
 
 def _count_hashes(monkeypatch) -> list:
     """The files `record_file` reads, as they are read."""
-    from xeda import digest
+    from xeda._internal import digest
 
     hashed: list = []
     content_digest = digest.content_digest
@@ -905,7 +905,7 @@ def test_a_file_a_flow_resolves_in_init_is_an_input_before_any_reuse(
     variable -- and registers the file it names (`Flow.implicit_inputs`). Launched again with the
     same settings from elsewhere, into the same run directory, it names another file: a new
     input, known before the check, not a reuse of the script the first launch read."""
-    from xeda.flows.yosys.common import YosysSynthesisBase
+    from xeda._internal.flows.yosys.common import YosysSynthesisBase
 
     class ProbeAbc(YosysSynthesisBase):
         """A no-tool yosys flow that copies the ABC script it would hand yosys."""
@@ -978,7 +978,7 @@ def test_a_version_probe_leaves_nothing_in_the_run_directory(root, tmp_path, mon
     before the check -- and some tools write into their working directory even then (Vivado's
     journal and log). Every file of a managed run directory is an output, so a probe run there
     would change one at every launch: probes run in a temporary directory."""
-    from xeda.tool import Tool
+    from xeda._internal.tool import Tool
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -1012,7 +1012,7 @@ def test_a_record_read_after_its_racy_window_is_refreshed(probes, root, monkeypa
     """A file that changed just before its record was taken is read at the next check: its
     metadata cannot vouch for it yet (racy). Once that window has passed, the check that read it
     refreshes the trace, so the check after it reads nothing."""
-    from xeda import digest
+    from xeda._internal import digest
 
     monkeypatch.setattr(digest, "RACY_NS", 300_000_000)  # 0.3 s rather than 2 s, not to wait
     cls = probes["ProbeSource"]

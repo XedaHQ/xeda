@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
-from xeda.flows import Dc
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flows import Dc
 
 from .tool_utils import fake_calls, use_fake_tools
 

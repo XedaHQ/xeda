@@ -16,16 +16,16 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-import xeda.cli as cli_module
+import xeda._internal.cli as cli_module
 from xeda import errors
-from xeda.cli import cli, run
-from xeda.cli_types import FlowChoice
-from xeda.frozen import thaw
-from xeda.outcomes import result_from_dict
-from xeda.run_root import ensure_run_root
-from xeda.spec import Spec
-from xeda.types import UNSET, Question
-from xeda.workspace import Workspace
+from xeda._internal.cli import cli, run
+from xeda._internal.cli_types import FlowChoice
+from xeda._internal.frozen import thaw
+from xeda._internal.outcomes import result_from_dict
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.spec import Spec
+from xeda._internal.types import UNSET, Question
+from xeda._internal.workspace import Workspace
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 from .flow_registry import preserved_flow_registry
@@ -835,8 +835,8 @@ def test_a_cancel_while_the_request_is_planned_prints_the_document_of_no_launch(
     """The library ends a launch that is canceled while it plans as a `Result` with the outcome
     `canceled`. The command says what it says of any Ctrl-C before the launch starts: no outcome,
     no launch, the exit status 1."""
-    from xeda.flow_runner.default_runner import FlowLauncher
-    from xeda.utils import Canceled
+    from xeda._internal.flow_runner.default_runner import FlowLauncher
+    from xeda._internal.utils import Canceled
 
     def canceled(self, *arguments, **keywords):
         raise Canceled("the launch was canceled while it was planned")
@@ -856,7 +856,7 @@ def test_a_question_is_asked_with_the_default_handler_of_ctrl_c(monkeypatch):
     handler that cancels a launch. The handler is back when the question is answered."""
     import signal
 
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     seen = []
 
@@ -874,7 +874,7 @@ def test_a_question_is_asked_with_the_default_handler_of_ctrl_c(monkeypatch):
 
 
 def test_a_second_interrupt_while_the_launch_runs_names_the_launch(world, monkeypatch):
-    from xeda.log_context import tag_launch_id
+    from xeda._internal.log_context import tag_launch_id
 
     def interrupted(self, what, /, **options):
         interrupt = KeyboardInterrupt()

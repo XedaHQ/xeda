@@ -21,11 +21,11 @@ import pytest
 from pydantic import BaseModel
 
 from xeda import Design
-from xeda.design import DesignValidationError
-from xeda.flow.flow import FlowSettingsError, registered_flows
-from xeda.flows import dc
-from xeda.flows.openroad.base import EffectiveBase
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow.flow import FlowSettingsError, registered_flows
+from xeda._internal.flows import dc
+from xeda._internal.flows.openroad.base import EffectiveBase
+from xeda._internal.flow_runner import DefaultRunner
 
 from .design_edits import with_updates
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
@@ -374,7 +374,7 @@ def _path_text_typed(roots: list, path: list[str]) -> bool:
 
 def _roots_by_package() -> dict[str, list]:
     """`{flows package: the Settings models of its flows}`. `registered_flows` also holds
-    test-only flows other test modules register under their own module (not `xeda.flows.<pkg>`,
+    test-only flows other test modules register under their own module (not `xeda._internal.flows.<pkg>`,
     e.g. `tests.test_documentation._AliasFlow`), which a plain `__module__.split(".")[2]` would
     either mis-bucket or, for a module with fewer than three components, raise `IndexError` on --
     order-dependent, since it only ever bites once such a module has been imported first."""

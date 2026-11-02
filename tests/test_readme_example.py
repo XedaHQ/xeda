@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from xeda.yaml_loader import load_yaml
+from xeda._internal.yaml_loader import load_yaml
 
 ROOT = Path(__file__).parent.parent
 README = ROOT / "README.md"

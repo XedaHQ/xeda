@@ -28,9 +28,9 @@ from typing import Any, Optional
 import yaml
 
 from xeda import Design
-from xeda.flow.settings_group import SettingsGroup
-from xeda.flows.openroad import Openroad, OpenroadCts, OpenroadGrt, OpenroadPlace, base
-from xeda.units import Quantity
+from xeda._internal.flow.settings_group import SettingsGroup
+from xeda._internal.flows.openroad import Openroad, OpenroadCts, OpenroadGrt, OpenroadPlace, base
+from xeda._internal.units import Quantity
 
 from .openroad_utils import openroad_design, render_driver
 from .test_openroad_final import GDS_FILE, KLAYOUT_TECH, RCX_RULES, SUPPLY, variant_residue

@@ -17,10 +17,10 @@ from typing import Any
 
 import pytest
 
-from xeda.flow import FlowException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys
-from xeda.flows.yosys.common import YOSYS_TEMPORARY_DIRECTORY
+from xeda._internal.flow import FlowException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys.common import YOSYS_TEMPORARY_DIRECTORY
 
 from .test_yosys_asic import _counter_design, _design, _tiny
 from .tool_utils import (
@@ -29,7 +29,7 @@ from .tool_utils import (
     require_yosys_tcl,
     run_outputs_state,
 )
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ABC_NEW = {"abc": {"mapper": "abc_new"}}
 WRAPPED = {**ABC_NEW, "arithmetic": {"wrap_operators": True}}

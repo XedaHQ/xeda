@@ -16,15 +16,15 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.cancel import CancelToken
-from xeda.dataclass import Field
+from xeda._internal.cancel import CancelToken
+from xeda._internal.dataclass import Field
 from xeda.errors import SpecError
-from xeda.events import Event
-from xeda.flow import Flow
-from xeda.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
-from xeda.outcomes import Outcome
-from xeda.spec import Spec
-from xeda.workspace import Workspace
+from xeda._internal.events import Event
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
+from xeda._internal.outcomes import Outcome
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 from . import tool_utils

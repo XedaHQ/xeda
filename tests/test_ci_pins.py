@@ -20,8 +20,8 @@ from typing import Any
 
 import pytest
 
-from xeda.platforms import bundled_platform_names
-from xeda.yaml_loader import load_yaml
+from xeda._internal.platforms import bundled_platform_names
+from xeda._internal.yaml_loader import load_yaml
 
 ROOT = Path(__file__).parent.parent
 SCRIPT = ROOT / ".github" / "scripts" / "bump_ci_pins.py"

@@ -292,7 +292,7 @@ def tool_version(executable: str, flag: str, home: Path) -> Optional[str]:
 
 def registered_flow_names() -> frozenset[str]:
     """Return the names of the flows that this xeda has."""
-    from xeda.introspect import all_flow_classes
+    from xeda._internal.introspect import all_flow_classes
 
     return frozenset(cls.name for cls in all_flow_classes())
 
@@ -381,7 +381,7 @@ def config_from_table(table: Mapping[str, Any], path: Path) -> DesignConfig:
     if not isinstance(clock, Mapping) or set(clock) != {"port", "period"}:
         raise ParityError(f"{path}: `clock` needs `port` and `period`")
     period = clock["period"]
-    from xeda.units import QuantityError, Time
+    from xeda._internal.units import QuantityError, Time
 
     try:
         if not isinstance(period, str):
@@ -417,7 +417,7 @@ def config_from_table(table: Mapping[str, Any], path: Path) -> DesignConfig:
 
 
 def load_design_config(path: Path) -> DesignConfig:
-    from xeda.yaml_loader import load_yaml
+    from xeda._internal.yaml_loader import load_yaml
 
     if not path.is_file():
         known = ", ".join(sorted(f"{p.parent.name}/{p.stem}" for p in DESIGNS.glob("*/*.yaml")))
@@ -534,7 +534,7 @@ _PIN_DISTANCE = re.compile(r"-min_distance\s+(\d+)\s+-min_distance_in_tracks")
 def openroad_expectations(variables: Mapping[str, str]) -> tuple[list[Expectation], list[str]]:
     """Return what the ORFS variables of a design ask of the settings of the xeda OpenROAD flows,
     and the problems with a variable that the tool cannot translate."""
-    from xeda.units import Length
+    from xeda._internal.units import Length
 
     get = lambda name: variables.get(name, "").strip()  # noqa: E731
     problems: list[str] = []
@@ -801,7 +801,7 @@ def injected_settings(
 
 
 def flow_classes() -> dict[str, Any]:
-    from xeda.introspect import all_flow_classes
+    from xeda._internal.introspect import all_flow_classes
 
     return {cls.name: cls for cls in all_flow_classes()}
 
@@ -817,7 +817,7 @@ def design_config_problems(
     `tcl_texts` holds the text of the Tcl files that the design names (`design_tcl_texts`). The
     tool checks the settings that a flow ends up with, not only the ones that the file gives, so a
     flow that the file leaves out must agree with ORFS by its defaults."""
-    from xeda.units import Time
+    from xeda._internal.units import Time
 
     problems: list[str] = []
     period = sdc_clock_period(sdc_text)
@@ -1080,7 +1080,7 @@ def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
     chain, from the record of its node in the run document. Return `{}` when there is no such
     node or no record that this Xeda reads."""
     from xeda.errors import RecordError
-    from xeda.records import decode_record
+    from xeda._internal.records import decode_record
 
     for node in document.get("nodes") or []:
         if node.get("flow") == flow:
@@ -1223,7 +1223,7 @@ def residue_digest(platform: str) -> Optional[str]:
     """Return the sha256 digest of the file `platform.yaml` that xeda ships for a platform."""
     from importlib import resources
 
-    from xeda.package_paths import impl_module
+    from xeda._internal.package_paths import impl_module
 
     try:
         return hashlib.sha256(
@@ -1608,7 +1608,7 @@ def tool_versions(ctx: Context) -> dict[str, Optional[str]]:
         ctx.versions["openroad_sha256"] = sha256_file(Path(openroad))
         ctx.versions["yosys_orfs_path"] = shutil.which(ctx.yosys) or ctx.yosys
         ctx.versions["yosys_xeda_path"] = shutil.which(ctx.xeda_yosys) or ctx.xeda_yosys
-        from xeda.version import __version__
+        from xeda._internal.version import __version__
 
         ctx.versions["xeda"] = __version__
     return ctx.versions

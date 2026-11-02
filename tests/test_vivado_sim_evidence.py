@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoPostsynthSim, VivadoPower, VivadoSim
-from xeda.tool import Tool
-from xeda.units import Time
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoPostsynthSim, VivadoPower, VivadoSim
+from xeda._internal.tool import Tool
+from xeda._internal.units import Time
 
 from .bluespec_sources import COUNTER_BSV
 from .tool_utils import fake_calls, require_bsc, use_fake_tools
@@ -193,7 +193,7 @@ def test_vivado_timeout_is_applied_to_combined_process(tmp_path, monkeypatch):
 def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypatch, state):
     """The verdict is made where the simulation runs; a failed producer is never handed
     over, so power does not run and writes nothing."""
-    from xeda.flow import FlowDependencyFailure
+    from xeda._internal.flow import FlowDependencyFailure
 
     with pytest.raises(FlowDependencyFailure):
         launch(tmp_path, monkeypatch, state, flow_class=VivadoPower)
@@ -268,7 +268,7 @@ def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     ],
 )
 def test_vivado_runtime_controls_cannot_bypass_evidence(tmp_path, monkeypatch, flag):
-    from xeda.flow import FlowSettingsException
+    from xeda._internal.flow import FlowSettingsException
 
     with pytest.raises(FlowSettingsException, match="runtime evidence"):
         launch(tmp_path, monkeypatch, "finish5", {"sim_flags": [flag]})
@@ -338,7 +338,7 @@ def test_vivado_power_requires_its_own_current_power_xml(tmp_path, monkeypatch):
 def test_vivado_power_propagates_failing_simulation_controls(
     tmp_path, monkeypatch, state, settings
 ):
-    from xeda.flow import FlowDependencyFailure
+    from xeda._internal.flow import FlowDependencyFailure
 
     with pytest.raises(FlowDependencyFailure):
         launch(tmp_path, monkeypatch, state, producers=settings, flow_class=VivadoPower)
@@ -370,7 +370,7 @@ def test_vivado_native_diagnostics_after_partial_output(
 
 
 def test_vivado_cannot_disable_required_source_provenance(tmp_path, monkeypatch):
-    from xeda.flow import FlowSettingsException
+    from xeda._internal.flow import FlowSettingsException
 
     with pytest.raises(FlowSettingsException, match="source information"):
         launch(tmp_path, monkeypatch, "vhdl_stop", {"elab_debug": "off"})

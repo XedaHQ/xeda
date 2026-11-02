@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, MetricSpec
-from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
-from xeda.flows import Dc, Nextpnr, Quartus, VivadoPower, Yosys, YosysFpga
-from xeda.flows.openroad import Openroad
+from xeda._internal.flow import FPGA, MetricSpec
+from xeda._internal.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
+from xeda._internal.flows import Dc, Nextpnr, Quartus, VivadoPower, Yosys, YosysFpga
+from xeda._internal.flows.openroad import Openroad
 
 from .metric_types import (
     VALUE_TESTS,

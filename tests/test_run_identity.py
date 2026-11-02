@@ -17,17 +17,17 @@ from pathlib import Path
 
 import pytest
 
-import xeda
+from xeda._internal.package_paths import impl_root
 from xeda import Design
-from xeda.design import Source
-from xeda.flow import flowrun_hash
-from xeda.flow_runner.bindings import node_identity
-from xeda.flow_runner.configuration import configuration_hash
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dependencies import merged_design
-from xeda.flow_runner.trace import read_trace
-from xeda.flows import VivadoSynth
-from xeda.utils import dump_json
+from xeda._internal.design import Source
+from xeda._internal.flow import flowrun_hash
+from xeda._internal.flow_runner.bindings import node_identity
+from xeda._internal.flow_runner.configuration import configuration_hash
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dependencies import merged_design
+from xeda._internal.flow_runner.trace import read_trace
+from xeda._internal.flows import VivadoSynth
+from xeda._internal.utils import dump_json
 
 from .design_edits import design_from_dump, with_updates
 from .tiny_platform import TINY_RESIDUE
@@ -685,11 +685,11 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
 # ------------------------------------------- a platform names no installation
 
 # The imported package: under tox it is the installed one, not the checkout's `src/xeda`.
-XEDA_PACKAGE = Path(xeda.__file__).parent
+XEDA_PACKAGE = impl_root()
 
 
 def _platform_settings(tmp_path: Path, flow_name="yosys", **given):
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     root, start = tmp_path / "d", tmp_path / "start"
     root.mkdir(exist_ok=True)
@@ -702,7 +702,7 @@ def _platform_settings(tmp_path: Path, flow_name="yosys", **given):
 def test_a_bundled_platform_is_a_name_in_the_hashed_settings(tmp_path):
     """`-s platform=nangate45` is one request under any installation: the settings hold the
     name, and the identity names no path under the installation, or any other path."""
-    from xeda.flow.flow import identity_values
+    from xeda._internal.flow.flow import identity_values
 
     settings = _platform_settings(tmp_path, platform="nangate45")
     assert settings.platform == "nangate45"
@@ -722,7 +722,7 @@ def test_the_place_of_the_pdk_store_is_no_part_of_the_hash(tmp_path):
 def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
     """A platform file under the design root counts relative to it, and one elsewhere as the
     absolute location it names."""
-    from xeda.flow.flow import identity_values
+    from xeda._internal.flow.flow import identity_values
 
     place = (tmp_path / "d" / "pdk") if where == "design" else (tmp_path / "pdks" / "pdk")
     place.mkdir(parents=True)
@@ -743,8 +743,8 @@ def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
 def test_a_root_counts_however_its_path_is_spelled(tmp_path, flow_name):
     """A root reached through a symbolic link is one root: a path under it counts relative to it
     whether it is spelled through the link or by the physical path."""
-    from xeda.flow.flow import identity_values
-    from xeda.flows import VivadoSynth
+    from xeda._internal.flow.flow import identity_values
+    from xeda._internal.flows import VivadoSynth
 
     physical = tmp_path / "physical"
     link = tmp_path / "link"
@@ -762,7 +762,7 @@ def test_a_root_counts_however_its_path_is_spelled(tmp_path, flow_name):
                 runner_cwd=runner_cwd,
             )
             return json.dumps(identity_values("vivado_synth", settings), default=str)
-        from xeda.flows import Yosys
+        from xeda._internal.flows import Yosys
 
         settings = Yosys.Settings.from_input(
             {"platform_file": str(root / name)}, design_root=root, runner_cwd=runner_cwd

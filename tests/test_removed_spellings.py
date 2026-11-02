@@ -13,13 +13,13 @@ import click
 import pytest
 from pydantic import BaseModel
 
-import xeda.flows  # noqa: F401  (registers the built-in flows)
+import xeda._internal.flows  # noqa: F401  (registers the built-in flows)
 from .flow_registry import is_product_flow
-from xeda.cli_types import ChainChoice, FlowChoice
-from xeda.flow_runner.settings_layers import RENAMED_FLOWS
-from xeda.project import REMOVED_PROJECT_KEYS, Project
-from xeda.dataclass import SecondSpelling, XedaBaseModel, field_type
-from xeda.design import (
+from xeda._internal.cli_types import ChainChoice, FlowChoice
+from xeda._internal.flow_runner.settings_layers import RENAMED_FLOWS
+from xeda._internal.project import REMOVED_PROJECT_KEYS, Project
+from xeda._internal.dataclass import SecondSpelling, XedaBaseModel, field_type
+from xeda._internal.design import (
     Clock,
     Design,
     DesignValidationError,
@@ -29,12 +29,12 @@ from xeda.design import (
     Rtl,
     VhdlSettings,
 )
-from xeda import design as design_module
-from xeda.flow import FlowSettingsError, registered_flows
-from xeda.flow_runner import FlowNotFoundError, get_flow_class
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.error_codes import public_error, settings_codes
-from xeda.flow_runner.settings_layers import merge_flow_sections
+from xeda._internal import design as design_module
+from xeda._internal.flow import FlowSettingsError, registered_flows
+from xeda._internal.flow_runner import FlowNotFoundError, get_flow_class
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.error_codes import public_error, settings_codes
+from xeda._internal.flow_runner.settings_layers import merge_flow_sections
 from xeda.errors import ProjectError
 
 #: The flows of Xeda. A test module may register a flow of its own, named with a leading `_`.
@@ -269,7 +269,7 @@ EARLIER_REMOVED_OPTIONS = {
 def test_every_hidden_option_of_the_cli_has_a_row():
     import click as click_module
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     rows = {option for option, _, _ in REMOVED_OPTIONS} | {
         "--design-allow-extra",
@@ -418,7 +418,7 @@ def test_a_removed_flow_name_names_its_successor(given, canonical):
 
 
 def test_the_name_of_a_flow_is_the_only_spelling_the_cli_completes():
-    from xeda.flow_catalog import flow_names
+    from xeda._internal.flow_catalog import flow_names
 
     assert {cls.name for cls in FLOWS} <= set(flow_names())
     assert all(name == name.lower() and "-" not in name for name in flow_names())
@@ -466,7 +466,7 @@ REMOVED_OPTIONS = [
 def test_a_removed_option_names_its_successor(tmp_path, option, command, successor):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     design = tmp_path / "d.yaml"
     design.write_text("name: d\n")
@@ -502,7 +502,7 @@ def test_a_removed_option_with_its_old_value_names_its_successor(
 ):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     design = tmp_path / "d.yaml"
     design.write_text("name: d\n")
@@ -518,7 +518,7 @@ def test_a_removed_option_with_its_old_value_names_its_successor(
 def test_the_removed_debug_variable_names_itself(monkeypatch):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     result = CliRunner().invoke(cli, ["list-flows"], env={"XEDA_DEBUG": "1"})
 
@@ -529,7 +529,7 @@ def test_the_removed_debug_variable_names_itself(monkeypatch):
 
 
 def test_the_commands_take_the_design_as_an_argument_and_the_settings_as_dash_s():
-    from xeda.cli import dse, run
+    from xeda._internal.cli import dse, run
 
     for command in (run, dse):
         visible = {
@@ -551,7 +551,7 @@ def test_the_commands_take_the_design_as_an_argument_and_the_settings_as_dash_s(
 def test_the_option_that_allowed_extra_design_keys_is_gone(tmp_path, command, option):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     design = tmp_path / "d.yaml"
     design.write_text("name: d\n")
@@ -567,7 +567,7 @@ def test_the_option_that_allowed_extra_design_keys_is_gone(tmp_path, command, op
 
 # ------------------------------------------------------------------------------ letter case
 
-from xeda import units  # noqa: E402
+from xeda._internal import units  # noqa: E402
 
 
 def _quantity_classes():

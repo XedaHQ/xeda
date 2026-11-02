@@ -10,7 +10,7 @@ import copy
 from pathlib import Path
 
 from xeda import Design
-from xeda.flows import VivadoPostsynthSim, VivadoSynth
+from xeda._internal.flows import VivadoPostsynthSim, VivadoSynth
 
 from .design_edits import with_updates
 

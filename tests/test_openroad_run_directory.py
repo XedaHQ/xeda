@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
 
 from .openroad_utils import openroad_design, openroad_settings, probe_flows
 from .tiny_platform import tiny_store
@@ -152,7 +152,7 @@ def test_a_failed_database_of_an_earlier_run_is_removed_before_the_process_start
 
 
 def test_the_log_goes_through_live_log_and_the_command_has_no_log_argument(launched, monkeypatch):
-    from xeda import proc_utils, tool
+    from xeda._internal import proc_utils, tool
 
     logs: list[Path] = []
     commands: list[list[str]] = []
@@ -188,7 +188,7 @@ def test_the_log_goes_through_live_log_and_the_command_has_no_log_argument(launc
 
 
 def test_the_threads_setting_gives_the_thread_count(launched, monkeypatch):
-    from xeda import tool
+    from xeda._internal import tool
 
     commands: list[list[str]] = []
     real_run_process = tool.run_process
@@ -225,7 +225,7 @@ def test_a_top_module_that_would_put_totcap_outside_is_refused_before_openroad_s
 
 
 def test_a_file_that_would_leave_the_run_directory_is_refused_when_it_is_guarded(launched):
-    from xeda.run_dir import RunDirectoryError
+    from xeda._internal.run_dir import RunDirectoryError
 
     flow = launched.probes.flow(launched.tmp_path / "flow")
     with pytest.raises(RunDirectoryError, match="not inside the run directory"):

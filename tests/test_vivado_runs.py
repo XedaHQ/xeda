@@ -19,10 +19,10 @@ import click
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoSynth
-from xeda.flows.vivado import vivado_synth as vs
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoAltSynth, VivadoSynth
+from xeda._internal.flows.vivado import vivado_synth as vs
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
 from .source_layout import IMPL_DIR

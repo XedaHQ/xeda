@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-import xeda.flows.nextpnr as nextpnr_module
+import xeda._internal.flows.nextpnr as nextpnr_module
 from xeda import Design
-from xeda.flow import FlowFatalError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr
-from xeda.flows.nextpnr import NextpnrTool
+from xeda._internal.flow import FlowFatalError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nextpnr
+from xeda._internal.flows.nextpnr import NextpnrTool
 
 from . import tool_utils
 from .test_xilinx_chipdb import PARTS, _binary

@@ -12,12 +12,15 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import suggest_dependency_node, transitive_dependencies
-from xeda.flows import Nextpnr, Yosys, YosysFpga
+from xeda._internal.cli import cli
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import (
+    suggest_dependency_node,
+    transitive_dependencies,
+)
+from xeda._internal.flows import Nextpnr, Yosys, YosysFpga
 from .scoping import node_settings
 
 PART = "xc7a100tfgg676-3"

@@ -11,8 +11,8 @@ from typing import Annotated, Any, ClassVar, Literal, Optional, Union
 
 import pytest
 
-from xeda.flow import MetricSpec
-from xeda.dataclass import (
+from xeda._internal.flow import MetricSpec
+from xeda._internal.dataclass import (
     Field,
     ValidationError,
     WORKING,
@@ -20,19 +20,19 @@ from xeda.dataclass import (
     tier,
     tier_of,
 )
-from xeda.design import Design
-from xeda.flow import Flow, FlowSettingsError, flowrun_hash
-from xeda.flow.settings_group import Flag, SettingsGroup, group_problems, render_flags
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import compose_flow_settings
-from xeda.units import Bounds, Capacitance, Time
-from xeda.utils import dump_json, tcl_word
+from xeda._internal.design import Design
+from xeda._internal.flow import Flow, FlowSettingsError, flowrun_hash
+from xeda._internal.flow.settings_group import Flag, SettingsGroup, group_problems, render_flags
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import compose_flow_settings
+from xeda._internal.units import Bounds, Capacitance, Time
+from xeda._internal.utils import dump_json, tcl_word
 
 from .flow_registry import preserved_flow_registry
 from .settings_samples import PROBES
 from .scoping import node_settings
 from .source_layout import IMPL_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -878,8 +878,8 @@ def test_the_settings_of_a_group_are_independent_copies(toy_flow):
 
 def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer(tmp_path):
     from xeda import Design
-    from xeda.flows import Nextpnr, YosysFpga
-    from xeda.flow_runner.settings_layers import suggest_dependency_node
+    from xeda._internal.flows import Nextpnr, YosysFpga
+    from xeda._internal.flow_runner.settings_layers import suggest_dependency_node
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     producer_only = next(

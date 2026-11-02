@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from xeda.design import SourceType
-from xeda.flow import Flow, registered_flows
-from xeda.flow.metrics import COMMON_METRICS
-from xeda.units import Time
-from xeda.flow.sim import (
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow.metrics import COMMON_METRICS
+from xeda._internal.units import Time
+from xeda._internal.flow.sim import (
     SimEvent,
     SimEvidence,
     SimFlow,
@@ -430,13 +430,13 @@ ALL_SKIPPED = """<testsuites><testsuite name="t" tests="2" skipped="2">
 
 
 def test_an_all_skipped_cocotb_run_fails(tmp_path):
-    from xeda.cocotb import TestResults
+    from xeda._internal.cocotb import TestResults
 
     path = tmp_path / "results.xml"
     path.write_text(ALL_SKIPPED)
     results = TestResults.parse_results(path)
     assert results.tests == 2 and results.skipped == 2
-    from xeda.cocotb import cocotb_verdict
+    from xeda._internal.cocotb import cocotb_verdict
 
     flow_results: dict = {}
     assert cocotb_verdict(results, flow_results) is False
@@ -444,7 +444,7 @@ def test_an_all_skipped_cocotb_run_fails(tmp_path):
 
 
 def test_verilator_reads_its_end_record(tmp_path):
-    from xeda.flows.verilator import parse_end_record
+    from xeda._internal.flows.verilator import parse_end_record
 
     record = tmp_path / "xeda_end.json"
     record.write_text(
@@ -471,7 +471,7 @@ def test_verilator_reads_its_end_record(tmp_path):
     ],
 )
 def test_a_malformed_end_record_is_no_evidence(tmp_path, text):
-    from xeda.flows.verilator import parse_end_record
+    from xeda._internal.flows.verilator import parse_end_record
 
     record = tmp_path / "xeda_end.json"
     record.write_text(text)
@@ -489,7 +489,7 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
     """A passing end record, written by this run, passes; left by a previous run -- there,
     unchanged, since the run started -- it is not read, and the run does not pass."""
     from xeda import Design
-    from xeda.flows import Verilator
+    from xeda._internal.flows import Verilator
 
     root = tmp_path / "design"
     design = Design(
@@ -555,7 +555,7 @@ def test_persisted_evidence_preserves_failing_events(kind):
 
 def _normalized_flow(tmp_path):
     from xeda import Design
-    from xeda.flows import Verilator
+    from xeda._internal.flows import Verilator
 
     root = tmp_path / "design"
     rtl = {"sources": [_readable_source(Verilator, root)], "top": "tb"}
@@ -579,7 +579,7 @@ def _normalized_flow(tmp_path):
     ],
 )
 def test_normalized_record_missing_or_malformed_is_no_evidence(tmp_path, content):
-    from xeda.flow.sim_evidence import read_sim_evidence
+    from xeda._internal.flow.sim_evidence import read_sim_evidence
 
     flow = _normalized_flow(tmp_path)
     path = tmp_path / "end.json"
@@ -593,7 +593,7 @@ def test_normalized_record_missing_or_malformed_is_no_evidence(tmp_path, content
 
 def test_normalized_reports_require_current_run_and_complete_events(tmp_path):
     import json
-    from xeda.flow.sim_evidence import read_sim_evidence, read_sim_log
+    from xeda._internal.flow.sim_evidence import read_sim_evidence, read_sim_log
 
     flow = _normalized_flow(tmp_path)
     record, events, log = (tmp_path / name for name in ("end.json", "events.jsonl", "sim.log"))
@@ -634,7 +634,7 @@ def test_normalized_reports_require_current_run_and_complete_events(tmp_path):
     ],
 )
 def test_normalized_native_time_excludes_delta_cycles(quantity, expected):
-    from xeda.flow.sim_evidence import parse_sim_time
+    from xeda._internal.flow.sim_evidence import parse_sim_time
 
     assert parse_sim_time(quantity) == expected
 
@@ -687,7 +687,7 @@ def test_normalized_native_writer_refuses_links_and_retains_events(tmp_path, lan
 
 def test_behavioral_manifest_covers_registry_and_backend_literal():
     from typing import get_args
-    from xeda.flows.bsc import SimulatorName
+    from xeda._internal.flows.bsc import SimulatorName
     from .sim_evidence_cases import BSC_BACKENDS, CASES, REJECTED_BSC_BACKENDS, SIMULATORS
 
     assert set(SIMULATORS) == _sim_flows()
@@ -700,14 +700,14 @@ def test_behavioral_manifest_covers_registry_and_backend_literal():
 from .sim_evidence_cases import CASES
 from .tool_utils import HANG_GUARD
 from .source_layout import IMPL_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 
 def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path):
     import sys
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
-    from xeda.tool import Tool
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.tool import Tool
 
     # Registration belongs to the test alone, including canonical and class-name aliases.
     with preserved_flow_registry():
@@ -761,7 +761,7 @@ def test_the_capability_hook_cannot_bypass_evidence_judgment(tmp_path, monkeypat
 )
 def test_cocotb_keeps_priority_over_hdl_evidence(flow_name, content, passes, tmp_path, monkeypatch):
     from xeda import Design
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
     from .settings_samples import minimal_settings
 
     cls = get_flow_class(flow_name)
@@ -787,7 +787,7 @@ def test_cocotb_keeps_priority_over_hdl_evidence(flow_name, content, passes, tmp
 
 @pytest.mark.parametrize("flow_name", sorted(_sim_flows()))
 def test_simulation_controls_are_inherited_unchanged(flow_name):
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
     from .settings_samples import minimal_settings
 
     cls = get_flow_class(flow_name)
@@ -814,8 +814,8 @@ def test_simulation_controls_are_inherited_unchanged(flow_name):
 
 @pytest.mark.parametrize("flow_name", sorted(_sim_flows()))
 def test_every_simulator_documents_the_shared_evidence(flow_name):
-    from xeda.flow import describe_results
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow import describe_results
+    from xeda._internal.flow_runner import get_flow_class
 
     expected = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.errors", "sim.warnings"
@@ -911,7 +911,7 @@ def test_cxxrtl_driver_evidence_oracle_detects_suppressed_monitor(tmp_path, monk
 def test_normalized_envelope_round_trip_and_unreadable_report(tmp_path, monkeypatch):
     import json
     from pathlib import Path
-    from xeda.flow.sim_evidence import read_sim_evidence
+    from xeda._internal.flow.sim_evidence import read_sim_evidence
 
     flow = _normalized_flow(tmp_path)
     record = tmp_path / "end.json"

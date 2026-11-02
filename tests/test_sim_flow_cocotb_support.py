@@ -12,15 +12,15 @@ from pathlib import Path
 
 import pytest
 
-import xeda.flows  # noqa: F401  (registers every flow)
+import xeda._internal.flows  # noqa: F401  (registers every flow)
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowException, SimFlow
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
-from xeda.flows import Modelsim, Vcs
-from xeda.run_root import ensure_run_root
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowException, SimFlow
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
+from xeda._internal.flows import Modelsim, Vcs
+from xeda._internal.run_root import ensure_run_root
 
 from .design_edits import with_updates
 

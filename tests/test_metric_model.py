@@ -2,8 +2,8 @@
 
 import pytest
 
-from xeda.flow.metrics import metric_unit_known
-from xeda.flows import Bsc, Nextpnr, VivadoPower, Yosys, YosysFpga
+from xeda._internal.flow.metrics import metric_unit_known
+from xeda._internal.flows import Bsc, Nextpnr, VivadoPower, Yosys, YosysFpga
 
 from .metric_types import paths_inside_paths
 from .test_documentation import FLOW_CLASSES, FLOW_IDS

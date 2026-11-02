@@ -45,10 +45,6 @@ FLOW_PROBES = {
     "cocotb": tool_utils.require_cocotb,
 }
 
-# Public names that `xeda` does not export yet. The set only shrinks: the test below fails when a
-# name in it is exported, so the entry goes.
-NOT_EXPORTED_YET = {"plan", "sweep", "records", "local_settings"}
-
 PUBLIC_NAMES = """
 Design DesignPart Rtl Testbench Source Project Spec LocalSettings local_settings
 Plan PlanNode PlanInput PlanDelivery
@@ -65,8 +61,7 @@ def test_the_public_surface_exists():
     import xeda.errors
     import xeda.introspect  # noqa: F401
 
-    assert set(PUBLIC_NAMES) - NOT_EXPORTED_YET <= set(xeda.__all__)
-    assert not NOT_EXPORTED_YET & set(xeda.__all__)
+    assert set(PUBLIC_NAMES) <= set(xeda.__all__)
 
 
 def _run(name, tmp_path, env=EXAMPLES_ENV):

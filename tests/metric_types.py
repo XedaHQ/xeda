@@ -3,10 +3,10 @@
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, Mapping, Type, get_args
 
-from xeda.flow import Flow, MetricSpec
-from xeda.flow.metrics import MetricType, value_fits
+from xeda._internal.flow import Flow, MetricSpec
+from xeda._internal.flow.metrics import MetricType, value_fits
 
-#: The test of a value for each metric type: `xeda.flow.metrics.value_fits`, the rule that the
+#: The test of a value for each metric type: `xeda._internal.flow.metrics.value_fits`, the rule that the
 #: record codec applies.
 VALUE_TESTS: Dict[str, Callable[[Any], bool]] = {
     metric_type: partial(value_fits, metric_type) for metric_type in get_args(MetricType)

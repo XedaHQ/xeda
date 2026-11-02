@@ -10,10 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flows.openroad import base
-from xeda.flows.openroad.base import WireRcSettings, effective_base, merge_wire_rc, tcl_number
-from xeda.platforms.model import WireRc
-from xeda.utils import tcl_word
+from xeda._internal.flows.openroad import base
+from xeda._internal.flows.openroad.base import (
+    WireRcSettings,
+    effective_base,
+    merge_wire_rc,
+    tcl_number,
+)
+from xeda._internal.platforms.model import WireRc
+from xeda._internal.utils import tcl_word
 
 from .openroad_utils import probe_flows, render_driver, run_fake_openroad
 from .tool_utils import fake_calls, require_tclsh

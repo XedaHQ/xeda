@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, FlowFatalError, FlowSettingsException
-from xeda.flows import DiamondSynth
+from xeda._internal.flow import FPGA, FlowFatalError, FlowSettingsException
+from xeda._internal.flows import DiamondSynth
 from .tool_utils import fake_calls, use_fake_tools
 
 

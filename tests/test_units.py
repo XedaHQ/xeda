@@ -20,9 +20,9 @@ from fractions import Fraction
 
 import pytest
 
-from xeda.flow import FlowSettingsError
-from xeda.flows import VivadoSynth
-from xeda.units import CLOCK_UNITS, convert_unit
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flows import VivadoSynth
+from xeda._internal.units import CLOCK_UNITS, convert_unit
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat

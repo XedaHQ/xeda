@@ -1,6 +1,6 @@
 // Stlv7325V2: the board wrapper of mkUartEcho for the SITLINV STLV7325 v2 (Kintex-7 xc7k325t).
 //
-// The ports are the names of Xeda's bundled pin file of the board (src/xeda/data/boards/
+// The ports are the names of Xeda's bundled pin file of the board (src/xeda/_internal/data/boards/
 // stlv7325_v2/board.xdc), so `board: stlv7325_v2` supplies the pins and this wrapper has none of
 // its own:
 //

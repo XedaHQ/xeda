@@ -1,4 +1,4 @@
-"""How a flow's settings layers combine (`xeda.flow_runner.settings_layers`).
+"""How a flow's settings layers combine (`xeda._internal.flow_runner.settings_layers`).
 
 Lowest precedence first: the flow's defaults, the `flows` table of the host profile of a remote
 run, the project's `flows` section, the design's
@@ -14,16 +14,16 @@ from types import MappingProxyType
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError, flowrun_hash
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import (
+from xeda._internal.flow import FlowSettingsError, flowrun_hash
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import (
     command_line_table,
     compose_flow_settings,
     merge_flow_sections,
     merge_layers,
 )
-from xeda.flows import Nextpnr, VivadoPostsynthSim, VivadoSynth
-from xeda.project import Project
+from xeda._internal.flows import Nextpnr, VivadoPostsynthSim, VivadoSynth
+from xeda._internal.project import Project
 
 from .project_files import PROJECT_FILE
 from .remote_fixtures import fake_remote, fake_ssh, remote_host, remote_request
@@ -408,7 +408,7 @@ def test_a_flow_section_is_applied_to_its_flow(tmp_path, monkeypatch, launched):
 def sent(monkeypatch, remote_host):
     """What `run_remote` hands to packaging, without running anything: the merged flow sections
     and the flows of the plan."""
-    from xeda.remote import client
+    from xeda._internal.remote import client
 
     captured = {}
 
@@ -424,7 +424,7 @@ def _composed(sent, name, design_root):
     """The settings of the flow `name` that the remote composes from the sections it receives."""
     from pathlib import Path
 
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     return get_flow_class(name).Settings.from_input(
         sent["sections"][name], design_root=design_root, runner_cwd=Path.cwd()
@@ -516,7 +516,7 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, sent):
 
 
 def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
-    from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
+    from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
 
     class NoopOptimizer(Optimizer):
         default_variations = {"vivado_synth": {}}
@@ -557,9 +557,9 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
 
 
 def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path, monkeypatch):
-    from xeda.flow_runner.dse import dse_runner
-    from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
-    from xeda.frozen import thaw
+    from xeda._internal.flow_runner.dse import dse_runner
+    from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
+    from xeda._internal.frozen import thaw
 
     class Stop(Exception):
         pass
@@ -595,7 +595,7 @@ def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path, monkey
 
 
 def test_fmax_variations_refine_nested_base_settings_instead_of_replacing_them():
-    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+    from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     optimizer = FmaxOptimizer(
         max_workers=1,
@@ -616,7 +616,7 @@ def test_fmax_variations_refine_nested_base_settings_instead_of_replacing_them()
 
 
 def test_fmax_variations_change_only_the_target_clock_period():
-    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+    from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     optimizer = FmaxOptimizer(
         max_workers=1,
@@ -666,7 +666,7 @@ def test_fmax_variations_change_only_the_target_clock_period():
 
 
 def test_fmax_uses_the_deterministic_main_when_multiple_clocks_are_not_named_main_clock():
-    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+    from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     optimizer = FmaxOptimizer(
         max_workers=1,
@@ -796,7 +796,7 @@ def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
 
 def test_composing_twice_changes_nothing(tmp_path):
     """`run()` composes, then `run_flow` composes its result again with the merged sections."""
-    from xeda.flow_runner.settings_layers import compose_flow_settings
+    from xeda._internal.flow_runner.settings_layers import compose_flow_settings
 
     project = {"nextpnr": {"yosys": {"flatten": True}, "seed": 1}}
     design = {"yosys_fpga": {"flatten": False, "abc9": True}}
@@ -846,7 +846,7 @@ def test_dash_s_gives_one_leaf_one_value(tmp_path, monkeypatch, launched):
 
 def test_no_flow_has_a_setting_named_flows():
     """`flows` is a reserved word: no flow can have a setting of that name."""
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     assert not [
         cls.name for _, cls in registered_flows.values() if "flows" in cls.Settings.model_fields

@@ -16,18 +16,18 @@ from typing import Any, ClassVar
 
 import pytest
 
-import xeda.deliver
+import xeda._internal.deliver
 from xeda import Design
-from xeda.dataclass import Field, deliverable
-from xeda.design import SourceType
+from xeda._internal.dataclass import Field, deliverable
+from xeda._internal.design import SourceType
 from xeda.errors import RecordError, RunFailedError
-from xeda.flow import Flow, FlowSettingsError, In, MetricSpec, Out, registered_flows
-from xeda.deliver import DeliveryError
-from xeda.flow_runner import DefaultRunner, launch_identity, launch_report
-from xeda.flow_runner import default_runner as default_runner_module
-from xeda.flow_runner.launch_result import failed_result, launch_result
-from xeda.frozen import thaw
-from xeda.outcomes import (
+from xeda._internal.flow import Flow, FlowSettingsError, In, MetricSpec, Out, registered_flows
+from xeda._internal.deliver import DeliveryError
+from xeda._internal.flow_runner import DefaultRunner, launch_identity, launch_report
+from xeda._internal.flow_runner import default_runner as default_runner_module
+from xeda._internal.flow_runner.launch_result import failed_result, launch_result
+from xeda._internal.frozen import thaw
+from xeda._internal.outcomes import (
     DeliveryRecord,
     Disposition,
     NodeResult,
@@ -36,10 +36,10 @@ from xeda.outcomes import (
     aggregate,
     result_from_dict,
 )
-from xeda.records import ErrorInfo, decode_record, read_record
-from xeda.run_dir import RunDirectory, RunDirectoryError
-from xeda.spec import Spec
-from xeda.utils import ExecutableNotFound, replacing_file
+from xeda._internal.records import ErrorInfo, decode_record, read_record
+from xeda._internal.run_dir import RunDirectory, RunDirectoryError
+from xeda._internal.spec import Spec
+from xeda._internal.utils import ExecutableNotFound, replacing_file
 
 from .flow_registry import preserved_flow_registry
 from .record_documents import record_document
@@ -628,12 +628,12 @@ def test_a_failed_delivery_is_a_launch_error_and_the_node_records_stay(
     destination = tmp_path / "user" / "net.v"
     sections = {deliverer.name: {"netlist": str(destination)}}
 
-    copy = xeda.deliver.copy_fd
+    copy = xeda._internal.deliver.copy_fd
 
     def disk_full(source, target):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(xeda.deliver, "copy_fd", disk_full)
+    monkeypatch.setattr(xeda._internal.deliver, "copy_fd", disk_full)
     result = _launch(runner, deliverer, design, sections)
     assert result.outcome == "failed" and not result.passed
     assert result.error is not None and result.error.code == "delivery_failed"
@@ -645,7 +645,7 @@ def test_a_failed_delivery_is_a_launch_error_and_the_node_records_stay(
     assert read_record(node.run_dir, run_root=runner.run_root).run_id == node.record.run_id
     assert not destination.exists()
 
-    monkeypatch.setattr(xeda.deliver, "copy_fd", copy)
+    monkeypatch.setattr(xeda._internal.deliver, "copy_fd", copy)
     delivered = _launch(_runner(tmp_path), deliverer, design, sections)
     assert delivered.passed and destination.read_text() == "net\n"
     assert delivered.nodes[deliverer.name].deliveries == (
@@ -737,7 +737,7 @@ def test_a_failed_delivery_keeps_its_error_when_the_clean_up_fails_too(
     def disk_full(source, target):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(xeda.deliver, "copy_fd", disk_full)
+    monkeypatch.setattr(xeda._internal.deliver, "copy_fd", disk_full)
     _fail_removal(monkeypatch, False, OSError(5, "Input/output error"))
     runner = _runner(tmp_path, post_cleanup=True)
     result = _launch(
@@ -807,7 +807,7 @@ def test_a_refusal_before_the_run_is_raised_not_reported(tmp_path, monkeypatch):
 def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows, monkeypatch):
     from types import SimpleNamespace
 
-    from xeda.flow_runner import launch_result
+    from xeda._internal.flow_runner import launch_result
 
     def monotonic() -> float:
         _CLOCK[0] += 0.001  # each reading takes a little time
@@ -826,8 +826,8 @@ def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):
     writes nothing for it, so its delivery is in the node's deliveries, as not delivered."""
     from types import SimpleNamespace
 
-    from xeda.deliver import Delivered
-    from xeda.flow_runner.launch_result import LaunchCollector
+    from xeda._internal.deliver import Delivered
+    from xeda._internal.flow_runner.launch_result import LaunchCollector
 
     collector = LaunchCollector()
     flow = object()
@@ -1126,7 +1126,7 @@ def test_a_design_file_is_not_part_of_the_equality_of_designs(tmp_path):
 
 
 def test_the_design_file_of_a_document_is_absolute(tmp_path, monkeypatch):
-    from xeda.outcomes import spec_document
+    from xeda._internal.outcomes import spec_document
 
     monkeypatch.chdir(tmp_path)
     document = spec_document(

@@ -12,12 +12,12 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from xeda.flow import MetricSpec
-from xeda.dataclass import model_with_allow_extra
-from xeda.design import Design, DesignReference
-from xeda.remote.manifest import build_manifest, write_tar
-from xeda.remote.packaging import package_inputs
-from xeda.utils import dump_json, semantic_hash
+from xeda._internal.flow import MetricSpec
+from xeda._internal.dataclass import model_with_allow_extra
+from xeda._internal.design import Design, DesignReference
+from xeda._internal.remote.manifest import build_manifest, write_tar
+from xeda._internal.remote.packaging import package_inputs
+from xeda._internal.utils import dump_json, semantic_hash
 from .design_edits import design_from_dump
 
 pytestmark = pytest.mark.python_compat
@@ -87,7 +87,7 @@ def test_semantic_hash_is_stable_for_equal_models():
 
 
 def test_model_state_exposes_both_fields_and_extras():
-    from xeda.utils import model_state
+    from xeda._internal.utils import model_state
 
     state = model_state(_with_extra("A"))
     assert state["name"] == "d"
@@ -411,7 +411,7 @@ def test_nothing_is_written_by_reading_its_dict():
     and cannot recurse."""
     from enum import Enum
 
-    from xeda.utils import json_encodable
+    from xeda._internal.utils import json_encodable
 
     class Plain(Enum):
         RED = 1
@@ -436,9 +436,9 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
     the file kept them. So the oracle is built from exactly such values."""
     from enum import Enum
 
-    from xeda.flow import Flow
-    from xeda.introspect import json_safe
-    from xeda.utils import json_encodable
+    from xeda._internal.flow import Flow
+    from xeda._internal.introspect import json_safe
+    from xeda._internal.utils import json_encodable
 
     class Plain(Enum):
         RED = 1
@@ -478,8 +478,8 @@ def test_a_printed_mapping_has_the_keys_xeda_writes_to_a_file():
 
     import yaml
 
-    from xeda.introspect import json_safe
-    from xeda.utils import json_encodable
+    from xeda._internal.introspect import json_safe
+    from xeda._internal.utils import json_encodable
 
     class Letter(str, Enum):
         A = "a"
@@ -505,7 +505,7 @@ def test_a_generator_keeps_its_own_fields_when_dumped(tmp_path):
     """`Rtl.generator` may hold a `ChiselGenerator`, and v2 dumps a nested model by its
     *annotated* type unless told otherwise (`SerializeAsAny`): its `main`, `project` and
     `build_system` were silently dropped."""
-    from xeda.design import ChiselGenerator, Rtl
+    from xeda._internal.design import ChiselGenerator, Rtl
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     rtl = Rtl(
@@ -527,8 +527,8 @@ def test_no_key_turns_a_document_into_an_error(tmp_path):
     results. A key is written by the rule a value is: its text, an enum its value."""
     from enum import Enum
 
-    from xeda.flow import Flow
-    from xeda.introspect import json_safe
+    from xeda._internal.flow import Flow
+    from xeda._internal.introspect import json_safe
 
     class Mode(Enum):
         FAST = 1
@@ -566,8 +566,8 @@ def test_a_run_whose_results_have_unusual_keys_still_reports_them(tmp_path, monk
 
     from click.testing import CliRunner
 
-    from xeda.cli import cli
-    from xeda.flow import Flow, registered_flows
+    from xeda._internal.cli import cli
+    from xeda._internal.flow import Flow, registered_flows
 
     class OddKeys(Flow):
         """Reports timing by (clock, edge)."""

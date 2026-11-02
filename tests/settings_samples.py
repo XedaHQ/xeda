@@ -8,10 +8,10 @@ two, so a new flow, setting or validator is covered without a test of its own.
 from collections import namedtuple
 from typing import Any, Dict, List, Tuple, Type
 
-from xeda.flow import Flow
-from xeda.flow.flow import registered_flows
-from xeda.flows import __builtin_flows__
-from xeda.units import Time
+from xeda._internal.flow import Flow
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flows import __builtin_flows__
+from xeda._internal.units import Time
 
 from .settings_fields import FieldPath, dotted, merged, nest, quantity_paths
 
