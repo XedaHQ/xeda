@@ -274,8 +274,8 @@ compare configurations: the directory then ends with the first 16 characters of 
 the node, and two configurations never share one. A sweep over variants needs it. See
 :doc:`run-directories`.
 
-``prune_variants=True`` removes the other run directories of the requested flow, design and target
-before the run, after ``confirm`` says yes. ``post_cleanup=True`` removes the files that only the
+``prune_variants=True`` removes, for every node of the plan (producers too), the other run
+directories of the same flow, design and target before the run, after ``confirm`` says yes. ``post_cleanup=True`` removes the files that only the
 tool needed. ``scrub`` removes the run directories of a design (see `Past runs`_).
 
 Find the files
@@ -357,8 +357,9 @@ Sweeps
 ``ws.sweep(specs)`` runs many specs. It plans every point first, so a mistake in any point raises
 before any point runs. Points that need the same node share it: three seeds on one netlist run one
 synthesis. ``sweep.rows(metrics=...)`` gives one row for each point, in input order. A metric has
-the address ``<node>.<metric path>``, and that text is its column name. Use ``hashed_run_dirs=True``
-for a sweep over variants, or the points replace each other.
+the address ``<node>.<metric path>``, and that text is its column name. A sweep over variants needs
+``hashed_run_dirs=True``: without it, two configurations of one node would use one run
+directory, and the sweep raises ``colliding_run_dirs`` before any point runs.
 
 .. code-block:: python
 

@@ -120,7 +120,7 @@ def run_snippet(tmp_path: Path, name: str, body: str) -> str:
     process = subprocess.run(
         [sys.executable, name], cwd=tmp_path, capture_output=True, text=True, timeout=600
     )
-    return "" if process.returncode == 0 else process.stderr[-2000:]
+    return "" if process.returncode == 0 else f"exit {process.returncode}: {process.stderr[-2000:]}"
 
 
 def test_the_documents_carry_runnable_python_snippets() -> None:
@@ -151,3 +151,7 @@ def test_a_snippet_with_a_removed_or_internal_name_fails(tmp_path, body) -> None
 
 def test_a_snippet_that_exits_with_an_error_fails(tmp_path) -> None:
     assert "ZeroDivisionError" in run_snippet(tmp_path, "bad.py", "# bad.py\n1 / 0\n")
+
+
+def test_a_snippet_that_exits_nonzero_without_output_fails(tmp_path) -> None:
+    assert run_snippet(tmp_path, "bad.py", "# bad.py\nraise SystemExit(1)\n") == "exit 1: "
