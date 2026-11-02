@@ -310,7 +310,7 @@ def test_the_generated_notebook_compares_variants_by_their_exact_bytes(execution
         assert stored.read_bytes() == data
     # What the notebook printed for the bytes that `open()` gave.
     assert cell_output(nb, "variant-bytes").splitlines() == [
-        f"counter{w} {len(d)} module counter{w} (" for w, d in expected.items()
+        f"counter{w} {len(d)} module counter (" for w, d in expected.items()
     ]
     # The delivery is the variant of width 16, byte for byte, and nothing else is delivered.
     assert [p.name for p in (out / "delivered").iterdir()] == ["counter.v"]
