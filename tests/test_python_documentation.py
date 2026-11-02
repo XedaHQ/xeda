@@ -57,6 +57,20 @@ def test_the_reference_documents_only_public_names() -> None:
     assert documented_names() <= public
 
 
+def test_no_public_docstring_names_the_implementation() -> None:
+    """The reference shows these docstrings; a reader cannot import what they would name."""
+    leaks = []
+    for module in PUBLIC_MODULES:
+        for name in module.__all__:
+            value = getattr(module, name)
+            members = vars(value).items() if isinstance(value, type) else ()
+            shown = [(f"{name}.{key}", v) for key, v in members if not key.startswith("_")]
+            for where, item in [(name, value), *shown]:
+                if "_internal" in (getattr(item, "__doc__", None) or ""):
+                    leaks.append(f"{module.__name__}.{where}")
+    assert leaks == []
+
+
 def test_no_nitpick_ignore_names_xeda() -> None:
     """A missing target of a Xeda name must fail the documentation build."""
     config = runpy.run_path(str(ROOT / "docs" / "conf.py"))

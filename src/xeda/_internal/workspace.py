@@ -74,9 +74,9 @@ class Workspace:
     `run_root` is the directory of the run directories. Without it, the run root comes from
     `local_settings.run_root`, else it is `xeda_run` in the current directory at this call. A
     relative `run_root` resolves against the current directory at this call, once. A directory
-    named `xeda_run` in the current directory is adopted by the rule of the run root
-    (`xeda._internal.run_root`). The attribute holds the resolved path. The workspace creates nothing: the
-    run root is made when a launch first needs it.
+    named `xeda_run` in the current directory is adopted by the rule of the run root. The attribute
+    holds the resolved path. The workspace creates nothing: the run root is made when a launch first
+    needs it.
 
     `hashed_run_dirs` adds the hash of the run to the name of a run directory. `tool_output` is
     `"log"` (a tool writes only to the log files of its run directory) or `"terminal"` (it also
