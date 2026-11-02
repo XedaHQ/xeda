@@ -13,6 +13,7 @@ from xeda.project import Project
 
 from .project_files import project_listing
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 FLOWS = sorted({cls for _, cls in registered_flows.values()}, key=lambda c: c.name)
 
@@ -84,7 +85,7 @@ def test_no_open_xc7_flow_module_alias_or_tombstone_is_left():
     assert not [name for name in dir(xeda.flows) if "xc7" in name.lower()]
     assert not [flow["name"] for flow in flows_info() if "xc7" in flow["name"]]
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("xeda.flows.openxc7")
+        importlib.import_module(impl_module("flows.openxc7"))
 
 
 def test_launching_open_xc7_through_the_api_says_it_was_removed(tmp_path):

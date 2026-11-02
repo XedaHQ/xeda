@@ -25,9 +25,11 @@ from xeda.run_root import ensure_run_root
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
 from .scrub_utils import on_a_terminal
+from .source_layout import IMPL_DIR
+from .source_layout import layout_script
 
 FLOW = "vivado_synth"
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -327,18 +329,20 @@ def test_the_scan_sees_a_prompt(tmp_path):
     """The scan finds each way of asking, so a new one in the library does not pass."""
     source = tmp_path / "ask.py"
     source.write_text(
-        "import click\n"
-        "import click as c\n"
-        "from click import prompt as ask\n"
-        "from xeda.console import console\n"
-        "def f():\n"
-        "    input('a')\n"
-        "    console.input('b')\n"
-        "    click.confirm('c')\n"
-        "    click.prompt('d')\n"
-        "    Confirm.ask('e')\n"
-        "    sys.stdin.readline()\n"
-        "    ask('f')\n"
-        "    c.confirm('g')\n"
+        layout_script(
+            "import click\n"
+            "import click as c\n"
+            "from click import prompt as ask\n"
+            "from xeda.console import console\n"
+            "def f():\n"
+            "    input('a')\n"
+            "    console.input('b')\n"
+            "    click.confirm('c')\n"
+            "    click.prompt('d')\n"
+            "    Confirm.ask('e')\n"
+            "    sys.stdin.readline()\n"
+            "    ask('f')\n"
+            "    c.confirm('g')\n"
+        )
     )
     assert sorted(_prompts(source)) == [6, 7, 8, 9, 10, 11, 12, 13]

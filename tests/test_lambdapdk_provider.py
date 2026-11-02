@@ -47,11 +47,13 @@ from xeda.platforms.providers import (
 from xeda.platforms.residue import ResidueError, effective_residue, selected_provider
 
 from .test_pdk_cli import quiet_git  # noqa: F401  (a fixture)
+from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 
 
 def sky130() -> Residue:
@@ -565,7 +567,7 @@ class Repository:
 @pytest.fixture
 def repository(tmp_path, quiet_git, monkeypatch) -> Repository:  # noqa: F811
     repo = Repository(tmp_path / "upstream")
-    monkeypatch.setattr("xeda.platforms.providers.LAMBDAPDK_URL", repo.url)
+    monkeypatch.setattr(impl_module("platforms.providers.LAMBDAPDK_URL"), repo.url)
     return repo
 
 
@@ -726,7 +728,7 @@ def test_both_git_providers_share_a_store_without_touching_each_other(
     from .test_pdk_cli import Upstream
 
     orfs_repository = Upstream(tmp_path / "orfs-upstream")
-    monkeypatch.setattr("xeda.platforms.providers.ORFS_URL", orfs_repository.url)
+    monkeypatch.setattr(impl_module("platforms.providers.ORFS_URL"), orfs_repository.url)
     nangate = load_residue("nangate45")
     installs = {
         "orfs": lambda root: install(nangate, "orfs", orfs_repository.commit, root),

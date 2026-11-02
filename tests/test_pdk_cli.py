@@ -25,6 +25,7 @@ from xeda.introspect import provider_status
 from xeda.platforms import Residue, load_residue, locate
 from xeda.platforms.providers import PROVIDERS
 from .tool_utils import HANG_GUARD
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -1163,7 +1164,7 @@ def invoke(monkeypatch, *arguments: str, home: Path, input: Optional[str] = None
 
 
 def local_orfs(monkeypatch, upstream: Upstream) -> None:
-    monkeypatch.setattr("xeda.platforms.providers.ORFS_URL", upstream.url)
+    monkeypatch.setattr(impl_module("platforms.providers.ORFS_URL"), upstream.url)
 
 
 def test_the_plan_names_the_provider_the_pin_the_size_the_directory_and_the_commands(

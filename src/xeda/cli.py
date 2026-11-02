@@ -257,7 +257,6 @@ def list_flows(output_format: str, json_flag: bool):
             ("Takes", {}),
             ("Makes", {}),
             ("Can be followed by", {}),
-            ("Class", {"style": "dim"}),
         ],
     )
     for flow in info:
@@ -267,7 +266,6 @@ def list_flows(output_format: str, json_flag: bool):
             escape(flow["description"]) if flow["description"] else "[red]<no description>[/red]",
             escape(", ".join(flow["dependencies"])) or "-",
             *(escape(cell) for cell in flow_chain_cells(flow)),
-            escape(flow["qualified_name"]),
         )
     console.print(table)
 

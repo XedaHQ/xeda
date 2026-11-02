@@ -1,6 +1,6 @@
 """The module-level verbs are the `Workspace` methods with the workspace options added.
 
-`xeda.run(spec)` is `Workspace().run(spec)`. `src/xeda/workspace_verbs.py` is generated from the
+`xeda.run(spec)` is `Workspace().run(spec)`. the module `workspace_verbs` is generated from the
 methods (`tools/generate_module_verbs.py`), so a type checker sees each signature.
 """
 

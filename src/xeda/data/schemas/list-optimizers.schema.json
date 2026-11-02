@@ -4,17 +4,11 @@
     "optimizers": {
       "items": {
         "properties": {
-          "class": {
-            "type": "string"
-          },
           "description": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "module": {
-            "type": "string"
           },
           "name": {
             "type": "string"
@@ -59,9 +53,7 @@
           }
         },
         "required": [
-          "class",
           "description",
-          "module",
           "name",
           "settings"
         ],

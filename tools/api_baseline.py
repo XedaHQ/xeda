@@ -1,7 +1,7 @@
 """Snapshot the public API, keep release baselines, and classify the difference between them.
 
     python tools/api_baseline.py                  write tests/snapshots/current/ for review, and
-                                                  the schemas in src/xeda/data/schemas/
+                                                  the schemas in the data/schemas directory
     python tools/api_baseline.py --check          fail when a snapshot or a shipped schema is stale
     python tools/api_baseline.py --compare        classify the code against the newest baseline
     python tools/api_baseline.py --release X.Y    write tests/baselines/X.Y/ once, with a manifest
@@ -33,12 +33,16 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from xeda.package_paths import impl_module, schemas_dir, source_root
+
 ROOT = Path(__file__).resolve().parents[1]
 
-#: The public modules, and `xeda.workspace_verbs`, which holds the six module-level verbs until
-#: `xeda.__all__` exports all of them. A module maps to the names it snapshots.
+#: The public modules, and the module that holds the six module-level verbs until `xeda.__all__`
+#: exports all of them. A module maps to the names it snapshots. `VERB_KEY` is the key of the verbs
+#: in the snapshot, and it stays the same wherever the module is.
 PUBLIC_MODULES = ("xeda", "xeda.errors", "xeda.introspect")
-VERB_MODULE = "xeda.workspace_verbs"
+VERB_MODULE = impl_module("workspace_verbs")
+VERB_KEY = "xeda.workspace_verbs"
 VERBS = ("plan", "run", "sweep", "load", "records", "scrub")
 
 SPECIAL_METHODS = (
@@ -341,7 +345,7 @@ def public_api_snapshot() -> dict[str, Any]:
         module = importlib.import_module(module_name)
         modules[module_name] = {"names": {n: _entry(getattr(module, n)) for n in module.__all__}}
     verbs = importlib.import_module(VERB_MODULE)
-    modules[VERB_MODULE] = {"names": {n: _entry(getattr(verbs, n)) for n in VERBS}}
+    modules[VERB_KEY] = {"names": {n: _entry(getattr(verbs, n)) for n in VERBS}}
     return {"modules": modules}
 
 
@@ -439,7 +443,9 @@ def behavior_snapshot() -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
-SCHEMA_DIRECTORY = Path("src") / "xeda" / "data" / "schemas"
+#: Relative to the root of a checkout. The tool writes and checks the files of a checkout, wherever
+#: the imported package is installed.
+SCHEMA_DIRECTORY = Path("src") / schemas_dir().relative_to(source_root())
 
 _STRING: dict[str, Any] = {"type": "string"}
 _INTEGER: dict[str, Any] = {"type": "integer"}
@@ -654,9 +660,6 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     flow = _object(
         {
             "name": _STRING,
-            "class": _STRING,
-            "module": _STRING,
-            "qualified_name": _STRING,
             "description": _STRING,
             "category": _STRING,
             "supports_cocotb": _BOOLEAN,
@@ -691,7 +694,6 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             ),
             "can_follow": _array(edge),
             "can_precede": _array(edge),
-            "settings_class": _STRING,
         }
     )
     setting = _object(
@@ -704,7 +706,6 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "description": _nullable(_STRING),
             "enum": _nullable(_array(_ANY)),
             "common": _BOOLEAN,
-            "declared_by": _STRING,
             "writes": _nullable(_STRING),
             "opaque_keys": _BOOLEAN,
             "json_schema": _OBJECT,
@@ -744,8 +745,6 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     optimizer = _object(
         {
             "name": _STRING,
-            "class": _STRING,
-            "module": _STRING,
             "description": _nullable(_STRING),
             "settings": _array(
                 _object(
@@ -773,7 +772,6 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             _object(
                 {
                     **listing_of_flow,
-                    "settings_class": _STRING,
                     "fields": _array(setting),
                     "definitions": _OBJECT,
                     "json_schema": _OBJECT,

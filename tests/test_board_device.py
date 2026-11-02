@@ -29,6 +29,7 @@ from xeda.introspect import boards_info
 from .scoping import node_settings
 from .project_files import project_listing
 from .settings_samples import flow_classes
+from xeda.package_paths import impl_module
 
 PRODUCT_FLOWS = [cls for cls, _name in flow_classes()]
 #: every product flow that takes a board, from the registry: one that gains `board` is swept too
@@ -420,6 +421,6 @@ def test_planning_reports_an_unused_section_and_no_device_for_it(tmp_path, monke
     from_settings = [
         r.getMessage()
         for r in caplog.records
-        if r.levelno >= logging.INFO and r.name in ("xeda.flow.fpga", "xeda.board")
+        if r.levelno >= logging.INFO and r.name in (impl_module("flow.fpga"), impl_module("board"))
     ]
     assert from_settings == []

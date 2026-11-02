@@ -19,6 +19,8 @@ from xeda.flow import Flow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
 
 from .flow_registry import preserved_flow_registry
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 # The product's flows. The registry also holds the flows other test modules define: they are
 # registered when their module is imported and removed by their own tests, so the registry at
@@ -31,15 +33,15 @@ def test_flows_all_lists_only_concrete_flow_classes():
         if name.startswith("__"):
             continue
         cls = getattr(flows, name)
-        assert isclass(cls), f"xeda.flows.__all__ exports non-class {name!r}"
-        assert issubclass(cls, Flow), f"xeda.flows.__all__ exports non-Flow {name!r}"
-        assert not isabstract(cls), f"xeda.flows.__all__ exports abstract flow {name!r}"
+        assert isclass(cls), f"{impl_module('flows')}.__all__ exports non-class {name!r}"
+        assert issubclass(cls, Flow), f"{impl_module('flows')}.__all__ exports non-Flow {name!r}"
+        assert not isabstract(cls), f"{impl_module('flows')}.__all__ exports abstract flow {name!r}"
 
 
 def test_every_builtin_flow_is_exported():
     exported = {getattr(flows, n) for n in flows.__all__ if not n.startswith("__")}
     missing = sorted(cls.__name__ for cls in flows.__builtin_flows__ if cls not in exported)
-    assert not missing, f"builtin flows missing from xeda.flows.__all__: {missing}"
+    assert not missing, f"builtin flows missing from {impl_module('flows')}.__all__: {missing}"
 
 
 @pytest.mark.parametrize("flow_class", ALL_FLOW_CLASSES, ids=lambda cls: cls.name)
@@ -123,7 +125,7 @@ def _flow_classes_by_source() -> dict[str, set[str]]:
 def test_builtin_flows_are_every_concrete_flow_the_package_defines():
     expected = set()
     for module_name, names in _flow_classes_by_source().items():
-        if not module_name.startswith("xeda.flows."):
+        if not module_name.startswith(impl_module("flows.")):
             continue
         module = import_module(module_name)
         for name in names:
@@ -176,7 +178,9 @@ def test_discovery_fails_on_a_subpackage_that_cannot_be_imported(monkeypatch, tm
 
 
 def test_discovery_fails_on_two_classes_with_one_flow_name(monkeypatch, tmp_path):
-    flow = "from xeda.flow import Flow\n\n\nclass TwinFlow(Flow):\n    def run(self) -> None:\n        pass\n"
+    flow = layout_script(
+        "from xeda.flow import Flow\n\n\nclass TwinFlow(Flow):\n    def run(self) -> None:\n        pass\n"
+    )
     with preserved_flow_registry(), pytest.raises(ImportError, match="two built-in flows"):
         _discover_in(monkeypatch, tmp_path, {"one.py": flow, "two.py": flow})
 
@@ -185,15 +189,19 @@ def test_discovery_lists_a_class_at_its_defining_module_only(monkeypatch, tmp_pa
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "flow_from_outside_for_test.py").write_text(
-        "from xeda.flow import Flow\n\n\n"
-        "class OutsideFlow(Flow):\n    def run(self) -> None:\n        pass\n",
+        layout_script(
+            "from xeda.flow import Flow\n\n\n"
+            "class OutsideFlow(Flow):\n    def run(self) -> None:\n        pass\n"
+        ),
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(outside))
     files = {
         "package/one.py": (
-            "from xeda.flow import Flow\nfrom flow_from_outside_for_test import OutsideFlow\n\n\n"
-            "class LoneFlow(Flow):\n    def run(self) -> None:\n        pass\n"
+            layout_script(
+                "from xeda.flow import Flow\nfrom flow_from_outside_for_test import OutsideFlow\n\n\n"
+                "class LoneFlow(Flow):\n    def run(self) -> None:\n        pass\n"
+            )
         ),
         "package/again.py": "from .one import LoneFlow\n",
         "package/__init__.py": "",

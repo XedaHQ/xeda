@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import sys
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, NotRequired, TypedDict
+
+from .package_paths import impl_module, impl_root
 
 
 class _FlowRecord(TypedDict):
@@ -25,7 +26,7 @@ class _FlowRecord(TypedDict):
 @lru_cache(maxsize=1)
 def _builtin_flows() -> list[tuple[str, _FlowRecord]]:
     """Read the generated built-in catalog without importing any flow models."""
-    path = Path(__file__).with_name("flow_catalog.json")
+    path = impl_root() / "flow_catalog.json"
     with path.open(encoding="utf-8") as stream:
         data: dict[str, _FlowRecord] = json.load(stream)
     return list(data.items())
@@ -35,7 +36,7 @@ def flow_names() -> list[str]:
     """Return the names of the flows without importing flow models."""
     names = {canonical for canonical, _ in _builtin_flows()}
 
-    flow_module = sys.modules.get("xeda.flow.flow")
+    flow_module = sys.modules.get(impl_module("flow.flow"))
     registered_flows = getattr(flow_module, "registered_flows", {})
     for _, flow_class in registered_flows.values():
         names.add(flow_class.name)

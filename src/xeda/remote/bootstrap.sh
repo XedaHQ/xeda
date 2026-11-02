@@ -585,7 +585,7 @@ command_agent() {
     export PYTHONPATH VIRTUAL_ENV
     unset PYTHONHOME
     trap - EXIT HUP INT PIPE TERM
-    exec "$XEDA_BOOT_V/env/$XEDA_BOOT_DEPS/bin/python" -m xeda.remote.agent "$@"
+    exec "$XEDA_BOOT_V/env/$XEDA_BOOT_DEPS/bin/python" -m @XEDA_AGENT_MODULE@ "$@"
 }
 
 # ---- Main ------------------------------------------------------------------------------------

@@ -3070,9 +3070,6 @@
             "category": {
               "type": "string"
             },
-            "class": {
-              "type": "string"
-            },
             "dependencies": {
               "items": {
                 "type": "string"
@@ -3159,9 +3156,6 @@
               },
               "type": "array"
             },
-            "module": {
-              "type": "string"
-            },
             "name": {
               "type": "string"
             },
@@ -3205,12 +3199,6 @@
               },
               "type": "array"
             },
-            "qualified_name": {
-              "type": "string"
-            },
-            "settings_class": {
-              "type": "string"
-            },
             "supports_cocotb": {
               "type": "boolean"
             }
@@ -3220,15 +3208,11 @@
             "can_follow",
             "can_precede",
             "category",
-            "class",
             "dependencies",
             "description",
             "inputs",
-            "module",
             "name",
             "outputs",
-            "qualified_name",
-            "settings_class",
             "supports_cocotb"
           ],
           "type": "object"
@@ -3252,17 +3236,11 @@
       "optimizers": {
         "items": {
           "properties": {
-            "class": {
-              "type": "string"
-            },
             "description": {
               "type": [
                 "string",
                 "null"
               ]
-            },
-            "module": {
-              "type": "string"
             },
             "name": {
               "type": "string"
@@ -3307,9 +3285,7 @@
             }
           },
           "required": [
-            "class",
             "description",
-            "module",
             "name",
             "settings"
           ],
@@ -3477,9 +3453,6 @@
             "common": {
               "type": "boolean"
             },
-            "declared_by": {
-              "type": "string"
-            },
             "default": {},
             "description": {
               "type": [
@@ -3533,7 +3506,6 @@
           },
           "required": [
             "common",
-            "declared_by",
             "default",
             "description",
             "enum",
@@ -3558,9 +3530,6 @@
       },
       "schema_version": {
         "type": "integer"
-      },
-      "settings_class": {
-        "type": "string"
       }
     },
     "required": [
@@ -3568,8 +3537,7 @@
       "fields",
       "flow",
       "json_schema",
-      "schema_version",
-      "settings_class"
+      "schema_version"
     ],
     "title": "xeda list-settings --json",
     "type": "object"

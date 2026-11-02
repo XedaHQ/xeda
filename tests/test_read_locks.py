@@ -23,6 +23,7 @@ from xeda.run_root import ensure_run_root
 
 from .io_flows import TMaker, TTaker
 from .tool_utils import producers_of
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
 
@@ -177,7 +178,7 @@ def test_dependency_leases_release_when_consumer_raises(tmp_path, monkeypatch):
 
 # Children announce the lock attempt before entering the blocking flock; stdout is only a
 # synchronization pipe. Imports and Xeda logs go to stderr.
-READER = """
+READER = layout_script("""
 import sys
 from pathlib import Path
 from xeda import Design
@@ -192,8 +193,8 @@ TTaker.run = read
 DefaultRunner(root / "run", display_results=False).launch_flow(
     TTaker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 print("done", flush=True)
-"""
-WRITER = """
+""")
+WRITER = layout_script("""
 import sys
 from pathlib import Path
 from xeda import Design
@@ -221,7 +222,7 @@ else:
     console.print = lambda *a, **kw: None
     assert scrub_runs("t_maker", p.parent, run_root=root / "run", confirm=lambda directories: True)
 print("done", flush=True)
-"""
+""")
 
 
 def _message(process, expected, timeout=30):
@@ -366,7 +367,7 @@ def test_a_forked_worker_drops_inherited_holds_and_descriptors(tmp_path):
 
 
 def test_two_processes_can_hold_read_leases_together(tmp_path):
-    code = """
+    code = layout_script("""
 import sys
 from pathlib import Path
 from xeda.flow_runner.run_lock import run_dir_read_lock
@@ -374,7 +375,7 @@ with run_dir_read_lock(Path(sys.argv[1])):
     print("reading", flush=True)
     sys.stdin.readline()
 print("done", flush=True)
-"""
+""")
     path = tmp_path / "producer"
     child = subprocess.Popen(
         [sys.executable, "-c", code, str(path)],
@@ -430,7 +431,7 @@ def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_pat
             locked.chmod(0o755)
 
 
-SCRUB_VARIANT = """
+SCRUB_VARIANT = layout_script("""
 import sys
 from pathlib import Path
 from xeda import Design
@@ -458,7 +459,7 @@ flow = runner.launch_flow(
     {"text": sys.argv[2]})
 assert flow.succeeded
 print("done", flush=True)
-"""
+""")
 
 
 def _launch_variants_scrubbing_at_once(tmp_path: Path, texts: tuple[str, ...], timeout: float):
@@ -510,7 +511,7 @@ def test_hashed_launches_that_scrub_the_same_variants_at_once_all_succeed(tmp_pa
     _launch_variants_scrubbing_at_once(tmp_path, ("one", "two", "three"), timeout=60)
 
 
-PARKED_CONSUMER = """
+PARKED_CONSUMER = layout_script("""
 import sys, time
 from pathlib import Path
 from xeda import Design
@@ -540,7 +541,7 @@ flow = DefaultRunner(root / "run", hashed_run_dirs=True, display_results=False).
     TTaker, Design(name="d", root=root, rtl={"sources": [], "top": "t"}), {})
 assert flow.succeeded
 print("done", flush=True)
-"""
+""")
 
 
 def _until_there(path: Path, timeout: float = 60) -> None:

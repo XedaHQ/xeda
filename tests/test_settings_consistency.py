@@ -20,6 +20,7 @@ from xeda.flows.yosys.yosys_fpga import YosysFpga
 from xeda.units import Frequency, Time
 
 from .design_edits import with_updates
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -212,7 +213,7 @@ def _product_flows():
     return {
         cls.name: cls
         for _, cls in registered_flows.values()
-        if cls.__module__.startswith("xeda.flows.")
+        if cls.__module__.startswith(impl_module("flows."))
     }
 
 

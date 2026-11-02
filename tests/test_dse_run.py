@@ -38,6 +38,7 @@ from .scoping import node_settings
 from .design_edits import design_from_dump
 from .io_flows import TPlace
 from .tool_utils import HANG_GUARD
+from .source_layout import layout_script
 
 
 class TDsePlace(TPlace):
@@ -436,7 +437,7 @@ def test_coordinator_purge_waits_for_a_worker_directory_reader(tmp_path):
     path = tmp_path / "run" / "d" / "worker"
     path.mkdir(parents=True)
     (path / "result.txt").write_text("read by another consumer")
-    code = """
+    code = layout_script("""
 import sys
 from pathlib import Path
 from xeda.flow_runner import run_lock
@@ -451,7 +452,7 @@ def flock(fd, mode):
 run_lock.fcntl.flock = flock
 _purge_run(Path(sys.argv[1]), Path(sys.argv[2]), "worker")
 print("done", flush=True)
-"""
+""")
     writer = None
     try:
         with run_dir_read_lock(path):

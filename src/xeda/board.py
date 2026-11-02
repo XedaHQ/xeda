@@ -11,6 +11,7 @@ from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
+from .package_paths import impl_module
 from .utils import (
     ConflictingKeys,
     expand_env_vars,
@@ -96,15 +97,15 @@ def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 
 def bundled_boards() -> Dict[str, Any]:
-    """Return the boards that Xeda bundles (`xeda/data/boards.toml`), by name.
+    """Return the boards that Xeda bundles (`boards.toml`), by name.
 
     A bundled board is named in lower case, and found only by that name (`get_board_data`).
     """
-    boards = toml_loads(files("xeda.data").joinpath("boards.toml").read_text())
+    boards = toml_loads(files(impl_module("data")).joinpath("boards.toml").read_text())
     odd = [name for name in boards if name != name.lower()]
     if odd:
         raise ValueError(
-            "The bundled board database xeda/data/boards.toml must name its boards in lower case: "
+            "The bundled board database boards.toml must name its boards in lower case: "
             + ", ".join(map(repr, odd))
         )
     return boards
@@ -192,7 +193,7 @@ def get_board_data(
     else:
         boards_data = bundled_boards()
         name = board
-        database = "the bundled board database xeda/data/boards.toml"
+        database = "the bundled board database boards.toml"
         if name in boards_data:
             log.debug("Retrieved board data for %s", name)
     if name not in boards_data:
@@ -237,7 +238,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         """
         if self.custom_boards_file:
             return nullcontext(self.custom_boards_file.parent / name)
-        return as_file(files("xeda.data").joinpath(name))
+        return as_file(files(impl_module("data")).joinpath(name))
 
     @staticmethod
     def _board_fpga(board_data: dict[str, Any] | None) -> FPGA | None:

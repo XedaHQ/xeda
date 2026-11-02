@@ -80,6 +80,7 @@ from .tool_utils import (
     use_stand_in_programs,
 )
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -551,7 +552,7 @@ def test_the_oracle_sees_every_change_outside_the_run_root(tmp_path):
     work = world.work
     with watching(world) as violations:
         (world.root / "run.txt").write_text("xeda's\n")
-        (world.delivered / "out.txt").write_text("not delivered by xeda.deliver\n")
+        (world.delivered / "out.txt").write_text("not delivered by the delivery\n")
         with open(work / "notes.txt", "a") as f:
             f.write("appended\n")
         os.remove(work / "dump.vcd")
@@ -825,8 +826,8 @@ def _launch(
     seen.processes.install(monkeypatch)
     seen.processes.answers = stand_in_answers(world)
     if flow_class.name not in FAKED:
-        monkeypatch.setattr("xeda.tool.run_process", seen.processes.stub)
-        monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
+        monkeypatch.setattr(impl_module("tool.run_process"), seen.processes.stub)
+        monkeypatch.setattr(impl_module("tool.Tool.version_gte"), lambda self, *args: True)
     run = flow_class.run
     launching = [""]
     monkeypatch.setattr(flow_class, "run", lambda self: reached.append(launching[0]) or run(self))
@@ -2125,14 +2126,14 @@ REVIEWED_PY_DELETIONS = {
     ),
     ("remote/agent.py", "shutil.rmtree(path)"): (
         1,
-        "`xeda.remote.agent clean`, on the remote host outside any run directory: an environment, "
+        "`clean` of the remote agent, on the remote host outside any run directory: an environment, "
         "a code copy or a workspace of the remote root that nothing uses (no lock or running "
         "launch holds it). `clean` enters no link, and `rmtree` "
         "follows none",
     ),
     ("remote/agent.py", "os.rename(path, hidden)"): (
         1,
-        "`xeda.remote.agent clean`, on the remote host outside any run directory: a workspace, "
+        "`clean` of the remote agent, on the remote host outside any run directory: a workspace, "
         "an environment or a code copy whose lock `clean` holds is renamed to a hidden name in "
         "the same directory, so that no session works in it while `rmtree` deletes it. A rename replaces no file: the hidden "
         "name has the process id of `clean`",
@@ -2776,7 +2777,7 @@ REVIEWED_WRITES = [
     (
         "remote/agent.py",
         "descriptor = os.open(path / name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)",
-        "`xeda.remote.agent clean`, outside a run directory: the lock file of a workspace, an "
+        "`clean` of the remote agent, outside a run directory: the lock file of a workspace, an "
         "environment or a code copy, opened to try the exclusive lock, not written (an exclusive "
         "flock on Linux NFS needs a file open for writing). It creates nothing, `O_NOFOLLOW` "
         "makes it fail on a link, and `O_NONBLOCK` keeps a FIFO from blocking it (`clean` then "
@@ -2794,7 +2795,7 @@ REVIEWED_WRITES = [
     (
         "remote/agent.py",
         "os.rename(path, hidden)",
-        "`xeda.remote.agent clean`, outside a run directory: the workspace, environment or code "
+        "`clean` of the remote agent, outside a run directory: the workspace, environment or code "
         "copy whose lock `clean` holds, renamed to a hidden name before its deletion (see `REVIEWED_PY_DELETIONS`)",
     ),
     (

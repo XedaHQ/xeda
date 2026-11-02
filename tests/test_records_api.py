@@ -50,6 +50,7 @@ from .flow_registry import preserved_flow_registry
 from .generation_world import World, input_reader_flow, reader_flow
 from .io_flows import TMaker, TTaker  # noqa: F401  (flows that the tests run by name)
 from .test_dependency_generation import Chain
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -759,7 +760,7 @@ def test_no_public_record_field_names_a_file_by_an_absolute_path(tmp_path):
 def test_loading_imports_no_flow_module(tmp_path):
     workspace, spec = stamped(tmp_path, write_extra=True)
     run_dir = workspace.run(spec).record.run_dir
-    program = textwrap.dedent("""
+    program = textwrap.dedent(layout_script("""
         import sys
         from pathlib import Path
         from xeda.workspace import Workspace
@@ -770,7 +771,7 @@ def test_loading_imports_no_flow_module(tmp_path):
             assert run.output("made").is_file()
         assert not [name for name in sys.modules if name.startswith("xeda.flows")], "flows"
         print("ok")
-        """)
+        """))
     found = subprocess.run(
         [sys.executable, "-I", "-c", program, str(workspace.run_root), str(run_dir)],
         capture_output=True,

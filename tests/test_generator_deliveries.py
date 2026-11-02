@@ -29,6 +29,7 @@ from xeda.spec import Spec
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import reader_flow
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no storage locks")
 
@@ -368,7 +369,7 @@ def test_a_link_the_generator_left_to_a_file_outside_the_storage_is_skipped(tmp_
         sources=["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/linked.v"],
         env={"LINK_TARGET": str(outside)},
     )
-    with caplog.at_level("WARNING", logger="xeda.deliver"):
+    with caplog.at_level("WARNING", logger=impl_module("deliver")):
         flow = world.launch()
     assert flow.succeeded
     assert (world.root / "out" / "gen" / "top.v").is_file()

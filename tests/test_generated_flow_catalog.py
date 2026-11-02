@@ -13,6 +13,7 @@ from xeda.flow.io import declared_outputs
 from . import io_flows
 from .flow_registry import preserved_flow_registry
 from .tool_utils import HANG_GUARD
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -32,7 +33,7 @@ def test_generated_flow_catalog_is_current():
 
 
 def test_catalog_generator_excludes_registered_extension_flows():
-    code = r"""
+    code = layout_script(r"""
 import json
 import runpy
 from xeda.flow import Flow
@@ -53,7 +54,7 @@ builtin_names = {flow.name for flow in builtin_classes}
 assert set(catalog) == builtin_names
 assert "catalog_extension_flow" not in catalog
 assert "vivado_synth" in catalog
-"""
+""")
     result = subprocess.run(
         [sys.executable, "-c", code],
         cwd=ROOT,
@@ -67,7 +68,7 @@ assert "vivado_synth" in catalog
 
 def test_builtin_completion_matches_the_runtime_chain_validator():
     """Compare exact candidate lists for builtin spellings, outputs, followers, and bad input."""
-    code = r"""
+    code = layout_script(r"""
 from xeda.flow_runner.chains import complete_request
 from xeda.flow.io import declared_outputs
 from xeda.flow_catalog import complete_builtin_request
@@ -148,7 +149,7 @@ for incomplete in sorted(cases):
     expected = complete_request(incomplete, classes)
     actual = complete_builtin_request(incomplete)
     assert actual == expected, (incomplete, expected, actual)
-"""
+""")
     result = subprocess.run(
         [sys.executable, "-c", code],
         cwd=ROOT,

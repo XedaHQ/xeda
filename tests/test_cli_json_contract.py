@@ -19,6 +19,7 @@ from .scoping import node_settings
 from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_remote_client import _cli_script, _design
 from .tool_utils import HANG_GUARD
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -283,7 +284,7 @@ def test_unknown_flow_name_suggests_close_matches():
 
 # --------------------------------------------------------------- nothing else may reach stdout
 
-GENERATOR_SCRIPT = """
+GENERATOR_SCRIPT = layout_script("""
 import json, os, sys
 from pathlib import Path
 from xeda import proc_utils
@@ -301,7 +302,7 @@ gen.run_cmd(
     environ=os.environ,
 )
 json.dump({"success": True}, sys.stdout)
-"""
+""")
 
 
 def test_generator_subprocess_output_does_not_corrupt_stdout(tmp_path):
@@ -318,7 +319,7 @@ def test_generator_subprocess_output_does_not_corrupt_stdout(tmp_path):
     assert "GENERATOR OUTPUT" in proc.stderr
 
 
-RAW_GENERATOR_SCRIPT = """
+RAW_GENERATOR_SCRIPT = layout_script("""
 import json, sys
 from pathlib import Path
 from xeda import Design, proc_utils
@@ -339,7 +340,7 @@ design = Design(
 (root / "run_root").mkdir()
 generate(design, run_root=root / "run_root")
 json.dump({"success": True}, sys.stdout)
-"""
+""")
 
 
 def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
@@ -356,7 +357,7 @@ def test_raw_generator_command_output_does_not_corrupt_stdout(tmp_path):
     assert "RAW GENERATOR OUTPUT" in proc.stderr
 
 
-REMOTE_SCRIPT = """
+REMOTE_SCRIPT = layout_script("""
 import sys
 from xeda.outcomes import result_from_dict
 from xeda.remote import client
@@ -379,7 +380,7 @@ def fake_run_remote(spec, *, workspace, options, **arguments):
 client.run_remote = fake_run_remote
 from xeda.cli import cli
 cli(["run", "vivado_synth", %(design)r, "--remote", "host", "--json"], standalone_mode=True)
-"""
+""")
 
 
 @pytest.mark.parametrize("remote_passed,expected_exit", [(True, 0), (False, 1)])
@@ -493,7 +494,7 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
 #: pipes the child's stdout so it can colorize each line, and leaves the child's stderr alone.
 #: Leaving it alone is correct -- an unspecified `stderr` makes the child inherit fd 2, and in
 #: machine-readable mode fd 2 is exactly where tool output belongs. Only fd 1 carries the document.
-_HIGHLIGHT_HARNESS = """
+_HIGHLIGHT_HARNESS = layout_script("""
 import sys, colorama
 from xeda import proc_utils
 from xeda.cli_utils import machine_readable_mode
@@ -511,7 +512,7 @@ proc_utils.run_process(
     check=False,
 )
 sys.stdout.write('"document": "end"}')
-"""
+""")
 
 
 def test_highlighted_tool_output_does_not_corrupt_stdout(tmp_path):

@@ -23,6 +23,7 @@ import pytest
 from xeda.flow import FlowSettingsError
 from xeda.flows import VivadoSynth
 from xeda.units import CLOCK_UNITS, convert_unit
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -93,7 +94,7 @@ def test_a_quantity_that_is_not_a_time_is_a_value_error(value):
 
 def test_parsing_does_not_depend_on_the_hash_seed():
     """The seed is fixed when the interpreter starts, so each one needs its own process."""
-    code = (
+    code = layout_script(
         "from xeda.units import convert_unit\n"
         "for v, u in [('5.5ns', 'ns'), ('10us', 'ns'), ('2ms', 'ns'), ('100MHz', 'MHz')]:\n"
         "    print(round(convert_unit(v, u), 6))\n"

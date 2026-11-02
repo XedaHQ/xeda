@@ -13,6 +13,7 @@ from collections.abc import Iterator
 import pytest
 
 from xeda.cli import setup_logger
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -44,7 +45,7 @@ def _log_through_the_cli(detailed: bool, before: _Collect, after: _Collect) -> N
     root.addHandler(before)
     setup_logger(logging.INFO, detailed)
     root.addHandler(after)
-    logging.getLogger("xeda.flow_runner.default_runner").info("hello")
+    logging.getLogger(impl_module("flow_runner.default_runner")).info("hello")
 
 
 @pytest.mark.parametrize("detailed", [True, False])
@@ -53,7 +54,9 @@ def test_every_other_handler_sees_the_logger_s_own_name(capsys, detailed):
     _log_through_the_cli(detailed, before, after)
 
     for handler in (before, after):
-        assert [record.name for record in handler.records] == ["xeda.flow_runner.default_runner"]
+        assert [record.name for record in handler.records] == [
+            impl_module("flow_runner.default_runner")
+        ]
 
 
 def test_the_detailed_logs_show_the_name_without_the_package(capsys):
@@ -61,7 +64,7 @@ def test_the_detailed_logs_show_the_name_without_the_package(capsys):
 
     shown = capsys.readouterr().err
     assert "[flow_runner.default_runner]" in shown
-    assert "xeda.flow_runner" not in shown
+    assert impl_module("flow_runner") not in shown
     assert "INFO hello" in shown
 
 

@@ -209,9 +209,6 @@ def flow_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     candidates = all_flow_classes()
     return {
         "name": cls.name,
-        "class": cls.__name__,
-        "module": cls.__module__,
-        "qualified_name": f"{cls.__module__}.{cls.__name__}",
         "description": _own_docstring(cls),
         "category": _category(cls),
         "supports_cocotb": bool(getattr(cls, "cocotb_sim_name", None)),
@@ -250,7 +247,6 @@ def flow_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         ],
         "can_follow": [_edge_info(e, e.producer) for e in predecessors(cls, candidates)],
         "can_precede": [_edge_info(e, e.consumer) for e in followers(cls, candidates)],
-        "settings_class": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
     }
 
 
@@ -489,19 +485,6 @@ def _enum_of(field_schema: Any, definitions: Dict[str, Any]) -> Optional[List[An
     return None
 
 
-def _declaring_class(model: type[BaseModel], name: str) -> Optional[str]:
-    """Return the qualified name of the class in the MRO of `model` that declares the field
-    `name`."""
-    return next(
-        (
-            f"{b.__module__}.{b.__qualname__}"
-            for b in reversed(model.__mro__)
-            if name in getattr(b, "__annotations__", {})
-        ),
-        None,
-    )
-
-
 def _group_class(annotation: Any) -> Optional[type]:
     """Return the settings group class that `annotation` is, or None."""
     from .flow.settings_group import SettingsGroup
@@ -539,7 +522,6 @@ def _group_entries(
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
                 "common": common,
-                "declared_by": _declaring_class(group_class, name),
                 "writes": written_role(group_class, name),
                 "opaque_keys": name in opaque_key_fields_of(group_class),
                 "json_schema": json_safe(prop),
@@ -577,7 +559,6 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
-                "declared_by": _declaring_class(cls.Settings, name),
                 # "working" or "deliverable": a path the flow writes; None: it is read
                 "writes": written_role(cls.Settings, name),
                 # true: the keys are the tool's names, and a dot in one is part of the name
@@ -602,7 +583,6 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "description": prop.get("description"),
                 "enum": _enum_of(prop, definitions),
                 "common": False,
-                "declared_by": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
                 "writes": None,
                 "opaque_keys": False,
                 "json_schema": json_safe(prop),
@@ -634,7 +614,6 @@ def settings_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     schema = cls.Settings.model_json_schema(by_alias=True)
     return {
         "flow": cls.name,
-        "settings_class": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
         "fields": _field_entries(cls),
         "definitions": json_safe(schema.get("$defs", {})),
         "json_schema": json_safe(schema),
@@ -1285,8 +1264,6 @@ def optimizers_info() -> List[Dict[str, Any]]:
         optimizers.append(
             {
                 "name": camelcase_to_snakecase(cls.__name__),
-                "class": cls.__name__,
-                "module": cls.__module__,
                 "description": _own_docstring(cls),
                 "settings": [
                     {

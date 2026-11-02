@@ -10,6 +10,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from .source_layout import layout_script
 
 PROJECT = """\
 designs:
@@ -22,7 +23,7 @@ flows:
     clocks.main_clock.period: 4 ns
 """
 
-CHILD = textwrap.dedent("""
+CHILD = textwrap.dedent(layout_script("""
     import json, os, sys
     from pathlib import Path
 
@@ -49,7 +50,7 @@ CHILD = textwrap.dedent("""
         except Exception as error:
             reached[name] = {"error": str(error)}
     Path(sys.argv[2]).write_text(json.dumps({"start": start, "during_load": during_load, **reached}))
-    """)
+    """))
 
 
 def _load_from_elsewhere(tmp_path: Path, project_file: Path) -> dict:
@@ -118,7 +119,7 @@ def test_a_relative_project_path_is_read_once_when_the_project_is_loaded(tmp_pat
         "designs:\n  - name: d\n    rtl: {sources: [src/top.v], top: top}\n"
     )
     (tmp_path / "second").mkdir()
-    script = textwrap.dedent("""
+    script = textwrap.dedent(layout_script("""
         import json, os, sys
         from pathlib import Path
         from xeda.project import Project
@@ -128,7 +129,7 @@ def test_a_relative_project_path_is_read_once_when_the_project_is_loaded(tmp_pat
         os.chdir(sys.argv[2])
         design = project.design("d")
         print(json.dumps([str(project.root), str(design.root), str(project.path)]))
-        """)
+        """))
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path / "first"), str(tmp_path / "second")],
         cwd=tmp_path,

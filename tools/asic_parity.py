@@ -1223,9 +1223,11 @@ def residue_digest(platform: str) -> Optional[str]:
     """Return the sha256 digest of the file `platform.yaml` that xeda ships for a platform."""
     from importlib import resources
 
+    from xeda.package_paths import impl_module
+
     try:
         return hashlib.sha256(
-            (resources.files("xeda.platforms") / platform / "platform.yaml").read_bytes()
+            (resources.files(impl_module("platforms")) / platform / "platform.yaml").read_bytes()
         ).hexdigest()
     except OSError:
         return None

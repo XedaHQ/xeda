@@ -47,6 +47,7 @@ from xeda.flows import VivadoSynth, Yosys
 from .design_edits import design_of
 from .settings_samples import flow_classes, minimal_settings
 from .test_target_shapes import PROBE_VALUES
+from .source_layout import IMPL_DIR
 
 #: Values a field of a real design takes that the structural probes do not hold.
 NAMED = ["asap7", "xc7a35tcpg236-1", "08", 2008]
@@ -339,7 +340,7 @@ def test_a_model_already_built_is_a_whole_value():
 def test_no_module_converts_a_part_number_or_a_port_by_itself():
     """A form is read by its model's `as_mapping`, never by a second copy of the conversion:
     the table of a part number is spelled in `flow/fpga.py`, and that of a port in `design.py`."""
-    source = Path(__file__).parent.parent / "src" / "xeda"
+    source = IMPL_DIR
     spelled = [
         f"{path.relative_to(source)}:{number}"
         for path in sorted(source.rglob("*.py"))

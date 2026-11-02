@@ -44,6 +44,7 @@ from .test_openfpgaloader import (
 )
 from .test_proc_utils_terminal import Terminal
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 RESOURCES = Path(__file__).parent / "resources/openfpgaloader"
 
@@ -840,7 +841,9 @@ def test_a_log_a_previous_run_left_is_no_evidence_about_this_one(
     assert first.succeeded is (earlier == "arty-configured.txt")
     log = tmp_path / "run/top/openfpgaloader" / LOADER_LOG
     before = log.read_bytes()
-    monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")  # writes no log
+    monkeypatch.setattr(
+        impl_module("tool.run_process"), lambda *args, **kwargs: ""
+    )  # writes no log
     flow = program(tmp_path)
     assert not flow.succeeded
     error = recorded(tmp_path)["error"]
@@ -860,7 +863,9 @@ def test_the_verdict_is_the_same_when_the_loader_runs_in_a_terminal(
     terminal = Terminal()
     stack = ExitStack()
     stack.enter_context(tool_utils.terminal_output(terminal.stream))
-    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    monkeypatch.setattr(
+        impl_module("tool.console"), Console(force_terminal=True, color_system="standard")
+    )
     printing(monkeypatch, stdout=owner_log(name))
     try:
         flow = program(tmp_path, {"board": "basys_3"})
@@ -1093,7 +1098,9 @@ def test_a_xilinx_flash_write_is_judged_the_same_when_the_loader_runs_in_a_termi
     terminal = Terminal()
     stack = ExitStack()
     stack.enter_context(tool_utils.terminal_output(terminal.stream))
-    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    monkeypatch.setattr(
+        impl_module("tool.console"), Console(force_terminal=True, color_system="standard")
+    )
     printing(monkeypatch, stdout=stdout)
     try:
         flow = program(tmp_path, xilinx_flash())

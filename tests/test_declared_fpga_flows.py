@@ -27,6 +27,7 @@ from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
 from .tool_utils import producers_of
 from .tool_utils import HANG_GUARD
+from .source_layout import layout_script
 
 PART = "LFE5U-25F-6BG381C"
 OTHER_PART = "LFE5U-85F-6BG381C"
@@ -537,7 +538,7 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
     assert {p for p in opened if p.is_relative_to(producer)} == {changed.inputs.netlist}
 
 
-_CLI_STANDINS = """
+_CLI_STANDINS = layout_script("""
 from xeda.flows import YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 from xeda.cli import cli
@@ -557,7 +558,7 @@ YosysFpga.run = synth
 YosysFpga.parse_reports = lambda self: True
 NextpnrTool.run = place
 cli()
-"""
+""")
 
 
 def test_two_unchanged_cli_processes_reuse_both_recorded_flows(tmp_path):

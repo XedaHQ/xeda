@@ -62,6 +62,7 @@ from ..design import Design
 from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
+from ..package_paths import impl_module
 from ..setting_text import SettingTextError, parse_text_leaves
 from ..utils import (
     ConflictingKeys,
@@ -184,7 +185,7 @@ def spelling_of_flow(flow_name: str) -> str | None:
 
     A flow has one name, `Flow.name`. Another letter case, dashes for underscores and the name of
     the class (`GhdlSim`) are spellings of it that Xeda does not accept."""
-    importlib.import_module("xeda.flows")  # the built-in flows register themselves
+    importlib.import_module(impl_module("flows"))  # the built-in flows register themselves
     if flow_name in registered_flows:
         return None
     if flow_name in RENAMED_FLOWS:

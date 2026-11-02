@@ -10,6 +10,7 @@ import xeda.board
 from xeda.board import WithFpgaBoardSettings, get_board_data
 from xeda.dataclass import ValidationError
 from xeda.flow import FlowSettingsError
+from xeda.package_paths import impl_module
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -147,7 +148,7 @@ def test_a_custom_database_neither_folds_case_nor_sees_a_bundled_name(tmp_path):
 
 
 def test_the_bundled_database_names_its_boards_in_lower_case_and_none_twice():
-    text = files("xeda.data").joinpath("boards.toml").read_text()
+    text = files(impl_module("data")).joinpath("boards.toml").read_text()
     names = list(tomllib.loads(text))
     assert names and all(name == name.lower() for name in names)
     assert len({name.lower() for name in names}) == len(names)

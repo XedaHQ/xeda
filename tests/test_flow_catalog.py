@@ -5,12 +5,13 @@ import sys
 
 
 import pytest
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
 
 def test_flow_names_are_available_without_loading_flow_models() -> None:
-    code = """
+    code = layout_script("""
 import sys
 from xeda.flow_catalog import flow_names
 
@@ -19,12 +20,12 @@ assert 'ghdl_sim' in names
 assert 'ghdl' not in names
 assert 'xeda.flow.flow' not in sys.modules
 assert not any(name.startswith('xeda.flows.') for name in sys.modules)
-"""
+""")
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_flow_names_match_runtime_builtin_catalog() -> None:
-    code = """
+    code = layout_script("""
 from xeda.flow_catalog import flow_names
 
 catalog_names = flow_names()
@@ -35,7 +36,7 @@ runtime_names = sorted(
     {cls.name for cls in all_flow_classes()}
 )
 assert catalog_names == runtime_names
-"""
+""")
     subprocess.run([sys.executable, "-c", code], check=True)
 
 

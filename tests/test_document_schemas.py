@@ -47,6 +47,7 @@ from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .io_flows import TJoin, TMaker, TReader, TTaker
 from .record_documents import record_document
+from xeda.package_paths import impl_module
 
 KEYS = {
     "schema_version",
@@ -271,7 +272,7 @@ def test_fresh_reused_and_loaded_records_are_equal(tmp_path, design, monkeypatch
     again = _runner(tmp_path).launch_flow(TTaker, design, {})
     assert not first.reused and again.reused
     # reading a record needs no flow: the flows are not imported
-    monkeypatch.setitem(sys.modules, "xeda.flows", None)
+    monkeypatch.setitem(sys.modules, impl_module("flows"), None)
     loaded = read_record(first.run_path, run_root=first.record.run_root)
     assert first.record == again.record == loaded
     assert hash(loaded) == hash(first.record)

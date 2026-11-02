@@ -40,6 +40,7 @@ from .test_proc_utils import (
     _wait_until,
 )
 from .tool_utils import terminal_output
+from xeda.package_paths import impl_module
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -407,7 +408,7 @@ def test_a_tool_asks_for_a_terminal_if_it_declares_one_and_colors_are_wanted(
     def record(executable, args, **kwargs):
         asked.update(kwargs)
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     tool = OpenfpgaloaderTool(console_colors=colors)
     tool.console_colors = colors
     tool.run("--bitstream", "x.bit", tee=tmp_path / "loader.log", merge_stderr=True, cwd=tmp_path)
@@ -572,7 +573,9 @@ def test_a_flow_tool_sees_a_terminal_in_a_terminal(terminal, tmp_path, monkeypat
 
     from xeda.run_dir import RunDirectory
 
-    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    monkeypatch.setattr(
+        impl_module("tool.console"), Console(force_terminal=True, color_system="standard")
+    )
     tool = Tool(sys.executable, version_flag=None)
     assert tool.console_colors
     tool._run_directory = RunDirectory.unlaunched(tmp_path)

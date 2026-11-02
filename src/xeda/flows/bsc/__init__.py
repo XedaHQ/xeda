@@ -47,6 +47,7 @@ from .sim_evidence import (
     verilator_evidence,
     xsim_evidence,
 )
+from ...package_paths import impl_module
 from ...tool import Docker, Tool
 from ...units import count
 from ...utils import NonZeroExitCode, replacing_copy, replacing_file, tcl_word, unique
@@ -1988,7 +1989,7 @@ class BscSim(BscFlow, SimFlow):
         for name in ("xeda_hooks.cpp", "xeda_hooks.h", HOOKS_MAKEFILE):
             with replacing_file(self.run_directory.writable(name)) as target:
                 target.write(
-                    files("xeda.flows.verilator").joinpath("templates/" + name).read_text()
+                    files(impl_module("flows.verilator")).joinpath("templates/" + name).read_text()
                 )
         obj = self.run_directory.writable("bsc_verilator_hooks.o")
         self.run_directory.remove(obj)

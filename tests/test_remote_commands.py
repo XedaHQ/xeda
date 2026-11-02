@@ -21,6 +21,7 @@ from xeda.cli import cli
 from xeda.introspect import flow_executables
 
 from .remote_fixtures import FakeRemote, fake_remote, fake_ssh, remote_host
+from xeda.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -352,7 +353,7 @@ def test_check_reports_docker_apart_from_the_executables_of_the_flows(remote_hos
 
 
 def test_check_reports_a_missing_docker_without_a_warning(remote_host, monkeypatch):
-    monkeypatch.setattr("xeda.remote.commands.DOCKER", "no-such-docker-xeda")
+    monkeypatch.setattr(impl_module("remote.commands.DOCKER"), "no-such-docker-xeda")
 
     document = _document(_invoke("check", "somewhere", "--json"))
 

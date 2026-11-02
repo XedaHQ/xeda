@@ -23,6 +23,7 @@ from click.shell_completion import (
 
 from .cli_types import starts_opaque_key
 from .flow_catalog import _builtin_flows, _walk_head
+from .package_paths import impl_module
 
 _SETTING_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*\Z")
 #: A key that may continue with a name of a tool after the path of a setting. This test is
@@ -61,8 +62,8 @@ def _completion_records() -> dict[str, dict[str, Any]]:
         dict[str, dict[str, Any]],
         {name: deepcopy(record) for name, record in _builtin_flows()},
     )
-    flow_module = sys.modules.get("xeda.flow.flow")
-    introspection = sys.modules.get("xeda.introspect")
+    flow_module = sys.modules.get(impl_module("flow.flow"))
+    introspection = sys.modules.get(impl_module("introspect"))
     info = getattr(introspection, "settings_completion_info", None)
     for _, flow_class in getattr(flow_module, "registered_flows", {}).values():
         if info is None:
@@ -303,7 +304,7 @@ def _parse_request_words(
         return None
     chain_tokens = chain_text.split("+")
     records = _completion_records()
-    runtime_authority_loaded = "xeda.flow.flow" in sys.modules
+    runtime_authority_loaded = impl_module("flow.flow") in sys.modules
     chain_head: list[tuple[str, str | None]] = []
     for part in chain_tokens:
         name, dot, output = part.partition(".")

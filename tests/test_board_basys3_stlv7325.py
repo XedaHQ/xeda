@@ -26,6 +26,8 @@ from xeda.introspect import boards_info
 from . import tool_utils
 from .test_nextpnr_constraints import make_flow
 from .test_openfpgaloader import _calls, _prebuilt, _program, fake_loader  # noqa: F401
+from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 ROOT = Path(__file__).parent.parent
 
@@ -230,10 +232,10 @@ def test_each_pin_file_names_the_sources_its_pins_come_from():
 
 
 def test_the_licenses_shipped_with_the_pin_files_are_those_the_sources_carry():
-    basys = (ROOT / "src/xeda/data/boards/basys3/LICENSE.md").read_text()
+    basys = (IMPL_DIR / "data/boards/basys3/LICENSE.md").read_text()
     assert basys.startswith("MIT License") and "Copyright (c) 2017 Digilent" in basys
-    assert basys == (ROOT / "src/xeda/data/boards/arty/LICENSE.md").read_text()
-    stlv = (ROOT / "src/xeda/data/boards/stlv7325_v2/LICENSE.md").read_text()
+    assert basys == (IMPL_DIR / "data/boards/arty/LICENSE.md").read_text()
+    stlv = (IMPL_DIR / "data/boards/stlv7325_v2/LICENSE.md").read_text()
     assert "BSD 3-Clause License" in stlv and "Hans Baier" in stlv
     assert "BSD 2-Clause License" in stlv and "Enjoy-Digital" in stlv
 
@@ -250,8 +252,8 @@ def test_the_stlv_clock_is_differential_and_the_basys_clock_is_not():
 def test_the_board_files_are_package_data_so_a_wheel_ships_them(board):
     """Every file a database entry names, and its license, matches a `package-data` pattern."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    patterns = project["tool"]["setuptools"]["package-data"]["xeda.data"]
-    data = ROOT / "src/xeda/data"
+    patterns = project["tool"]["setuptools"]["package-data"][impl_module("data")]
+    data = IMPL_DIR / "data"
     shipped = {
         path for pattern in patterns for path in glob.glob(pattern, root_dir=data, recursive=True)
     }
@@ -261,7 +263,7 @@ def test_the_board_files_are_package_data_so_a_wheel_ships_them(board):
 
 @BY_BOARD
 def test_the_board_files_are_readable_as_package_resources(board):
-    resource = files("xeda.data").joinpath(board.xdc)
+    resource = files(impl_module("data")).joinpath(board.xdc)
     assert resource.is_file() and "set_property" in resource.read_text()
 
 
@@ -295,7 +297,7 @@ def test_nextpnr_falls_back_to_the_board_pin_file_and_typed_pins_displace_it(
     flow, _ = make_flow(tmp_path, monkeypatch, settings={"board": board.id})
     flow._prepare_board_inputs()
     (path,) = flow._pin_inputs
-    assert path.read_text() == (ROOT / "src/xeda/data" / board.xdc).read_text()
+    assert path.read_text() == (IMPL_DIR / "data" / board.xdc).read_text()
     assert flow.implicit_inputs == [path]
     merged = merge_constraints(flow._pin_inputs).text
     for port, (pin, _) in board.ports.items():

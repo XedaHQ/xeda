@@ -28,6 +28,7 @@ from xeda.flows import YosysFpga
 from .design_edits import with_updates
 from . import tool_utils
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 #: one FPGA per `synth_command` target, so the mode is checked on every pass it can run
 #: (Gowin has no part parser, so it is named by vendor/family/device)
@@ -329,7 +330,7 @@ def test_no_data_directory_is_asked_for_unless_an_entry_needs_one(tmp_path, tool
     def asked(*_):
         raise AssertionError("yosys' data directory was asked for")
 
-    monkeypatch.setattr("xeda.flows.yosys.yosys_fpga.yosys_data_dir", asked)
+    monkeypatch.setattr(impl_module("flows.yosys.yosys_fpga.yosys_data_dir"), asked)
     _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, verilog_lib=["+/xilinx/cells_sim.v"])
 
 
@@ -344,7 +345,7 @@ def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
         raise ExecutableNotFound("yosys-config", "Tool", "", "not found")
 
     if failure == "missing":
-        monkeypatch.setattr("xeda.flows.yosys.yosys_fpga.yosys_data_dir", missing)
+        monkeypatch.setattr(impl_module("flows.yosys.yosys_fpga.yosys_data_dir"), missing)
     else:  # the real helper, over a `yosys-config` that prints nothing
         monkeypatch.setattr(Tool, "probe_stdout", lambda *_, **__: "\n")
     library = _share(tmp_path) / "xilinx" / "cells_sim.v"

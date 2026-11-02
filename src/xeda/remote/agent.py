@@ -99,6 +99,7 @@ from typing import Any, BinaryIO, Optional, Protocol, cast
 
 import psutil
 
+from ..package_paths import impl_module, source_root
 from ..utils import json_encodable, replacing_file
 from ..version import __version__
 from .constants import CANCEL_GRACE, LAYOUT, LEASE
@@ -590,7 +591,7 @@ def _runtime_directories() -> list[Path]:
     """The environment and the code copy that this process runs from, if they are in the layout
     `<root>/v1/env/<key>` and `<root>/v1/code/<key>`. An agent that runs from a checkout or from
     another environment has none."""
-    own = (("env", Path(sys.prefix)), ("code", Path(os.path.abspath(__file__)).parents[2]))
+    own = (("env", Path(sys.prefix)), ("code", source_root()))
     return [
         directory
         for kind, directory in own
@@ -1038,7 +1039,7 @@ class Session:
         except FileExistsError:
             raise RemoteProtocolError(f"the launch {launch_id} exists already") from None
         _write_json(launch_dir / REQUEST_FILE, request.model_dump(mode="json"))
-        code = Path(__file__).resolve().parent.parent.parent
+        code = source_root().resolve()
         log = launch_dir / "log"
         descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
         # The launch must hold the workspace lock and the locks on its environment and code copy
@@ -1056,7 +1057,8 @@ class Session:
             sender.close()
             script = "".join(f"{line}\n" for line in setup) + (
                 f"PYTHONPATH={shlex.quote(str(code))} exec {shlex.quote(sys.executable)} "
-                f"-m xeda.remote.launch_entry {shlex.quote(str(launch_dir))} {receiver.fileno()}"
+                f"-m {impl_module('remote.launch_entry')} {shlex.quote(str(launch_dir))} "
+                f"{receiver.fileno()}"
             )
             child = subprocess.Popen(
                 [bash, "-lc", script],
@@ -1732,7 +1734,7 @@ def clean(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m xeda.remote.agent")
+    parser = argparse.ArgumentParser(prog=f"python -m {impl_module('remote.agent')}")
     commands = parser.add_subparsers(dest="command", required=True)
     session = commands.add_parser("session", help="serve one launch over stdin and stdout")
     session.add_argument("root")

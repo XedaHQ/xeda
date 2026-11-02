@@ -39,7 +39,7 @@ from typing import (
 
 from pydantic import StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError
 
-from xeda.dataclass import Field, XedaBaseModel, model_validator
+from ..dataclass import Field, XedaBaseModel, model_validator
 
 __all__ = [
     "CellPort",

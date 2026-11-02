@@ -15,7 +15,7 @@ from xeda.units import Time
 
 from .settings_fields import FieldPath, dotted, merged, nest, quantity_paths
 
-assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_flows`"
+assert __builtin_flows__, "importing the built-in flows is what populates `registered_flows`"
 
 #: Values that let every flow's `Settings` be constructed. A new required setting should fail the
 #: sweeps until its minimal valid value is added here, never silently reduce their coverage.

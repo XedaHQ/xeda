@@ -71,10 +71,12 @@ def _probe_script(tmp_path: Path) -> Path:
     script = tmp_path / "probe.py"
     fake_tool = f"import sys; sys.stdout.write({TOOL_OUTPUT!r})"
     script.write_text(
-        "import sys\n"
-        "from xeda.proc_utils import TOOL_OUTPUT, run_process\n"
-        "TOOL_OUTPUT.set('terminal')\n"
-        f"run_process(sys.executable, ['-c', {fake_tool!r}], highlight_rules={HIGHLIGHT!r})\n"
+        layout_script(
+            "import sys\n"
+            "from xeda.proc_utils import TOOL_OUTPUT, run_process\n"
+            "TOOL_OUTPUT.set('terminal')\n"
+            f"run_process(sys.executable, ['-c', {fake_tool!r}], highlight_rules={HIGHLIGHT!r})\n"
+        )
     )
     return script
 
@@ -258,7 +260,7 @@ def test_merge_stderr_is_forwarded_through_the_docker_path(monkeypatch, tmp_path
         recorded.update(kwargs)
         return "out"
 
-    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.setattr(impl_module("tool.run_process"), fake_run_process)
     # Docker.run writes a `.<name>_docker.env` file into the directory it runs in.
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     tool.run("--version", stdout=True, merge_stderr=True, cwd=tmp_path)
@@ -276,7 +278,7 @@ def test_a_docker_run_mounts_the_directory_it_runs_in_not_an_earlier_one(monkeyp
         commands.append([str(arg) for arg in args or []])
         return "out"
 
-    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.setattr(impl_module("tool.run_process"), fake_run_process)
     first, second = tmp_path / "first", tmp_path / "second"
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     for cwd in (first, second):
@@ -289,7 +291,7 @@ def test_a_docker_run_mounts_the_directory_it_runs_in_not_an_earlier_one(monkeyp
 def test_docker_mounts_the_design_read_only_and_the_run_directory_read_write(monkeypatch, tmp_path):
     commands = []
     monkeypatch.setattr(
-        "xeda.tool.run_process",
+        impl_module("tool.run_process"),
         lambda executable, args=None, **kwargs: commands.append([str(a) for a in args or []]),
     )
     design_root, run_dir = tmp_path / "design", tmp_path / "design" / "xeda_run" / "d" / "f"
@@ -344,7 +346,7 @@ def test_docker_run_overrides_forward_merge_stderr(docker_cls, monkeypatch, tmp_
         recorded.update(kwargs)
         return "out"
 
-    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.setattr(impl_module("tool.run_process"), fake_run_process)
     docker_cls(image="img").run(
         "some-tool", "--version", stdout=True, merge_stderr=True, cwd=tmp_path
     )
@@ -359,7 +361,7 @@ def test_docker_run_overrides_mount_the_design_read_only(docker_cls, monkeypatch
     """An override that dropped `read_only` would run its tool without the design mounted."""
     commands = []
     monkeypatch.setattr(
-        "xeda.tool.run_process",
+        impl_module("tool.run_process"),
         lambda executable, args=None, **kwargs: commands.append([str(a) for a in args or []]),
     )
     design = tmp_path / "design"
@@ -838,6 +840,8 @@ import threading  # noqa: E402
 
 import xeda.tool as xeda_tool  # noqa: E402
 from xeda.proc_utils import _Deadline  # noqa: E402
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -1037,13 +1041,13 @@ def test_an_interrupt_without_a_time_limit_stops_what_the_tool_started(
 
 #: A program that runs a tool tree through `run_process`, as a launch does. Its stop signals are
 #: at their default: a test run under `nohup` or `pytest &` could pass on ignored ones.
-_LAUNCH = """
+_LAUNCH = layout_script("""
 import signal, sys
 for name in ("SIGTERM", "SIGHUP"):
     signal.signal(getattr(signal, name), signal.SIG_DFL)
 from xeda.proc_utils import run_process
 run_process(sys.executable, ["-c", {tool!r}])
-"""
+""")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
@@ -1110,7 +1114,7 @@ def test_a_stop_signal_to_xeda_stops_what_the_tool_started(tmp_path, name):
 
 #: A program that runs a tool tree in a worker process, as a sweep does, and terminates the worker
 #: once the tool runs, as the stop of a sweep does.
-_POOL_LAUNCH = """
+_POOL_LAUNCH = layout_script("""
 import multiprocessing, sys, time
 from pathlib import Path
 from xeda.proc_utils import run_process
@@ -1126,7 +1130,7 @@ if __name__ == "__main__":
         time.sleep(0.01)
     worker.terminate()
     worker.join()
-"""
+""")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
@@ -1465,7 +1469,7 @@ def test_an_interrupt_while_copying_output_stops_a_child_that_outlived_the_tool(
 #: the default disposition of the stop signals. The tool ignores SIGTERM and answers SIGINT, the
 #: first signal that the stop sends it, by writing `stopping`. It then runs on, so that the stop
 #: waits for it for the length of the grace period.
-_STOPPED_TWICE = """
+_STOPPED_TWICE = layout_script("""
 import sys
 import signal
 from pathlib import Path
@@ -1500,7 +1504,7 @@ pu.run_process(
     ["-c", TOOL, started, stopping],
     on_stop=lambda: Path(hook).write_text("ran"),
 )
-"""
+""")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
@@ -1647,7 +1651,7 @@ def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch,
             raise ProcessTimeout([executable], kwargs["timeout"])
         return None
 
-    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.setattr(impl_module("tool.run_process"), fake_run_process)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     with pytest.raises(ProcessTimeout):
         tool.run("arg", timeout=3, cwd=tmp_path)
@@ -1754,7 +1758,7 @@ def test_the_docker_stop_hook_is_time_limited(monkeypatch, tmp_path):
             kwargs["on_stop"]()
         return None
 
-    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.setattr(impl_module("tool.run_process"), fake_run_process)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     tool.run("arg", timeout=3, cwd=tmp_path)
     kill_kwargs = calls[1][1]
@@ -1770,7 +1774,7 @@ def test_a_docker_stop_hook_that_times_out_is_only_logged(monkeypatch, tmp_path)
             return None
         raise ProcessTimeout(["docker", "kill"], kwargs["timeout"])
 
-    monkeypatch.setattr("xeda.tool.run_process", fake_run_process)
+    monkeypatch.setattr(impl_module("tool.run_process"), fake_run_process)
     tool = Tool(executable="some-tool", docker=Docker(image="img"), dockerized=True)
     tool.run("arg", timeout=3, cwd=tmp_path)  # the hook's ProcessTimeout does not escape
 

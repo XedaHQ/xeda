@@ -25,6 +25,7 @@ from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 from .tool_utils import require_tclsh
 from .yosys_format import force_script_format, forced_script_format
 from .tool_utils import HANG_GUARD
+from .source_layout import IMPL_DIR
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -617,7 +618,7 @@ def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
 # `read_path` (`frontend_name`); `test_yosys.py::test_yosys_reads_every_input_by_its_own_name`
 # pins the list against a real yosys.
 EXPANDING_COMMANDS = re.compile(r"\b(read_verilog|read_liberty|techmap -map|dfflibmap)\b")
-TEMPLATES_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows" / "yosys" / "templates"
+TEMPLATES_DIR = IMPL_DIR / "flows" / "yosys" / "templates"
 
 
 def test_a_file_yosys_expands_the_name_of_is_named_by_read_path() -> None:

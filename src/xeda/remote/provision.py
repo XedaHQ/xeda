@@ -35,6 +35,7 @@ from functools import lru_cache
 from importlib import resources
 from typing import Callable, Deque, Dict, List, Mapping, Optional
 
+from ..package_paths import impl_module
 from .constants import UV_VERSION
 from .environment import (
     CodeSnapshot,
@@ -259,8 +260,9 @@ class Provisioned:
 
 @lru_cache(maxsize=1)
 def boot_script() -> str:
-    """The text of the bootstrap script."""
-    return resources.files(__package__).joinpath("bootstrap.sh").read_text(encoding="utf-8")
+    """The text of the bootstrap script, with the module of the agent filled in."""
+    text = resources.files(__package__).joinpath("bootstrap.sh").read_text(encoding="utf-8")
+    return text.replace("@XEDA_AGENT_MODULE@", impl_module("remote.agent"))
 
 
 def _short_hash(text: str) -> str:

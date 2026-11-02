@@ -39,6 +39,8 @@ from xeda.remote.ssh import SshSession
 from .remote_fixtures import host_profile_of, remote_request
 from .test_proc_utils import DEFAULT_SIGINT
 from .test_remote_client import TIMEOUT, Program
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 HOST = os.environ.get("XEDA_TESTS_REMOTE_HOST", "")
 CONFIG = os.environ.get("XEDA_TESTS_REMOTE_SSH_CONFIG", "")
@@ -265,7 +267,7 @@ def test_first_run_installs_uv_and_python_and_the_second_builds_nothing(
     """The remote root is new, so uv, Python and the environment come from the real release of uv
     and PyPI. A dry run needs no tool on the host."""
     use_root(tmp_path, monkeypatch, own_token)
-    caplog.set_level(logging.INFO, logger="xeda.remote.client")
+    caplog.set_level(logging.INFO, logger=impl_module("remote.client"))
     first = succeeded(run(tmp_path, ADDER, dry_run=True))
     assert first["remote"] == HOST
     steps = log_messages(caplog)
@@ -320,7 +322,7 @@ def test_ctrl_c_through_openssh_stops_the_simulator_on_the_host(
     use_root(tmp_path, monkeypatch, shared_token)
     token = secrets.token_hex(4)
     design = forever_design(tmp_path, token)
-    script = (
+    script = layout_script(
         f"{DEFAULT_SIGINT}from xeda.cli import cli\n"
         f"cli(['run', 'ghdl_sim', {str(design)!r}, '--remote', {HOST!r}, "
         f"'--run-root', {str(tmp_path / 'local' / 'xeda_run')!r}, '--json'], "

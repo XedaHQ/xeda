@@ -34,6 +34,7 @@ from .tiny_platform import TINY_OPENROAD_RESIDUE, TINY_RESIDUE, tiny_store
 from .tool_utils import require_bsc, require_ghdl, require_yosys
 from .design_edits import design_from_dump
 from .scoping import node_settings
+from .source_layout import layout_script
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -755,11 +756,13 @@ def test_declared_setup_failures_return_the_failure_document(tmp_path, remote_ho
     target = "TTaker.init" if stage == "init" else "TMaker.run"
     remote_host.load_test_flows(
         after=(
-            "from xeda.flow import FlowFatalError\n"
-            "import tests.io_flows as io\n"
-            "def broken(self):\n"
-            "    raise FlowFatalError('broken setup')\n"
-            f"io.{target} = broken\n"
+            layout_script(
+                "from xeda.flow import FlowFatalError\n"
+                "import tests.io_flows as io\n"
+                "def broken(self):\n"
+                "    raise FlowFatalError('broken setup')\n"
+                f"io.{target} = broken\n"
+            )
         )
     )
     design = _declared_design(tmp_path / "design")

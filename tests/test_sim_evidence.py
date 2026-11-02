@@ -38,7 +38,7 @@ def _sim_flows():
     return {
         cls.name
         for _, cls in registered_flows.values()
-        if issubclass(cls, SimFlow) and cls.__module__.startswith("xeda.flows")
+        if issubclass(cls, SimFlow) and cls.__module__.startswith(impl_module("flows"))
     }
 
 
@@ -64,7 +64,7 @@ def test_every_simulator_flow_requires_evidence_without_an_exemption():
         cls.name
         for _, cls in registered_flows.values()
         if issubclass(cls, SimFlow)
-        and cls.__module__.startswith("xeda.flows")
+        and cls.__module__.startswith(impl_module("flows"))
         and cls.has_evidence_adapter is not SimFlow.has_evidence_adapter
     }
     assert adapters == converted
@@ -644,13 +644,12 @@ def test_normalized_native_writer_refuses_links_and_retains_events(tmp_path, lan
     import json
     import shutil
     import subprocess
-    from pathlib import Path
     from .tool_utils import require_c_toolchain, require_cxx_toolchain
 
     (require_cxx_toolchain if language == "cpp" else require_c_toolchain)()
     compiler = shutil.which("c++" if language == "cpp" else "cc")
     assert compiler
-    header = Path(__file__).parents[1] / "src/xeda/flow/templates/sim_record.h"
+    header = IMPL_DIR / "flow/templates/sim_record.h"
     src = tmp_path / f"writer.{language}"
     src.write_text(
         '#include "sim_record.h"\n'
@@ -700,6 +699,8 @@ def test_behavioral_manifest_covers_registry_and_backend_literal():
 
 from .sim_evidence_cases import CASES
 from .tool_utils import HANG_GUARD
+from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 
 def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path):

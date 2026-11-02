@@ -9,9 +9,9 @@ covers the rest: every exception class xeda defines, found through the bases the
 import ast
 import builtins
 from collections.abc import Mapping
-from pathlib import Path
+from .source_layout import IMPL_DIR
 
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 
 
 def _called_name(call: ast.Call) -> str | None:

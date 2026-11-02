@@ -21,6 +21,7 @@ from xeda.utils import tcl_word
 
 from .openroad_utils import OPENROAD_FLOWS
 from .test_documentation import undocumented_group_settings
+from xeda.package_paths import impl_module
 
 
 def settings_of(flow, *items: Any):
@@ -266,7 +267,7 @@ def test_every_leaf_of_an_item_model_of_the_groups_has_a_tier():
     items = [
         model
         for model in reachable_models([flow.Settings for flow in OPENROAD_FLOWS])
-        if model.__module__.startswith("xeda.flows.openroad")
+        if model.__module__.startswith(impl_module("flows.openroad"))
         and not issubclass(model, SettingsGroup)
         and model.__name__ not in exempt
     ]
@@ -298,7 +299,7 @@ def test_the_placement_flow_and_the_later_flows_share_the_legalization_options()
 def test_the_range_of_layers_for_a_via_in_a_pin_is_one_shared_group():
     from xeda.flows.openroad import final_groups, grt_groups
 
-    assert groups.ViaInPin.__module__ == "xeda.flows.openroad.groups"
+    assert groups.ViaInPin.__module__ == impl_module("flows.openroad.groups")
     assert "ViaInPin" in groups.__all__ and "ViaInPin" not in final_groups.__all__
     assert grt_groups.PinAccessGroup.model_fields["via_in_pin"].annotation == (
         Optional[groups.ViaInPin]

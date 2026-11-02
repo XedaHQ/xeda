@@ -32,6 +32,7 @@ from xeda.flow_runner.default_runner import scrub_runs
 from xeda.flow_runner.run_lock import lock_file, run_dir_lock
 
 from .tool_utils import producers_of, require_yosys
+from .source_layout import layout_script
 
 RUNS: list[str] = []
 #: why the consumer runs after its producer's output changed
@@ -846,7 +847,7 @@ def test_replaced_launcher_settings_name_their_replacement(tmp_path, old, replac
         DefaultRunner(tmp_path / "xeda_run", **{old: True})
 
 
-_HOLDER = """
+_HOLDER = layout_script("""
 import sys
 from pathlib import Path
 from xeda.flow_runner.run_lock import run_dir_lock
@@ -854,7 +855,7 @@ from xeda.flow_runner.run_lock import run_dir_lock
 with run_dir_lock(Path(sys.argv[1])):
     print("locked", flush=True)
     sys.stdin.read()  # until the test closes our stdin
-"""
+""")
 
 
 def test_a_run_directory_lock_makes_another_process_wait(tmp_path):

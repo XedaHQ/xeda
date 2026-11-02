@@ -19,6 +19,7 @@ from xeda.flows.modelsim import ModelsimTool
 
 from .tool_utils import fake_calls, use_fake_tools
 from .tool_utils import HANG_GUARD
+from xeda.package_paths import impl_module
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="tclsh is needed to run the TCL scripts"
@@ -92,7 +93,7 @@ def test_outputs_to_delivers_the_log_of_a_simulation_without_a_waveform(
     use_fake_tools(monkeypatch)
     run_dir = tmp_path / "run"
     design = _design(tmp_path / "design")
-    with caplog.at_level(logging.WARNING, logger="xeda.flow_runner.launch_report"):
+    with caplog.at_level(logging.WARNING, logger=impl_module("flow_runner.launch_report")):
         flow = DefaultRunner(run_dir, outputs_to=tmp_path / "got").run_flow(Modelsim, design, {})
     assert flow is not None and flow.succeeded
     assert [d.destination for d in flow.deliveries] == [tmp_path / "got" / "logs" / "vsim.log"]

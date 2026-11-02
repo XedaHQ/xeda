@@ -26,6 +26,7 @@ from ...flow import (
 )
 from ...flow.metrics import program_logs
 from ...flow.flow import FlowSettingsError, FlowSettingsException
+from ...package_paths import impl_module
 from ...platforms.model import PlatformModel
 from ...tool import NonZeroExitCode, Tool
 from ...units import Length
@@ -1045,7 +1046,9 @@ class Openroad(OpenroadStage):
         technology = self.write_klayout_tech()
         output = self._guard_write(self.gds_file)
         log_file = self.run_directory.writable("klayout.log")
-        script = Path(str(resources.files("xeda.flows.openroad").joinpath("data", "def2stream.py")))
+        script = Path(
+            str(resources.files(impl_module("flows.openroad")).joinpath("data", "def2stream.py"))
+        )
         libraries = [*model.files.get("gds", []), *settings.gds.cell_libraries]
         names = {
             "design_name": top,

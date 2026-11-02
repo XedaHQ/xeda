@@ -184,7 +184,7 @@ def numeric_problems(
         if is_numeric and not places:
             problems.append(
                 f"{where} is a number with no unit and no marker: make it a quantity of "
-                f"xeda.units, or mark it with ratio(), percent(), count(), library_units() or "
+                f"the units module, or mark it with ratio(), percent(), count(), library_units() or "
                 f"data_size()"
             )
         elif len(places) > 1:

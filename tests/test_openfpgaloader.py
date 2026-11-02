@@ -23,6 +23,7 @@ from xeda.flows.openfpgaloader import OpenfpgaloaderTool
 
 from . import tool_utils
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 ECP5 = "LFE5U-25F-6BG381C"
 BITSTREAM = b"\x00\xffXEDA bitstream\x00"
@@ -794,7 +795,7 @@ def test_a_relaunch_whose_loader_is_missing_leaves_no_earlier_log(
     class _NotInstalled(OpenfpgaloaderTool):
         executable: str = "openFPGALoader-not-installed"
 
-    monkeypatch.setattr("xeda.flows.openfpgaloader.OpenfpgaloaderTool", _NotInstalled)
+    monkeypatch.setattr(impl_module("flows.openfpgaloader.OpenfpgaloaderTool"), _NotInstalled)
     with pytest.raises(Exception) as raised:
         _runner(tmp_path).run(
             "openfpgaloader",

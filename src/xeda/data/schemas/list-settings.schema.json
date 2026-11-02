@@ -10,9 +10,6 @@
           "common": {
             "type": "boolean"
           },
-          "declared_by": {
-            "type": "string"
-          },
           "default": {},
           "description": {
             "type": [
@@ -66,7 +63,6 @@
         },
         "required": [
           "common",
-          "declared_by",
           "default",
           "description",
           "enum",
@@ -91,9 +87,6 @@
     },
     "schema_version": {
       "type": "integer"
-    },
-    "settings_class": {
-      "type": "string"
     }
   },
   "required": [
@@ -101,8 +94,7 @@
     "fields",
     "flow",
     "json_schema",
-    "schema_version",
-    "settings_class"
+    "schema_version"
   ],
   "title": "xeda list-settings --json",
   "type": "object"

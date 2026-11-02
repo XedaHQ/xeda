@@ -72,6 +72,7 @@ from .dataclass import (
 from .digest import content_digest
 from .errors import DesignError
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
+from .package_paths import impl_module
 from .proc_utils import run_child
 from .setting_text import SettingTextError
 from .run_dir import DIR_NAME_HASH_LEN, run_directory_name
@@ -3152,15 +3153,15 @@ def _flows_table(value: Any) -> dict[str, Any]:
 
 def _known_flow(name: str) -> Any:
     """Return the registered flow that `name` stands for (as the command line takes it), or None."""
-    importlib.import_module("xeda.flows")
-    return importlib.import_module("xeda.flow_runner.settings_layers").registered_flow(name)
+    importlib.import_module(impl_module("flows"))
+    return importlib.import_module(impl_module("flow_runner.settings_layers")).registered_flow(name)
 
 
 def _tables_by_flow(table: Mapping[str, Any]) -> dict[str, Any]:
     """Return a `flows` table with each flow under its canonical name.
 
     A name given twice and the name of a removed flow raise the errors of `merge_flow_sections`."""
-    layers = importlib.import_module("xeda.flow_runner.settings_layers")
+    layers = importlib.import_module(impl_module("flow_runner.settings_layers"))
     layers.merge_flow_sections(table, flow_class_for=_known_flow)  # raises on those mistakes
     by_flow = {}
     for name, section in table.items():
@@ -3229,11 +3230,11 @@ def _flow_named(name: str) -> str | None:
     for this judgment: on a file system that ignores letter case, they are one directory."""
     # Import here and by name: the flows import this module and are registered by being
     # imported.
-    importlib.import_module("xeda.flows")
-    registered_flows = importlib.import_module("xeda.flow").registered_flows
+    importlib.import_module(impl_module("flows"))
+    registered_flows = importlib.import_module(impl_module("flow")).registered_flows
     # A removed flow's name is a flow's name too: its run directories may still be under
     # `<design>/`.
-    removed = importlib.import_module("xeda.flow_runner.settings_layers").REMOVED_FLOWS
+    removed = importlib.import_module(impl_module("flow_runner.settings_layers")).REMOVED_FLOWS
     flows = {_fold(flow) for flow in registered_flows} | set(removed)
 
     folded = _fold(name)
@@ -3591,7 +3592,7 @@ class Design(XedaBaseModel):
         flow's own rules. A value of the design that is
         not a table where one is expected is kept as it is, with nothing of the overlay merged
         over it, so validation reports it as it would with no target."""
-        layers = importlib.import_module("xeda.flow_runner.settings_layers")
+        layers = importlib.import_module(impl_module("flow_runner.settings_layers"))
         base, overlay = dict(base), dict(overlay)
         flows: list[dict[str, Any] | None] = []
         for side in (base, overlay):

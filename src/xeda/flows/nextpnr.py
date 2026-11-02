@@ -27,6 +27,7 @@ from ..flow import (
     ArtifactSpec,
     describe_artifacts,
 )
+from ..package_paths import impl_module
 from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
 from ..units import Bounds, Time, Unit, count, ratio
@@ -879,7 +880,7 @@ class Nextpnr(FpgaSynthFlow):
             return _BoardFallback(url=name)  # always runs; fetched after freshness
         if self.settings.custom_boards_file:
             return _BoardFallback(path=self.settings.custom_boards_file.parent / name)
-        resource = files("xeda.data").joinpath(name)
+        resource = files(impl_module("data")).joinpath(name)
         if isinstance(resource, Path):
             return _BoardFallback(path=resource)
         content = resource.read_bytes()

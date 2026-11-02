@@ -77,6 +77,7 @@ from .flow_registry import preserved_flow_registry
 from .settings_samples import flow_classes, minimal_settings
 from .test_design_parts import _mro, reachable_templates
 from .test_source_contracts import DEFINITIONS, _loaded_source, _Module, _uses
+from xeda.package_paths import impl_module
 
 #: Expressions that hold a flow's settings.
 SETTINGS_EXPRESSIONS = frozenset({"settings", "ss", "self.settings", "flow.settings"})
@@ -630,7 +631,7 @@ def _settings_methods(cls: type[Flow]) -> dict[str, list[Member]]:
     found: dict[str, list[Member]] = {}
     for klass in cls.Settings.__mro__:
         module = klass.__module__
-        if not module.startswith("xeda.") or module == "xeda.dataclass":
+        if not module.startswith("xeda.") or module == impl_module("dataclass"):
             continue
         tree = ast.parse(inspect.getsource(sys.modules[module]))
         scope: list[ast.stmt] = tree.body
@@ -705,14 +706,14 @@ PRODUCT_FLOWS = [(cls, name) for cls, name in flow_classes() if cls.__module__.s
 #: it, the attribute that module reads, and what the module does with it.
 FRAMEWORK_READS: dict[str, tuple[str, str, str]] = {
     "verbosity": (
-        "xeda.flow_runner.settings_layers",
+        impl_module("flow_runner.settings_layers"),
         "verbosity",
         "a producer takes the debug verbosity of its consumer, and the launcher's debug mode "
         "sets it",
     ),
-    "docker": ("xeda.tool", "docker", "a tool takes it from the flow's settings"),
+    "docker": (impl_module("tool"), "docker", "a tool takes it from the flow's settings"),
     "docker_image": (
-        "xeda.tool",
+        impl_module("tool"),
         "docker_image",
         "a tool takes the image from the flow's settings",
     ),

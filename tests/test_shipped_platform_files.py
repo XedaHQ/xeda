@@ -26,10 +26,11 @@ from xeda.platforms.providers import _relative_files, git_checkout_directory, pl
 from xeda.platforms.residue import ResidueError, effective_residue
 
 from .tool_utils import use_fake_asic_tools
+from xeda.package_paths import impl_module
 
 #: The installed package, as the loader finds it: the source tree with an editable install, the
 #: environment's site-packages with an sdist install (as in the full CI suite).
-PACKAGE = Path(str(resources.files("xeda.platforms")))
+PACKAGE = Path(str(resources.files(impl_module("platforms"))))
 GATE = PACKAGE / "sky130hd" / "cells_clkgate.v"
 PROVIDERS = ("ciel", "lambdapdk")
 
@@ -92,7 +93,7 @@ def test_the_file_is_in_the_package_data_of_xeda():
 
     root = Path(__file__).parent.parent
     data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    patterns = data["tool"]["setuptools"]["package-data"]["xeda.platforms"]
+    patterns = data["tool"]["setuptools"]["package-data"][impl_module("platforms")]
     assert any(GATE.relative_to(PACKAGE).match(pattern) for pattern in patterns), patterns
 
 

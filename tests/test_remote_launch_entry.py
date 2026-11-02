@@ -21,6 +21,8 @@ from xeda.remote.launch_entry import LaunchRequest, RunDirectorySnapshot, check_
 from xeda.remote.errors import RemoteIncompatible
 
 from .tool_utils import use_fake_fpga_tools
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -96,7 +98,7 @@ def launch(
     ).model_copy(update=fields)
     (launch_dir / "request.json").write_text(request.model_dump_json())
     process = run_entry(
-        [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)],
+        [sys.executable, "-m", impl_module("remote.launch_entry"), str(launch_dir)],
         cwd=tmp_path,
         env=dict(os.environ, **(env or {})),
         stdin=subprocess.DEVNULL,  # the agent starts the entry without a terminal
@@ -314,7 +316,7 @@ def test_a_request_file_that_is_not_a_request_gets_a_failure_document(tmp_path):
     launch_dir.mkdir()
     (launch_dir / "request.json").write_text('{"chain": "nextpnr"}')
     process = run_entry(
-        [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)],
+        [sys.executable, "-m", impl_module("remote.launch_entry"), str(launch_dir)],
         capture_output=True,
         text=True,
         timeout=600,
@@ -382,7 +384,7 @@ def test_snapshot_names_a_directory_that_became_unreadable(tmp_path):
 
 #: Starts the entry in a process whose launcher raises `exception` instead of running. It leaves a
 #: file in the run directory of the requested node first, as a launch that did some work would.
-RAISING_LAUNCH = """
+RAISING_LAUNCH = layout_script("""
 import sys
 from xeda.flow_runner import DefaultRunner
 from xeda.remote.launch_entry import main
@@ -392,7 +394,7 @@ def run(self, *args, **kwargs):
 
 DefaultRunner.run = run
 sys.exit(main(sys.argv[1:]))
-"""
+""")
 
 
 def launch_raising(tmp_path: Path, exception: str) -> tuple[subprocess.CompletedProcess, dict]:
@@ -469,7 +471,7 @@ def test_the_entry_writes_only_in_the_run_root_and_the_launch_directory(tmp_path
 
 
 def entry_command(launch_dir: Path) -> list[str]:
-    return [sys.executable, "-m", "xeda.remote.launch_entry", str(launch_dir)]
+    return [sys.executable, "-m", impl_module("remote.launch_entry"), str(launch_dir)]
 
 
 def failed_before_anything_ran(tmp_path: Path, process: subprocess.CompletedProcess) -> str:
@@ -547,7 +549,7 @@ def test_a_launch_without_the_hand_over_argument_is_a_usage_error(tmp_path, wait
     assert not (waiting_launch / "result.json").exists()
 
 
-TAKING_LOCKS = """
+TAKING_LOCKS = layout_script("""
 import json, os, sys
 from xeda.remote.launch_entry import take_locks
 
@@ -563,7 +565,7 @@ print(json.dumps({
     "open": [os.fstat(d).st_size >= 0 for d in descriptors],
     "socket_open": socket_open,
 }))
-"""
+""")
 
 
 def test_the_entry_takes_the_locks_keeps_them_and_closes_the_socket(tmp_path):

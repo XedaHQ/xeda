@@ -40,6 +40,7 @@ from .test_design_parts import _mro, reachable_templates
 from .test_tcl_paths import needs_tclsh
 from .tool_utils import fake_calls, use_fake_tools
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 MAIN_SCRIPTS = {
     "vivado_synth.tcl",
@@ -806,28 +807,48 @@ HEADER_TYPES = frozenset({SourceType.VerilogHeader, SourceType.SVHeader})
 #: `test_a_flow_selects_what_it_reads_only_through_sources_read` until it is reviewed here, and
 #: an entry whose read is gone fails `test_every_reviewed_direct_read_is_still_there`.
 REVIEWED_DIRECT_READS: dict[str, str] = {
-    "xeda.flows.vivado.vivado_synth:constraint_files: sources": "the Xdc and Sdc sources, "
+    impl_module("flows.vivado.vivado_synth:constraint_files: sources"): "the Xdc and Sdc sources, "
     "which every flow that calls it (`vivado_synth`, `vivado_alt_synth`, `vivado_project`) declares",
-    "xeda.flows.bsc:BscSim._tb_top_of: sources": "whether the design has a testbench at all, which "
+    impl_module(
+        "flows.bsc:BscSim._tb_top_of: sources"
+    ): "whether the design has a testbench at all, which "
     "decides the module simulated",
-    "xeda.flows.bsc:BscSim.run: sources": "which of the Bluespec sources `sources_read` selected "
+    impl_module(
+        "flows.bsc:BscSim.run: sources"
+    ): "which of the Bluespec sources `sources_read` selected "
     "are the testbench's, to find the package of its top",
-    "xeda.flows.yosys.cxx_rtl:YosysSim.run: sources": "whether the testbench is VHDL, which "
+    impl_module(
+        "flows.yosys.cxx_rtl:YosysSim.run: sources"
+    ): "whether the testbench is VHDL, which "
     "decides the unit GHDL elaborates",
-    "xeda.flows.ghdl:GhdlSynth.synth_args: _sources_of_type": "the VHDL sources of a one-shot "
+    impl_module(
+        "flows.ghdl:GhdlSynth.synth_args: _sources_of_type"
+    ): "the VHDL sources of a one-shot "
     "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
-    "xeda.flows.bsc:Bsc._derived_sources: sources": "which sources of the design pass through "
+    impl_module(
+        "flows.bsc:Bsc._derived_sources: sources"
+    ): "which sources of the design pass through "
     "into the design it derives, by their index: no tool is handed any of them from here",
-    "xeda.flow.derived:_derived: sources": "the sources of the design that pass through, and the "
+    impl_module(
+        "flow.derived:_derived: sources"
+    ): "the sources of the design that pass through, and the "
     "sources of the design it derives: data of a design, handed to no tool",
-    "xeda.flow.derived:planned_design: sources": "the sources of the design that pass through, by "
+    impl_module(
+        "flow.derived:planned_design: sources"
+    ): "the sources of the design that pass through, by "
     "their index: data of a design, handed to no tool",
-    "xeda.cocotb:Cocotb.env: sources": "whether a cocotb testbench lists any source",
-    "xeda.cocotb:Cocotb.env: _sources_of_type": "the `Cocotb` (Python) sources, whose last names "
+    impl_module("cocotb:Cocotb.env: sources"): "whether a cocotb testbench lists any source",
+    impl_module(
+        "cocotb:Cocotb.env: _sources_of_type"
+    ): "the `Cocotb` (Python) sources, whose last names "
     "the test module cocotb imports: no simulator reads them",
-    "xeda.flows.modelsim.sim_evidence:parse_modelsim_evidence: sim_sources": "the VHDL sources, "
+    impl_module(
+        "flows.modelsim.sim_evidence:parse_modelsim_evidence: sim_sources"
+    ): "the VHDL sources, "
     "to tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
-    "xeda.flows.vivado.sim_evidence:parse_xsim_evidence: sim_sources": "the VHDL sources, to "
+    impl_module(
+        "flows.vivado.sim_evidence:parse_xsim_evidence: sim_sources"
+    ): "the VHDL sources, to "
     "tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
 }
 
@@ -1198,7 +1219,7 @@ def test_a_helper_of_a_shared_module_is_the_code_of_the_flows_that_call_it():
     """`VivadoSynth`, `VivadoAltSynth` and `VivadoProject` call `constraint_files`, which reads
     the Xdc and Sdc sources; `VivadoImpl` shares a module and a base class with the first, calls
     it not, and takes its constraints through a declared input."""
-    helper = "xeda.flows.vivado.vivado_synth:constraint_files"
+    helper = impl_module("flows.vivado.vivado_synth:constraint_files")
     for name, calls in {
         "vivado_synth": True,
         "vivado_alt_synth": True,
@@ -1227,7 +1248,7 @@ def test_a_flow_that_gains_a_call_of_that_helper_is_found_again():
     names[module].add("Probe")
     found = flow_source_reads(sources, names)
     assert [(where, what) for where, _, what in found] == [
-        ("xeda.flows.vivado.vivado_synth:constraint_files", "sources")
+        (impl_module("flows.vivado.vivado_synth:constraint_files"), "sources")
     ]
 
 
@@ -1238,8 +1259,8 @@ def test_the_scan_reaches_a_flow_s_templates_and_its_bases_code():
     assert {where for where, _, _ in dc} == {"template dc_script.tcl"}
     project = {where for where, _, _ in source_reads(registered_flows["vivado_project"][1])}
     assert "template vivado_project.tcl" in project
-    assert any(where.startswith("xeda.flows.vivado.vivado_project:") for where in project)
-    assert not any(where.startswith("xeda.flow.flow:") for where in project)
+    assert any(where.startswith(impl_module("flows.vivado.vivado_project:")) for where in project)
+    assert not any(where.startswith(impl_module("flow.flow:")) for where in project)
 
 
 @pytest.mark.parametrize(("cls", "name"), flow_classes(), ids=[n for _, n in flow_classes()])
@@ -1296,7 +1317,10 @@ HELPER_MODULES = sorted(
     {
         name
         for name in sys.modules
-        if (name.startswith(("xeda.flows.", "xeda.flow.")) or name == "xeda.cocotb")
+        if (
+            name.startswith((impl_module("flows."), impl_module("flow.")))
+            or name == impl_module("cocotb")
+        )
         and _holds_code(name)
     }
 )
@@ -1311,9 +1335,9 @@ def helper_reads(module_name: str) -> list[tuple[str, int, str]]:
 
 
 def test_the_helpers_cover_the_flows_packages_and_cocotb():
-    assert "xeda.cocotb" in HELPER_MODULES
-    assert "xeda.flows.vivado.sim_evidence" in HELPER_MODULES
-    assert "xeda.flow.sim" in HELPER_MODULES
+    assert impl_module("cocotb") in HELPER_MODULES
+    assert impl_module("flows.vivado.sim_evidence") in HELPER_MODULES
+    assert impl_module("flow.sim") in HELPER_MODULES
 
 
 @functools.cache

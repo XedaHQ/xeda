@@ -32,6 +32,8 @@ from xeda.introspect import (
 )
 
 from .flow_registry import is_product_flow, preserved_flow_registry
+from .source_layout import AGENT_DIR, ROOT
+from xeda.package_paths import impl_module
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
 #: setting is documented today. A new setting must be documented rather than added here.
@@ -204,7 +206,7 @@ def test_every_flow_declares_its_results(flow_class):
     )
 
 
-BUILT_IN_FLOWS = [cls for cls in FLOW_CLASSES if cls.__module__.startswith("xeda.flows.")]
+BUILT_IN_FLOWS = [cls for cls in FLOW_CLASSES if cls.__module__.startswith(impl_module("flows."))]
 
 
 @pytest.mark.parametrize("flow_class", BUILT_IN_FLOWS, ids=[cls.name for cls in BUILT_IN_FLOWS])
@@ -366,6 +368,9 @@ def test_cocotb_simulated_time_is_one_path_in_ns():
 # ------------------------------------------------------------------ README flow catalog
 
 README = Path(__file__).resolve().parent.parent / "README.md"
+#: The agent skill that the package ships, relative to the checkout.
+AGENT_RELATIVE = AGENT_DIR.relative_to(ROOT).as_posix()
+AGENT_REFERENCES = f"{AGENT_RELATIVE}/references/"
 
 #: Heading of the README section that enumerates every supported tool and its flow names.
 CATALOG_HEADING = "### Supported Tools and Flows"
@@ -461,7 +466,7 @@ def test_simulation_contract_docs_describe_the_final_oracle():
 
 @pytest.mark.parametrize(
     "relative",
-    ["docs/design-file.rst", "src/xeda/data/agent/references/design-file.md"],
+    ["docs/design-file.rst", AGENT_REFERENCES + "design-file.md"],
 )
 def test_documented_source_suffixes_match_the_loader(relative):
     """Both human and agent tables must give the loader's exact suffix-to-type mapping."""
@@ -530,7 +535,7 @@ YAML_FIRST_DOCUMENTS = [
     "docs/**/*.rst",
     "examples/**/README.md",
     ".claude/skills/xeda/**/*.md",
-    "src/xeda/data/agent/**/*.md",
+    f"{AGENT_RELATIVE}/**/*.md",
 ]
 
 #: directories a documentation build writes into the checkout. `make -C docs html` copies every
@@ -653,7 +658,7 @@ def _maintained_documents() -> list[Path]:
     found = [
         *sorted((root / "docs").glob("*.rst")),
         root / "README.md",
-        *sorted((root / "src/xeda/data/agent").rglob("*.md")),
+        *sorted(AGENT_DIR.rglob("*.md")),
         *sorted((root / ".claude/skills/xeda").rglob("*.md")),
     ]
     return [p for p in found if _is_source_document(p)]
@@ -689,7 +694,7 @@ def test_the_documents_state_what_the_lut_count_is_and_is_not():
     for document in (
         root / "docs/flows.rst",
         root / "docs/machine-readable.rst",
-        root / "src/xeda/data/agent/references/troubleshooting.md",
+        AGENT_DIR / "references/troubleshooting.md",
     ):
         text = " ".join(document.read_text().split())
         assert "lut_basis.stage" in text and "lut_basis.method" in text, document
@@ -705,7 +710,7 @@ def _paragraph(path: Path, start: str) -> str:
 @pytest.mark.parametrize(
     "relative,start",
     [
-        ("src/xeda/data/agent/SKILL.md", "Shared settings on declared edges ("),
+        (f"{AGENT_RELATIVE}/SKILL.md", "Shared settings on declared edges ("),
         ("docs/flows.rst", "Along a declared edge, shared settings ("),
         ("CLAUDE.md", "- **Shared leaves agree along declared edges.**"),
         ("CHANGELOG.md", "- **Settings connected flows share ("),

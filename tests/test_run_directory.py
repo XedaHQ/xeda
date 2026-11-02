@@ -18,6 +18,7 @@ from xeda.dataclass import Field
 from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectory, RunDirectoryError
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -306,7 +307,7 @@ def test_a_generated_file_goes_through_writable(tmp_path):
 def test_an_unlaunched_directory_deletes_nothing(tmp_path, caplog):
     work = _tree(tmp_path / "work")
     unlaunched = RunDirectory.unlaunched(work)
-    with caplog.at_level(logging.INFO, logger="xeda.run_dir"):
+    with caplog.at_level(logging.INFO, logger=impl_module("run_dir")):
         assert unlaunched.remove("a.txt", "sub") == []
         unlaunched.clear()
     assert _files(work) == {"a.txt": b"a\n", "sub/b.txt": b"b\n"}

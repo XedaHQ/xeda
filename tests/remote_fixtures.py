@@ -32,6 +32,7 @@ from xeda.types import UNSET
 from xeda.utils import settings_to_dict
 
 from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
+from xeda.package_paths import impl_module
 
 #: The fake `ssh`, `uv` and `curl`. Only the remote fixtures put it on a `PATH`.
 REMOTE_FAKES_DIR = FAKE_TOOLS_DIR / "remote"
@@ -204,7 +205,7 @@ esac
     remote.set_platform()
     remote.configure(python=sys.executable, curl_files={FAKE_URL: str(archive)})
     remote.set_path(bin_dir, REMOTE_FAKES_DIR, FAKE_TOOLS_DIR, Path("/usr/bin"), Path("/bin"))
-    monkeypatch.setattr("xeda.remote.environment.UV_RELEASES", remote.releases)
+    monkeypatch.setattr(impl_module("remote.environment.UV_RELEASES"), remote.releases)
     yield remote
 
 
@@ -291,7 +292,7 @@ class RemoteHost:
             + "".join(f"    import {name}\n" for name in modules)
             + "".join(f"    {line}\n" for line in after.splitlines())
         ).encode()
-        entry = "xeda/remote/launch_entry.py"
+        entry = impl_module("remote.launch_entry").replace(".", "/") + ".py"
         real = client.code_snapshot
 
         def snapshot() -> CodeSnapshot:

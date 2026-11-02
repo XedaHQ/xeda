@@ -23,6 +23,8 @@ from typing import Any, ParamSpec, TypeVar
 import pytest
 
 import xeda
+from .source_layout import AGENT_DIR
+from xeda.package_paths import impl_module
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_MODULES = ("xeda", "xeda.errors", "xeda.introspect")
@@ -41,7 +43,7 @@ RETIRED = {
 DOCUMENTS = [
     *sorted((ROOT / "docs").glob("*.rst")),
     ROOT / ".claude/skills/xeda/SKILL.md",
-    ROOT / "src/xeda/data/agent/SKILL.md",
+    AGENT_DIR / "SKILL.md",
 ]
 EXAMPLES = sorted((ROOT / "examples").rglob("*.py"))
 NOTEBOOKS = sorted((ROOT / "notebooks").glob("*.ipynb"))
@@ -173,7 +175,10 @@ def test_the_checker_reads_the_code_cells_of_a_notebook(tmp_path: Path) -> None:
     notebook = tmp_path / "nb.ipynb"
     cells = [
         {"cell_type": "markdown", "source": ["from xeda.flows import GhdlSim\n"]},
-        {"cell_type": "code", "source": ["import xeda\n", "from xeda.flow_runner import Runner\n"]},
+        {
+            "cell_type": "code",
+            "source": ["import xeda\n", "from xeda.flow_runner import Runner\n"],
+        },
     ]
     notebook.write_text(json.dumps({"cells": cells}), encoding="utf-8")
     assert [problems(ast.parse(source)) for source in notebook_sources(notebook)] == [
@@ -216,9 +221,9 @@ STANDARD_MODULES = {
 def _public_objects() -> dict[str, object]:
     """Return every public name of the three public modules and `xeda.workspace_verbs`."""
     found: dict[str, object] = {}
-    for module in (*PUBLIC_MODULES, "xeda.workspace_verbs"):
+    for module in (*PUBLIC_MODULES, impl_module("workspace_verbs")):
         loaded = importlib.import_module(module)
-        names = loaded.__all__ if module != "xeda.workspace_verbs" else _VERB_NAMES
+        names = loaded.__all__ if module != impl_module("workspace_verbs") else _VERB_NAMES
         found.update({f"{module}.{name}": getattr(loaded, name) for name in names})
     return found
 

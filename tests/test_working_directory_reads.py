@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Iterator
 
 import xeda
+from xeda.package_paths import impl_module
 
 SRC = Path(xeda.__file__).parent
 
@@ -43,8 +44,8 @@ PROCESS_STARTS = {
     "subprocess.getstatusoutput",
     "asyncio.create_subprocess_exec",
     "asyncio.create_subprocess_shell",
-    "xeda.proc_utils.run_process",
-    "xeda.proc_utils.run_capture_pty",
+    impl_module("proc_utils.run_process"),
+    impl_module("proc_utils.run_capture_pty"),
 }
 #: Process starts that take no working directory at all: always a finding.
 NO_CWD_STARTS = (

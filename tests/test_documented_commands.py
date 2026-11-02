@@ -32,11 +32,12 @@ from xeda.design import Design
 from xeda.introspect import results_info
 
 from . import tool_utils
+from .source_layout import AGENT_DIR
 
 ROOT = Path(__file__).parent.parent
 SQRT_DIR = ROOT / "examples" / "vhdl" / "sqrt"
 SQRT_FILE = "examples/vhdl/sqrt/sqrt.yaml"
-AGENT = ROOT / "src" / "xeda" / "data" / "agent"
+AGENT = AGENT_DIR
 
 DOCUMENTS = [
     ROOT / "README.md",

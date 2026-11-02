@@ -29,8 +29,9 @@ from xeda.flow_runner import DefaultRunner
 
 from .design_edits import with_updates
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
+from .source_layout import IMPL_DIR
 
-FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
+FLOWS_DIR = IMPL_DIR / "flows"
 TCLSH = shutil.which("tclsh")
 
 # Template expressions that name a file a user named: a design source, or a constraint or script

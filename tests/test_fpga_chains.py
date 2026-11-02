@@ -36,6 +36,7 @@ from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .project_files import PROJECT_FILE
 from .test_openfpgaloader import assert_fake_loader
+from xeda.package_paths import impl_module
 
 ECP5 = "LFE5U-25F-6BG381C"
 ICE40 = "iCE40HX1K-TQ144"
@@ -534,7 +535,7 @@ def test_two_stages_naming_one_file_in_other_letters_are_refused_before_any_tool
 ):
     """On a file system that ignores letter case the two are one file: the first would be
     delivered and the second refused after both tools ran, as a change nobody made."""
-    monkeypatch.setattr("xeda.deliver._ignores_case", lambda directory: True)
+    monkeypatch.setattr(impl_module("deliver._ignores_case"), lambda directory: True)
     error = _refused_before_any_tool(
         tmp_path, toolchain, tmp_path / "Same.out", tmp_path / "same.out"
     )

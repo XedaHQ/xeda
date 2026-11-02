@@ -34,6 +34,7 @@ from .tool_utils import require_tclsh, require_yosys, require_yosys_tcl
 from .yosys_format import force_script_format
 from .tool_utils import HANG_GUARD
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +47,7 @@ def _the_tcl_script(request, monkeypatch):
         force_script_format(monkeypatch, "tcl")
 
 
-DATA = resources.files("xeda.flows.yosys").joinpath("data", "asic")
+DATA = resources.files(impl_module("flows.yosys")).joinpath("data", "asic")
 #: The files of the package that wrapping reads. The run directory holds a copy of each, and the
 #: script names the copy by its name in the run directory, since a container mounts only that.
 WRAP_SCRIPT = "synth_wrap_operators.tcl"

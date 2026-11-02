@@ -71,17 +71,13 @@ Each entry describes one flow:
       "schema_version": 1,
       "flows": [{
       "name": "vivado_postsynth_sim",
-      "class": "VivadoPostsynthSim",
-      "module": "xeda.flows.vivado.vivado_postsynthsim",
-      "qualified_name": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim",
       "description": "Simulate the testbench on the routed netlist `vivado_synth` writes. ...",
       "category": "simulation",
       "supports_cocotb": false,
       "dependencies": ["vivado_synth"],
       "action_reason": null,
       "inputs": ["..."], "outputs": ["..."],
-      "can_follow": [], "can_precede": ["..."],
-      "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
+      "can_follow": [], "can_precede": ["..."]
       }]
     }
 
@@ -161,7 +157,6 @@ under the name of the setting in its flow. Write the flow before it on the comma
     {
       "schema_version": 1,
       "flow": "vivado_synth",
-      "settings_class": "xeda.flows.vivado.vivado_synth.VivadoSynth.Settings",
       "fields": [
         {
           "name": "nthreads",
@@ -174,7 +169,6 @@ under the name of the setting in its flow. Write the flow before it on the comma
           "writes": null,
           "opaque_keys": false,
           "common": true,
-          "declared_by": "xeda.flow.flow.Flow.Settings",
           "tier": "common",
           "group": null,
           "json_schema": {

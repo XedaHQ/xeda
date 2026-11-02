@@ -16,6 +16,8 @@ import yaml
 from xeda.flow import FlowFatalError
 from xeda.run_dir import RunDirectory, RunDirectoryError
 from xeda.run_root import ensure_run_root
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 
 @pytest.fixture
@@ -279,7 +281,7 @@ def test_inputs_changed_during_generation_are_not_published(api, generation, mon
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX cache process locks")
 def test_two_processes_share_one_generation(api, generation):
     prefix, owned, _mode, calls = generation
-    script = (
+    script = layout_script(
         "import os, sys\nfrom pathlib import Path\n"
         "from xeda.flows.xilinx import find_xilinx_layout, select_xilinx, prepare_chipdb\n"
         "from xeda.run_dir import RunDirectory\n"
@@ -336,7 +338,7 @@ def test_generation_logs_resource_cost_before_start(api, generation, monkeypatch
         return original(*args, **kwargs)
 
     monkeypatch.setattr(api, "run_process", check_log)
-    with caplog.at_level("INFO", logger="xeda.flows.xilinx"):
+    with caplog.at_level("INFO", logger=impl_module("flows.xilinx")):
         _prepare(api, generation)
 
 

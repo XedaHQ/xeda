@@ -44,6 +44,7 @@ from . import test_failure_results as failing
 from .record_documents import record_document
 from .flow_registry import preserved_flow_registry
 from .test_sim_evidence import _Stub
+from .source_layout import AGENT_DIR
 
 
 def test_the_tree_is_the_public_contract():
@@ -167,7 +168,7 @@ def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
     pages = [
         root / "docs" / "machine-readable.rst",
         root / ".claude" / "skills" / "xeda" / "references" / "troubleshooting.md",
-        root / "src" / "xeda" / "data" / "agent" / "references" / "troubleshooting.md",
+        AGENT_DIR / "references" / "troubleshooting.md",
     ]
     for page in pages:
         text = page.read_text(encoding="utf-8")
@@ -183,7 +184,7 @@ def test_the_codes_of_a_remote_request_are_listed_where_a_reader_looks():
         root / "docs" / "machine-readable.rst",
         root / "docs" / "remote.rst",
         root / ".claude" / "skills" / "xeda" / "SKILL.md",
-        root / "src" / "xeda" / "data" / "agent" / "SKILL.md",
+        AGENT_DIR / "SKILL.md",
     ]
     for page in pages:
         text = page.read_text(encoding="utf-8")

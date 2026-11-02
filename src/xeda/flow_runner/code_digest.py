@@ -51,9 +51,10 @@ from typing import Type
 from ..digest import FileRecord, content_pairs, digest_pairs, package_files, record_file
 from ..flow import Flow, FlowFatalError
 from ..flow.source_file import class_label, find_source_file
+from ..package_paths import package_root
 
 #: The directory of the installed xeda package.
-XEDA_PACKAGE = Path(__file__).resolve().parent.parent
+XEDA_PACKAGE = package_root().resolve()
 
 
 #: The most files whose records the process keeps. It holds the code of a few trees; a process

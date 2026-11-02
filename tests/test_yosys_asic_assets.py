@@ -10,9 +10,11 @@ import tomllib
 from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path
+from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 REPO = Path(__file__).parent.parent
-ASSETS = REPO / "src" / "xeda" / "flows" / "yosys" / "data" / "asic"
+ASSETS = IMPL_DIR / "flows" / "yosys" / "data" / "asic"
 ORFS_COMMIT = "6b305a712966be72d8908695c04398acdbe273ca"
 ORFS_SCRIPTS = (
     "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts/blob/"
@@ -31,7 +33,7 @@ def matches(pattern: str, relative: str) -> bool:
 
 def test_the_assets_and_the_notice_are_package_resources() -> None:
     for name in (TCL, BOOTH, NOTICE):
-        resource = resources.files("xeda.flows.yosys").joinpath(f"data/asic/{name}")
+        resource = resources.files(impl_module("flows.yosys")).joinpath(f"data/asic/{name}")
         assert resource.is_file(), name
 
 
@@ -46,7 +48,7 @@ def test_each_asset_names_its_source_in_the_first_line() -> None:
 
 def test_the_packaging_selects_each_asset_and_the_notice() -> None:
     setuptools = tomllib.loads((REPO / "pyproject.toml").read_text())["tool"]["setuptools"]
-    include = setuptools["package-data"]["xeda.flows.yosys"]
+    include = setuptools["package-data"][impl_module("flows.yosys")]
     for name in (TCL, BOOTH, NOTICE):
         relative = f"data/asic/{name}"
         assert any(matches(pattern, relative) for pattern in include), relative
@@ -89,7 +91,7 @@ def test_the_notice_names_librelane_its_file_its_commit_and_holds_the_apache_lic
 
 
 def test_the_module_that_composes_the_strategies_names_its_source_and_its_license() -> None:
-    module = (REPO / "src" / "xeda" / "flows" / "yosys" / "abc_strategies.py").read_text()
+    module = (IMPL_DIR / "flows" / "yosys" / "abc_strategies.py").read_text()
     assert LIBRELANE_FILE in module and LIBRELANE_COMMIT in module
     assert "Apache License 2.0" in module and "NOTICE.md" in module
     assert "Efabless Corporation" in module

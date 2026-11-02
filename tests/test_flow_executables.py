@@ -13,6 +13,7 @@ from pathlib import Path
 
 import xeda.flows
 from xeda.introspect import all_flow_classes, flow_executables
+from xeda.package_paths import impl_module
 
 SOURCE = Path(xeda.__file__).parent
 
@@ -61,9 +62,9 @@ def _named_programs(path: Path) -> set[str]:
 
 
 def _shipped_flows() -> list[type]:
-    for module in pkgutil.walk_packages(xeda.flows.__path__, "xeda.flows."):
+    for module in pkgutil.walk_packages(xeda.flows.__path__, impl_module("flows.")):
         importlib.import_module(module.name)
-    return [cls for cls in all_flow_classes() if cls.__module__.startswith("xeda.flows.")]
+    return [cls for cls in all_flow_classes() if cls.__module__.startswith(impl_module("flows."))]
 
 
 def test_every_flow_names_at_least_one_program():

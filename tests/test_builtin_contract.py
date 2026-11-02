@@ -8,6 +8,7 @@ import re
 import pytest
 
 from tests.test_public_api import tool
+from .source_layout import IMPL_DIR
 
 pytestmark = pytest.mark.python_compat
 
@@ -164,7 +165,6 @@ def _table_codes(node: ast.expr) -> set[str]:
 
 
 def test_all_literal_codes_are_in_the_inventory() -> None:
-    from pathlib import Path
     from xeda.flow_runner.error_codes import ALL_CODES, _SETTINGS_CODES
     from xeda import records
     from xeda.flow_runner import error_codes
@@ -180,7 +180,7 @@ def test_all_literal_codes_are_in_the_inventory() -> None:
         for name, value in vars(error_codes).items()
         if name.isupper() and isinstance(value, str) and value.islower()
     )
-    for path in (Path(__file__).parent.parent / "src" / "xeda").rglob("*.py"):
+    for path in IMPL_DIR.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call):
                 for k in node.keywords:

@@ -25,9 +25,10 @@ from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_synth as vs
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
+from .source_layout import IMPL_DIR
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
-FLOWS_DIR = Path(__file__).parent.parent / "src" / "xeda" / "flows"
+FLOWS_DIR = IMPL_DIR / "flows"
 PART = "xc7a12tcsg325-1"
 BITSTREAM = "outputs/sqrt.bit"
 

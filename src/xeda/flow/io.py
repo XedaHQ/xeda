@@ -403,7 +403,7 @@ def check_io_declarations(flow_cls: Any) -> None:
         if input_declaration.equivalence and not has_normalizer(input_declaration.types):
             raise TypeError(
                 f"{flow_cls.__qualname__}'s input `{input_declaration.name}` asks for "
-                "equivalence, and not every type it accepts defines one (`xeda.equivalence`)"
+                "equivalence, and not every type it accepts defines one (`equivalence.py`)"
             )
     outputs = declared_outputs(flow_cls)
     designs = [name for name, declaration in outputs.items() if declaration.is_design]

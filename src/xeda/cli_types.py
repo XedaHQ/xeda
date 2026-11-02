@@ -8,6 +8,7 @@ import click
 from click.shell_completion import CompletionItem
 
 from .flow_catalog import flow_names
+from .package_paths import impl_module
 
 # Query commands can render documents. Execution commands take a plain `--json` option.
 OUTPUT_FORMATS = ("table", "json", "jsonl", "yaml")
@@ -253,7 +254,7 @@ class ChainChoice(FlowChoice):
             return super().shell_complete(ctx, param, incomplete)
         import sys
 
-        if "xeda.flow.flow" not in sys.modules:
+        if impl_module("flow.flow") not in sys.modules:
             from .flow_catalog import complete_builtin_request
 
             candidates = complete_builtin_request(incomplete)

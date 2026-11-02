@@ -8,11 +8,11 @@ comparisons.
 """
 
 import re
-from pathlib import Path
 
 from xeda.design import SourceType
+from .source_layout import IMPL_DIR
 
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 NAMES = {member.name for member in SourceType}
 # `x.type == "..."`, `x.type.name != '...'`, `x.type.name in ("...", "...")`
 COMPARISON = re.compile(

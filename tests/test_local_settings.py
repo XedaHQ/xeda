@@ -32,6 +32,7 @@ from .io_flows import TReadsInstalled
 from .project_files import PROJECT_FILE
 from .test_project import PART, design_file, rtl, write_project
 from .scoping import node_settings
+from .source_layout import IMPL_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -667,7 +668,7 @@ def test_only_the_command_line_and_local_settings_look_for_the_private_files():
     """The library is handed settings and a host profile. Four modules name a private file or
     ask where the profile file is: `local_settings`, the command line, and the `xeda remote`
     commands, which are command line too."""
-    source = Path(__file__).parent.parent / "src" / "xeda"
+    source = IMPL_DIR
     allowed = {"local_settings.py", "cli.py", "remote/commands.py", "remote/profile.py"}
     found = {
         str(path.relative_to(source))

@@ -21,6 +21,7 @@ from ..dataclass import (
     waveform_fields,
 )
 from ..design import LANGUAGE_TYPES, Design, SourceType
+from ..package_paths import impl_module
 from ..records import REPORTED_FAILURE, ErrorInfo
 from ..units import Bounds, Time, Unit
 from ..utils import SDF
@@ -519,7 +520,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             # API callers may have loaded only their own simulator. Include built-ins too.
             from importlib import import_module
 
-            import_module("xeda.flows")
+            import_module(impl_module("flows"))
             supported = sorted(
                 {
                     flow_class.name
