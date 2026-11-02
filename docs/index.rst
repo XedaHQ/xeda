@@ -25,6 +25,7 @@ a tour of the ways a simulation can end.
    run-directories
    remote
    machine-readable
+   api/index
    stability
    bugs
    copyright
