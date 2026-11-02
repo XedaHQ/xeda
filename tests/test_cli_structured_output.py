@@ -114,8 +114,9 @@ def test_query_command_yaml_is_parseable(command: List[str]):
 def test_list_flows_json_reports_the_name_of_each_flow():
     flows = json.loads(run_xeda("list-flows", "--json").stdout)["flows"]
     by_name = {f["name"]: f for f in flows}
-    for required in ("name", "class", "category", "dependencies", "description"):
+    for required in ("name", "category", "dependencies", "description"):
         assert all(required in f for f in flows)
+    assert not any(name in f for f in flows for name in ("class", "module", "qualified_name"))
     # a flow has one name
     assert "ghdl" not in by_name and "ghdl_sim" in by_name
     assert not any("aliases" in f for f in flows)

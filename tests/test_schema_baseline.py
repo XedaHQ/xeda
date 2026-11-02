@@ -8,7 +8,6 @@ classifier tells a break from an addition by the direction of each document.
 
 import copy
 import json
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +16,7 @@ import pytest
 import yaml
 
 from .test_cli_json_contract import SQRT, run_xeda
+from .source_layout import SCHEMAS_DIR
 from .test_public_api import tool
 
 pytestmark = pytest.mark.python_compat
@@ -41,7 +41,7 @@ def test_every_schema_is_compatible_with_the_newest_baseline() -> None:
 
 
 def test_every_document_has_a_schema_file_in_the_package() -> None:
-    shipped = resources.files("xeda.data").joinpath("schemas")
+    shipped = SCHEMAS_DIR
     for name, schema in _schemas().items():
         text = shipped.joinpath(f"{name}.schema.json").read_text(encoding="utf-8")
         assert json.loads(text) == schema

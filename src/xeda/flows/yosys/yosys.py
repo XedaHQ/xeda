@@ -22,6 +22,7 @@ from ...flow import (
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import SettingsGroup, render_flags
+from ...package_paths import impl_module
 from ...tool import NonZeroExitCode
 from ...utils import replacing_copy, replacing_file, tcl_word
 from ..ghdl import GhdlSynth
@@ -270,7 +271,7 @@ class AsicValues:
 
 def _asic_data(name: str) -> Path:
     """Return the path of the file `name` in the `data/asic` directory of the package."""
-    return Path(str(resources.files("xeda.flows.yosys").joinpath("data", "asic", name)))
+    return Path(str(resources.files(impl_module("flows.yosys")).joinpath("data", "asic", name)))
 
 
 def _changed_group_leaves(settings: "Yosys.Settings") -> List[str]:

@@ -29,9 +29,10 @@ from xeda.platforms.build import residue_problems
 from xeda.platforms.model import Number, Track, leaf_annotation, nest_leaves, normalize_leaf
 from xeda.platforms.residue import ResidueError, effective_residue
 from xeda.yaml_loader import load_yaml
+from .source_layout import IMPL_DIR
 
 REPO = Path(__file__).parent.parent
-PLATFORMS = REPO / "src" / "xeda" / "platforms"
+PLATFORMS = IMPL_DIR / "platforms"
 
 
 def residue_dict(**changes: Any) -> dict[str, Any]:

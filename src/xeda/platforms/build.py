@@ -7,8 +7,8 @@ derivation and the adapters read them, and the caller passes the results in.
 import json
 from typing import Any, Mapping, Optional
 
-from xeda.platforms.model import Layer, Located, PlatformModel, nest_leaves, normalize_leaf
-from xeda.platforms.residue import Residue, effective_residue
+from .model import Layer, Located, PlatformModel, nest_leaves, normalize_leaf
+from .residue import Residue, effective_residue
 
 __all__ = ["build_platform", "residue_problems"]
 

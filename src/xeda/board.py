@@ -11,6 +11,7 @@ from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
+from .package_paths import impl_module
 from .utils import (
     ConflictingKeys,
     expand_env_vars,
@@ -100,7 +101,7 @@ def bundled_boards() -> Dict[str, Any]:
 
     A bundled board is named in lower case, and found only by that name (`get_board_data`).
     """
-    boards = toml_loads(files("xeda.data").joinpath("boards.toml").read_text())
+    boards = toml_loads(files(impl_module("data")).joinpath("boards.toml").read_text())
     odd = [name for name in boards if name != name.lower()]
     if odd:
         raise ValueError(
@@ -237,7 +238,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         """
         if self.custom_boards_file:
             return nullcontext(self.custom_boards_file.parent / name)
-        return as_file(files("xeda.data").joinpath(name))
+        return as_file(files(impl_module("data")).joinpath(name))
 
     @staticmethod
     def _board_fpga(board_data: dict[str, Any] | None) -> FPGA | None:

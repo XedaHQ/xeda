@@ -77,7 +77,7 @@ def test_parse_csv():
 
 
 def _test_parse_reports():
-    root_dir = Path("/Users/kamyar/src/xeda/examples/vhdl/pipeline")
+    root_dir = Path(__file__).parent.parent / "examples/vhdl/pipeline"
     design = Design.load(root_dir / "pipelined_adder.yaml")
     run_path = root_dir / "xeda_run/pipelined_adder/quartus"
     settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clocks={"main_clock": {"period": "15 ns"}})  # type: ignore

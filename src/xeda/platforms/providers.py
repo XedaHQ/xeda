@@ -34,12 +34,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from xeda.flow import FlowFatalError
-from xeda.platforms.model import Located
-from xeda.platforms.residue import COMMIT, LambdapdkSource, Residue
-from xeda.proc_utils import run_process
-from xeda.utils import NonZeroExitCode, replacing_file
-from xeda.version import __version__
+from ..flow import FlowFatalError
+from ..proc_utils import run_process
+from ..utils import NonZeroExitCode, replacing_file
+from ..version import __version__
+from .model import Located
+from .residue import COMMIT, LambdapdkSource, Residue
 
 if sys.platform != "win32":
     import fcntl

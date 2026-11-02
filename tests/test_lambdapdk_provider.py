@@ -47,11 +47,12 @@ from xeda.platforms.providers import (
 from xeda.platforms.residue import ResidueError, effective_residue, selected_provider
 
 from .test_pdk_cli import quiet_git  # noqa: F401  (a fixture)
+from .source_layout import IMPL_DIR
 
 pytestmark = pytest.mark.python_compat
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 
 
 def sky130() -> Residue:

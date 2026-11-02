@@ -137,7 +137,6 @@ def test_a_leaf_entry_describes_the_leaf(listing_flow):
         "description": "Which mode to use.",
         "enum": ["a", "b"],
         "common": False,
-        "declared_by": f"{_Outer.__module__}.{_Outer.__qualname__}",
         "writes": None,
         "opaque_keys": False,
         "json_schema": mode["json_schema"],

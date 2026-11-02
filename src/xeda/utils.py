@@ -43,6 +43,7 @@ from varname import argname  # type: ignore
 
 from .dataclass import AtomicName, BaseModel, SettingText, XedaBaseModel
 from .frozen import FrozenDict, thaw
+from .package_paths import IMPL, impl_root
 from .units import Quantity
 
 __all__ = [
@@ -189,7 +190,7 @@ class ShortLoggerNames(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         shown = logging.makeLogRecord(record.__dict__)
-        shown.name = removeprefix(record.name, "xeda.")
+        shown.name = removeprefix(record.name, f"{IMPL}.")
         return self.formatter.format(shown)
 
 
@@ -446,7 +447,7 @@ def rebuild_like(container: Any, items: List[Any]) -> Any:
 #: every installation, so the identity of a run counts it relative to this directory
 #: (`$XEDA/...`), as it counts a path under the design root relative to that root. This is a
 #: module attribute, read at each call.
-XEDA_PACKAGE_ROOT = Path(__file__).absolute().parent
+XEDA_PACKAGE_ROOT = impl_root()
 
 
 def location_roots(

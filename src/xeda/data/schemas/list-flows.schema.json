@@ -123,9 +123,6 @@
           "category": {
             "type": "string"
           },
-          "class": {
-            "type": "string"
-          },
           "dependencies": {
             "items": {
               "type": "string"
@@ -212,9 +209,6 @@
             },
             "type": "array"
           },
-          "module": {
-            "type": "string"
-          },
           "name": {
             "type": "string"
           },
@@ -258,12 +252,6 @@
             },
             "type": "array"
           },
-          "qualified_name": {
-            "type": "string"
-          },
-          "settings_class": {
-            "type": "string"
-          },
           "supports_cocotb": {
             "type": "boolean"
           }
@@ -273,15 +261,11 @@
           "can_follow",
           "can_precede",
           "category",
-          "class",
           "dependencies",
           "description",
           "inputs",
-          "module",
           "name",
           "outputs",
-          "qualified_name",
-          "settings_class",
           "supports_cocotb"
         ],
         "type": "object"

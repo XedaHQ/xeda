@@ -25,9 +25,10 @@ from xeda.run_root import ensure_run_root
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
 from .scrub_utils import on_a_terminal
+from .source_layout import IMPL_DIR
 
 FLOW = "vivado_synth"
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 
 
 @pytest.fixture(autouse=True)

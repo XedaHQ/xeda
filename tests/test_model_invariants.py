@@ -26,6 +26,7 @@ from .settings_samples import (
     minimal_settings,
     with_quantity,
 )
+from .source_layout import IMPL_DIR
 
 pytestmark = pytest.mark.python_compat
 
@@ -362,7 +363,7 @@ def test_no_field_validator_reads_another_setting(cls):
 
 # ----------------------------------------------------------------- validators log nothing above DEBUG
 
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 #: the logging methods that log above DEBUG
 LOUD = {"info", "warning", "warn", "error", "exception", "critical", "fatal"}
 

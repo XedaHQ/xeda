@@ -24,9 +24,10 @@ from typing import Any, Literal, Optional
 import yaml
 from pydantic import PrivateAttr, ValidationError
 
-from xeda.dataclass import Field, XedaBaseModel, field_validator, model_validator
-from xeda.platforms.model import PlatformValues, flatten_leaves, nest_leaves, normalize_leaf
-from xeda.yaml_loader import load_yaml
+from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
+from ..package_paths import impl_module
+from ..yaml_loader import load_yaml
+from .model import PlatformValues, flatten_leaves, nest_leaves, normalize_leaf
 
 __all__ = [
     "Corners",
@@ -553,7 +554,7 @@ class Residue(XedaBaseModel):
 
 def bundled_platform_names() -> list[str]:
     """Return the names of the platforms that xeda ships a residue for, sorted."""
-    root = resources.files("xeda.platforms")
+    root = resources.files(impl_module("platforms"))
     return sorted(
         entry.name
         for entry in root.iterdir()
@@ -599,7 +600,7 @@ def load_residue(name_or_path: str | Path) -> Residue:
             f"no platform '{name_or_path}' is bundled; the bundled platforms are: {', '.join(names)}"
         )
     label = f"xeda/platforms/{name_or_path}/platform.yaml"
-    directory = resources.files("xeda.platforms") / name_or_path
+    directory = resources.files(impl_module("platforms")) / name_or_path
     with resources.as_file(directory / "platform.yaml") as p:
         residue = _read(p, label)
     residue._package_directory = Path(str(directory))

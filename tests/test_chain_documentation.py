@@ -42,6 +42,7 @@ from xeda.introspect import (
 from . import tool_utils
 from .flow_registry import is_product_flow
 from .plan_documents import plan_nodes
+from .source_layout import AGENT_DIR
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -49,7 +50,7 @@ ROOT = Path(__file__).parent.parent
 FLOWS_RST = ROOT / "docs/flows.rst"
 DESIGN_FILE_RST = ROOT / "docs/design-file.rst"
 MACHINE_READABLE_RST = ROOT / "docs/machine-readable.rst"
-AGENT = ROOT / "src/xeda/data/agent"
+AGENT = AGENT_DIR
 SKILL_MD = AGENT / "SKILL.md"
 DESIGN_FILE_MD = AGENT / "references/design-file.md"
 

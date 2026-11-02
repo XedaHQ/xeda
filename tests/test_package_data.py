@@ -1,4 +1,4 @@
-"""Every tracked file under `src/xeda/` reaches the wheel: it is a module of a package, a file that
+"""Every tracked file of the package `xeda` reaches the wheel: it is a module of a package, a file that
 a glob of `[tool.setuptools.package-data]` matches, or an entry of `UNSHIPPED` with a reason.
 `tools/check_wheel.py` builds the wheel and compares its real contents."""
 

@@ -16,6 +16,7 @@ from importlib_resources import as_file, files
 
 from .flow_runner import get_flow_class
 from .introspect import flows_info, results_info, settings_info
+from .package_paths import impl_module
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def skill_source_dir() -> Iterator[Path]:
     name something that no longer exists. The caller must keep the context open for as long as it
     reads the files.
     """
-    with as_file(files("xeda.data").joinpath("agent")) as path:
+    with as_file(files(impl_module("data")).joinpath("agent")) as path:
         yield Path(path)
 
 

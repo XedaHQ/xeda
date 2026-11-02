@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 
 import pytest
+from .source_layout import AGENT_DIR
 
 ROOT = Path(__file__).parent.parent
 DOCUMENTS = sorted(
@@ -21,7 +22,7 @@ DOCUMENTS = sorted(
         ROOT / "README.md",
         *ROOT.glob("docs/**/*.rst"),
         *ROOT.glob(".claude/skills/xeda/**/*.md"),
-        *ROOT.glob("src/xeda/data/agent/**/*.md"),
+        *AGENT_DIR.glob("**/*.md"),
         *ROOT.glob("examples/**/*.md"),
     ]
 )

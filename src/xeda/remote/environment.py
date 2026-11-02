@@ -19,8 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import BinaryIO, Optional, Sequence
 
-import xeda
-
+from ..package_paths import package_root
 from ..version import __version__
 from .constants import LAYOUT, UV_RELEASES, UV_VERSION
 from .errors import RemoteDependencyError, RemoteProvisionError
@@ -106,7 +105,7 @@ def _package_files(package_dir: Path) -> list[tuple[str, Path]]:
 
 @lru_cache(maxsize=1)
 def _installed_snapshot() -> CodeSnapshot:
-    return _snapshot_of(Path(xeda.__file__).parent)
+    return _snapshot_of(package_root())
 
 
 def _snapshot_of(package_dir: Path) -> CodeSnapshot:

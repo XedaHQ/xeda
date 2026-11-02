@@ -21,8 +21,9 @@ from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
+from .source_layout import IMPL_DIR
 
-TEMPLATES = Path(__file__).parent.parent / "src" / "xeda" / "flows" / "vivado" / "templates"
+TEMPLATES = IMPL_DIR / "flows" / "vivado" / "templates"
 INCLUDE = re.compile(r"\{%-?\s*include\s+['\"]([\w.]+)['\"]\s*-?%\}")
 PROC = re.compile(r"^\s*proc\s+(\w+)", re.M)
 

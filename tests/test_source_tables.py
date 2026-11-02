@@ -31,8 +31,9 @@ from xeda.flows import GhdlSim, Nvc
 from xeda.project import Project
 
 from .tool_utils import require_ghdl, require_nvc
+from .source_layout import IMPL_DIR
 
-SRC = Path(__file__).parent.parent / "src" / "xeda"
+SRC = IMPL_DIR
 
 #: a key a source table does not take -> what the refusal says
 REFUSED = {

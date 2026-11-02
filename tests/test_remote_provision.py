@@ -15,6 +15,7 @@ from typing import List, Optional
 
 import pytest
 
+from xeda.package_paths import impl_module
 from xeda.remote import provision
 from xeda.remote.constants import UV_VERSION
 from xeda.remote.environment import (
@@ -63,11 +64,14 @@ print(json.dumps({"xeda": xeda.__file__, "argv": sys.argv[1:], "environ": dict(o
 @pytest.fixture
 def snapshot(tmp_path: Path) -> CodeSnapshot:
     """A snapshot of a small package named `xeda` whose agent prints what it sees."""
-    package = tmp_path / "snapshot-source" / "xeda"
-    (package / "remote").mkdir(parents=True)
-    (package / "__init__.py").write_text("")
-    (package / "remote" / "__init__.py").write_text("")
-    (package / "remote" / "agent.py").write_text(AGENT)
+    *packages, module = impl_module("remote.agent").split(".")
+    package = tmp_path / "snapshot-source" / packages[0]
+    directory = package.parent
+    for name in packages:
+        directory = directory / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "__init__.py").write_text("")
+    (directory / f"{module}.py").write_text(AGENT)
     return code_snapshot(package)
 
 

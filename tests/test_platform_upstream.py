@@ -19,6 +19,7 @@ from xeda.platforms.upstream import (
     read_open_pdks_config,
     read_orfs_config_mk,
 )
+from .source_layout import IMPL_DIR
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
 NANGATE45_CONFIG = Path(
@@ -989,7 +990,7 @@ def test_the_config_mk_of_the_plain_platforms_still_reads(platform: str) -> None
 
 
 def test_the_module_starts_no_process_and_loads_no_tcl_interpreter() -> None:
-    source = (Path(__file__).parent.parent / "src/xeda/platforms/upstream.py").read_text()
+    source = (IMPL_DIR / "platforms/upstream.py").read_text()
     for word in ("tkinter", "subprocess", "os.system", "Popen", "eval(", "exec("):
         assert word not in source, word
 

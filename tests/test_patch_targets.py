@@ -418,7 +418,7 @@ def _read_in_the_product(module: str, name: str) -> str | None:
             source,
             module,
             name,
-            f"src/xeda/{path.relative_to(SOURCE)}",
+            path.relative_to(SOURCE).as_posix(),
             _package_of(path),
             top=False,
         )

@@ -10,9 +10,10 @@ import tomllib
 from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path
+from .source_layout import IMPL_DIR
 
 REPO = Path(__file__).parent.parent
-ASSETS = REPO / "src" / "xeda" / "flows" / "yosys" / "data" / "asic"
+ASSETS = IMPL_DIR / "flows" / "yosys" / "data" / "asic"
 ORFS_COMMIT = "6b305a712966be72d8908695c04398acdbe273ca"
 ORFS_SCRIPTS = (
     "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts/blob/"
@@ -89,7 +90,7 @@ def test_the_notice_names_librelane_its_file_its_commit_and_holds_the_apache_lic
 
 
 def test_the_module_that_composes_the_strategies_names_its_source_and_its_license() -> None:
-    module = (REPO / "src" / "xeda" / "flows" / "yosys" / "abc_strategies.py").read_text()
+    module = (IMPL_DIR / "flows" / "yosys" / "abc_strategies.py").read_text()
     assert LIBRELANE_FILE in module and LIBRELANE_COMMIT in module
     assert "Apache License 2.0" in module and "NOTICE.md" in module
     assert "Efabless Corporation" in module

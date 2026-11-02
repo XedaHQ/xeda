@@ -23,6 +23,7 @@ from typing import Any, ParamSpec, TypeVar
 import pytest
 
 import xeda
+from .source_layout import AGENT_DIR
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_MODULES = ("xeda", "xeda.errors", "xeda.introspect")
@@ -41,7 +42,7 @@ RETIRED = {
 DOCUMENTS = [
     *sorted((ROOT / "docs").glob("*.rst")),
     ROOT / ".claude/skills/xeda/SKILL.md",
-    ROOT / "src/xeda/data/agent/SKILL.md",
+    AGENT_DIR / "SKILL.md",
 ]
 EXAMPLES = sorted((ROOT / "examples").rglob("*.py"))
 NOTEBOOKS = sorted((ROOT / "notebooks").glob("*.ipynb"))

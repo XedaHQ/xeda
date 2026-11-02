@@ -36,6 +36,7 @@ from xeda.flow_runner.trace import as_recorded
 from .io_flows import TPlace, TTaker
 from .test_dse_run import TDseLeaf, _DeclaredOptimizer
 from .scoping import node_settings
+from .source_layout import IMPL_DIR
 
 PART = "LFE5U-25F-6BG256C"
 OTHER_PART = "LFE5U-85F-6BG381C"
@@ -457,7 +458,7 @@ def test_one_constant_names_each_origin():
     (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`, `HOST_PROFILE_ORIGIN`,
     `USER_CONFIG_ORIGIN`, `PROJECT_LOCAL_ORIGIN`): no
     other module spells it out."""
-    source = Path(__file__).parent.parent / "src" / "xeda"
+    source = IMPL_DIR
     spelled = [
         f"{path.relative_to(source)}:{number}"
         for path in sorted(source.rglob("*.py"))

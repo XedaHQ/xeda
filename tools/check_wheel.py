@@ -36,7 +36,7 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
-#: A tracked file under `src/xeda/` that the wheel does not hold, with the reason. A file that is
+#: A tracked file of the package `xeda` that the wheel does not hold, with the reason. A file that is
 #: not here must be in the wheel.
 UNSHIPPED: dict[str, str] = {}
 
@@ -56,8 +56,8 @@ class CheckFailed(Exception):
 
 
 def tracked_files() -> list[str]:
-    """Return the tracked files under `src/xeda/` that exist, as paths relative to `src/`
-    (`xeda/flows/openroad/data/def2stream.py`), sorted."""
+    """Return the tracked files of the package `xeda` that exist, as paths relative to `src/`
+    (`xeda/__init__.py`), sorted."""
     listing = subprocess.run(
         ["git", "-C", str(ROOT), "ls-files", "-z", "--", "src/xeda"],
         check=True,
@@ -111,7 +111,7 @@ def shipped_by_setuptools(name: str, files: Sequence[str]) -> bool:
 
 
 def expected_manifest() -> list[str]:
-    """Return the files the wheel must hold: every tracked file under `src/xeda/` that is not in
+    """Return the files the wheel must hold: every tracked file of the package that is not in
     `UNSHIPPED`. Python files count too: some are data, such as the KLayout script
     `flows/openroad/data/def2stream.py`."""
     return [name for name in tracked_files() if name not in UNSHIPPED]
@@ -283,6 +283,14 @@ def resource_of(name: str, packages: set[str]) -> Any:
     return resources.files(owner.replace("/", ".")).joinpath(path.relative_to(owner).as_posix())
 
 
+def impl_directory() -> str:
+    """Return the directory of the implementation package, relative to `src/`, as the wheel lists
+    it. Only the installed package knows it."""
+    from xeda.package_paths import IMPL
+
+    return IMPL.replace(".", "/")
+
+
 def check_resources(expected: list[str]) -> None:
     """Read every data file of the wheel through `importlib.resources`."""
     packages = package_directories(expected)
@@ -330,7 +338,7 @@ def check_templates(expected: list[str]) -> None:
                         f"is not loaded: {error!r}"
                     )
                 count += 1
-    flows_with_templates = {d for d in templates if d.startswith("xeda/flows/")}
+    flows_with_templates = {d for d in templates if d.startswith(f"{impl_directory()}/flows/")}
     if not count or not flows_with_templates:
         raise CheckFailed("no template was loaded")
 
@@ -343,14 +351,16 @@ def check_data_users(expected: list[str]) -> None:
     from xeda.board import bundled_boards
     from xeda.flow_catalog import flow_names
     from xeda.platforms.residue import bundled_platform_names, load_residue
+    from xeda.package_paths import impl_module, schemas_dir
     from xeda.remote.provision import boot_script
 
+    impl = impl_directory()
     if not bundled_boards():
-        raise CheckFailed("xeda/data/boards.toml holds no board")
+        raise CheckFailed("the board database boards.toml holds no board")
     wanted = sorted(
-        PurePosixPath(n).parts[2]
+        PurePosixPath(n).parent.name
         for n in expected
-        if n.startswith("xeda/platforms/") and n.endswith("/platform.yaml")
+        if n.startswith(f"{impl}/platforms/") and n.endswith("/platform.yaml")
     )
     if bundled_platform_names() != wanted:
         raise CheckFailed(
@@ -361,28 +371,31 @@ def check_data_users(expected: list[str]) -> None:
     with skill_source_dir() as skill:
         for name in expected:
             if (
-                name.startswith("xeda/data/agent/")
-                and not (skill / name.removeprefix("xeda/data/agent/")).is_file()
+                name.startswith(f"{impl}/data/agent/")
+                and not (skill / name.removeprefix(f"{impl}/data/agent/")).is_file()
             ):
                 raise CheckFailed(f"the agent skill lacks {name}")
     if not flow_names():
         raise CheckFailed("the flow catalog lists no flow")
     for name in (n for n in expected if n.startswith("xeda/data/schemas/")):
-        schema = json.loads(resources.files("xeda.data").joinpath(name[10:]).read_text("utf-8"))
+        schema = json.loads((schemas_dir() / PurePosixPath(name).name).read_text("utf-8"))
         if "$schema" not in schema:
             raise CheckFailed(f"{name} is not a JSON Schema")
     # The path that `flows/openroad/final.py` hands to KLayout.
-    script = Path(str(resources.files("xeda.flows.openroad").joinpath("data", "def2stream.py")))
+    script = Path(
+        str(resources.files(impl_module("flows.openroad")).joinpath("data", "def2stream.py"))
+    )
     if not script.is_file():
-        raise CheckFailed("xeda/flows/openroad/data/def2stream.py is not in the wheel")
+        raise CheckFailed(f"{impl}/flows/openroad/data/def2stream.py is not in the wheel")
     if "agent" not in boot_script():
-        raise CheckFailed("xeda/remote/bootstrap.sh is not the bootstrap script")
+        raise CheckFailed(f"{impl}/remote/bootstrap.sh is not the bootstrap script")
 
 
 def check_remote_agent() -> None:
     """Start the agent from a code snapshot of the installed package, as the remote host does:
     the interpreter of the environment, `PYTHONPATH` set to the snapshot only, an empty working
     directory. Send the first request of the protocol and expect the reply."""
+    from xeda.package_paths import impl_module
     from xeda.remote.environment import code_snapshot, write_code_tar
     from xeda.remote.manifest import build_manifest, write_tar
     from xeda.remote.frames import JSON, FrameWriter, decode_json, read_frame, skip_to_magic
@@ -409,7 +422,14 @@ def check_remote_agent() -> None:
         stderr_path = base / "agent.stderr"
         with stderr_path.open("wb") as stderr:
             process = subprocess.Popen(
-                [sys.executable, "-m", "xeda.remote.agent", "session", str(root), WORKSPACE_KEY],
+                [
+                    sys.executable,
+                    "-m",
+                    impl_module("remote.agent"),
+                    "session",
+                    str(root),
+                    WORKSPACE_KEY,
+                ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=stderr,

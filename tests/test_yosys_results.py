@@ -309,7 +309,7 @@ def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
         "`xilinx_lut_footprint` reports no footprint for and nobody has reviewed. Decide for "
         "each one and record the decision:\n"
         "  - LUT-based (a LUT variant, a distributed RAM or ROM, a shift register): give it a "
-        "footprint in `XILINX_LUT_FOOTPRINT` (src/xeda/flows/yosys/yosys_fpga.py) and a case "
+        "footprint in `XILINX_LUT_FOOTPRINT` (`yosys_fpga.py`) and a case "
         "in `test_xilinx_lut_resource_footprint`. Left unclassified it counts as no LUT at "
         "all, so every design using it under-reports its LUT count.\n"
         "  - not LUT-based (a flip-flop, carry chain, block RAM, DSP, I/O or clock resource): "

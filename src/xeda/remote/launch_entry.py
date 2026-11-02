@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..dataclass import XedaBaseModel
+from ..package_paths import impl_module
 from ..utils import replacing_file
 from .errors import RemoteError, RemoteIncompatible
 
@@ -477,7 +478,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     action is to take the locks from the socket that `argv` names."""
     arguments = list(sys.argv[1:] if argv is None else argv)
     if len(arguments) != 2 or not arguments[1].isdecimal():
-        write_stderr("usage: python -m xeda.remote.launch_entry <launch dir> <hand-over fd>")
+        write_stderr(
+            f"usage: python -m {impl_module('remote.launch_entry')} <launch dir> <hand-over fd>"
+        )
         return 2
     launch_dir = Path(arguments[0])
     try:

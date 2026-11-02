@@ -20,12 +20,17 @@ from xeda.flow_runner.chains import (  # noqa: E402
     validate_chain,
 )
 from xeda.introspect import all_flow_classes, settings_completion_info  # noqa: E402
+from xeda.package_paths import impl_module, impl_root  # noqa: E402
 
 
 def builtin_classes() -> list[type[Flow]]:
     """Return the built-in flows, ordered by canonical name."""
     return sorted(
-        (cls for cls in all_flow_classes() if cls.__module__.startswith("xeda.flows.")),
+        (
+            cls
+            for cls in all_flow_classes()
+            if cls.__module__.startswith(impl_module("flows") + ".")
+        ),
         key=lambda cls: cls.name,
     )
 
@@ -79,7 +84,7 @@ def main() -> int:
         "--check", action="store_true", help="fail if the checked-in catalog is stale"
     )
     args = parser.parse_args()
-    target = ROOT / "src" / "xeda" / "flow_catalog.json"
+    target = impl_root() / "flow_catalog.json"
     generated = render()
     if args.check:
         if not target.exists() or target.read_text(encoding="utf-8") != generated:

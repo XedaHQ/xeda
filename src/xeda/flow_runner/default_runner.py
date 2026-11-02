@@ -88,6 +88,7 @@ from ..errors import FlowNotFoundError as PublicFlowNotFoundError
 from ..errors import ProjectError, StalePlanError
 from ..generation import GenerationError
 from ..outcomes import Result
+from ..package_paths import impl_module
 from ..project import Project
 from ..types import UNSET, Unset
 from ..xedaproject import PROJECT_FILE_NAMES
@@ -249,8 +250,9 @@ class _LauncherModule(types.ModuleType):
         moved = MOVED_NAMES.get(name)
         if moved is not None:
             raise AttributeError(
-                f"`{name}` is defined in `xeda.flow_runner.{moved[0]}.{moved[1]}`, and nothing in "
-                f"`default_runner` looks it up: replace it on `xeda.flow_runner.{moved[0]}`"
+                f"`{name}` is defined in `{impl_module('flow_runner')}.{moved[0]}.{moved[1]}`, and "
+                f"nothing in `default_runner` looks it up: replace it on "
+                f"`{impl_module('flow_runner')}.{moved[0]}`"
             )
 
 
@@ -344,7 +346,7 @@ def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
 
 
 def get_flow_class(
-    flow_name: str, module_name: str = "xeda.flows", package: str = __package__ or "xeda"
+    flow_name: str, module_name: str = impl_module("flows"), package: str = __package__ or "xeda"
 ) -> Type[Flow]:
     """Return the registered flow whose name is `flow_name`.
 
