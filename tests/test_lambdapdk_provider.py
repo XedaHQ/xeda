@@ -20,18 +20,18 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.flow import FlowSettingsException
-from xeda.flow.asic import AsicPlatformSettings, check_platform_settings
-from xeda.platforms import (
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow.asic import AsicPlatformSettings, check_platform_settings
+from xeda._internal.platforms import (
     PdkNotInstalled,
     Residue,
     build_platform,
     load_residue,
     locate,
 )
-from xeda.platforms.derive import derive
-from xeda.platforms.providers import (
+from xeda._internal.platforms.derive import derive
+from xeda._internal.platforms.providers import (
     GIT_PROVIDERS,
     LAMBDAPDK_URL,
     PROVIDERS,
@@ -44,11 +44,11 @@ from xeda.platforms.providers import (
     platform_directory,
     resolve_corner,
 )
-from xeda.platforms.residue import ResidueError, effective_residue, selected_provider
+from xeda._internal.platforms.residue import ResidueError, effective_residue, selected_provider
 
 from .test_pdk_cli import quiet_git  # noqa: F401  (a fixture)
 from .source_layout import IMPL_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -678,7 +678,7 @@ def test_a_link_in_the_store_stops_the_install(tmp_path, repository):
 
 
 def test_a_receipt_that_cannot_be_written_publishes_nothing(tmp_path, repository, monkeypatch):
-    from xeda.platforms import providers
+    from xeda._internal.platforms import providers
 
     def fail(*arguments: Any, **keywords: Any) -> Path:
         raise OSError("disk full")
@@ -723,7 +723,7 @@ def snapshot(root: Path) -> dict[str, bytes]:
 def test_both_git_providers_share_a_store_without_touching_each_other(
     tmp_path, repository, quiet_git, monkeypatch, first  # noqa: F811
 ):
-    from xeda.platforms.providers import orfs_checkout_directory
+    from xeda._internal.platforms.providers import orfs_checkout_directory
 
     from .test_pdk_cli import Upstream
 
@@ -755,7 +755,7 @@ def test_both_git_providers_share_a_store_without_touching_each_other(
 
 
 def test_the_default_url_of_the_other_git_provider_is_unchanged():
-    from xeda.platforms.providers import ORFS_URL, git_url
+    from xeda._internal.platforms.providers import ORFS_URL, git_url
 
     assert git_url("orfs") == ORFS_URL and git_url("lambdapdk") == LAMBDAPDK_URL
     with pytest.raises(ResidueError):

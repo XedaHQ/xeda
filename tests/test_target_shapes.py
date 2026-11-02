@@ -23,14 +23,14 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.dataclass import shape_problems
-from xeda.design import DesignValidationError
-from xeda.flow import FlowSettingsError
-from xeda.frozen import thaw
-from xeda.flow_runner.settings_layers import compose_flow_settings
-from xeda.flows import GhdlSim, VivadoSynth, Yosys
-from xeda.utils import json_encodable, settings_to_dict
-from xeda.project import Project
+from xeda._internal.dataclass import shape_problems
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.frozen import thaw
+from xeda._internal.flow_runner.settings_layers import compose_flow_settings
+from xeda._internal.flows import GhdlSim, VivadoSynth, Yosys
+from xeda._internal.utils import json_encodable, settings_to_dict
+from xeda._internal.project import Project
 
 from .settings_samples import PROBES
 from .test_targets import BASE, RESOURCES, flows_as_read

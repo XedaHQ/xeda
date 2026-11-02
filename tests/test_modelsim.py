@@ -9,17 +9,17 @@ from typing import Optional
 
 import pytest
 
-import xeda.tool
+import xeda._internal.tool
 from xeda import Design
-from xeda.design import DesignValidationError
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Modelsim
-from xeda.flows.modelsim import ModelsimTool
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Modelsim
+from xeda._internal.flows.modelsim import ModelsimTool
 
 from .tool_utils import fake_calls, use_fake_tools
 from .tool_utils import HANG_GUARD
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="tclsh is needed to run the TCL scripts"
@@ -132,7 +132,9 @@ def test_vsim_version_is_parsed() -> None:
 def test_the_default_image_runs_vsim_on_amd64(monkeypatch, tmp_path) -> None:
     """Not run: the `docker run` command is captured. The image is amd64-only."""
     ran = []
-    monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
+    monkeypatch.setattr(
+        xeda._internal.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd])
+    )
     tool = ModelsimTool(version_flag=None)
     tool.dockerized = True
     tool.run("-batch", "-do", "do run.tcl", cwd=tmp_path)
@@ -196,7 +198,7 @@ def test_modelsim_questa_runtime_evidence(
 @needs_tclsh
 @pytest.mark.parametrize("missing", ["modelsim_runtime.log", "modelsim_end.txt"])
 def test_modelsim_requires_both_current_outputs(missing, tmp_path, monkeypatch):
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
@@ -204,7 +206,7 @@ def test_modelsim_requires_both_current_outputs(missing, tmp_path, monkeypatch):
             (tool.working_directory() / missing).unlink(missing_ok=True)
         return result
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None and not flow.succeeded
 
@@ -220,7 +222,7 @@ def test_modelsim_requires_both_current_outputs(missing, tmp_path, monkeypatch):
     ],
 )
 def test_modelsim_rejects_malformed_checkpoints(checkpoint, tmp_path, monkeypatch):
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
@@ -228,7 +230,7 @@ def test_modelsim_rejects_malformed_checkpoints(checkpoint, tmp_path, monkeypatc
             (tool.working_directory() / "modelsim_end.txt").write_text(checkpoint)
         return result
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None and not flow.succeeded
 
@@ -268,7 +270,7 @@ def test_modelsim_defaults_require_error_level_evidence():
 @needs_tclsh
 @pytest.mark.parametrize("mode", ["checkpoint_reason", "transcript_reason", "precision", "time"])
 def test_modelsim_checkpoint_must_match_native_observations(mode, tmp_path, monkeypatch):
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
@@ -285,7 +287,7 @@ def test_modelsim_checkpoint_must_match_native_observations(mode, tmp_path, monk
                 record.write_text(record.read_text().replace("\n0\n", "\nnonsense\n", 1))
         return result
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None and not flow.succeeded
 
@@ -346,11 +348,11 @@ def test_modelsim_measured_2020_1_status_spellings(case, passes, tmp_path, monke
 @needs_tclsh
 @pytest.mark.parametrize("path", ["modelsim_runtime.log", "modelsim_end.txt"])
 def test_modelsim_refuses_links_created_by_analysis(path, tmp_path, monkeypatch):
-    from xeda.utils import tcl_word
+    from xeda._internal.utils import tcl_word
 
     outside = tmp_path / "outside.log"
     outside.write_text("keep this data\n")
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
 
     def execute(tool, executable, *args, **kwargs):
         if "-do" in args:
@@ -364,7 +366,7 @@ def test_modelsim_refuses_links_created_by_analysis(path, tmp_path, monkeypatch)
             )
         return original(tool, executable, *args, **kwargs)
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch, record_calls=False)
     assert flow is not None and not flow.succeeded
     assert outside.read_text() == "keep this data\n"
@@ -401,7 +403,7 @@ def test_fake_vsim_batch_requires_explicit_transcript(capture, tmp_path, monkeyp
 @pytest.mark.parametrize("state", ["vhdl_stop", "verilog_stop", "fatal"])
 def test_modelsim_launches_batch_with_a_logfile(state, tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", state)
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
     launched = []
 
     def execute(tool, executable, *args, **kwargs):
@@ -409,7 +411,7 @@ def test_modelsim_launches_batch_with_a_logfile(state, tmp_path, monkeypatch):
             launched.append(args)
         return original(tool, executable, *args, **kwargs)
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None
     (args,) = launched
@@ -423,7 +425,7 @@ def test_modelsim_launches_batch_with_a_logfile(state, tmp_path, monkeypatch):
 def test_modelsim_bounds_native_stop_evidence(state, tmp_path, monkeypatch):
     """Load/after-runtime stops cannot classify a runtime break or manufacture an end."""
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", state)
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
@@ -438,7 +440,7 @@ def test_modelsim_bounds_native_stop_evidence(state, tmp_path, monkeypatch):
             log.write_text(outside + log.read_text() + outside)
         return result
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None and flow.succeeded is (state == "vhdl_stop")
     assert flow.results["sim.errors"] == (1 if state == "verilog_stop" else 0)
@@ -448,7 +450,7 @@ def test_modelsim_bounds_native_stop_evidence(state, tmp_path, monkeypatch):
 @pytest.mark.parametrize("replacement", ["other.vhd", "tb.v", None])
 def test_modelsim_unknown_stop_requires_a_known_vhdl_break(replacement, tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_MODELSIM_STATE", "vhdl_stop")
-    original = xeda.tool.Tool.execute
+    original = xeda._internal.tool.Tool.execute
 
     def execute(tool, executable, *args, **kwargs):
         result = original(tool, executable, *args, **kwargs)
@@ -463,7 +465,7 @@ def test_modelsim_unknown_stop_requires_a_known_vhdl_break(replacement, tmp_path
             log.write_text(text)
         return result
 
-    monkeypatch.setattr(xeda.tool.Tool, "execute", execute)
+    monkeypatch.setattr(xeda._internal.tool.Tool, "execute", execute)
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None and not flow.succeeded
     assert flow.results["sim.ended_by"] == "unknown"

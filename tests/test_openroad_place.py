@@ -15,22 +15,22 @@ from typing import Any, get_args
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.platforms import PdkNotInstalled
-from xeda.units import Length, Time
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.openroad import OpenroadPlace, base
-from xeda.flows.openroad.base import (
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.platforms import PdkNotInstalled
+from xeda._internal.units import Length, Time
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.openroad import OpenroadPlace, base
+from xeda._internal.flows.openroad.base import (
     fraction_of,
     to_lib_time,
     to_micrometers,
     to_nanometers,
     to_seconds,
 )
-from xeda.flows.openroad.place_groups import PresizeMode, SwapTarget
-from xeda.flows.openroad.place import EffectivePlace, effective
-from xeda.flows.openroad.place_pdn import PdnStripe
-from xeda.platforms.model import CellPort, Pdn, Track
+from xeda._internal.flows.openroad.place_groups import PresizeMode, SwapTarget
+from xeda._internal.flows.openroad.place import EffectivePlace, effective
+from xeda._internal.flows.openroad.place_pdn import PdnStripe
+from xeda._internal.platforms.model import CellPort, Pdn, Track
 
 from .record_documents import assert_metrics_recorded
 from .openroad_utils import (
@@ -380,7 +380,7 @@ def test_a_def_file_that_does_not_exist_is_refused_naming_the_path(tmp_path):
 
 
 def test_a_def_file_is_an_input_of_the_run(tmp_path):
-    from xeda.flow_runner.trace_inputs import setting_files
+    from xeda._internal.flow_runner.trace_inputs import setting_files
 
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
@@ -620,7 +620,7 @@ def test_a_polygon_is_not_refused_with_the_power_grid_or_the_concurrent_pins(tmp
         "io.flow=concurrent",
         typed={"floorplan.die_area": POLYGON_DIE, "floorplan.core_area": POLYGON_CORE},
     )
-    from xeda.flows.openroad.place_groups import FloorplanGroup
+    from xeda._internal.flows.openroad.place_groups import FloorplanGroup
 
     for leaf in ("die_area", "core_area"):
         text = FloorplanGroup.model_fields[leaf].description or ""
@@ -753,7 +753,7 @@ def test_the_settings_replace_the_layers_and_the_capacity_of_the_platform(tmp_pa
 
 
 def test_one_capacity_of_the_platform_covers_the_signal_layers(tmp_path):
-    from xeda.platforms.model import Routing
+    from xeda._internal.platforms.model import Routing
 
     routing = Routing(min_layer="m2", max_layer="m4", clock_min_layer="m3", layer_adjustment=0.4)
     body = stage(render(place_flow(tmp_path, model={"routing": routing})), "xeda_floorplan")
@@ -761,7 +761,7 @@ def test_one_capacity_of_the_platform_covers_the_signal_layers(tmp_path):
 
 
 def test_a_platform_without_layers_writes_no_layer_command(tmp_path):
-    from xeda.platforms.model import Routing
+    from xeda._internal.platforms.model import Routing
 
     body = stage(render(place_flow(tmp_path, model={"routing": Routing()})), "xeda_floorplan")
     assert not [line for line in body if "layer_adjustment" in line or "routing_layers" in line]
@@ -2424,7 +2424,7 @@ def test_a_malformed_cluster_is_refused(tmp_path, clusters):
 
 def test_the_placement_has_no_free_text_flags(tmp_path):
     """Every flag of `global_placement` that the flow does not own is a typed setting."""
-    from xeda.flows.openroad.place_groups import GlobalPlacementGroup
+    from xeda._internal.flows.openroad.place_groups import GlobalPlacementGroup
 
     assert "extra_args" not in GlobalPlacementGroup.model_fields
     assert not GlobalPlacementGroup.EXTRA_FLAGS
@@ -2885,7 +2885,7 @@ def test_only_the_given_options_of_the_global_swap_are_passed(tmp_path):
 
 
 def test_the_legalization_has_no_free_text_flags(tmp_path):
-    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+    from xeda._internal.flows.openroad.place_groups import DetailedPlacementGroup
 
     assert "extra_args" not in DetailedPlacementGroup.model_fields
     assert not DetailedPlacementGroup.EXTRA_FLAGS
@@ -2919,7 +2919,7 @@ def test_an_illegal_placement_stops_the_flow_unless_the_settings_say_to_report_i
 
 
 def test_the_check_of_the_legalization_defaults_to_the_one_of_openroad_flow_scripts():
-    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+    from xeda._internal.flows.openroad.place_groups import DetailedPlacementGroup
 
     assert DetailedPlacementGroup().check == "fail"
     assert "OpenROAD-flow-scripts" in (
@@ -3073,7 +3073,7 @@ def test_the_excluded_parts_of_the_edges_are_set_before_the_pins_are_placed(tmp_
     ],
 )
 def test_an_interval_is_written_in_digits_only(begin, end, text):
-    from xeda.flows.openroad.place_groups import EdgeInterval
+    from xeda._internal.flows.openroad.place_groups import EdgeInterval
 
     assert EdgeInterval(edge="top", begin=begin, end=end).as_region() == f"top:{text}"
 
@@ -3577,7 +3577,7 @@ def test_every_user_text_reaches_the_script_through_a_filter():
 
 
 def test_the_flow_is_an_asic_synthesis_flow_that_reads_a_netlist_and_sdc_files():
-    from xeda.design import SourceType
+    from xeda._internal.design import SourceType
 
     assert OpenroadPlace.design_parts == frozenset({"rtl"})
     assert OpenroadPlace.design_source_types == frozenset(
@@ -3988,7 +3988,7 @@ def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, m
 
 
 def test_the_results_are_described():
-    from xeda.flow import COMMON_METRICS
+    from xeda._internal.flow import COMMON_METRICS
 
     described = OpenroadPlace.results_description
     for key in (

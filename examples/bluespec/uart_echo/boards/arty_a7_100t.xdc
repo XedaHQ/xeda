@@ -2,7 +2,7 @@
 #
 # Port names are those of the top module: CLK, rxd, txd, led[3:0], sw[3:0], btn.
 # Pins and standards are from the Digilent master XDC (Arty-A7-100-Master.xdc) and match
-# src/xeda/data/boards/arty/arty_a7_100t.xdc. Only the port names differ.
+# src/xeda/_internal/data/boards/arty/arty_a7_100t.xdc. Only the port names differ.
 #
 # Clock: there is no create_clock here on purpose. The clock port of the design (`rtl.clocks`) and
 # the flow setting `clock.period: 10 ns` write the constraint, and a clock with two

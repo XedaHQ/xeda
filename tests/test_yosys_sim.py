@@ -6,10 +6,10 @@ import json
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.yosys.cxx_rtl import YosysSim
-from xeda.units import Time
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.yosys.cxx_rtl import YosysSim
+from xeda._internal.units import Time
 
 from .tool_utils import require_c_toolchain, require_yosys
 
@@ -94,8 +94,8 @@ def test_driver_timeout_preserves_output_and_names_limit(tmp_path):
 
 @pytest.mark.parametrize("stop", ["0 ns", "10 ns", "10ns"])
 def test_driver_stop_time_is_rejected_before_compilation(tmp_path, monkeypatch, stop):
-    from xeda.flow import FlowSettingsException
-    from xeda.flows.yosys.common import YosysBase
+    from xeda._internal.flow import FlowSettingsException
+    from xeda._internal.flows.yosys.common import YosysBase
 
     called = []
     monkeypatch.setattr(YosysBase, "init", lambda self: called.append(True))
@@ -106,7 +106,7 @@ def test_driver_stop_time_is_rejected_before_compilation(tmp_path, monkeypatch, 
 
 
 def test_driver_settings_keep_the_simflow_diamond(tmp_path):
-    from xeda.flow import SimFlow
+    from xeda._internal.flow import SimFlow
 
     settings = YosysSim.Settings(timeout="2 s", fail_severity="failure", vcd=True)
     assert isinstance(settings, SimFlow.Settings)
@@ -175,8 +175,8 @@ def test_frontend_finish_error_is_not_driver_evidence(tmp_path):
     ],
 )
 def test_driver_missing_malformed_or_stale_monitor_fails(tmp_path, monkeypatch, record):
-    from xeda.tool import Tool
-    from xeda.proc_utils import run_process
+    from xeda._internal.tool import Tool
+    from xeda._internal.proc_utils import run_process
     import sys
 
     design = _driver_design(tmp_path)
@@ -210,8 +210,8 @@ def test_driver_missing_malformed_or_stale_monitor_fails(tmp_path, monkeypatch, 
 
 @pytest.mark.parametrize("events", [None, "partial", '{"kind":"unexpected"}\n'])
 def test_driver_missing_or_invalid_events_fail(tmp_path, monkeypatch, events):
-    from xeda.proc_utils import run_process
-    from xeda.tool import Tool
+    from xeda._internal.proc_utils import run_process
+    from xeda._internal.tool import Tool
     import sys
 
     design = _driver_design(tmp_path)
@@ -236,8 +236,8 @@ def test_driver_missing_or_invalid_events_fail(tmp_path, monkeypatch, events):
 
 
 def test_driver_monitor_paths_use_the_execution_environment(tmp_path, monkeypatch):
-    from xeda.proc_utils import run_process
-    from xeda.tool import Tool
+    from xeda._internal.proc_utils import run_process
+    from xeda._internal.tool import Tool
     import sys
 
     design = _driver_design(tmp_path)

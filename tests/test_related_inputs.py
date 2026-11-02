@@ -15,14 +15,15 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsException, In
-from xeda.flow.io import declared_inputs, forget_declarations
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import registered_flow
-from xeda.flows import VivadoPostsynthSim, VivadoPower
-from xeda.introspect import all_flow_classes, flow_chain_cells, flow_info
+from xeda._internal.cli import cli
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowSettingsException, In
+from xeda._internal.flow.io import declared_inputs, forget_declarations
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import registered_flow
+from xeda._internal.flows import VivadoPostsynthSim, VivadoPower
+from xeda.introspect import flow_info
+from xeda._internal.introspect import all_flow_classes, flow_chain_cells
 
 from .flow_registry import preserved_flow_registry
 from .scoping import scoped
@@ -492,7 +493,7 @@ def test_conflicting_bindings_get_no_advice_that_overrides_one_of_them(tmp_path,
 def groups(tmp_path):
     """Flows with several inputs in one `via` group: a power-like consumer takes `ck1` and `ck2`
     from the synthesis whose `net` the flow that makes its `act` reads."""
-    from xeda.flow import Out
+    from xeda._internal.flow import Out
 
     class TSynthA(Flow):
         """First synthesis."""
@@ -597,7 +598,7 @@ def relations(tmp_path):
     synthesis behind `net` of the simulation (`via`). On the simulation, `net2` is tied to `net`
     (same producer), while `aux` is tied to `net` only through `src` (`via`): it has to come from
     the producer of the `src` that the synthesis behind `net` reads."""
-    from xeda.flow import Out
+    from xeda._internal.flow import Out
 
     class TSrc(Flow):
         """Makes a source."""
@@ -749,7 +750,7 @@ def test_a_relation_groups_the_inputs_that_name_the_same_input_and_the_same_via(
     """The oracle of the grouping: for every declared relation, the inputs judged together are
     exactly those with the same `same_producer_as` and the same `via` -- a relation with another
     `via` compares something else -- and the inputs that move with a maker's input have no `via`."""
-    from xeda.flow_runner.related_inputs import Node, _involved, _related
+    from xeda._internal.flow_runner.related_inputs import Node, _involved, _related
 
     classes = [flow for flow, _ in declaring_flows()]
     classes += [registered_flow(relations.sim), registered_flow(relations.report)]

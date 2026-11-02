@@ -215,7 +215,7 @@ def _launches_see_one_environment(
     variable makes a node stale (the ruled session variables do not include it). So the launches
     of the tests take their snapshot without it: a launch in a fixture and one in the test body
     see the same environment. The product rule itself is unchanged."""
-    from xeda.flow_runner.environment import EnvironmentSnapshot
+    from xeda._internal.flow_runner.environment import EnvironmentSnapshot
 
     def take(cls, private_env):
         inherited = {k: v for k, v in os.environ.items() if k not in PYTEST_OWN_VARIABLES}
@@ -274,7 +274,7 @@ def _import_registration_problems() -> list[str]:
     built-in flow that is gone from the registry."""
     import inspect
 
-    from xeda.flow import Flow, registered_flows
+    from xeda._internal.flow import Flow, registered_flows
 
     problems = sorted(
         f"{name} ({cls.__module__})"

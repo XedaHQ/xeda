@@ -8,7 +8,7 @@ the closest members, never a silent fall-back to the suffix.
 
 import pytest
 
-from xeda.design import (
+from xeda._internal.design import (
     AMBIGUOUS_SUFFIXES,
     SOURCE_SUFFIXES,
     TYPE_ONLY,

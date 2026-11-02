@@ -1,13 +1,13 @@
 """Where the source files of Xeda are in the checkout: the one helper that tests and tools use.
 
-`IMPL_DIR` is the directory of the implementation package (`xeda.package_paths.IMPL`). A test
+`IMPL_DIR` is the directory of the implementation package (`xeda._internal.package_paths.IMPL`). A test
 that reads a source file, a template or a data file of the implementation builds its path from it.
 """
 
 import re
 from pathlib import Path
 
-from xeda.package_paths import IMPL, impl_module
+from xeda._internal.package_paths import IMPL, impl_module
 
 ROOT = Path(__file__).resolve().parents[1]
 #: The directory of the public package `xeda`.
@@ -32,7 +32,7 @@ def internal_names() -> list[str]:
         for entry in directory.iterdir():
             name = entry.stem if entry.suffix == ".py" else entry.name
             if (entry.suffix == ".py" or (entry / "__init__.py").is_file()) and not (
-                name.startswith("__") or name in PUBLIC
+                name.startswith("_") or name in PUBLIC
             ):
                 names.add(name)
     return sorted(names)
@@ -40,6 +40,6 @@ def internal_names() -> list[str]:
 
 def layout_script(text: str) -> str:
     """Return the Python source `text` for a subprocess with each module of the implementation
-    (`xeda.flows`) at its real path. A script writes the module as `xeda.<module>`."""
+    (`xeda._internal.flows`) at its real path. A script writes the module as `xeda.<module>`."""
     pattern = r"\bxeda\.(" + "|".join(internal_names()) + r")\b(?!\()"
     return re.sub(pattern, lambda match: impl_module(match.group(1)), text)

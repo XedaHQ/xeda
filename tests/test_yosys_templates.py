@@ -17,10 +17,10 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FPGA, FlowSettingsException
-from xeda.flows import Yosys, YosysFpga, YosysSim
-from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FPGA, FlowSettingsException
+from xeda._internal.flows import Yosys, YosysFpga, YosysSim
+from xeda._internal.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
 
 from .tool_utils import require_tclsh
 from .yosys_format import force_script_format, forced_script_format
@@ -174,7 +174,7 @@ def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, tmp_path):
     ],
 )
 def test_fpga_primitive_libraries_follow_the_target(fpga, expected):
-    from xeda.flows.yosys.yosys_fpga import YosysFpga
+    from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
 
     settings = YosysFpga.Settings(fpga=fpga)
     assert [library.path for library in settings.primitive_libraries()] == expected

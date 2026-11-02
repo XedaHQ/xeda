@@ -16,9 +16,9 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
 
 from . import tool_utils
 from .scoping import scoped

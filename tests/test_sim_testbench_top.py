@@ -22,15 +22,15 @@ from pathlib import Path
 
 import pytest
 
-import xeda.flows  # noqa: F401  (registers every flow)
+import xeda._internal.flows  # noqa: F401  (registers every flow)
 from xeda import Design
-from xeda.design import LANGUAGE_TYPES, SourceType
-from xeda.flow import FlowException, SimFlow
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flows import Verilator, YosysSim
+from xeda._internal.design import LANGUAGE_TYPES, SourceType
+from xeda._internal.flow import FlowException, SimFlow
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.flows import Verilator, YosysSim
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 SIM_FLOW_NAMES = sorted(
     {

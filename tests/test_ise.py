@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, Flow, FlowFatalError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import IseSynth
-from xeda.flows.ise import format_value
+from xeda._internal.flow import FPGA, Flow, FlowFatalError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import IseSynth
+from xeda._internal.flows.ise import format_value
 from .tool_utils import fake_calls, use_fake_tools
 from .source_layout import layout_script
 

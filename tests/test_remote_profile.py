@@ -4,8 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from xeda.remote.errors import RemoteConfigError
-from xeda.remote.profile import HostProfile, host_profile, read_host_profiles, remotes_file
+from xeda._internal.remote.errors import RemoteConfigError
+from xeda._internal.remote.profile import (
+    HostProfile,
+    host_profile,
+    read_host_profiles,
+    remotes_file,
+)
 
 
 def write(path: Path, text: str) -> Path:

@@ -57,9 +57,7 @@ def test_the_newest_baseline_has_the_package_major() -> None:
     assert int(major) == int(tool.newest_baseline().name.split(".")[0])
 
 
-# The `__all__` lists of the release contract. `xeda` does not export `plan`, `records`, `sweep`
-# and `local_settings` yet: their names clash with submodules until the internal modules move into
-# a private package.
+# The `__all__` lists of the release contract.
 CONTRACT_XEDA = {
     "Design", "DesignPart", "Rtl", "Testbench", "Source", "Project", "Spec", "LocalSettings",
     "local_settings", "Plan", "PlanNode", "PlanInput", "PlanDelivery", "Workspace", "Remote",
@@ -68,7 +66,6 @@ CONTRACT_XEDA = {
     "MetricInfo", "ErrorInfo", "Outcome", "Disposition", "OpenRun", "SweepResult", "SweepPoint",
     "RunListing", "RecordProblem", "ScrubResult", "UNSET", "Unset", "__version__",
 }  # fmt: skip
-NOT_EXPORTED_YET = {"plan", "records", "sweep", "local_settings"}
 # `xeda` exports `Question` too: it is the type that `confirm` takes.
 ALSO_EXPORTED = {"Question"}
 CONTRACT_ERRORS = {
@@ -151,7 +148,7 @@ def test_the_1_0_baseline_matches_the_contract() -> None:
     modules = json.loads((ROOT / "tests/baselines/1.0/public_api.json").read_text("utf-8"))[
         "modules"
     ]
-    assert set(modules["xeda"]["names"]) == (CONTRACT_XEDA - NOT_EXPORTED_YET | ALSO_EXPORTED)
+    assert set(modules["xeda"]["names"]) == (CONTRACT_XEDA | ALSO_EXPORTED)
     assert set(modules["xeda.errors"]["names"]) == CONTRACT_ERRORS
     assert set(modules["xeda.introspect"]["names"]) == CONTRACT_INTROSPECT
     verbs = modules[tool.VERB_KEY]["names"]

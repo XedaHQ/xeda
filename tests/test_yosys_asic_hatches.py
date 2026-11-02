@@ -14,11 +14,11 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys, YosysFpga, YosysSim
-from xeda.flows.yosys import flag_hatches
-from xeda.flows.yosys.asic_groups import AbcGroup
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys, YosysFpga, YosysSim
+from xeda._internal.flows.yosys import flag_hatches
+from xeda._internal.flows.yosys.asic_groups import AbcGroup
 
 from .test_yosys_asic import SCRIPT_FORMATS, _words
 from .test_yosys_asic_groups import _refused, _run
@@ -204,7 +204,7 @@ def test_the_flags_of_a_group_are_in_the_table_of_their_command():
 
 
 def test_the_write_verilog_table_is_the_switch_table_of_the_netlist():
-    from xeda.flows.yosys.common import YosysSynthesisBase
+    from xeda._internal.flows.yosys.common import YosysSynthesisBase
 
     table = flag_hatches.OWNED_FLAGS["write_verilog"]
     assert {flag: owner.setting for flag, owner in table.items()} == {

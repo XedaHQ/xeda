@@ -4,18 +4,18 @@ v1 handed every `pre=True` validator a fresh mapping and re-validated (and so co
 models. v2 passes the caller's own objects straight through, so the widespread "normalize by
 writing back into `values`" pattern silently rewrote a design's `flow[...]` section, a
 `Settings` kwargs dict, or a settings instance another flow was still using. The fix lives in
-`xeda.dataclass` (plus copy-before-normalize in a few validators that hold nested models).
+`xeda._internal.dataclass` (plus copy-before-normalize in a few validators that hold nested models).
 """
 
 import copy
 
 import pytest
 
-from xeda.dataclass import ConfigDict, XedaBaseModel, model_validator
-from xeda.flow.synth import PhysicalClock
-from xeda.flows import Yosys
-from xeda.flows.yosys.yosys_fpga import YosysFpga
-from xeda.units import Frequency, Time
+from xeda._internal.dataclass import ConfigDict, XedaBaseModel, model_validator
+from xeda._internal.flow.synth import PhysicalClock
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
+from xeda._internal.units import Frequency, Time
 
 # ---------------------------------------------------------------------------------------------
 # A `mode="before"` validator must not write into the caller's own mapping.
@@ -118,7 +118,7 @@ def test_nested_rtl_parameter_normalization_does_not_mutate_input(tmp_path, monk
     payload = {"sources": [], "parameters": {"rom": {"file": "abc.mem"}}}
     before = copy.deepcopy(payload)
 
-    from xeda.design import Rtl
+    from xeda._internal.design import Rtl
 
     Rtl(**payload)
     assert payload == before
@@ -129,7 +129,7 @@ def test_rtl_parameters_given_to_a_constructor_are_not_the_ones_it_holds(tmp_pat
     later change of it does not reach the `Rtl`."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "abc.mem").write_text("00\n")  # a `file` parameter must exist
-    from xeda.design import Rtl
+    from xeda._internal.design import Rtl
 
     parameters = {"rom": {"file": "abc.mem"}}
     before = copy.deepcopy(parameters)
@@ -156,7 +156,7 @@ def test_the_removed_clock_period_fails_without_mutating_input():
     payload = {"clocks": {"main_clock": {"name": "c", "freq": "100 MHz"}}, "clock_period": 5.0}
     before = copy.deepcopy(payload)
 
-    from xeda.dataclass import ValidationError
+    from xeda._internal.dataclass import ValidationError
 
     with pytest.raises(
         ValidationError,
@@ -199,8 +199,8 @@ def test_unrelated_assignment_preserves_nested_field_identities():
 
 
 def test_run_options_steps_are_not_expanded_in_the_caller_object():
-    from xeda.flows.vivado.vivado_alt_synth import VivadoAltSynth
-    from xeda.flows.vivado.vivado_synth import RunOptions
+    from xeda._internal.flows.vivado.vivado_alt_synth import VivadoAltSynth
+    from xeda._internal.flows.vivado.vivado_synth import RunOptions
 
     run_options = RunOptions(strategy="Debug")
     before = dict(run_options.steps)
@@ -216,7 +216,7 @@ def test_run_options_steps_are_not_expanded_in_the_caller_object():
 
 
 def test_docker_model_and_nested_containers_are_isolated_from_the_caller(tmp_path):
-    from xeda.tool import Docker, Tool
+    from xeda._internal.tool import Docker, Tool
 
     docker = Docker(
         image="img",
@@ -242,7 +242,7 @@ def test_docker_model_and_nested_containers_are_isolated_from_the_caller(tmp_pat
 
 
 def test_derived_tool_does_not_share_docker_state_with_its_source():
-    from xeda.tool import Docker, Tool
+    from xeda._internal.tool import Docker, Tool
 
     source = Tool(
         executable="first",

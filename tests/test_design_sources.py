@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, Generator, loading_in_design_root
+from xeda._internal.design import DesignValidationError, Generator, loading_in_design_root
 from .design_edits import design_from_dump
 
 ROOT_SPELLINGS = ["a.vhd", "$DESIGN_ROOT/a.vhd", "${DESIGN_ROOT}/a.vhd", "$DESIGN_DIR/a.vhd"]
@@ -279,7 +279,7 @@ def test_a_generated_source_is_the_same_declaration_however_it_is_spelled(genera
     """The generator has not run when the design loads, so its output is a declaration: the path
     below the design root that the design gives, which the generator writes. Every spelling of one
     path is one declaration, and the design has one storage key for them all."""
-    from xeda.flow_runner.launch_generation import generation_key
+    from xeda._internal.flow_runner.launch_generation import generation_key
 
     design = _generated_design(generated, sources)
     assert [(s.output_name, s.type.name, s.located) for s in design.rtl.sources] == [
@@ -306,7 +306,7 @@ def test_expanding_a_path_accumulates_no_state():
     """`expand_env_vars` filtered the environment through a module-level list that it *appended*
     to on every call, so the list -- read on every path expansion -- grew without bound as a
     design's sources, parameters and generator inputs were resolved."""
-    from xeda.utils import _ENV_BLACKLIST, expand_env_vars
+    from xeda._internal.utils import _ENV_BLACKLIST, expand_env_vars
 
     before = set(_ENV_BLACKLIST)
     results = {str(expand_env_vars("$DESIGN_ROOT/a.vhd", {"DESIGN_ROOT": "/r"})) for _ in range(50)}
@@ -336,7 +336,7 @@ def test_a_generator_sees_the_design_root_and_its_storage_whatever_the_environme
     """`$DESIGN_ROOT` names the design root in a design's paths, whatever the environment says,
     and a generator is told the same, with the storage in `XEDA_GENERATED`. Every form of the
     recipe gets both."""
-    from xeda.design import generator_of
+    from xeda._internal.design import generator_of
 
     design = Design(
         name="d",
@@ -355,7 +355,7 @@ def test_a_generator_sees_the_design_root_and_its_storage_whatever_the_environme
 
 
 def test_the_arguments_of_a_generator_expand_the_two_variables_and_no_other(root, tmp_path):
-    from xeda.design import generator_of
+    from xeda._internal.design import generator_of
 
     design = Design(
         name="d",

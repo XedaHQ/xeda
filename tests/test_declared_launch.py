@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowDependencyFailure, FlowFatalError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow import Flow, In
-from xeda.design import SourceType
-from xeda.flow_runner.trace import TRACE_FORMAT
+from xeda._internal.flow import FlowDependencyFailure, FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow import Flow, In
+from xeda._internal.design import SourceType
+from xeda._internal.flow_runner.trace import TRACE_FORMAT
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -110,8 +110,8 @@ def test_a_plan_cannot_launch_a_flow_it_has_no_node_for(tmp_path, design):
 
 
 def test_pure_paths_create_nothing_and_launch_revalidates_containment(tmp_path, design):
-    from xeda.run_dir import RunDirectoryError
-    from xeda.run_root import ensure_run_root
+    from xeda._internal.run_dir import RunDirectoryError
+    from xeda._internal.run_root import ensure_run_root
 
     runner = _runner(tmp_path)
     assert runner.run_path_of("d", "t_taker") == tmp_path / "xeda_run" / "d" / "t_taker"

@@ -1,4 +1,4 @@
-from xeda.tool import Docker
+from xeda._internal.tool import Docker
 
 
 def test_docker_cpuinfo_splits_at_every_blank_line(monkeypatch):

@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.dataclass import ValidationError, _is_boolean_annotation, validation_errors
-from xeda.design import Design, DesignValidationError
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flows import VivadoSynth
-from xeda.utils import try_convert_to_primitives
+from xeda._internal.cli import cli
+from xeda._internal.dataclass import ValidationError, _is_boolean_annotation, validation_errors
+from xeda._internal.design import Design, DesignValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.flows import VivadoSynth
+from xeda._internal.utils import try_convert_to_primitives
 
 from .settings_samples import flow_classes
 from .tool_utils import use_fake_tools
@@ -191,7 +191,7 @@ def test_a_number_is_not_a_boolean_anywhere(tmp_path, number):
 @pytest.mark.parametrize("number", [0, 1, 2, 1.0])
 def test_a_number_is_not_a_boolean_beside_text(number):
     """A field that takes a boolean or a name (`gui: true` or `gui: dve`) takes no number."""
-    from xeda.flows import Vcs
+    from xeda._internal.flows import Vcs
 
     message = f"`{number}` is a number, not a boolean: write `true` or `false`"
     for field in ("gui", "debug_access"):
@@ -208,7 +208,7 @@ def test_a_number_is_not_a_boolean_beside_text(number):
 def test_true_and_false_text_beside_a_name_is_refused(text):
     """`gui` takes a boolean or the name of a GUI. The text `true` is neither, and the command
     line writes the boolean (`-s gui=true`, read before the model sees it)."""
-    from xeda.flows import Vcs
+    from xeda._internal.flows import Vcs
 
     with pytest.raises(FlowSettingsError, match="is text, not a boolean"):
         Vcs.Settings.from_input({"gui": text})

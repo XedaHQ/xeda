@@ -16,7 +16,7 @@ from typing import Annotated, Any, Literal, NamedTuple, Union
 
 from pydantic import BaseModel
 
-from xeda.units import Quantity
+from xeda._internal.units import Quantity
 
 #: A field is named by the class that defines it and its name in that class.
 FieldKey = tuple[str, str]

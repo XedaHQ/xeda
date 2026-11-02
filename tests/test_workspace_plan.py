@@ -11,11 +11,11 @@ import yaml
 
 from xeda import Design
 from xeda.errors import RunRootError, SpecError
-from xeda.local_settings import LocalSettings
-from xeda.plan import Plan, PlanDelivery, PlanInput, PlanNode
-from xeda.project import Project
-from xeda.spec import Spec
-from xeda.workspace import Workspace
+from xeda._internal.local_settings import LocalSettings
+from xeda._internal.plan import Plan, PlanDelivery, PlanInput, PlanNode
+from xeda._internal.project import Project
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, reader_flow

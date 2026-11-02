@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from xeda.dataclass import ValidationError
-from xeda.design import Design, Rtl
-from xeda.flow.synth import PhysicalClock
-from xeda.flows.yosys.yosys_fpga import YosysFpga
-from xeda.units import Frequency, Time
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.design import Design, Rtl
+from xeda._internal.flow.synth import PhysicalClock
+from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
+from xeda._internal.units import Frequency, Time
 
 from .design_edits import with_updates
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -177,7 +177,7 @@ def test_parameters_are_stored_once_and_nothing_assigns_them():
 
 
 def test_a_shared_docker_image_is_named_after_each_tool_that_borrows_it():
-    from xeda.tool import Docker, Tool
+    from xeda._internal.tool import Docker, Tool
 
     shared = Docker(image="img")  # type: ignore[call-arg]
     assert shared.name == "???"  # caches the placeholder, since there is no command yet
@@ -189,7 +189,7 @@ def test_a_shared_docker_image_is_named_after_each_tool_that_borrows_it():
 
 
 def test_deriving_a_sibling_tool_renames_its_container():
-    from xeda.tool import Docker, Tool
+    from xeda._internal.tool import Docker, Tool
 
     tool = Tool(  # type: ignore[call-arg]
         executable="ghdl",
@@ -208,7 +208,7 @@ def test_deriving_a_sibling_tool_renames_its_container():
 
 
 def _product_flows():
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     return {
         cls.name: cls
@@ -222,7 +222,7 @@ def test_every_shared_setting_has_one_type_in_every_flow_that_declares_it():
     value one flow accepts the other must accept too: the same annotation wherever one is
     declared. A setting a flow cannot run without is its `required_settings`, never required on
     the model."""
-    from xeda.flow_runner.resolver import SHARED_SETTINGS
+    from xeda._internal.flow_runner.resolver import SHARED_SETTINGS
 
     assert {"platform", "corner", "dont_use_cells"} <= set(SHARED_SETTINGS)
     flows = _product_flows()
@@ -242,7 +242,7 @@ def test_corner_and_dont_use_cells_belong_to_the_asic_platform_flows_alone():
     """Containment: `yosys` and the OpenROAD flows (ASIC platform flows) are the only flows that
     declare `corner` or `dont_use_cells`, so no edge of the product flows can carry them to
     another flow."""
-    from xeda.flows.openroad import OpenroadStage
+    from xeda._internal.flows.openroad import OpenroadStage
 
     flows = _product_flows()
     asic = {"yosys"} | {flow for flow, cls in flows.items() if issubclass(cls, OpenroadStage)}

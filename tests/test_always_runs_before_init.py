@@ -12,10 +12,10 @@ import os
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.flow import Flow, FlowSettingsError, SimFlow
-from xeda.run_dir import RunDirectory
+from xeda._internal.flow import Flow, FlowSettingsError, SimFlow
+from xeda._internal.run_dir import RunDirectory
 
 from .settings_samples import flow_classes, minimal_settings
 from .test_isolation import (
@@ -27,7 +27,7 @@ from .test_isolation import (
     _world,
 )
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 FLOWS = flow_classes()
 
@@ -66,7 +66,7 @@ def _prepare(cls, tmp_path, monkeypatch):
     world = _world(tmp_path)
     use_fake_tools(monkeypatch)
     if cls.name in FPGA_FAKED:
-        from xeda.run_root import ensure_run_root
+        from xeda._internal.run_root import ensure_run_root
 
         ensure_run_root(world.root)
         use_fake_fpga_tools(monkeypatch, world.root / FAKE_TOOLCHAIN)

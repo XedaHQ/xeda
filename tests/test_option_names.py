@@ -15,9 +15,9 @@ import pytest
 from click.testing import CliRunner
 from pydantic import ValidationError
 
-from xeda.cli import cli, dse, run, scrub
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
+from xeda._internal.cli import cli, dse, run, scrub
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"

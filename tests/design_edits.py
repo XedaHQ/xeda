@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from xeda.design import Design
-from xeda.frozen import freeze
+from xeda._internal.design import Design
+from xeda._internal.frozen import freeze
 
 
 def with_updates(

@@ -19,17 +19,17 @@ A name that tests replace on `default_runner` must be one the launcher itself lo
 from __future__ import annotations
 
 import ast
+import re
 import importlib
 from pathlib import Path
 
 import pytest
 
-import xeda
-from xeda.flow_runner import default_runner
-from xeda.package_paths import impl_module
+from xeda._internal.flow_runner import default_runner
+from xeda._internal.package_paths import impl_module, impl_root
 from .source_layout import layout_script
 
-PACKAGE = Path(xeda.__file__).parent
+PACKAGE = impl_root()
 FLOW_RUNNER = PACKAGE / "flow_runner"
 LAUNCHER = impl_module("flow_runner.default_runner")
 
@@ -194,7 +194,9 @@ def test_a_moved_name_cannot_be_replaced_on_the_launcher_module(name: str, monke
     """Nothing in the launcher looks a moved name up, so replacing it there would change nothing
     and leave a stale global behind. The module refuses, naming the module to patch."""
     module = default_runner.MOVED_NAMES[name][0]
-    with pytest.raises(AttributeError, match=rf"replace it on `xeda\.flow_runner\.{module}`"):
+    with pytest.raises(
+        AttributeError, match=f"replace it on `{re.escape(impl_module('flow_runner.' + module))}`"
+    ):
         setattr(default_runner, name, None)
     with pytest.raises(AttributeError, match=module):
         monkeypatch.setattr(default_runner, name, None)

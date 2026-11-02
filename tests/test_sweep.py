@@ -14,19 +14,19 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.cancel import CancelToken
+from xeda._internal.cancel import CancelToken
 from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
-from xeda.events import Event
-from xeda.flow_runner import run_lock
-from xeda.flow_runner.trace import previous_trace
-from xeda.flow_runner.environment import EnvironmentSnapshot
-from xeda.flow_runner.launch_options import LaunchOptions
-from xeda.outcomes import Disposition, Outcome, Result
-from xeda.records import ErrorInfo, encode_record, read_record
-from xeda.spec import Spec
-from xeda.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
-from xeda.utils import dump_json
-from xeda.workspace import Workspace
+from xeda._internal.events import Event
+from xeda._internal.flow_runner import run_lock
+from xeda._internal.flow_runner.trace import previous_trace
+from xeda._internal.flow_runner.environment import EnvironmentSnapshot
+from xeda._internal.flow_runner.launch_options import LaunchOptions
+from xeda._internal.outcomes import Disposition, Outcome, Result
+from xeda._internal.records import ErrorInfo, encode_record, read_record
+from xeda._internal.spec import Spec
+from xeda._internal.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
+from xeda._internal.utils import dump_json
+from xeda._internal.workspace import Workspace
 
 from . import tool_utils
 from .cancel_flows import cut_flows
@@ -889,7 +889,7 @@ def _another_generation(storage: Path) -> None:
     the generator again would: other files, and a record that vouches for them."""
     import yaml
 
-    from xeda.digest import content_digest
+    from xeda._internal.digest import content_digest
 
     record = storage / "generation.yaml"
     data = yaml.safe_load(record.read_text())
@@ -985,7 +985,7 @@ def test_a_node_task_applies_the_run_root_rule_with_the_start_directory_of_the_w
 def test_a_consumer_vouches_for_the_unchanged_outputs_of_its_producer_by_metadata(
     tmp_path, design, monkeypatch
 ):
-    from xeda import digest
+    from xeda._internal import digest
 
     monkeypatch.setattr(digest, "RACY_NS", 0)  # a file of this test is settled at once
     workspace = _workspace(tmp_path)

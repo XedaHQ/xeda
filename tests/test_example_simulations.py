@@ -17,11 +17,11 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.design import Design
-from xeda.flow import SimFlow
-from xeda.flow_runner import get_flow_class
-from xeda.project import Project
+from xeda._internal.cli import cli
+from xeda._internal.design import Design
+from xeda._internal.flow import SimFlow
+from xeda._internal.flow_runner import get_flow_class
+from xeda._internal.project import Project
 
 from . import tool_utils
 

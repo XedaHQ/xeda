@@ -19,24 +19,24 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, Out
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.trace import as_recorded
-from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
+from xeda._internal.cli import cli
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException, Out
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.trace import as_recorded
+from xeda._internal.flows import FpgaPack, Nextpnr, Openfpgaloader
 from .plan_documents import plan_nodes
-from xeda.utils import LOCATION_FORMS, replacing_file
+from xeda._internal.utils import LOCATION_FORMS, replacing_file
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .project_files import PROJECT_FILE
 from .test_openfpgaloader import assert_fake_loader
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ECP5 = "LFE5U-25F-6BG381C"
 ICE40 = "iCE40HX1K-TQ144"
@@ -1173,8 +1173,8 @@ def test_the_arty_chain_ending_at_the_packer_builds_a_bitstream_with_openxc7(
 
 @pytest.mark.parametrize("producer", ["vivado_synth", "vivado_alt_synth"])
 def test_optional_postsynth_inputs_are_never_bound_by_chain_adjacency(producer):
-    from xeda.flow import FlowSettingsException
-    from xeda.flow_runner.chains import parse_request
+    from xeda._internal.flow import FlowSettingsException
+    from xeda._internal.flow_runner.chains import parse_request
 
     with pytest.raises(FlowSettingsException) as exc:
         parse_request(f"{producer}+vivado_postsynth_sim")

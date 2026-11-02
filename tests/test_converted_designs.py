@@ -21,16 +21,21 @@ from typing import Any
 import pytest
 import yaml
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import LANGUAGE_TYPES, SourceType
-from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner, launch_producers, plan_freshness
-from xeda.flow_runner import default_runner as default_runner_module
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.plan_freshness import NodeFreshness
-from xeda.flow_runner.resolver import Plan, planned_design_of
-from xeda.flow_runner.trace import Freshness
+from xeda._internal.design import LANGUAGE_TYPES, SourceType
+from xeda._internal.flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowSettingsError,
+    FlowSettingsException,
+)
+from xeda._internal.flow_runner import DefaultRunner, launch_producers, plan_freshness
+from xeda._internal.flow_runner import default_runner as default_runner_module
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.plan_freshness import NodeFreshness
+from xeda._internal.flow_runner.resolver import Plan, planned_design_of
+from xeda._internal.flow_runner.trace import Freshness
 from .plan_documents import plan_nodes
 
 from .scoping import node_settings
@@ -301,8 +306,8 @@ def test_two_converters_that_fit_are_an_error_that_names_the_choices(tmp_path) -
 
 def test_a_converter_that_writes_what_the_flow_cannot_read_does_not_fit(tmp_path) -> None:
     _fake, _rival, to_vhdl = converter_flows()
-    from xeda.flow_runner.chains import converter_edges
-    from xeda.flows import Verilator, Yosys
+    from xeda._internal.flow_runner.chains import converter_edges
+    from xeda._internal.flows import Verilator, Yosys
 
     assert to_vhdl in [edge.producer for edge in converter_edges(Yosys)]  # yosys reads VHDL
     assert to_vhdl not in [edge.producer for edge in converter_edges(Verilator)]
@@ -463,8 +468,8 @@ def consumer_flows(events: Events, written: str = "converted") -> tuple[type[Flo
         """Converts a Bluespec source into a module of its text, less the comment lines."""
 
         def run(self) -> None:
-            from xeda.flow.derived import DerivedSources, Generated, Passed
-            from xeda.utils import replacing_file
+            from xeda._internal.flow.derived import DerivedSources, Generated, Passed
+            from xeda._internal.utils import replacing_file
 
             events.append("converter runs")
             entries: list[Generated | Passed] = []

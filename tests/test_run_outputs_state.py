@@ -2,8 +2,8 @@
 
 import os
 
-from xeda.digest import TIME_MARKER_PREFIX
-from xeda.flow_runner.trace import RESERVED_FILES
+from xeda._internal.digest import TIME_MARKER_PREFIX
+from xeda._internal.flow_runner.trace import RESERVED_FILES
 
 from . import tool_utils
 

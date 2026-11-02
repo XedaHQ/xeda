@@ -12,11 +12,11 @@ from pathlib import Path, PurePath
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import FpgaPack, Nextpnr
-from xeda.run_root import ensure_run_root
-from xeda.utils import NonZeroExitCode
+from xeda._internal.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import FpgaPack, Nextpnr
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.utils import NonZeroExitCode
 
 from . import tool_utils
 from .scoping import node_settings
@@ -85,7 +85,7 @@ def _tools(tmp_path: Path) -> list[str]:
 
 
 def test_fpga_pack_declares_one_configuration_in_and_one_bitstream_out():
-    from xeda.flow.io import declared_inputs, declared_outputs
+    from xeda._internal.flow.io import declared_inputs, declared_outputs
 
     (config,) = declared_inputs(FpgaPack).values()
     assert (config.name, config.producer, config.output) == ("config", "nextpnr", "config")
@@ -429,7 +429,7 @@ def test_a_packer_that_fails_or_writes_nothing_leaves_the_earlier_bitstream(
 def test_a_configuration_nextpnr_did_not_write_again_is_never_packed(
     tmp_path, toolchain, monkeypatch
 ):
-    from xeda.flow import FlowDependencyFailure
+    from xeda._internal.flow import FlowDependencyFailure
 
     design, first = _built(tmp_path, ECP5)
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "nextpnr-ecp5")
@@ -510,8 +510,8 @@ def test_a_changed_configuration_source_is_packed_again(tmp_path, toolchain):
 
 
 def test_nextpnr_is_registered_and_listed():
-    from xeda.flow_runner import get_flow_class
-    from xeda.flows import __all__ as exported
+    from xeda._internal.flow_runner import get_flow_class
+    from xeda._internal.flows import __all__ as exported
 
     assert get_flow_class("fpga_pack") is FpgaPack
     assert "FpgaPack" in exported and Nextpnr.name == "nextpnr"

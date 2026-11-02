@@ -6,11 +6,11 @@ from importlib.resources import files
 
 import pytest
 
-import xeda.board
-from xeda.board import WithFpgaBoardSettings, get_board_data
-from xeda.dataclass import ValidationError
-from xeda.flow import FlowSettingsError
-from xeda.package_paths import impl_module
+import xeda._internal.board
+from xeda._internal.board import WithFpgaBoardSettings, get_board_data
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.package_paths import impl_module
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -60,7 +60,7 @@ def test_bundled_lookup_reads_text_without_extraction(monkeypatch):
     def no_extraction(*args):
         raise AssertionError("board lookup must not extract a resource")
 
-    monkeypatch.setattr(xeda.board, "as_file", no_extraction)
+    monkeypatch.setattr(xeda._internal.board, "as_file", no_extraction)
     assert get_board_data("ulx3s_85f")["fpga"]["part"] == "LFE5U-85F-6BG381C"
 
 
@@ -152,16 +152,16 @@ def test_the_bundled_database_names_its_boards_in_lower_case_and_none_twice():
     names = list(tomllib.loads(text))
     assert names and all(name == name.lower() for name in names)
     assert len({name.lower() for name in names}) == len(names)
-    assert list(xeda.board.bundled_boards()) == names
+    assert list(xeda._internal.board.bundled_boards()) == names
 
 
 @pytest.mark.parametrize("keys", [["Foo"], ["foo", "Foo"], ["foo", "FOO"]])
 def test_a_bundled_database_with_a_name_that_is_not_lower_case_is_refused(monkeypatch, keys):
     """Two names that differ only in case cannot be told apart by a lookup in any case."""
     text = "".join(f'[{key}]\nfpga.part = "LFE5U-25F-6BG381C"\n' for key in keys)
-    monkeypatch.setattr(xeda.board, "toml_loads", lambda _text: tomllib.loads(text))
+    monkeypatch.setattr(xeda._internal.board, "toml_loads", lambda _text: tomllib.loads(text))
     with pytest.raises(ValueError, match="lower case"):
-        xeda.board.bundled_boards()
+        xeda._internal.board.bundled_boards()
     with pytest.raises(ValueError, match="lower case"):
         get_board_data("foo")
 
@@ -202,7 +202,7 @@ def test_the_list_boards_table_names_the_loader_column_for_what_it_is():
     import click
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     result = CliRunner().invoke(cli, ["list-boards"], env={"COLUMNS": "100"})
     text = click.unstyle(result.output)

@@ -17,11 +17,11 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.trace_inputs import located_input_files, registered_input_files
-from xeda.flows import Yosys
-from xeda.platforms import PdkNotInstalled
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import located_input_files, registered_input_files
+from xeda._internal.flows import Yosys
+from xeda._internal.platforms import PdkNotInstalled
 
 from .tiny_platform import TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, require_yosys, use_fake_asic_tools

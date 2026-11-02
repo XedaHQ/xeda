@@ -19,16 +19,16 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 
 from xeda import Design
-from xeda.digest import content_digest
-from xeda.flow import FPGA, FlowSettingsException
-from xeda.flow.io import declared_outputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.outputs import recorded_outputs
-from xeda.records import read_record
-from xeda.flows import VivadoAltSynth, VivadoSynth
-from xeda.flows.vivado import vivado_synth as vs
-from xeda.flows.vivado.vivado_postsynthsim import VivadoPostsynthSim
-from xeda.flows.vivado.vivado_power import VivadoPower
+from xeda._internal.digest import content_digest
+from xeda._internal.flow import FPGA, FlowSettingsException
+from xeda._internal.flow.io import declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.outputs import recorded_outputs
+from xeda._internal.records import read_record
+from xeda._internal.flows import VivadoAltSynth, VivadoSynth
+from xeda._internal.flows.vivado import vivado_synth as vs
+from xeda._internal.flows.vivado.vivado_postsynthsim import VivadoPostsynthSim
+from xeda._internal.flows.vivado.vivado_power import VivadoPower
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
 

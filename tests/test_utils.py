@@ -13,8 +13,8 @@ from typing import Callable, List
 
 import pytest
 
-from xeda import utils
-from xeda.utils import copy_fd, replacing_copy
+from xeda._internal import utils
+from xeda._internal.utils import copy_fd, replacing_copy
 
 CHUNK = utils._LOOP_CHUNK
 #: sizes: empty, one byte, around a chunk, and larger than three chunks, none a multiple of one
@@ -287,7 +287,7 @@ def test_a_missing_fcopyfile_is_an_oserror_so_the_loop_takes_over(tmp_path, monk
 def test_a_failed_command_says_why_when_it_is_told():
     """The tool's own words follow the exit code: a flow that knows what its tool reported
     (`Nextpnr._failure`) adds them, and a failure without them reads as it always did."""
-    from xeda.utils import NonZeroExitCode
+    from xeda._internal.utils import NonZeroExitCode
 
     assert str(NonZeroExitCode(["tool", "a b"], 2)) == "Command 'tool a b' exited with code 2!"
     told = NonZeroExitCode(["tool"], 2, "it could not place x", "and y")

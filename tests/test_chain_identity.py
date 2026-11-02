@@ -8,15 +8,15 @@ import json
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.digest import content_digest
-from xeda.flow import FlowFatalError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.bindings import node_identity
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.configuration import configuration_hash
-from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
-from xeda.flow_runner.trace import TRACE_FORMAT
+from xeda._internal.design import SourceType
+from xeda._internal.digest import content_digest
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.bindings import node_identity
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.configuration import configuration_hash
+from xeda._internal.flow_runner.default_runner import DIR_NAME_HASH_LEN
+from xeda._internal.flow_runner.trace import TRACE_FORMAT
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry

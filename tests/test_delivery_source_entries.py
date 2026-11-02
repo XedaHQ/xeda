@@ -15,11 +15,11 @@ from typing import ClassVar, Optional
 import pytest
 
 from xeda import Design
-from xeda.dataclass import Field, deliverable
-from xeda.deliver import DeliveryError
-from xeda.design import SourceType, source_entry_matches
-from xeda.flow import Flow, MetricSpec, Out
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.dataclass import Field, deliverable
+from xeda._internal.deliver import DeliveryError
+from xeda._internal.design import SourceType, source_entry_matches
+from xeda._internal.flow import Flow, MetricSpec, Out
+from xeda._internal.flow_runner import DefaultRunner
 
 from .flow_registry import preserved_flow_registry
 
@@ -282,7 +282,7 @@ def test_outputs_to_of_a_launch_is_judged_by_the_same_rule(tmp_path, deliverer):
 def test_the_entry_of_a_source_is_private_and_no_part_of_its_identity(tmp_path):
     """One file listed by name and through a pattern is one source: equal, equal in hash and in
     JSON value, and the designs have one configuration and one node identity."""
-    from xeda.flow_runner.configuration import design_configuration_hash
+    from xeda._internal.flow_runner.configuration import design_configuration_hash
 
     from .generation_world import reader_flow
 

@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr
-from xeda.flows.nextpnr import NextpnrTool
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nextpnr
+from xeda._internal.flows.nextpnr import NextpnrTool
 
 from .design_edits import with_updates
 from .test_nextpnr import write_nextpnr_config
@@ -37,7 +37,7 @@ def make_flow(tmp_path, monkeypatch, *, sources=(), settings=None, top="d"):
     flow.inputs.netlist = netlist
     accepted = Nextpnr.input_types(flow.settings, "constraints")
     flow.inputs.constraints = [s.path for s in design.rtl.sources if s.type in accepted]
-    from xeda.design import SourceType
+    from xeda._internal.design import SourceType
 
     flow.inputs.sdc = [s.path for s in design.rtl.sources if s.type is SourceType.Sdc]
     calls = []
@@ -170,7 +170,7 @@ def test_local_board_fallback_is_fresh_immediately_then_stale_on_edit(tmp_path, 
 
 
 def test_xilinx_clocks_are_literal_and_merged_line_errors_keep_origins(tmp_path, monkeypatch):
-    from xeda.flows.nextpnr_constraints import merge_constraints
+    from xeda._internal.flows.nextpnr_constraints import merge_constraints
 
     (tmp_path / "one.xdc").write_text("# pin file without final newline")
     (tmp_path / "two.xdc").write_text("# second\n")
@@ -299,7 +299,7 @@ def test_xilinx_missing_pins_names_typed_source_remedy(tmp_path, monkeypatch):
 
 def test_archive_board_preparation_reuses_and_replaces_content_identity(tmp_path, monkeypatch):
     import zipfile
-    import xeda.flows.nextpnr as nextpnr
+    import xeda._internal.flows.nextpnr as nextpnr
     from .tool_utils import use_fake_fpga_tools
 
     use_fake_fpga_tools(monkeypatch, tmp_path / "tools")
@@ -336,7 +336,7 @@ def test_archive_board_preparation_reuses_and_replaces_content_identity(tmp_path
 
 def test_url_constraints_fetch_only_during_run_into_owned_scratch(tmp_path, monkeypatch):
     import io
-    import xeda.flows.nextpnr as nextpnr
+    import xeda._internal.flows.nextpnr as nextpnr
 
     (tmp_path / "boards.toml").write_text(
         '[REMOTE]\nfpga.part="LFE5U-25F-6BG381C"\nlpf="https://example.invalid/pins.lpf"\n'
@@ -364,8 +364,8 @@ def test_url_constraints_fetch_only_during_run_into_owned_scratch(tmp_path, monk
 
 
 def test_a_stalled_constraint_download_fails_the_run_naming_the_url(tmp_path, monkeypatch):
-    import xeda.flows.nextpnr as nextpnr
-    from xeda.flow import FlowFatalError
+    import xeda._internal.flows.nextpnr as nextpnr
+    from xeda._internal.flow import FlowFatalError
 
     (tmp_path / "boards.toml").write_text(
         '[REMOTE]\nfpga.part="LFE5U-25F-6BG381C"\nlpf="https://example.invalid/pins.lpf"\n'
@@ -385,7 +385,7 @@ def test_a_stalled_constraint_download_fails_the_run_naming_the_url(tmp_path, mo
 
 
 def test_prepared_board_file_is_reserved_against_delivery(tmp_path, monkeypatch):
-    from xeda.deliver import DeliveryError
+    from xeda._internal.deliver import DeliveryError
     from .tool_utils import use_fake_fpga_tools
 
     use_fake_fpga_tools(monkeypatch, tmp_path / "tools")
@@ -409,7 +409,7 @@ def test_prepared_board_file_is_reserved_against_delivery(tmp_path, monkeypatch)
 
 
 def test_tool_constraint_lines_are_translated_using_current_run_log(tmp_path, monkeypatch):
-    from xeda.tool import NonZeroExitCode
+    from xeda._internal.tool import NonZeroExitCode
 
     (tmp_path / "first.sdc").write_text("# first\n")
     (tmp_path / "second.sdc").write_text("# second\n")
@@ -429,7 +429,7 @@ def test_tool_constraint_lines_are_translated_using_current_run_log(tmp_path, mo
 
 
 def test_hook_failure_lines_are_not_attributed_to_pin_constraints(tmp_path, monkeypatch):
-    from xeda.tool import NonZeroExitCode
+    from xeda._internal.tool import NonZeroExitCode
 
     (tmp_path / "pins.lpf").write_text("# first\n# second\n")
     flow, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf"])
@@ -446,7 +446,7 @@ def test_hook_failure_lines_are_not_attributed_to_pin_constraints(tmp_path, monk
 
 
 def _failing_with_log(flow, monkeypatch, text):
-    from xeda.tool import NonZeroExitCode
+    from xeda._internal.tool import NonZeroExitCode
 
     def fail(self, *args, env=None):
         (flow.run_path / "nextpnr.log").write_text(text)
@@ -475,7 +475,7 @@ def test_a_timing_failure_is_reported_as_one_not_as_a_parser_warning(tmp_path, m
 
 
 def test_another_tool_error_is_not_blamed_on_a_parser_warning(tmp_path, monkeypatch):
-    from xeda.tool import NonZeroExitCode
+    from xeda._internal.tool import NonZeroExitCode
 
     (tmp_path / "pins.lpf").write_text("# first\n# second\n")
     flow, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf"])
@@ -498,7 +498,7 @@ def test_the_error_lines_of_an_unclassified_failure_are_listed_once_and_not_with
 ):
     """A bus of unplaceable ports gives one error line per port, some of them twice: the message
     keeps the first few, once each, and says where the rest are."""
-    from xeda.tool import NonZeroExitCode
+    from xeda._internal.tool import NonZeroExitCode
 
     flow, _ = make_flow(tmp_path, monkeypatch)
     flow.prepare_inputs()
@@ -513,7 +513,7 @@ def test_the_error_lines_of_an_unclassified_failure_are_listed_once_and_not_with
 
 
 def test_an_earlier_run_s_log_is_not_quoted_in_this_run_s_failure(tmp_path, monkeypatch):
-    from xeda.tool import NonZeroExitCode
+    from xeda._internal.tool import NonZeroExitCode
 
     flow, _ = make_flow(tmp_path, monkeypatch)
     flow.prepare_inputs()

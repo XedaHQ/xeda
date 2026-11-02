@@ -16,9 +16,10 @@ from types import ModuleType
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow, FlowFatalError
-from xeda.flow_runner import DefaultRunner, code_digest
-from xeda.flow_runner.code_digest import (
+from xeda._internal.flow import Flow, FlowFatalError
+from xeda._internal.flow_runner import DefaultRunner, code_digest
+from xeda._internal.package_paths import impl_root, package_root
+from xeda._internal.flow_runner.code_digest import (
     CodeDigests,
     _named_files,
     flow_code_digest,
@@ -155,20 +156,23 @@ def _launch(tmp_path, plugin, design) -> Flow:
 def test_the_xeda_code_digest_covers_helpers_templates_and_data():
     """An editable install keeps its version string across edits: a helper flows use (template
     filters in utils.py, cocotb.py, tool.py) or bundled board data must count as xeda's code."""
-    from xeda.digest import package_files
+    from xeda._internal.digest import package_files
 
     files = {
         p.relative_to(code_digest.XEDA_PACKAGE).as_posix()
         for p in package_files(code_digest.XEDA_PACKAGE)
     }
-    assert {"utils.py", "cocotb.py", "tool.py", "data/boards.toml"} <= files
-    assert "flows/yosys/templates/yosys_synth.ys" in files
+    inside = impl_root().relative_to(package_root()).as_posix()
+    wanted = {"utils.py", "cocotb.py", "tool.py", "data/boards.toml"}
+    assert {f"{inside}/{name}" for name in wanted} <= files
+    assert f"{inside}/flows/yosys/templates/yosys_synth.ys" in files
+    assert {"__init__.py", "errors.py", "introspect.py", "data/schemas/run.schema.json"} <= files
     assert not any("__pycache__" in f or f.endswith(".pyc") for f in files)
     assert xeda_code_digest() == xeda_code_digest() and len(xeda_code_digest()) == 32
 
 
 def test_a_flow_of_xeda_s_own_has_no_separate_code_digest():
-    from xeda.flows import YosysFpga
+    from xeda._internal.flows import YosysFpga
 
     assert flow_code_digest(YosysFpga) == ""
 
@@ -189,7 +193,14 @@ def test_the_xeda_code_digest_reads_the_files_each_time_and_not_where_they_are(
     copy.rename(moved)
     monkeypatch.setattr(code_digest, "XEDA_PACKAGE", moved)
     assert xeda_code_digest() == before
-    template = moved / "flows" / "yosys" / "templates" / "yosys_synth.ys"
+    template = (
+        moved
+        / impl_root().relative_to(package_root())
+        / "flows"
+        / "yosys"
+        / "templates"
+        / "yosys_synth.ys"
+    )
     template.write_text(template.read_text() + "# edited\n")
     assert xeda_code_digest() != before
 
@@ -494,7 +505,7 @@ def test_a_launch_reads_the_xeda_package_once(monkeypatch):
 
 def _count_reads(monkeypatch) -> list[Path]:
     """Return the list that gets each file the digests read from now on."""
-    from xeda import digest
+    from xeda._internal import digest
 
     read: list[Path] = []
     real = digest.content_digest
@@ -511,7 +522,7 @@ def test_a_settled_relaunch_reads_no_code_file_and_an_edit_reads_only_that_file(
     import os
     import time
 
-    from xeda import digest
+    from xeda._internal import digest
 
     monkeypatch.setattr(digest, "RACY_NS", 300_000_000)  # 0.3 s rather than 2 s, not to wait
     time.sleep(0.5)

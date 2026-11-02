@@ -11,11 +11,11 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.error_codes import settings_codes
-from xeda.flow_runner.settings_layers import registered_flow, split_flow_sections
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.error_codes import settings_codes
+from xeda._internal.flow_runner.settings_layers import registered_flow, split_flow_sections
 from .scoping import node_settings
 
 PART = "xc7a100tfgg676-3"

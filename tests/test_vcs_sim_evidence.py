@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Vcs
-from xeda.tool import Tool
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Vcs
+from xeda._internal.tool import Tool
 
 from .sim_evidence_cases import use_fake_vcs
 
@@ -148,7 +148,7 @@ def evidence_flow(tmp_path):
     "mutation", ["missing", "stale", "utf8", "time", "precision", "duplicate", "limit", "compiler"]
 )
 def test_vcs_missing_stale_or_malformed_runtime_cannot_pass(tmp_path, mutation):
-    from xeda.flows.vcs_evidence import parse_vcs_evidence
+    from xeda._internal.flows.vcs_evidence import parse_vcs_evidence
 
     flow = evidence_flow(tmp_path)
     path = tmp_path / "vcs_runtime.log"

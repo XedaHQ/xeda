@@ -17,12 +17,12 @@ from typing import Any, Iterator
 import pytest
 from pydantic import BaseModel
 
-from xeda.dataclass import is_locator, written_role
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
-from xeda.flow.flow import registered_flows
-from xeda.flow.io import declared_inputs, declared_outputs
-from xeda.flow_runner.bindings import INPUTS_KEY, BindingEntry, BindingLayer, NodeKey
-from xeda.remote.packaging import package_inputs
+from xeda._internal.dataclass import is_locator, written_role
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow.io import declared_inputs, declared_outputs
+from xeda._internal.flow_runner.bindings import INPUTS_KEY, BindingEntry, BindingLayer, NodeKey
+from xeda._internal.remote.packaging import package_inputs
 
 from . import io_flows
 from .flow_registry import is_product_flow
@@ -256,7 +256,7 @@ def test_a_removed_setting_is_still_refused_on_the_remote(tmp_path, cls):
 def package_unplanned(design, flow: str, section: dict, tmp_path: Path):
     from pathlib import PurePosixPath
 
-    from xeda.remote.packaging import package_inputs
+    from xeda._internal.remote.packaging import package_inputs
 
     return package_inputs(
         design,
@@ -317,7 +317,7 @@ def _planned(tmp_path: Path, consumer: str, name: str, producer: str, output: st
     refuses the request."""
     import yaml
 
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     root = tmp_path / "design"
     root.mkdir(parents=True, exist_ok=True)

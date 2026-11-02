@@ -15,16 +15,16 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.design import Design
+from xeda._internal.cli import cli
+from xeda._internal.design import Design
 from xeda.errors import RemoteError, StalePlanError
-from xeda.events import Event
-from xeda.outcomes import Outcome
-from xeda.plan import Plan, plan_from_dict
-from xeda.remote import client
-from xeda.remote_value import Remote
-from xeda.spec import Spec
-from xeda.workspace import Workspace
+from xeda._internal.events import Event
+from xeda._internal.outcomes import Outcome
+from xeda._internal.plan import Plan, plan_from_dict
+from xeda._internal.remote import client
+from xeda._internal.remote_value import Remote
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
 
 from .remote_fixtures import fake_remote, fake_ssh, host_profile_of, remote_host
 from .test_git_dependencies import git_log, remote
@@ -236,7 +236,7 @@ def test_following_a_running_identical_launch_gives_every_event_its_id(
 
 
 def test_a_canceled_token_gives_a_canceled_result_before_any_connection(tmp_path, remote_host):
-    from xeda.cancel import CancelToken
+    from xeda._internal.cancel import CancelToken
 
     token = CancelToken()
     token.cancel()

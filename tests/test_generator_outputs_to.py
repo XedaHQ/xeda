@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import DesignValidationError, generator_of, loading_in_design_root
-from xeda.flow_runner.launch_generation import generation_key
+from xeda._internal.design import DesignValidationError, generator_of, loading_in_design_root
+from xeda._internal.flow_runner.launch_generation import generation_key
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, reader_flow

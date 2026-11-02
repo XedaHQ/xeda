@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from xeda.design import Design, DesignFileParseError, DesignValidationError
-from xeda.project import Project
-from xeda.utils import XedaException
+from xeda._internal.design import Design, DesignFileParseError, DesignValidationError
+from xeda._internal.project import Project
+from xeda._internal.utils import XedaException
 
 from .project_files import PROJECT_FILE
 from .tool_utils import HANG_GUARD
@@ -275,7 +275,7 @@ def test_a_project_file_that_cannot_be_loaded_is_reported_cleanly(tmp_path, cont
 
 def test_the_runner_raises_xeda_exceptions_for_user_errors(tmp_path):
     """Library callers get the same typed errors the CLI reports."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
     from xeda.errors import ProjectError
 
     project = _project(tmp_path)

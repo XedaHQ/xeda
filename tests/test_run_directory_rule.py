@@ -26,19 +26,19 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.console import console
-from xeda.flow_runner import DefaultRunner, scrub
-from xeda.flow_runner.dse.dse_runner import _purge_run
-from xeda.flow_runner.run_lock import run_dir_lock
-from xeda.run_dir import (
+from xeda._internal.cli import cli
+from xeda._internal.console import console
+from xeda._internal.flow_runner import DefaultRunner, scrub
+from xeda._internal.flow_runner.dse.dse_runner import _purge_run
+from xeda._internal.flow_runner.run_lock import run_dir_lock
+from xeda._internal.run_dir import (
     DIR_NAME_HASH_LEN,
     RunDirectory,
     RunDirectoryError,
     run_directory_name,
     run_directory_problem,
 )
-from xeda.run_root import ensure_run_root
+from xeda._internal.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker

@@ -12,12 +12,12 @@ from typing import ClassVar, Optional
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cocotb import Cocotb, CocotbSettings
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr, Openfpgaloader, Verilator
+from xeda._internal.cocotb import Cocotb, CocotbSettings
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nextpnr, Openfpgaloader, Verilator
 
 RUNS: list[str] = []
 
@@ -99,7 +99,7 @@ def test_verilator_s_random_initialization_has_a_fixed_seed(tmp_path, design):
 
 
 def test_verilator_rejects_the_seed_that_means_random(tmp_path, design):
-    from xeda.flow import FlowSettingsError
+    from xeda._internal.flow import FlowSettingsError
 
     with pytest.raises(FlowSettingsError, match="random_seed"):
         _flow(Verilator, design, tmp_path, random_seed=0)

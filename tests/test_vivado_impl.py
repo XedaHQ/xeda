@@ -25,12 +25,12 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowFatalError, FlowSettingsException
-from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
-from xeda.flow.flow import NoReadableSource
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowFatalError, FlowSettingsException
+from xeda._internal.flow.io import declared_inputs, declared_outputs, output_enabled
+from xeda._internal.flow.flow import NoReadableSource
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
 from .scoping import scoped
 from .design_edits import with_updates
@@ -1008,7 +1008,7 @@ def test_the_commands_the_documentation_shows_plan_and_run(tmp_path, toolchain) 
     on to the loader (which nothing here starts)."""
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     text = FLOWS_RST.read_text(encoding="utf-8")
     section = text[text.index(".. _vivado-impl:") : text.index("\nBluespec\n========\n")]
@@ -1040,7 +1040,7 @@ def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(t
     items that `docs/flows.rst` gives for it make it plan, and so does the simulation alone."""
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     text = FLOWS_RST.read_text(encoding="utf-8")
     section = text[text.index(".. _vivado-impl:") : text.index("\nBluespec\n========\n")]

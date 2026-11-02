@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.platforms import bundled_platform_names
+from xeda._internal.platforms import bundled_platform_names
 
 from .scoping import node_settings
 from .remote_fixtures import fake_remote, fake_ssh, remote_host
@@ -155,8 +155,8 @@ def test_an_invalid_setting_exits_2_with_a_null_outcome(tmp_path):
 
 
 def test_the_public_error_of_an_invalid_setting_names_the_setting_and_the_right_spelling(tmp_path):
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flow_runner.error_codes import public_error
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner.error_codes import public_error
 
     with pytest.raises(Exception) as refused:
         DefaultRunner(tmp_path / "run").resolve_run(
@@ -287,7 +287,7 @@ def test_unknown_flow_name_suggests_close_matches():
 GENERATOR_SCRIPT = layout_script("""
 import json, os, sys
 from pathlib import Path
-from xeda import proc_utils
+from xeda._internal import proc_utils
 from xeda.cli_utils import machine_readable_mode
 from xeda.design import Generator
 
@@ -322,7 +322,8 @@ def test_generator_subprocess_output_does_not_corrupt_stdout(tmp_path):
 RAW_GENERATOR_SCRIPT = layout_script("""
 import json, sys
 from pathlib import Path
-from xeda import Design, proc_utils
+from xeda import Design
+from xeda._internal import proc_utils
 from xeda.cli_utils import machine_readable_mode
 from xeda.flow_runner.launch_generation import generate
 
@@ -496,7 +497,7 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
 #: machine-readable mode fd 2 is exactly where tool output belongs. Only fd 1 carries the document.
 _HIGHLIGHT_HARNESS = layout_script("""
 import sys, colorama
-from xeda import proc_utils
+from xeda._internal import proc_utils
 from xeda.cli_utils import machine_readable_mode
 
 machine_readable_mode()                         # what `--json` mode does

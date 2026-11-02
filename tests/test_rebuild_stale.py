@@ -16,10 +16,10 @@ from typing import ClassVar
 import pytest
 from pydantic import Field
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import (
+from xeda._internal.design import SourceType
+from xeda._internal.flow import (
     Flow,
     FlowDependencyFailure,
     FlowFatalError,
@@ -27,9 +27,9 @@ from xeda.flow import (
     Out,
     registered_flows,
 )
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import scrub_runs
-from xeda.flow_runner.run_lock import lock_file, run_dir_lock
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.default_runner import scrub_runs
+from xeda._internal.flow_runner.run_lock import lock_file, run_dir_lock
 
 from .tool_utils import producers_of, require_yosys
 from .source_layout import layout_script
@@ -629,7 +629,7 @@ def test_run_path_was_removed_and_names_run_root(tmp_path):
 def test_a_launch_takes_no_run_path():
     import inspect
 
-    from xeda.flow_runner.dse.dse_runner import Dse
+    from xeda._internal.flow_runner.dse.dse_runner import Dse
 
     for method in (DefaultRunner.launch_flow, DefaultRunner.run_flow, Dse.run_flow):
         assert "run_path" not in inspect.signature(method).parameters, method
@@ -918,7 +918,7 @@ def test_an_edited_include_reruns_yosys(tmp_path):
 def test_pruning_removes_the_trace_before_anything_else(tmp_path, design, monkeypatch):
     """A prune that stops halfway must not leave a trace vouching for a directory it has
     already partly emptied: the trace is the first thing it deletes."""
-    from xeda import run_dir
+    from xeda._internal import run_dir
 
     class ToyScratchFiles(Flow):
         """Leaves undeclared files behind, named on both sides of `trace.json`."""
@@ -963,7 +963,7 @@ def test_pruning_removes_the_trace_before_anything_else(tmp_path, design, monkey
 
 
 def test_a_change_to_xeda_s_code_reruns_every_flow(tmp_path, toys, design, monkeypatch):
-    from xeda.flow_runner import code_digest
+    from xeda._internal.flow_runner import code_digest
 
     _, consumer = toys
     _run(tmp_path, consumer, design)
@@ -978,7 +978,7 @@ def test_what_follows_the_settings_of_a_launch_is_keyword_only():
     loudly instead of being read as sections."""
     import inspect
 
-    from xeda.flow_runner.dse.dse_runner import Dse
+    from xeda._internal.flow_runner.dse.dse_runner import Dse
 
     for method in (DefaultRunner.launch_flow, DefaultRunner.run_flow, Dse.run_flow):
         parameters = list(inspect.signature(method).parameters.values())

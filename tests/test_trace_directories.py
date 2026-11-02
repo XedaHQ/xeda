@@ -18,14 +18,14 @@ import pytest
 from click.testing import CliRunner
 from pydantic import Field
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.cli import cli
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
 
 from .tool_utils import require_ghdl
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -169,7 +169,7 @@ def _compiled(directory: Path, k: int) -> Path:
 def test_ghdl_sim_with_a_library_named_from_another_start_directory_is_stale(tmp_path, monkeypatch):
     """As found: from `B`, whose `pkg.K` is 2, GHDL was "up to date and passing"."""
     require_ghdl()
-    from xeda.flows import GhdlSim
+    from xeda._internal.flows import GhdlSim
 
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "tb.vhd").write_text(TB)
@@ -380,7 +380,7 @@ def test_the_run_s_own_directories_are_not_listed(tmp_path, monkeypatch):
 def test_a_large_library_directory_is_reported(tmp_path, monkeypatch, caplog):
     """No cap on what is listed -- a cap would let a change past it go unnoticed -- but a
     listing past `LARGE_LISTING_FILES` is logged, with the setting and the count."""
-    from xeda.flow_runner import trace_inputs
+    from xeda._internal.flow_runner import trace_inputs
 
     monkeypatch.setattr(trace_inputs, "LARGE_LISTING_FILES", 3)
     lib = _library(tmp_path / "L", 1)
@@ -398,7 +398,7 @@ def test_ghdl_sim_with_a_library_recompiled_in_place_is_stale(tmp_path, monkeypa
     """The in-place variant of the two above: the same `libs` recompiled with `pkg.K` = 2 -- the
     setting names the same directory -- was "up to date and passing"."""
     require_ghdl()
-    from xeda.flows import GhdlSim
+    from xeda._internal.flows import GhdlSim
 
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "tb.vhd").write_text(TB)
@@ -431,8 +431,8 @@ def test_verilator_s_include_directories_are_listed(tmp_path):
     """`include_dirs` names directories (a path setting, so the trace sees it): every entry
     under one -- a subdirectory too -- is a candidate input; the run directory's own directories
     are not."""
-    from xeda.flow_runner.trace_inputs import setting_directory_files
-    from xeda.flows import Verilator
+    from xeda._internal.flow_runner.trace_inputs import setting_directory_files
+    from xeda._internal.flows import Verilator
 
     (tmp_path / "inc" / "sub").mkdir(parents=True)
     (tmp_path / "inc" / "defs.vh").write_text("`define W 8\n")
@@ -455,7 +455,7 @@ def test_an_unchanged_library_directory_is_not_read_again(tmp_path, monkeypatch)
     """Each run records its inputs just before it starts; a file whose metadata the previous
     run's record vouches for (`FileRecord.trusted`) is not read again -- a large library costs a
     `stat` per file per run, not a hash."""
-    from xeda import digest
+    from xeda._internal import digest
 
     monkeypatch.setattr(digest, "RACY_NS", 0)
     lib = _library(tmp_path / "L", 1)

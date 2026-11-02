@@ -14,8 +14,8 @@ from typing import Optional
 
 import pytest
 
-from xeda.remote import constants, environment
-from xeda.remote.environment import (
+from xeda._internal.remote import constants, environment
+from xeda._internal.remote.environment import (
     DependencySpec,
     PythonChoice,
     RemotePlatform,
@@ -26,8 +26,8 @@ from xeda.remote.environment import (
     uv_release,
     write_code_tar,
 )
-from xeda.remote.errors import RemoteDependencyError, RemoteProvisionError
-from xeda.version import __version__
+from xeda._internal.remote.errors import RemoteDependencyError, RemoteProvisionError
+from xeda._internal.version import __version__
 
 PLATFORM = RemotePlatform(system="Linux", machine="x86_64", libc="glibc", libc_version="2.35")
 PYTHON = PythonChoice(request="cpython-3.12", path=None)

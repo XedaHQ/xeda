@@ -1,10 +1,10 @@
 """Regression tests for consumers of the legacy single-clock view."""
 
 from xeda import Design
-from xeda.flow import FPGA
-from xeda.flows import Nextpnr, YosysFpga
-from xeda.flows.nextpnr import NextpnrTool
-from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS
+from xeda._internal.flow import FPGA
+from xeda._internal.flows import Nextpnr, YosysFpga
+from xeda._internal.flows.nextpnr import NextpnrTool
+from xeda._internal.flows.yosys.common import NEWEST_CHECKED_YOSYS
 
 from .test_nextpnr import write_nextpnr_config
 

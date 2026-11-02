@@ -12,13 +12,13 @@ from decimal import Decimal
 
 import pytest
 
-from xeda.dataclass import ValidationError
-from xeda.flow import FPGA, FlowSettingsError
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flow.flow import flowrun_hash
-from xeda.flow.synth import PhysicalClock
-from xeda.flows import Nextpnr, Quartus, VivadoSynth, Yosys, YosysFpga
-from xeda.units import Frequency, Time
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.flow import FPGA, FlowSettingsError
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.flow.flow import flowrun_hash
+from xeda._internal.flow.synth import PhysicalClock
+from xeda._internal.flows import Nextpnr, Quartus, VivadoSynth, Yosys, YosysFpga
+from xeda._internal.units import Frequency, Time
 from .tool_utils import HANG_GUARD
 
 pytestmark = pytest.mark.python_compat
@@ -108,7 +108,7 @@ def test_the_command_line_text_of_a_duty_cycle_is_a_number():
 
 
 def test_the_duty_cycle_is_a_marked_fraction():
-    from xeda.units import measure_of
+    from xeda._internal.units import measure_of
 
     assert measure_of(PhysicalClock, "duty_cycle") == "ratio"
 
@@ -362,7 +362,7 @@ IDENTITY_PINS = [
 
 
 def _settings(cls, flat):
-    from xeda.utils import set_hierarchy
+    from xeda._internal.utils import set_hierarchy
 
     nested: dict = {}
     for key, value in flat.items():

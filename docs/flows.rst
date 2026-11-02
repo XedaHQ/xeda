@@ -2899,8 +2899,8 @@ to the behavioral oracle, and test positive completion, silent and drained failu
 requested limits, timeout, and stale or malformed evidence. Never add an exemption for an exit
 status alone.
 
-Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Flow``, ``SimFlow``,
-``SynthFlow``, ``FpgaSynthFlow`` or ``AsicSynthFlow`` and implements:
+Concrete flows live in ``src/xeda/_internal/flows/<tool>/``. A flow subclasses one of ``Flow``,
+``SimFlow``, ``SynthFlow``, ``FpgaSynthFlow`` or ``AsicSynthFlow`` and implements:
 
 ``init()`` (optional)
     Runs after construction, once the settings and the design are known. It is separate from
@@ -2934,9 +2934,9 @@ argument.
 Registration is automatic. ``Flow.__init_subclass__`` derives the flow name from the class name
 (``VivadoSynth`` -> ``vivado_synth``) and registers it. That name is the only spelling of the flow.
 Add the class to both the import list and ``__all__`` in
-``src/xeda/flows/__init__.py``, so that Xeda ships it and users can discover it. Then run
-``python tools/generate_flow_catalog.py`` and commit the updated ``src/xeda/flow_catalog.json``.
-Shell completion reads that file. Run the same command again after you change the
+``src/xeda/_internal/flows/__init__.py``, so that Xeda ships it and users can discover it. Then run
+``python tools/generate_flow_catalog.py`` and commit the updated
+``src/xeda/_internal/flow_catalog.json``. Shell completion reads that file. Run the same command again after you change the
 inputs, the outputs, the settings models, or the ``action_reason`` of a flow. The catalog includes
 nested setting paths and finite value choices derived from the settings
 models. Do not add setting names to the catalog by hand.

@@ -68,16 +68,16 @@ from typing import ClassVar, Optional
 
 import pytest
 
-from xeda.dataclass import Field, XedaBaseModel, waveform_fields
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
-from xeda.flow.settings_group import Flag, SettingsGroup
-from xeda.flow_runner.resolver import SHARED_SETTINGS
+from xeda._internal.dataclass import Field, XedaBaseModel, waveform_fields
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow.settings_group import Flag, SettingsGroup
+from xeda._internal.flow_runner.resolver import SHARED_SETTINGS
 
 from .flow_registry import preserved_flow_registry
 from .settings_samples import flow_classes, minimal_settings
 from .test_design_parts import _mro, reachable_templates
 from .test_source_contracts import DEFINITIONS, _loaded_source, _Module, _uses
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: Expressions that hold a flow's settings.
 SETTINGS_EXPRESSIONS = frozenset({"settings", "ss", "self.settings", "flow.settings"})
@@ -1049,8 +1049,8 @@ def test_a_method_a_class_overrides_counts_only_where_the_override_calls_super(
 
 
 def test_a_setting_added_to_a_real_flow_is_found() -> None:
-    from xeda.dataclass import Field
-    from xeda.flows import Yosys
+    from xeda._internal.dataclass import Field
+    from xeda._internal.flows import Yosys
 
     with preserved_flow_registry():
 
@@ -1377,7 +1377,7 @@ def test_an_included_template_sees_the_names_as_they_are_at_the_include() -> Non
 
 
 def test_a_group_added_to_a_real_flow_is_reported_by_its_leaves() -> None:
-    from xeda.flows import Yosys
+    from xeda._internal.flows import Yosys
 
     with preserved_flow_registry():
 

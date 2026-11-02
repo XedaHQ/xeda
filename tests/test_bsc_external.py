@@ -46,8 +46,8 @@ except ImportError:  # Windows: no lock, as for the run directories
     HAVE_FCNTL = False
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Bsc, BscSim
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Bsc, BscSim
 
 from .bsc_outputs import collected_verilog
 from .tool_utils import _opted_in, require_bluesim, require_bsc, require_iverilog, require_verilator

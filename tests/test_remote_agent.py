@@ -1,6 +1,6 @@
 """The remote agent syncs the inputs, supervises a launch, and sends back the selected files.
 
-Each test runs `python -m xeda.remote.agent` as a subprocess of the test interpreter over pipes,
+Each test runs `python -m xeda._internal.remote.agent` as a subprocess of the test interpreter over pipes,
 as the local xeda runs it over SSH. The launch is the real launch entry with the fake FPGA tools.
 A tool that must be running when a test cancels it reports its process id through a FIFO and
 blocks (`XEDA_FAKE_FPGA_READY`), so no test waits for a time to pass. Every test stops its
@@ -29,10 +29,10 @@ import psutil
 import pytest
 
 import xeda
-from xeda.flow_runner import DefaultRunner
-from xeda.remote import agent as agent_module
-from xeda.remote.constants import CANCEL_GRACE, LEASE
-from xeda.remote.frames import (
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.remote import agent as agent_module
+from xeda._internal.remote.constants import CANCEL_GRACE, LEASE
+from xeda._internal.remote.frames import (
     BEAT,
     CANCEL,
     DATA,
@@ -44,11 +44,11 @@ from xeda.remote.frames import (
     read_frame,
     skip_to_magic,
 )
-from xeda.remote.launch_entry import LaunchRequest
-from xeda.remote.manifest import Entry, build_manifest, copy_verified, iter_tar, write_tar
+from xeda._internal.remote.launch_entry import LaunchRequest
+from xeda._internal.remote.manifest import Entry, build_manifest, copy_verified, iter_tar, write_tar
 
 from .tool_utils import use_fake_fpga_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 pytestmark = [pytest.mark.python_compat, pytest.mark.skipif(os.name != "posix", reason="POSIX")]
@@ -1835,7 +1835,7 @@ def test_clean_prints_its_document_for_a_relative_root(tmp_path):
 def test_a_node_that_the_launch_did_not_run_brings_back_no_earlier_record(tmp_path):
     """A blocked node keeps the record of an earlier run that passed. The fetch takes it as a node
     of this launch that did not pass, so that record does not come back as this launch's."""
-    from xeda.remote.agent import _launch_nodes
+    from xeda._internal.remote.agent import _launch_nodes
 
     for name in ("a", "b", "c"):
         (tmp_path / name).mkdir()

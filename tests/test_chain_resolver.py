@@ -8,14 +8,14 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, In
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.bindings import NodeKey
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.resolver import ResolvedReference
-from xeda.flow_runner.trace import as_recorded
-from xeda.flows import Nextpnr
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException, In
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.bindings import NodeKey
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.resolver import ResolvedReference
+from xeda._internal.flow_runner.trace import as_recorded
+from xeda._internal.flows import Nextpnr
 from .plan_documents import plan_nodes
 
 from .scoping import node_settings
@@ -416,7 +416,7 @@ class TEcpTaker(Flow):
 def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
     """What an output can make must be a subset of what the input takes. A chain and
     a saved binding of the same edge are accepted or refused alike."""
-    from xeda.flow_runner.chains import fitting_outputs
+    from xeda._internal.flow_runner.chains import fitting_outputs
 
     with pytest.raises(FlowSettingsException, match="no compatible output"):
         parse_request("nextpnr+t_ecp_taker")
@@ -433,7 +433,7 @@ def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
     message = str(raised.value)
     assert "t_ecp_taker.config takes EcpConfig" in message
     assert "nextpnr.config makes EcpConfig/IceAsc/Fasm" in message
-    from xeda.flow.io import declared_inputs
+    from xeda._internal.flow.io import declared_inputs
 
     assert fitting_outputs(Nextpnr, declared_inputs(TEcpTaker)["config"]) == ([], [])
 
@@ -457,7 +457,7 @@ def test_a_chain_over_an_invalid_saved_binding_succeeds(tmp_path):
 def test_a_producer_s_settings_do_not_depend_on_who_asks(tmp_path):
     """No consumer gives its producer defaults. `yosys_fpga` requested alone and as
     `nextpnr`'s producer is one configuration, one identity, one directory."""
-    from xeda.flows import YosysFpga
+    from xeda._internal.flows import YosysFpga
 
     assert not hasattr(Flow, "producer_defaults")
     assert YosysFpga.Settings().netlist_src_attrs is True
@@ -500,7 +500,7 @@ def test_a_dry_run_of_a_saved_binding_shows_the_graph_that_then_runs(tmp_path, m
 
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "in.txt").write_text("bound\n")
@@ -536,7 +536,7 @@ def test_a_dry_run_of_a_saved_binding_shows_the_graph_that_then_runs(tmp_path, m
 
 
 def test_dse_refuses_a_chain_or_a_reached_binding_before_any_worker(tmp_path):
-    from xeda.flow_runner.dse import Dse
+    from xeda._internal.flow_runner.dse import Dse
 
     from .test_dse_run import _DeclaredOptimizer
 

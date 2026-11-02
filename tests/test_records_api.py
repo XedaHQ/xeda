@@ -24,8 +24,8 @@ from typing import ClassVar
 import pytest
 
 from xeda import Design
-from xeda.dataclass import Field
-from xeda.design import SourceType
+from xeda._internal.dataclass import Field
+from xeda._internal.design import SourceType
 from xeda.errors import (
     FlowNotFoundError,
     LeaseHeldError,
@@ -33,16 +33,16 @@ from xeda.errors import (
     RunReplacedError,
     RunRootError,
 )
-from xeda.events import Event
-from xeda.flow import Flow, In, MetricSpec, Out
-from xeda.flow_runner import run_lock
-from xeda.flow_runner.run_lock import lock_file
-from xeda.flow_runner.scrub import scrub_generations
-from xeda.records import InputRecord, OpenRun, RecordProblem, RunListing, RunRecord
-from xeda.run_root import ensure_run_root
-from xeda.spec import Spec
-from xeda.utils import replacing_file
-from xeda.workspace import Workspace
+from xeda._internal.events import Event
+from xeda._internal.flow import Flow, In, MetricSpec, Out
+from xeda._internal.flow_runner import run_lock
+from xeda._internal.flow_runner.run_lock import lock_file
+from xeda._internal.flow_runner.scrub import scrub_generations
+from xeda._internal.records import InputRecord, OpenRun, RecordProblem, RunListing, RunRecord
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.spec import Spec
+from xeda._internal.utils import replacing_file
+from xeda._internal.workspace import Workspace
 
 from .cancel_flows import cut_design, cut_flows
 from .derived_flows import converter_flows

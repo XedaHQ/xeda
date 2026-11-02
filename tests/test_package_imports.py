@@ -5,6 +5,8 @@ import subprocess
 import sys
 
 import pytest
+from xeda._internal.package_paths import IMPL, impl_module
+
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
@@ -79,8 +81,8 @@ import importlib
 import xeda
 
 assert not hasattr(xeda, {name!r})
-module = importlib.import_module("xeda." + {name!r})
-assert xeda.{name} is module
+module = importlib.import_module({impl_module(name)!r})
+assert getattr(importlib.import_module({IMPL!r}), {name!r}) is module
 """)
 
     assert result.stdout == ""

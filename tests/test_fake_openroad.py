@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.tool import VERSION_REGEXP2
+from xeda._internal.tool import VERSION_REGEXP2
 
 from . import tool_utils
 from .tool_utils import OPENROAD_COMMANDS, fake_calls, require_tclsh, use_fake_openroad

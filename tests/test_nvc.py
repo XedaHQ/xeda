@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nvc
-from xeda.flows.nvc import NvcTool
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nvc
+from xeda._internal.flows.nvc import NvcTool
 
 from .test_ghdl import _evidence_design, _systemverilog_design, _vhdl_inverter
 from .tool_utils import require_nvc, require_nvc_evidence
@@ -326,7 +326,7 @@ def test_nvc_cocotb_time_limit(tmp_path, one_shot):
     ],
 )
 def test_nvc_native_log_evidence(tmp_path, text, ended, time, kinds):
-    from xeda.flow.sim_evidence import parse_nvc_log
+    from xeda._internal.flow.sim_evidence import parse_nvc_log
 
     flow = Nvc({}, _evidence_design(tmp_path, ""), tmp_path)
     path = tmp_path / "sim.log"
@@ -394,7 +394,7 @@ def test_nvc_plugin_load_failure_is_a_failure(tmp_path):
 @pytest.mark.parametrize("one_shot", [True, False])
 def test_nvc_evidence_excludes_build_diagnostics(tmp_path, monkeypatch, one_shot):
     import sys
-    from xeda.proc_utils import run_process
+    from xeda._internal.proc_utils import run_process
 
     require_nvc_evidence()
     original = NvcTool.run
@@ -449,7 +449,7 @@ def test_nvc_evidence_clears_previous_files_before_runtime(tmp_path, monkeypatch
 @pytest.mark.parametrize("messages", [None, "compact"])
 def test_nvc_evidence_captures_stdout_and_preserves_user_vhpi(tmp_path, messages):
     import sys
-    from xeda.tool import Tool
+    from xeda._internal.tool import Tool
 
     require_nvc_evidence()
     plugin = tmp_path / "user.cpp"
@@ -479,8 +479,8 @@ def test_nvc_evidence_captures_stdout_and_preserves_user_vhpi(tmp_path, messages
 
 
 def test_nvc_evidence_compiles_against_container_paths(tmp_path, monkeypatch):
-    from xeda.run_dir import RunDirectory
-    from xeda.tool import Tool
+    from xeda._internal.run_dir import RunDirectory
+    from xeda._internal.tool import Tool
     from .tool_utils import use_fake_tools
 
     use_fake_tools(monkeypatch)

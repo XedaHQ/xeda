@@ -12,18 +12,18 @@ from itertools import product
 
 import pytest
 
-from xeda.design import (
+from xeda._internal.design import (
     AMBIGUOUS_SUFFIXES,
     SOURCE_SUFFIXES,
     TYPE_ONLY,
     Source,
     SourceType,
 )
-from xeda.flow import FlowSettingsException
-from xeda.flow.io import declared_inputs, declared_outputs
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.chains import fitting_outputs, parse_request, validate_chain
-from xeda.flows import (
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow.io import declared_inputs, declared_outputs
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.chains import fitting_outputs, parse_request, validate_chain
+from xeda._internal.flows import (
     Nextpnr,
     VivadoAltSynth,
     VivadoImpl,
@@ -33,7 +33,7 @@ from xeda.flows import (
     Yosys,
     YosysFpga,
 )
-from xeda.introspect import all_flow_classes
+from xeda._internal.introspect import all_flow_classes
 
 from .openroad_utils import openroad_settings
 from .tiny_platform import tiny_store

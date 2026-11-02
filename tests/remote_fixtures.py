@@ -19,20 +19,20 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 import pytest
 import yaml
 
-from xeda.design import Design
-from xeda.outcomes import Outcome, Result
-from xeda.project import Project
-from xeda.records import RunRecord
-from xeda.remote import client
-from xeda.remote.environment import CodeSnapshot
-from xeda.remote.profile import HostProfile
+from xeda._internal.design import Design
+from xeda._internal.outcomes import Outcome, Result
+from xeda._internal.project import Project
+from xeda._internal.records import RunRecord
+from xeda._internal.remote import client
+from xeda._internal.remote.environment import CodeSnapshot
+from xeda._internal.remote.profile import HostProfile
 
-from xeda.spec import Spec
-from xeda.types import UNSET
-from xeda.utils import settings_to_dict
+from xeda._internal.spec import Spec
+from xeda._internal.types import UNSET
+from xeda._internal.utils import settings_to_dict
 
 from .tool_utils import FAKE_TOOLS_DIR, use_fake_fpga_tools, use_fake_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: The fake `ssh`, `uv` and `curl`. Only the remote fixtures put it on a `PATH`.
 REMOTE_FAKES_DIR = FAKE_TOOLS_DIR / "remote"
@@ -164,7 +164,7 @@ class FakeRemote:
 def fake_remote(
     fake_ssh: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[FakeRemote]:
-    """The fake remote host. Patches `xeda.remote.environment.UV_RELEASES` to a release of a uv
+    """The fake remote host. Patches `xeda._internal.remote.environment.UV_RELEASES` to a release of a uv
     that is the fake `uv`, for the platform that the fake host reports."""
     bin_dir = tmp_path / "fake-ssh" / "bin"
     bin_dir.mkdir()
@@ -340,7 +340,7 @@ def remote_host(
 def host_profile_of(destination: str) -> HostProfile:
     """The profile of `destination` in the profile file of the user, as the command line reads
     it (`XDG_CONFIG_HOME` points to the file of the test)."""
-    from xeda.remote.profile import host_profile, read_host_profiles, remotes_file
+    from xeda._internal.remote.profile import host_profile, read_host_profiles, remotes_file
 
     return host_profile(destination, read_host_profiles(remotes_file()))
 
@@ -378,7 +378,7 @@ class RemoteRun:
 
 def run_of(call: Any) -> RemoteRun:
     """Call `call()`, which returns a `Result`, and return what it gave or raised as a `RemoteRun`."""
-    from xeda.flow_runner.error_codes import public_error, request_error_info
+    from xeda._internal.flow_runner.error_codes import public_error, request_error_info
 
     try:
         result = call()
@@ -428,12 +428,12 @@ def remote_request(tmp_path: Path, design: Any, chain: str = "nextpnr", **overri
     """Run `chain` for `design` on the host `somewhere` with `run_remote`, and return a
     `RemoteRun`. The run root is `tmp_path/local/xeda_run`. `overrides` replace the arguments of
     the request: the ones of `xeda run`, `destination_text`, `profile` and `local_settings`."""
-    from xeda.flow_runner.error_codes import public_error, request_error_info
-    from xeda.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
-    from xeda.flow_runner.settings_layers import command_line_table
-    from xeda.outcomes import run_document, spec_document_of
-    from xeda.remote.client import plan_remote, run_remote
-    from xeda.remote_value import Remote
+    from xeda._internal.flow_runner.error_codes import public_error, request_error_info
+    from xeda._internal.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from xeda._internal.flow_runner.settings_layers import command_line_table
+    from xeda._internal.outcomes import run_document, spec_document_of
+    from xeda._internal.remote.client import plan_remote, run_remote
+    from xeda._internal.remote_value import Remote
 
     arguments: Dict[str, Any] = dict(
         destination_text="somewhere",

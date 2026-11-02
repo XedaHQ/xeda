@@ -1,4 +1,4 @@
-"""The OpenSSH transport of remote runs (`xeda.remote.ssh`), against the fake `ssh`
+"""The OpenSSH transport of remote runs (`xeda._internal.remote.ssh`), against the fake `ssh`
 (`tests/fake_tools/remote/fake_ssh.py`). A real master connection is not tested here."""
 
 import os
@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from xeda.remote.errors import RemoteConfigError, RemoteConnectionError
-from xeda.remote import ssh
-from xeda.remote.ssh import Destination, SshSession, resolve_destination, sh_command
+from xeda._internal.remote.errors import RemoteConfigError, RemoteConnectionError
+from xeda._internal.remote import ssh
+from xeda._internal.remote.ssh import Destination, SshSession, resolve_destination, sh_command
 
 from .remote_fixtures import fake_ssh, ssh_calls
 from .tool_utils import terminal_output
@@ -366,7 +366,7 @@ def test_a_redirect_without_a_file_descriptor_gives_the_child_the_null_device():
     import io
     import sys
 
-    from xeda import proc_utils
+    from xeda._internal import proc_utils
 
     assert proc_utils.child_stdout() == subprocess.DEVNULL
     with terminal_output():

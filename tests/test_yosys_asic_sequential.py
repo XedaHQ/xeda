@@ -17,12 +17,12 @@ from typing import Any, get_args
 import pytest
 
 from xeda import Design
-from xeda.dataclass import tier_of
-from xeda.flow import FlowException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys
-from xeda.flows.yosys import asic_groups
-from xeda.flows.yosys.yosys import LEGALIZE_ANY_FLIP_FLOP
+from xeda._internal.dataclass import tier_of
+from xeda._internal.flow import FlowException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys import asic_groups
+from xeda._internal.flows.yosys.yosys import LEGALIZE_ANY_FLIP_FLOP
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _words
 from .test_yosys_asic_groups import no_liberty_message, _pdk, _refused, _run
@@ -525,7 +525,7 @@ def test_retime_modules_assert_each_module_before_the_retiming_in_both_formats_o
 
 
 def test_the_dff_map_names_the_cells_it_maps_and_a_file_without_a_module_is_refused(tmp_path):
-    from xeda.flows.yosys.yosys import dff_map_cells
+    from xeda._internal.flows.yosys.yosys import dff_map_cells
 
     path = tmp_path / "map.v"
     path.write_text(DFF_MAP + "  module $_DFFE_PP_ (input D);\nendmodule\n")
@@ -536,7 +536,7 @@ def test_the_dff_map_names_the_cells_it_maps_and_a_file_without_a_module_is_refu
 
 
 def test_the_new_map_files_resolve_against_the_design_root(tmp_path):
-    from xeda.flows.yosys import yosys as module
+    from xeda._internal.flows.yosys import yosys as module
 
     store = tiny_store(tmp_path)
     design = _design(tmp_path / "design")

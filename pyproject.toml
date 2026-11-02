@@ -70,7 +70,7 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 # documentation = "..."
 
 [project.scripts]
-xeda = "xeda.cli:cli"
+xeda = "xeda._internal.cli:cli"
 
 # Dependency groups are not part of the published package: `pip install xeda` installs none of
 # them. `uv sync` installs `dev`, which includes the others; the test environments of tox install
@@ -121,8 +121,8 @@ exclude = [
 namespaces = false
 
 [tool.setuptools.package-data]
-"xeda" = [
-    "py.typed",
+"xeda" = ["py.typed"]
+"xeda._internal" = [
     "*.cpp",
     "*.md",
     "*.fdc",
@@ -149,24 +149,25 @@ namespaces = false
     "remote/*.sh",
 ]
 # The residue file of each platform, its Yosys techmaps and the attribution of the values in them.
-"xeda.platforms" = ["*/platform.yaml", "*/*.v", "NOTICE.md"]
-"xeda.flow" = ["templates/*.h", "templates/*.c"]
-"xeda.flows.modelsim" = ["templates/*.tcl"]
-"xeda.flows.vivado" = ["templates/*.tcl"]
-"xeda.flows.nvc" = ["templates/*.cpp"]
-"xeda.flows.openroad" = ["templates/*.j2", "templates/**/*.j2", "data/*"]
-"xeda.flows.bsc" = ["templates/*.h", "templates/*.tcl"]
-"xeda.flows.iverilog" = ["templates/*.v"]
-"xeda.flows.yosys" = ["templates/*.h", "templates/*.cpp", "data/asic/*"]
-# The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
-"xeda.data" = [
+"xeda._internal.platforms" = ["*/platform.yaml", "*/*.v", "NOTICE.md"]
+"xeda._internal.flow" = ["templates/*.h", "templates/*.c"]
+"xeda._internal.flows.modelsim" = ["templates/*.tcl"]
+"xeda._internal.flows.vivado" = ["templates/*.tcl"]
+"xeda._internal.flows.nvc" = ["templates/*.cpp"]
+"xeda._internal.flows.openroad" = ["templates/*.j2", "templates/**/*.j2", "data/*"]
+"xeda._internal.flows.bsc" = ["templates/*.h", "templates/*.tcl"]
+"xeda._internal.flows.iverilog" = ["templates/*.v"]
+"xeda._internal.flows.yosys" = ["templates/*.h", "templates/*.cpp", "data/asic/*"]
+"xeda._internal.data" = [
     "*.toml",
     "boards/**/*.xdc",
     "boards/**/*.lpf",
     "boards/*/*.md",
-    "schemas/*.json",
 ]
-"xeda.data.agent" = [
+# The JSON Schemas are public files: they stay at `xeda/data/schemas/`.
+"xeda.data" = ["schemas/*.json"]
+# The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
+"xeda._internal.data.agent" = [
     "SKILL.md",
     "references/*.md",
 ]
@@ -254,7 +255,7 @@ no_implicit_reexport = true
 warn_unused_configs = true
 # exclude = ['^build/.*$', '^examples/.*$', '^\.tox/.*$', 'src/flows/openroad/openroad_scripts/utils/.*']
 # The merge script runs inside KLayout, which defines its inputs and the module `pya`.
-exclude = ['^src/xeda/flows/openroad/data/']
+exclude = ['^src/xeda/_internal/flows/openroad/data/']
 color_output = true
 pretty = true
 strict_optional = true

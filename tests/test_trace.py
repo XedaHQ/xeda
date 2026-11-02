@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from xeda.digest import MODIFIED_DURING_RUN, RACY_NS, FileRecord, record_file
-from xeda.flow_runner.trace import (
+from xeda._internal.digest import MODIFIED_DURING_RUN, RACY_NS, FileRecord, record_file
+from xeda._internal.flow_runner.trace import (
     TRACE_FILE,
     TRACE_FORMAT,
     BoundProducer,
@@ -82,7 +82,7 @@ def test_remove_trace_is_idempotent(tmp_path):
 
 
 def test_as_recorded_matches_what_dump_json_writes(tmp_path):
-    from xeda.utils import dump_json
+    from xeda._internal.utils import dump_json
 
     value = {"xdc": Path("/a/b.xdc"), "n": 3, "t": ("x", None)}
     dump_json(value, tmp_path / "v.json", backup=False)

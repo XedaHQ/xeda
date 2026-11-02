@@ -4,9 +4,9 @@ import pytest
 
 from xeda import Design
 from xeda.errors import DesignError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner import dependencies
-from xeda.remote.packaging import refuse_unsendable_declared
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner import dependencies
+from xeda._internal.remote.packaging import refuse_unsendable_declared
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import reader_flow

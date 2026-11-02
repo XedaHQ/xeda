@@ -16,11 +16,11 @@ from pathlib import Path
 import pytest
 from xeda.errors import SpecError
 
-from xeda.deliver import DeliveryError
+from xeda._internal.deliver import DeliveryError
 from xeda.errors import ProjectError
-from xeda.flow_runner.run_lock import lock_file
-from xeda.remote import client
-from xeda.run_root import RunRootError, is_run_root
+from xeda._internal.flow_runner.run_lock import lock_file
+from xeda._internal.remote import client
+from xeda._internal.run_root import RunRootError, is_run_root
 
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .scoping import node_settings
@@ -300,11 +300,11 @@ def test_a_partial_delivery_is_reported_before_an_oserror_re_raises(tmp_path):
     """As the local launch does (`Deliveries.deliver`): an `OSError` on the second file of a
     delivery must not lose the first from `Deliveries.delivered`, the list that the document
     shows."""
-    import xeda.deliver
-    from xeda.deliver import Deliveries, ReadInputs
-    from xeda.records import decode_record
-    from xeda.remote.fetch import deliver_fetched
-    from xeda.run_root import ensure_run_root
+    import xeda._internal.deliver
+    from xeda._internal.deliver import Deliveries, ReadInputs
+    from xeda._internal.records import decode_record
+    from xeda._internal.remote.fetch import deliver_fetched
+    from xeda._internal.run_root import ensure_run_root
 
     from .record_documents import record_document
 
@@ -314,7 +314,7 @@ def test_a_partial_delivery_is_reported_before_an_oserror_re_raises(tmp_path):
     mirror.mkdir(parents=True)
     for name in ("a.txt", "b.txt"):
         (mirror / name).write_text(name)
-    real_copy = xeda.deliver.Deliveries._copy
+    real_copy = xeda._internal.deliver.Deliveries._copy
     made: list = []
 
     def copy_then_fail_second(self, delivery, source, destination, expected, sha, *rest):
@@ -359,7 +359,7 @@ def test_the_mirror_is_written_and_delivered_under_its_run_directory_lock(
     """The mirror directory is another remote run's too: every write to it, and its delivery,
     holds its lock, as a local launch does, so concurrent runs take turns instead of mixing
     their files."""
-    from xeda.deliver import Deliveries
+    from xeda._internal.deliver import Deliveries
 
     design = _sqrt_design(tmp_path / "design")
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere" / "sqrt" / "vivado_synth"
@@ -424,12 +424,12 @@ def test_a_failed_delivery_keeps_the_result_the_mirror_and_the_copies_in_the_doc
     """As a local run does: the document lists every planned delivery, and only the copy made
     before the error is delivered. The remote result and the places in the mirror stay too, and
     the mirror stays whole."""
-    import xeda.deliver
-    from xeda.deliver import Deliveries
+    import xeda._internal.deliver
+    from xeda._internal.deliver import Deliveries
 
     design = _sqrt_design(tmp_path / "design")
     mirror = tmp_path / "local" / "xeda_run" / "@somewhere" / "sqrt" / "vivado_synth"
-    real_copy = xeda.deliver.Deliveries._copy
+    real_copy = xeda._internal.deliver.Deliveries._copy
     made: list = []
 
     def copy_then_fail_second(self, delivery, source, destination, expected, sha, *rest):

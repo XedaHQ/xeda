@@ -10,11 +10,12 @@ import sys
 
 import pytest
 
-from xeda.dataclass import ConfigDict
-from xeda.design import Design, Source, DesignValidationError, SourceType
-from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
-from xeda.project import Project
-from xeda.yaml_loader import load_yaml
+from xeda._internal.dataclass import ConfigDict
+from xeda._internal.design import Design, Source, DesignValidationError, SourceType
+from xeda.introspect import design_schema
+from xeda._internal.introspect import JSON_SCHEMA_DIALECT
+from xeda._internal.project import Project
+from xeda._internal.yaml_loader import load_yaml
 
 from .design_edits import design_of
 
@@ -188,7 +189,7 @@ def test_documented_shorthands_are_accepted_by_both(label):
 
 def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader():
     """`generator.args` is stored as a list; the string spelling stays an accepted input."""
-    from xeda.design import Generator
+    from xeda._internal.design import Generator
 
     for args in ("gen.py out.log", ["gen.py", "out.log"]):
         data = {
@@ -413,7 +414,7 @@ def list_fields():
     """Every list field of every model a design holds: (model, field name, schema property names)."""
     import typing
 
-    from xeda.introspect import _models_reachable_from
+    from xeda._internal.introspect import _models_reachable_from
 
     for model in _models_reachable_from(Design):
         for name, info in model.model_fields.items():
@@ -473,7 +474,7 @@ def test_the_schema_takes_a_bare_string_wherever_the_loader_does():
 def test_the_sweep_sees_a_list_field_that_the_schema_describes_as_a_list_only(monkeypatch):
     """Without the declaration the schema lists `sources` and `clocks` as lists only, and the
     sweep names them: it has teeth."""
-    from xeda import introspect
+    from xeda._internal import introspect
 
     monkeypatch.setattr(introspect, "single_item_fields_of", lambda model: ())
     gaps = fields_that_take_a_bare_string_but_the_schema_does_not(design_schema())
@@ -486,7 +487,7 @@ def test_the_sweep_sees_a_list_field_that_the_schema_describes_as_a_list_only(mo
 
 def test_every_declared_single_item_field_is_one_the_loader_takes():
     """The declaration the schema follows is true of the loader."""
-    from xeda.dataclass import single_item_fields_of
+    from xeda._internal.dataclass import single_item_fields_of
 
     declared = {
         (model, name)
@@ -574,7 +575,7 @@ def test_a_returned_schema_shares_nothing_with_the_next_one():
 
 
 def test_the_schema_of_a_generator_lists_its_class():
-    from xeda.design import GENERATOR_CLASSES
+    from xeda._internal.design import GENERATOR_CLASSES
 
     properties = design_schema()["$defs"]["Generator"]["properties"]
 

@@ -26,12 +26,12 @@ import psutil
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.remote import client
-from xeda.remote.attach import attach_launch, cancel_launch
-from xeda.remote.frames import CANCEL
-from xeda.remote.errors import RemoteError
-from xeda.remote.ssh import SshSession
+from xeda._internal.cli import cli
+from xeda._internal.remote import client
+from xeda._internal.remote.attach import attach_launch, cancel_launch
+from xeda._internal.remote.frames import CANCEL
+from xeda._internal.remote.errors import RemoteError
+from xeda._internal.remote.ssh import SshSession
 
 from .remote_fixtures import (
     RemoteHost,
@@ -57,7 +57,7 @@ from .test_remote_agent import (
     workspace,
 )
 from .test_remote_client import TIMEOUT, _assert_gone, _design, _states, _succeeded
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host, start_agent, toolchain, provisioned)
 
@@ -648,8 +648,8 @@ def test_a_cancel_frame_still_cancels_a_launch_that_keeps_running(
 
 def _session(tmp_path: Path) -> Any:
     """A session object that is only used to stop a process: no client, no output."""
-    from xeda.remote import agent as agent_module
-    from xeda.remote.frames import FrameWriter
+    from xeda._internal.remote import agent as agent_module
+    from xeda._internal.remote.frames import FrameWriter
 
     client = agent_module._Client(io.BytesIO(b""))
     out = agent_module._Output(FrameWriter(io.BytesIO()), 1.0)
@@ -1013,7 +1013,7 @@ def test_a_run_that_keeps_running_prints_the_launch_in_its_json_document(tmp_pat
 
 @pytest.mark.parametrize("linked", [".launches", "mirror"])
 def test_the_launch_record_is_never_written_through_a_link(tmp_path, linked):
-    from xeda.remote.launch_record import LaunchRecord, write_record
+    from xeda._internal.remote.launch_record import LaunchRecord, write_record
 
     run_root = tmp_path / "xeda_run"
     mirror_root = run_root / "@host"

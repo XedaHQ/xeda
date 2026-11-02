@@ -14,10 +14,10 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .utils import XedaException
+from ._internal.utils import XedaException
 
 if TYPE_CHECKING:
-    from .outcomes import Result
+    from ._internal.outcomes import Result
 
 __all__ = [
     "XedaError",

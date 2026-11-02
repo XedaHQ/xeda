@@ -370,7 +370,7 @@ def test_a_design_built_from_a_dict_resolves_against_its_design_root(tmp_path):
 
 
 def test_a_load_leaves_no_root_behind_even_when_it_fails(tmp_path):
-    from xeda.design import Design, DesignValidationError, design_relative_root
+    from xeda._internal.design import Design, DesignValidationError, design_relative_root
 
     root = tmp_path / "design"
     _write(root / "a.v", "// design\n")
@@ -384,9 +384,9 @@ def test_a_load_leaves_no_root_behind_even_when_it_fails(tmp_path):
 
 
 def test_a_missing_local_dependency_names_where_it_looked(tmp_path):
-    from xeda.design import Design
+    from xeda._internal.design import Design
     from xeda.errors import DesignError
-    from xeda.flow_runner.dependencies import merged_design
+    from xeda._internal.flow_runner.dependencies import merged_design
 
     root = tmp_path / "design"
     _write(root / "top.v", "// design\n")

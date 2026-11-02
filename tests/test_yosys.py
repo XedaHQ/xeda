@@ -11,12 +11,12 @@ from typing import get_args
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow.settings_group import SettingsGroup
-from xeda.flow_runner import DefaultRunner
-from xeda.edif import modules_used_as_library_cells
-from xeda.flows import Yosys, YosysFpga
-from xeda.flows.yosys.common import YosysBase, YosysSynthesisBase
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow.settings_group import SettingsGroup
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.edif import modules_used_as_library_cells
+from xeda._internal.flows import Yosys, YosysFpga
+from xeda._internal.flows.yosys.common import YosysBase, YosysSynthesisBase
 
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_store
 from .tool_utils import (

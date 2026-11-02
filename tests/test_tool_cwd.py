@@ -16,13 +16,13 @@ from typing import Any, List, Tuple
 
 import pytest
 
-import xeda.tool
+import xeda._internal.tool
 from xeda import Design
-from xeda.flows import Yosys
-from xeda.flows.nextpnr import EcpPLL
-from xeda.run_dir import RunDirectoryError
-from xeda.tool import Docker, Tool
-from xeda.utils import ToolException
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.nextpnr import EcpPLL
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.tool import Docker, Tool
+from xeda._internal.utils import ToolException
 from .source_layout import layout_script
 
 Call = Tuple[str, List[str], dict]
@@ -30,14 +30,14 @@ Call = Tuple[str, List[str], dict]
 
 @pytest.fixture
 def calls(monkeypatch) -> List[Call]:
-    """Record each `run_process` of `xeda.tool`; a capture (`stdout=True`) returns no text."""
+    """Record each `run_process` of `xeda._internal.tool`; a capture (`stdout=True`) returns no text."""
     recorded: List[Call] = []
 
     def fake(executable, args=None, **kwargs):
         recorded.append((str(executable), [str(a) for a in args or []], kwargs))
         return "" if kwargs.get("stdout") is True else None
 
-    monkeypatch.setattr(xeda.tool, "run_process", fake)
+    monkeypatch.setattr(xeda._internal.tool, "run_process", fake)
     return recorded
 
 
@@ -230,14 +230,14 @@ def test_an_absolute_log_file_stays(tmp_path, calls):
 def test_a_query_runs_in_a_scratch_directory_that_is_removed(tmp_path, calls, monkeypatch):
     flow = _flow(tmp_path)
     seen: List[Path] = []
-    original = xeda.tool.run_process
+    original = xeda._internal.tool.run_process
 
     def look(executable, args=None, **kwargs):
         seen.append(Path(kwargs["cwd"]))
         assert seen[-1].is_dir()
         return original(executable, args, **kwargs)
 
-    monkeypatch.setattr(xeda.tool, "run_process", look)
+    monkeypatch.setattr(xeda._internal.tool, "run_process", look)
     _tool(flow).probe_stdout("--version")
     (scratch,) = seen
     assert scratch.name.startswith("xeda-probe-")
@@ -256,7 +256,7 @@ def test_a_query_that_makes_a_file_leaves_it_in_the_scratch_directory(tmp_path, 
         written.append((scratch, (scratch / "env.sh").read_text()))
         return ""
 
-    monkeypatch.setattr(xeda.tool, "run_process", look)
+    monkeypatch.setattr(xeda._internal.tool, "run_process", look)
     _tool(flow).probe_stdout("--version", env={"ONE": "1"})
     ((scratch, text),) = written
     assert text == 'export ONE="1"'

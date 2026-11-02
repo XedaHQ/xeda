@@ -14,19 +14,19 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design, errors
-from xeda.cli import cli
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import (
+from xeda._internal.cli import cli
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import (
     PROJECT_LOCAL_ORIGIN,
     USER_CONFIG_ORIGIN,
     project_local_origin,
     user_config_origin,
 )
-from xeda.frozen import FrozenDict
-from xeda.local_settings import LOCAL_SETTINGS_KEYS, LocalSettings, local_settings
-from xeda.project import Project
-from xeda.remote.errors import RemoteConfigError
-from xeda.types import UNSET
+from xeda._internal.frozen import FrozenDict
+from xeda._internal.local_settings import LOCAL_SETTINGS_KEYS, LocalSettings, local_settings
+from xeda._internal.project import Project
+from xeda._internal.remote.errors import RemoteConfigError
+from xeda._internal.types import UNSET
 
 from .io_flows import TReadsInstalled
 from .project_files import PROJECT_FILE
@@ -444,7 +444,7 @@ def test_a_pdk_root_from_any_layer_changes_no_identity(tmp_path):
 def test_the_doors_that_take_a_project_take_the_private_settings():
     import inspect
 
-    from xeda.flow_runner.default_runner import FlowLauncher
+    from xeda._internal.flow_runner.default_runner import FlowLauncher
 
     for name in ("run", "plan", "plan_with_freshness", "prepare_request", "resolve_run"):
         assert "local_settings" in inspect.signature(getattr(FlowLauncher, name)).parameters, name
@@ -593,7 +593,7 @@ def test_a_malformed_private_file_fails_the_command(tmp_path, private_home):
 
 
 def test_dse_takes_the_private_options_and_run_root(tmp_path, private_home, monkeypatch):
-    from xeda.flow_runner.dse import Dse
+    from xeda._internal.flow_runner.dse import Dse
 
     path = write_project(tmp_path / "repo", {"designs": [{"name": "d", "rtl": rtl()}]})
     user_file(private_home, {"run_root": "dse_runs"})
@@ -625,7 +625,7 @@ def test_dse_takes_the_private_options_and_run_root(tmp_path, private_home, monk
 def test_the_cli_passes_the_host_profile_and_the_private_settings_to_the_remote(
     tmp_path, private_home, monkeypatch
 ):
-    from xeda.remote import client
+    from xeda._internal.remote import client
 
     path = write_project(tmp_path / "repo", {"designs": [{"name": "d", "rtl": rtl()}]})
     write(private_home / "remotes.yaml", {"hosts": {"venona": {"root": "~/x"}}})
@@ -683,7 +683,7 @@ def test_only_the_command_line_and_local_settings_look_for_the_private_files():
 
 def test_a_remote_request_carries_the_private_layers_in_its_sections(tmp_path):
     """The host runs the merged sections: it reads no private file of its own."""
-    from xeda.local_settings import LocalSettings
+    from xeda._internal.local_settings import LocalSettings
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
     ls = LocalSettings(
@@ -736,7 +736,7 @@ def test_malformed_host_profiles_are_an_invalid_local_settings_error(private_hom
 
 
 def test_remote_commands_still_report_malformed_host_profiles_as_remote_config_errors(tmp_path):
-    from xeda.remote.profile import read_host_profiles
+    from xeda._internal.remote.profile import read_host_profiles
 
     path = write(tmp_path / "remotes.yaml", "hosts: [")
     with pytest.raises(RemoteConfigError):
@@ -807,7 +807,7 @@ def test_the_run_root_of_a_design_file_follows_the_order_with_the_project_local_
 
 
 def test_dse_of_a_design_file_follows_the_same_run_root_order(tmp_path, private_home, monkeypatch):
-    from xeda.flow_runner.dse import Dse
+    from xeda._internal.flow_runner.dse import Dse
 
     repo = tmp_path / "repo"
     path = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}]})
@@ -840,8 +840,8 @@ def test_a_launch_protects_the_private_files_it_loaded(tmp_path, private_home):
 
 
 def test_a_remote_launch_protects_the_private_files_it_loaded(tmp_path, private_home):
-    from xeda.deliver import ReadInputs
-    from xeda.remote import client
+    from xeda._internal.deliver import ReadInputs
+    from xeda._internal.remote import client
 
     user = user_file(private_home, {"run_root": "runs"})
     project = project_of(tmp_path)
@@ -880,7 +880,7 @@ def test_a_design_file_beside_a_project_still_protects_the_project_local_file(
 ):
     """The design file gets no layer from the project-local file, but the file was read (its
     `run_root` counts), so a deliverable may not replace it."""
-    from xeda.cli import _cli_local_settings
+    from xeda._internal.cli import _cli_local_settings
 
     project = project_of(tmp_path)
     local = write(local_file_of(project), {"run_root": "local", "flows": {"x": {"a": 1}}})

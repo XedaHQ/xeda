@@ -12,11 +12,11 @@ from typing import Any
 
 import pytest
 
-from xeda.platforms import Residue, build_platform, load_residue, locate
-from xeda.platforms.derive import derive
-from xeda.platforms.model import Located
-from xeda.platforms.residue import effective_residue
-from xeda.platforms.upstream import read_upstream
+from xeda._internal.platforms import Residue, build_platform, load_residue, locate
+from xeda._internal.platforms.derive import derive
+from xeda._internal.platforms.model import Located
+from xeda._internal.platforms.residue import effective_residue
+from xeda._internal.platforms.upstream import read_upstream
 
 from .tool_utils import require_orfs_checkout
 

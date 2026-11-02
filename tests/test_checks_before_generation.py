@@ -17,14 +17,14 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.design import DesignValidationError
+from xeda._internal.cli import cli
+from xeda._internal.design import DesignValidationError
 from xeda.errors import DesignError, SpecError
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dse import Dse
-from xeda.flow_runner.dse.fmax import FmaxOptimizer
-from xeda.project import Project
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dse import Dse
+from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
+from xeda._internal.project import Project
 
 from .scoping import node_settings
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request

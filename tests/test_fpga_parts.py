@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from xeda.flow import FPGA
+from xeda._internal.flow import FPGA
 
 
 @pytest.mark.parametrize(

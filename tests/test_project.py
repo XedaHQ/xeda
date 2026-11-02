@@ -13,14 +13,18 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-import xeda.cli_utils
+import xeda._internal.cli_utils
 from xeda import errors
-from xeda.cli import cli
-from xeda.flow_runner import DefaultRunner
-from xeda.frozen import FrozenDict
-from xeda.project import PROJECT_KEYS, REMOVED_PROJECT_KEYS, Project
-from xeda.types import UNSET, Unset
-from xeda.xedaproject import PROJECT_FILE_NAMES, find_default_xedaproject, resolve_project_file
+from xeda._internal.cli import cli
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.frozen import FrozenDict
+from xeda._internal.project import PROJECT_KEYS, REMOVED_PROJECT_KEYS, Project
+from xeda._internal.types import UNSET, Unset
+from xeda._internal.xedaproject import (
+    PROJECT_FILE_NAMES,
+    find_default_xedaproject,
+    resolve_project_file,
+)
 
 from .project_files import PROJECT_FILE
 from .scoping import node_settings
@@ -231,7 +235,7 @@ def test_a_source_that_only_the_target_generates_loads_with_the_target(tmp_path)
 
 
 def test_a_target_that_the_design_does_not_have_is_refused(tmp_path):
-    from xeda.flow_runner.error_codes import public_error
+    from xeda._internal.flow_runner.error_codes import public_error
 
     p = targeted_project(tmp_path)
     for name, message in (("fifo", "not a target of the design"), ("plain", "no `targets`")):
@@ -733,11 +737,11 @@ def test_a_malformed_project_is_reported_by_the_launcher(tmp_path):
 
 
 def test_no_interactive_prompt_exists():
-    assert not hasattr(xeda.cli_utils, "select_design_in_project")
+    assert not hasattr(xeda._internal.cli_utils, "select_design_in_project")
 
 
 def test_the_attrs_class_of_a_project_is_gone():
-    import xeda.xedaproject as discovery
+    import xeda._internal.xedaproject as discovery
 
     assert not hasattr(discovery, "XedaProject")
 
@@ -763,8 +767,8 @@ def test_a_launch_protects_the_design_file_and_the_project_file_it_selected(tmp_
 def test_a_remote_launch_protects_the_same_files(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
-    from xeda.deliver import ReadInputs
-    from xeda.remote import client
+    from xeda._internal.deliver import ReadInputs
+    from xeda._internal.remote import client
 
     path = project_listing_two(tmp_path)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -968,7 +972,7 @@ def test_without_a_project_the_run_root_is_xeda_run_here(tmp_path, monkeypatch):
 
 
 def test_the_project_run_root_is_used_by_dse_and_the_remote_mirror(tmp_path, monkeypatch):
-    from xeda.remote import client
+    from xeda._internal.remote import client
 
     repo = tmp_path / "repo"
     project = write_project(repo, {"designs": [{"name": "d", "rtl": rtl()}], "run_root": "runs"})
@@ -1055,7 +1059,7 @@ def test_a_project_is_a_launch_input_of_a_design_file_without_a_layer(tmp_path, 
 
 
 def test_a_remote_run_without_a_design_takes_the_only_design_of_the_project(tmp_path, monkeypatch):
-    from xeda.remote import client
+    from xeda._internal.remote import client
 
     monkeypatch.chdir(tmp_path)
     project = write_project(tmp_path, {"designs": [{"name": "solo", "rtl": rtl()}]})

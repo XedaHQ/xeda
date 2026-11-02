@@ -17,11 +17,11 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow
-from xeda.flow.flow import registered_flows
-from xeda.flow.io import declared_inputs
-from xeda.flow_runner.trace_inputs import design_files
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow.io import declared_inputs
+from xeda._internal.flow_runner.trace_inputs import design_files
 
 from .settings_samples import flow_classes
 from .test_declared_fpga_flows import PART, tools  # noqa: F401  (the stand-in tools fixture)
@@ -181,8 +181,8 @@ def test_design_files_follow_the_scope_and_the_guards_keep_the_whole_design(
 def test_nextpnr_is_not_judged_on_the_verilog_its_producer_reads(
     tmp_path: Path, monkeypatch, tools  # noqa: F811
 ) -> None:
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flows import Nextpnr
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flows import Nextpnr
 
     root = tmp_path / "d"
     design = _design(root)
@@ -222,8 +222,8 @@ def test_a_nextpnr_hook_is_judged_on_every_source(
 ) -> None:  # noqa: F811
     """A Python hook can read any source of the design (a placement table, typed `Data`): with
     one, nextpnr is judged on the whole parts, and an edit to such a file moves it."""
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flows import Nextpnr
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flows import Nextpnr
 
     settings = Nextpnr.Settings.from_input({"fpga": {"part": PART}})
     assert Nextpnr.design_scope(settings) == NARROWED["nextpnr"]

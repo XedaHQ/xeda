@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.openroad.base import OpenroadStage
-from xeda.flow_runner.settings_layers import merge_layers
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.openroad.base import OpenroadStage
+from xeda._internal.flow_runner.settings_layers import merge_layers
 
 from .openroad_utils import (
     openroad_design,
@@ -56,7 +56,7 @@ def test_text_from_the_command_line_gives_the_settings_of_the_design_file():
 
 def test_the_numbers_are_read_like_those_of_any_other_number_setting():
     """The command-line text of a number is a number for a setting and for a leaf of `wire_rc`."""
-    from xeda.flow import Flow
+    from xeda._internal.flow import Flow
 
     assert Flow.Settings.from_input(merge_layers(["nthreads=3"], settings_cls=Flow.Settings))
     with pytest.raises(FlowSettingsError):

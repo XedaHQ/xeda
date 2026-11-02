@@ -1,18 +1,34 @@
-"""The package layout has one source (`xeda.package_paths`): no module path, file depth or source
+"""The package layout has one source (`xeda._internal.package_paths`): no module path, file depth or source
 path is written out anywhere else, so a change of the layout touches that module only."""
 
 import ast
 import importlib
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
+import types
 from importlib import resources
 from collections.abc import Iterator
 from pathlib import Path
 
-from xeda import package_paths
-from xeda.introspect import flows_info, optimizers_info, results_info, settings_info
-from xeda.package_paths import impl_module
+import pytest
+import yaml
 
+import xeda
+from xeda import Design
+from xeda._internal import package_paths
+from xeda._internal.plan import Plan
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
+from xeda.errors import DesignError
+from xeda.introspect import flows_info, results_info, settings_info
+from xeda._internal.introspect import optimizers_info
+from xeda._internal.package_paths import impl_module
+
+from .tool_utils import require_git, use_fake_tools
 from .source_layout import (
     AGENT_DIR,
     IMPL_DIR,
@@ -156,7 +172,7 @@ def test_no_file_depth_arithmetic():
 
 
 def test_remote_module_names_come_from_one_place():
-    from xeda.remote.provision import boot_script
+    from xeda._internal.remote.provision import boot_script
 
     assert "@XEDA_AGENT_MODULE@" not in boot_script()
     assert f"-m {impl_module('remote.agent')}" in boot_script()
@@ -229,3 +245,250 @@ def test_no_document_names_a_python_module():
         info = settings_info(name)
         assert "settings_class" not in info
         assert all("declared_by" not in field for field in info["fields"])
+
+
+# ---------------------------------------------------------------------------------------------
+# Identities: a node's identity and run directory do not depend on where the implementation is.
+# The values were recorded before the implementation moved into its own package.
+# ---------------------------------------------------------------------------------------------
+
+PART = "LFE5U-25F-6BG381C"
+#: The identity of every node of five fixed specs, by `<spec>:<node>`.
+IDENTITIES = {
+    "source:yosys_fpga": "fca39880001b5272f4a17893854c0793835d2f6dd5453bc08950e6960175e61b",
+    "source:nextpnr": "5745f1b444e5420483a5412e8ecad4d0f2bfcddc61aaa9b4ee5a21e6256c8f17",
+    "converter:bsc": "5b17d483dc05c2cf0a072a3256405bff74d145d61b5ae0127b847b6a00187cc3",
+    "converter:yosys_fpga": "a467251dd1e13b5acd235c89d3c18f1303cc8f2bf4460aad76cb35165b191378",
+    "netlist:nextpnr": "434e88e76aea5be1543890a2135d3a4e3ad464ad9f7930de5e534a29ccf79dc9",
+    "generator:yosys_fpga": "1598c0ad7a0dd891cc2349995055c1ed7cc1c7c26552beeb5b9d2aec4f50e4b4",
+    "dependency:yosys_fpga": "3c17144e3165dd42e980fc815e61c33fdbdc4a39b109450424d7c88df6204c60",
+}
+#: A run of the `netlist` spec, as the code before the move left it: its trace and results.
+OLD_RUN = ROOT / "tests" / "resources" / "pre_move_run"
+FIXED_GIT = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.com",
+    "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+00:00",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.com",
+    "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+00:00",
+}
+
+
+def _git(*arguments: str, cwd: Path) -> str:
+    return subprocess.run(
+        ["git", *arguments], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _source_spec(root: Path) -> Spec:
+    root.mkdir(parents=True)
+    (root / "blink.v").write_text(
+        "module blink(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
+    )
+    rtl = {"sources": ["blink.v"], "top": "blink", "clocks": ["clk"]}
+    design = Design(name="blink", root=root, rtl=rtl)
+    return Spec("nextpnr", design, settings={"nextpnr": {"fpga": {"part": PART}}})
+
+
+def _converter_spec(root: Path) -> Spec:
+    root.mkdir(parents=True)
+    (root / "Top.bsv").write_text("package Top;\nendpackage\n")
+    rtl = {"sources": ["Top.bsv"], "top": "mkTop", "clocks": [{"port": "CLK"}]}
+    design = Design(name="bsv", root=root, rtl=rtl)
+    return Spec("yosys_fpga", design, settings={"yosys_fpga": {"fpga": {"part": PART}}})
+
+
+def _netlist_spec(root: Path) -> Spec:
+    root.mkdir(parents=True)
+    (root / "n.json").write_text('{"modules": {"top": {}}}\n')
+    rtl = {"sources": [{"file": "n.json", "type": "JsonNetlist"}], "top": "top"}
+    design = Design(name="net", root=root, rtl=rtl)
+    return Spec("nextpnr", design, settings={"nextpnr": {"fpga": {"part": PART}}})
+
+
+def _generator_spec(root: Path) -> Spec:
+    root.mkdir(parents=True)
+    (root / "gen.py").write_text("print('generated')\n")
+    (root / "spec.txt").write_text("one\n")
+    recipe = {
+        "executable": "python3",
+        "args": ["$DESIGN_ROOT/gen.py"],
+        "sources": ["spec.txt", "gen.py"],
+    }
+    rtl = {
+        "sources": ["$XEDA_GENERATED/gen/top.v"],
+        "top": "top",
+        "clocks": ["clk"],
+        "generator": recipe,
+    }
+    (root / "design.yaml").write_text(yaml.safe_dump({"name": "gen", "rtl": rtl}))
+    return Spec(
+        "yosys_fpga",
+        Design.load(root / "design.yaml"),
+        settings={"yosys_fpga": {"fpga": {"part": PART}}},
+    )
+
+
+def _dependency_spec(root: Path) -> Spec:
+    """A design with a Git dependency from a bare repository, whose commit is always the same."""
+    work = root.parent / "work"
+    work.mkdir(parents=True)
+    _git("init", "--quiet", "--initial-branch=main", cwd=work)
+    (work / "a.v").write_text("module a; endmodule\n")
+    dependency = {"name": "dep", "rtl": {"sources": ["a.v"], "top": "a"}}
+    (work / "dep.yaml").write_text(yaml.safe_dump(dependency))
+    _git("add", "a.v", "dep.yaml", cwd=work)
+    _git("commit", "--quiet", "-m", "first", cwd=work)
+    commit = _git("rev-parse", "HEAD", cwd=work)
+    bare = root.parent / "remote.git"
+    _git("clone", "--quiet", "--bare", str(work), str(bare), cwd=root.parent)
+    root.mkdir(parents=True)
+    (root / "top.v").write_text("module top; endmodule\n")
+    uri = f"git+{bare.as_uri()}?commit={commit}#dep.yaml"
+    document = {
+        "name": "d",
+        "rtl": {"sources": ["top.v"], "clocks": ["clk"]},
+        "dependencies": [{"uri": uri, "rtl": {"pos": -1}}],
+    }
+    (root / "d.yaml").write_text(yaml.safe_dump(document))
+    return Spec(
+        "yosys_fpga",
+        Design.load(root / "d.yaml"),
+        settings={"yosys_fpga": {"fpga": {"part": PART}}},
+    )
+
+
+SPECS = {
+    "source": _source_spec,
+    "converter": _converter_spec,
+    "netlist": _netlist_spec,
+    "generator": _generator_spec,
+    "dependency": _dependency_spec,
+}
+
+
+def _plans(tmp_path: Path) -> dict[str, Plan]:
+    workspace = Workspace(tmp_path / "runs", hashed_run_dirs=True)
+    return {
+        label: workspace.plan(make(tmp_path / "designs" / label / "design"))
+        for label, make in SPECS.items()
+    }
+
+
+@pytest.fixture
+def fixed_world(monkeypatch):
+    require_git()
+    use_fake_tools(monkeypatch)
+    for name, value in FIXED_GIT.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_identities_do_not_change_with_the_move(tmp_path, fixed_world):
+    plans = _plans(tmp_path)
+    found = {
+        f"{label}:{name}": node.identity
+        for label, p in plans.items()
+        for name, node in p.nodes.items()
+    }
+    assert found == IDENTITIES
+    # A hashed run directory is named by the identity: no name changes either.
+    for label, plan in plans.items():
+        for name, node in plan.nodes.items():
+            assert node.run_dir.name == f"{node.flow}_{IDENTITIES[f'{label}:{name}'][:16]}"
+
+
+def test_a_run_root_from_before_the_move_plans(tmp_path, fixed_world):
+    """A trace that an earlier Xeda wrote says `stale` with a reason, and never raises."""
+    workspace = Workspace(tmp_path / "runs", hashed_run_dirs=True)
+    spec = _netlist_spec(tmp_path / "net")
+    run_dir = workspace.plan(spec).nodes["nextpnr"].run_dir
+    run_dir.mkdir(parents=True)
+    (workspace.run_root / ".xeda-run-root").write_text(
+        json.dumps({"format": 1, "created_by": "xeda", "created": "2026-11-02T20:42:30+00:00"})
+    )
+    for name in ("trace.json", "results.json"):
+        shutil.copy(OLD_RUN / name, run_dir / name)
+    # The version of the code under test: the check judges the rest of the trace.
+    trace = json.loads((run_dir / "trace.json").read_text())
+    trace["xeda_version"] = xeda.__version__
+    (run_dir / "trace.json").write_text(json.dumps(trace))
+    node = workspace.plan(spec).nodes["nextpnr"]
+    assert node.state == "stale"
+    assert node.reason
+
+
+# ---------------------------------------------------------------------------------------------
+# The layout of the package
+# ---------------------------------------------------------------------------------------------
+
+
+def test_only_the_public_modules_are_outside_the_private_package():
+    found = sorted(p.name for p in SRC_XEDA.iterdir() if p.name != "__pycache__")
+    # `data` holds the JSON Schemas, which are public files.
+    assert found == [
+        "__init__.py",
+        "__main__.py",
+        "_internal",
+        "data",
+        "errors.py",
+        "introspect.py",
+        "py.typed",
+    ]
+    assert sorted(p.name for p in (SRC_XEDA / "data").iterdir() if p.name != "__pycache__") == [
+        "__init__.py",
+        "schemas",
+    ]
+
+
+def test_an_old_internal_class_path_names_the_short_form(tmp_path):
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "a.v").write_text("module a; endmodule\n")
+    recipe = {"class": "xeda.design.ChiselGenerator", "executable": "sbt"}
+    document = {"name": "d", "rtl": {"sources": ["a.v"], "top": "a", "generator": recipe}}
+    (root / "d.yaml").write_text(yaml.safe_dump(document))
+    with pytest.raises(DesignError) as raised:
+        Design.load(root / "d.yaml")
+    assert raised.value.code == "invalid_design"
+    assert raised.value.field == "rtl.generator.class"
+    assert "class: chisel" in raised.value.message
+
+
+def test_an_old_optimizer_class_path_names_the_new_module():
+    from xeda._internal.flow_runner.dse.dse_runner import Dse
+
+    with pytest.raises(ValueError, match=re.escape(impl_module("flow_runner.dse"))):
+        Dse("xeda.flow_runner.dse.fmax.fmax_optimizer")
+
+
+def test_the_catalog_is_written_where_it_is_installed():
+    assert not (SRC_XEDA / "flow_catalog.json").exists()
+    assert (IMPL_DIR / "flow_catalog.json").is_file()
+    done = subprocess.run(
+        [sys.executable, str(TOOLS / "generate_flow_catalog.py"), "--check"],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+
+
+def test_internal_helpers_are_not_reexported():
+    import xeda.introspect
+
+    assert not hasattr(xeda.introspect, "all_flow_classes")
+    assert sorted(xeda.introspect.__all__) == sorted(
+        name for name in dir(xeda.introspect) if not name.startswith("_")
+    )
+
+
+def test_the_api_has_no_difference_to_the_baseline():
+    path = TOOLS / "api_baseline.py"
+    tool = types.ModuleType("api_baseline")  # not imported: that would write bytecode
+    tool.__file__ = str(path)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), tool.__dict__)
+    baseline = json.loads((tool.newest_baseline() / "public_api.json").read_text(encoding="utf-8"))
+    additive, breaking = tool.classify(baseline, tool.public_api_snapshot(), kind="api")
+    assert not additive and not breaking

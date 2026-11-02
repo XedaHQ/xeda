@@ -9,9 +9,9 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.flow import FlowSettingsError, FlowSettingsException, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.bindings import (
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.bindings import (
     BindingEntry,
     BindingLayer,
     NodeKey,
@@ -20,8 +20,8 @@ from xeda.flow_runner.bindings import (
     effective_bindings,
     split_bindings,
 )
-from xeda.flow_runner.chains import parse_request
-from xeda.flow_runner.settings_layers import split_flow_sections
+from xeda._internal.flow_runner.chains import parse_request
+from xeda._internal.flow_runner.settings_layers import split_flow_sections
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry

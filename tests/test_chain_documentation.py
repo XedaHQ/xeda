@@ -24,20 +24,16 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.project import Project
-from xeda.frozen import thaw
-from xeda.flow_runner.bindings import split_bindings
-from xeda.flow_runner.chains import complete_request, parse_request
-from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
-from xeda.introspect import (
-    all_flow_classes,
-    design_schema,
-    flow_class_info,
-    settings_class_info,
-)
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.project import Project
+from xeda._internal.frozen import thaw
+from xeda._internal.flow_runner.bindings import split_bindings
+from xeda._internal.flow_runner.chains import complete_request, parse_request
+from xeda._internal.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
+from xeda.introspect import design_schema
+from xeda._internal.introspect import all_flow_classes, flow_class_info, settings_class_info
 
 from . import tool_utils
 from .flow_registry import is_product_flow

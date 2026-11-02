@@ -11,14 +11,14 @@ from typing import ClassVar, Optional
 import pytest
 from click.testing import CliRunner
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.dataclass import Field
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.run_dir import RunDirectory, RunDirectoryError
-from xeda.package_paths import impl_module
+from xeda._internal.cli import cli
+from xeda._internal.dataclass import Field
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.run_dir import RunDirectory, RunDirectoryError
+from xeda._internal.package_paths import impl_module, impl_root
 
 pytestmark = pytest.mark.python_compat
 
@@ -174,7 +174,7 @@ def test_every_launched_run_directory_is_xedas(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("name", ["..", ".", "a b", "a/b", "1abc", "", "café"])
 def test_a_design_name_that_names_no_directory_is_refused(tmp_path, name):
-    from xeda.design import DesignValidationError
+    from xeda._internal.design import DesignValidationError
 
     with pytest.raises((ValueError, DesignValidationError), match="design name"):
         Design(name=name, root=tmp_path, rtl={"sources": []})
@@ -347,9 +347,8 @@ STILL_NAMED = {("cli.py", "--cwd")}
 def test_nothing_of_the_user_s_directory_machinery_is_left():
     """No "user's directory" code path remains; a name of one found again is a leftover
     -- in code, a template, or a description `xeda list-settings` shows."""
-    import xeda
 
-    package = Path(xeda.__file__).parent
+    package = impl_root()
     found = sorted(
         f"{path.relative_to(package)}: {name}"
         for path in package.rglob("*")

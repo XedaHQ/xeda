@@ -2,7 +2,7 @@
 #
 # Port names are those of the top module: CLK, rxd, txd, led[3:0], sw[3:0], btn.
 # Pins are from the upstream ULX3S constraints (emard/ulx3s, doc/constraints/ulx3s_v20.lpf) and
-# match src/xeda/data/boards/ulx3s/board.lpf, which the bundled file uses for clk_25mhz.
+# match src/xeda/_internal/data/boards/ulx3s/board.lpf, which the bundled file uses for clk_25mhz.
 #
 # Clock: 25 MHz oscillator on G2. There is no FREQUENCY line on purpose: the flow's clock setting
 # (nextpnr clock.freq: 25 MHz in uart_echo.yaml) gives the period, and a clock with two

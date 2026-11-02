@@ -7,7 +7,7 @@ import pytest
 import click
 from click.testing import CliRunner
 
-from xeda.cli import cli
+from xeda._internal.cli import cli
 
 pytestmark = pytest.mark.python_compat
 
@@ -61,8 +61,8 @@ def test_machine_readable_mode_does_not_leak_between_invocations():
     `CliRunner` the next human-facing command produced no output at all. A one-shot `xeda`
     process never noticed, which is why this only shows up in-process.
     """
-    from xeda import proc_utils
-    from xeda.console import console_target
+    from xeda._internal import proc_utils
+    from xeda._internal.console import console_target
 
     runner = CliRunner()
     # `scrub --json` is an executional command, so it calls machine_readable_mode()
@@ -106,7 +106,7 @@ def test_dash_s_stops_before_the_design_file(tmp_path, monkeypatch):
 
 def test_dash_s_keeps_a_value_that_contains_equals_signs():
     """Only the first `=` splits key from value; the list still ends at a bare token."""
-    from xeda.cli_utils import OptionEatAll
+    from xeda._internal.cli_utils import OptionEatAll
 
     seen = {}
 
@@ -150,7 +150,7 @@ def test_dash_s_needs_key_value_items(tmp_path, monkeypatch):
 
 
 def _eat_all(args):
-    from xeda.cli_utils import OptionEatAll
+    from xeda._internal.cli_utils import OptionEatAll
 
     seen = {}
 

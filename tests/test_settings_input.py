@@ -17,9 +17,10 @@ from pathlib import Path
 
 import pytest
 
-from xeda.dataclass import ValidationError, waveform_format_of
-from xeda.design import Design, DesignValidationError
-from xeda.flow import Flow, FlowSettingsError
+from xeda._internal.package_paths import impl_root
+from xeda._internal.dataclass import ValidationError, waveform_format_of
+from xeda._internal.design import Design, DesignValidationError
+from xeda._internal.flow import Flow, FlowSettingsError
 
 pytestmark = pytest.mark.python_compat
 
@@ -83,7 +84,7 @@ def test_a_whole_number_setting_takes_a_number_and_not_its_text():
 
 def _codes(build) -> list[str]:
     """The codes of the errors that `build` raises as a refusal of settings or of a model."""
-    from xeda.flow_runner.error_codes import settings_codes
+    from xeda._internal.flow_runner.error_codes import settings_codes
 
     with pytest.raises((FlowSettingsError, ValidationError)) as error:
         build()
@@ -103,7 +104,7 @@ def test_an_int_setting_takes_only_an_int(value):
 
 @pytest.mark.parametrize(("value", "ok"), [(3, True), (3.5, True), (True, False), ("3", False)])
 def test_a_float_setting_takes_an_int_or_a_float(value, ok):
-    from xeda.flow.synth import PhysicalClock
+    from xeda._internal.flow.synth import PhysicalClock
 
     if ok:
         assert PhysicalClock(period="1 ns", duty_cycle=value if value < 1 else 0.5)
@@ -170,7 +171,7 @@ def test_a_boolean_setting_takes_only_a_boolean(value):
 
 
 def test_code_keeps_its_two_forms():
-    from xeda.flow.fpga import FPGA
+    from xeda._internal.flow.fpga import FPGA
 
     assert FPGA(part="xc7a100t", speed="1").speed == "1"
     assert FPGA(part="xc7a100t", speed=1).speed == "1"
@@ -180,7 +181,7 @@ def test_a_code_may_be_written_as_a_number():
     """A speed grade or device generation is text (`"-2L"`), but naturally written as a number
     (`speed = -1`); the FPGA declares those fields as `Code`, which accepts both. No other
     setting turns a number into text."""
-    from xeda.flow.fpga import FPGA
+    from xeda._internal.flow.fpga import FPGA
 
     fpga = FPGA(part="xc7a100t", speed=-1, grade=2, generation=7)
     assert (fpga.speed, fpga.grade, fpga.generation) == ("-1", "2", "7")
@@ -189,7 +190,7 @@ def test_a_code_may_be_written_as_a_number():
 
 
 def test_a_code_advertises_every_accepted_input_type():
-    from xeda.flow.fpga import FPGA
+    from xeda._internal.flow.fpga import FPGA
 
     speed = FPGA.model_json_schema()["properties"]["speed"]
     types = {
@@ -202,7 +203,7 @@ def test_a_code_advertises_every_accepted_input_type():
 
 def test_vivado_run_properties_take_text_numbers_and_booleans():
     """A run property's type says what Vivado accepts, and each kind is rendered for Tcl."""
-    from xeda.flows.vivado.vivado_synth import VivadoSynth, tcl_property_value
+    from xeda._internal.flows.vivado.vivado_synth import VivadoSynth, tcl_property_value
 
     properties = {"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": 0, "A": 1.5, "B": True, "C": "none"}
     settings = VivadoSynth.Settings(
@@ -214,7 +215,7 @@ def test_vivado_run_properties_take_text_numbers_and_booleans():
 
 
 def _flow(name):
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     return get_flow_class(name)
 
@@ -266,8 +267,8 @@ def test_a_list_setting_written_as_a_list_literal_is_refused_naming_the_right_sp
 def test_every_list_setting_written_as_a_list_literal_is_refused_alike_everywhere():
     """The rule is the settings' own, so every list setting of every flow has it, wherever it is
     written: construction and assignment agree (see also `test_model_invariants`)."""
-    from xeda.flow_runner import get_flow_class
-    from xeda.flow.flow import _is_comma_separated_list
+    from xeda._internal.flow_runner import get_flow_class
+    from xeda._internal.flow.flow import _is_comma_separated_list
 
     from .settings_samples import flow_classes, minimal_settings
 
@@ -291,7 +292,7 @@ def _nested_list_fields() -> "list[tuple[type, str]]":
     import types
     from typing import Annotated, Union, get_args, get_origin
 
-    from xeda.dataclass import XedaBaseModel
+    from xeda._internal.dataclass import XedaBaseModel
 
     from .settings_samples import flow_classes
 
@@ -380,7 +381,7 @@ def test_a_nested_model_takes_text_for_a_list_by_the_one_rule_or_not_at_all(mode
 
 
 def test_cocotb_takes_its_lists_as_text_by_the_one_rule():
-    from xeda.cocotb import CocotbSettings
+    from xeda._internal.cocotb import CocotbSettings
 
     assert CocotbSettings(testcase="a, b,,").testcase == ["a", "b"]
     assert CocotbSettings(testcase="").testcase == []
@@ -479,7 +480,7 @@ def test_path_expansion_accepts_namedtuples_for_tuple_fields(tmp_path):
 
 
 def test_real_path_list_setting_expands_design_root(tmp_path):
-    from xeda.flows.dc import Dc
+    from xeda._internal.flows.dc import Dc
 
     settings = Dc.Settings.from_input(
         {"target_libraries": ["$DESIGN_ROOT/lib/cells.lib"]},
@@ -520,7 +521,7 @@ def test_real_settings_expand_design_root_at_every_path_leaf(
     tmp_path, flow, extra, field, value, expected
 ):
     """The fields the changelog names, on the flows that declare them."""
-    from xeda.flow_runner import get_flow_class
+    from xeda._internal.flow_runner import get_flow_class
 
     def at_root(item):
         if isinstance(item, str):
@@ -541,7 +542,7 @@ def test_real_settings_expand_design_root_at_every_path_leaf(
 
 
 def test_comma_separated_path_list_expands_each_design_root(tmp_path):
-    from xeda.flows.dc import Dc
+    from xeda._internal.flows.dc import Dc
 
     settings = Dc.Settings.from_input(
         {"target_libraries": "$DESIGN_ROOT/lib/a.lib,$DESIGN_ROOT/lib/b.lib"},
@@ -555,7 +556,7 @@ def test_comma_separated_path_list_expands_each_design_root(tmp_path):
 
 
 def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
-    from xeda.flows import VivadoSynth
+    from xeda._internal.flows import VivadoSynth
 
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "top"})
     start = tmp_path / "start"
@@ -575,8 +576,8 @@ def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
 
 
 def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
-    from xeda.flow_runner.launch_input import input_settings
-    from xeda.flows import VivadoSynth
+    from xeda._internal.flow_runner.launch_input import input_settings
+    from xeda._internal.flows import VivadoSynth
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
     design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
@@ -688,7 +689,7 @@ SWEEP_BASES: "dict[str, dict]" = {"FPGA": {"part": "xc7a100t"}}
 
 
 def _sweep_models() -> "list[type]":
-    from xeda.design import Design
+    from xeda._internal.design import Design
 
     from .settings_fields import reachable_models
     from .settings_samples import flow_classes
@@ -700,7 +701,7 @@ def _sweep_base(model) -> dict:
     """Return the least that `model` needs to be built alone. A model with a required field that
     `settings_fields.REQUIRED_VALUES` does not list fails the sweep, so that it never goes
     unjudged."""
-    from xeda.design import Design
+    from xeda._internal.design import Design
 
     from .settings_fields import REQUIRED_VALUES, key_of
     from .settings_samples import flow_classes, minimal_settings
@@ -804,7 +805,7 @@ def _names(error: Exception, name: str, alias: "str | None") -> bool:
 @pytest.mark.parametrize("given", [{}, {"a": 1}, 5, 2.5, True, {"a"}], ids=repr)
 def test_a_testbench_top_of_another_type_is_refused_not_dropped(given):
     """`tb.top: 5` used to become no top module at all."""
-    from xeda.design import Testbench
+    from xeda._internal.design import Testbench
 
     with pytest.raises(ValidationError, match="top"):
         Testbench(top=given)
@@ -818,14 +819,12 @@ def test_no_validator_of_a_setting_turns_what_it_cannot_read_into_a_default():
     nothing about a value it cannot read. A validator reports it, or leaves it to pydantic."""
     import ast
 
-    import xeda
-
     lenient = {"try_convert", "try_convert_to_primitives"}
     # It reads the digits of a part number that a pattern matched: no setting has a wrong type.
     allowed = {("fpga.py", "_fpga_root_validator")}
     validators = {"field_validator", "model_validator", "validator", "root_validator"}
     found = []
-    for path in sorted(Path(xeda.__file__).parent.rglob("*.py")):
+    for path in sorted(impl_root().rglob("*.py")):
         tree = ast.parse(path.read_text())
         for function in ast.walk(tree):
             if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -855,6 +854,6 @@ def test_a_root_that_is_no_path_is_refused_not_replaced_by_the_working_directory
     "value, ok", [((0.4, 0.2), True), ((1, 2), True), (("0.4", 0.2), False), ((0.4, True), False)]
 )
 def test_each_item_of_a_tuple_of_fixed_length_is_strict(value, ok):
-    from xeda.dataclass import scalar_problems
+    from xeda._internal.dataclass import scalar_problems
 
     assert (not scalar_problems(tuple[float, float], value)) is ok

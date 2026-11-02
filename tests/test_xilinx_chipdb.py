@@ -13,16 +13,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from xeda.flow import FlowFatalError
-from xeda.run_dir import RunDirectory, RunDirectoryError
-from xeda.run_root import ensure_run_root
-from xeda.package_paths import impl_module
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.run_dir import RunDirectory, RunDirectoryError
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 
 @pytest.fixture
 def api():
-    from xeda.flows import xilinx
+    from xeda._internal.flows import xilinx
 
     return xilinx
 

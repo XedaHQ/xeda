@@ -12,15 +12,15 @@ from typing import Annotated, Literal, Optional, Union
 import pytest
 from pydantic import Field
 
-from xeda.dataclass import AtomicName, Code, SettingText, XedaBaseModel
-from xeda.design import Design, DesignValidationError
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flow_runner.error_codes import settings_codes
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.setting_text import SettingTextError, parse_setting_text
-from xeda.units import Time
-from xeda.utils import settings_to_dict
+from xeda._internal.dataclass import AtomicName, Code, SettingText, XedaBaseModel
+from xeda._internal.design import Design, DesignValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.flow_runner.error_codes import settings_codes
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.setting_text import SettingTextError, parse_setting_text
+from xeda._internal.units import Time
+from xeda._internal.utils import settings_to_dict
 from .scoping import node_settings
 
 pytestmark = pytest.mark.python_compat
@@ -358,7 +358,7 @@ def test_a_design_update_that_is_no_number_names_the_setting(tmp_path):
 
 
 def test_the_text_of_the_exploration_settings_is_read_as_their_types():
-    from xeda.flow_runner.dse.dse_runner import Dse
+    from xeda._internal.flow_runner.dse.dse_runner import Dse
 
     optimizer = settings_to_dict(["init_freq_low=50", "init_freq_high=100"])
     explorer = Dse(

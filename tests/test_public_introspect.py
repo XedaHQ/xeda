@@ -3,7 +3,7 @@
 import pytest
 
 from xeda.errors import FlowNotFoundError
-from xeda.flows import Yosys
+from xeda._internal.flows import Yosys
 from xeda.introspect import design_schema, flow_info, results_info, settings_info
 
 NAMED = [flow_info, settings_info, results_info]

@@ -25,14 +25,14 @@ from typing import Any, Callable, ClassVar
 import pytest
 from pydantic import Field
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out
-from xeda.flow_runner import DefaultRunner, plan_freshness
-from xeda.flow_runner.run_lock import run_dir_lock
-from xeda.flow_runner.trace import locate_program
-from xeda.proc_utils import DOCKER_IMAGE_PREFIX
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out
+from xeda._internal.flow_runner import DefaultRunner, plan_freshness
+from xeda._internal.flow_runner.run_lock import run_dir_lock
+from xeda._internal.flow_runner.trace import locate_program
+from xeda._internal.proc_utils import DOCKER_IMAGE_PREFIX
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -147,9 +147,9 @@ class Graph:
 
     def public(self, **options):
         """The plan that a `Workspace` makes of the request."""
-        from xeda.spec import Spec
-        from xeda.utils import settings_to_dict
-        from xeda.workspace import Workspace
+        from xeda._internal.spec import Spec
+        from xeda._internal.utils import settings_to_dict
+        from xeda._internal.workspace import Workspace
 
         table = node_settings(self.flow, self.settings)
         if isinstance(table, list):
@@ -383,7 +383,7 @@ def test_a_rejected_node_is_rejected_again_and_its_consumer_blocked(
         BLOCKED,
         "toy_producer was rejected in its last run",
     )
-    from xeda.cli import _print_plan
+    from xeda._internal.cli import _print_plan
 
     public = graph.public()
     _print_plan(public.to_dict())
@@ -798,7 +798,7 @@ def test_the_cli_dry_run_json_carries_state_and_reason(tmp_path, monkeypatch, to
 def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, monkeypatch):
     """A simulator's flow makes its cocotb support when it first uses it, not when it is built:
     making it asks for a version, which is a process."""
-    from xeda.tool import Tool
+    from xeda._internal.tool import Tool
 
     from .test_isolation import DESIGNS, SQRT_DESIGN, _world
 
@@ -831,7 +831,7 @@ def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, mon
 def _forge_document(graph: Graph, node: str, edit: Callable[[dict], Any]) -> None:
     """Rewrite the `results.json` of `node`, and the trace's record of that file to match, so
     that the node is still fresh: the document alone is what is wrong."""
-    from xeda.digest import record_file
+    from xeda._internal.digest import record_file
 
     run_dir = graph.run_dir(node)
     results = run_dir / "results.json"

@@ -2,7 +2,7 @@
 
 pydantic v1 treated a `TypeError` raised inside a validator like a `ValueError`; v2 lets it escape
 `model_validate` untouched, so a plain user mistake (`sources = 123`) surfaced as a raw traceback
-on the CLI and under the wrong error class in `--json` output. The fix lives in `xeda.dataclass`
+on the CLI and under the wrong error class in `--json` output. The fix lives in `xeda._internal.dataclass`
 and applies to every validator, so these tests are grouped by hazard rather than by module.
 """
 
@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from xeda.dataclass import ValidationError, XedaBaseModel, field_validator
-from xeda.design import Design, DesignValidationError
-from xeda.flow import FlowSettingsError
-from xeda.flow.synth import PhysicalClock
-from xeda.flows.yosys.yosys_fpga import YosysFpga
-from xeda.units import Frequency, Time
+from xeda._internal.dataclass import ValidationError, XedaBaseModel, field_validator
+from xeda._internal.design import Design, DesignValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow.synth import PhysicalClock
+from xeda._internal.flows.yosys.yosys_fpga import YosysFpga
+from xeda._internal.units import Frequency, Time
 
 BAD_VALUES = [123, 4.5, True, object()]
 ROOT = Path(__file__).resolve().parent
@@ -105,7 +105,7 @@ def test_type_error_in_any_validator_becomes_a_validation_error():
 )
 def test_a_bad_init_freq_low_is_reported_as_itself(settings):
     """`xeda dse` crashed with `KeyError: 'init_freq_low'` instead of naming the setting."""
-    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+    from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     with pytest.raises(ValidationError) as excinfo:
         FmaxOptimizer.Settings(**settings)
@@ -114,14 +114,14 @@ def test_a_bad_init_freq_low_is_reported_as_itself(settings):
 
 def test_init_freq_high_must_exceed_init_freq_low():
     """A real check, not an `assert` that `python -O` would skip."""
-    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+    from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     with pytest.raises(ValidationError, match="must be greater than init_freq_low"):
         FmaxOptimizer.Settings(init_freq_low=200.0, init_freq_high=100.0)
 
 
 def test_a_bad_pll_module_name_is_reported_as_itself():
-    from xeda.flows.nextpnr import EcpPLL
+    from xeda._internal.flows.nextpnr import EcpPLL
 
     with pytest.raises(ValidationError) as excinfo:
         EcpPLL(module=None, clkouts=[50.0])  # type: ignore[call-arg]

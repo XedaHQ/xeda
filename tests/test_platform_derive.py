@@ -14,9 +14,9 @@ from typing import Any, Optional
 
 import pytest
 
-from xeda.platforms import Located, Residue, build_platform
-from xeda.platforms.derive import derive, read_lef_summary, read_liberty_summary
-from xeda.platforms.model import normalize_leaf
+from xeda._internal.platforms import Located, Residue, build_platform
+from xeda._internal.platforms.derive import derive, read_lef_summary, read_liberty_summary
+from xeda._internal.platforms.model import normalize_leaf
 from .tool_utils import require_yosys
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
@@ -746,7 +746,7 @@ def chain_of_includes(tmp_path: Path, length: int) -> Path:
 def test_a_chain_of_includes_as_deep_as_the_limit_is_read_and_one_more_is_refused(
     tmp_path: Path,
 ) -> None:
-    from xeda.platforms.derive import MAX_INCLUDE_DEPTH
+    from xeda._internal.platforms.derive import MAX_INCLUDE_DEPTH
 
     (tmp_path / "ok").mkdir()
     allowed = chain_of_includes(tmp_path / "ok", MAX_INCLUDE_DEPTH)
@@ -792,7 +792,7 @@ def test_a_string_next_to_a_real_include_does_not_hide_it(tmp_path: Path) -> Non
 
 
 def test_the_included_files_are_listed_once_in_the_order_of_the_text(tmp_path: Path) -> None:
-    from xeda.platforms.derive import liberty_included_files
+    from xeda._internal.platforms.derive import liberty_included_files
 
     one, two, three = (tmp_path / name for name in ("one.lib", "two.lib", "three.lib"))
     three.write_text("cell (C) { area : 1; }\n")
@@ -809,7 +809,7 @@ def test_the_included_files_are_listed_once_in_the_order_of_the_text(tmp_path: P
 def test_an_absolute_name_with_spaces_is_read_as_opensta_reads_it(tmp_path: Path) -> None:
     """OpenSTA takes everything between the parentheses as the name, so a directory name with a
     space works, and a space next to a parenthesis is part of the name."""
-    from xeda.platforms.derive import liberty_included_files
+    from xeda._internal.platforms.derive import liberty_included_files
 
     folder = tmp_path / "dir with space"
     folder.mkdir()
@@ -836,7 +836,7 @@ def test_an_include_file_the_reader_cannot_read_is_an_error_and_not_skipped(
 def test_comment_marks_inside_strings_start_no_comment(tmp_path: Path) -> None:
     """OpenSTA lexes a string and a comment apart, so an include between two strings that hold
     `/*` and `*/` is still an include."""
-    from xeda.platforms.derive import liberty_included_files
+    from xeda._internal.platforms.derive import liberty_included_files
 
     (tmp_path / "units.lib").write_text('time_unit : "1ps";\n')
     top = tmp_path / "top.lib"
@@ -857,7 +857,7 @@ def test_the_time_unit_keeps_the_spaces_inside_its_quotes(tmp_path: Path) -> Non
 
 
 def test_a_line_comment_that_mentions_include_file_is_no_include(tmp_path: Path) -> None:
-    from xeda.platforms.derive import liberty_included_files
+    from xeda._internal.platforms.derive import liberty_included_files
 
     top = tmp_path / "top.lib"
     top.write_text(
@@ -869,7 +869,7 @@ def test_a_line_comment_that_mentions_include_file_is_no_include(tmp_path: Path)
 
 
 def test_a_compressed_file_has_its_include_names_renamed(tmp_path: Path) -> None:
-    from xeda.platforms.derive import liberty_text_with_includes_renamed
+    from xeda._internal.platforms.derive import liberty_text_with_includes_renamed
 
     (tmp_path / "units.lib").write_text('time_unit : "1ns";\n')
     top = tmp_path / "top.lib.gz"
@@ -886,7 +886,7 @@ def test_an_escaped_quote_does_not_end_a_string_in_any_scan(tmp_path: Path) -> N
     """One rule for strings: a backslash escapes the next character. The statement splitter, the
     comment scan and the include scan agree on a string that holds `\\"`, `;`, `/*` and
     `include_file(...)`."""
-    from xeda.platforms.derive import liberty_included_files
+    from xeda._internal.platforms.derive import liberty_included_files
 
     top = tmp_path / "top.lib"
     top.write_text(
@@ -899,7 +899,7 @@ def test_an_escaped_quote_does_not_end_a_string_in_any_scan(tmp_path: Path) -> N
 
 
 def test_the_rewrite_scan_passes_over_a_string_with_an_escaped_quote(tmp_path: Path) -> None:
-    from xeda.platforms.derive import liberty_text_with_includes_renamed
+    from xeda._internal.platforms.derive import liberty_text_with_includes_renamed
 
     top = tmp_path / "top.lib"
     top.write_text(

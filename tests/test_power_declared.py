@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsError, SimFlow
-from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoPower
+from xeda._internal.flow import FlowSettingsError, SimFlow
+from xeda._internal.flow.io import declared_inputs, declared_outputs, output_enabled
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoPower
 
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 from .tool_utils import HANG_GUARD
@@ -120,7 +120,7 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
 
 def test_failed_activity_prevents_power_reporter_execution(tmp_path, monkeypatch):
     """The verdict stays at the producer; a silent simulator cannot report power."""
-    from xeda.flow import FlowDependencyFailure
+    from xeda._internal.flow import FlowDependencyFailure
     from .tool_utils import use_fake_tools
 
     write_vivado_design(tmp_path)

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from xeda.remote.errors import RemoteError, RemoteFetchError, RemoteProtocolError
-from xeda.remote.frames import DataReader, FrameWriter
-from xeda.remote.manifest import (
+from xeda._internal.remote.errors import RemoteError, RemoteFetchError, RemoteProtocolError
+from xeda._internal.remote.frames import DataReader, FrameWriter
+from xeda._internal.remote.manifest import (
     Entry,
     SyncPlan,
     apply_sync,
@@ -266,7 +266,7 @@ def test_sync_through_frames(tmp_path):
     root = tmp_path / "inputs"
     apply_sync(root, entries, plan_sync(root, entries), io.BufferedReader(DataReader(stream)))
     assert (root / "a.v").read_bytes() == b"A" * 100_000
-    from xeda.remote.frames import read_frame
+    from xeda._internal.remote.frames import read_frame
 
     assert read_frame(stream) == (b"J", b'{"done":true}')
 

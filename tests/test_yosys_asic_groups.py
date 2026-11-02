@@ -16,15 +16,15 @@ from typing import Any, List, get_args
 
 import pytest
 
-from xeda.dataclass import input_names, tier_of
-from xeda.flow import FlowException, FlowSettingsError, flowrun_hash
-from xeda.flow.settings_group import SettingsGroup
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import compose_flow_settings
-from xeda.flows import Yosys, YosysFpga
-from xeda.flows.yosys import asic_groups
+from xeda._internal.dataclass import input_names, tier_of
+from xeda._internal.flow import FlowException, FlowSettingsError, flowrun_hash
+from xeda._internal.flow.settings_group import SettingsGroup
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import compose_flow_settings
+from xeda._internal.flows import Yosys, YosysFpga
+from xeda._internal.flows.yosys import asic_groups
 from xeda.introspect import settings_info
-from xeda.units import Time
+from xeda._internal.units import Time
 
 from .test_yosys_asic import (
     SCRIPT_FORMATS,
@@ -274,7 +274,7 @@ def test_list_settings_lists_every_leaf_with_its_tier():
 def test_the_cli_lists_the_leaves_as_json():
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     result = CliRunner().invoke(cli, ["list-settings", "yosys", "--json"])
     assert result.exit_code == 0, result.output

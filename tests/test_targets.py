@@ -17,15 +17,15 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.design import DESIGN_PARTS, DesignValidationError
-from xeda.flow import FlowSettingsError
-from xeda.frozen import thaw
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import merge_flow_sections, registered_flow
-from xeda.flows import VivadoSynth
-from xeda.utils import settings_to_dict
-from xeda.project import Project
+from xeda._internal.cli import cli
+from xeda._internal.design import DESIGN_PARTS, DesignValidationError
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.frozen import thaw
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import merge_flow_sections, registered_flow
+from xeda._internal.flows import VivadoSynth
+from xeda._internal.utils import settings_to_dict
+from xeda._internal.project import Project
 
 from .tool_utils import use_fake_tools
 from .scoping import node_settings
@@ -380,13 +380,13 @@ def test_a_target_is_not_named_as_a_flow_s_run_directory(tmp_path, name):
     ],
 )
 def test_a_name_that_only_looks_like_a_run_directory_is_a_target_name(tmp_path, name):
-    from xeda.design import target_name_problem
+    from xeda._internal.design import target_name_problem
 
     assert target_name_problem(name) is None
 
 
 def test_every_flow_name_is_refused_as_a_target_name(tmp_path):
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     write_design(tmp_path, BASE)
     assert VivadoSynth.name in registered_flows

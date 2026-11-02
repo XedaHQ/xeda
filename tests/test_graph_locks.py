@@ -17,13 +17,13 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.deliver import Deliveries, DeliveryError
+from xeda._internal.deliver import Deliveries, DeliveryError
 from xeda.errors import LeaseHeldError
-from xeda.flow_runner import DefaultRunner, launch_generation, launch_locks, run_lock
-from xeda.flow_runner.dse.dse_runner import Dse
-from xeda.flow_runner.dse.fmax import FmaxOptimizer
-from xeda.flow_runner.scrub import scrub_design, scrub_generations, scrub_runs
-from xeda.flow_runner.run_lock import (
+from xeda._internal.flow_runner import DefaultRunner, launch_generation, launch_locks, run_lock
+from xeda._internal.flow_runner.dse.dse_runner import Dse
+from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
+from xeda._internal.flow_runner.scrub import scrub_design, scrub_generations, scrub_runs
+from xeda._internal.flow_runner.run_lock import (
     LockRequest,
     LockWaitCanceled,
     acquire_all,
@@ -35,9 +35,9 @@ from xeda.flow_runner.run_lock import (
     run_dir_read_lock,
     storage_lock,
 )
-from xeda.outcomes import Outcome
-from xeda.run_dir import RunDirectoryError
-from xeda.run_root import ensure_run_root
+from xeda._internal.outcomes import Outcome
+from xeda._internal.run_dir import RunDirectoryError
+from xeda._internal.run_root import ensure_run_root
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, reader_flow
@@ -903,8 +903,8 @@ def test_a_shared_node_reads_no_clock_and_a_rewritten_file_is_refreshed_exclusiv
 ):
     """The file-system clock marker changes the directory of the node: only a launch that holds
     the node exclusively takes it."""
-    from xeda import digest
-    from xeda.flow_runner import trace
+    from xeda._internal import digest
+    from xeda._internal.flow_runner import trace
 
     monkeypatch.setattr(digest, "RACY_NS", 0)
     root = tmp_path / "xeda_run"

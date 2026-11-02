@@ -8,11 +8,11 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.error_codes import public_error
-from xeda.spec import Spec, spec_sections
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.error_codes import public_error
+from xeda._internal.spec import Spec, spec_sections
 
 ECP5 = "LFE5U-25F-6BG381C"
 ICE40 = "iCE40HX1K-TQ144"
@@ -220,7 +220,7 @@ def test_a_binding_makes_its_producer_a_node_of_the_spec(tmp_path):
 
 
 def test_a_table_of_a_mapping_is_the_command_line_table():
-    from xeda.flow_runner.settings_layers import command_line_table
+    from xeda._internal.flow_runner.settings_layers import command_line_table
 
     assert command_line_table({"nextpnr": {"seed": 7}}) == {"nextpnr": {"seed": 7}}
     assert command_line_table(["nextpnr.seed=7"]) == {"nextpnr": {"seed": "7"}}
@@ -229,7 +229,7 @@ def test_a_table_of_a_mapping_is_the_command_line_table():
 
 
 def test_a_binding_of_the_project_makes_its_producer_a_node_of_the_spec(tmp_path):
-    from xeda.project import Project
+    from xeda._internal.project import Project
 
     _design(tmp_path)
     names = ("netlist", "netlist_timing", "sdf")

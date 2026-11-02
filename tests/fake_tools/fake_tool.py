@@ -24,7 +24,7 @@ from zipfile import ZipFile
 
 import click
 
-from xeda.dataclass import XedaBaseModel
+from xeda._internal.dataclass import XedaBaseModel
 
 log = logging.getLogger()
 

@@ -10,8 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow_runner.error_codes import ALL_CODES
-from xeda.records import ErrorInfo, InputRecord, InputSource, MetricInfo, OutputRecord, RunRecord
+from xeda._internal.flow_runner.error_codes import ALL_CODES
+from xeda._internal.records import (
+    ErrorInfo,
+    InputRecord,
+    InputSource,
+    MetricInfo,
+    OutputRecord,
+    RunRecord,
+)
 
 DOCUMENT = Path(__file__).resolve().parent.parent / "docs" / "machine-readable.rst"
 UNDERLINE = re.compile(r"^([=\-~])\1{3,}$")

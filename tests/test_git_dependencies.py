@@ -20,27 +20,27 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-import xeda.design
-import xeda.flow_runner.dependencies
+import xeda._internal.design
+import xeda._internal.flow_runner.dependencies
 from xeda import Design
-from xeda.design import (
+from xeda._internal.design import (
     DesignReference,
     DesignValidationError,
     GitReference,
     redacted_url,
 )
 from xeda.errors import DesignError
-from xeda.design import SourceType
-from xeda.flow import Flow, In, MetricSpec, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dependencies import (
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, MetricSpec, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dependencies import (
     DEPENDENCIES_DIRECTORY,
     dependency_key,
     dependency_storage,
     fetch,
     resolve_reference,
 )
-from xeda.records import read_record
+from xeda._internal.records import read_record
 
 from .flow_registry import preserved_flow_registry
 from .tool_utils import require_git
@@ -175,7 +175,7 @@ def _plan(root: Path, design_file: Path):
 
 
 def _configuration(plan) -> dict:
-    from xeda.frozen import thaw
+    from xeda._internal.frozen import thaw
 
     return thaw(plan.node(plan.requested).configuration)
 
@@ -254,7 +254,7 @@ def test_a_cycle_in_a_git_dependency_is_refused_without_fetching_it_twice(
     path.write_text(yaml.safe_dump(document))
     commit = remote.commit("cyclic dependency")
     _git("push", "--quiet", "origin", "main", cwd=remote.work)
-    original = xeda.flow_runner.dependencies._clone
+    original = xeda._internal.flow_runner.dependencies._clone
     cloned = []
 
     def once(ref, commit, *args, **kwargs):
@@ -262,7 +262,7 @@ def test_a_cycle_in_a_git_dependency_is_refused_without_fetching_it_twice(
         cloned.append(commit)
         return original(ref, commit, *args, **kwargs)
 
-    monkeypatch.setattr(xeda.flow_runner.dependencies, "_clone", once)
+    monkeypatch.setattr(xeda._internal.flow_runner.dependencies, "_clone", once)
     with pytest.raises(DesignError, match="dependency cycle: d -> dep -> dep"):
         _plan(tmp_path, _design_file(tmp_path, _pinned(remote, commit)))
     assert cloned == [commit]
@@ -416,7 +416,7 @@ def test_the_identity_does_not_hold_the_commit(tmp_path, remote):
 
 
 def test_a_parameter_that_is_a_path_in_a_checkout_counts_without_the_commit(tmp_path):
-    from xeda.design import DependencyRecord
+    from xeda._internal.design import DependencyRecord
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     counted = []
@@ -595,7 +595,7 @@ def test_a_git_dependency_whose_generator_writes_into_its_tree_is_refused(tmp_pa
 def test_a_git_dependency_may_generate_into_its_storage(tmp_path, remote):
     commit = _generating_commit(remote, "$XEDA_GENERATED/gen/top.v")
     design_file = _design_file(tmp_path, _pinned(remote, commit))
-    merged = xeda.flow_runner.dependencies.merged_design(
+    merged = xeda._internal.flow_runner.dependencies.merged_design(
         Design.load(design_file), run_root=tmp_path / "xeda_run"
     )
     assert [str(src.output_name) for src in merged.rtl.sources if src.generated] == [
@@ -604,7 +604,7 @@ def test_a_git_dependency_may_generate_into_its_storage(tmp_path, remote):
 
 
 def test_no_scrub_removes_dependency_storage(tmp_path, remote):
-    from xeda.flow_runner.scrub import scrub_design
+    from xeda._internal.flow_runner.scrub import scrub_design
 
     design_file = _design_file(tmp_path, _pinned(remote))
     _plan(tmp_path, design_file)
@@ -651,7 +651,7 @@ def _names_a_url(node: ast.AST) -> bool:
     )
 
 
-@pytest.mark.parametrize("module", [xeda.design, xeda.flow_runner.dependencies])
+@pytest.mark.parametrize("module", [xeda._internal.design, xeda._internal.flow_runner.dependencies])
 def test_no_message_shows_a_git_url_as_it_is(module):
     """An f-string or a log call that formats a URL says so through `redacted_url`: the sweep that
     keeps a message added later from showing credentials."""
@@ -686,7 +686,7 @@ def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, dependen
 def test_a_url_without_git_is_refused_on_the_command_line_without_the_credentials(tmp_path):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     result = CliRunner().invoke(
         cli, ["run", "yosys", str(_dependency_design(tmp_path, TOKEN_URL)), "--json"]
@@ -764,7 +764,7 @@ def test_a_url_that_names_no_design_file_or_no_host_is_refused(uri):
 def test_the_command_line_reports_a_failed_fetch_as_a_spec_that_never_started(tmp_path, git_log):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     dependency = f"git+{(tmp_path / 'nowhere.git').as_uri()}?branch=main#dep.yaml"
     design_file = _design_file(tmp_path, dependency)
@@ -788,7 +788,7 @@ def test_the_command_line_reports_a_failed_fetch_as_a_spec_that_never_started(tm
 def test_a_remote_package_carries_the_references_and_no_fetched_file(tmp_path, remote):
     from pathlib import PurePosixPath
 
-    from xeda.remote.packaging import package_inputs
+    from xeda._internal.remote.packaging import package_inputs
 
     design = Design.load(_design_file(tmp_path, _pinned(remote)))
     package = package_inputs(
@@ -811,7 +811,7 @@ def test_a_launch_holds_the_lease_of_the_dependency_storage_while_a_flow_runs(
 ):
     import fcntl
 
-    from xeda.flow_runner.run_lock import lock_file
+    from xeda._internal.flow_runner.run_lock import lock_file
 
     storage = (
         tmp_path / "xeda_run" / DEPENDENCIES_DIRECTORY / dependency_key(remote.url, remote.first)
@@ -923,7 +923,7 @@ def test_a_failed_fetch_names_the_entry_in_the_dependencies(tmp_path, remote):
 
 
 def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
-    from xeda.design import DependencyRecord
+    from xeda._internal.design import DependencyRecord
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     checkout = tmp_path / "xeda_run" / ".dependencies" / "k"
@@ -1031,7 +1031,7 @@ def _a_design_with_a_git_dependency(tmp_path: Path, remote: Remote) -> Path:
 
 @pytest.mark.parametrize("entry", ["plan", "run", "resolve", "launch_flow"])
 def test_a_refusal_from_the_settings_alone_starts_no_git_process(tmp_path, remote, git_log, entry):
-    from xeda.flows import Verilator
+    from xeda._internal.flows import Verilator
 
     design_file = _a_design_with_a_git_dependency(tmp_path, remote)
     runner = _runner(tmp_path)

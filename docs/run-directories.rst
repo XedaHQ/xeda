@@ -884,7 +884,7 @@ directories without a question. Both commands say how many run directories they 
 The Python functions ``scrub_design`` and ``scrub_runs``, ``Workspace.run`` with
 ``prune_variants`` and ``Workspace.scrub`` never prompt. They ask the ``confirm`` callback that
 you give ``Workspace``, or the ``confirm`` argument of ``scrub_design`` and ``scrub_runs``. The
-callback of a workspace gets the question as a ``Question`` (``xeda.types.Question``, a ``str``
+callback of a workspace gets the question as a ``Question`` (``xeda.Question``, a ``str``
 that lists the run directories), and its ``removal`` is true when a yes removes run directories.
 The callback returns whether to go on. Without a callback, nothing is removed, and Xeda logs a warning that names the
 run directories. This holds when stdin is closed, in a notebook or a CI job.

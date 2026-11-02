@@ -15,9 +15,9 @@ import logging
 
 import pytest
 
-from xeda.flow import FlowFatalError
-from xeda.flows import Openfpgaloader
-from xeda.flows.openfpgaloader import (
+from xeda._internal.flow import FlowFatalError
+from xeda._internal.flows import Openfpgaloader
+from xeda._internal.flows.openfpgaloader import (
     PROBE_NOTE_CHOSEN,
     PROBE_NOTE_DEFAULT,
     PROBE_NOTE_NAMED,
@@ -26,7 +26,7 @@ from xeda.flows.openfpgaloader import (
     OpenfpgaloaderTool,
     loader_failure,
 )
-from xeda.flows.openfpgaloader_probes import (
+from xeda._internal.flows.openfpgaloader_probes import (
     ChainDevice,
     Chosen,
     Detection,
@@ -50,13 +50,13 @@ from xeda.flows.openfpgaloader_probes import (
     scan_open_errors,
     selectable_usb_id,
 )
-from xeda.utils import ToolException
+from xeda._internal.utils import ToolException
 
 from . import tool_utils
 from .loader_world import Usb, World, detect_text, queries, scan_usb_text
 from .test_openfpgaloader import _calls, _prebuilt, _runner, assert_fake_loader
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ARTY = "AB00000001"  # an Arty A7-100T: xc7a100, IDCODE 0x3631093
 BASYS = "AB00000002"  # a Basys 3: xc7a35, IDCODE 0x362d093

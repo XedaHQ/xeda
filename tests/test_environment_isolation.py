@@ -160,7 +160,7 @@ def test_no_test_reads_the_user_config_of_the_machine() -> None:
     import subprocess
     import sys
 
-    from xeda.remote.profile import config_directory
+    from xeda._internal.remote.profile import config_directory
 
     home = Path(os.environ["XDG_CONFIG_HOME"])
     assert home.is_absolute() and home.is_dir() and not any(home.iterdir())
@@ -182,7 +182,7 @@ def test_no_test_reads_the_user_config_of_the_machine() -> None:
 
 
 def test_a_test_may_point_the_user_config_somewhere_else(tmp_path, monkeypatch) -> None:
-    from xeda.remote.profile import config_directory
+    from xeda._internal.remote.profile import config_directory
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "mine"))
     assert config_directory() == tmp_path / "mine" / "xeda"

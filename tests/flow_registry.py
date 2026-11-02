@@ -1,6 +1,6 @@
 """Keeping the flow registry as a test found it.
 
-`xeda.flows` registers the built-in flows when it is first imported, and nothing imports it before
+`xeda._internal.flows` registers the built-in flows when it is first imported, and nothing imports it before
 a test needs it. A test that snapshots `registered_flows` before that import and restores the
 snapshot afterwards removes the built-ins from the registry, while Python keeps the module as
 imported: nothing registers them again, and every later test in the process sees a registry
@@ -11,8 +11,8 @@ from contextlib import contextmanager
 from importlib import import_module
 from typing import Iterator
 
-from xeda.flow import registered_flows
-from xeda.package_paths import impl_module
+from xeda._internal.flow import registered_flows
+from xeda._internal.package_paths import impl_module
 
 
 def is_product_flow(flow_class: type) -> bool:

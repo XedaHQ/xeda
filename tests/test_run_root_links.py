@@ -21,16 +21,21 @@ from typing import ClassVar
 import pytest
 from click.testing import CliRunner
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.console import console
-from xeda.flow import Flow
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock, storage_lock
-from xeda.flow_runner.scrub import scrub_design, scrub_generations
-from xeda.run_dir import RunDirectory, RunDirectoryError, link_on_way
-from xeda.run_root import ensure_run_root
+from xeda._internal.cli import cli
+from xeda._internal.console import console
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.run_lock import (
+    lock_file,
+    run_dir_lock,
+    run_dir_read_lock,
+    storage_lock,
+)
+from xeda._internal.flow_runner.scrub import scrub_design, scrub_generations
+from xeda._internal.run_dir import RunDirectory, RunDirectoryError, link_on_way
+from xeda._internal.run_root import ensure_run_root
 
 from .design_edits import design_of_target
 from .flow_registry import preserved_flow_registry

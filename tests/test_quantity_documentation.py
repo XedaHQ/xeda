@@ -14,11 +14,11 @@ import pytest
 from pydantic import TypeAdapter, create_model
 
 from xeda import Design
-from xeda.dataclass import ValidationError
-from xeda.flow import flowrun_hash
-from xeda.frozen import thaw
-from xeda.flows import Nextpnr, Yosys
-from xeda.units import (
+from xeda._internal.dataclass import ValidationError
+from xeda._internal.flow import flowrun_hash
+from xeda._internal.frozen import thaw
+from xeda._internal.flows import Nextpnr, Yosys
+from xeda._internal.units import (
     Bounds,
     Capacitance,
     Frequency,

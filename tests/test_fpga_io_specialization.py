@@ -5,14 +5,14 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.board import WithFpgaBoardSettings
-from xeda.dataclass import Field
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, In
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr
+from xeda._internal.board import WithFpgaBoardSettings
+from xeda._internal.dataclass import Field
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException, In
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nextpnr
 
 from .flow_registry import preserved_flow_registry
 from .test_declared_fpga_flows import tools as tools
@@ -372,7 +372,7 @@ def test_selected_producer_output_can_feed_a_narrow_static_input(tmp_path):
 
 
 def test_dry_run_exposes_selected_types_and_catalog_keeps_the_vocabulary_union(tmp_path):
-    from xeda.introspect import flow_class_info
+    from xeda._internal.introspect import flow_class_info
 
     from .plan_documents import plan_nodes
 

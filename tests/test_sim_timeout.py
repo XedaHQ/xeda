@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsError, FlowSettingsException, SimFlow
-from xeda.flow.sim import whole_femtoseconds
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flow_runner.error_codes import settings_codes
-from xeda.flows import GhdlSim, Nvc, Vcs
-from xeda.tool import Tool
-from xeda.units import Time
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException, SimFlow
+from xeda._internal.flow.sim import whole_femtoseconds
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.flow_runner.error_codes import settings_codes
+from xeda._internal.flows import GhdlSim, Nvc, Vcs
+from xeda._internal.tool import Tool
+from xeda._internal.units import Time
 
 from . import test_ghdl, test_modelsim, test_vcs_sim_evidence, test_vivado_sim_evidence
 from .settings_samples import flow_classes, minimal_settings
@@ -269,7 +269,7 @@ def test_vcs_gets_another_time_scale_and_license_wait_as_it_spells_them(tmp_path
     ],
 )
 def test_the_time_scale_of_vcs_is_one_ten_or_a_hundred_of_a_unit(value, text):
-    from xeda.flows.vcs import timescale_text
+    from xeda._internal.flows.vcs import timescale_text
 
     assert timescale_text(Time(value)) == text
 
@@ -299,7 +299,7 @@ def test_vcs_refuses_a_time_it_cannot_take(settings, message):
     ],
 )
 def test_the_loader_gets_its_frequency_in_whole_hertz(settings, flag):
-    from xeda.flows import Openfpgaloader
+    from xeda._internal.flows import Openfpgaloader
 
     ss = Openfpgaloader.Settings(fpga={"part": "LFE5U-25F-6BG381C"}, **settings)
     Openfpgaloader.check_settings_supported(ss)

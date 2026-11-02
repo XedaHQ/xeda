@@ -20,15 +20,15 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.dataclass import written_role
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import YosysFpga
+from xeda._internal.dataclass import written_role
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import YosysFpga
 
 from .design_edits import with_updates
 from . import tool_utils
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: one FPGA per `synth_command` target, so the mode is checked on every pass it can run
 #: (Gowin has no part parser, so it is named by vendor/family/device)
@@ -338,8 +338,8 @@ def test_no_data_directory_is_asked_for_unless_an_entry_needs_one(tmp_path, tool
 def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
     tmp_path, toolchain, monkeypatch, failure
 ):
-    from xeda.tool import Tool
-    from xeda.utils import ExecutableNotFound
+    from xeda._internal.tool import Tool
+    from xeda._internal.utils import ExecutableNotFound
 
     def missing(*_):
         raise ExecutableNotFound("yosys-config", "Tool", "", "not found")
@@ -798,7 +798,7 @@ def test_every_setting_the_reader_script_renders_has_a_decision_for_the_mode():
     mode's `read_verilog`/`read_slang` and so makes it read differently from `yosys <file>`."""
     import re
 
-    from xeda.flows.yosys import yosys_fpga
+    from xeda._internal.flows.yosys import yosys_fpga
 
     folder = Path(yosys_fpga.__file__).parent / "templates"
     used = {
@@ -869,7 +869,7 @@ def test_a_design_whose_own_attributes_reach_setattr_is_refused_too(tmp_path, to
 def test_a_nested_producer_section_reaches_the_mode_and_its_refusals(tmp_path, toolchain):
     """`-s flows.yosys_fpga.synth_pass_only=true` on a consumer's run is the way the fork's
     project file turns the mode on, so the refusal has to arrive from there too."""
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     with pytest.raises(FlowSettingsError) as raised:

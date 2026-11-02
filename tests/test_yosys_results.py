@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flows import Yosys
-from xeda.introspect import results_class_info
+from xeda._internal.flows import Yosys
+from xeda._internal.introspect import results_class_info
 
 from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import HANG_GUARD
@@ -101,8 +101,8 @@ def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):
 )
 def test_xilinx_lut_resource_footprint(counts, expected, tmp_path):
     """Yosys reports mapped primitive LUT-equivalent units, including dual-output and memories."""
-    from xeda.flow import FPGA
-    from xeda.flows import YosysFpga
+    from xeda._internal.flow import FPGA
+    from xeda._internal.flows import YosysFpga
 
     report = tmp_path / "utilization.json"
     report.write_text(json.dumps({"design": {"num_cells_by_type": counts}, "modules": {}}))
@@ -135,14 +135,14 @@ def test_xilinx_lut_resource_footprint(counts, expected, tmp_path):
     ],
 )
 def test_xilinx_distributed_rom_is_logic_footprint(cell, expected):
-    from xeda.flows.yosys.yosys_fpga import xilinx_lut_footprint
+    from xeda._internal.flows.yosys.yosys_fpga import xilinx_lut_footprint
 
     assert xilinx_lut_footprint(cell) == expected
 
 
 def test_xilinx_lut_footprint_uses_design_totals_once_with_hierarchy(tmp_path):
-    from xeda.flow import FPGA
-    from xeda.flows import YosysFpga
+    from xeda._internal.flow import FPGA
+    from xeda._internal.flows import YosysFpga
 
     report = tmp_path / "utilization.json"
     report.write_text(
@@ -269,7 +269,7 @@ def test_every_lut_based_primitive_of_the_installed_yosys_has_a_footprint():
 
     from .tool_utils import require_yosys, require_yosys_config
 
-    from xeda.flows.yosys.yosys_fpga import xilinx_lut_footprint
+    from xeda._internal.flows.yosys.yosys_fpga import xilinx_lut_footprint
 
     require_yosys()
     require_yosys_config()

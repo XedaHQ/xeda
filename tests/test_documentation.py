@@ -16,15 +16,15 @@ from typing import Any, ClassVar, List, Literal, Optional, Set, Tuple, get_args,
 
 import pytest
 
-from xeda import cocotb as cocotb_module
-from xeda.dataclass import Field, annotation_args, tier, tier_of
-from xeda.design import SOURCE_SUFFIXES
-from xeda.flow import COMMON_METRICS, Flow, MetricSpec, MetricType, describe_results
-from xeda.flow.metrics import COCOTB_METRICS, METRIC_PATH, metric_unit_known
-from xeda.flow.settings_group import SettingsGroup
-from xeda.flow.sim import SimFlow
-from xeda.flow_runner import FlowNotFoundError, get_flow_class
-from xeda.introspect import (
+from xeda._internal import cocotb as cocotb_module
+from xeda._internal.dataclass import Field, annotation_args, tier, tier_of
+from xeda._internal.design import SOURCE_SUFFIXES
+from xeda._internal.flow import COMMON_METRICS, Flow, MetricSpec, MetricType, describe_results
+from xeda._internal.flow.metrics import COCOTB_METRICS, METRIC_PATH, metric_unit_known
+from xeda._internal.flow.settings_group import SettingsGroup
+from xeda._internal.flow.sim import SimFlow
+from xeda._internal.flow_runner import FlowNotFoundError, get_flow_class
+from xeda._internal.introspect import (
     all_flow_classes,
     flow_class_info,
     results_class_info,
@@ -33,7 +33,7 @@ from xeda.introspect import (
 
 from .flow_registry import is_product_flow, preserved_flow_registry
 from .source_layout import AGENT_DIR, ROOT
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
 #: setting is documented today. A new setting must be documented rather than added here.
@@ -94,7 +94,7 @@ def undocumented_group_settings(flow_class) -> List[str]:
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_every_field_of_a_settings_group_has_a_description_and_a_tier(flow_class):
     """`xeda list-settings` lists each field of a settings group by its dotted name. A field of a
-    group needs a description and a tier (`xeda.dataclass.tier`), and a sub-group field needs a
+    group needs a description and a tier (`xeda._internal.dataclass.tier`), and a sub-group field needs a
     description."""
     problems = undocumented_group_settings(flow_class)
     assert not problems, (
@@ -498,7 +498,7 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
     """Run the published planning command and check its JSON example, ."""
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "blinky.v").write_text("module blinky(); endmodule\n", encoding="utf-8")
@@ -722,7 +722,7 @@ def test_documented_shared_settings_are_the_resolvers(relative, start):
     another. Only the first `len(SHARED_SETTINGS)` names, and only their order: a further name
     later in the paragraph is not read, and neither is the prose saying which flows share each
     setting, so a wrong pair of flows in the same paragraph passes."""
-    from xeda.flow_runner.resolver import SHARED_SETTINGS
+    from xeda._internal.flow_runner.resolver import SHARED_SETTINGS
 
     path = README.parent / relative
     if not path.is_file():
@@ -753,7 +753,7 @@ EDGE_KEYS = ["flow", "output", "through", "binds", "target_dependent"]
 def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class):
     """`can_precede`/`can_follow` come from the validator `xeda run` applies, so the listing
     cannot advertise a chain that run refuses."""
-    from xeda.flow_runner.chains import parse_request
+    from xeda._internal.flow_runner.chains import parse_request
 
     def published(edge, request):
         """The link of the request, which must be what the entry publishes."""

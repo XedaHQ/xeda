@@ -22,10 +22,10 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys
-from xeda.flows.yosys.yosys import ABC_NEW_SCRIPT, ABC_SPEED_GIA_ONLY
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys.yosys import ABC_NEW_SCRIPT, ABC_SPEED_GIA_ONLY
 
 from .tiny_platform import TINY
 from .test_yosys_asic import TINY_DONT_USE, _commands, _design, _scripted_launch, _tiny, _words
@@ -34,7 +34,7 @@ from .tool_utils import require_tclsh, require_yosys, require_yosys_tcl
 from .yosys_format import force_script_format
 from .tool_utils import HANG_GUARD
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 
 @pytest.fixture(autouse=True)

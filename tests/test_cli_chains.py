@@ -8,10 +8,10 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from xeda.design import DesignFileParseError
-from xeda.cli import cli
-from xeda.flow import FlowSettingsException
-from xeda.project import Project
+from xeda._internal.design import DesignFileParseError
+from xeda._internal.cli import cli
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.project import Project
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -203,7 +203,7 @@ def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
 
 
 def _dse_runner(tmp_path):
-    from xeda.flow_runner.dse import Dse
+    from xeda._internal.flow_runner.dse import Dse
 
     from .test_dse_run import _DeclaredOptimizer
 
@@ -284,7 +284,7 @@ def test_a_chain_given_to_dse_is_refused_even_for_a_missing_design(tmp_path):
 
 def _fetches(monkeypatch):
     """The calls that resolve or fetch a Git dependency: any call is a mistake."""
-    import xeda.flow_runner.dependencies as dependencies
+    import xeda._internal.flow_runner.dependencies as dependencies
 
     calls: list[object] = []
     for name in ("resolve_reference", "fetch"):
@@ -320,7 +320,7 @@ def test_a_malformed_request_is_refused_before_a_git_dependency_is_fetched(
 ):
     """A request that cannot be parsed is refused on the flow text alone, as the command line
     does, not after the design's git dependency was fetched into the run root."""
-    from xeda.flow_runner.default_runner import FlowLauncher
+    from xeda._internal.flow_runner.default_runner import FlowLauncher
 
     fetched = _fetches(monkeypatch)
     with pytest.raises(Exception, match=error):
@@ -329,7 +329,7 @@ def test_a_malformed_request_is_refused_before_a_git_dependency_is_fetched(
 
 
 def test_a_malformed_request_is_refused_even_for_a_missing_design(tmp_path):
-    from xeda.flow_runner.default_runner import FlowLauncher
+    from xeda._internal.flow_runner.default_runner import FlowLauncher
 
     with pytest.raises(FlowSettingsException, match="appears more than once"):
         FlowLauncher(tmp_path / "run").run("t_input_maker+t_input_maker", tmp_path / "missing.yaml")
@@ -516,7 +516,7 @@ def test_list_flows_json_qualifies_an_ambiguous_follower():
 
 
 def test_list_flows_table_names_takes_makes_followers_and_the_boundary(monkeypatch):
-    from xeda.console import console
+    from xeda._internal.console import console
 
     monkeypatch.setattr(console, "width", 400)
     result = CliRunner().invoke(cli, ["list-flows"])

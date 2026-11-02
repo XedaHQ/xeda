@@ -15,13 +15,13 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.openroad import OpenroadGrt, base
-from xeda.flows.openroad.grt import EffectiveGrt, effective
-from xeda.flows.openroad.grt_groups import PinAccessGroup, RouterGroup
-from xeda.platforms.model import CellPort
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.openroad import OpenroadGrt, base
+from xeda._internal.flows.openroad.grt import EffectiveGrt, effective
+from xeda._internal.flows.openroad.grt_groups import PinAccessGroup, RouterGroup
+from xeda._internal.platforms.model import CellPort
 
 from .record_documents import assert_metrics_recorded
 from .openroad_utils import (
@@ -985,7 +985,7 @@ def test_the_polish_comes_from_the_setting_then_the_platform_then_the_default(tm
 
 
 def test_the_platform_value_of_the_polish_is_described_as_a_switch():
-    from xeda.platforms.model import PlatformModel
+    from xeda._internal.platforms.model import PlatformModel
 
     description = PlatformModel.model_fields["opt_post_grt_wns"].description
     assert description and "Switch" in description and "any value but 0" in description
@@ -1038,7 +1038,7 @@ def test_the_flow_reads_the_database_of_the_clock_tree_and_no_source():
 
 
 def test_the_outputs_have_the_types_of_the_global_route():
-    from xeda.flow.io import declared_outputs
+    from xeda._internal.flow.io import declared_outputs
 
     types = {name: out.types for name, out in declared_outputs(OpenroadGrt).items()}
     assert types == {
@@ -1316,7 +1316,7 @@ def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, mon
 
 
 def test_the_results_are_described():
-    from xeda.flow import COMMON_METRICS
+    from xeda._internal.flow import COMMON_METRICS
 
     described = OpenroadGrt.results_description
     for key in (
@@ -1480,7 +1480,7 @@ def test_a_typed_netlist_chain_runs_without_synthesis(tmp_path, monkeypatch):
 
 
 def test_the_failure_lines_of_a_log_are_the_tcl_error_and_the_last_errors_of_the_tool():
-    from xeda.flows.openroad.base import failure_lines
+    from xeda._internal.flows.openroad.base import failure_lines
 
     log = "\n".join(
         [
@@ -1498,6 +1498,6 @@ def test_the_failure_lines_of_a_log_are_the_tcl_error_and_the_last_errors_of_the
 
 
 def test_a_log_without_errors_gives_no_failure_lines():
-    from xeda.flows.openroad.base import failure_lines
+    from xeda._internal.flows.openroad.base import failure_lines
 
     assert failure_lines("[INFO GRT-0020] Min routing layer: 2\nall fine\n") == []

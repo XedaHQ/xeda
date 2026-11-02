@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from xeda.agent_skill import (
+from xeda._internal.agent_skill import (
     SKILL_NAME,
     default_skill_dir,
     generate_flows_reference,
     install_skill,
     skill_source_dir,
 )
-from xeda.introspect import all_flow_classes
-from xeda.package_paths import impl_module
+from xeda._internal.introspect import all_flow_classes
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -137,7 +137,7 @@ def test_default_skill_dir_is_claude_skills(tmp_path):
 
 @pytest.mark.parametrize("name", ("SKILL.md",) + tuple(STATIC_REFERENCES))
 def test_repo_skill_copy_matches_the_packaged_source(name):
-    """`.claude/skills/xeda/` is checked in; it must not drift from `xeda/data/agent/`."""
+    """`.claude/skills/xeda/` is checked in; it must not drift from `xeda/_internal/data/agent/`."""
     installed = REPO_ROOT / ".claude" / "skills" / SKILL_NAME
     relative = "SKILL.md" if name == "SKILL.md" else f"references/{name}"
     checked_in = installed / relative

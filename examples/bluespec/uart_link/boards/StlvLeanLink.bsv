@@ -1,6 +1,6 @@
 // StlvLeanLink: the STLV7325 v2 board wrapper of mkLeanLinkBoard, adapted from the uart_echo
 // wrapper (examples/bluespec/uart_echo/boards/Stlv7325V2.bsv). Ports are the names of Xeda's
-// bundled pin file (src/xeda/data/boards/stlv7325_v2/board.xdc): clk_p/clk_n (200 MHz, IBUFDS
+// bundled pin file (src/xeda/_internal/data/boards/stlv7325_v2/board.xdc): clk_p/clk_n (200 MHz, IBUFDS
 // and BUFG), uart_rx, uart_tx, btn[1:0] and led[7:0] (both active low). btn[1] clears the sticky
 // LEDs. There are no switches, so the endpoint never stalls (sw = 0).
 package StlvLeanLink;

@@ -22,11 +22,11 @@ from pathlib import Path
 
 import pytest
 
-from xeda import proc_utils
-from xeda.flows.openfpgaloader import OpenfpgaloaderTool
-from xeda.proc_utils import run_process
-from xeda.tool import Tool
-from xeda.utils import NonZeroExitCode, live_log
+from xeda._internal import proc_utils
+from xeda._internal.flows.openfpgaloader import OpenfpgaloaderTool
+from xeda._internal.proc_utils import run_process
+from xeda._internal.tool import Tool
+from xeda._internal.utils import NonZeroExitCode, live_log
 
 from .test_proc_utils import (
     LEADER_PROBE,
@@ -40,7 +40,7 @@ from .test_proc_utils import (
     _wait_until,
 )
 from .tool_utils import terminal_output
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -571,7 +571,7 @@ def test_a_tee_log_without_merged_errors_keeps_the_pipe(terminal, tmp_path):
 def test_a_flow_tool_sees_a_terminal_in_a_terminal(terminal, tmp_path, monkeypatch):
     from rich.console import Console
 
-    from xeda.run_dir import RunDirectory
+    from xeda._internal.run_dir import RunDirectory
 
     monkeypatch.setattr(
         impl_module("tool.console"), Console(force_terminal=True, color_system="standard")

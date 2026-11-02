@@ -8,12 +8,12 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import Flow
-from xeda.flow_runner import DefaultRunner
-from xeda.spec import Spec
-from xeda.tool import Tool
-from xeda.workspace import Workspace
+from xeda._internal.cli import cli
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.spec import Spec
+from xeda._internal.tool import Tool
+from xeda._internal.workspace import Workspace
 
 from .test_cli_json_contract import json_stdout, run_xeda
 

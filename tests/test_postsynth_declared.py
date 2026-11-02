@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsError, FlowSettingsException
-from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoPostsynthSim
+from xeda._internal.flow import FlowSettingsError, FlowSettingsException
+from xeda._internal.flow.io import declared_inputs, declared_outputs, output_enabled
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoPostsynthSim
 
 from .test_tool_input_equivalence import REQUESTS, launch, write_vivado_design
 from .tool_utils import HANG_GUARD

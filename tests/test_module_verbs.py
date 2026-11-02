@@ -16,7 +16,8 @@ import pytest
 import xeda
 import xeda.errors
 import xeda.introspect
-import xeda.workspace_verbs
+import xeda._internal.local_settings
+import xeda._internal.workspace_verbs
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,7 +47,7 @@ CONSTRUCTOR = inspect.signature(xeda.Workspace).parameters
 
 @pytest.mark.parametrize("name", VERBS)
 def test_a_verb_is_the_method_plus_its_workspace_options(name: str) -> None:
-    verb, method = getattr(xeda.workspace_verbs, name), getattr(xeda.Workspace, name)
+    verb, method = getattr(xeda._internal.workspace_verbs, name), getattr(xeda.Workspace, name)
     verb_parameters = inspect.signature(verb).parameters
     method_parameters = inspect.signature(method).parameters
     own = [key for key in verb_parameters if key not in VERBS[name]]
@@ -63,7 +64,7 @@ def test_a_verb_is_the_method_plus_its_workspace_options(name: str) -> None:
 
 @pytest.mark.parametrize("name", VERBS)
 def test_the_annotations_are_the_methods(name: str) -> None:
-    verb_hints = typing.get_type_hints(getattr(xeda.workspace_verbs, name))
+    verb_hints = typing.get_type_hints(getattr(xeda._internal.workspace_verbs, name))
     method_hints = typing.get_type_hints(
         getattr(xeda.Workspace, name),
         localns={"SweepResult": xeda.SweepResult, "ScrubResult": xeda.ScrubResult},
@@ -107,7 +108,7 @@ class Recorder:
 
 
 def test_the_call_delegates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(xeda.workspace_verbs, "Workspace", Recorder)
+    monkeypatch.setattr(xeda._internal.workspace_verbs, "Workspace", Recorder)
     spec = object.__new__(xeda.Spec)
     cases = {
         "plan": ((spec,), {"run_root": tmp_path, "clean": True}),
@@ -117,7 +118,7 @@ def test_the_call_delegates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         "scrub": ((), {"design_name": "d", "confirm": None, "run_root": tmp_path}),
     }
     for name, (args, kwargs) in cases.items():
-        assert getattr(xeda.workspace_verbs, name)(*args, **kwargs) == f"result of {name}"
+        assert getattr(xeda._internal.workspace_verbs, name)(*args, **kwargs) == f"result of {name}"
         made, called = Recorder.last.calls
         constructor = inspect.signature(xeda.Workspace).bind(*made[1], **made[2])
         constructor.apply_defaults()
@@ -133,20 +134,20 @@ def test_the_call_delegates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setattr(
         Recorder, "load", lambda path: calls.append(path) or "record", raising=False
     )
-    assert xeda.workspace_verbs.load(tmp_path) == "record"
+    assert xeda._internal.workspace_verbs.load(tmp_path) == "record"
     assert calls == [tmp_path]
 
 
 def test_the_module_level_run_takes_a_spec_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(xeda.workspace_verbs, "Workspace", Recorder)
+    monkeypatch.setattr(xeda._internal.workspace_verbs, "Workspace", Recorder)
     Recorder.last = None
     with pytest.raises(TypeError, match=r"ws\.run\(plan\)"):
-        xeda.workspace_verbs.run(object.__new__(xeda.Plan))
+        xeda._internal.workspace_verbs.run(object.__new__(xeda.Plan))
     assert Recorder.last is None
 
 
 def test_the_module_level_run_has_ordinary_launch_defaults() -> None:
-    parameters = inspect.signature(xeda.workspace_verbs.run).parameters
+    parameters = inspect.signature(xeda._internal.workspace_verbs.run).parameters
     for name, default in LAUNCH_OPTIONS.items():
         assert parameters[name].default is default
     assert [k for k, p in parameters.items() if p.default is xeda.UNSET] == ["run_root"]
@@ -155,7 +156,7 @@ def test_the_module_level_run_has_ordinary_launch_defaults() -> None:
 def test_the_docstrings_share_one_source() -> None:
     for name in VERBS:
         method_doc = inspect.getdoc(getattr(xeda.Workspace, name))
-        verb_doc = inspect.getdoc(getattr(xeda.workspace_verbs, name))
+        verb_doc = inspect.getdoc(getattr(xeda._internal.workspace_verbs, name))
         assert method_doc and verb_doc
         if name == "run":
             assert (
@@ -179,10 +180,9 @@ def test_the_generated_verbs_are_current() -> None:
 PUBLIC_NAMES = {
     "xeda": [
         "Design", "DesignPart", "Rtl", "Testbench", "Source", "Project", "Spec", "LocalSettings",
-        # Export `local_settings`, `plan`, `records` and `sweep` later: each names a submodule.
-        "Plan", "PlanNode", "PlanInput", "PlanDelivery",
+        "local_settings", "Plan", "PlanNode", "PlanInput", "PlanDelivery",
         "Workspace", "Remote", "CancelToken", "Event",
-        "run", "load", "scrub",
+        "plan", "run", "sweep", "load", "records", "scrub",
         "Result", "NodeResult", "RunRecord", "OutputRecord", "InputRecord", "InputSource",
         "DeliveryRecord", "MetricInfo", "ErrorInfo", "Outcome", "Disposition", "OpenRun",
         "SweepResult", "SweepPoint", "RunListing", "RecordProblem", "ScrubResult",
@@ -211,11 +211,12 @@ def test_the_public_names_are_exported(module: str) -> None:
         assert hasattr(sys.modules[module], name)
 
 
-def test_package_verbs_and_submodules() -> None:
-    for name in ("run", "load", "scrub"):
-        assert getattr(xeda, name) is getattr(xeda.workspace_verbs, name)
-    for name in ("plan", "records", "sweep"):
-        assert isinstance(getattr(xeda, name), types.ModuleType)
+def test_package_verbs() -> None:
+    for name in ("plan", "run", "sweep", "load", "records", "scrub"):
+        assert getattr(xeda, name) is getattr(xeda._internal.workspace_verbs, name)
+    assert xeda.local_settings is xeda._internal.local_settings.local_settings
+    for name in ("plan", "records", "sweep", "local_settings"):
+        assert not isinstance(getattr(xeda, name), types.ModuleType)
 
 
 def test_load_needs_no_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

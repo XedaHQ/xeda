@@ -14,13 +14,20 @@ from typing import ClassVar, Optional
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.dataclass import Field, deliverable
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowDependencyFailure, FlowFatalError, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.tool import NonZeroExitCode
+from xeda._internal.dataclass import Field, deliverable
+from xeda._internal.design import SourceType
+from xeda._internal.flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowFatalError,
+    In,
+    Out,
+    registered_flows,
+)
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.tool import NonZeroExitCode
 
 
 class TJudged(Flow):

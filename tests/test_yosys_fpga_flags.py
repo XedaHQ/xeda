@@ -20,10 +20,10 @@ from typing import Any, Dict, FrozenSet, List
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Yosys, YosysFpga, YosysSim
-from xeda.flows.yosys.common import (
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Yosys, YosysFpga, YosysSim
+from xeda._internal.flows.yosys.common import (
     MINIMUM_YOSYS,
     NEWEST_CHECKED_YOSYS,
     YosysRelease,
@@ -33,7 +33,7 @@ from xeda.flows.yosys.common import (
 
 from .tool_utils import _command_succeeds, require_yosys, require_yosys_config
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 # `synth_ecp5` runs `synth_lattice -family ecp5`, so the two take the same options.
 LATTICE_0_63 = frozenset(

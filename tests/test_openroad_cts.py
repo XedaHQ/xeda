@@ -14,13 +14,13 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows.openroad import OpenroadCts, base
-from xeda.flows.openroad.base import to_farads
-from xeda.units import Capacitance
-from xeda.flows.openroad.cts import EffectiveCts, effective
+from xeda._internal.design import SourceType
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows.openroad import OpenroadCts, base
+from xeda._internal.flows.openroad.base import to_farads
+from xeda._internal.units import Capacitance
+from xeda._internal.flows.openroad.cts import EffectiveCts, effective
 
 from .record_documents import assert_metrics_recorded
 from .openroad_utils import (
@@ -810,7 +810,7 @@ def test_the_flow_reads_the_placed_database_and_no_source():
 
 
 def test_the_outputs_have_the_types_of_the_clock_tree():
-    from xeda.flow.io import declared_outputs
+    from xeda._internal.flow.io import declared_outputs
 
     types = {name: out.types for name, out in declared_outputs(OpenroadCts).items()}
     assert types == {
@@ -1048,7 +1048,7 @@ def test_a_launch_reports_the_recorded_metrics_of_the_clock_tree(tmp_path, monke
 
 
 def test_the_results_are_described():
-    from xeda.flow import COMMON_METRICS
+    from xeda._internal.flow import COMMON_METRICS
 
     described = OpenroadCts.results_description
     for key in (

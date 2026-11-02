@@ -16,18 +16,18 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.board import WithFpgaBoardSettings, get_board_data
-from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import FpgaPack
-from xeda.flows.nextpnr_constraints import merge_constraints
+from xeda._internal.board import WithFpgaBoardSettings, get_board_data
+from xeda._internal.flow import FlowSettingsError
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import FpgaPack
+from xeda._internal.flows.nextpnr_constraints import merge_constraints
 from xeda.introspect import boards_info
 
 from . import tool_utils
 from .test_nextpnr_constraints import make_flow
 from .test_openfpgaloader import _calls, _prebuilt, _program, fake_loader  # noqa: F401
 from .source_layout import IMPL_DIR
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 ROOT = Path(__file__).parent.parent
 

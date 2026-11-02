@@ -17,8 +17,8 @@ import click
 import pytest
 
 from xeda import Design
-from xeda.flow.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow_runner import DefaultRunner
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
 from .source_layout import IMPL_DIR

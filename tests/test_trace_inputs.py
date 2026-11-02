@@ -8,17 +8,18 @@ from typing import ClassVar, List, Optional
 import pytest
 from pydantic import Field
 
-from xeda.flow import MetricSpec
+from xeda._internal.package_paths import impl_root
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.flow import Flow, registered_flows
-from xeda.flow_runner.trace_inputs import (
+from xeda._internal.flow import Flow, registered_flows
+from xeda._internal.flow_runner.trace_inputs import (
     artifact_files,
     design_files,
     implicit_input_files,
     parse_depfile,
     setting_files,
 )
-from xeda.listing import directory_files
+from xeda._internal.listing import directory_files
 
 pytestmark = pytest.mark.python_compat
 
@@ -145,8 +146,8 @@ def test_implicit_input_files_are_what_depfiles_and_the_flow_name(tmp_path, hook
 def test_a_nested_model_s_files_are_candidates_but_not_a_dependency_s(tmp_path):
     """yosys's ghdl plugin settings are no dependency: the files they name are yosys's inputs.
     `vivado_synth` records its own files; its consumer records the declared hand-over."""
-    from xeda.flows import VivadoPostsynthSim, VivadoSynth
-    from xeda.flows.yosys import YosysFpga
+    from xeda._internal.flows import VivadoPostsynthSim, VivadoSynth
+    from xeda._internal.flows.yosys import YosysFpga
 
     (tmp_path / "ghdl.lib").write_text("library\n")
     (tmp_path / "pins.xdc").write_text("# pins\n")
@@ -188,9 +189,8 @@ def test_a_file_valued_parameter_and_define_are_design_files(tmp_path):
 def test_one_walker_lists_every_file_under_a_directory():
     """Every "every file under" of the trace and of delivery is `listing.directory_files`
     (a link as itself unless asked to follow, no `rglob` that resolves or follows)."""
-    import xeda
 
-    package = Path(xeda.__file__).parent
+    package = impl_root()
     for module in ("flow_runner/trace.py", "flow_runner/trace_inputs.py", "deliver.py"):
         text = (package / module).read_text()
         assert "rglob(" not in text and "os.walk(" not in text, module
@@ -229,9 +229,9 @@ def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(
     """The metadata of a file edited within one tick of a coarse clock can be what it was: a
     handed file too recent for its record to vouch for it is hashed after the run, and one
     that is not the bytes the producer recorded is unknown (`FileRecord.trusted`)."""
-    from xeda.digest import FileRecord, content_digest
-    from xeda.flow_runner.trace import OutputEntry
-    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+    from xeda._internal.digest import FileRecord, content_digest
+    from xeda._internal.flow_runner.trace import OutputEntry
+    from xeda._internal.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
 
     path = tmp_path / "out.txt"
     path.write_text("A\n")
@@ -275,9 +275,9 @@ def test_a_handed_link_replaced_while_the_flow_ran_is_unknown_even_if_put_back(t
     itself is what shows it."""
     import os
 
-    from xeda.digest import FileRecord, content_digest
-    from xeda.flow_runner.trace import OutputEntry
-    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+    from xeda._internal.digest import FileRecord, content_digest
+    from xeda._internal.flow_runner.trace import OutputEntry
+    from xeda._internal.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
 
     target, other, link = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "link.txt"
     target.write_text("A\n")
@@ -304,9 +304,9 @@ def test_a_handed_link_replaced_while_the_flow_ran_is_unknown_even_if_put_back(t
 def test_a_link_in_the_chain_to_a_handed_file_replaced_and_put_back_is_unknown(tmp_path):
     """`out.json -> current.json -> a.json`: the middle link is the one swapped, so the name the
     flow was handed is unchanged and leads to the same file with the same metadata."""
-    from xeda.digest import FileRecord, content_digest
-    from xeda.flow_runner.trace import OutputEntry
-    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+    from xeda._internal.digest import FileRecord, content_digest
+    from xeda._internal.flow_runner.trace import OutputEntry
+    from xeda._internal.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
 
     a, b = tmp_path / "a.json", tmp_path / "b.json"
     a.write_text("A\n")

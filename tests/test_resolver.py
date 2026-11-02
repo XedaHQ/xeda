@@ -12,18 +12,18 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
-from xeda.flow_runner.bindings import node_identity
-from xeda.flow_runner.configuration import configuration_hash
-from xeda.flow_runner.resolver import resolve
-from xeda.flow_runner.settings_layers import (
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
+from xeda._internal.flow_runner.bindings import node_identity
+from xeda._internal.flow_runner.configuration import configuration_hash
+from xeda._internal.flow_runner.resolver import resolve
+from xeda._internal.flow_runner.settings_layers import (
     COMMAND_LINE_ORIGIN,
     compose_flow_settings,
     transitive_dependencies,
 )
-from xeda.units import Time
+from xeda._internal.units import Time
 
 from .flow_registry import preserved_flow_registry
 from .io_flows import TChainUndeclared, TMaker, TPlace, TReader, TTaker
@@ -409,9 +409,9 @@ def test_deep_plan_protection_and_resolution_purity(tmp_path):
 
 
 def _board_place():
-    from xeda.board import WithFpgaBoardSettings
-    from xeda.design import SourceType
-    from xeda.flow import FpgaSynthFlow, In
+    from xeda._internal.board import WithFpgaBoardSettings
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import FpgaSynthFlow, In
 
     class TBoardPlace(FpgaSynthFlow):
         """A board-aware consumer of the same test synthesis producer."""
@@ -469,9 +469,9 @@ def test_board_part_mismatch_is_rejected_before_launch(tmp_path):
 
 
 def _board_edge():
-    from xeda.board import WithFpgaBoardSettings
-    from xeda.design import SourceType
-    from xeda.flow import In, Out
+    from xeda._internal.board import WithFpgaBoardSettings
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import In, Out
 
     class TBoardMaker(Flow):
         """Board-aware producer for shared database contracts."""
@@ -503,8 +503,8 @@ def _board_edge():
 def _device_relay():
     """A producer with a device, a relay that declares none, and a consumer that needs one: no
     edge of the graph shares `fpga` between the producer and the consumer."""
-    from xeda.design import SourceType
-    from xeda.flow import FpgaSynthFlow, In, Out
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import FpgaSynthFlow, In, Out
 
     class TDeviceMaker(FpgaSynthFlow):
         """Makes the file the relay passes on; its device is its own."""
@@ -652,8 +652,8 @@ def test_displaced_producer_skips_launch_checks_but_checks_syntax(tmp_path, capl
 
 
 def test_optional_inputs_and_source_order(tmp_path):
-    from xeda.design import SourceType
-    from xeda.flow import In
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import In
 
     class TOptional(Flow):
         """Optional files and an ordered required collection."""
@@ -691,8 +691,8 @@ def test_optional_inputs_and_source_order(tmp_path):
 def test_invalid_producer_output_contracts_fail_at_plan_time(
     tmp_path, producer, output, types, many, message
 ):
-    from xeda.design import SourceType
-    from xeda.flow import In, Out
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import In, Out
 
     class TUnsafeMaker(Flow):
         """A producer whose outputs are checked for cardinality and full type coverage."""
@@ -728,8 +728,8 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
 
 
 def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
-    from xeda.design import SourceType
-    from xeda.flow import In, Out
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import In, Out
 
     class TCycleA(Flow):
         """First node of a declaration cycle."""
@@ -766,9 +766,9 @@ def test_a_cycle_is_reported_by_one_finite_walk(tmp_path):
 
 
 def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
-    from xeda.dataclass import Field
-    from xeda.design import SourceType
-    from xeda.flow import In, Out
+    from xeda._internal.dataclass import Field
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import In, Out
 
     class TTwoOutputs(Flow):
         """Two optional outputs controlled by independent flags."""
@@ -810,7 +810,7 @@ def test_two_inputs_share_one_producer_and_union_enables(tmp_path):
 
 
 def test_no_flow_constructor_run_or_tool_probe_is_used(tmp_path, monkeypatch):
-    from xeda.tool import Tool
+    from xeda._internal.tool import Tool
 
     def forbidden(*args, **kwargs):
         raise AssertionError("execution during planning")
@@ -872,9 +872,9 @@ def test_pure_support_hook_runs_only_on_effective_settings(tmp_path, monkeypatch
 
 
 def test_working_path_escape_is_rejected_and_deliveries_keep_hash_rules(tmp_path):
-    from xeda.dataclass import WORKING, Field, deliverable
-    from xeda.design import SourceType
-    from xeda.flow import Out
+    from xeda._internal.dataclass import WORKING, Field, deliverable
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import Out
 
     class TLocatedOutput(Flow):
         """A declared output with existing working/delivery roles."""
@@ -941,7 +941,7 @@ def test_synthesized_clock_name_does_not_override_an_explicit_name(tmp_path):
 
 @pytest.mark.parametrize("model_input", [False, True])
 def test_direct_entry_points_share_context_and_validation(tmp_path, monkeypatch, model_input):
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"
@@ -1006,9 +1006,9 @@ def _asic_taker():
     """A declared consumer of `yosys`'s netlist that shares its ASIC configuration (`platform`,
     `corner`, `dont_use_cells` and the PDK pin, through `AsicPlatformSettings`). No flow in the
     package takes such a netlist, so the test declares one."""
-    from xeda.design import SourceType
-    from xeda.flow import In
-    from xeda.flow.asic import AsicPlatformFlow, AsicPlatformSettings
+    from xeda._internal.design import SourceType
+    from xeda._internal.flow import In
+    from xeda._internal.flow.asic import AsicPlatformFlow, AsicPlatformSettings
 
     class TAsicTaker(AsicPlatformFlow, Flow):
         """Reads yosys's gate-level netlist for one platform, as a place and route would."""

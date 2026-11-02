@@ -13,14 +13,14 @@ from collections.abc import Iterator
 import pytest
 
 from xeda.errors import SpecError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoSynth
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import VivadoSynth
 
 from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 SETTINGS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
@@ -130,8 +130,8 @@ def test_a_debug_launch_leaves_a_level_the_application_sets_meanwhile(
 
 def test_a_direct_search_launch_leaves_the_level_alone(tmp_path, monkeypatch) -> None:
     """`Dse.run_flow` is a way in too: a caller may use it without `run`."""
-    from xeda.flow_runner.dse import Dse
-    from xeda.flow_runner.dse.fmax import FmaxOptimizer
+    from xeda._internal.flow_runner.dse import Dse
+    from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     seen: list = []
 
@@ -142,7 +142,7 @@ def test_a_direct_search_launch_leaves_the_level_alone(tmp_path, monkeypatch) ->
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
-    from xeda.design import Design
+    from xeda._internal.design import Design
 
     design = Design(
         name="d", root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
@@ -168,11 +168,11 @@ def test_a_direct_search_launch_leaves_the_level_alone(tmp_path, monkeypatch) ->
 def test_a_remote_launch_changes_no_logger(tmp_path, remote_host) -> None:
     """`run_remote` takes the log level as an argument, and it neither sets a logger of the
     process nor leaves one changed."""
-    from xeda.design import Design
-    from xeda.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
-    from xeda.remote.client import run_remote
-    from xeda.remote_value import Remote
-    from xeda.spec import Spec
+    from xeda._internal.design import Design
+    from xeda._internal.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from xeda._internal.remote.client import run_remote
+    from xeda._internal.remote_value import Remote
+    from xeda._internal.spec import Spec
 
     design = tmp_path / "d.yaml"
     design.write_text("name: d\nrtl:\n  sources: []\n  top: t\n")
@@ -208,8 +208,8 @@ def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkey
     asks the host for the level of the `xeda` logger (`client._log_level`)."""
     from click.testing import CliRunner
 
-    from xeda.cli import cli
-    from xeda.remote import client
+    from xeda._internal.cli import cli
+    from xeda._internal.remote import client
 
     given: list = []
 

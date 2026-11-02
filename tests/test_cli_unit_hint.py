@@ -10,7 +10,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
+from xeda._internal.cli import cli
 
 pytestmark = pytest.mark.python_compat
 

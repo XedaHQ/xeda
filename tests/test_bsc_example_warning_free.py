@@ -9,9 +9,9 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Bsc
+from xeda._internal.design import SourceType
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Bsc
 
 from .design_edits import with_updates
 from .tool_utils import require_bsc, run_report

@@ -18,31 +18,38 @@ import pytest
 from xeda.errors import SpecError
 from click.testing import CliRunner
 
-import xeda.deliver as deliver
-import xeda.digest as digest
-from xeda.flow import MetricSpec
+import xeda._internal.deliver as deliver
+import xeda._internal.digest as digest
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.cli import cli
-from xeda.dataclass import Field, deliverable
-from xeda.design import SourceType
-from xeda.deliver import (
+from xeda._internal.cli import cli
+from xeda._internal.dataclass import Field, deliverable
+from xeda._internal.design import SourceType
+from xeda._internal.deliver import (
     Conflict,
     Delivery,
     DeliveryError,
     OutputExistsError,
     delivery_record,
 )
-from xeda.digest import RACY_NS
-from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner, trace
-from xeda.local_settings import LocalSettings
-from xeda.run_root import ensure_run_root
-from xeda.utils import PATH_VARIABLES
+from xeda._internal.digest import RACY_NS
+from xeda._internal.flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowSettingsError,
+    In,
+    Out,
+    registered_flows,
+)
+from xeda._internal.flow_runner import DefaultRunner, trace
+from xeda._internal.local_settings import LocalSettings
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.utils import PATH_VARIABLES
 
 from .scoping import node_settings
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .tool_utils import producers_of
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -1195,11 +1202,11 @@ def test_a_destination_changed_while_the_run_went_on_is_not_replaced(world):
 def test_a_destination_swapped_during_the_copy_is_not_replaced(world, monkeypatch, swap):
     """Checked again right before the rename: a file put there, or its directory swapped for a
     link to the design's, while the copy was made, is left as it is -- the input untouched."""
-    import xeda.deliver
+    import xeda._internal.deliver
 
     out = world.user / "out"
     out.mkdir()
-    copy = xeda.deliver.copy_fd
+    copy = xeda._internal.deliver.copy_fd
 
     def copy_then_swap(source, target):
         copy(source, target)
@@ -1209,7 +1216,7 @@ def test_a_destination_swapped_during_the_copy_is_not_replaced(world, monkeypatc
             out.rename(world.user / "moved")
             out.symlink_to(world.design.root, target_is_directory=True)
 
-    monkeypatch.setattr(xeda.deliver, "copy_fd", copy_then_swap)
+    monkeypatch.setattr(xeda._internal.deliver, "copy_fd", copy_then_swap)
     with pytest.raises(DeliveryError, match="changed while the run went on"):
         _launch(world, netlist="$PWD/out/net.v")
     if swap == "destination":
@@ -1225,9 +1232,9 @@ def test_an_oserror_mid_delivery_still_records_and_reports_the_copies_already_ma
     """One node delivering two files: an `OSError` (a full disk) copying the second must not lose
     track of the first -- its record is still written (`try`/`finally`), and `flow.deliveries`
     (reported in `--json`'s `nodes[].deliveries`) still lists it, before the error is raised."""
-    import xeda.deliver
+    import xeda._internal.deliver
 
-    copy = xeda.deliver.copy_fd
+    copy = xeda._internal.deliver.copy_fd
     made: List[bool] = []
 
     def copy_then_fail_second(source, target):
@@ -1236,7 +1243,7 @@ def test_an_oserror_mid_delivery_still_records_and_reports_the_copies_already_ma
         if len(made) == 2:
             raise OSError("disk full")
 
-    monkeypatch.setattr(xeda.deliver, "copy_fd", copy_then_fail_second)
+    monkeypatch.setattr(xeda._internal.deliver, "copy_fd", copy_then_fail_second)
     launcher = DefaultRunner(world.root, display_results=False)
     with pytest.raises(OSError, match="disk full"):
         _launch(world, launcher, netlist="$PWD/a.v", report="$PWD/b.v")
@@ -1273,7 +1280,7 @@ def test_a_fast_copy_failing_after_writing_falls_back_to_a_complete_copy(
 ):
     """The kernel primitive writes some bytes, then fails: the plain loop must start from an empty
     destination at offset 0, or the delivery would be the half copy with the whole appended."""
-    import xeda.utils
+    import xeda._internal.utils
 
     content = bytes(range(251)) * 10_000  # 2.5 MB, an odd multiple of nothing here
     attempts: List[int] = []
@@ -1282,7 +1289,7 @@ def test_a_fast_copy_failing_after_writing_falls_back_to_a_complete_copy(
         attempts.append(os.write(dst_fd, os.pread(src_fd, written_first, 0)))
         raise OSError(errno.EIO, "failed after writing some bytes")
 
-    monkeypatch.setattr(xeda.utils, "_fast_copies", lambda *args: [half_then_fail])
+    monkeypatch.setattr(xeda._internal.utils, "_fast_copies", lambda *args: [half_then_fail])
 
     def rewrite_output():
         (written,) = world.root.glob("**/outputs/d.v")
@@ -1888,7 +1895,7 @@ def test_an_output_changed_after_its_run_is_not_delivered(world):
 
 
 def test_an_exploration_delivers_nothing(world, tmp_path):
-    from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
+    from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
 
     class _NoBatch(Optimizer):
         def next_batch(self):
@@ -1931,8 +1938,8 @@ def test_a_remote_run_checks_its_output_names_before_connecting(world, remote_ho
 def test_a_remote_run_protects_every_read_input_it_can_name(world):
     """Remote delivery protects requested flow settings and every producer's own section,
     as well as the design's source files."""
-    from xeda.remote.fetch import remote_read_inputs
-    from xeda.flows import VivadoPostsynthSim
+    from xeda._internal.remote.fetch import remote_read_inputs
+    from xeda._internal.flows import VivadoPostsynthSim
 
     for name in ("nested.sdf", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
         (world.user / name).parent.mkdir(exist_ok=True)
@@ -1984,8 +1991,8 @@ def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(wor
     settings (the command line's over it), never as written -- `lib_paths` given on the command
     line replaces the section's, and the run reads only that; another flow's section is
     registered as written, since which dependencies the remote launches is not known here."""
-    from xeda.remote.fetch import remote_read_inputs
-    from xeda.flows import GhdlSim, VivadoSynth
+    from xeda._internal.remote.fetch import remote_read_inputs
+    from xeda._internal.flows import GhdlSim, VivadoSynth
 
     for name in ("old", "new", "other"):
         (world.user / name).mkdir()
@@ -2017,9 +2024,9 @@ def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(wor
 def test_a_failed_remote_run_delivers_nothing(world):
     """`--outputs-to` delivers a remote run's fetched artifacts only when it succeeded:
     a failed run's files never replace xeda's earlier copies."""
-    from xeda.deliver import Deliveries, ReadInputs
-    from xeda.records import decode_record
-    from xeda.remote.fetch import deliver_fetched
+    from xeda._internal.deliver import Deliveries, ReadInputs
+    from xeda._internal.records import decode_record
+    from xeda._internal.remote.fetch import deliver_fetched
 
     from .record_documents import record_document
 
@@ -2043,9 +2050,9 @@ def test_a_remote_artifact_that_a_link_leads_out_is_skipped_as_a_local_one_is(wo
     """The remote did not send an artifact that a link leads out of its run directory, and said
     where it leads (`SkippedSource`). Its delivery is skipped with the warning of a local skip,
     and the node lists it as "skipped"; the other artifacts are delivered."""
-    from xeda.deliver import Deliveries, ReadInputs
-    from xeda.records import decode_record
-    from xeda.remote.fetch import SkippedSource, deliver_fetched
+    from xeda._internal.deliver import Deliveries, ReadInputs
+    from xeda._internal.records import decode_record
+    from xeda._internal.remote.fetch import SkippedSource, deliver_fetched
 
     from .record_documents import record_document
 
@@ -2154,8 +2161,8 @@ def test_without_a_terminal_a_file_in_the_way_is_not_replaced_and_yes_does_not_a
 
 
 def test_the_prompt_lists_what_it_would_replace_and_defaults_to_no(monkeypatch, capsys):
-    from xeda.cli import _prompt_question
-    from xeda.deliver import overwrite_question
+    from xeda._internal.cli import _prompt_question
+    from xeda._internal.deliver import overwrite_question
 
     destination = Path("/u/sqrt.bit")
     conflict = Conflict(
@@ -2293,8 +2300,8 @@ def test_the_project_file_of_a_design_file_is_never_a_destination_even_with_over
 def test_a_plan_after_an_edit_of_a_delivered_file_writes_nothing(world):
     """A plan hashes the edited file to tell whether it replaces a delivery of xeda's. It reads
     no file-system clock, which would make a marker file next to the destination."""
-    from xeda.spec import Spec
-    from xeda.workspace import Workspace
+    from xeda._internal.spec import Spec
+    from xeda._internal.workspace import Workspace
 
     destination = world.user / "out" / "net.v"
     _launch(world, netlist=str(destination))

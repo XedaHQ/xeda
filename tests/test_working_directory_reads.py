@@ -15,13 +15,11 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
-from pathlib import Path
 from typing import Iterator
 
-import xeda
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import IMPL, impl_module, impl_root
 
-SRC = Path(xeda.__file__).parent
+SRC = impl_root()
 
 #: Calls by their full dotted name, as the module imported them (aliases resolved), and the kind
 #: of use each is. A process start counts only without an explicit `cwd=` (a literal `cwd=None` is
@@ -129,7 +127,7 @@ def _imports(tree: ast.AST, module: str) -> dict[str, str]:
     b as c`, relative imports within `xeda`). The module's own top-level functions count as
     imported from it."""
     names: dict[str, str] = {}
-    package = ["xeda", *module.split("/")[:-1]]
+    package = [*IMPL.split("."), *module.split("/")[:-1]]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -144,7 +142,7 @@ def _imports(tree: ast.AST, module: str) -> dict[str, str]:
                 base = ".".join([*package[: len(package) - node.level + 1], *filter(None, [base])])
             for alias in node.names:
                 names[alias.asname or alias.name] = f"{base}.{alias.name}"
-    own = "xeda." + module.removesuffix(".py").replace("/", ".")
+    own = impl_module(module.removesuffix(".py").replace("/", "."))
     for node in getattr(tree, "body", []):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name not in names:
             names[node.name] = f"{own}.{node.name}"
@@ -162,7 +160,7 @@ def _dotted(node: ast.expr, names: dict[str, str]) -> str | None:
     return ".".join([names[node.id], *reversed(parts)])
 
 
-def _scan(tree: ast.AST, module: str = "xeda/m.py") -> Iterator[tuple[str, str]]:
+def _scan(tree: ast.AST, module: str = "m.py") -> Iterator[tuple[str, str]]:
     """(kind, function qualname) for each reviewed kind of use in `tree`."""
     names = _imports(tree, module)
 

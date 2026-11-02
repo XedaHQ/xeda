@@ -1,4 +1,4 @@
-"""Test-only flows that declare their inputs and outputs (`xeda.flow.io`), for the resolver, the
+"""Test-only flows that declare their inputs and outputs (`xeda._internal.flow.io`), for the resolver, the
 launcher's hand-over and the read locks. Their class names start with `T`, so they are
 registered as `t_maker`, `t_taker`, ... (`camelcase_to_snakecase`). The sweeps over every flow
 (`settings_samples.flow_classes`) leave them out, since they are not in a module of Xeda."""
@@ -6,11 +6,11 @@ registered as `t_maker`, `t_taker`, ... (`camelcase_to_snakecase`). The sweeps o
 from pathlib import Path
 from typing import ClassVar, Optional
 
-from xeda.flow import MetricSpec
-from xeda.dataclass import LOCATOR, Field, XedaBaseModel
-from xeda.design import SourceType
-from xeda.flow import Flow, FpgaSynthFlow, In, Out
-from xeda.utils import replacing_file
+from xeda._internal.flow import MetricSpec
+from xeda._internal.dataclass import LOCATOR, Field, XedaBaseModel
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, FpgaSynthFlow, In, Out
+from xeda._internal.utils import replacing_file
 
 
 class TMaker(Flow):

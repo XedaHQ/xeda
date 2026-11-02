@@ -7,12 +7,12 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
-from xeda.deliver import Deliveries, DeliveryError, ReadInputs
-from xeda.digest import content_digest
-from xeda.records import decode_record
-from xeda.run_root import ensure_run_root
-from xeda.remote.errors import RemoteFetchError, RemoteProtocolError
-from xeda.remote.fetch import (
+from xeda._internal.deliver import Deliveries, DeliveryError, ReadInputs
+from xeda._internal.digest import content_digest
+from xeda._internal.records import decode_record
+from xeda._internal.run_root import ensure_run_root
+from xeda._internal.remote.errors import RemoteFetchError, RemoteProtocolError
+from xeda._internal.remote.fetch import (
     NodeResult,
     SkippedSource,
     check_fetched_outputs,
@@ -21,7 +21,7 @@ from xeda.remote.fetch import (
     publish_mirror,
     select_fetch,
 )
-from xeda.remote.manifest import Entry, build_manifest, write_tar
+from xeda._internal.remote.manifest import Entry, build_manifest, write_tar
 
 from .record_documents import record_document
 
@@ -471,7 +471,7 @@ def test_the_mirror_of_an_unfinished_run_is_not_emptied_through_a_link(
     """`_discard_mirrors` locks before it clears, and the lock refuses a link on the way."""
     from types import SimpleNamespace
 
-    from xeda.remote import client
+    from xeda._internal.remote import client
 
     run_root = tmp_path / "xeda_run"
     (run_root / "b" / "yosys_fpga").mkdir(parents=True)
@@ -577,7 +577,7 @@ class _StubAgent:
 
 
 def test_the_client_reads_the_files_and_the_skipped_sources_of_a_fetch():
-    from xeda.remote.client import _fetch
+    from xeda._internal.remote.client import _fetch
 
     skipped = {"node": "f", "place": "x.log", "source": "/r/x.log", "target": "/etc/x"}
     entries, sources, _reader = _fetch(_StubAgent({"files": [], "skipped": [skipped]}), False)
@@ -595,8 +595,8 @@ def test_the_delivered_node_lists_its_deliveries_and_a_skipped_one_as_not_delive
     launch, in the node that this side delivered."""
     from types import SimpleNamespace
 
-    from xeda.deliver import Delivered
-    from xeda.remote.client import _note_deliveries
+    from xeda._internal.deliver import Delivered
+    from xeda._internal.remote.client import _note_deliveries
 
     key = SimpleNamespace(key="--outputs-to")
     planned = [(key, Path("/m/x"), Path("/o/x"), "0"), (key, Path("/m/z"), Path("/o/z"), "0")]
@@ -622,7 +622,7 @@ def test_the_delivered_node_lists_its_deliveries_and_a_skipped_one_as_not_delive
 def test_the_mirror_record_of_a_failed_node_names_no_output(tmp_path):
     """The fetch brings back no output of a run that did not pass, so its mirror record names
     none: each output keeps its entry with no names."""
-    from xeda.remote.fetch import only_fetched_artifacts
+    from xeda._internal.remote.fetch import only_fetched_artifacts
 
     failed = record_document("failed", outputs={"netlist": ["netlist.v"]})
     kept = only_fetched_artifacts(failed, tmp_path)["outputs"]["netlist"]

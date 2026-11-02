@@ -30,19 +30,19 @@ from typing import Any
 
 import pytest
 
-import xeda
-from xeda.flow import MetricSpec
-from xeda.design import TYPE_ONLY, SourceType
-from xeda.flow import Flow, FlowSettingsError
-from xeda.flow.io import (
+from xeda._internal.package_paths import impl_root
+from xeda._internal.flow import MetricSpec
+from xeda._internal.design import TYPE_ONLY, SourceType
+from xeda._internal.flow import Flow, FlowSettingsError
+from xeda._internal.flow.io import (
     declared_inputs,
     declared_outputs,
     output_enabled,
     selected_types,
 )
-from xeda.flow_runner import get_flow_class
-from xeda.flow_runner.chains import fitting_outputs
-from xeda.flows import VivadoSynth, Yosys
+from xeda._internal.flow_runner import get_flow_class
+from xeda._internal.flow_runner.chains import fitting_outputs
+from xeda._internal.flows import VivadoSynth, Yosys
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
 from .scoping import node_settings
@@ -142,7 +142,7 @@ def naming_problems(cls: type[Flow], design_name: str = "design") -> list[str]:
     output whose `enabled_by` is a deliverable: switched on from the minimal settings, the
     setting must name what the run writes when it is given a location (`outputs/<design>.<ext>`),
     so one output has one name however it is asked for."""
-    from xeda.dataclass import DELIVERABLE_ROLE, written_role
+    from xeda._internal.dataclass import DELIVERABLE_ROLE, written_role
 
     problems: list[str] = []
     for name, declaration in declared_outputs(cls).items():
@@ -164,7 +164,7 @@ def test_a_deliverable_a_consumer_switches_on_has_its_conventional_name(cls) -> 
 
 
 def test_the_naming_sweep_covers_the_vivado_bitstream_and_the_simulation_s_activity() -> None:
-    from xeda.dataclass import DELIVERABLE_ROLE, written_role
+    from xeda._internal.dataclass import DELIVERABLE_ROLE, written_role
 
     swept = {
         (cls.name, name)
@@ -223,7 +223,7 @@ def test_a_netlist_is_given_by_type_never_inferred_from_a_suffix() -> None:
 
 
 def test_an_edge_to_an_unknown_flow_is_found() -> None:
-    from xeda.flows import Nextpnr
+    from xeda._internal.flows import Nextpnr
 
     def resolve(name: str):
         raise LookupError(f"unknown flow {name}")
@@ -233,7 +233,7 @@ def test_an_edge_to_an_unknown_flow_is_found() -> None:
 
 
 def test_an_edge_to_a_flow_without_the_output_is_found() -> None:
-    from xeda.flows import FpgaPack, Nextpnr
+    from xeda._internal.flows import FpgaPack, Nextpnr
 
     problems = edge_problems(Nextpnr, lambda name: FpgaPack)
     assert any("no output" in p or "fits the input" in p for p in problems), problems
@@ -242,7 +242,7 @@ def test_an_edge_to_a_flow_without_the_output_is_found() -> None:
 def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
     """`bitstream` has no default to switch on: without `VivadoImplementation.enable_output`, a
     consumer's demand would fail at resolve time, which is what this oracle exists to catch."""
-    from xeda.flows.vivado.vivado_synth import VivadoImplementation
+    from xeda._internal.flows.vivado.vivado_synth import VivadoImplementation
 
     inherited = Flow.__dict__["enable_output"]
     assert VivadoImplementation.__dict__.get("enable_output") is not None
@@ -263,7 +263,7 @@ STATE_ACCESSORS = frozenset({"getattr", "setattr", "hasattr", "delattr"})
 #: The code a flow is built from: the packages of the flows and of their base classes, and the
 #: cocotb support. Every module of them is scanned, whichever flow reaches it.
 FLOW_CODE_ROOTS = ("flows", "flow", "cocotb.py")
-PACKAGE_ROOT = Path(xeda.__file__).parent
+PACKAGE_ROOT = impl_root()
 
 
 class _Function:
@@ -735,7 +735,7 @@ def test_a_reader_of_a_flow_s_state_that_nothing_calls_is_found(source: str) -> 
 
 
 def test_a_stand_in_flow_that_reads_a_producer_through_a_helper_is_found() -> None:
-    from xeda.flow import registered_flows
+    from xeda._internal.flow import registered_flows
 
     class TSpying(Flow):
         """Reads its producer's results through a module-level helper."""
@@ -763,7 +763,7 @@ def test_a_stand_in_flow_that_reads_a_producer_through_a_helper_is_found() -> No
 def _leaf_flow_launch(flow_class, tmp_path, monkeypatch):
     """Launch `flow_class` as the isolation sweep does. The world, and what the resolver was asked
     and answered for it: `(requested flow, its plan or None, the refusal or None)`."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .test_isolation import _launch, _world
 
@@ -795,11 +795,11 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     from pathlib import Path
 
     from xeda import Design
-    from xeda.flow import flowrun_hash
-    from xeda.flow_runner.bindings import node_identity
-    from xeda.flow_runner.configuration import configuration_hash
-    from xeda.flow_runner.default_runner import DefaultRunner
-    from xeda.flow_runner.trace import as_recorded
+    from xeda._internal.flow import flowrun_hash
+    from xeda._internal.flow_runner.bindings import node_identity
+    from xeda._internal.flow_runner.configuration import configuration_hash
+    from xeda._internal.flow_runner.default_runner import DefaultRunner
+    from xeda._internal.flow_runner.trace import as_recorded
 
     from .test_isolation import DESIGNS, SQRT_DESIGN, UNPLANNABLE, sweep_settings
 
@@ -906,7 +906,7 @@ def test_a_flow_that_registers_a_dependency_is_found() -> None:
     try:
         problems = registration_problems(TRegistering)
     finally:
-        from xeda.flow import registered_flows
+        from xeda._internal.flow import registered_flows
 
         for name in (TRegistering.name, TRegistering.__name__):
             registered_flows.pop(name, None)
@@ -930,7 +930,7 @@ def names_left(root: Path) -> dict[str, list[str]]:
 
 
 def test_no_name_of_the_removed_mechanism_is_left_in_the_package() -> None:
-    assert names_left(Path(xeda.__file__).parent) == {}
+    assert names_left(impl_root()) == {}
 
 
 def test_the_text_scan_finds_a_name_left_in_a_file(tmp_path) -> None:

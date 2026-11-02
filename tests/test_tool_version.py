@@ -4,7 +4,7 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.tool import Tool, ToolException
+from xeda._internal.tool import Tool, ToolException
 
 
 @pytest.mark.parametrize(

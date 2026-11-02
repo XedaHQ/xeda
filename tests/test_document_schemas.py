@@ -1,5 +1,5 @@
 """Each run leaves one record, `results.json`, in one versioned schema, and every reader of a
-stored run reads it through the codec of `xeda.records`.
+stored run reads it through the codec of `xeda._internal.records`.
 
 The flows here are small test doubles: they need no tool. The sections follow the questions that
 the schema has to answer: what the file holds, whether a fresh, a reused and a loaded record agree,
@@ -19,18 +19,18 @@ from typing import Any, ClassVar
 import pytest
 
 from xeda import Design
-from xeda.digest import content_digest
-from xeda.design import SourceType
+from xeda._internal.digest import content_digest
+from xeda._internal.design import SourceType
 from xeda.errors import RecordError
-from xeda.flow import Flow, FlowFatalError, MetricSpec, Out, registered_flows
-from xeda.flow.sim import SimFlow, judge_evidence
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.environment import SESSION_VARIABLES
-from xeda.flow_runner.outputs import handed_entries
-from xeda.flow_runner.trace import previous_trace
-from xeda.frozen import FrozenDict, freeze, thaw
-from xeda.outcomes import result_from_dict
-from xeda.records import (
+from xeda._internal.flow import Flow, FlowFatalError, MetricSpec, Out, registered_flows
+from xeda._internal.flow.sim import SimFlow, judge_evidence
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.environment import SESSION_VARIABLES
+from xeda._internal.flow_runner.outputs import handed_entries
+from xeda._internal.flow_runner.trace import previous_trace
+from xeda._internal.frozen import FrozenDict, freeze, thaw
+from xeda._internal.outcomes import result_from_dict
+from xeda._internal.records import (
     ErrorInfo,
     InvalidMetric,
     RunRecord,
@@ -40,14 +40,14 @@ from xeda.records import (
     read_record,
     stored_outputs,
 )
-from xeda.dataclass import Field
+from xeda._internal.dataclass import Field
 
 from .conftest import PYTEST_OWN_VARIABLES
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .io_flows import TJoin, TMaker, TReader, TTaker
 from .record_documents import record_document
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 KEYS = {
     "schema_version",
@@ -947,8 +947,8 @@ def test_a_record_cannot_hold_the_outcome_of_a_node_that_did_not_run(tmp_path, o
 
 
 def _plan_with_a_local_dependency(tmp_path: Path):
-    from xeda.spec import Spec
-    from xeda.workspace import Workspace
+    from xeda._internal.spec import Spec
+    from xeda._internal.workspace import Workspace
 
     root = tmp_path / "d"
     root.mkdir()
@@ -989,7 +989,7 @@ def test_the_dependencies_of_a_plan_cannot_change_and_survive_a_pickle(tmp_path)
     ids=["no list", "an entry without keys", "an entry that is no mapping"],
 )
 def test_a_plan_document_with_bad_dependencies_is_refused(tmp_path, change):
-    from xeda.plan import plan_from_dict
+    from xeda._internal.plan import plan_from_dict
 
     _design, plan = _plan_with_a_local_dependency(tmp_path)
     document = plan.to_dict()
@@ -1042,7 +1042,7 @@ def test_an_unknown_outcome_in_a_run_document_is_a_corrupt_document():
 
 
 def test_an_unknown_event_kind_is_kept_as_text():
-    from xeda.flow_runner.launch_result import _Progress
+    from xeda._internal.flow_runner.launch_result import _Progress
 
     told: list[Any] = []
     _Progress("id", None, told.append).emit("a_kind_of_the_future", "node")

@@ -9,16 +9,16 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.digest import content_digest
-from xeda.flow import FlowDependencyFailure, Out
-from xeda import cli_utils
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner import launch_report
-from xeda.flow_runner import outputs as output_module
-from xeda.flow_runner.outputs import handed_over
+from xeda._internal.design import SourceType
+from xeda._internal.digest import content_digest
+from xeda._internal.flow import FlowDependencyFailure, Out
+from xeda._internal import cli_utils
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner import launch_report
+from xeda._internal.flow_runner import outputs as output_module
+from xeda._internal.flow_runner.outputs import handed_over
 
 from .io_flows import TMaker
 

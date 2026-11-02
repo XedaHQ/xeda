@@ -16,10 +16,10 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.console import console
-from xeda.flow_runner.default_runner import scrub_runs
-from xeda.run_root import ensure_run_root
+from xeda._internal.cli import cli
+from xeda._internal.console import console
+from xeda._internal.flow_runner.default_runner import scrub_runs
+from xeda._internal.run_root import ensure_run_root
 from .tool_utils import HANG_GUARD
 
 TESTS_DIR = Path(__file__).parent.absolute()

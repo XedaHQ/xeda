@@ -14,9 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import In, Out, registered_flows
-from xeda.flows.openroad import Openroad, OpenroadCts, OpenroadGrt, OpenroadPlace, OpenroadStage
+from xeda._internal.design import SourceType
+from xeda._internal.flow import In, Out, registered_flows
+from xeda._internal.flows.openroad import (
+    Openroad,
+    OpenroadCts,
+    OpenroadGrt,
+    OpenroadPlace,
+    OpenroadStage,
+)
 
 from .flow_registry import preserved_flow_registry
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store

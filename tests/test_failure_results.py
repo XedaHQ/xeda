@@ -8,12 +8,19 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.dataclass import Field
-from xeda.design import SourceType
-from xeda.flow import Flow, FlowDependencyFailure, FlowFatalError, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.dataclass import Field
+from xeda._internal.design import SourceType
+from xeda._internal.flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowFatalError,
+    In,
+    Out,
+    registered_flows,
+)
+from xeda._internal.flow_runner import DefaultRunner
 
 from .tool_utils import producers_of
 
@@ -64,7 +71,7 @@ class TExitsNonZero(Flow):
     results_description: ClassVar[dict[str, MetricSpec]] = {}
 
     def run(self) -> None:
-        from xeda.proc_utils import run_process
+        from xeda._internal.proc_utils import run_process
 
         run_process(sys.executable, ["-c", "raise SystemExit(3)"])
 

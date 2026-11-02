@@ -1,6 +1,6 @@
 """The remote launch entry runs a packaged request and records its result.
 
-Each test runs `python -m xeda.remote.launch_entry` as a subprocess of the test interpreter, as
+Each test runs `python -m xeda._internal.remote.launch_entry` as a subprocess of the test interpreter, as
 the remote agent does. The subprocess inherits the PATH with the fake tools.
 """
 
@@ -16,12 +16,12 @@ from typing import Any, Optional
 
 import pytest
 
-from xeda.flow_runner import DefaultRunner
-from xeda.remote.launch_entry import LaunchRequest, RunDirectorySnapshot, check_identity
-from xeda.remote.errors import RemoteIncompatible
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.remote.launch_entry import LaunchRequest, RunDirectorySnapshot, check_identity
+from xeda._internal.remote.errors import RemoteIncompatible
 
 from .tool_utils import use_fake_fpga_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat

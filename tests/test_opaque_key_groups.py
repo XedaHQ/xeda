@@ -14,14 +14,14 @@ from typing import Any
 import pytest
 import yaml
 
-from xeda.cli_types import _is_key_value, starts_opaque_key
-from xeda.dataclass import opaque_key_paths
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flows.openroad import Openroad
-from xeda.units import Power
-from xeda.utils import ConflictingKeys
+from xeda._internal.cli_types import _is_key_value, starts_opaque_key
+from xeda._internal.dataclass import opaque_key_paths
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import merge_layers
+from xeda._internal.flows.openroad import Openroad
+from xeda._internal.units import Power
+from xeda._internal.utils import ConflictingKeys
 
 from .openroad_utils import openroad_design, openroad_settings, register_openroad_flows
 from .tiny_platform import tiny_store

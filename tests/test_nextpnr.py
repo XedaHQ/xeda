@@ -16,10 +16,10 @@ from typing import Any, Dict
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, FlowDependencyFailure, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nextpnr, YosysFpga
-from xeda.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
+from xeda._internal.flow import FPGA, FlowDependencyFailure, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Nextpnr, YosysFpga
+from xeda._internal.flows.nextpnr import ECP5_RESOURCES, EcpPLL, NextpnrTool
 from .scoping import node_settings
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -471,7 +471,7 @@ def test_nextpnr_rejects_a_target_before_synthesis(tmp_path, settings, message):
 
 def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):
     """The iCE40 chain writes an ASC and a parsed report with the real tools."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .tool_utils import require_nextpnr_ice40
 
@@ -549,7 +549,7 @@ def test_ecppll_assignment_and_scalar_clock_shorthand_are_isolated():
 
 def test_nextpnr_ecp5_end_to_end(tmp_path):
     """Run yosys_fpga + nextpnr-ecp5 for real and check the parsed results are sane."""
-    from xeda.flow_runner import DefaultRunner
+    from xeda._internal.flow_runner import DefaultRunner
 
     from .tool_utils import require_nextpnr_ecp5
 
@@ -611,8 +611,8 @@ def test_nextpnr_runs_with_its_device_given_only_for_yosys_fpga(tmp_path, monkey
     """End to end, with the real tools: the device given in `[flows.yosys_fpga]` alone reaches
     both yosys and nextpnr."""
     from xeda import Design
-    from xeda.flow_runner import DefaultRunner
-    from xeda.flows import Nextpnr
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.flows import Nextpnr
 
     from .tool_utils import require_nextpnr_ecp5
 
@@ -714,7 +714,7 @@ def test_the_synthesis_declared_nextpnr_places_keeps_src_unless_told_otherwise(
 @pytest.mark.parametrize("origin", ["design", "project", "cli", "api", "loader-cli"])
 def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypatch, origin):
     """`nextpnr.yosys.<key>` fails in every layer, naming `flows.yosys_fpga.<key>`."""
-    from xeda.flows.openfpgaloader import Openfpgaloader
+    from xeda._internal.flows.openfpgaloader import Openfpgaloader
 
     monkeypatch.chdir(tmp_path)
     nested = {"nextpnr": {"yosys": {"flatten": True}}}
@@ -768,7 +768,7 @@ def test_nextpnr_yosys_was_removed_and_names_its_replacement(tmp_path, monkeypat
 )
 def test_openfpgaloader_synthesis_keeps_src_like_nextpnr(tmp_path, monkeypatch, flows, keeps_src):
     """Through `fpga_pack` and `nextpnr`: the synthesis is still the one nextpnr places."""
-    from xeda.flows.openfpgaloader import Openfpgaloader
+    from xeda._internal.flows.openfpgaloader import Openfpgaloader
 
     from .tool_utils import use_fake_fpga_tools
 

@@ -14,12 +14,12 @@ from typing import ClassVar
 
 import pytest
 
-from xeda.flow import MetricSpec
+from xeda._internal.flow import MetricSpec
 from xeda import Design
-from xeda.design import SourceType
-from xeda.flow import Flow, In, Out, registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.run_dir import RunDirectoryError
+from xeda._internal.design import SourceType
+from xeda._internal.flow import Flow, In, Out, registered_flows
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.run_dir import RunDirectoryError
 
 from .tool_utils import producers_of
 

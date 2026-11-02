@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from xeda.proc_utils import run_child
+from xeda._internal.proc_utils import run_child
 
 from .tool_utils import terminal_output
 

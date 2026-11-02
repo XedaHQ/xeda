@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from xeda.design import Design
-from xeda.flow_runner import get_flow_class
-from xeda.flow_runner.bindings import default_nodes, effective_bindings, split_bindings
-from xeda.frozen import thaw
-from xeda.utils import toml_load
-from xeda.project import Project
-from xeda.yaml_loader import load_yaml
+from xeda._internal.design import Design
+from xeda._internal.flow_runner import get_flow_class
+from xeda._internal.flow_runner.bindings import default_nodes, effective_bindings, split_bindings
+from xeda._internal.frozen import thaw
+from xeda._internal.utils import toml_load
+from xeda._internal.project import Project
+from xeda._internal.yaml_loader import load_yaml
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 FILES = sorted(

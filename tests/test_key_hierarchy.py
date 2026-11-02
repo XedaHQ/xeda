@@ -10,7 +10,7 @@ keys, by the one function every dotted key goes through (`utils.set_hierarchy`).
 
 import pytest
 
-from xeda.utils import (
+from xeda._internal.utils import (
     ConflictingKeys,
     XedaException,
     expand_hierarchy,
@@ -218,8 +218,8 @@ def test_separate_mappings_are_separate_origins_and_merge_by_precedence():
 import json
 from pathlib import Path
 
-from xeda.design import Design
-from xeda.project import Project
+from xeda._internal.design import Design
+from xeda._internal.project import Project
 
 DESIGN = {
     "language": {"vhdl": {"standard": "2008"}},
@@ -346,8 +346,8 @@ def test_a_project_reports_a_value_and_a_key_inside_it_as_it_does_in_a_design_fi
 import re
 import textwrap
 
-from xeda.design import DesignValidationError
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow_runner import DefaultRunner
 from xeda.errors import ProjectError
 from .scoping import node_settings
 

@@ -18,8 +18,8 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
-from xeda.cli import cli
-from xeda.introspect import design_info
+from xeda._internal.cli import cli
+from xeda._internal.introspect import design_info
 
 from .project_files import PROJECT_FILE
 from .remote_fixtures import fake_remote, fake_ssh, remote_host

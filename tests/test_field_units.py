@@ -14,14 +14,15 @@ from typing import Annotated, Literal, Optional, Union
 import pytest
 from pydantic import ValidationError
 
-from xeda.dataclass import Field, XedaBaseModel, tier
-from xeda.flow import FlowSettingsError, flowrun_hash
-from xeda.flow.settings_group import SettingsGroup
-from xeda.flows import GhdlSim, Vcs, VivadoSynth
-from xeda.frozen import freeze, thaw
-from xeda.introspect import settings_in_field_units, settings_info, unit_of
-from xeda.outcomes import spec_document
-from xeda.units import (
+from xeda._internal.dataclass import Field, XedaBaseModel, tier
+from xeda._internal.flow import FlowSettingsError, flowrun_hash
+from xeda._internal.flow.settings_group import SettingsGroup
+from xeda._internal.flows import GhdlSim, Vcs, VivadoSynth
+from xeda._internal.frozen import freeze, thaw
+from xeda.introspect import settings_info
+from xeda._internal.introspect import settings_in_field_units, unit_of
+from xeda._internal.outcomes import spec_document
+from xeda._internal.units import (
     Bounds,
     Frequency,
     Length,
@@ -30,7 +31,7 @@ from xeda.units import (
     Unit,
     UNIT_KEY,
 )
-from xeda.utils import dump_json, json_encodable, semantic_hash
+from xeda._internal.utils import dump_json, json_encodable, semantic_hash
 
 from .test_cli_json_contract import json_stdout, run_xeda
 from . import test_modelsim

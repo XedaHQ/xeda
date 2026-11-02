@@ -9,9 +9,9 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
-from xeda.flow import Flow, FlowSettingsError, registered_flows
-from xeda.flow_runner import get_flow_class
-from xeda.flows import Bsc, Nextpnr, VivadoSynth, Yosys, YosysFpga
+from xeda._internal.flow import Flow, FlowSettingsError, registered_flows
+from xeda._internal.flow_runner import get_flow_class
+from xeda._internal.flows import Bsc, Nextpnr, VivadoSynth, Yosys, YosysFpga
 
 from .test_nextpnr import _nextpnr_args
 from .test_vcs_sim_evidence import launch as launch_vcs

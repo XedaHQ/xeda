@@ -16,18 +16,18 @@ from pathlib import Path
 
 import pytest
 
-import xeda.flows  # noqa: F401  (registers every flow)
+import xeda._internal.flows  # noqa: F401  (registers every flow)
 from xeda import Design
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.dse.dse_runner import Dse, Optimizer
-from xeda.flows import BscSim, Verilator
-from xeda.run_root import ensure_run_root
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer
+from xeda._internal.flows import BscSim, Verilator
+from xeda._internal.run_root import ensure_run_root
 
 from .settings_samples import flow_classes, minimal_settings
 from .tool_utils import require_verilator
 from .scoping import node_settings
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: a run root whose path has whitespace make splits at
 SPACED_ROOTS = ["r r", "r\tr"]

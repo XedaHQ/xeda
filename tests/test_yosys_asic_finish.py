@@ -13,10 +13,10 @@ from typing import Any, get_args
 
 import pytest
 
-from xeda.dataclass import tier_of
-from xeda.flow import FlowSettingsError, flowrun_hash
-from xeda.flows import Yosys
-from xeda.flows.yosys import asic_groups
+from xeda._internal.dataclass import tier_of
+from xeda._internal.flow import FlowSettingsError, flowrun_hash
+from xeda._internal.flows import Yosys
+from xeda._internal.flows.yosys import asic_groups
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _words
 from .test_yosys_asic_groups import no_liberty_message, _given, _refused, _run, _runner

@@ -20,11 +20,11 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Bsc, BscSim
-from xeda.flows import bsc as bsc_module
-from xeda.flows.bsc import (
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import Bsc, BscSim
+from xeda._internal.flows import bsc as bsc_module
+from xeda._internal.flows.bsc import (
     DIAGNOSTICS_SHOWN,
     LINK_LOG,
     MIN_BSC_VERSION,
@@ -34,9 +34,9 @@ from xeda.flows.bsc import (
     _parse_haskell_strings,
     diagnostic_lines,
 )
-from xeda.proc_utils import ProcessTimeout
-from xeda.run_dir import RunDirectory
-from xeda.utils import NonZeroExitCode
+from xeda._internal.proc_utils import ProcessTimeout
+from xeda._internal.run_dir import RunDirectory
+from xeda._internal.utils import NonZeroExitCode
 
 from .bsc_outputs import collected_verilog
 from .design_edits import with_updates

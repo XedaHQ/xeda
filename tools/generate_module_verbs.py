@@ -19,8 +19,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from xeda.package_paths import impl_root, source_root  # noqa: E402
-from xeda.workspace import Workspace  # noqa: E402
+from xeda._internal.package_paths import impl_root, source_root  # noqa: E402
+from xeda._internal.workspace import Workspace  # noqa: E402
 
 TARGET = ROOT / "src" / impl_root().relative_to(source_root()) / "workspace_verbs.py"
 

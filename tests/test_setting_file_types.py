@@ -13,9 +13,9 @@ from typing import Annotated, Any, Iterator, List, Tuple, get_args, get_origin
 
 from pydantic import BaseModel
 
-from xeda.dataclass import written_role
-from xeda.flow import registered_flows
-from xeda.flow.flow import _annotation_contains_path
+from xeda._internal.dataclass import written_role
+from xeda._internal.flow import registered_flows
+from xeda._internal.flow.flow import _annotation_contains_path
 
 #: names that say a setting names a file (matched against the dotted name, nested models too)
 FILE_NAMES = re.compile(r"(_file|_files|_script|_dirs?|_folder|ini|_libs?)$|path|sdf|wave_opt")
@@ -93,7 +93,7 @@ def test_the_allowlist_names_only_settings_that_exist():
 
 
 def test_an_inline_abc_script_is_text_and_a_script_file_a_path(tmp_path):
-    from xeda.flows.yosys import YosysFpga
+    from xeda._internal.flows.yosys import YosysFpga
 
     inline = YosysFpga.Settings.from_input({"abc_script": "+echo $PWD"}, design_root=tmp_path)
     assert inline.abc_script == "+echo,$PWD"
@@ -107,7 +107,7 @@ def test_an_inline_abc_script_is_text_and_a_script_file_a_path(tmp_path):
 
 #: Path-typed settings that name a directory a run reads (an input: every file under it is
 #: recorded), by flow; every other directory setting must be one the flow writes (a role:
-#: `xeda.dataclass.WORKING`, `deliverable(...)`), which is never an input.
+#: `xeda._internal.dataclass.WORKING`, `deliverable(...)`), which is never an input.
 INPUT_DIRECTORIES = {
     "lib_paths": "compiled libraries a tool reads",
     "include_dirs": "include directories Verilator searches",
@@ -122,7 +122,7 @@ DIRECTORY_NAMES = re.compile(r"(_dir|_dirs|_folder|_paths)$")
 
 def test_every_directory_setting_is_an_input_or_a_declared_output():
     """A directory a setting names is either read by the run -- listed as its input -- or
-    written by it (a role: `xeda.dataclass.WORKING`, `deliverable(...)`): undeclared, a flow's
+    written by it (a role: `xeda._internal.dataclass.WORKING`, `deliverable(...)`): undeclared, a flow's
     own output directory would be taken for an input it rewrites every run."""
     unclassified = []
     for _, (_, cls) in sorted(registered_flows.items()):

@@ -16,11 +16,11 @@ from pathlib import Path
 
 
 from xeda import Design
-from xeda.design import Source
-from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.proc_utils import run_process
-from xeda.tool import Tool
-from xeda.units import Time
+from xeda._internal.design import Source
+from xeda._internal.flow_runner import DefaultRunner, get_flow_class
+from xeda._internal.proc_utils import run_process
+from xeda._internal.tool import Tool
+from xeda._internal.units import Time
 
 from .design_edits import with_updates
 from .settings_samples import minimal_settings
@@ -303,7 +303,7 @@ def launch_case(
         if name == "bsc" and "-o" in words and case.backend in ("verilator", "iverilog"):
             target = cwd / words[words.index("-o") + 1]
             if case.backend == "verilator":
-                from xeda.flows.verilator import HOOK_MACROS
+                from xeda._internal.flows.verilator import HOOK_MACROS
 
                 assert all("-D" + macro in words for macro in HOOK_MACROS)
                 assert "-Xl" in words

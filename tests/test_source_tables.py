@@ -18,17 +18,17 @@ import yaml
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.design import (
+from xeda._internal.cli import cli
+from xeda._internal.design import (
     REMOVED_SOURCE_KEYS,
     SOURCE_TABLE_KEYS,
     Source,
     DesignValidationError,
     SourceType,
 )
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, Nvc
-from xeda.project import Project
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import GhdlSim, Nvc
+from xeda._internal.project import Project
 
 from .tool_utils import require_ghdl, require_nvc
 from .source_layout import IMPL_DIR

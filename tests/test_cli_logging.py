@@ -1,6 +1,6 @@
 """The command line's detailed logs shorten a logger's name, and leave the record alone.
 
-`[xeda.flow_runner.default_runner]` is long, so the detailed format shows
+`[xeda._internal.flow_runner.default_runner]` is long, so the detailed format shows
 `[flow_runner.default_runner]`. A log record is one object that every handler of the process sees,
 though: the shortening is part of how one handler *shows* a record, never a change to it, or the
 next handler (pytest's `caplog`, a handler an API user installed) reads a name that is no
@@ -12,8 +12,8 @@ from collections.abc import Iterator
 
 import pytest
 
-from xeda.cli import setup_logger
-from xeda.package_paths import impl_module
+from xeda._internal.cli import setup_logger
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -85,13 +85,13 @@ def test_a_logger_outside_the_package_keeps_its_name(capsys):
 def test_setting_the_logs_up_again_does_not_shorten_twice(capsys):
     setup_logger(logging.INFO, True)
     setup_logger(logging.INFO, True)
-    logging.getLogger("xeda.xeda.inner").info("hello")
+    logging.getLogger(impl_module("xeda.inner")).info("hello")
 
     assert capsys.readouterr().err.count("[xeda.inner]") == 1
 
 
 def test_the_logging_of_the_process_says_whether_it_is_detailed():
-    from xeda.utils import logs_are_detailed
+    from xeda._internal.utils import logs_are_detailed
 
     setup_logger(logging.INFO, True)
     assert logs_are_detailed()

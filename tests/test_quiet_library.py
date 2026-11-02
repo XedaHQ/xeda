@@ -15,18 +15,18 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flow import Flow
-from xeda.flow_runner.launch_result import launch_result
-from xeda.outcomes import Result
-from xeda.spec import Spec
-from xeda.log_context import current_launch_id, launch_context, running_node
-from xeda.proc_utils import TOOL_OUTPUT, child_stdout, run_child, run_process
-from xeda.tool import Tool, log_stem
-from xeda.utils import NonZeroExitCode
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner.launch_result import launch_result
+from xeda._internal.outcomes import Result
+from xeda._internal.spec import Spec
+from xeda._internal.log_context import current_launch_id, launch_context, running_node
+from xeda._internal.proc_utils import TOOL_OUTPUT, child_stdout, run_child, run_process
+from xeda._internal.tool import Tool, log_stem
+from xeda._internal.utils import NonZeroExitCode
 
 from .flow_registry import preserved_flow_registry
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module, impl_root
 
 pytestmark = pytest.mark.python_compat
 
@@ -365,7 +365,7 @@ def _write_design(tmp_path: Path) -> Path:
 def test_the_command_line_shows_the_results_table_and_json_does_not(tmp_path, monkeypatch):
     from click.testing import CliRunner
 
-    from xeda.cli import cli
+    from xeda._internal.cli import cli
 
     monkeypatch.chdir(tmp_path)
     design = _write_design(tmp_path)
@@ -391,9 +391,7 @@ def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line
     streams or to the warnings machinery."""
     import ast
 
-    import xeda
-
-    package = Path(xeda.__file__).parent
+    package = impl_root()
     command_line = {
         "cli.py",
         "cli_utils.py",
@@ -417,9 +415,9 @@ def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line
 
 
 def test_a_failed_result_names_the_launch_of_the_records_of_the_launch_that_failed(tmp_path):
-    from xeda.flow_runner.launch_result import failed_result
-    from xeda.log_context import launch_id_of
-    from xeda.records import ErrorInfo
+    from xeda._internal.flow_runner.launch_result import failed_result
+    from xeda._internal.log_context import launch_id_of
+    from xeda._internal.records import ErrorInfo
 
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     design = _design(tmp_path)
@@ -453,8 +451,8 @@ def test_a_failed_capture_says_the_last_lines_of_its_output() -> None:
 
 
 def test_scrub_prints_nothing_and_hands_its_listing_and_result_to_the_caller(tmp_path, capfd):
-    from xeda.flow_runner.scrub import scrub_design
-    from xeda.run_root import ensure_run_root
+    from xeda._internal.flow_runner.scrub import scrub_design
+    from xeda._internal.run_root import ensure_run_root
 
     run_root = ensure_run_root(tmp_path / "xeda_run")
     design_dir = run_root / "d"

@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from xeda.platforms import Located, Residue, build_platform
-from xeda.platforms.model import normalize_leaf
-from xeda.platforms.upstream import (
+from xeda._internal.platforms import Located, Residue, build_platform
+from xeda._internal.platforms.model import normalize_leaf
+from xeda._internal.platforms.upstream import (
     PlatformConfigError,
     read_open_pdks_config,
     read_orfs_config_mk,

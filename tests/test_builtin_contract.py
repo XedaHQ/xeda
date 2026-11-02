@@ -48,13 +48,13 @@ def test_a_new_code_is_additive_and_a_removed_code_breaking() -> None:
 
 
 def test_the_code_inventory_exists() -> None:
-    from xeda.flow_runner.error_codes import ALL_CODES
+    from xeda._internal.flow_runner.error_codes import ALL_CODES
 
     assert "internal_error" in ALL_CODES["node"]
 
 
 def test_the_session_variables_are_exactly_the_contract_list() -> None:
-    from xeda.generation import SESSION_VARIABLES
+    from xeda._internal.generation import SESSION_VARIABLES
 
     assert SESSION_VARIABLES == frozenset(
         {
@@ -98,8 +98,8 @@ def test_the_session_variables_are_exactly_the_contract_list() -> None:
     ],
 )
 def test_the_flow_and_output_name_grammar_boundaries(text: str, ok: bool) -> None:
-    from xeda.flow.flow import FLOW_NAME
-    from xeda.flow_runner.chains import OUTPUT_NAME
+    from xeda._internal.flow.flow import FLOW_NAME
+    from xeda._internal.flow_runner.chains import OUTPUT_NAME
 
     assert bool(FLOW_NAME.fullmatch(text)) == ok
     assert bool(OUTPUT_NAME.fullmatch(text)) == ok
@@ -117,13 +117,13 @@ def test_the_flow_and_output_name_grammar_boundaries(text: str, ok: bool) -> Non
     ],
 )
 def test_the_metric_path_grammar_boundaries(path: str, ok: bool) -> None:
-    from xeda.flow.metrics import METRIC_PATH
+    from xeda._internal.flow.metrics import METRIC_PATH
 
     assert bool(METRIC_PATH.fullmatch(path)) == ok
 
 
 def test_the_private_files_have_their_names_places_and_keys() -> None:
-    from xeda.local_settings import LOCAL_FILES
+    from xeda._internal.local_settings import LOCAL_FILES
 
     assert LOCAL_FILES == (
         ("config.yaml", "$XDG_CONFIG_HOME/xeda", ("flows", "env", "run_root")),
@@ -165,9 +165,9 @@ def _table_codes(node: ast.expr) -> set[str]:
 
 
 def test_all_literal_codes_are_in_the_inventory() -> None:
-    from xeda.flow_runner.error_codes import ALL_CODES, _SETTINGS_CODES
-    from xeda import records
-    from xeda.flow_runner import error_codes
+    from xeda._internal.flow_runner.error_codes import ALL_CODES, _SETTINGS_CODES
+    from xeda._internal import records
+    from xeda._internal.flow_runner import error_codes
 
     found = set(_SETTINGS_CODES.values())
     found.update(
@@ -242,7 +242,7 @@ def test_all_literal_codes_are_in_the_inventory() -> None:
     ],
 )
 def test_error_codes_match_the_published_list(row: str, expected: set[str]) -> None:
-    from xeda.flow_runner.error_codes import ALL_CODES
+    from xeda._internal.flow_runner.error_codes import ALL_CODES
 
     assert ALL_CODES[row] == expected
 

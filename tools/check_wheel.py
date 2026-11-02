@@ -94,7 +94,7 @@ def shipped_by_setuptools(name: str, files: Sequence[str]) -> bool:
     """Return whether the build of `[tool.setuptools]` puts the tracked file `name` (relative to
     `src/`) in the wheel: a module of a package, or a file that a glob of the package-data of any
     package above it matches. A glob names files relative to its package and may reach into a
-    directory that is a package itself (`xeda.data` names `boards/**/*.xdc`)."""
+    directory that is a package itself (`xeda._internal.data` names `boards/**/*.xdc`)."""
     packages = package_directories(files)
     path = PurePosixPath(name)
     if path.suffix == ".py" and str(path.parent) in packages:
@@ -286,7 +286,7 @@ def resource_of(name: str, packages: set[str]) -> Any:
 def impl_directory() -> str:
     """Return the directory of the implementation package, relative to `src/`, as the wheel lists
     it. Only the installed package knows it."""
-    from xeda.package_paths import IMPL
+    from xeda._internal.package_paths import IMPL
 
     return IMPL.replace(".", "/")
 
@@ -309,8 +309,8 @@ def check_templates(expected: list[str]) -> None:
     template files among the tracked files must have all of them in its loader."""
     from importlib.util import find_spec
 
-    import xeda.flows  # noqa: F401  (registers the flows)
-    from xeda.introspect import all_flow_classes
+    import xeda._internal.flows  # noqa: F401  (registers the flows)
+    from xeda._internal.introspect import all_flow_classes
 
     installed = Path(sys.modules["xeda"].__file__ or "").resolve().parent
     templates: dict[str, set[str]] = {}
@@ -347,12 +347,12 @@ def check_data_users(expected: list[str]) -> None:
     """Call the code that reads data files, as the flows and the commands do."""
     from importlib import resources
 
-    from xeda.agent_skill import skill_source_dir
-    from xeda.board import bundled_boards
-    from xeda.flow_catalog import flow_names
-    from xeda.platforms.residue import bundled_platform_names, load_residue
-    from xeda.package_paths import impl_module, schemas_dir
-    from xeda.remote.provision import boot_script
+    from xeda._internal.agent_skill import skill_source_dir
+    from xeda._internal.board import bundled_boards
+    from xeda._internal.flow_catalog import flow_names
+    from xeda._internal.platforms.residue import bundled_platform_names, load_residue
+    from xeda._internal.package_paths import impl_module, schemas_dir
+    from xeda._internal.remote.provision import boot_script
 
     impl = impl_directory()
     if not bundled_boards():
@@ -395,10 +395,16 @@ def check_remote_agent() -> None:
     """Start the agent from a code snapshot of the installed package, as the remote host does:
     the interpreter of the environment, `PYTHONPATH` set to the snapshot only, an empty working
     directory. Send the first request of the protocol and expect the reply."""
-    from xeda.package_paths import impl_module
-    from xeda.remote.environment import code_snapshot, write_code_tar
-    from xeda.remote.manifest import build_manifest, write_tar
-    from xeda.remote.frames import JSON, FrameWriter, decode_json, read_frame, skip_to_magic
+    from xeda._internal.package_paths import impl_module
+    from xeda._internal.remote.environment import code_snapshot, write_code_tar
+    from xeda._internal.remote.manifest import build_manifest, write_tar
+    from xeda._internal.remote.frames import (
+        JSON,
+        FrameWriter,
+        decode_json,
+        read_frame,
+        skip_to_magic,
+    )
 
     with tempfile.TemporaryDirectory(prefix="xeda-agent-") as name:
         base = Path(name)

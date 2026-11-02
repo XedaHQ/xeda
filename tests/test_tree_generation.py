@@ -16,19 +16,19 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.design import TREE_DIRECTORY
-from xeda.flow import Flow
-from xeda.flow_runner import DefaultRunner, launch_generation, run_lock
-from xeda.flow_runner.launch_generation import (
+from xeda._internal.design import TREE_DIRECTORY
+from xeda._internal.flow import Flow
+from xeda._internal.flow_runner import DefaultRunner, launch_generation, run_lock
+from xeda._internal.flow_runner.launch_generation import (
     Generation,
     Generations,
     execution_design,
     generate,
 )
-from xeda.flow_runner.launch_result import launch_result
-from xeda.generation import RECORD_NAME, outputs_in
-from xeda.outcomes import Disposition, Outcome, Result
-from xeda.spec import Spec
+from xeda._internal.flow_runner.launch_result import launch_result
+from xeda._internal.generation import RECORD_NAME, outputs_in
+from xeda._internal.outcomes import Disposition, Outcome, Result
+from xeda._internal.spec import Spec
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import input_reader_flow, reader_flow

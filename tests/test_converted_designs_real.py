@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
+from xeda._internal.flow_runner import DefaultRunner
 
 from .tool_utils import _require_command, require_bsc, require_nextpnr_ecp5, require_yosys
 

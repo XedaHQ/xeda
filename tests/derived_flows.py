@@ -10,11 +10,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
-from xeda.flow import MetricSpec
-from xeda.design import SourceType
-from xeda.flow import DESIGN, Flow, Out
-from xeda.flow.derived import DerivedSources, DesignConversion, Generated, Passed
-from xeda.utils import replacing_file
+from xeda._internal.flow import MetricSpec
+from xeda._internal.design import SourceType
+from xeda._internal.flow import DESIGN, Flow, Out
+from xeda._internal.flow.derived import DerivedSources, DesignConversion, Generated, Passed
+from xeda._internal.utils import replacing_file
 
 #: The text of a module `FakeConverter` writes for a source.
 MODULE_TEXT = "module {name}(); endmodule\n"

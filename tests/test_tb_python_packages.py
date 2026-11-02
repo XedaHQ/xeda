@@ -12,15 +12,15 @@ from pathlib import Path
 
 import pytest
 
-import xeda.flows  # noqa: F401  (registers every flow)
+import xeda._internal.flows  # noqa: F401  (registers every flow)
 from xeda import Design
-from xeda.cocotb import Cocotb
-from xeda.design import DesignValidationError
-from xeda.flow import FlowSettingsException
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import GhdlSim, Yosys
-from xeda.run_dir import RunDirectory
-from xeda.tool import ToolException
+from xeda._internal.cocotb import Cocotb
+from xeda._internal.design import DesignValidationError
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flows import GhdlSim, Yosys
+from xeda._internal.run_dir import RunDirectory
+from xeda._internal.tool import ToolException
 
 MISSING = "xeda-no-such-distribution"
 FIFO = Path(__file__).parent.parent / "examples" / "sv" / "fifo" / "fifo_cocotb.xeda.yaml"

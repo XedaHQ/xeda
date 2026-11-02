@@ -18,15 +18,19 @@ import pytest
 import yaml
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.trace_inputs import located_input_files, registered_input_files
-from xeda.flows import Yosys
-from xeda.platforms import Residue, load_residue, locate
-from xeda.platforms.providers import _relative_files, git_checkout_directory, platform_directory
-from xeda.platforms.residue import ResidueError, effective_residue
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import located_input_files, registered_input_files
+from xeda._internal.flows import Yosys
+from xeda._internal.platforms import Residue, load_residue, locate
+from xeda._internal.platforms.providers import (
+    _relative_files,
+    git_checkout_directory,
+    platform_directory,
+)
+from xeda._internal.platforms.residue import ResidueError, effective_residue
 
 from .tool_utils import use_fake_asic_tools
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 #: The installed package, as the loader finds it: the source tree with an editable install, the
 #: environment's site-packages with an sdist install (as in the full CI suite).
@@ -205,8 +209,8 @@ def test_a_residue_that_lists_a_shipped_file_and_has_no_package_directory_refuse
 
 def fake_bundled_tiny(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make `tiny` a bundled platform that ships the clock gate map of `sky130hd`."""
-    from xeda.flow import asic
-    from xeda.platforms import residue as residue_module
+    from xeda._internal.flow import asic
+    from xeda._internal.platforms import residue as residue_module
 
     from .tiny_platform import TINY_RESIDUE
 

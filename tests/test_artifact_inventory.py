@@ -19,21 +19,21 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
-from xeda.cli import cli
-from xeda.flow import Flow, MetricSpec
-from xeda.flow.flow import registered_flows
-from xeda.flow.io import declared_outputs
-from xeda.flow.metrics import (
+from xeda._internal.cli import cli
+from xeda._internal.flow import Flow, MetricSpec
+from xeda._internal.flow.flow import registered_flows
+from xeda._internal.flow.io import declared_outputs
+from xeda._internal.flow.metrics import (
     ARTIFACT_KEY,
     ArtifactSpec,
     describe_artifacts,
     log_artifact_key,
     program_logs,
 )
-from xeda.flow_runner import DefaultRunner
-from xeda.introspect import all_flow_classes, results_class_info
-from xeda.records import RunRecord, read_record
-from xeda.tool import Tool
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.introspect import all_flow_classes, results_class_info
+from xeda._internal.records import RunRecord, read_record
+from xeda._internal.tool import Tool
 
 from . import tool_utils
 from .flow_registry import preserved_flow_registry

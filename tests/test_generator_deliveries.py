@@ -18,18 +18,18 @@ from typing import ClassVar
 import pytest
 
 from xeda import Design
-from xeda.deliver import DeliveryError, OutputExistsError
-from xeda.flow import Flow, In, MetricSpec, Out
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.launch_generation import planned_deliveries
-from xeda.flow_runner.launch_result import launch_result
-from xeda.outcomes import Outcome
-from xeda.design import SourceType
-from xeda.spec import Spec
+from xeda._internal.deliver import DeliveryError, OutputExistsError
+from xeda._internal.flow import Flow, In, MetricSpec, Out
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.launch_generation import planned_deliveries
+from xeda._internal.flow_runner.launch_result import launch_result
+from xeda._internal.outcomes import Outcome
+from xeda._internal.design import SourceType
+from xeda._internal.spec import Spec
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import reader_flow
-from xeda.package_paths import impl_module
+from xeda._internal.package_paths import impl_module
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no storage locks")
 
@@ -485,7 +485,7 @@ def test_a_dependency_delivers_its_own_generated_sources_below_its_own_root(tmp_
 def test_a_copy_of_a_generated_source_and_a_named_output_never_share_a_destination(tmp_path):
     from typing import Optional
 
-    from xeda.dataclass import Field, deliverable
+    from xeda._internal.dataclass import Field, deliverable
 
     class TReports(Flow):
         """Reads the Verilog sources and writes a report to a location."""
