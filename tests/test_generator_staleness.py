@@ -27,6 +27,8 @@ from xeda.design import DesignValidationError
 from xeda.flow_runner.launch_generation import Generation, generate, generation_key
 from xeda.generation import GenerationError, RECORD_NAME, generation_storage
 from xeda.run_dir import RunDirectoryError
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 #: Writes `gen/top.v` from `spec.txt` into its storage, and appends a line to the file named by its
 #: first argument (a run counter, outside the design tree). A second argument, when not empty, is a
@@ -159,7 +161,7 @@ def test_first_generation_is_serialized_across_processes(tmp_path):
         "import time\n"
         + GENERATOR.replace('(out / "gen").mkdir', 'time.sleep(0.3)\n(out / "gen").mkdir')
     )
-    load = (
+    load = layout_script(
         "import os\n"
         "from pathlib import Path\n"
         "from xeda import Design\n"
@@ -901,7 +903,7 @@ def _generator_lines(caplog) -> list[str]:
     return [
         r.getMessage()
         for r in caplog.records
-        if r.name == "xeda.flow_runner.launch_generation"
+        if r.name == impl_module("flow_runner.launch_generation")
         and r.getMessage().startswith(("Running the generator", "Not running the generator"))
     ]
 
@@ -910,13 +912,13 @@ def test_the_log_names_the_design_and_what_its_generator_runs(tmp_path, caplog):
     """Not the class name (`Generator`, which says nothing): the design and the command."""
     world = World(tmp_path)
     command = shlex.join([sys.executable, "$DESIGN_ROOT/gen.py", str(world.counter)])
-    with caplog.at_level("INFO", logger="xeda.flow_runner.launch_generation"):
+    with caplog.at_level("INFO", logger=impl_module("flow_runner.launch_generation")):
         world.generate()
     (line,) = [m for m in _generator_lines(caplog) if m.startswith("Running")]
     assert line.startswith(f"Running the generator of design 'generated' ({command}): ")
     assert "'Generator'" not in caplog.text
     caplog.clear()
-    with caplog.at_level("INFO", logger="xeda.flow_runner.launch_generation"):
+    with caplog.at_level("INFO", logger=impl_module("flow_runner.launch_generation")):
         world.generate()
     (line,) = _generator_lines(caplog)
     assert line.startswith(f"Not running the generator of design 'generated' ({command}): ")
@@ -937,7 +939,7 @@ def test_a_generator_with_a_command_is_named_by_it(tmp_path, caplog):
         )
         + "\n"
     )
-    with caplog.at_level("INFO", logger="xeda.flow_runner.launch_generation"):
+    with caplog.at_level("INFO", logger=impl_module("flow_runner.launch_generation")):
         world.generate()
     assert f"({sys.executable} '$DESIGN_ROOT/gen.py' " in caplog.text
 

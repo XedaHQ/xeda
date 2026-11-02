@@ -199,7 +199,7 @@ def test_unsupported_platform_is_refused_before_anything_is_built(fake_remote, s
 
 def test_checksum_mismatch_is_refused_and_leaves_no_uv(fake_remote, snapshot, monkeypatch):
     monkeypatch.setattr(
-        "xeda.remote.environment.UV_RELEASES",
+        impl_module("remote.environment.UV_RELEASES"),
         {FAKE_TARGET: (fake_remote.uv_url, "0" * 64)},
     )
     with pytest.raises(RemoteProvisionError, match="SHA-256") as refused:
@@ -216,7 +216,7 @@ def test_checksum_mismatch_is_refused_and_leaves_no_uv(fake_remote, snapshot, mo
 def test_failed_download_names_the_url_and_keeps_the_output(fake_remote, snapshot, monkeypatch):
     url = "https://uv.example.test/missing.tar.gz"
     monkeypatch.setattr(
-        "xeda.remote.environment.UV_RELEASES", {FAKE_TARGET: (url, fake_remote.uv_sha256)}
+        impl_module("remote.environment.UV_RELEASES"), {FAKE_TARGET: (url, fake_remote.uv_sha256)}
     )
     with pytest.raises(RemoteProvisionError) as failed:
         provision_once(snapshot)

@@ -26,6 +26,7 @@ from xeda.tool import Tool, log_stem
 from xeda.utils import NonZeroExitCode
 
 from .flow_registry import preserved_flow_registry
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -241,7 +242,7 @@ def test_each_launch_tags_its_records_with_its_own_id_and_node(tmp_path):
     assert [r.xeda_launch_id for r in mine] == ids
     assert {r.xeda_node for r in mine} == {"tagging"}
     # the records that the launcher writes during a launch carry the id too
-    tagged = {r.xeda_launch_id for r in records if r.name.startswith("xeda.flow_runner")}
+    tagged = {r.xeda_launch_id for r in records if r.name.startswith(impl_module("flow_runner"))}
     assert set(ids) <= tagged <= {None, *ids}
 
 

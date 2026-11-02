@@ -46,6 +46,7 @@ from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import fake_calls, fake_returns, require_tclsh, use_fake_openroad
 from .setting_texts import text_items
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "route_defaults.tcl"
@@ -2577,7 +2578,7 @@ def test_the_assets_of_the_merge_are_package_resources():
     from importlib import resources
 
     for name in ("def2stream.py", "NOTICE.md"):
-        assert resources.files("xeda.flows.openroad").joinpath("data", name).is_file(), name
+        assert resources.files(impl_module("flows.openroad")).joinpath("data", name).is_file(), name
 
 
 # ------------------------------------------------------------------------------ the planning
@@ -2675,7 +2676,7 @@ def test_the_packaging_selects_the_assets_of_the_merge():
 
     repo = Path(__file__).parent.parent
     setuptools = tomllib.loads((repo / "pyproject.toml").read_text())["tool"]["setuptools"]
-    include = setuptools["package-data"]["xeda.flows.openroad"]
+    include = setuptools["package-data"][impl_module("flows.openroad")]
     from fnmatch import fnmatchcase
 
     for relative in ("data/def2stream.py", "data/NOTICE.md"):

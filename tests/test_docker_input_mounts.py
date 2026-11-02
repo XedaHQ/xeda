@@ -21,6 +21,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.tool import Docker, Tool
 
 from .flow_registry import preserved_flow_registry
+from xeda.package_paths import impl_module
 
 #: What the consumer does in `init()` and in `run()`, set by each test.
 CONSUMER_INIT: List[Callable[[Flow], None]] = []
@@ -133,7 +134,7 @@ def world(tmp_path, monkeypatch):
         (tmp_path / "design" / "top.v").write_text("module top; endmodule\n")
         commands: List[List[str]] = []
         monkeypatch.setattr(
-            "xeda.tool.run_process",
+            impl_module("tool.run_process"),
             lambda executable, args=None, **kwargs: commands.append([str(a) for a in args or []]),
         )
         CONSUMER_INIT.clear()

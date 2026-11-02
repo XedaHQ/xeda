@@ -20,10 +20,11 @@ from .remote_fixtures import fake_remote, fake_ssh, remote_host
 from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 SETTINGS = {"fpga": {"part": PART}, "clocks": {"main_clock": {"period": "5.5 ns"}}}
-NAMES = ("", "xeda", "xeda.flow_runner", "xeda.flows.vivado", "not.xeda")
+NAMES = ("", "xeda", impl_module("flow_runner"), impl_module("flows.vivado"), "not.xeda")
 
 
 def levels() -> dict:
@@ -60,7 +61,7 @@ def _launch_recording(tmp_path, monkeypatch, debug: bool, fail: bool = False) ->
     original = VivadoSynth.run
 
     def run(self):
-        seen["xeda"] = logging.getLogger("xeda.flows.vivado").isEnabledFor(logging.DEBUG)
+        seen["xeda"] = logging.getLogger(impl_module("flows.vivado")).isEnabledFor(logging.DEBUG)
         seen["other"] = logging.getLogger("not.xeda").isEnabledFor(logging.DEBUG)
         if fail:
             raise RuntimeError("the flow stops here")
@@ -136,7 +137,7 @@ def test_a_direct_search_launch_leaves_the_level_alone(tmp_path, monkeypatch) ->
 
     class Watching(FmaxOptimizer):
         def next_batch(self):
-            seen.append(logging.getLogger("xeda.flows.vivado").isEnabledFor(logging.DEBUG))
+            seen.append(logging.getLogger(impl_module("flows.vivado")).isEnabledFor(logging.DEBUG))
             return None
 
     monkeypatch.chdir(tmp_path)

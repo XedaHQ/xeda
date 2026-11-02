@@ -42,6 +42,7 @@ from xeda.utils import PATH_VARIABLES
 from .scoping import node_settings
 from .remote_fixtures import connected, fake_remote, fake_ssh, remote_host, remote_request
 from .tool_utils import producers_of
+from xeda.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -268,7 +269,7 @@ def test_a_dependency_delivers_its_output_and_where_is_no_one_s_identity(world):
 
 
 def test_another_extension_is_copied_as_it_is_and_says_so(world, caplog):
-    with caplog.at_level(logging.WARNING, logger="xeda.deliver"):
+    with caplog.at_level(logging.WARNING, logger=impl_module("deliver")):
         _launch(world, netlist="$PWD/net.v.gz")
     assert (world.user / "net.v.gz").read_text() == "net\n"
     assert "outputs/d.v" in caplog.text
@@ -1339,7 +1340,7 @@ def test_a_purged_run_delivers_by_moving_its_file_out(world, caplog, post_cleanu
     needs no `post_cleanup` beside it."""
     inodes = _remember_inodes(world)
     destination = world.user / "out" / "net.v"
-    with caplog.at_level(logging.INFO, logger="xeda.deliver"):
+    with caplog.at_level(logging.INFO, logger=impl_module("deliver")):
         flow = _launch(world, _purging(world, post_cleanup=post_cleanup), netlist="$PWD/out/net.v")
     delivered = destination.stat()
     assert (delivered.st_ino, delivered.st_nlink) == (inodes["d.v"], 1)
@@ -1698,7 +1699,7 @@ def test_outputs_to_skips_an_artifact_that_leads_out_of_the_run_directory(unit, 
         Delivery(deliver.OUTPUTS_TO, PurePath(name), unit.out / name)
         for name in ("link", "own.txt")
     ]
-    with caplog.at_level(logging.WARNING, logger="xeda.deliver"):
+    with caplog.at_level(logging.WARNING, logger=impl_module("deliver")):
         deliveries.collect(unit.run_path, extra)
         made = deliveries.deliver(move=True)
     assert [(d.destination.name, d.state) for d in made] == [
@@ -2061,7 +2062,7 @@ def test_a_remote_artifact_that_a_link_leads_out_is_skipped_as_a_local_one_is(wo
     delivery = Deliveries(mirror, root, inputs=ReadInputs())
     skipped = [SkippedSource("flow", "tool.log", "/remote/run/tool.log", "/etc/secret")]
     got = world.user / "got"
-    with caplog.at_level(logging.WARNING, logger="xeda.deliver"):
+    with caplog.at_level(logging.WARNING, logger=impl_module("deliver")):
         delivered = deliver_fetched(delivery, record, outputs_to=got, skipped=skipped)
     assert (got / "a.txt").read_text() == "fetched\n"
     assert not os.path.lexists(got / "tool.log")

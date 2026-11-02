@@ -8,20 +8,22 @@ import sys
 
 import pytest
 from .tool_utils import HANG_GUARD
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
 SHELLS = ("bash", "zsh", "fish")
 BLOCKED_MODULES = (
-    "xeda.design",
-    "xeda.flow",
-    "xeda.flow_runner",
-    "xeda.flows",
-    "xeda.cli_utils",
-    "xeda.console",
+    impl_module("design"),
+    impl_module("flow"),
+    impl_module("flow_runner"),
+    impl_module("flows"),
+    impl_module("cli_utils"),
+    impl_module("console"),
     "xeda.introspect",
-    "xeda.tool",
-    "xeda.units",
+    impl_module("tool"),
+    impl_module("units"),
     "click_extra",
     "coloredlogs",
     "pint",
@@ -41,7 +43,7 @@ def _complete(shell, words, *, cwd=None):
     env["COMP_CWORD"] = current if shell == "fish" else str(word_index)
     env["NO_COLOR"] = "1"
     result = subprocess.run(
-        [sys.executable, "-c", "from xeda.cli import cli; cli()"],
+        [sys.executable, "-c", layout_script("from xeda.cli import cli; cli()")],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -100,7 +102,7 @@ def _modules_seen(shell, words, tmp_path):
 def _completion_and_modules_seen(shell, words, tmp_path):
     """Capture completion records and imported modules from the same fresh process."""
     marker = tmp_path / "completion-imports.json"
-    script = (
+    script = layout_script(
         "import json, sys\n"
         "try:\n"
         " from xeda.cli import cli\n"
@@ -198,7 +200,7 @@ def test_builtin_chain_completion_is_exact_and_light(shell, words, expected, tmp
 
 def test_opaque_setting_context_completion_does_not_load_flow_implementations(tmp_path):
     marker = tmp_path / "opaque-setting-imports.json"
-    script = (
+    script = layout_script(
         "import json, os, sys\n"
         "line = \"xeda run vivado_synth -s 'set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=foo' \"\n"
         "os.environ.update(_XEDA_COMPLETE='bash_complete', COMP_WORDS=line, COMP_CWORD='5', "

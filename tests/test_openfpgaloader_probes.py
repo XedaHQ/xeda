@@ -56,11 +56,12 @@ from . import tool_utils
 from .loader_world import Usb, World, detect_text, queries, scan_usb_text
 from .test_openfpgaloader import _calls, _prebuilt, _runner, assert_fake_loader
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 ARTY = "AB00000001"  # an Arty A7-100T: xc7a100, IDCODE 0x3631093
 BASYS = "AB00000002"  # a Basys 3: xc7a35, IDCODE 0x362d093
 ARTY_PART = "xc7a100tcsg324-1"
-LOGGER = "xeda.flows.openfpgaloader"
+LOGGER = impl_module("flows.openfpgaloader")
 
 
 @pytest.fixture
@@ -1458,7 +1459,7 @@ def test_a_query_that_hangs_is_stopped_and_the_loader_chooses(
 ):
     """A real hang, not a refusal made by a stub: the fake sleeps in its answer, the flow's time
     limit stops the process, and the loader chooses the probe."""
-    monkeypatch.setattr("xeda.flows.openfpgaloader.PROBE_QUERY_TIMEOUT", 0.5)
+    monkeypatch.setattr(impl_module("flows.openfpgaloader.PROBE_QUERY_TIMEOUT"), 0.5)
     monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_QUERY_DELAY", "60")
     flow, _ = _start(tmp_path, monkeypatch, _two_boards(), {"board": "arty_a7_100t"}, caplog)
     assert flow.succeeded and _argv(tmp_path) == _arty_command(tmp_path)

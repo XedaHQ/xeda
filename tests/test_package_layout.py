@@ -5,43 +5,40 @@ import ast
 import importlib
 import json
 import re
+from importlib import resources
 from collections.abc import Iterator
 from pathlib import Path
-
 
 from xeda import package_paths
 from xeda.introspect import flows_info, optimizers_info, results_info, settings_info
 from xeda.package_paths import impl_module
 
-from .source_layout import AGENT_DIR, IMPL_DIR, ROOT, SCHEMAS_DIR, SRC_XEDA
+from .source_layout import (
+    AGENT_DIR,
+    IMPL_DIR,
+    PUBLIC,
+    ROOT,
+    SCHEMAS_DIR,
+    SRC_XEDA,
+    internal_names,
+)
 
 TOOLS = ROOT / "tools"
 TESTS = ROOT / "tests"
-#: The modules that the public surface keeps at their own path.
-PUBLIC = ("errors", "introspect")
-
-
-def _internal_names() -> list[str]:
-    """The names of the modules and packages that are not public: next to `xeda/__init__.py`
-    and in the implementation package."""
-    names = set()
-    for directory in (SRC_XEDA, IMPL_DIR):
-        for entry in directory.iterdir():
-            name = entry.stem if entry.suffix == ".py" else entry.name
-            if (entry.suffix == ".py" or (entry / "__init__.py").is_file()) and not (
-                name.startswith("__") or name in PUBLIC
-            ):
-                names.add(name)
-    return sorted(names)
-
-
 #: A dotted path of an internal module inside a string. A file name (`xeda.json`) and a path
 #: (`~/.config/xeda.fish`) do not match. `xeda.local_settings(` is the function that `xeda`
 #: exports.
+MODULE_PATH = re.compile(r"(?<![\w/.~-])xeda\.(?:" + "|".join(internal_names()) + r")\b(?!\()")
 #: Strings that name a module and are no path to import: the key of the verb module in the API
 #: snapshot, which stays the same wherever the module is.
 KEYS = {("api_baseline.py", "xeda.workspace_verbs")}
-MODULE_PATH = re.compile(r"(?<![\w/.~-])xeda\.(?:" + "|".join(_internal_names()) + r")\b(?!\()")
+#: Test files whose subject is a module path that is not public: they write it out on purpose.
+SUBJECTS = {"test_public_imports.py", "test_package_layout.py"}
+#: A path of an internal module or file inside a string, as the wheel lists it. The shipped
+#: schemas stay at a public path.
+FILE_PATH = re.compile(
+    r"(?<![\w/.~-])xeda/(?!data/schemas)(?:" + "|".join(internal_names()) + r")\b"
+)
 
 
 def _python_files(directory: Path) -> list[Path]:
@@ -61,23 +58,35 @@ def _docstrings(tree: ast.AST) -> set[int]:
     return found
 
 
+def _script_parts(tree: ast.AST) -> set[int]:
+    """The nodes inside an argument of `layout_script`: a script for a subprocess, which names its
+    modules as `xeda.<module>` and gets their real path from that function."""
+    return {
+        id(part)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "layout_script"
+        for argument in call.args
+        for part in ast.walk(argument)
+    }
+
+
 def _literals(path: Path) -> Iterator[tuple[int, str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
-    docstrings = _docstrings(tree)
+    skipped = _docstrings(tree) | _script_parts(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if id(node) not in docstrings:
+            if id(node) not in skipped:
                 yield node.lineno, node.value
 
 
 def test_no_literal_internal_module_path():
     found = [
         f"{path.relative_to(ROOT)}:{line}: {text!r}"
-        for directory in (SRC_XEDA, TOOLS)
+        for directory in (SRC_XEDA, TOOLS, TESTS)
         for path in _python_files(directory)
-        if path.name != "package_paths.py"
+        if path.name != "package_paths.py" and path.name not in SUBJECTS
         for line, text in _literals(path)
-        if MODULE_PATH.search(text) and (path.name, text) not in KEYS
+        if (MODULE_PATH.search(text) or FILE_PATH.search(text)) and (path.name, text) not in KEYS
     ]
     assert not found, "\n".join(found)
 
@@ -154,16 +163,33 @@ def test_remote_module_names_come_from_one_place():
 
 
 def test_the_directories_agree_with_the_installed_modules():
+    """The installed package, which may not be the checkout (a test run from an sdist)."""
     import xeda
 
     assert package_paths.package_root() == Path(xeda.__file__).absolute().parent
     assert package_paths.source_root() == package_paths.package_root().parent
-    assert package_paths.impl_root().resolve() == IMPL_DIR.resolve()
-    assert (package_paths.impl_root() / "package_paths.py").is_file()
-    assert importlib.import_module(impl_module("flows")).__file__
+    impl = importlib.import_module(package_paths.IMPL)
+    assert Path(str(impl.__file__)).parent.samefile(package_paths.impl_root())
+    module = importlib.import_module(impl_module("package_paths"))
+    assert Path(str(module.__file__)) == package_paths.impl_root() / "package_paths.py"
+    flows = importlib.import_module(impl_module("flows"))
+    assert Path(str(flows.__file__)).parent == package_paths.impl_root() / "flows"
+    assert resources.files(impl_module("flows")).joinpath("__init__.py").is_file()
+    assert package_paths.schemas_dir().is_dir()
     assert (package_paths.schemas_dir() / "design.schema.json").is_file()
-    assert package_paths.schemas_dir().resolve() == SCHEMAS_DIR.resolve()
+
+
+def test_the_checkout_layout_has_the_same_relative_paths():
+    """The checkout and the installed package agree on where things are, not on the root."""
+    assert IMPL_DIR.relative_to(SRC_XEDA) == package_paths.impl_root().relative_to(
+        package_paths.package_root()
+    )
+    assert SCHEMAS_DIR.relative_to(SRC_XEDA) == package_paths.schemas_dir().relative_to(
+        package_paths.package_root()
+    )
+    assert (IMPL_DIR / "package_paths.py").is_file()
     assert (AGENT_DIR / "SKILL.md").is_file()
+    assert (SCHEMAS_DIR / "design.schema.json").is_file()
 
 
 def _strings(value: object) -> Iterator[str]:

@@ -35,6 +35,7 @@ from .io_flows import (
     TChainSimpleProducer,
     TChainUndeclared,
 )
+from xeda.package_paths import impl_module
 
 # `io_flows` also registers the `t_route_*` and `t_loop_*` flows the suggestion tests name.
 
@@ -410,7 +411,7 @@ def _classes():
     return [
         cls
         for cls in all_flow_classes()
-        if cls.__module__.startswith("xeda.flows") or cls.__module__ == io_flows.__name__
+        if cls.__module__.startswith(impl_module("flows")) or cls.__module__ == io_flows.__name__
     ]
 
 
@@ -642,7 +643,7 @@ def test_completion_of_an_unfinished_request_returns_the_full_token(incomplete, 
 
 
 def _product_classes():
-    return [cls for cls in _classes() if cls.__module__.startswith("xeda.flows")]
+    return [cls for cls in _classes() if cls.__module__.startswith(impl_module("flows"))]
 
 
 def test_completion_offers_the_direct_followers_first_and_then_the_ones_a_link_passes_through():

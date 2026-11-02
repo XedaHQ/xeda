@@ -32,6 +32,7 @@ from .flow_registry import preserved_flow_registry
 from .settings_samples import PROBES
 from .scoping import node_settings
 from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -770,7 +771,7 @@ def test_a_subclass_inherits_the_flag_table_and_may_add_fields():
 
 def test_the_module_imports_nothing_from_the_product_flows():
     source = (IMPL_DIR / "flow/settings_group.py").read_text()
-    assert "xeda.flows" not in source and "from ..flows" not in source
+    assert impl_module("flows") not in source and "from ..flows" not in source
 
 
 # ----------------------------------------------------------------------- the model invariants

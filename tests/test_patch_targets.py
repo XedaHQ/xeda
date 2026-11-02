@@ -74,6 +74,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 TESTS = Path(__file__).parent
 SOURCE = Path(inspect.getsourcefile(importlib.import_module("xeda")) or "").parent
@@ -457,7 +459,7 @@ LAUNCHER_TARGETS = {
 def test_the_scan_finds_the_suites_patch_targets():
     """The scan works. An empty or tiny scan would make every case below vacuous."""
     assert len(TARGETS) > 30, f"only {len(TARGETS)} patch targets found; the scan is broken"
-    launcher = {t.name for t in TARGETS if t.module == "xeda.flow_runner.default_runner"}
+    launcher = {t.name for t in TARGETS if t.module == impl_module("flow_runner.default_runner")}
     assert LAUNCHER_TARGETS <= launcher, (
         "the launcher's patch targets are what the stage split must not strand; missing: "
         f"{sorted(LAUNCHER_TARGETS - launcher)}"
@@ -511,13 +513,13 @@ def test_the_scan_keeps_every_target_of_a_chained_assignment():
     Collecting one `(module, name)` per statement dropped it as soon as a target that is not a
     xeda module's attribute came after one that is.
     """
-    source = (
+    source = layout_script(
         "import xeda.flow_runner.default_runner as runner\n"
         "import os\n"
         "runner.write_trace = os.sep = 1\n"
     )
     found = {(target.module, target.name) for target in _patched(source, "a probe")}
-    assert found == {("xeda.flow_runner.default_runner", "write_trace")}
+    assert found == {(impl_module("flow_runner.default_runner"), "write_trace")}
 
 
 def test_the_scan_reads_patches_inside_embedded_scripts():
@@ -566,7 +568,8 @@ def test_a_patched_module_name_is_looked_up_through_that_module(target: PatchTar
 
 #: Every name the suite replaces on the launcher module, and the five it must always replace.
 LAUNCHED_NAMES = sorted(
-    LAUNCHER_TARGETS | {t.name for t in TARGETS if t.module == "xeda.flow_runner.default_runner"}
+    LAUNCHER_TARGETS
+    | {t.name for t in TARGETS if t.module == impl_module("flow_runner.default_runner")}
 )
 
 
@@ -585,7 +588,7 @@ def test_the_launcher_stage_names_are_looked_up_in_the_product(name: str):
     `test_patching_a_launcher_stage_name_intercepts_a_real_launch` for the behavioral one, and
     the module docstring for what neither covers.
     """
-    module = "xeda.flow_runner.default_runner"
+    module = impl_module("flow_runner.default_runner")
     own, product, _ = _lookups(module, name)
     assert own or product, (
         f"{module}.{name} is patched to intercept the launcher, but no code in src/xeda looks "

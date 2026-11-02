@@ -39,6 +39,7 @@ from .test_remote_keep_running import (
     leftovers,
     watch,
 )
+from .source_layout import layout_script
 
 FIXTURES = (fake_ssh, fake_remote, remote_host, cleanup, leftovers, watch, git_log, remote)
 
@@ -93,7 +94,7 @@ def _files(root: Path) -> set[Path]:
 
 
 def test_importing_the_workspace_loads_no_ssh_client():
-    program = (
+    program = layout_script(
         "import sys, xeda.workspace, xeda.remote_value\n"
         "print('xeda.remote.client' in sys.modules, 'xeda.remote.ssh' in sys.modules)\n"
     )

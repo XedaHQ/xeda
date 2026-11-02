@@ -27,6 +27,7 @@ from .test_isolation import (
     _world,
 )
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
+from xeda.package_paths import impl_module
 
 FLOWS = flow_classes()
 
@@ -71,8 +72,8 @@ def _prepare(cls, tmp_path, monkeypatch):
         use_fake_fpga_tools(monkeypatch, world.root / FAKE_TOOLCHAIN)
     # no tool is run for the answer; a flow makes its tools in `init()`, whose version probe is
     # all there is to start
-    monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
-    monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
+    monkeypatch.setattr(impl_module("tool.run_process"), lambda *args, **kwargs: "")
+    monkeypatch.setattr(impl_module("tool.Tool.version_gte"), lambda self, *args: True)
     return world
 
 

@@ -27,6 +27,7 @@ from . import tool_utils
 from .test_nextpnr_constraints import make_flow
 from .test_openfpgaloader import _calls, _prebuilt, _program, fake_loader  # noqa: F401
 from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 ROOT = Path(__file__).parent.parent
 
@@ -251,7 +252,7 @@ def test_the_stlv_clock_is_differential_and_the_basys_clock_is_not():
 def test_the_board_files_are_package_data_so_a_wheel_ships_them(board):
     """Every file a database entry names, and its license, matches a `package-data` pattern."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    patterns = project["tool"]["setuptools"]["package-data"]["xeda.data"]
+    patterns = project["tool"]["setuptools"]["package-data"][impl_module("data")]
     data = IMPL_DIR / "data"
     shipped = {
         path for pattern in patterns for path in glob.glob(pattern, root_dir=data, recursive=True)
@@ -262,7 +263,7 @@ def test_the_board_files_are_package_data_so_a_wheel_ships_them(board):
 
 @BY_BOARD
 def test_the_board_files_are_readable_as_package_resources(board):
-    resource = files("xeda.data").joinpath(board.xdc)
+    resource = files(impl_module("data")).joinpath(board.xdc)
     assert resource.is_file() and "set_property" in resource.read_text()
 
 

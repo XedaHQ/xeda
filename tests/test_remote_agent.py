@@ -48,6 +48,8 @@ from xeda.remote.launch_entry import LaunchRequest
 from xeda.remote.manifest import Entry, build_manifest, copy_verified, iter_tar, write_tar
 
 from .tool_utils import use_fake_fpga_tools
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 pytestmark = [pytest.mark.python_compat, pytest.mark.skipif(os.name != "posix", reason="POSIX")]
 
@@ -79,7 +81,7 @@ class Agent:
         name: str = "agent",
         python: str = sys.executable,
     ) -> None:
-        command = [python, "-m", "xeda.remote.agent", "session", str(root), key, *arguments]
+        command = [python, "-m", impl_module("remote.agent"), "session", str(root), key, *arguments]
         if noise:
             command = ["sh", "-c", 'echo "Welcome to the host"; exec "$@"', "sh", *command]
         self.stderr_path = tmp_path / f"{name}.stderr"
@@ -741,7 +743,15 @@ def test_a_cancel_before_the_launch_ends_the_session(tmp_path, start_agent):
 )
 def test_the_test_only_periods_refuse_values_above_the_constants(tmp_path, arguments):
     done = subprocess.run(
-        [sys.executable, "-m", "xeda.remote.agent", "session", str(tmp_path), KEY, *arguments],
+        [
+            sys.executable,
+            "-m",
+            impl_module("remote.agent"),
+            "session",
+            str(tmp_path),
+            KEY,
+            *arguments,
+        ],
         capture_output=True,
         stdin=subprocess.DEVNULL,
         timeout=TIMEOUT,
@@ -763,7 +773,7 @@ def run_command(
 ) -> Any:
     """Run a one-shot command of the agent and return its JSON document."""
     done = subprocess.run(
-        [python, "-m", "xeda.remote.agent", *arguments],
+        [python, "-m", impl_module("remote.agent"), *arguments],
         capture_output=True,
         stdin=subprocess.DEVNULL,
         timeout=TIMEOUT,
@@ -1207,7 +1217,7 @@ def test_every_command_refuses_to_run_from_a_directory_that_clean_is_removing(
 def test_check_holds_the_locks_while_it_runs(tmp_path, provisioned):
     """`main` takes the locks before it runs the command: a command that holds none would let a
     `clean` remove the directory under it. The command here reports who holds the locks."""
-    program = (
+    program = layout_script(
         "import fcntl, os, sys\n"
         "from xeda.remote import agent\n"
         "def check(executables):\n"
@@ -1810,7 +1820,7 @@ def test_clean_reports_what_it_cannot_remove_and_goes_on(tmp_path, monkeypatch):
 def test_clean_prints_its_document_for_a_relative_root(tmp_path):
     (tmp_path / "home").mkdir()
     done = subprocess.run(
-        [sys.executable, "-m", "xeda.remote.agent", "clean", "relative"],
+        [sys.executable, "-m", impl_module("remote.agent"), "clean", "relative"],
         capture_output=True,
         stdin=subprocess.DEVNULL,
         timeout=TIMEOUT,

@@ -599,7 +599,7 @@ def load_residue(name_or_path: str | Path) -> Residue:
         raise ResidueError(
             f"no platform '{name_or_path}' is bundled; the bundled platforms are: {', '.join(names)}"
         )
-    label = f"xeda/platforms/{name_or_path}/platform.yaml"
+    label = f"platforms/{name_or_path}/platform.yaml"
     directory = resources.files(impl_module("platforms")) / name_or_path
     with resources.as_file(directory / "platform.yaml") as p:
         residue = _read(p, label)

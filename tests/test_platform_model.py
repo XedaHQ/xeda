@@ -30,6 +30,7 @@ from xeda.platforms.model import Number, Track, leaf_annotation, nest_leaves, no
 from xeda.platforms.residue import ResidueError, effective_residue
 from xeda.yaml_loader import load_yaml
 from .source_layout import IMPL_DIR
+from xeda.package_paths import impl_module
 
 REPO = Path(__file__).parent.parent
 PLATFORMS = IMPL_DIR / "platforms"
@@ -139,7 +140,7 @@ def test_a_missing_residue_file_is_refused_naming_it(tmp_path: Path) -> None:
 
 
 def bundled_table(name: str = "nangate45") -> dict[str, Any]:
-    text = resources.files("xeda.platforms").joinpath(name, "platform.yaml").read_text()
+    text = resources.files(impl_module("platforms")).joinpath(name, "platform.yaml").read_text()
     table = yaml.safe_load(text)
     assert isinstance(table, dict)
     return table
@@ -842,7 +843,14 @@ def test_the_bundled_nangate45_maps_tt_to_typical() -> None:
 # What the model modules import and read
 # ---------------------------------------------------------------------------------------------
 
-PROCESS_MODULES = {"subprocess", "multiprocessing", "pty", "socket", "asyncio", "xeda.proc_utils"}
+PROCESS_MODULES = {
+    "subprocess",
+    "multiprocessing",
+    "pty",
+    "socket",
+    "asyncio",
+    impl_module("proc_utils"),
+}
 FILE_READS = {"open", "read_text", "read_bytes", "load_yaml", "iterdir", "glob", "stat", "exists"}
 
 
@@ -857,7 +865,7 @@ def test_the_pure_modules_start_no_process_and_build_reads_no_file(module: str) 
             imported.add(node.module)
     assert not {name for name in imported if name.split(".")[0] in PROCESS_MODULES}
     assert not {name for name in imported if name in PROCESS_MODULES}
-    assert not {"os", "xeda.tool", "xeda.run_dir"} & imported
+    assert not {"os", impl_module("tool"), impl_module("run_dir")} & imported
     if module == "build":
         called = {
             node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
@@ -880,7 +888,7 @@ def matches(pattern: str, relative: str) -> bool:
 
 def test_every_platform_file_that_xeda_ships_is_selected_by_the_packaging() -> None:
     setuptools = tomllib.loads((REPO / "pyproject.toml").read_text())["tool"]["setuptools"]
-    package = "xeda.platforms"
+    package = impl_module("platforms")
 
     find = setuptools["packages"]["find"]
     assert any(fnmatchcase(package, pattern) for pattern in find["include"])
@@ -943,7 +951,7 @@ def test_a_pdk_library_file_under_the_platforms_directory_is_named_as_a_problem(
 
 
 def test_the_package_data_of_the_platforms_is_read_from_the_installed_package() -> None:
-    notice = resources.files("xeda.platforms").joinpath("NOTICE.md").read_text()
+    notice = resources.files(impl_module("platforms")).joinpath("NOTICE.md").read_text()
     assert "BSD 3-Clause" in notice
     assert "Apache" in notice
     assert "does not ship" in notice

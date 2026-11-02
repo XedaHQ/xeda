@@ -18,6 +18,7 @@ from xeda.remote.ssh import Destination, SshSession, resolve_destination, sh_com
 
 from .remote_fixtures import fake_ssh, ssh_calls
 from .tool_utils import terminal_output
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 #: The fixture, imported for the tests below that name it as an argument (pytest finds it in
@@ -278,7 +279,7 @@ def test_popen_streams_both_ways_in_binary(fake_ssh):
 
 #: A program that opens a session, starts a client with `popen`, and tells whether the client is
 #: still there after a SIGINT for its process group (Ctrl-C at a terminal).
-_CTRL_C = """
+_CTRL_C = layout_script("""
 import signal, sys, time
 signal.signal(signal.SIGINT, signal.default_int_handler)
 from xeda.remote.ssh import SshSession, resolve_destination, sh_command
@@ -297,7 +298,7 @@ with SshSession(resolve_destination("venona")) as session:
         print("alive" if client.poll() is None else f"ended {client.returncode}", flush=True)
     client.stdin.close()
     client.wait()
-"""
+""")
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")

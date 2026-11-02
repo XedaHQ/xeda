@@ -28,6 +28,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Nvc
 
 from .tool_utils import require_ghdl, require_nvc_evidence
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.real_tool
 
@@ -220,7 +221,7 @@ def test_two_threads_launch_on_one_design_at_once(tmp_path, alone, pair):
     _check_run_root(run_root, design_root, set(pair))
 
 
-CHILD = """\
+CHILD = layout_script("""\
 import json
 import os
 import sys
@@ -248,7 +249,7 @@ Path(out).write_text(json.dumps({
     "run_path": os.fspath(flow.run_path),
     "cwd": os.getcwd(),
 }))
-"""
+""")
 
 
 @pytest.mark.parametrize("pair", PAIRS.values(), ids=PAIRS.keys())

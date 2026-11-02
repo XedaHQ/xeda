@@ -40,6 +40,7 @@ from .generation_world import World, reader_flow
 from .test_dry_run_freshness import ToyGraph, toys  # noqa: F401  (the toy flows)
 from .test_git_dependencies import REAL_GIT, git_log, remote  # noqa: F401  (a Git remote)
 from .test_proc_utils import DEFAULT_SIGINT, _is_running, _read_pid, _tree, _wait_until
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -814,7 +815,7 @@ def test_a_cancel_after_the_prune_took_its_lock_removes_nothing(graph, tmp_path,
 # ------------------------------------------------------------------------------- Ctrl-C
 
 
-CHILD = """\
+CHILD = layout_script("""\
 import signal, sys
 sys.path.insert(0, {root!r})
 signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -829,7 +830,7 @@ try:
 except KeyboardInterrupt:
     sys.exit(130)
 sys.exit(0)
-"""
+""")
 
 
 def test_an_interrupt_stops_the_tool_group_and_releases_the_locks(tmp_path):

@@ -26,10 +26,12 @@ import pytest
 
 import xeda
 from xeda.flow_runner import default_runner
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 PACKAGE = Path(xeda.__file__).parent
 FLOW_RUNNER = PACKAGE / "flow_runner"
-LAUNCHER = "xeda.flow_runner.default_runner"
+LAUNCHER = impl_module("flow_runner.default_runner")
 
 #: The stage modules: every `launch_*.py`, and the scrub module.
 STAGE_MODULES = sorted([*FLOW_RUNNER.glob("launch_*.py"), *FLOW_RUNNER.glob("scrub.py")])
@@ -122,7 +124,7 @@ def test_there_are_stage_modules():
 
 @pytest.mark.parametrize("path", STAGE_MODULES, ids=lambda p: p.name)
 def test_no_stage_module_imports_the_launcher(path: Path):
-    found = _names_the_launcher(path.read_text(), "xeda.flow_runner")
+    found = _names_the_launcher(path.read_text(), impl_module("flow_runner"))
     assert not found, f"{path.name} imports default_runner: {found}"
 
 
@@ -130,24 +132,26 @@ def test_no_stage_module_imports_the_launcher(path: Path):
     ("source", "why"),
     [
         ("from .default_runner import FlowLauncher\n", "relative"),
-        ("from xeda.flow_runner.default_runner import FlowLauncher\n", "absolute"),
-        ("from xeda.flow_runner import default_runner\n", "the module itself"),
+        (layout_script("from xeda.flow_runner.default_runner import FlowLauncher\n"), "absolute"),
+        (layout_script("from xeda.flow_runner import default_runner\n"), "the module itself"),
         ("from . import default_runner\n", "the module itself, relative"),
-        ("import xeda.flow_runner.default_runner\n", "import"),
+        (layout_script("import xeda.flow_runner.default_runner\n"), "import"),
         ("def f():\n    from .default_runner import x\n", "inside a function"),
         (
             "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from .default_runner import X\n",
             "under TYPE_CHECKING",
         ),
         (
-            "import importlib\nimportlib.import_module('xeda.flow_runner.default_runner')\n",
+            layout_script(
+                "import importlib\nimportlib.import_module('xeda.flow_runner.default_runner')\n"
+            ),
             "by text",
         ),
     ],
 )
 def test_the_check_sees_every_way_to_import_the_launcher(source: str, why: str):
     """The check's own teeth: each form is found, so a stage module cannot hide the import."""
-    assert _names_the_launcher(source, "xeda.flow_runner"), why
+    assert _names_the_launcher(source, impl_module("flow_runner")), why
 
 
 @pytest.mark.parametrize(
@@ -160,7 +164,7 @@ def test_the_check_sees_every_way_to_import_the_launcher(source: str, why: str):
     ],
 )
 def test_the_check_ignores_other_imports(source: str):
-    assert _names_the_launcher(source, "xeda.flow_runner") == []
+    assert _names_the_launcher(source, impl_module("flow_runner")) == []
 
 
 ALL_MOVED = {**IMPORTED, **default_runner.MOVED_NAMES}
@@ -169,7 +173,7 @@ ALL_MOVED = {**IMPORTED, **default_runner.MOVED_NAMES}
 @pytest.mark.parametrize("old", sorted(ALL_MOVED))
 def test_a_moved_name_is_the_object_that_lives_in_its_stage_module(old: str):
     module, new = ALL_MOVED[old]
-    home = importlib.import_module(f"xeda.flow_runner.{module}")
+    home = importlib.import_module(f"{impl_module('flow_runner')}.{module}")
     assert getattr(default_runner, old) is getattr(home, new)
 
 

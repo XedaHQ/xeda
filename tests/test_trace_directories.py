@@ -25,6 +25,7 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 from .tool_utils import require_ghdl
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -385,7 +386,7 @@ def test_a_large_library_directory_is_reported(tmp_path, monkeypatch, caplog):
     lib = _library(tmp_path / "L", 1)
     for i in range(4):
         (lib / "libs" / f"unit{i}.txt").write_text(f"{i}\n")
-    with caplog.at_level(logging.WARNING, logger="xeda.flow_runner.trace_inputs"):
+    with caplog.at_level(logging.WARNING, logger=impl_module("flow_runner.trace_inputs")):
         _launch(
             tmp_path / "run", _probe_design(tmp_path), {"lib_paths": [["mylib", str(lib / "libs")]]}
         )

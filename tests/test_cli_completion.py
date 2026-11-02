@@ -16,6 +16,7 @@ from xeda.flow import registered_flows
 from . import io_flows  # noqa: F401 - registers the declared test flows
 from .flow_registry import preserved_flow_registry
 from .tool_utils import HANG_GUARD
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -219,7 +220,10 @@ def only_the_product_and_chain_fixture_flows():
     suite's chain fixtures alone."""
     with preserved_flow_registry():
         for key, (module, cls) in registered_flows.copy().items():
-            if not (cls.__module__.startswith("xeda.flows") or cls.__module__ == io_flows.__name__):
+            if not (
+                cls.__module__.startswith(impl_module("flows"))
+                or cls.__module__ == io_flows.__name__
+            ):
                 del registered_flows[key]
         yield
 

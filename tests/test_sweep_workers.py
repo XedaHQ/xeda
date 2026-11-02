@@ -30,6 +30,7 @@ from . import io_flows  # noqa: F401 - registers the declared test flows
 from . import tool_utils
 from .test_proc_utils import _is_running, _kill, _wait_until
 from .test_sweep import ECP5, MARK, _calls, _dispositions, _seeds, _spec, _workspace
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -172,7 +173,7 @@ def test_a_raising_callback_stops_running_workers_and_propagates(tmp_path, desig
             _kill(pid)
 
 
-_SCRIPT = """
+_SCRIPT = layout_script("""
 import json
 import sys
 from pathlib import Path
@@ -194,7 +195,7 @@ def main():
     ]
     result = Workspace(root / "run", hashed_run_dirs=True).sweep(specs, max_workers=2)
     print(json.dumps([str(point.result.outcome) for point in result]))
-""" % (ECP5,)
+""") % (ECP5,)
 
 
 def _run_python(tmp_path: Path, *command: str) -> list[str]:
@@ -398,14 +399,16 @@ def test_a_module_that_a_worker_fails_to_import_fails_the_node_with_its_code(tmp
         tmp_path,
         monkeypatch,
         "importable_by_the_parent",
-        "import multiprocessing\n"
-        "from xeda.flow import Flow\n"
-        "if multiprocessing.parent_process() is not None:\n"
-        "    raise ImportError('only the parent imports this')\n"
-        "class WorkerFlow(Flow):\n"
-        '    """A flow that only the parent can import."""\n'
-        "    results_description = {}\n"
-        "    def run(self): pass\n",
+        layout_script(
+            "import multiprocessing\n"
+            "from xeda.flow import Flow\n"
+            "if multiprocessing.parent_process() is not None:\n"
+            "    raise ImportError('only the parent imports this')\n"
+            "class WorkerFlow(Flow):\n"
+            '    """A flow that only the parent can import."""\n'
+            "    results_description = {}\n"
+            "    def run(self): pass\n"
+        ),
     )
     spec = Spec("worker_flow", _plain_design(tmp_path))
     (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
@@ -423,14 +426,16 @@ def test_a_module_that_leaves_the_worker_at_import_fails_its_node_not_the_sweep(
         tmp_path,
         monkeypatch,
         "module_that_leaves",
-        "import multiprocessing, sys\n"
-        "from xeda.flow import Flow\n"
-        "if multiprocessing.parent_process() is not None:\n"
-        f"    {statement}\n"
-        "class ModuleLeavingFlow(Flow):\n"
-        '    """A flow whose module leaves a worker when the worker imports it."""\n'
-        "    results_description = {}\n"
-        "    def run(self): pass\n",
+        layout_script(
+            "import multiprocessing, sys\n"
+            "from xeda.flow import Flow\n"
+            "if multiprocessing.parent_process() is not None:\n"
+            f"    {statement}\n"
+            "class ModuleLeavingFlow(Flow):\n"
+            '    """A flow whose module leaves a worker when the worker imports it."""\n'
+            "    results_description = {}\n"
+            "    def run(self): pass\n"
+        ),
     )
     spec = Spec("module_leaving_flow", _plain_design(tmp_path))
     (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
@@ -442,7 +447,7 @@ def test_a_module_that_leaves_the_worker_at_import_fails_its_node_not_the_sweep(
 def test_a_tool_that_a_worker_starts_does_not_ignore_ctrl_c(tmp_path):
     # An ignored signal stays ignored across `exec`, a handler does not: the worker must not leave
     # SIGINT ignored for the tools that it starts.
-    script = (
+    script = layout_script(
         "import multiprocessing, signal, subprocess, sys\n"
         "signal.signal(signal.SIGINT, signal.default_int_handler)\n"
         "from xeda.sweep import _start_worker\n"
@@ -465,12 +470,14 @@ def test_a_flow_that_leaves_the_worker_fails_its_node_not_the_sweep(
         tmp_path,
         monkeypatch,
         "flow_that_leaves",
-        "import sys\n"
-        "from xeda.flow import Flow\n"
-        "class LeavingFlow(Flow):\n"
-        '    """A flow that leaves its process."""\n'
-        "    results_description = {}\n"
-        f"    def run(self): {statement}\n",
+        layout_script(
+            "import sys\n"
+            "from xeda.flow import Flow\n"
+            "class LeavingFlow(Flow):\n"
+            '    """A flow that leaves its process."""\n'
+            "    results_description = {}\n"
+            f"    def run(self): {statement}\n"
+        ),
     )
     spec = Spec("leaving_flow", _plain_design(tmp_path))
     (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
@@ -497,7 +504,7 @@ def test_the_events_of_a_diamond_come_in_the_order_of_the_plan(tmp_path):
     ]
 
 
-_BLOCKED_SWEEP = """
+_BLOCKED_SWEEP = layout_script("""
 import sys
 from pathlib import Path
 
@@ -520,7 +527,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-""" % (ECP5,)
+""") % (ECP5,)
 
 
 def test_killing_the_calling_process_stops_the_tools_of_the_workers(tmp_path, design, monkeypatch):

@@ -39,6 +39,7 @@ from xeda.utils import ConflictingKeys, settings_to_dict
 from .project_files import project_listing
 from .tool_utils import fake_calls, use_fake_tools
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 PART = "xc7a12tcsg325-1"
 SYNTH_NAME = "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM"
@@ -706,29 +707,59 @@ def test_a_declaration_is_inherited_and_added_to():
 #: `<module>.<class>.<field>`, that does not take dotted names as keys: why a dotted key of it
 #: stays a path into nested tables.
 ORDINARY_DICTIONARIES = {
-    "xeda.flow.flow.Flow.Settings.env": "names of environment variables, which have no dots",
-    "xeda.flow.synth.SynthFlow.Settings.clocks": "clock names, with tables as values: "
+    impl_module(
+        "flow.flow.Flow.Settings.env"
+    ): "names of environment variables, which have no dots",
+    impl_module("flow.synth.SynthFlow.Settings.clocks"): "clock names, with tables as values: "
     "`clocks.clk.period` is a path into the clock's table",
-    "xeda.flows.dc.Dc.Settings.compile": "suffixes of DC `compile_*` variables, which have no dots",
-    "xeda.flows.dc.Dc.Settings.hdlin": "suffixes of DC `hdlin_*` variables, which have no dots",
-    "xeda.flows.dc.Dc.Settings.hooks": "stage names, a fixed set without dots",
-    "xeda.flows.yosys.common.YosysBase.Settings.defines": "Verilog macro names, which have no dots",
-    "xeda.flows.yosys.common.YosysBase.Settings.set_attribute": "attribute name, then an object "
+    impl_module(
+        "flows.dc.Dc.Settings.compile"
+    ): "suffixes of DC `compile_*` variables, which have no dots",
+    impl_module(
+        "flows.dc.Dc.Settings.hdlin"
+    ): "suffixes of DC `hdlin_*` variables, which have no dots",
+    impl_module("flows.dc.Dc.Settings.hooks"): "stage names, a fixed set without dots",
+    impl_module(
+        "flows.yosys.common.YosysBase.Settings.defines"
+    ): "Verilog macro names, which have no dots",
+    impl_module(
+        "flows.yosys.common.YosysBase.Settings.set_attribute"
+    ): "attribute name, then an object "
     "path of yosys's selection syntax (separated by `/`): nested by design",
-    "xeda.flows.yosys.common.YosysBase.Settings.set_mod_attribute": "attribute name, then a "
+    impl_module(
+        "flows.yosys.common.YosysBase.Settings.set_mod_attribute"
+    ): "attribute name, then a "
     "module name: nested by design",
-    "xeda.flows.vivado.vivado_synth.RunOptions.steps": "step names, then `ARGS` and `TCL` tables: "
+    impl_module(
+        "flows.vivado.vivado_synth.RunOptions.steps"
+    ): "step names, then `ARGS` and `TCL` tables: "
     "`synth.steps.SYNTH_DESIGN.ARGS.MAX_BRAM` is a path into them by design",
-    "xeda.flows.openroad.base.WireRcSettings.layers": "routing layer names, which have no dots",
-    "xeda.flows.openroad.base.WireRcSettings.vias": "via names of the technology LEF file, which "
+    impl_module(
+        "flows.openroad.base.WireRcSettings.layers"
+    ): "routing layer names, which have no dots",
+    impl_module(
+        "flows.openroad.base.WireRcSettings.vias"
+    ): "via names of the technology LEF file, which "
     "have no dots",
-    "xeda.flows.openroad.final_groups.IrDropDecap.cells": "decap cell names, which have no dots",
-    "xeda.flows.openroad.final_groups.NdrGroup.rules": "names of the rules, which the user picks",
-    "xeda.flows.openroad.final_groups.NdrRule.spacing": "routing layer names, which have no dots",
-    "xeda.flows.openroad.final_groups.NdrRule.width": "routing layer names, which have no dots",
-    "xeda.flows.openroad.place_groups.RoutingGroup.layer_adjustments": "routing layer names or "
+    impl_module(
+        "flows.openroad.final_groups.IrDropDecap.cells"
+    ): "decap cell names, which have no dots",
+    impl_module(
+        "flows.openroad.final_groups.NdrGroup.rules"
+    ): "names of the rules, which the user picks",
+    impl_module(
+        "flows.openroad.final_groups.NdrRule.spacing"
+    ): "routing layer names, which have no dots",
+    impl_module(
+        "flows.openroad.final_groups.NdrRule.width"
+    ): "routing layer names, which have no dots",
+    impl_module(
+        "flows.openroad.place_groups.RoutingGroup.layer_adjustments"
+    ): "routing layer names or "
     "ranges such as `metal2-metal3`, which have no dots",
-    "xeda.flows.openroad.place_pdn.PdnConnect.split_cuts": "routing layer names, which have no "
+    impl_module(
+        "flows.openroad.place_pdn.PdnConnect.split_cuts"
+    ): "routing layer names, which have no "
     "dots",
 }
 
@@ -796,13 +827,13 @@ def test_every_dictionary_setting_is_opaque_or_reviewed_as_nested():
     both = sorted(opaque & set(ORDINARY_DICTIONARIES))
     assert not both, f"settings that are declared opaque and reviewed as nested: {both}"
     assert opaque == {
-        "xeda.flows.vivado.vivado_synth.VivadoSynth.Settings.set_synth_properties",
-        "xeda.flows.vivado.vivado_synth.VivadoSynth.Settings.set_impl_properties",
-        *(f"xeda.flows.ise.IseSynth.Settings.{step}_options" for step in ISE_STEPS),
-        "xeda.flows.openroad.final_groups.IrDropGroup.nets",
-        "xeda.flows.openroad.final_groups.IrDropGroup.vsrc_files",
-        "xeda.flows.openroad.final_groups.IrDropGroup.instance_power",
-        "xeda.flows.openroad.final_groups.NdrGroup.assignments",
+        impl_module("flows.vivado.vivado_synth.VivadoSynth.Settings.set_synth_properties"),
+        impl_module("flows.vivado.vivado_synth.VivadoSynth.Settings.set_impl_properties"),
+        *(f"{impl_module('flows.ise')}.IseSynth.Settings.{step}_options" for step in ISE_STEPS),
+        impl_module("flows.openroad.final_groups.IrDropGroup.nets"),
+        impl_module("flows.openroad.final_groups.IrDropGroup.vsrc_files"),
+        impl_module("flows.openroad.final_groups.IrDropGroup.instance_power"),
+        impl_module("flows.openroad.final_groups.NdrGroup.assignments"),
     }
 
 

@@ -27,6 +27,7 @@ from xeda.run_root import ensure_run_root
 from .settings_samples import flow_classes, minimal_settings
 from .tool_utils import require_verilator
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 #: a run root whose path has whitespace make splits at
 SPACED_ROOTS = ["r r", "r\tr"]
@@ -199,7 +200,7 @@ def test_only_the_flows_with_such_a_limit_refuse(tmp_path):
     spaced = tmp_path / "r r" / "run"
     refusing = set()
     for flow_class, name in flow_classes():
-        if not flow_class.__module__.startswith("xeda.flows"):
+        if not flow_class.__module__.startswith(impl_module("flows")):
             continue
         try:
             flow_class.check_run_directory(

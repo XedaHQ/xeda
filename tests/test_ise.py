@@ -13,6 +13,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import IseSynth
 from xeda.flows.ise import format_value
 from .tool_utils import fake_calls, use_fake_tools
+from .source_layout import layout_script
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -78,7 +79,7 @@ ISE_SETTINGS = dict(fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": {"period
 
 #: A launch of `ise_synth` for a process that starts in the user's own directory. It takes the run
 #: root as its argument and prints one JSON line about the run.
-USER_DIRECTORY_LAUNCH = f"""
+USER_DIRECTORY_LAUNCH = layout_script(f"""
 import json, sys
 from pathlib import Path
 from xeda import Design
@@ -94,7 +95,7 @@ print(json.dumps(dict(
     success=bool(flow.results.success),
     artifacts={{key: str(path) for key, path in flow.artifacts.items()}},
 )))
-"""
+""")
 
 
 def _run_ise(run_dir: Path, monkeypatch, **launcher) -> Flow:

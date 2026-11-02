@@ -26,10 +26,11 @@ from xeda.flow_runner.code_digest import (
 )
 
 from .flow_registry import preserved_flow_registry
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
-FLOW_MODULE = """
+FLOW_MODULE = layout_script("""
     from pathlib import Path
     from typing import ClassVar
 
@@ -47,9 +48,9 @@ FLOW_MODULE = """
         def run(self) -> None:
             template = Path(__file__).parent / "templates" / "message.txt"
             (self.run_path / "out.txt").write_text(helper.TEXT + template.read_text())
-"""
+""")
 
-LOOSE_FLOW_MODULE = """
+LOOSE_FLOW_MODULE = layout_script("""
     from pathlib import Path
     from typing import ClassVar
 
@@ -67,7 +68,7 @@ LOOSE_FLOW_MODULE = """
         def run(self) -> None:
             template = Path(__file__).parent / "templates" / "message.txt"
             (self.run_path / "out.txt").write_text({helper}.TEXT + template.read_text())
-"""
+""")
 
 
 def _write(path: Path, text: str) -> None:
@@ -400,7 +401,7 @@ def _classes_without_a_file(monkeypatch) -> dict[str, type[Flow]]:
     """Flow classes as a notebook, the interactive interpreter and `exec` make them."""
     import linecache
 
-    source = (
+    source = layout_script(
         "from xeda.flow import Flow\n"
         "class {name}(Flow):\n"
         "    '''A flow with no file.'''\n"

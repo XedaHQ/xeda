@@ -33,6 +33,7 @@ from xeda.introspect import (
 
 from .flow_registry import is_product_flow, preserved_flow_registry
 from .source_layout import AGENT_DIR, ROOT
+from xeda.package_paths import impl_module
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
 #: setting is documented today. A new setting must be documented rather than added here.
@@ -205,7 +206,7 @@ def test_every_flow_declares_its_results(flow_class):
     )
 
 
-BUILT_IN_FLOWS = [cls for cls in FLOW_CLASSES if cls.__module__.startswith("xeda.flows.")]
+BUILT_IN_FLOWS = [cls for cls in FLOW_CLASSES if cls.__module__.startswith(impl_module("flows."))]
 
 
 @pytest.mark.parametrize("flow_class", BUILT_IN_FLOWS, ids=[cls.name for cls in BUILT_IN_FLOWS])

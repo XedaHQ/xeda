@@ -33,6 +33,7 @@ from xeda.flow_runner import DefaultRunner
 from .settings_samples import flow_classes, minimal_settings
 from .test_isolation import EXTRA_SETTINGS, FAKED, FPGA_FAKED, SQRT
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
+from xeda.package_paths import impl_module
 
 #: the design's sources for a flow whose tool does not read VHDL
 SOURCES = {"bsc": (["Top.bsv"], "mkTop"), "bsc_sim": (["Top.bsv"], "mkTop")}
@@ -143,8 +144,8 @@ def _launch(flow_class, work: Path, run_root: Path, **launcher):
 
 def _writes_nothing(monkeypatch) -> None:
     """Every tool the flows start does nothing, and writes nothing."""
-    monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
-    monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
+    monkeypatch.setattr(impl_module("tool.run_process"), lambda *args, **kwargs: "")
+    monkeypatch.setattr(impl_module("tool.Tool.version_gte"), lambda self, *args: True)
 
 
 @pytest.mark.parametrize("flow_class", [cls for cls, _ in flow_classes()], ids=lambda c: c.name)

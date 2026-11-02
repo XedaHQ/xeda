@@ -12,6 +12,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import Vcs, Verilator
 
 from .tool_utils import require_verilator
+from xeda.package_paths import impl_module
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def commands(monkeypatch) -> list[list[str]]:
         recorded.append([str(executable), *(str(a) for a in args or [])])
         return "" if kwargs.get("stdout") is True else None
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     return recorded
 
 

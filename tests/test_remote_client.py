@@ -47,6 +47,8 @@ from .remote_fixtures import (
 from .test_proc_utils import DEFAULT_SIGINT
 from .tool_utils import HANG_GUARD
 from .scoping import node_settings
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 FIXTURES = (fake_ssh, fake_remote, remote_host)
 
@@ -114,7 +116,7 @@ def _cli(tmp_path: Path, design: Path, *arguments: str):
 def _cli_script(tmp_path: Path, design: Path, remote_host: RemoteHost, signals: bool = True) -> str:
     """A program that runs `xeda run --remote --json` in a process of its own, on the fake uv
     release of this test. With `signals`, SIGINT is at its default in the program."""
-    return (
+    return layout_script(
         f"{DEFAULT_SIGINT if signals else ''}import xeda.remote.environment as environment\n"
         f"environment.UV_RELEASES = {remote_host.remote.releases!r}\n"
         "from xeda.cli import cli\n"
@@ -498,7 +500,7 @@ def test_a_login_shell_that_prints_does_not_break_the_run(tmp_path, remote_host,
 
 @pytest.mark.usefixtures("tool_output_on_terminal")
 def test_provisioning_and_the_log_are_reported(tmp_path, remote_host, capsys, caplog):
-    caplog.set_level("INFO", logger="xeda.remote.client")
+    caplog.set_level("INFO", logger=impl_module("remote.client"))
     _succeeded(_request(tmp_path, _design(tmp_path)))
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "Connecting to somewhere" in messages
@@ -524,7 +526,7 @@ def test_names_of_the_workspace_and_the_launch(tmp_path):
 
 
 def test_dry_run_syncs_but_writes_no_run_directory(tmp_path, remote_host, caplog):
-    caplog.set_level("INFO", logger="xeda.remote")
+    caplog.set_level("INFO", logger=impl_module("remote"))
     design = _design(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"
     document = _succeeded(_request(tmp_path, design, dry_run=True))

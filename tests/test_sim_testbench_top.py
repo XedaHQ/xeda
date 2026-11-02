@@ -30,12 +30,13 @@ from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.flows import Verilator, YosysSim
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 SIM_FLOW_NAMES = sorted(
     {
         cls.name
         for _, cls in registered_flows.values()
-        if issubclass(cls, SimFlow) and cls.__module__.startswith("xeda.flows")
+        if issubclass(cls, SimFlow) and cls.__module__.startswith(impl_module("flows"))
     }
 )
 

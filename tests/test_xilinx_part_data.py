@@ -22,6 +22,7 @@ from xeda.flow_runner import DefaultRunner
 from . import tool_utils
 from .test_fpga_pack import A100T, _design, _other_database, _runner, _tools
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 PART_JSON = '{"idcode": "0x3651093"}\n'
 
@@ -253,7 +254,7 @@ def test_a_part_without_data_fails_before_any_tool_runs_and_the_failure_is_recor
 
 
 def test_a_missing_packer_fails_before_any_tool_runs(tmp_path, toolchain, monkeypatch):
-    monkeypatch.setattr("xeda.flows.fpga_pack.which", lambda name: None)
+    monkeypatch.setattr(impl_module("flows.fpga_pack.which"), lambda name: None)
     design = _design(tmp_path, A100T)
     with pytest.raises(FlowFatalError, match="fpga-as is missing on PATH"):
         _runner(tmp_path).run(

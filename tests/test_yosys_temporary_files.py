@@ -29,6 +29,7 @@ from .tool_utils import (
     require_yosys_tcl,
     run_outputs_state,
 )
+from xeda.package_paths import impl_module
 
 ABC_NEW = {"abc": {"mapper": "abc_new"}}
 WRAPPED = {**ABC_NEW, "arithmetic": {"wrap_operators": True}}
@@ -68,7 +69,7 @@ def _recorded_launch(
             raise RuntimeError("yosys failed")
         return "" if kwargs.get("stdout") is True else None
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     with contextlib.suppress(Exception if fail else FlowException):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
             Yosys, _design(tmp_path / "design"), settings or _tiny(tmp_path, **given)

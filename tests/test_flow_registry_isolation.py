@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 from .tool_utils import HANG_GUARD
+from .source_layout import layout_script
+from xeda.package_paths import impl_module
 
 TESTS = Path(__file__).parent
 HELPER = "flow_registry.py"
@@ -34,7 +36,7 @@ def _run(script: str) -> str:
 
 
 def test_the_helper_keeps_the_built_in_flows_of_a_registry_that_was_not_loaded():
-    out = _run("""
+    out = _run(layout_script("""
         import sys
         from xeda.flow import Flow, registered_flows
         from tests.flow_registry import preserved_flow_registry
@@ -49,13 +51,13 @@ def test_the_helper_keeps_the_built_in_flows_of_a_registry_that_was_not_loaded()
             assert TProbe.name in registered_flows
         print(TProbe.name in registered_flows, "nextpnr" in registered_flows,
               "openfpgaloader" in registered_flows)
-        """)
+        """))
     assert out == "False True True"
 
 
 def test_a_snapshot_taken_before_the_built_ins_load_would_lose_them():
     """The mutation: the restore this helper replaces, so the test above has teeth."""
-    out = _run("""
+    out = _run(layout_script("""
         from importlib import import_module
         from xeda.flow import registered_flows
 
@@ -64,7 +66,7 @@ def test_a_snapshot_taken_before_the_built_ins_load_would_lose_them():
         registered_flows.clear()
         registered_flows.update(before)
         print("nextpnr" in registered_flows)
-        """)
+        """))
     assert out == "False"
 
 
@@ -172,17 +174,17 @@ def test_no_test_restores_the_registry_by_hand():
     [
         "registered_flows.clear()",
         "flow_module.registered_flows.clear()",
-        "xeda.flow.flow.registered_flows.clear()",
+        f"{impl_module('flow.flow')}.registered_flows.clear()",
         "registered_flows.popitem()",
         "flow_module.registered_flows.popitem()",
         "monkeypatch.setattr(flow_module, 'registered_flows', {})",
-        "monkeypatch.setattr('xeda.flow.flow.registered_flows', {})",
+        f"monkeypatch.setattr('{impl_module('flow.flow')}.registered_flows', {{}})",
         "setattr(flow_module, 'registered_flows', {})",
         "flow_module.registered_flows = {}",
         "flow_module.registered_flows |= {}",
         "table = flow_module.registered_flows\ntable.clear()",
         "table = registered_flows\ntable.popitem()",
-        "from xeda.flow import registered_flows as table\ntable.clear()",
+        layout_script("from xeda.flow import registered_flows as table\ntable.clear()"),
         "table: dict = registered_flows\ntable.clear()",
         "table = flow_module.registered_flows\nalias = table\nother = alias\nother.clear()",
     ],

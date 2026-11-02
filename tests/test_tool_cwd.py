@@ -23,6 +23,7 @@ from xeda.flows.nextpnr import EcpPLL
 from xeda.run_dir import RunDirectoryError
 from xeda.tool import Docker, Tool
 from xeda.utils import ToolException
+from .source_layout import layout_script
 
 Call = Tuple[str, List[str], dict]
 
@@ -418,7 +419,7 @@ def test_the_read_only_mounts_leave_out_the_directory_of_the_tool(tmp_path, call
 
 # ----------------------------------------------------------------------------- a real process
 
-CHILD = textwrap.dedent("""
+CHILD = textwrap.dedent(layout_script("""
     import json, os, sys
     from pathlib import Path
 
@@ -443,7 +444,7 @@ CHILD = textwrap.dedent("""
     reached["run_files_after_probe"] = sorted(p.name for p in (root / "run").iterdir())
     reached["changes"] = changes
     Path(sys.argv[2]).write_text(json.dumps(reached))
-    """)
+    """))
 
 
 def test_real_processes_start_where_they_are_told_and_nothing_changes_directory(tmp_path):

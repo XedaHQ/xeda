@@ -33,6 +33,7 @@ from xeda.flows.yosys.common import (
 
 from .tool_utils import _command_succeeds, require_yosys, require_yosys_config
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 # `synth_ecp5` runs `synth_lattice -family ecp5`, so the two take the same options.
 LATTICE_0_63 = frozenset(
@@ -374,7 +375,9 @@ def test_yosys_release(version, release):
 
 def test_only_fpga_synthesis_raises_the_yosys_minimum(tmp_path, monkeypatch):
     """The FPGA flag floor must not narrow generic synthesis or CXXRTL compatibility."""
-    monkeypatch.setattr("xeda.flows.yosys.common.Tool", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(
+        impl_module("flows.yosys.common.Tool"), lambda **kwargs: SimpleNamespace(**kwargs)
+    )
     (tmp_path / "d.v").write_text("module d; endmodule\n")  # `YosysSim` needs a source it reads
     design = Design(name="d", root=tmp_path, rtl={"sources": ["d.v"], "top": "d"})
     for flow_class, settings, expected in (

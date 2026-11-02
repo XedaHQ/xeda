@@ -57,6 +57,7 @@ from .test_remote_agent import (
     workspace,
 )
 from .test_remote_client import TIMEOUT, _assert_gone, _design, _states, _succeeded
+from xeda.package_paths import impl_module
 
 FIXTURES = (fake_ssh, fake_remote, remote_host, start_agent, toolchain, provisioned)
 
@@ -130,7 +131,7 @@ class Watch(logging.Handler):
 @pytest.fixture
 def watch() -> Iterator[Callable[[str], Watch]]:
     handlers: list[Watch] = []
-    logger = logging.getLogger("xeda.remote")
+    logger = logging.getLogger(impl_module("remote"))
     previous = logger.level
     logger.setLevel(logging.INFO)
 
@@ -178,7 +179,7 @@ def _agents_of(remote_host: RemoteHost) -> list[psutil.Process]:
             line = process.cmdline()
         except psutil.Error:
             continue
-        if "xeda.remote.agent" in line and str(remote_host.home) in " ".join(line):
+        if impl_module("remote.agent") in line and str(remote_host.home) in " ".join(line):
             found.append(process)
     return found
 
@@ -741,7 +742,7 @@ def test_attach_replays_the_log_waits_and_fetches(
 
 
 def test_attach_without_an_id_says_which_launch_it_took(tmp_path, remote_host, caplog):
-    caplog.set_level("INFO", logger="xeda.remote")
+    caplog.set_level("INFO", logger=impl_module("remote"))
     design = _design(tmp_path)
     document = _succeeded(_keep_running(tmp_path, design))
     assert _states(document)["nextpnr"] == "ran"
@@ -758,7 +759,7 @@ def test_attach_without_an_id_says_which_launch_it_took(tmp_path, remote_host, c
 def test_attach_delivers_nothing_and_names_the_original_command(
     tmp_path, remote_host, monkeypatch, cleanup, caplog
 ):
-    caplog.set_level("INFO", logger="xeda.remote")
+    caplog.set_level("INFO", logger=impl_module("remote"))
     gate = Gate(tmp_path, remote_host)
     connections = Connections(monkeypatch)
     outputs = tmp_path / "out"
@@ -951,7 +952,7 @@ def _fake_loginctl(remote_host: RemoteHost, answer: str) -> None:
 
 def test_a_run_that_keeps_running_warns_when_a_logout_may_stop_it(tmp_path, remote_host, caplog):
     _fake_loginctl(remote_host, "yes")
-    caplog.set_level("INFO", logger="xeda.remote")
+    caplog.set_level("INFO", logger=impl_module("remote"))
     _succeeded(_keep_running(tmp_path, _design(tmp_path)))
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("KillUserProcesses=yes" in text and "may still stop" in text for text in warnings)
@@ -959,14 +960,14 @@ def test_a_run_that_keeps_running_warns_when_a_logout_may_stop_it(tmp_path, remo
 
 def test_a_run_that_keeps_running_does_not_warn_when_logout_keeps_it(tmp_path, remote_host, caplog):
     _fake_loginctl(remote_host, "no")
-    caplog.set_level("INFO", logger="xeda.remote")
+    caplog.set_level("INFO", logger=impl_module("remote"))
     _succeeded(_keep_running(tmp_path, _design(tmp_path)))
     assert not [r for r in caplog.records if "KillUserProcesses" in r.getMessage()]
 
 
 def test_a_run_without_keep_running_does_not_warn(tmp_path, remote_host, caplog):
     _fake_loginctl(remote_host, "yes")
-    caplog.set_level("INFO", logger="xeda.remote")
+    caplog.set_level("INFO", logger=impl_module("remote"))
     _succeeded(remote_request(tmp_path, _design(tmp_path), "nextpnr"))
     assert not [r for r in caplog.records if "KillUserProcesses" in r.getMessage()]
     assert not list((tmp_path / "local" / "xeda_run" / "@somewhere").glob(".launches"))

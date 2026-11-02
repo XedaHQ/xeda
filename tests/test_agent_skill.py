@@ -21,6 +21,8 @@ from xeda.agent_skill import (
     skill_source_dir,
 )
 from xeda.introspect import all_flow_classes
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 REPO_ROOT = Path(__file__).parent.parent
 STATIC_REFERENCES = ("design-file.md", "fpga-flows.md", "troubleshooting.md")
@@ -302,8 +304,10 @@ def test_repo_skill_flow_catalog_matches_the_installed_flows():
         [
             sys.executable,
             "-c",
-            "from xeda.agent_skill import generate_flows_reference as g; "
-            "import sys; sys.stdout.write(g())",
+            layout_script(
+                "from xeda.agent_skill import generate_flows_reference as g; "
+                "import sys; sys.stdout.write(g())"
+            ),
         ],
         capture_output=True,
         text=True,
@@ -343,7 +347,7 @@ def test_install_works_when_resources_are_not_on_the_filesystem(tmp_path, monkey
             _shutil.rmtree(extracted)
             cleaned_up.append(extracted)
 
-    monkeypatch.setattr("xeda.agent_skill.as_file", fake_as_file)
+    monkeypatch.setattr(impl_module("agent_skill.as_file"), fake_as_file)
 
     written = install_skill(tmp_path / "dest")
     assert cleaned_up, "the simulated extraction context never ran"

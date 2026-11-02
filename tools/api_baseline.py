@@ -33,7 +33,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from xeda.package_paths import impl_module, schemas_dir
+from xeda.package_paths import impl_module, schemas_dir, source_root
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -443,7 +443,9 @@ def behavior_snapshot() -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
-SCHEMA_DIRECTORY = schemas_dir().resolve().relative_to(ROOT)
+#: Relative to the root of a checkout. The tool writes and checks the files of a checkout, wherever
+#: the imported package is installed.
+SCHEMA_DIRECTORY = Path("src") / schemas_dir().relative_to(source_root())
 
 _STRING: dict[str, Any] = {"type": "string"}
 _INTEGER: dict[str, Any] = {"type": "integer"}

@@ -18,6 +18,7 @@ import pytest
 import xeda
 import xeda.introspect
 from xeda import Event, Workspace
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -154,7 +155,7 @@ def test_the_1_0_baseline_matches_the_contract() -> None:
     assert set(modules["xeda"]["names"]) == (CONTRACT_XEDA - NOT_EXPORTED_YET | ALSO_EXPORTED)
     assert set(modules["xeda.errors"]["names"]) == CONTRACT_ERRORS
     assert set(modules["xeda.introspect"]["names"]) == CONTRACT_INTROSPECT
-    verbs = modules["xeda.workspace_verbs"]["names"]
+    verbs = modules[impl_module("workspace_verbs")]["names"]
     assert {name: signature_parts(verbs[name]) for name in CONTRACT_VERBS} == CONTRACT_VERBS
 
 

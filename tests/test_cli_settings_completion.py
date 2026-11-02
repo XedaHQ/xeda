@@ -28,6 +28,8 @@ from xeda.flow_catalog import _builtin_flows
 
 from .test_cli_completion import _require_shell
 from .tool_utils import HANG_GUARD
+from xeda.package_paths import impl_module
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -357,7 +359,7 @@ def test_bash_raw_line_uses_byte_cursor_position(design: str, cursor_prefix: str
 
 
 def test_cold_completion_does_not_import_flow_models_or_runtime_helpers(tmp_path) -> None:
-    code = """\
+    code = layout_script("""\
 import json, sys
 from xeda.cli import cli
 try:
@@ -366,7 +368,7 @@ except SystemExit:
     pass
 heavy = ('xeda.design', 'xeda.flow.flow', 'xeda.flow_runner', 'xeda.flows', 'pydantic', 'pint')
 print(json.dumps([name for name in heavy if name in sys.modules]))
-"""
+""")
     env = {
         **os.environ,
         "_XEDA_COMPLETE": "bash_complete",
@@ -408,7 +410,7 @@ def test_runtime_completion_does_not_mutate_cached_builtin_records(monkeypatch) 
             )
         }
     )
-    monkeypatch.setitem(sys.modules, "xeda.flow.flow", runtime)
+    monkeypatch.setitem(sys.modules, impl_module("flow.flow"), runtime)
     assert _completion_records()["vivado_synth"]["settings"] == {"temporary": {}}
     assert dict(_builtin_flows())["vivado_synth"] == before
 

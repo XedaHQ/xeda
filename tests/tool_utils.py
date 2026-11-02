@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, List, NamedTuple, Optional, Sequence, Tuple
 
 import pytest
+from xeda.package_paths import impl_module
 
 __all__ = [
     "HANG_GUARD",
@@ -292,10 +293,10 @@ def _probe_nvc_evidence() -> bool:
     with tempfile.TemporaryDirectory(prefix="xeda-nvc-evidence-") as tmp:
         root = Path(tmp)
         (root / "nvc_end.cpp").write_text(
-            files("xeda.flows.nvc").joinpath("templates/nvc_end.cpp").read_text()
+            files(impl_module("flows.nvc")).joinpath("templates/nvc_end.cpp").read_text()
         )
         (root / "sim_record.h").write_text(
-            files("xeda.flow").joinpath("templates/sim_record.h").read_text()
+            files(impl_module("flow")).joinpath("templates/sim_record.h").read_text()
         )
         if not _command_succeeds(
             [compiler, *flags, "-I", str(prefix / "include"), "nvc_end.cpp", "-o", "nvc_end.so"],
@@ -658,7 +659,10 @@ def _probe_bluesim_evidence() -> bool:
             "package XedaProbe; (* synthesize *) module mkXedaProbe(Empty); "
             "rule done; $finish(0); endrule endmodule endpackage"
         )
-        for package, name in (("xeda.flow", "sim_record.h"), ("xeda.flows.bsc", "bluesim_hooks.h")):
+        for package, name in (
+            (impl_module("flow"), "sim_record.h"),
+            (impl_module("flows.bsc"), "bluesim_hooks.h"),
+        ):
             (root / name).write_text(files(package).joinpath("templates/" + name).read_text())
         if not _command_succeeds(
             ["bsc", "-sim", "-g", "mkXedaProbe", "-bdir", ".", "-simdir", ".", "XedaProbe.bsv"],
@@ -751,8 +755,8 @@ def _probe_iverilog_evidence() -> bool:
     with tempfile.TemporaryDirectory(prefix="xeda-iverilog-evidence-") as tmp:
         root = Path(tmp)
         for name, package in (
-            ("iverilog_evidence.c", "xeda.flow"),
-            ("sim_record.h", "xeda.flow"),
+            ("iverilog_evidence.c", impl_module("flow")),
+            ("sim_record.h", impl_module("flow")),
         ):
             (root / name).write_text(files(package).joinpath("templates", name).read_text())
         (root / "tb.v").write_text("module tb; initial #5 $finish; endmodule\n")

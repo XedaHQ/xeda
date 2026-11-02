@@ -14,6 +14,7 @@ from xeda.run_dir import RunDirectoryError
 from .test_cli_structured_output import run_xeda
 from .tool_utils import require_cocotb, require_verilator
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -844,7 +845,7 @@ def commands(monkeypatch) -> list[list[str]]:
         recorded.append([str(executable), *(str(a) for a in args or [])])
         return "" if kwargs.get("stdout") is True else None
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     return recorded
 
 

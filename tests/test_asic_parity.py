@@ -29,6 +29,7 @@ from xeda.units import Time
 
 from .record_documents import record_document
 from .tool_utils import AsicQorTools, require_asic_qor
+from xeda.package_paths import impl_module
 
 ROOT = Path(__file__).parent.parent
 TOOL = ROOT / "tools" / "asic_parity.py"
@@ -1121,7 +1122,7 @@ def test_the_pinned_files_include_every_file_of_an_include_directory(tmp_path: P
 def test_the_residue_digest_is_that_of_the_bundled_file() -> None:
     from importlib import resources
 
-    text = (resources.files("xeda.platforms") / "nangate45" / "platform.yaml").read_bytes()
+    text = (resources.files(impl_module("platforms")) / "nangate45" / "platform.yaml").read_bytes()
     assert tool.residue_digest("nangate45") == hashlib.sha256(text).hexdigest()
     assert tool.residue_digest("no_such_platform") is None
 

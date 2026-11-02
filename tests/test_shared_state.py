@@ -55,6 +55,7 @@ from .test_isolation import (
     _world,
     process_leftovers,
 )
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.python_compat
 
@@ -252,8 +253,10 @@ PROCESS_OFFENDERS = {
         "root logger",
     ),
     "logger of xeda": (
-        lambda mp: logging.getLogger("xeda.flow_runner.default_runner").setLevel(logging.CRITICAL),
-        "xeda.flow_runner.default_runner",
+        lambda mp: logging.getLogger(impl_module("flow_runner.default_runner")).setLevel(
+            logging.CRITICAL
+        ),
+        impl_module("flow_runner.default_runner"),
     ),
     "new logger with a level": (
         lambda mp: fresh_logger("level").setLevel(logging.CRITICAL),

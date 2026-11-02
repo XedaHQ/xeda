@@ -12,6 +12,7 @@ from importlib import import_module
 from typing import Iterator
 
 from xeda.flow import registered_flows
+from xeda.package_paths import impl_module
 
 
 def is_product_flow(flow_class: type) -> bool:
@@ -21,7 +22,7 @@ def is_product_flow(flow_class: type) -> bool:
 
 def load_builtin_flows() -> None:
     """Import the built-in flows now, so a registry snapshot holds them."""
-    import_module("xeda.flows")
+    import_module(impl_module("flows"))
 
 
 @contextmanager

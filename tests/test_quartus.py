@@ -12,6 +12,7 @@ from xeda.flows.quartus import parse_csv, try_num
 from xeda.tool import Tool
 
 from .tool_utils import fake_calls, use_fake_tools
+from xeda.package_paths import impl_module
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -157,7 +158,7 @@ def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
         started.append((executable, [str(a) for a in args]))
         return ""
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
         Quartus,
@@ -193,7 +194,7 @@ def test_every_launch_of_quartus_has_its_own_tool(tmp_path, monkeypatch) -> None
     """A tool holds what it learned about the program (its version, a container's CPU count): one
     shared by every launch of the process would carry that from launch to launch."""
     assert not isinstance(vars(Quartus).get("quartus_sh"), Tool)
-    monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
+    monkeypatch.setattr(impl_module("tool.run_process"), lambda *args, **kwargs: "")
     design = Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": dict(period="6 ns")})
     first = DefaultRunner(tmp_path / "one", display_results=False).launch_flow(

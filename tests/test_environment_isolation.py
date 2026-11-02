@@ -12,6 +12,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from .source_layout import layout_script
 
 pytestmark = pytest.mark.python_compat
 
@@ -168,7 +169,9 @@ def test_no_test_reads_the_user_config_of_the_machine() -> None:
         [
             sys.executable,
             "-c",
-            "from xeda.remote.profile import config_directory; print(config_directory())",
+            layout_script(
+                "from xeda.remote.profile import config_directory; print(config_directory())"
+            ),
         ],
         cwd=TESTS,
         capture_output=True,

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from xeda.flows.verilator import HOOKS_MAKEFILE
+from xeda.package_paths import impl_module
 
 #: A stand-in for Verilator's makefile: a global `CPPFLAGS`, a runtime object and a model object.
 MAKEFILE = """\
@@ -44,7 +45,7 @@ def _build_directory(tmp_path: Path) -> Path:
     build = tmp_path / "build"
     build.mkdir()
     (build / "Makefile").write_text(MAKEFILE)
-    template = files("xeda.flows.verilator").joinpath("templates/" + HOOKS_MAKEFILE)
+    template = files(impl_module("flows.verilator")).joinpath("templates/" + HOOKS_MAKEFILE)
     (build / HOOKS_MAKEFILE).write_text(template.read_text())
     return build
 

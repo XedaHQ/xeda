@@ -27,6 +27,7 @@ from xeda.introspect import all_flow_classes
 from xeda.run_dir import RunDirectory
 
 from .settings_samples import minimal_settings
+from xeda.package_paths import impl_module
 
 #: Settings that gate a verdict in the code of a flow.
 SWITCHES = {"fail_timing", "timing_allow_fail", "allow_dsps", "allow_brams"}
@@ -109,7 +110,7 @@ def called_functions(owner: type, function: Callable[..., Any]) -> List[Tuple[st
                 target = current.__globals__.get(node.func.id)
             if (
                 inspect.isfunction(target)
-                and target.__module__.startswith("xeda.flows")
+                and target.__module__.startswith(impl_module("flows"))
                 and target.__name__ not in seen
             ):
                 seen.add(target.__name__)

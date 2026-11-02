@@ -41,6 +41,7 @@ from xeda.workspace import _removal_question
 from .flow_registry import preserved_flow_registry
 from .io_flows import TMaker
 from .scrub_utils import ask_scrub_design, ask_scrub_runs, on_a_terminal
+from xeda.package_paths import impl_module
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
@@ -460,7 +461,7 @@ def test_a_candidate_gone_when_its_lock_is_held_is_skipped_and_not_counted(
         return real_lock(path, *args, **kwargs)
 
     monkeypatch.setattr(scrub_module, "run_dir_lock", removing)
-    with caplog.at_level(logging.INFO, logger="xeda.flow_runner.scrub"):
+    with caplog.at_level(logging.INFO, logger=impl_module("flow_runner.scrub")):
         result, document = scrub(tmp_path, "--target", "a")
     assert result.exit_code == 0, result.output
     assert document["outcome"] == "passed" and document["removed"] == [str(other)]

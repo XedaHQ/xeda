@@ -55,6 +55,7 @@ from xeda.flows import (
     YosysSim,
 )
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 VERILOG = "module top(input clk, output reg q); always @(posedge clk) q <= ~q; endmodule\n"
 TESTBENCH = "module tb; reg clk = 0; top dut(clk); initial #10 $finish; endmodule\n"
@@ -425,161 +426,161 @@ STAGES = ("init", "prepare_inputs", "__init__")
 #: `Flow.check_design_supported`), where planning, the remote preflight and the exploration make
 #: it.
 REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
-    "xeda.flow.flow:Flow.__init__": (
+    impl_module("flow.flow:Flow.__init__"): (
         1,
         "the launcher handed a run directory that is not the path given: a bug in the caller, no "
         "user input",
     ),
-    "xeda.run_dir:refuse_link_on_way": (
+    impl_module("run_dir:refuse_link_on_way"): (
         1,
         "a flow claims a cache directory below the run root when it prepares its inputs (the "
         "board files of `nextpnr`, the chip database of a Xilinx flow), and a symbolic link on "
         "the way there is refused as one on the way to a run directory is at planning "
         "(`run_path_of`); the path is the run root's, not the flow's settings or design",
     ),
-    "xeda.flow.flow:Flow.Settings.from_input": (
+    impl_module("flow.flow:Flow.Settings.from_input"): (
         1,
         "validates settings given as a mapping to a flow built directly; a launched flow gets "
         "validated settings",
     ),
-    "xeda.flow.flow:Flow.add_template_filter": (
+    impl_module("flow.flow:Flow.add_template_filter"): (
         1,
         "a template helper name used twice: a bug in the flow, no user input",
     ),
-    "xeda.flow.flow:Flow.add_template_global_func": (
+    impl_module("flow.flow:Flow.add_template_global_func"): (
         1,
         "a template helper name used twice: a bug in the flow, no user input",
     ),
-    "xeda.flow.settings_group:render_flags": (
+    impl_module("flow.settings_group:render_flags"): (
         1,
         "a flag of an unknown kind: a bug in the declaration of a group, which class creation "
         "refuses; no user input",
     ),
-    "xeda.flows.fpga_pack:FpgaPack.init": (
+    impl_module("flows.fpga_pack:FpgaPack.init"): (
         1,
         "needs `fpga-as` on PATH and the Project X-Ray data of the installation",
     ),
-    "xeda.flows.xilinx:*": (
+    impl_module("flows.xilinx:*"): (
         None,
         "reads the openXC7 installation, the Project X-Ray database and the chip database on disk",
     ),
-    "xeda.board:*": (None, "reads a board database file on disk"),
-    "xeda.digest:*": (None, "reads the files of the run on disk"),
-    "xeda.flow_runner.run_lock:*": (None, "locks files of the run root"),
-    "xeda.proc_utils:*": (None, "runs a tool process"),
-    "xeda.utils:replacing_file": (1, "writes a file of the run root"),
-    "xeda.utils:_set_hierarchy": (
+    impl_module("board:*"): (None, "reads a board database file on disk"),
+    impl_module("digest:*"): (None, "reads the files of the run on disk"),
+    impl_module("flow_runner.run_lock:*"): (None, "locks files of the run root"),
+    impl_module("proc_utils:*"): (None, "runs a tool process"),
+    impl_module("utils:replacing_file"): (1, "writes a file of the run root"),
+    impl_module("utils:_set_hierarchy"): (
         3,
         "expands the dotted keys of the board entry that `board_data()` reads from the database "
         "on disk; the settings validation judges the same entry first",
     ),
-    "xeda.utils:refuse_both_spellings": (
+    impl_module("utils:refuse_both_spellings"): (
         2,
         "judges the keys of the board entry that `board_data()` reads from the database on disk; "
         "the settings validation judges the same entry first",
     ),
-    "xeda.flow.asic:AsicPlatformFlow.prepare_platform": (
+    impl_module("flow.asic:AsicPlatformFlow.prepare_platform"): (
         1,
         "reads the PDK store and the platform files on disk, and refuses a file it cannot read",
     ),
-    "xeda.flow.asic:AsicPlatformSettings.locate_platform": (
+    impl_module("flow.asic:AsicPlatformSettings.locate_platform"): (
         1,
         "looks for the PDK files in the store on disk",
     ),
-    "xeda.flows.openroad.base:OpenroadStage._check_liberty_units": (
+    impl_module("flows.openroad.base:OpenroadStage._check_liberty_units"): (
         5,
         "reads the files of `liberty` on disk: a file that is missing or unreadable, and one whose "
         "time unit is not the platform's",
     ),
-    "xeda.flows.openroad.base:OpenroadStage._check_liberty_capacitance_unit": (
+    impl_module("flows.openroad.base:OpenroadStage._check_liberty_capacitance_unit"): (
         2,
         "reads the capacitance unit of a file of `liberty` on disk and refuses one that is not "
         "the platform's",
     ),
-    "xeda.flows.openroad.base:_capacitance_in_farads": (
+    impl_module("flows.openroad.base:_capacitance_in_farads"): (
         1,
         "reads the capacitance unit of the platform, which a residue file can state",
     ),
-    "xeda.flows.openroad.base:model_time_unit_seconds": (
+    impl_module("flows.openroad.base:model_time_unit_seconds"): (
         1,
         "reads the time unit of the platform model, which a residue file can state in any form",
     ),
-    "xeda.flows.openroad.base:liberty_time_unit_seconds": (
+    impl_module("flows.openroad.base:liberty_time_unit_seconds"): (
         1,
         "reads the time unit that a file of `liberty` states, which is no time unit",
     ),
-    "xeda.flows.yosys.yosys:Yosys._refuse_liberty_includes": (
+    impl_module("flows.yosys.yosys:Yosys._refuse_liberty_includes"): (
         1,
         "reads the Liberty files on disk to find an include that the Liberty reader of yosys "
         "cannot read",
     ),
-    "xeda.flow.asic:AsicPlatformSettings.included_by": (
+    impl_module("flow.asic:AsicPlatformSettings.included_by"): (
         1,
         "reads a Liberty file on disk to find the files it includes, and refuses an include that "
         "OpenSTA cannot open or that is missing",
     ),
-    "xeda.platforms.derive:_liberty_text": (
+    impl_module("platforms.derive:_liberty_text"): (
         6,
         "follows `include_file(...)` on disk: a quoted or a relative name, which OpenSTA cannot "
         "open, a file that includes itself, a chain that is too deep, and a file that is missing",
     ),
-    "xeda.platforms.derive:_read_text": (
+    impl_module("platforms.derive:_read_text"): (
         1,
         "reads a Liberty or LEF file of the PDK, or a file of `liberty`, on disk",
     ),
-    "xeda.flows.openroad.final:Openroad.prepare_inputs": (
+    impl_module("flows.openroad.final:Openroad.prepare_inputs"): (
         1,
         "needs the rules file of `extraction.rules_file` on disk",
     ),
-    "xeda.flows.openroad.place:OpenroadPlace.prepare_inputs": (
+    impl_module("flows.openroad.place:OpenroadPlace.prepare_inputs"): (
         1,
         "needs the DEF file of `floorplan.def_file` on disk",
     ),
-    "xeda.flows.openroad.place:effective": (
+    impl_module("flows.openroad.place:effective"): (
         6,
         "judges a value that a stage needs and the platform model lacks (the site, the tracks, "
         "the tie cells, the tap cell and its distance, a layer of the routing), and a tap cell "
         "option that the mode of the platform does not use; the model is built from the PDK "
         "files on disk, which the configuration of the PDK may complete",
     ),
-    "xeda.flows.openroad.place:_grid": (
+    impl_module("flows.openroad.place:_grid"): (
         3,
         "judges the power grid of the platform model (the power nets, the rails and straps, the "
         "kind of a global connection); the model is built from the PDK files on disk",
     ),
-    "xeda.flows.openroad.place:_density": (
+    impl_module("flows.openroad.place:_density"): (
         1,
         "needs the density of the platform model, which the configuration of the PDK may give",
     ),
-    "xeda.flows.openroad.place:_io_layers": (
+    impl_module("flows.openroad.place:_io_layers"): (
         1,
         "needs the layers of the pins of the platform model, which the configuration of the PDK "
         "may give",
     ),
-    "xeda.flows.openroad.place:_layer_adjustments": (
+    impl_module("flows.openroad.place:_layer_adjustments"): (
         1,
         "needs the routing layers of the platform model, which the configuration of the PDK "
         "may give",
     ),
-    "xeda.flows.openroad.grt:effective": (
+    impl_module("flows.openroad.grt:effective"): (
         1,
         "judges a power recovery against the polish of the platform model, which the "
         "configuration of the PDK may give; planning judges the residue files",
     ),
-    "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
+    impl_module("flows.nextpnr:Nextpnr._xilinx_layout_and_selection"): (
         1,
         "needs `nextpnr-himbaechel` on PATH",
     ),
-    "xeda.flows.nextpnr:Nextpnr._locate_board_input": (
+    impl_module("flows.nextpnr:Nextpnr._locate_board_input"): (
         2,
         "judges the resolved `constraints` input (a binding or a source supplies it) and the "
         "run root of a directly built flow",
     ),
-    "xeda.flows.nextpnr:Nextpnr._check_board_cache": (
+    impl_module("flows.nextpnr:Nextpnr._check_board_cache"): (
         1,
         "reads a cached board file in the run root",
     ),
-    "xeda.flows.nextpnr:Nextpnr._prepare_board_inputs": (
+    impl_module("flows.nextpnr:Nextpnr._prepare_board_inputs"): (
         1,
         "needs the board's pin file on disk",
     ),
@@ -674,7 +675,8 @@ def product_flows() -> list[type[Flow]]:
         {
             cls
             for _, cls in registered_flows.values()
-            if cls.__module__.startswith("xeda.flows.") or cls.__module__ == "xeda.flows"
+            if cls.__module__.startswith(impl_module("flows."))
+            or cls.__module__ == impl_module("flows")
         },
         key=lambda cls: cls.__name__,
     )
@@ -724,7 +726,7 @@ def test_every_override_of_a_check_hook_calls_super():
         for base in cls.__mro__:
             for name in HOOKS:
                 fn = _function(base.__dict__.get(name))
-                if fn is None or not fn.__module__.startswith("xeda.flows"):
+                if fn is None or not fn.__module__.startswith(impl_module("flows")):
                     continue
                 calls_super = any(
                     isinstance(node, ast.Call)
@@ -801,7 +803,9 @@ class TThroughAnotherModule(TProbe):
 
 
 def test_the_scan_follows_a_helper_in_another_xeda_module():
-    assert any(key.startswith("xeda.units:") for key in run_time_refusals(TThroughAnotherModule))
+    assert any(
+        key.startswith(impl_module("units:")) for key in run_time_refusals(TThroughAnotherModule)
+    )
 
 
 def test_the_scan_leaves_alone_what_a_hook_judges():

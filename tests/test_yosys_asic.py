@@ -42,6 +42,7 @@ from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys
 from .tool_utils import HANG_GUARD
 from .scoping import node_settings
+from xeda.package_paths import impl_module
 
 MAC = (
     "module mul8(input [7:0] a, b, output [15:0] p);\n"
@@ -74,7 +75,7 @@ def _scripted_launch(tmp_path: Path, monkeypatch, flow, settings, sections=None)
     def record(executable, args=None, **kwargs):
         return "" if kwargs.get("stdout") is True else None
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
             flow, _design(tmp_path / "design"), settings, all_flows_settings=sections
@@ -435,7 +436,7 @@ def test_strategy_selects_the_abc_script(strategy, tmp_path, monkeypatch):
         commands.append([str(executable), *map(str, args or [])])
         return "" if kwargs.get("stdout") is True else None
 
-    monkeypatch.setattr("xeda.tool.run_process", record)
+    monkeypatch.setattr(impl_module("tool.run_process"), record)
     settings = _tiny(tmp_path, abc={"strategy": strategy})
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, _design(tmp_path), settings)

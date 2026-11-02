@@ -97,7 +97,7 @@ def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 
 def bundled_boards() -> Dict[str, Any]:
-    """Return the boards that Xeda bundles (`xeda/data/boards.toml`), by name.
+    """Return the boards that Xeda bundles (`boards.toml`), by name.
 
     A bundled board is named in lower case, and found only by that name (`get_board_data`).
     """
@@ -105,7 +105,7 @@ def bundled_boards() -> Dict[str, Any]:
     odd = [name for name in boards if name != name.lower()]
     if odd:
         raise ValueError(
-            "The bundled board database xeda/data/boards.toml must name its boards in lower case: "
+            "The bundled board database boards.toml must name its boards in lower case: "
             + ", ".join(map(repr, odd))
         )
     return boards
@@ -193,7 +193,7 @@ def get_board_data(
     else:
         boards_data = bundled_boards()
         name = board
-        database = "the bundled board database xeda/data/boards.toml"
+        database = "the bundled board database boards.toml"
         if name in boards_data:
             log.debug("Retrieved board data for %s", name)
     if name not in boards_data:

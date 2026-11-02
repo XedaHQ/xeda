@@ -15,6 +15,7 @@ from textwrap import dedent
 from typing import Any
 
 import pytest
+from .source_layout import layout_script
 
 HARNESS = """\
 import json, sys
@@ -72,7 +73,7 @@ def _files(paths: list[str]) -> list[Path]:
 
 
 #: The design as planning merges its dependencies into it.
-MERGED = """
+MERGED = layout_script("""
 from xeda.flow_runner.dependencies import merged_design
 
 design = merged_design(Design.load(design_file), run_root=None)
@@ -82,7 +83,7 @@ summary = {
     "root": str(design.root),
     "parameters": dict(design.rtl.parameters),
 }
-"""
+""")
 
 FROM_FILE = """
 design = Design.load(design_file)
@@ -236,7 +237,7 @@ GENERATORS = {
 }
 
 #: Loads the design and runs its generator into a storage under a new run root.
-GENERATE = """
+GENERATE = layout_script("""
 import os
 from xeda.flow_runner.launch_generation import generate
 
@@ -248,7 +249,7 @@ summary = {
     "storage": str(generation.storage),
     "matches": {name: list(files) for name, files in generation.matches.items()},
 }
-"""
+""")
 
 
 @pytest.mark.parametrize("spelling", GENERATORS)
