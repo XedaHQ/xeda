@@ -5,19 +5,22 @@ Each numbered notebook shows one part of the Python API. The test suite runs the
 
 ## Run a notebook
 
-Install the notebook dependencies and start Jupyter from this directory:
+The `notebooks` dependency group has the packages that the notebooks import. It does not have
+JupyterLab, so add it for the run. Start JupyterLab from this directory:
 
 ```bash
-uv sync --group notebooks
-uv run jupyter lab
+uv run --group notebooks --with jupyterlab jupyter lab
 ```
+
+You can also open a notebook in an editor that runs Jupyter notebooks, such as VS Code. Select
+the Python environment of `uv sync --group notebooks` as its kernel.
 
 The first cell of a notebook finds the examples. It reads the `XEDA_EXAMPLES` environment
 variable. When the variable is not set, it uses the `examples` directory next to this one. Set it
 to run a notebook from a copy of the examples:
 
 ```bash
-XEDA_EXAMPLES=/path/to/examples uv run jupyter lab
+XEDA_EXAMPLES=/path/to/examples uv run --group notebooks --with jupyterlab jupyter lab
 ```
 
 A notebook writes only under `notebook-output/` in its working directory: the run root, the
@@ -29,7 +32,7 @@ Commit a notebook without outputs and without execution counts. The test suite f
 notebook that has them. To clear them, run:
 
 ```bash
-uv run jupyter nbconvert --clear-output --inplace notebooks/NN-name.ipynb
+uv run --with nbconvert jupyter nbconvert --clear-output --inplace notebooks/NN-name.ipynb
 ```
 
 The tools that a notebook needs (for example `ghdl` or `yosys`) must be installed to run it. The

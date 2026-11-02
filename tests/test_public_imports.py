@@ -44,14 +44,7 @@ DOCUMENTS = [
     ROOT / "src/xeda/data/agent/SKILL.md",
 ]
 EXAMPLES = sorted((ROOT / "examples").rglob("*.py"))
-# The old plot notebook imports `xeda.utils`. A new notebook replaces it: remove it from this
-# set when it goes.
-NOT_AUDITED_NOTEBOOKS = {"plot_fmax_vs_luts.ipynb"}
-NOTEBOOKS = [
-    path
-    for path in sorted((ROOT / "notebooks").glob("*.ipynb"))
-    if path.name not in NOT_AUDITED_NOTEBOOKS
-]
+NOTEBOOKS = sorted((ROOT / "notebooks").glob("*.ipynb"))
 
 RST_BLOCK = re.compile(r"^(?P<indent> *)\.\. code-block:: *python3? *$")
 MD_FENCE = re.compile(r"^```(?:python3?|py)\s*$")
