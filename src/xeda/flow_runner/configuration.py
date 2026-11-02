@@ -13,7 +13,8 @@ The shape is that of a part of `Design.to_dict()`:
 
 - for each part of `Flow.design_parts` (`rtl`, `tb`): its metadata (`Design.part_metadata`) and,
   for a node that reads the design's sources, its `sources`, a list of `{path, type}` (a file of a
-  Git dependency also says which dependency, and its path is in the checkout);
+  Git dependency also says which dependency, and its path is in the checkout; a generated source
+  also holds the digest of the recipe of its generator, `generated_by`);
 - `language`, when the node reads `rtl`;
 - for a design that a converter derives, the conversion (`converted_from`, `transforms`,
   `produces`) and no `sources`.
@@ -26,7 +27,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from typing import Any
 
-from ..design import Design, Source, SourceType
+from ..design import Design, Source, SourceType, generator_cwd, generator_model
 from ..flow import Flow
 from ..flow.derived import DesignConversion
 from ..frozen import thaw
@@ -37,6 +38,7 @@ __all__ = [
     "conversion_descriptor",
     "design_configuration",
     "design_configuration_hash",
+    "generated_by",
     "node_configuration",
     "source_entries",
 ]
@@ -54,12 +56,56 @@ def conversion_descriptor(producer: str, conversion: DesignConversion) -> dict[s
     }
 
 
+#: The fields of a recipe that are no part of its digest. These do not change the files that the
+#: generator writes: whether Xeda checks its exit status, whether it runs on every launch, which
+#: entries of `rtl.sources` are its own, and where a copy of its output goes. `sources` names the
+#: files whose content decides whether the generator runs again: that content is evidence of
+#: freshness (and part of the key of the storage), and the names are paths that a remote launch
+#: rewrites, so they count nowhere in the identity.
+NOT_SHAPING = frozenset({"check", "always_runs", "generated_sources", "outputs_to", "sources"})
+
+
+def generated_by(design: Design, source: Source) -> str | None:
+    """Return the digest of the recipe of the generator that writes `source`, or None for a source
+    that no generator writes.
+
+    The generator is that of `design`, or that of the unit of generation that owns the source
+    (`Source.owner`, `Design.generation_units`). The digest covers the fields of the recipe that
+    shape what the generator writes (all but `NOT_SHAPING`). It holds no file content and no file
+    digest, and no value of the recipe (an `env` value may be a secret) appears in the
+    configuration. It is location-free and the same on a remote host: `cwd` counts as its place
+    below the design root (`design.generator_cwd`, the form that packaging sends), and the other
+    fields count as written, which packaging keeps. Two recipes that differ in their arguments
+    give two configurations, and an edit of a file that the generator reads is evidence of
+    freshness only."""
+    if not source.generated:
+        return None
+    if source.owner is None:
+        unit = design
+    else:
+        units = {unit.generation_label: unit for unit in design.generation_units}
+        if source.owner not in units:
+            raise ValueError(f"no unit of generation of {design.name} owns {source.path}")
+        unit = units[source.owner]
+    if unit.rtl.generator is None:
+        return None
+    table = {key: value for key, value in thaw(unit.rtl.generator).items() if key != "sources"}
+    generator = generator_model(table, unit.root)
+    assert generator is not None
+    recipe = generator.model_dump(mode="json", exclude=set(NOT_SHAPING))
+    # None and the design root are one place, however it is written.
+    cwd = generator.cwd
+    recipe["cwd"] = "." if cwd is None else generator_cwd(cwd, unit.root).as_posix()
+    return semantic_hash({"class": type(generator).__name__, "recipe": recipe})
+
+
 def source_entries(
     design: Design,
     sources: tuple[Source, ...],
     scope: Collection[SourceType] | None,
     *,
     ownership: bool = False,
+    recipes: bool = False,
 ) -> list[dict[str, Any]]:
     """Return the `{path, type}` of each source in `scope` (None: all), in design order.
 
@@ -83,6 +129,8 @@ def source_entries(
             entry["dependency"] = source.dependency
         if ownership:
             entry["generated"] = source.generated
+        if recipes and (recipe := generated_by(design, source)) is not None:
+            entry["generator"] = recipe
         entries.append(entry)
     return entries
 
@@ -130,7 +178,9 @@ def node_configuration(
             continue
         entry = design.part_metadata(part)
         if reads:
-            entry["sources"] = source_entries(design, getattr(design, part).sources, scope)
+            entry["sources"] = source_entries(
+                design, getattr(design, part).sources, scope, recipes=True
+            )
         configuration[part] = entry
     if "rtl" in flow_class.design_parts:
         configuration["language"] = thaw(design.language)

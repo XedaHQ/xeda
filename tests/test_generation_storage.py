@@ -7,7 +7,9 @@ copy of the design whose generated sources name their files in the storage; the 
 caller gave never changes.
 """
 
+import json
 import os
+import re
 import stat
 import sys
 import threading
@@ -16,12 +18,18 @@ from pathlib import Path
 import pytest
 import yaml
 
+from typing import ClassVar
+
+from xeda.design import SourceType
+from xeda.flow import Flow, MetricSpec
 from xeda.flow_runner import run_lock
 from xeda.frozen import thaw
 from xeda.flow_runner.launch_generation import generation_key
 from xeda.flow_runner.run_lock import lock_file
 from xeda.generation import RECORD_FORMAT, RECORD_NAME
 from xeda.outcomes import Outcome
+from xeda.spec import Spec
+from xeda.workspace import Workspace
 
 from .flow_registry import preserved_flow_registry
 from .generation_world import World, blocking_reader_flow, input_reader_flow, reader_flow
@@ -298,23 +306,140 @@ def test_a_pattern_gives_the_flow_each_file_it_matches_in_order(tmp_path):
     assert result.nodes[flow.name].record.metrics["seen"] == "// a\n// one\n// W=8\n"
 
 
+#: An `env` value that may be a secret: no document of a run or a plan shows it.
+SECRET = "s3cr3t-token-value"
+
+
 def test_the_configuration_names_a_generated_source_by_its_declaration(tmp_path):
     flow = reader_flow()
-    world = World(tmp_path, sources=["$XEDA_GENERATED/gen/*.v"])
+    world = World(
+        tmp_path, sources=["$XEDA_GENERATED/gen/*.v"], generator={"env": {"TOKEN": SECRET}}
+    )
     runner = world.runner()
     design = world.load()
     plan = runner.plan(flow, design)
     planned = plan.nodes[0]
-    assert thaw(planned.configuration["rtl"]["sources"]) == [
-        {"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog"}
-    ]
+    (entry,) = thaw(planned.configuration["rtl"]["sources"])
+    assert set(entry) == {"path", "type", "generator"}
+    assert (entry["path"], entry["type"]) == ("$XEDA_GENERATED/gen/*.v", "Verilog")
+    assert re.fullmatch("[0-9a-f]{64}", entry["generator"]), "the digest of the recipe"
+    text = json.dumps(thaw(planned.configuration))
+    assert SECRET not in text and sys.executable not in text and "digest" not in text
     result = world.launch(flow, runner, design)
     assert result.outcome is Outcome.PASSED, result.error
     record = result.nodes[flow.name].record
-    assert thaw(record.configuration["rtl"]["sources"]) == [
-        {"path": "$XEDA_GENERATED/gen/*.v", "type": "Verilog"}
-    ]
+    assert thaw(record.configuration["rtl"]["sources"]) == [entry]
     assert record.identity == planned.flowrun_hash
+
+
+def test_no_document_of_a_run_or_a_plan_shows_a_value_of_the_generator_env(tmp_path):
+    flow = reader_flow()
+    world = World(tmp_path, generator={"env": {"TOKEN": SECRET}})
+    design = world.load()
+    workspace = Workspace(world.run_root)
+    assert SECRET not in json.dumps(workspace.plan(Spec(flow.name, design)).to_dict())
+    result = world.launch(flow, world.runner(), design)
+    assert result.outcome is Outcome.PASSED, result.error
+    assert SECRET not in (result.nodes[flow.name].record.run_dir / "results.json").read_text()
+
+
+@pytest.mark.parametrize(
+    "field", ["always_runs", "check", "outputs_to", "generated_sources", "sources"]
+)
+def test_a_field_that_does_not_shape_the_output_keeps_the_identity(tmp_path, field):
+    flow = reader_flow()
+    world = World(tmp_path)
+    runner = world.runner()
+    design = world.load()
+    value = {
+        "always_runs": True,
+        "check": False,
+        "outputs_to": str(tmp_path / "copy"),
+        "generated_sources": ["$XEDA_GENERATED"],
+        "sources": ["gen.py"],
+    }[field]
+    changed = design.with_updates({f"rtl.generator.{field}": value})
+    assert changed.rtl.generator[field] != design.rtl.generator.get(field)
+    assert runner.plan(flow, changed).nodes[0].flowrun_hash == (
+        runner.plan(flow, design).nodes[0].flowrun_hash
+    )
+
+
+def test_a_generator_source_that_went_after_loading_fails_the_launch_as_an_invalid_recipe(
+    tmp_path,
+):
+    flow = reader_flow()
+    world = World(tmp_path)
+    runner = world.runner()
+    design = world.load()
+    (world.root / "spec.txt").unlink()
+    runner.plan(flow, design)  # planning reads no recipe source
+    result = world.launch(flow, runner, design)
+    assert result.outcome is Outcome.FAILED
+    assert result.error is not None and result.error.code == "generator_failed"
+    assert "the recipe of the generator is not valid now" in result.error.message
+    assert world.runs == 0
+
+
+def _args(world: World, width: str) -> dict:
+    """The recipe of the variant `width`, which counts its runs in a file of its own."""
+    counter = f"{world.counter}.{width}"
+    return {"rtl.generator.args": ["$DESIGN_ROOT/gen.py", counter, width]}
+
+
+@pytest.mark.parametrize("reader", [reader_flow, input_reader_flow])
+def test_the_recipe_of_the_generator_is_part_of_the_identity_of_a_reader(tmp_path, reader):
+    flow = reader()
+    world = World(tmp_path)
+    runner = world.runner()
+    design = world.load()
+    identities = {
+        runner.plan(flow, design.with_updates(_args(world, width))).nodes[0].flowrun_hash
+        for width in ("8", "16")
+    }
+    assert len(identities) == 2
+
+
+def test_a_node_that_reads_no_generated_source_keeps_its_identity(tmp_path):
+    class TVerilogReader(Flow):
+        """Is judged on the Verilog sources of the design, none of which is generated."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+        reads_sources = frozenset({SourceType.Verilog})
+        design_source_types = frozenset({SourceType.Verilog})
+
+    world = World(
+        tmp_path,
+        sources=["top.v", "$XEDA_GENERATED/gen/top.xdc"],
+        generator={"generated_sources": ["$XEDA_GENERATED/gen/top.xdc"]},
+    )
+    (world.root / "top.v").write_text("module top; endmodule\n")
+    runner = world.runner()
+    design = world.load()
+    planned = [
+        runner.plan(TVerilogReader, design.with_updates(_args(world, width))).nodes[0]
+        for width in ("8", "16")
+    ]
+    assert planned[0].flowrun_hash == planned[1].flowrun_hash
+    assert thaw(planned[0].configuration["rtl"]["sources"]) == [
+        {"path": "top.v", "type": "Verilog"}
+    ]
+
+
+def test_each_variant_of_a_generator_has_its_own_run_and_reuses_it(tmp_path):
+    flow = reader_flow()
+    world = World(tmp_path)
+    runner = world.runner(hashed_run_dirs=True)
+    design = world.load()
+    seen = []
+    for width in ("8", "16", "8", "16"):
+        result = world.launch(flow, runner, design.with_updates(_args(world, width)))
+        assert result.outcome is Outcome.PASSED, result.error
+        node = result.nodes[flow.name]
+        seen.append((str(node.disposition), node.record.run_dir, node.record.metrics["seen"]))
+    assert [disposition for disposition, _, _ in seen] == ["ran", "ran", "reused", "reused"]
+    assert seen[0][1] != seen[1][1] and seen[0][1:] == seen[2][1:] and seen[1][1:] == seen[3][1:]
+    assert seen[0][2].endswith("W=8\n") and seen[1][2].endswith("W=16\n")
 
 
 def test_a_record_names_a_generated_input_by_its_name_and_the_key_of_its_storage(tmp_path):
