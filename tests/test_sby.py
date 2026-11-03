@@ -176,7 +176,7 @@ def _design(root: Path, sources: dict[str, str] | None = None, **rtl: Any) -> De
 def _run(tmp_path: Path, design: Design, **settings: Any):
     settings.setdefault("mode", "bmc")
     if settings["mode"] == "prove":
-        settings.setdefault("timeout", "1 min")  # a proof has no bound of its own: it needs one
+        settings.setdefault("timeout", "1 min")  # so that a test with a slow proof ends
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
         Sby, design, settings
     )
@@ -1008,11 +1008,12 @@ def test_prove_refuses_a_depth_that_nothing_would_check(tmp_path, fake_sby):
         _run(tmp_path, _design(tmp_path), mode="prove", depth=20)
 
 
-def test_prove_needs_a_time_limit_because_the_proof_has_no_bound(tmp_path, fake_sby):
-    with pytest.raises(FlowSettingsException, match="`timeout`"):
-        DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
-            Sby, _design(tmp_path), {"mode": "prove"}
-        )
+def test_no_mode_needs_a_time_limit(tmp_path, fake_sby):
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
+        Sby, _design(tmp_path), {"mode": "prove"}
+    )
+    assert flow is not None and flow.outcome == "passed", _document(flow).get("error")
+    assert "timeout" not in _config(flow)
 
 
 #: The programs that SBY starts in each mode, by the option of SBY that names it (None: SBY finds
@@ -1620,7 +1621,7 @@ def _real(tmp_path: Path, sources: dict[str, str], name: str = "d", **settings: 
     design = _design(root, sources, **settings.pop("rtl", {}))
     settings.setdefault("mode", "bmc")
     if settings["mode"] == "prove":
-        settings.setdefault("timeout", "2 min")  # rIC3 proves without a bound: the task needs one
+        settings.setdefault("timeout", "2 min")  # so that a test with a slow proof ends
     else:
         settings.setdefault("depth", 6)
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
