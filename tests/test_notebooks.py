@@ -33,6 +33,7 @@ NOTEBOOK_PROBES: dict[str, tuple] = {
     ),
     "02-simulation": (tool_utils.require_verilator,),
     "03-sweep": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
+    "04-plan": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "05-generated": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
 }
 
@@ -312,3 +313,49 @@ def test_the_generated_notebook_compares_variants_by_their_exact_bytes(execution
     assert (out / "delivered" / "counter.v").read_bytes() == expected[16]
     for run in (nb, again):
         assert cell_output(run, "delivered-bytes").splitlines() == ["True", "[('generator', True)]"]
+
+
+PLAN_OUTPUTS = {
+    "fresh-plan": "yosys_fpga=fresh nextpnr=fresh\nsame identities: True",
+    "changed-seed": "yosys_fpga fresh\nnextpnr stale settings changed: seed",
+    "rebuild-plan": "[('yosys_fpga', 'stale', 'rebuild_all'), ('nextpnr', 'stale', 'rebuild_all')]\nran",
+    "plan-options": "plan_options",
+    "stale-plan": "stale_plan\nthe run root differs: the plan was made for",
+    "canonical-quantity": "6 ns True",
+    "flow-errors": "FlowNotFoundError flow_not_found\nChainError no_edge",
+    "module-plan": "fresh",
+}
+
+#: The problems that each error cell prints, one line for each problem of each request.
+PLAN_PROBLEMS = {
+    "unscoped-setting": ["unscoped_setting node=None setting=seed"],
+    "unknown-setting": ["unknown_setting node=nextpnr setting=sed"],
+    "invalid-value": ["invalid_value node=nextpnr setting=seed"],
+    "invalid-quantity": ["invalid_quantity node=nextpnr setting=hold_detour_max"] * 2,
+    "node-and-key-errors": [
+        "unknown_node node=None setting=nextpnr",
+        "conflicting_keys node=None setting=nextpnr",
+    ],
+    "several-errors": [
+        "unknown_setting node=nextpnr setting=sed",
+        "invalid_value node=nextpnr setting=seed",
+    ],
+}
+
+
+def _squeezed(text: str) -> str:
+    return "\n".join(" ".join(line.split()) for line in text.splitlines())
+
+
+def test_the_plan_notebook_plans_runs_and_refuses(executions):
+    # The second kernel has another environment, so it does not reuse the runs of the first.
+    _, first, second = executions("04-plan")
+    for nb in (first, second):
+        for tag, text in PLAN_OUTPUTS.items():
+            assert _squeezed(cell_output(nb, tag)).startswith(text), tag
+        for tag, problems in PLAN_PROBLEMS.items():
+            lines = cell_output(nb, tag).splitlines()
+            assert [line for line in lines if line and not line[0].isspace()] == problems, tag
+        assert cell_output(nb, "run-plan").startswith("passed True\nyosys_fpga  passed")
+    assert cell_output(first, "first-plan").count("stale") == 2
+    assert cell_output(first, "run-plan").endswith("nextpnr     passed  ran")
