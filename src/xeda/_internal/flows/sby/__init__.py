@@ -54,6 +54,13 @@ DEPENDENCIES_DIRECTORY = "xeda_dependencies"
 #: The flattened model that the task writes beside the staged sources, for `timing_problems`. A
 #: source of this name, in any letter case, is refused. Keep it lowercase, as `PARAMETERS_FILE`.
 TIMING_MODEL = "xeda_timing.json"
+#: The attributes of each property cell before `prep`, for `unreached_property_files`. Kept
+#: lowercase and refused as a source name, as `TIMING_MODEL`.
+PROPERTIES_FILE = "xeda_properties.txt"
+#: A property statement in Verilog or SystemVerilog text without comments and strings.
+PROPERTY_STATEMENT = re.compile(r"\b(?:assert|assume|cover)\b")
+#: The `src` attribute of a cell in the output of Yosys `printattrs`.
+SOURCE_ATTRIBUTE = re.compile(r'\bsrc="([^"]*)"')
 ARCHIVE = "sby_evidence.zip"
 #: The SBY engine line of each mode. `smtbmc` runs its presat check of the assumptions. `prove` uses
 #: one process of rIC3, IC3 only: the default portfolio of rIC3 writes `/tmp/rIC3` outside the run
@@ -248,9 +255,10 @@ def staged_names(design: Design, sources: list[Source]) -> dict[str, Source]:
                 "parameter names, and a source with that name, in any letter case, would replace "
                 "it; rename the source"
             )
-        if name.lower() == TIMING_MODEL:
+        if name.lower() in (TIMING_MODEL, PROPERTIES_FILE):
             raise FlowSettingsException(
-                f"sby cannot stage {name!r}: the task writes {TIMING_MODEL} itself; rename the source"
+                f"sby cannot stage {name!r}: the task writes a file of that name itself; rename "
+                "the source"
             )
         if name in names:
             if _same_file(names[name], src):
@@ -326,6 +334,31 @@ def _top_module(model: dict[str, Any]) -> dict[str, Any]:
     if len(tops) != 1:
         raise ValueError(f"the model has {len(tops)} top modules")
     return tops[0]
+
+
+def unreached_property_files(names: dict[str, Source], attributes: str) -> list[str]:
+    """Return the staged Verilog and SystemVerilog sources that hold a property statement while no
+    property cell of the model comes from them.
+
+    `attributes` is the output of `printattrs` over the property cells before `prep`, so a property
+    that Yosys would later remove as constant still counts. Such a file holds a checker that no
+    `bind` or instance reaches, or a property in an inactive `ifdef` branch. A property that a macro
+    writes has no place in its file, so this finds nothing for it."""
+    reached = {
+        PurePosixPath(place.rsplit(":", 1)[0]).as_posix()
+        for value in SOURCE_ATTRIBUTE.findall(attributes)
+        for place in value.split("|")
+        if place
+    }
+    return [
+        name
+        for name, src in names.items()
+        if src.type in (*HEADER_TYPES, SourceType.Verilog, SourceType.SystemVerilog)
+        and name not in reached
+        and PROPERTY_STATEMENT.search(
+            COMMENT_OR_STRING.sub(" ", src.path.read_text(errors="replace"))
+        )
+    ]
 
 
 def is_combinational(model: dict[str, Any]) -> bool:
@@ -635,6 +668,12 @@ class Sby(Flow):
                 "instance.",
                 "integer",
             ),
+            "formal.unreached_property_files": MetricSpec(
+                "The Verilog and SystemVerilog sources that hold an `assert`, `assume` or `cover` "
+                "from which no property of the model comes: a checker that no `bind` or instance "
+                "reaches, or a property in an inactive `ifdef`. The run only warns about them.",
+                "text_list",
+            ),
             "formal.covers": MetricSpec(
                 "The cover statements in the hierarchy of the top of the prepared model, one for "
                 "each instance.",
@@ -806,6 +845,8 @@ class Sby(Flow):
         self.timing: list[str] | None = None
         #: Whether the model has no state and no clocked property.
         self.combinational = False
+        #: The staged sources of this run (`staged_names`).
+        self.staged: dict[str, Source] = {}
 
     def always_runs(self) -> str | None:
         return super().always_runs() or (
@@ -822,6 +863,7 @@ class Sby(Flow):
         # First, so that a run that stops before SBY starts leaves no evidence of an earlier one.
         run_directory.remove(WORK, ASSUMPTIONS_WORK, STAGE, TEMPORARY, ARCHIVE)
         names = staged_names(design, self.sources_read())
+        self.staged = names
         _refuse_default_disable(names)
         mode = ss.mode or "bmc"
         engine = ENGINES[mode]
@@ -852,6 +894,7 @@ class Sby(Flow):
             parameters_root=PARAMETERS_ROOT if parameters and not vhdl else None,
             parameters_file=PARAMETERS_FILE,
             timing_model=TIMING_MODEL,
+            properties_file=PROPERTIES_FILE,
             # `-fpsl` reads the PSL in comments; GHDL keeps assertions and PSL unless told not to.
             ghdl_flags=ghdl.common_flags(language_of(design).vhdl)
             + ["-fpsl"]
@@ -1058,6 +1101,20 @@ class Sby(Flow):
                 self.results["formal.assertions"] = self.properties["assert"]
                 self.results["formal.assumptions"] = self.properties["assume"]
                 self.results["formal.covers"] = self.properties["cover"]
+        attributes = self.report_file(Path(WORK) / "src" / PROPERTIES_FILE, optional=True)
+        if attributes is not None:
+            unreached = unreached_property_files(
+                self.staged, attributes.read_text(errors="replace")
+            )
+            self.results["formal.unreached_property_files"] = unreached
+            if unreached:
+                log.warning(
+                    "No property of the model comes from %s, which hold(s) one: a checker there "
+                    "needs a `bind` or an instance under `%s`, or the property is in an inactive "
+                    "`ifdef`",
+                    ", ".join(unreached),
+                    self.design.rtl.top,
+                )
         timing = self.report_file(Path(WORK) / "src" / TIMING_MODEL, optional=True)
         if timing is not None:
             try:

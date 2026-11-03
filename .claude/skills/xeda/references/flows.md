@@ -515,6 +515,6 @@ Required settings: `mode`
 
 4 flow-specific settings (plus the common ones): `xeda list-settings sby --json`
 
-Reports: `formal.mode`, `formal.depth`, `formal.engine`, `formal.solver`, `formal.status`, `formal.assertions`, `formal.assumptions`, `formal.covers`
+Reports: `formal.mode`, `formal.depth`, `formal.engine`, `formal.solver`, `formal.status`, `formal.assertions`, `formal.assumptions`, `formal.unreached_property_files`, `formal.covers`
 
 Artifacts: `log`, `config`, `status`, `task_logfile`, `evidence_archive`

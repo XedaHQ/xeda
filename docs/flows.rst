@@ -1153,7 +1153,13 @@ Guard such a property with a register that is 0 at the first step:
    cover property (@(posedge clk) past_valid && $rose(ready));
 
 A checker module has no effect until a ``bind`` places it. If the design has no assertion, the run
-fails. If another assertion exists, the run passes, so read ``formal.assertions``. The count comes
+fails. If another assertion exists, the run passes, and it warns: ``formal.unreached_property_files``
+lists each Verilog or SystemVerilog source that holds an ``assert``, ``assume`` or ``cover`` while no
+property of the model comes from it. Such a file holds a checker that no ``bind`` or instance
+reaches, so list the file with the ``bind``. The check reads the text without comments and strings,
+so a property in an inactive ```ifdef`` branch also warns, and a property that a macro writes is not
+seen. It finds nothing for a checker file that ``rtl.sources`` does not list, so also read
+``formal.assertions``. The count comes
 from the prepared model, so a property that Yosys removes as constant is not in it.
 
 Clocks and depth

@@ -28,6 +28,11 @@ plugin -i slang
 read_slang --no-synthesis-define -DFORMAL{% for define in defines %} {{ define|word }}{% endfor %}{% for directory in include_dirs %} -I{{ directory|word }}{% endfor %} --top {{ design.rtl.top|word }}{% if parameters_root %} --top {{ parameters_root }}{% endif %}{% for name in units %} {{ name|word }}{% endfor %}{% if parameters_root %} {{ parameters_file }}{% endif %}{% for key, value in parameters.items() %} -G {{ key|word }}={{ value|word }}{% endfor %}
 {% endif -%}
 hierarchy -check -top {{ design.rtl.top|word }}
+{% if not assumptions_only -%}
+{#- The place of each property before `prep`, so the flow can name a file whose properties no
+    instance reaches. -#}
+tee -q -o {{ properties_file }} printattrs t:$check t:$assert t:$assume t:$cover t:$live t:$fair
+{% endif -%}
 {#- Before `prep` can optimize anything away: refuse the constructs whose meaning no fixture has
     shown (symbolic values, also as unlowered attributes; liveness; blackboxes), and require one
     statement of what the mode checks. #}
