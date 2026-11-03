@@ -25,7 +25,12 @@ from xeda import Design
 from xeda._internal.design import Source, SourceType
 from xeda._internal.flow import FlowException, FlowSettingsException
 from xeda._internal.flow_runner import DefaultRunner
-from xeda._internal.flows.sby import Sby, staged_names, timing_problems
+from xeda._internal.flows.sby import (
+    Sby,
+    staged_names,
+    timing_problems,
+    unreached_property_files,
+)
 from xeda._internal.utils import ExecutableNotFound, settings_to_dict
 
 from . import tool_utils
@@ -90,6 +95,8 @@ if spec.get("timing_model", True):
     flattened = spec.get("flattened", {"modules": {"top": empty}})
     (work / "src").mkdir(exist_ok=True)
     (work / "src" / "xeda_timing.json").write_text(json.dumps(flattened))
+    if "attributes" in spec:
+        (work / "src" / "xeda_properties.txt").write_text(spec["attributes"])
 for index in range(spec.get("traces", 0)):
     (work / "engine_0").mkdir(exist_ok=True)
     (work / "engine_0" / f"trace{index}.vcd").write_text(f"trace {index}\n")
@@ -351,11 +358,52 @@ def test_a_dependency_outside_the_design_root_keeps_its_own_tree(tmp_path, fake_
     assert (flow.run_path / "sby_stage" / "xeda_dependencies" / "0" / "src" / "top.sv").is_file()
 
 
-def test_a_source_named_like_the_timing_model_is_refused(tmp_path, fake_sby):
-    with pytest.raises(FlowSettingsException, match="writes xeda_timing.json"):
-        (tmp_path / "Xeda_Timing.json").write_text("{}")
-        source = Source(tmp_path / "Xeda_Timing.json", typ=SourceType.MemoryFile)
+@pytest.mark.parametrize("name", ["Xeda_Timing.json", "XEDA_PROPERTIES.txt"])
+def test_a_source_named_like_a_file_of_the_task_is_refused(tmp_path, fake_sby, name):
+    with pytest.raises(FlowSettingsException, match="writes a file of that name"):
+        (tmp_path / name).write_text("{}")
+        source = Source(tmp_path / name, typ=SourceType.MemoryFile)
         staged_names(_design(tmp_path), [source])
+
+
+CHECKER = "module check(input logic clk, input logic q);\n  assert property (@(posedge clk) q);\nendmodule\n"
+
+
+@pytest.mark.parametrize(
+    "attributes, unreached",
+    [
+        ('$1\n  (* src="top.sv:1.1-1.9" *)\n$2\n  (* src="check.sv:2.3-2.40" *)\n', []),
+        ('$1\n  (* src="top.sv:1.1-1.9" *)\n', ["check.sv"]),
+        ('$1\n  (* src="top.sv:1.1-1.9|./check.sv:2.3-2.40" *)\n', []),
+        ("", ["top.sv", "check.sv"]),
+    ],
+    ids=["reached", "not-reached", "several-places", "no-property-cell"],
+)
+def test_a_file_whose_properties_no_instance_reaches_is_named(
+    tmp_path, fake_sby, attributes, unreached
+):
+    sources = {
+        "top.sv": SV_TOP,
+        "check.sv": CHECKER,
+        "quiet.sv": '// assert in a comment\nmodule quiet; string s = "cover"; endmodule\n',
+        "data.hex": "assert\n",
+    }
+    design = _design(tmp_path, sources)
+    names = staged_names(design, list(design.rtl.sources))
+    found = unreached_property_files(names, attributes)
+    assert found == unreached
+
+
+def test_an_unreached_property_file_is_a_warning_in_the_results(
+    tmp_path, fake_sby, monkeypatch, caplog
+):
+    _spec(monkeypatch, attributes='$1\n  (* src="top.sv:1.1-1.9" *)\n')
+    design = _design(tmp_path, {"top.sv": SV_TOP, "check.sv": CHECKER})
+    with caplog.at_level("WARNING"):
+        flow = _run(tmp_path, design)
+    assert flow.outcome == "passed", _document(flow).get("error")
+    assert flow.results["formal.unreached_property_files"] == ["check.sv"]
+    assert "check.sv" in caplog.text and "needs a `bind`" in caplog.text
 
 
 def test_a_reserved_directory_of_the_task_is_refused(tmp_path, fake_sby):
@@ -1934,6 +1982,40 @@ def test_real_a_depth_of_one_does_not_hide_a_clocked_failure(tmp_path, file, sou
     flow = _real(tmp_path, {file: source}, depth=1)
     assert flow.outcome == "failed"
     assert "a `depth` of 1 checks no clocked property" in _document(flow)["error"]["message"]
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "bind, unreached",
+    [
+        ("bind top check checker_instance(.clk(clk), .q(q));\n", []),
+        (None, ["check.sv"]),
+        ("bind other check checker_instance(.clk(clk), .q(q));\n", ["check.sv"]),
+    ],
+    ids=["attached", "bind-omitted", "bind-to-an-unreached-module"],
+)
+def test_real_a_checker_that_no_bind_attaches_is_named(tmp_path, bind, unreached):
+    require_sby()
+    sources = {
+        "top.sv": "module top(input logic clk); logic q = 1; always_ff @(posedge clk) q <= 1;\n"
+        '`include "props.svh"\nendmodule\n',
+        "inc/props.svh": "assert property (@(posedge clk) q == 1);\n",
+        "other.sv": "module other(input logic clk); logic q = 1; endmodule\n",
+        "check.sv": CHECKER,
+    }
+    if bind is not None:
+        sources["bound.sv"] = bind
+    rtl = {"sources": [*sources][:1] + [{"file": "inc/props.svh", "type": "SVHeader"}]}
+    rtl["sources"] += [name for name in sources if name not in ("top.sv", "inc/props.svh")]
+    for name, text in sources.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text)
+    design = Design(name="d", root=tmp_path, rtl={**rtl, "top": "top"})
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
+        Sby, design, {"mode": "bmc", "depth": 4}
+    )
+    assert flow is not None and flow.outcome == "passed", _document(flow).get("error")
+    assert flow.results["formal.unreached_property_files"] == unreached
 
 
 @pytest.mark.real_tool
