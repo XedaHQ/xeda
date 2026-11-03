@@ -179,6 +179,11 @@ def test_a_platform_that_cannot_be_read_is_unsupported_not_a_conflict(tmp_path, 
     assert _plan_code(tmp_path, ASIC_CHAIN, {"openroad_place": setting}) == "unsupported_setting"
 
 
+def test_a_shared_path_that_cannot_be_resolved_is_an_invalid_value(tmp_path):
+    settings = {"openroad_place": {"platform": "nangate45", "liberty": ["a\x00b.lib"]}}
+    assert _plan_code(tmp_path, ASIC_CHAIN, settings) == "invalid_value"
+
+
 def test_two_clock_periods_that_differ_are_a_shared_setting_conflict(tmp_path):
     settings = {
         "yosys_fpga": {"clocks": {"main_clock": {"period": "10 ns"}}},

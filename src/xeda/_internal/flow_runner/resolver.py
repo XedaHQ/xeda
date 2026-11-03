@@ -647,9 +647,11 @@ def _normalized_leaves(
                     leaves = leaves[part]
                 value = leaves
         except ValidationError as error:
-            raise _malformed(
-                request.cls, error, path[:1] if shared == "fpga" else path[:-1]
-            ) from error
+            # Only the partial models of `fpga` and `clocks` report a location inside the value.
+            prefix = {"fpga": path[:1], "clocks": path[:-1]}.get(shared, ())
+            raise _malformed(request.cls, error, prefix) from error
+        except ValueError as error:  # a path that cannot be resolved, such as one with a NUL
+            raise _error(request.cls, ".".join(path), str(error), "invalid_value") from error
         result[target] = (value, value, loc)
     return result
 
