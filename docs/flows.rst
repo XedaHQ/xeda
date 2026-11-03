@@ -1124,8 +1124,9 @@ value in the design file, such as ``OK: 0``. A sized binary literal such as ``4'
 accepted. VHDL generics are not refused, because GHDL reads their text by the type of the generic.
 
 ``timeout`` takes a whole number of seconds, such as ``10 min``. Xeda does not round it. A task that
-reaches the limit ends with the status TIMEOUT, and the run fails. ``prove`` needs a ``timeout``,
-because its proof has no bound.
+reaches the limit ends with the status TIMEOUT, and the run fails. No mode needs a ``timeout``.
+A ``prove`` has no bound, so it can run for a long time; Ctrl-C stops it and every program that SBY
+started, as in every flow.
 
 Properties that the frontend reads
 ----------------------------------

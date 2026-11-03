@@ -9221,7 +9221,7 @@
       "timeout": {
         "children": false,
         "assignable": true,
-        "help": "The time limit of the SBY task, a whole number of seconds such as `10 min`. A task that reaches it ends with the status TIMEOUT, and the run fails. None sets no limit, except that `prove` needs one: its proof has no bound."
+        "help": "The time limit of the SBY task, a whole number of seconds such as `10 min`. A task that reaches it ends with the status TIMEOUT, and the run fails. None sets no limit; Ctrl-C stops a run as in every flow."
       }
     },
     "default_producers": [

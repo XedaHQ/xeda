@@ -573,7 +573,7 @@ class Sby(Flow):
     when every cover statement is reached within `depth` steps (assertions are not checked); both
     run `smtbmc bitwuzla`, which first checks that the assumptions are satisfiable. `prove` passes
     when `btor rIC3 -e ic3` (the IC3 engine of rIC3) proves every assertion for all time. It has no
-    `depth` and needs a `timeout`. After a proof, a second task checks with `smtbmc bitwuzla` that the
+    `depth`. After a proof, a second task checks with `smtbmc bitwuzla` that the
     assumptions hold for a trace of 20 steps (40 with `multiclock`), and the run fails if they do
     not. A contradiction that appears only after these steps still passes vacuously, and so does
     one that a stalled clock avoids with `multiclock`. A failed assertion or an unreached
@@ -692,27 +692,20 @@ class Sby(Flow):
             None,
             description="The time limit of the SBY task, a whole number of seconds such as "
             "`10 min`. A task that reaches it ends with the status TIMEOUT, and the run fails. "
-            "None sets no limit, except that `prove` needs one: its proof has no bound.",
+            "None sets no limit; Ctrl-C stops a run as in every flow.",
         )
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a time limit that SBY cannot take, a `prove` with a depth or with no time limit,
-        library paths, which the task would not stage, and a run in Docker, which has no image
-        with SBY."""
+        """Refuse a time limit that SBY cannot take, a `prove` with a depth, library paths, which
+        the task would not stage, and a run in Docker, which has no image with SBY."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
-        if settings.mode == "prove":
-            if settings.depth is not None:
-                raise FlowSettingsException(
-                    "sby `prove` has no `depth`: rIC3 proves for all time and SBY gives it no "
-                    "bound, so nothing would check it; remove `depth`"
-                )
-            if settings.timeout is None:
-                raise FlowSettingsException(
-                    "sby `prove` needs `timeout`: the proof of rIC3 has no bound and may run "
-                    "forever; set it, for example `-s sby.timeout=10min`"
-                )
+        if settings.mode == "prove" and settings.depth is not None:
+            raise FlowSettingsException(
+                "sby `prove` has no `depth`: rIC3 proves for all time and SBY gives it no "
+                "bound, so nothing would check it; remove `depth`"
+            )
         seconds = None if settings.timeout is None else settings.timeout.to("s")
         if seconds is not None and (seconds < 1 or not seconds.is_integer()):
             raise FlowSettingsException(
