@@ -10,7 +10,8 @@ What is public
 ==============
 
 - The Python modules ``xeda``, ``xeda.errors`` and ``xeda.introspect``: their names, signatures
-  (parameter names, kinds, order, defaults and annotations), and documented fields and attributes.
+  (parameter names, kinds, order, defaults and annotations), and documented fields and attributes
+  (see :doc:`api/index`).
 - The command-line interface: the commands, the options and the exit statuses.
 - The documents that Xeda writes and reads (see :doc:`machine-readable`): ``results.json``,
   the output of ``xeda run --json``, and the other JSON documents of the commands.

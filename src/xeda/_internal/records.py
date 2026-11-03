@@ -158,7 +158,7 @@ class InvalidMetric(ValueError):
 class MetricInfo:
     """What a metric of a record is: the path, the description, the type of its value and the unit.
 
-    `unit` is a unit text of the units table of `xeda._internal.units`, or `None`. For the type `numbers`,
+    `unit` is a unit text of Xeda's units table, such as `MHz`, or `None`. For the type `numbers`,
     it is the unit of every value."""
 
     path: str
@@ -237,7 +237,7 @@ class InputRecord:
 class RunRecord:
     """Everything that one execution of a node left behind: the record in `results.json`.
 
-    Every table and list in it is immutable (`xeda._internal.frozen`). `run_root` and `run_dir` say where
+    Every table and list in it is immutable. `run_root` and `run_dir` say where
     the record is stored now; the document does not hold them. `outcome` is `passed`, `rejected`,
     `failed` or `canceled`. A passed record has no `error`, and every other has one. `metrics` is
     nested by the dotted path of each metric, and `metric_info` is keyed by the same paths: its

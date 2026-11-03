@@ -1161,8 +1161,7 @@ def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
 
 
 def boards_info() -> List[Dict[str, Any]]:
-    """Return the FPGA boards that ship with Xeda (`xeda/_internal/data/boards.toml`), by their lower-case
-    names."""
+    """Return the FPGA boards that ship with Xeda, by their lower-case names."""
     from .board import bundled_boards
 
     try:

@@ -151,8 +151,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   `pdk_version`, `pdk_root`, `hierarchical`, `wire_rc` and `out_of_context` (`SHARED_SETTINGS`) must
   agree where both endpoints declare them. Keep these names first, in order
   (`tests/test_documentation.py`).
-- YAML snippets in `docs/` and the skill run as tests (`tests/test_chain_documentation.py`); a
-  new snippet is YAML that starts with `# <name>.yaml`.
+- YAML snippets in `docs/` and the skill run as tests (`tests/test_chain_documentation.py`); so do
+  Python snippets that start with `# <name>.py` (`tests/test_python_documentation.py`).
 
 ### Adding or changing a flow
 
