@@ -22,8 +22,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
+from pydantic import ValidationError
+from pydantic_core import ErrorDetails
+
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel, expand_forms
+from ..dataclass import BaseModel, expand_forms, validation_errors
 from ..design import Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
@@ -507,8 +510,21 @@ def _check_links_pass_through(
             )
 
 
-def _error(cls: type[Flow], leaf: str, message: str) -> FlowSettingsError:
-    return FlowSettingsError([(leaf, message, None, "shared_setting_conflict")], cls.Settings)
+def _error(
+    cls: type[Flow], leaf: str, message: str, code: str = "shared_setting_conflict"
+) -> FlowSettingsError:
+    """Return the error for `leaf`. Without `code` it reports that two nodes disagree."""
+    return FlowSettingsError([(leaf, message, None, code)], cls.Settings)
+
+
+def _malformed(
+    cls: type[Flow], error: ValidationError, prefix: tuple[str, ...]
+) -> FlowSettingsError:
+    """Return `error`, which a model inside the value at `prefix` raised, as the validation of
+    the settings of `cls` reports it, so a malformed shared value gets the code and the message
+    of the same value of an ordinary setting."""
+    errors = [ErrorDetails(**{**item, "loc": (*prefix, *item["loc"])}) for item in error.errors()]
+    return FlowSettingsError(validation_errors(errors), cls.Settings, error.json())
 
 
 def _shown(value: Any) -> str:
@@ -567,12 +583,12 @@ def _normalized_leaves(
             settings_in_context(request.cls, {"clocks": clocks}, **context)
         for name, raw_clock in clocks.items():
             if not isinstance(raw_clock, Mapping):
-                raise _error(request.cls, f"clocks.{name}", "a clock must be a mapping")
-            if isinstance(raw_clock, Mapping) and ("period" in raw_clock or "freq" in raw_clock):
+                settings_in_context(request.cls, {"clocks": {name: raw_clock}}, **context)
+            elif "period" in raw_clock or "freq" in raw_clock:
                 try:
                     PhysicalClock.model_validate(raw_clock)
-                except ValueError as error:
-                    raise _error(request.cls, f"clocks.{name}", str(error)) from error
+                except ValidationError as error:
+                    raise _malformed(request.cls, error, ("clocks", name)) from error
     for path, loc in request.raw.locations.items():
         if not path or path[0] != shared:
             continue
@@ -595,7 +611,9 @@ def _normalized_leaves(
                 # The board and database may come from different nodes. Lookup is valid
                 # only after they agree; here check the same strict name syntax as the field.
                 if value is not None and not isinstance(value, str):
-                    raise ValueError("board must be a string or None")
+                    raise _error(
+                        request.cls, shared, "Input should be a valid string", "string_type"
+                    )
             elif shared in SHARED_PATH_LIST_SETTINGS:
                 model = settings_in_context(request.cls, {shared: value}, **context)
                 value = [
@@ -618,16 +636,22 @@ def _normalized_leaves(
             elif shared == "wire_rc":
                 if value is None:
                     continue  # a `wire_rc` that is not given says nothing about any leaf
-                nested: dict[str, Any] = {}
-                _put(nested, path[1:], value)
+                nested: Any = value
+                if len(path) > 1:
+                    nested = {}
+                    _put(nested, path[1:], value)
                 model = settings_in_context(request.cls, {shared: nested}, **context)
                 rc = getattr(model, shared)
                 leaves: Any = rc.model_dump(mode="json") if rc else None
                 for part in path[1:]:
                     leaves = leaves[part]
                 value = leaves
-        except ValueError as error:
-            raise _error(request.cls, ".".join(path), f"{error} at {loc.label}") from error
+        except ValidationError as error:
+            # Only the partial models of `fpga` and `clocks` report a location inside the value.
+            prefix = {"fpga": path[:1], "clocks": path[:-1]}.get(shared, ())
+            raise _malformed(request.cls, error, prefix) from error
+        except ValueError as error:  # a path that cannot be resolved, such as one with a NUL
+            raise _error(request.cls, ".".join(path), str(error), "invalid_value") from error
         result[target] = (value, value, loc)
     return result
 
@@ -687,13 +711,16 @@ def _pin_pdks(requests: list[_Request], context: dict[str, Any]) -> None:
             bundled, user = platform_residues(platform, platform_file)
         except FlowSettingsException as error:
             raise _error(
-                first.cls, "platform_file" if platform_file else "platform", str(error)
+                first.cls, "platform_file" if platform_file else "platform", str(error), error.code
             ) from error
         try:
             residue = effective_residue(bundled, user, provider)
         except ValueError as error:
             raise _error(
-                first.cls, "platform_file" if platform_file else "platform", str(error)
+                first.cls,
+                "platform_file" if platform_file else "platform",
+                str(error),
+                "unsupported_setting",
             ) from error
         if provider is None:
             provider = residue.providers.default

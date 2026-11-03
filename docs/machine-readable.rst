@@ -820,7 +820,9 @@ names or addresses that Xeda suggests for an unknown name. The JSON ``error`` ha
 ``invalid_value``
     A setting has a value that its type refuses, and no other code of this category fits.
 ``shared_setting_conflict``
-    Two flows of a chain declare a shared setting, and the values differ.
+    Two flows of a chain give a shared setting different values, or a ``board`` and an ``fpga``
+    setting disagree. A shared setting with a malformed value gets the code of any other malformed
+    setting.
 ``conflicting_keys``
     Two keys, or two bindings, set one setting to two values.
 ``removed_setting``
