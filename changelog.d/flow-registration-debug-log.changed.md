@@ -1,1 +1,0 @@
-- Xeda no longer logs each flow class it registers at the info level.

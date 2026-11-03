@@ -1,1 +1,0 @@
-- The launcher setting `scrub_old_runs` is removed. Use `prune_variants` instead.

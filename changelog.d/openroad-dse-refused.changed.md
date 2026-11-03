@@ -1,1 +1,0 @@
-- `xeda dse` refuses Fmax exploration of the OpenROAD flows.

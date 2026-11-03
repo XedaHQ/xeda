@@ -1,1 +1,0 @@
-- The error for a project file that holds no mapping now names the file.

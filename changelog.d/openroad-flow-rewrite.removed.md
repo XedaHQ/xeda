@@ -1,1 +1,0 @@
-- The bundled ASIC platform files were removed.

@@ -7713,6 +7713,10 @@
         "formal.status": {
           "type": "text",
           "unit": null
+        },
+        "formal.unreached_property_files": {
+          "type": "text_list",
+          "unit": null
         }
       },
       "outputs": {},
