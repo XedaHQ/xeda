@@ -333,9 +333,15 @@ def is_combinational(model: dict[str, Any]) -> bool:
     assertion as a flop before an `$assert`, so the state counts as well as the trigger."""
     for cell in _top_module(model)["cells"].values():
         kind = cell["type"]
-        if kind in EDGE_CELLS or kind in LEVEL_CELLS or kind in GLOBAL_CELLS or kind == "$mem_v2":
+        parameters = cell["parameters"]
+        if kind in EDGE_CELLS or kind in LEVEL_CELLS or kind in GLOBAL_CELLS:
             return False
-        if kind in ("$check", "$print") and "1" in cell["parameters"]["TRG_ENABLE"]:
+        # A memory with no write port and no clocked read port is a table.
+        if kind == "$mem_v2" and (
+            int(parameters["WR_PORTS"], 2) or "1" in parameters["RD_CLK_ENABLE"]
+        ):
+            return False
+        if kind == "$check" and "1" in parameters["TRG_ENABLE"]:
             return False
     return True
 
@@ -353,7 +359,7 @@ def _fan_in(bits: set[Any], drivers: dict[Any, set[Any]]) -> set[Any]:
 
 
 def _clock_races(
-    clocked: list[tuple[set[Any], set[Any]]],
+    clocked: list[tuple[Any, set[Any]]],
     drivers: dict[Any, set[Any]],
     owners: dict[Any, set[Any]],
     bit_names: dict[Any, str],
@@ -364,32 +370,36 @@ def _clock_races(
     from the design for a cell that reads its own clock, because the edge has changed that value.
     It also differs for a cell on a clock that state drives, when it reads state of the clock that
     drives that state: that state changes on the same edge, before the clock of the cell does.
-    `clocked` lists the clock bits and data bits of each cell, `owners` what changes each state bit
+    `clocked` lists each clock bit of a cell with the data bits of the cell, `owners` what changes each state bit
     (its clock and its level-sensitive inputs), and `drivers` the input bits of each output bit of a
     combinational cell.
     """
     problems: set[str] = set()
-    for clocks, data in clocked:
-        sources = _fan_in(clocks, drivers)
+    clock_side: dict[Any, tuple[set[Any], set[Any]]] = {}
+    for clock, data in clocked:
+        if clock not in clock_side:
+            sources = _fan_in({clock}, drivers)
+            # What changes a state bit in the fan-in of this clock, and its sources in turn.
+            upstream: set[Any] = set()
+            pending = list(sources)
+            while pending:
+                for changes in owners.get(pending.pop(), ()):
+                    for bit in _fan_in({changes}, drivers) - upstream:
+                        upstream.add(bit)
+                        pending.append(bit)
+            clock_side[clock] = (sources, upstream)
+        sources, upstream = clock_side[clock]
         read = _fan_in(data, drivers)
         for bit in (sources & read) - CONSTANT_BITS:
             problems.add(
                 f"logic on the clock it drives reads {bit_names.get(bit, str(bit))} as data"
             )
-        # The clocks that change a state bit in the fan-in of this clock, and their sources in turn.
-        upstream: set[Any] = set()
-        pending = list(sources)
-        while pending:
-            for changes in owners.get(pending.pop(), ()):
-                for bit in _fan_in({changes}, drivers) - upstream:
-                    upstream.add(bit)
-                    pending.append(bit)
         for bit in read:
             # State on this clock changes with this cell, so a shared reset is no race.
-            if owners.get(bit, set()) & upstream and not owners.get(bit, set()) & clocks:
-                shown = ", ".join(sorted(bit_names.get(clock, str(clock)) for clock in clocks))
+            changed_by = owners.get(bit, set())
+            if changed_by & upstream and clock not in changed_by:
                 problems.add(
-                    f"logic on the state-driven clock {shown} reads "
+                    f"logic on the state-driven clock {bit_names.get(clock, str(clock))} reads "
                     f"{bit_names.get(bit, str(bit))}, which changes on the same edge"
                 )
     return problems
@@ -421,7 +431,7 @@ def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str
     read: set[Any] = set()
     problems: set[str] = set()
     unknown: set[str] = set()
-    clocked: list[tuple[set[Any], set[Any]]] = []
+    clocked: list[tuple[Any, set[Any]]] = []
     drivers: dict[Any, set[Any]] = {}
     owners: dict[Any, set[Any]] = {}
     for cell in module["cells"].values():
@@ -473,14 +483,16 @@ def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str
         outputs = {
             bit for port, bits in ports.items() if directions[port] == "output" for bit in bits
         }
-        if own:
-            clocked.append((own, data))
+        clocked.extend((clock, data) for clock in own)
         if kind in LEVEL_CELLS:
             level = ASYNCHRONOUS_PORTS if clock_ports else (*ASYNCHRONOUS_PORTS, "EN", "D")
             changes = {bit for port in level for bit in ports.get(port, ())} - CONSTANT_BITS
             owners.update(dict.fromkeys(outputs, own | changes))
         elif kind in EDGE_CELLS or kind in GLOBAL_CELLS or kind == "$mem_v2":
             owners.update(dict.fromkeys(outputs, own))
+            if kind == "$mem_v2" and "0" in parameters["RD_CLK_ENABLE"]:
+                # An asynchronous read passes its address through.
+                drivers.update(dict.fromkeys(ports["RD_DATA"], set(ports["RD_ADDR"])))
         else:
             for bit in outputs:
                 drivers[bit] = data

@@ -1219,9 +1219,9 @@ has not measured whether IC3 is faster than the portfolio.
 SBY and every program that it starts come from one directory: the directory of the ``sby`` on
 ``PATH``. The OSS CAD Suite installs all of them in its ``bin`` directory, and its ``sby`` wrapper
 puts that directory first on ``PATH``. Before SBY starts, the flow checks that the programs of the
-mode are in that directory: ``yosys`` in every mode, ``yosys-smtbmc`` and ``bitwuzla`` for ``bmc``
-and ``cover``, and ``rIC3``, ``yosys-witness`` and ``btorsim`` for ``prove``. The last two turn a
-counterexample into a trace. A missing program fails the run with the error code
+mode are in that directory: ``yosys``, ``yosys-smtbmc`` and ``bitwuzla`` in every mode, and
+``rIC3``, ``yosys-witness`` and ``btorsim`` also for ``prove``. The last two turn a counterexample
+into a trace. A missing program fails the run with the error code
 ``executable_not_found``. A program of the same name elsewhere on ``PATH`` does not replace it.
 
 The flow gives SBY the absolute path of each program that SBY has an option for (``--yosys``,
