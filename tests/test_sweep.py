@@ -1047,6 +1047,9 @@ def test_the_results_of_a_launch_have_short_reprs(tmp_path, design):
         assert len(repr(value)) < 1500, type(value).__name__
     assert repr(result.record).startswith("RunRecord(flow='nextpnr', design='top', target=None,")
     assert "outcome=<Outcome.PASSED: 'passed'>" in repr(result)
-    hidden = {plan: ("identity=", "action=", "settings=", "spec="), result: ("elapsed=", "record=")}
-    for value, names in hidden.items():
+    hidden = [
+        (plan, ("identity=", "action=", "settings=", "spec=")),
+        (result, ("elapsed=", "record=")),
+    ]
+    for value, names in hidden:
         assert not [name for name in names if name in repr(value)], type(value).__name__
