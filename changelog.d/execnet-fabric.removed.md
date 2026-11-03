@@ -1,1 +1,0 @@
-- `execnet` and `fabric` are no longer dependencies of Xeda.

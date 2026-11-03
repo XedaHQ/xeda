@@ -7,7 +7,7 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
 -->
 
 
-## [Unreleased]
+## [v1.0.0rc1] - 2026-11-03
 
 ### Fixed
 - A tool's log is now written while the run goes on, so `tail -F` shows a long run as it
@@ -241,6 +241,279 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   testbench's `#100; $finish` ended at time 0 and passed without a word. Verilator now says so.
   `INITIALDLY` is never raised, and `ASSIGNDLY` (a delay on an assignment) was never hidden. A
   warning does not fail the run, unless `warnings_fatal` is set.
+- `yosys` with `arithmetic.wrap_operators` and `abc.mapper: abc_new` maps the modules other than
+  the wrapped operators with the gia-only script. It no longer fails when a path contains `-script`.
+- Use Vivado for the documented Artix-7 UART programming targets and pass their synchronizer
+  constraints only to Vivado. Explicit openXC7 builds retain pin and timing checks.
+- Compile every runnable Bluespec example configuration with all compiler warnings treated as
+  errors, and remove the old UART testbench warning suppression.
+- A dotted key in an entry of a custom board database, such as `fpga.part` in YAML, now means the
+  table it stands for. Before, Xeda dropped it and the board had no part. An unknown key, or a pin
+  file key (`lpf`, `pcf`, `pdc`, `xdc`) or `openfpgaloader_board` that is empty or not text, is
+  now an error.
+- A failed Bluespec compile or link now reports the first errors of the C++ compiler, `make` and
+  bsc in the error message, and keeps the output in `bsc_compile.log` or `bsc_link.log`. Before,
+  it said only that bsc exited with a nonzero code.
+- A launch now refuses what the design's declarations already rule out (a source the flow cannot
+  read, a wrong setting, a run directory the flow cannot use) before the design's generator runs.
+  A file that a setting reads, such as `custom_boards_file`, must now exist before the generator
+  runs.
+- Check local cocotb testbench packages in cocotb's Python environment and declare the FIFO
+  example's `cocotb-coverage` dependency. Remote runs still require the package in Xeda's Python.
+- `cocotb.testcase` and `cocotb.gpi_extra` given as text now follow the rule of every list setting:
+  empty items are dropped, and `[]` or `[a,b]` is an error. `-s cocotb.testcase=[]` used to select
+  a test named `[]`.
+- Use the Python environment reported by `cocotb-config` for cocotb simulations. This fixes runs
+  where Xeda and the project's cocotb are installed in separate Python environments.
+- Xeda now notices an edit of a flow's template or helper module, also in a long-lived process, and
+  a moved checkout keeps its runs fresh. A flow without a source file (one defined in a notebook
+  cell) always runs, and runs of flows defined outside Xeda become stale once after this update.
+- The `dc` setting `compile` now sets the `compile_<key>` variables it holds, and a key there
+  overrides the variable that `optimization` presets on DC-NXT. Nothing used `compile` before, and
+  its two default entries did nothing, so the default is now empty.
+- The `dc` setting `infer_multibit` now takes effect. The script set `hdlin_infer_multibit` to
+  `default_all` afterward, whatever the setting said.
+- The `dc` flow now gives each port its own `set_input_delay` or `set_output_delay` from
+  `default_max_input_delay` and `default_max_output_delay`. The messages name the right port.
+- The `dc` flow now keeps a value that you set for `hdlin_enable_upf_compatible_naming` in `hdlin`.
+  It replaced the value with `true`.
+- Giving, changing or removing the location of an output that a flow always writes (the
+  bitstream of `fpga_pack`) no longer runs the flow again. A run that is up to date only delivers
+  the file. For every output setting, the output's conventional name with `{design}` in it now
+  counts as that name, as a waveform's `true` already did.
+- Outputs whose destinations differ only in letter case on a file system that ignores it, or
+  lie one inside the other, are refused before any tool runs, naming both settings.
+- `--outputs-to` no longer copies what a symbolic link left by a tool leads to outside the run
+  directory: it skips that artifact with a warning. A location that a setting names for it is
+  refused.
+- A dependency written as a URL without `git+` is refused, naming the `git+<url>` spelling.
+- A `Design` that is launched again after a source that the flow reads has changed gets the hash of
+  the changed content, so the run is judged against what is there now.
+- Use the supported `TypedDict` implementation so design schemas load on Python 3.11.
+- `--detailed-logs` no longer shortens the logger name on the log record itself, so your own
+  log handlers see the real name (`xeda._internal.flow_runner...`).
+- A tool that runs in Docker now gets every CPU that the container reports as its default thread
+  count. Before, xeda counted at most 9 CPUs.
+- A dockerized flow now mounts read-only the directories of its input files and of the files and
+  directories that its settings name, so it reads them without a `Docker.mounts` entry.
+- A dotted key such as `language.vhdl.standard` now works in a design entry and in the `flows` of a
+  project file, and in the overrides an API caller gives, as it does in a design file.
+- The Fmax search promotes the variation that the best run used, also after the first round and
+  when an earlier point of the round moved the lists.
+- A design-space search keeps its own copy of the variations it tries, so a second search in the
+  same process starts from the same choices as the first.
+- Every flow that reads the design's sources now refuses, before it runs, a source in a language
+  it cannot read (VHDL for `verilator`, SystemVerilog for `ghdl_sim` or `nvc`) and a design with no
+  source it reads.
+- Make shell completion faster for commands, options, flow names, and built-in flow chains in
+  Bash, zsh, and fish. Preserve valid flow-chain and output suggestions.
+  Defer package exports until first access and keep them visible in `dir(xeda)`.
+- A flow built directly works on copies of the settings and the design it is given, so the
+  caller's objects stay as they were after a run.
+- A `flows` table that is not a mapping of flow names to mappings (`-s flows=3`,
+  `-s flows.verilator=3`, `flows: []` in a file) is now an error that names the key. It was a
+  traceback on the command line and was ignored in some files.
+- A design generator now sees `PWD` set to the directory it runs in, so a JVM or Python program
+  reads the right directory. A recipe `env` may no longer set `PWD`.
+- Designs whose generators differ only in their recipe (for example, in `args`) now get their own
+  runs, so a sweep of them no longer shares one result. The run hashes of generator designs change.
+- The user name and password of a Git dependency's URL no longer appear in the clone directory's
+  name, in logs or in error messages. Delete old clone directories whose names hold credentials:
+  xeda no longer makes them.
+- Launches that share run directories or generation storages now lock them all in one order, so
+  they cannot wait for each other. A delivery also locks its destinations, so two launches never
+  write one file at once.
+- A mistyped option no longer suggests a hidden, removed option such as `--xeda-run-dir`.
+- A tool that asks for a terminal and ends right after it writes no longer loses its last output
+  on macOS. The log and the terminal now get it.
+- A key given as a value and as a table (`-s timing=true timing.x=1`, in either order, or in a
+  design file, a target or `--design-overrides`) is now an error that names both keys. It was a
+  traceback, or silently lost the table.
+- `run_flow`, `launch_flow` and `resolve` now use the design's own `flows` sections, as `run` and
+  `plan` do. A launch of a built design used to miss a setting that only a section gave, such as
+  the device in `flows.vivado_synth`, and fail where the plan succeeded.
+- A launcher's `debug` shows xeda's own DEBUG records for the launch only, and no longer sets the
+  root logger of the process to DEBUG for good. A design-space search removes its log file handler
+  when it ends.
+- Loading a design or a project file, and asking a tool for its version, no longer change the
+  working directory of the Python process.
+- A design that holds a very long absolute text, such as a long `PATH` in a generator `env`, no
+  longer fails with `storage_error` on Python 3.11 to 3.13.
+- `modelsim` no longer writes `dump.vcd` when `vcd` is not set.
+- A nextpnr failure that xeda does not classify now ends its message with the error lines
+  nextpnr wrote to its log, instead of the bare command line.
+- The library no longer changes the working directory of the Python process during a launch, so
+  two threads, each with its own launcher, can launch flows at the same time in one process.
+- Read current openFPGALoader scan columns at their printed widths, so long device names,
+  serial numbers, and signed bus or device values do not prevent probe selection.
+- The `usb_serial_num` setting of `openfpgaloader` now selects the probe. The flow passed an option
+  (`--usb-serial-num`) that openFPGALoader does not have, so the loader refused to start.
+- Warn when an openFPGALoader scan has ambiguous serial columns and leave probe selection to
+  openFPGALoader, so Xeda does not select a probe with a false serial number.
+- In a terminal, `openfpgaloader` now shows the loader's colors and a progress bar that is
+  redrawn in place, as when you run it by hand. Each update used to be a line, with blank lines
+  between.
+- `openfpgaloader` now fails when the loader exits with status 0 but its output shows that the
+  FPGA was not programmed, such as DONE staying low after a Xilinx load, and when a Xilinx flash
+  write does not end with `Done`. The error says what happened and quotes the lines of the
+  loader's output.
+- `openroad` takes a name with dots as one key in `ir_drop.nets`, `ir_drop.vsrc_files`,
+  `ir_drop.instance_power` and `ndr.assignments`, so `-s ir_drop.instance_power.u_core.reg_1=1mW`
+  sets the instance `u_core.reg_1`.
+- A file that `--outputs-to` is expected to deliver and another output also names is refused
+  before any question or tool, naming both.
+- `--outputs-to` and other deliveries no longer replace the project file of a run, also when the
+  design is a separate design file.
+- `xeda run --post-cleanup-purge` now removes the run directories on its own, without
+  `--post-cleanup`.
+- A successful run no longer reads a tool such as yosys or nextpnr again when its file has
+  not changed since the last run.
+- A relative `design_root` in a design entry of a project file now resolves against the directory
+  of the project file, not the directory where you run Xeda. A value that is not a path is an error.
+- The error for a project file that holds no mapping now names the file.
+- A project file now refuses a top-level key it does not read (a typo of `designs` or `flows`),
+  naming the accepted keys. Before, the key was ignored.
+- Xeda writes a small value without an exponent: `0.00001 ns`, not `1e-05 ns`.
+- `quartus` and `vcs` apply `dockerized`, `docker` and `print_commands` to their tools: `quartus_sh`
+  ran natively when `dockerized` was set.
+- A design with no source that a flow reads (an `.edf` netlist only, for example) is now refused
+  when the flow is planned. The error lists the design's sources and the types the flow reads.
+- A design file or setting file inside a flow's run directory is now refused before the launch asks
+  anything or runs a tool. For a producer, the refusal used to wait until its turn.
+- A flow that declares several related inputs with different `via` values now gets repair advice
+  for each relation alone. Before, the advice could rebind an input of another relation.
+- `xeda run --remote --log-level 10` no longer fails with "The remote resolved another plan than
+  the local xeda did". The log level does not change the settings of a node on the host.
+- `xeda run --remote` no longer fails on an artifact that is a symbolic link. A link to a file in
+  the run directory brings that file back, and `--outputs-to` skips a link that leads out of it.
+- `--remote` refuses a generator `cwd` that goes through a link, instead of running the generator
+  in a directory that holds none of its files on the host: give the directory itself.
+- `xeda run --remote` now sends explicit input bindings (`flows.<flow>.inputs.<input>`) to the host.
+  Before, the host used the default producer, and the run failed with `RemoteIncompatible`.
+- `xeda run --remote --json` prints only the JSON document on stdout. The log and the tool output
+  go to stderr.
+- `xeda run --remote --json` now lists the deliveries of `--outputs-to` in the node that was
+  delivered, as a local run does.
+- With `report_power: true`, the Vivado synthesis flows now fail when Vivado writes no `power.xml`.
+  Before, the run succeeded without the report.
+- A link named like a run directory counts as one only if it leads to a run directory of the same
+  flow beside it: `xeda scrub` no longer removes a target's or another flow's directory through
+  such a link, and reports it as `skipped`.
+- Two launches that start at the same time on a new run root no longer fail with "holds files
+  and is not a run root Xeda created".
+- The `sby` flow now refuses `default disable iff`, which its frontend ignores, and its messages
+  name the failed property and say how to replace unsupported SVA.
+- With `multiclock`, the `sby` flow now fails a design that reads its own clock as data, or that
+  reads the state behind a state-driven clock, because SBY samples these wrongly. The default
+  `depth` with `multiclock` is now 40, and `depth` 1 now fails for a design with state.
+- The `sby` flow no longer reports a wrong pass for a design with several clocks, a falling edge, a
+  derived clock, a clock read as data, an asynchronous reset or a latch. Such a run fails unless you
+  set the new `multiclock` setting.
+- The `sby` flow now fails a `prove` whose assumptions no trace meets within a bound, as `bmc` does.
+  `prove` now also needs `yosys-smtbmc` and Bitwuzla.
+- The `sby` flow now reads generated sources, patterns, storage entries and dependencies wherever
+  the run root and working directory are, and a relative `include` works as in the design tree.
+- `xeda design-schema` now accepts `sources` and `clocks` given as one item, and an empty clock
+  table in `clocks`, as the design loader does.
+- With `--scrub`, a launch asks whether to replace a file you named for an output before it
+  removes any older run, and while no other launch or scrub is made to wait. A launch you decline
+  removes nothing.
+- A setting of the wrong type is now an error that names it. Before, `verbose: lots` became 0,
+  `tb.top: 5` became no top module, and `gui: 1` of `vcs` became true.
+- A malformed value of a shared setting, such as a bare number for a clock period, now gets the
+  same error code as the same value of any other setting. `shared_setting_conflict` is only for
+  values that disagree.
+- A simulated time (`stop_time`, `prerun_time`) that is not a whole number of femtoseconds is now
+  refused when the run is planned. Before, the simulator got a rounded time.
+- A simulation that ends with no finish (for example a testbench that stops at `wait;`) now says
+  so in `error.message` of `results.json`, and tells you to call `std.env.finish` or `$finish`, or
+  to set `stop_time`. Other failed endings and failed cocotb runs give their cause and a fix there
+  too. A cocotb run that left no readable results file reports no test counts.
+- `vivado_sim` and `vivado_postsynth_sim` now refuse `saif` (and a timing simulation) without
+  `tb.uut` when planning. `ghdl_sim`, `modelsim` and the two Vivado flows refuse an SDF file
+  without `sdf.root` or `tb.uut`. `nvc` maps a named `lib_paths` entry with `--map=<name>:<path>`
+  and adds an unnamed one with `-L <path>`. `verilator` takes `optimize` as `true`, `false` or a
+  level of 0, 1, 2 or 3, refuses `-O2`, and `0` now gives `-O0`.
+- With the slang front end, `yosys` reads every SystemVerilog source in one `read_slang`, so a
+  package that one file declares is known in the other files.
+- With slang, `rtl.parameters` now reach the top module (`read_slang -G`), and `verilog_lib` is
+  read before the sources. Before, a parameter of a SystemVerilog top, and an instance of a
+  `verilog_lib` module, failed the run.
+- `stop_after: rtl` on `yosys` and `yosys_fpga` now succeeds with the RTL outputs it wrote.
+  Set `netlist_json` and `netlist_verilog` to null with it: a setting that asks for a
+  netlist or a report is refused.
+- A flow that takes the netlist of a synthesis stopped with `stop_after: rtl` is refused,
+  naming that flow.
+- `sweep.rows(metrics=...)` raises `KeyError` for a metric that the flow of the node does not
+  describe, such as `nextpnr.fmx`, and lists the metrics of that flow.
+- A malformed `flows` table in a design or in a target is now an error whichever target you select.
+  Before, a target that wrote `flows` hid the design's mistake for that target alone.
+- A target can no longer be named like a flow's hashed run directory (`<flow>_` and a 16-character
+  hash). `xeda scrub` took such a directory, emptied by `--clean`, for a target's and listed the
+  run directories inside it. A design file with such a target name is now refused.
+- A target, `--design-overrides` and each settings layer now read a short form such as
+  `fpga: <part>` or `clock: CLK` as the table it stands for, and report a malformed value that a
+  table above it used to hide. A null `flows` table or flow section in a target or in
+  `--design-overrides` no longer erases the design's section; `vhdl: true` and `clock: 0` are
+  refused.
+- When the terminal of a tool that asks for one fails, the log now keeps the last line that the
+  tool had written but not yet ended.
+- Stopping a launch (Ctrl-C, SIGTERM or a closed terminal) now also ends the processes that a tool
+  started, with or without a time limit.
+- A tool process now gets `PWD` set to the directory it starts in, so a shell or script that reads
+  `PWD` no longer sees the directory of the Xeda process.
+- Two outputs of one launch that name the same destination are refused before any tool runs,
+  naming both settings.
+- Reduce UART application simulation overhead with the simulator's native clock driver. The test
+  keeps the same UART timing, protocol deadlines, and functional checks.
+- Keep CLI output valid when device cleanup fails and limit Ascon variants to Ascon self-tests.
+- The UART stream adapter preserves every byte in byte-aligned input words and reports the accepted
+  count across the full legal request size. The byte application top uses the board top's LeanLink
+  window and page settings and selects the default echo endpoint when no application macro is set.
+- Reduce logic in the byte-aligned UART stream adapter and correct its output-byte index for
+  non-byte-aligned widths and its reply budget check for wide words. The Arty Ascon target also
+  supplies timing-driven openXC7 settings.
+- Reset the UART stream application and both queues on parent and software resets. One-entry
+  stream queues now accept a replacement word when a dequeue occurs in the same cycle.
+- The UART stream adapter now carries words wider than 256 bits whose width is not a multiple
+  of 8. It no longer wraps the byte offset past byte 31.
+- `vcs` passes `vpd_size_limit` to the simulation (`+vpdfilesize+N`). It was ignored.
+- A Verilator model large enough for Verilator to compile in parallel now builds with GCC in the
+  `verilator` and `bsc_sim` flows. Before, the build failed on a missing `__pch.h.slow` header.
+- Fix `out_of_context` losing options: `vivado_alt_synth` dropped it for an empty or list
+  synthesis step, and `vivado_synth` replaced the `SYNTH_DESIGN.ARGS.MORE.OPTIONS` of the design.
+  The Vivado flows no longer record the options they derive in their settings.
+- `out_of_context` adds `-mode out_of_context` to `synth_design` once, and a `-mode` of another
+  value in the synthesis options is now refused before the run, for `vivado_synth`,
+  `vivado_project` and `vivado_alt_synth`.
+- `vivado_project` honors `out_of_context`, and writes a nested step option (`ARGS.MORE.OPTIONS`) or
+  a list of options as the Vivado property it names, as `vivado_synth` does.
+- A Vivado run property name with dots now works as one key from every origin, for example
+  `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`, which used to fail validation.
+- `vivado_sim` with `quiet` no longer hides a failure to log the VCD. The run now fails, as a run
+  without `quiet` does.
+- `nvc` now writes the shared `vcd` setting, and honors `wave_include_glob` and
+  `wave_exclude_glob`. `vcs` and `yosys_sim` refuse `vcd` when planned instead of ignoring it, and
+  a simulator refuses two waveform formats at once or an option that refines a missing waveform.
+- `-s vcd=true` (and `fst`, `saif`, `wave` and the other waveform settings) means the same as
+  `vcd: true` in a design file. It used to write a file named `true.vcd`. The words `yes`, `on`
+  and `n` are refused for a waveform setting: write `true` or a file name.
+- Messages that say where to give a device, a platform or the target libraries now show the YAML
+  key (`flows.<flow>.fpga.part`) instead of a TOML section.
+- `yosys` reads the clock gate map with the `defines` of the flow, as it reads the sources.
+  `-s defines.OPENROAD_CLKGATE=1` now selects the clock gate cell in the map of a platform.
+- `yosys_fpga` removes the cells of `assert` and `$display` from its netlists. They no longer
+  reach `netlist.json`, `netlist.edif`, `netlist.v` or the utilization report.
+- `yosys_fpga` with `sta: true` no longer fails to write `netlist.json` for a design that maps a
+  shift register or a distributed RAM. The timing analysis no longer changes the netlists.
+- The yosys flows no longer write the command history of yosys into the home directory
+  (`~/.local/state/yosys`).
+- `yosys` flows keep the temporary files of yosys in the run directory instead of the system
+  temporary directory.
+- The yosys flows no longer apply `chparam` to a VHDL top when a constraint file or another source
+  that is not HDL follows it in the design's sources: yosys failed on such a design.
+- A single-core Zynq-7000 part such as `xc7z007sclg225-1` now has the device `xc7z007s` and the
+  package `clg`. Before, the `S` went to the package.
 
 ### Added
 - `fpga_pack` packs a Xilinx 7-series part whose exact speed grade the Project X-Ray database
@@ -410,6 +683,126 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   included), in completion order, as `{"flow", "run_path", "state": "fresh"|"ran"|"failed",
   "reason"}`. A fully fresh run is `"success": true` with every node `"fresh"`; `nodes` is `[]`
   for an error before anything ran.
+- Add a standalone Bluespec Ascon example with a vector-driven testbench. Its design file has the
+  settings for the ASIC chain, Vivado and the ECP5 and Artix-7 targets.
+- ASIC platforms come from the PDK's own files: `xeda pdk install <platform>` fetches them, and
+  `xeda list-platforms` says which are installed.
+- A Bluespec design runs on every flow that reads Verilog and on the flows after them, such as
+  `yosys_fpga`, `vivado_synth` and `openroad`: Xeda runs `bsc` first.
+- Add two Bluespec examples: `uart`, a 12 Mbaud UART PHY with an exact fractional bit timer, and
+  `uart_echo`, a board demo of it with Arty A7-100T (Vivado, openXC7) and ULX3S targets.
+- Add the `uart_link` Bluespec example, a reliable packet link over a UART, with a Python host
+  library and board targets.
+- `Workspace.run` takes a `CancelToken` that stops a launch from another thread or after a time,
+  and an `on_event` callback that reports the start and end of the launch and of each node. A
+  canceled launch returns the outcome `canceled`.
+- A chain link can pass through the flows between its two flows: `yosys_fpga+fpga_pack` plans
+  `nextpnr` in between, as `fpga_pack` alone does.
+- Xeda ships a JSON Schema for each document it writes or reads, in `xeda/data/schemas/`. The
+  schemas cover `results.json`, the `--json` output of the commands, and the design file.
+- `xeda run --dry-run` says what a run would do with each flow: `fresh`, `stale` with the reason
+  the log gives, or `unknown` with why (`--json` adds `state` and `reason` to each node).
+- Complete flow settings and nested fields with `-s` in Bash, zsh, and fish, including flow chains
+  and qualified settings. Completion stays fast and keeps the cursor ready for a field or value.
+- `rtl.generator.outputs_to` copies generated sources into the named directory after a launch
+  passes.
+- A generator table has a `shell` key, a command line that a shell runs. A generator written as a
+  command line or a list is now kept as a table, `{shell: ...}` or `{executable, args}`.
+- `ghdl_sim` has a `vcdgz` setting that writes gzip-compressed VCD (`--vcdgz`); `true` writes
+  `dump.vcd.gz`. `vcd` always writes plain VCD, and a gzip name given to it is refused.
+- The new `iverilog` flow simulates Verilog and SystemVerilog with Icarus Verilog. It judges the
+  run by how it ended, and it supports cocotb and VCD and FST waveforms.
+- The ASIC platform `sky130hd` can take its PDK files from lambdapdk: `xeda pdk install sky130hd
+  --provider lambdapdk` fetches about 8 MiB, and `pdk_provider: lambdapdk` selects them.
+- `Workspace.load(run_dir)`, `Workspace.records()` and `RunRecord.open()` read stored runs. `open()`
+  holds the files of a run under shared leases and checks that no later run replaced it.
+  `Workspace.scrub(design_name=...)` removes the run directories of a design and, without a flow,
+  its generation storages. A record now names the producer of each generated source.
+- `xeda.run`, `xeda.load` and `xeda.scrub` are functions with typed signatures. `run` and `scrub`
+  make a `Workspace` and call the method of that name. `load` needs no workspace.
+- `xeda.plan`, `xeda.sweep` and `xeda.records` are functions like `xeda.run`, and
+  `xeda.local_settings()` reads the private settings files.
+- `nextpnr` stays up to date when `yosys_fpga` writes a netlist that differs only in the source
+  locations (`src` attributes), as after a comment is added above the logic. Its reports then
+  cite the lines of the netlist it placed. `list-flows --json` shows `equivalence` on inputs.
+- Four OpenROAD flows replace the old `openroad`: `openroad_place`, `openroad_cts`, `openroad_grt`
+  and `openroad`. `xeda run yosys+openroad` runs the whole chain, and a changed late setting reruns
+  only the later flows.
+- The documentation and the agent skill warn that openXC7 `nextpnr` builds from before
+  2026-10-07 can write wrong bits with no error, and list the known defects. They also say
+  that `nextpnr` ignores `set_property PULLUP true`: use `PULLTYPE PULLUP`.
+- Add `dependencies` to the dry-run document (`xeda run --dry-run --json`, `Plan.to_dict()`). It
+  lists the dependencies of the design as a run record does.
+- Add a notebook that shows how to plan a launch, inspect a node, run the plan, and handle a stale
+  plan and settings errors.
+- `xeda run` and `xeda dse` read your settings from `~/.config/xeda/config.yaml` and from
+  `xedaproject.local.yaml` beside the project file. Use `--config FILE` (the file must exist) and
+  `--no-config` to choose the files.
+- `xeda run` selects the only design of a project when you give neither `DESIGN` nor
+  `--design-name`. A project with several designs lists them and asks for a name.
+- Xeda now supports Python 3.15. The optional cocotb 2.1.0 dependency needs a build-time override
+  on Python 3.15.
+- Add the guide "Use Xeda from Python" and a reference of `xeda`, `xeda.errors` and
+  `xeda.introspect`. The Python snippets in the documents run as tests.
+- Add two notebooks that show the Python API: a quickstart, and a tour of the ways a simulation
+  can end (passed, rejected, failed, timeout and cancel).
+- Add `xeda remote check`, `clean`, `attach` and `cancel`, and the options `--keep-running` and
+  `--fetch-all` of `xeda run --remote`. Host profiles go in `~/.config/xeda/remotes.yaml`.
+- Add the `Remote` value. `Workspace(remote=Remote(host, profile=...))` plans and runs a spec on a
+  host and returns a `Plan` or a `Result`. A host that cannot be reached or set up now gives the
+  codes `remote_unreachable` and `remote_setup_failed`, with the outcome `null` and exit status 2.
+- Add the `sby` flow for formal property checks with SymbiYosys. It runs `bmc`, `prove` or
+  `cover` on one design in Verilog, SystemVerilog or VHDL.
+- The `sby` flow now warns about a source whose properties no instance reaches, such as a checker
+  without its `bind`, and lists it in `formal.unreached_property_files`.
+- Flows with many tool options group them by command, with dotted keys such as
+  `-s abc.strategy=speed`. `xeda list-settings <flow> --tier common` shows the most used
+  settings, and the JSON entries gain `tier` and `group`.
+- `sky130hd` ships a clock gate map for both providers. A design that instantiates
+  `OPENROAD_CLKGATE` with the macro `OPENROAD_CLKGATE` defined maps to `sky130_fd_sc_hd__dlclkp_1`.
+- The ASIC platform `sky130hd` (SkyWater SKY130, high density cells): `xeda pdk install sky130hd`
+  fetches its PDK files with `ciel`.
+- A new Stability page in the documentation lists what the stable API promises and how
+  breaking changes are detected.
+- The `notebooks/` directory has a sweep notebook, with a tail that reads past runs, and a notebook
+  that compares generated variants. The old plot notebook and `requirements.txt` are gone.
+- `Workspace.sweep(max_workers=N)` with N above 1 runs the nodes in N worker processes. A cancel
+  or an error in the callback stops the tools that run.
+- Add `tb.python_packages` to the design file. It lists the Python packages that a testbench
+  imports, and a remote run installs them on the host at your local versions.
+- Add focused GCD and Ascon UART CLI scripts. Keep the combined application command available.
+- Add a `stlv7325` target for the STLV7325 v2 to the Bluespec `uart_echo` example, and a transformed
+  echo (`ECHO_TRANSFORM=1`) that a wire loopback cannot pass. The pins of the `stlv7325_v2` board
+  file are checked on one board. The dependency group `examples` includes `pyserial` for the host
+  test.
+- Added reusable typed stream endpoints for the GCD and Ascon cores in the Bluespec UART link
+  example, plus Python clients and CLI commands for GCD, Ascon-128, and Ascon-128a v1.2
+  operations. See the example README for protocol details, build commands, and client usage.
+- `verilator` has a `main` setting for `--main`. Set `main: false` when the design's C++ sources
+  hold `main` or `sc_main`; a C++ source without a `main` function is a helper (DPI) and now links.
+- Add the `vivado_impl` flow: `xeda run yosys_fpga+vivado_impl design.yaml` places and routes the
+  yosys netlist in Vivado. Every `yosys_fpga` run, and `nextpnr` after it, runs once more.
+- `vivado_impl` takes `write_checkpoint`, `write_netlist` and `write_timing_netlist` as
+  `vivado_alt_synth` does, and declares the routed checkpoint, the netlists and the SDF as outputs.
+- `Workspace(run_root).plan(spec)` returns a `Plan`: the nodes of a launch with their run
+  directories, identities, states and deliveries, without running anything.
+- `Workspace.run` runs a `Spec` or a `Plan` and returns a `Result`. A stale `Plan` raises
+  `StalePlanError` before the launch prunes, asks or generates anything, and `prune_variants`
+  removes the other run directories of every node of the plan, producers included.
+- Add `Workspace.sweep`, which runs many specs and executes each node that several of them share
+  once. Its result has a table of the points (`rows`, `to_pandas`).
+- Add the `xezim` flow, which simulates Verilog and SystemVerilog with the xezim simulator. A
+  Verilog `$stop` passes on it, so a testbench must use `$error` or `$fatal` to report a failure.
+- `xeda run` and `xeda scrub` take `--yes`, which answers yes to the question about removing run
+  directories.
+- `yosys` takes more options for its standard-cell mapping, in the groups `hierarchy`,
+  `coarse`, `arithmetic`, `memory`, `sequential`, `abc` and `finish`, such as the ABC
+  strategies `area_0` to `delay_3`. Each `techmap_files` entry takes a `when` position.
+- Add `out_of_context` to `yosys_fpga`. The synthesis then puts no IO buffers on the ports and no
+  clock buffer on the clock. The new setting changes the identity, so `yosys_fpga` runs once more.
+  The setting is shared: `yosys_fpga` and `nextpnr` in one chain must agree on it.
+- `yosys` can keep large modules (`hierarchy.keep_min_cost`) and wrap wide operators for
+  OpenROAD (`arithmetic.wrap_operators`). Both need a yosys with Tcl support.
 
 ### Changed
 - **`yosys_fpga` flattens Xilinx designs by default.** An unset `flatten` on a Xilinx target is
@@ -729,6 +1122,321 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   testbench no longer makes `vivado_synth`, `yosys` and the other flows that never read it run
   again. Only the flow's own freshness is scoped: a flow whose producer reads the testbench runs
   again when the outputs it takes from that producer change.
+- The switching activity that `vivado_postsynth_sim` writes for a consumer or a timing request
+  is `outputs/<design>.saif`, not `activity.saif`.
+- The skill that `xeda skill install` writes is rewritten: it puts the JSON commands first, gives
+  the exact text of each common error with its fix, and has a new reference for the open-source
+  FPGA flows.
+- Use Xeda's bundled STLV7325 v2 pin constraints and retain the generated core clock in an SDC file.
+- Reuse Bluespec sources through bench-free libraries with direct test targets. The `xeda
+  design-schema` output now accepts URI, local-path, and Git dependency references.
+- `bsc` accepts a design with VHDL or other sources beside the Bluespec sources, and passes them
+  through unchanged. Before it runs a tool, `bsc` and `bsc_sim` refuse a design that defines
+  `BSV_POSITIVE_RESET` while `positive_reset` is on, and `bsc` refuses a design with no Bluespec RTL
+  sources.
+- `bsc` and `bsc_sim` remove the Verilog modules and `.use` files of an earlier run before they
+  compile, also with `cleanup_bobjs: false`. That setting now decides only whether they remove the
+  `.bo` and `.ba` files.
+- A request refuses `,`, `@`, an empty element and a malformed output name, each with its own
+  error code. A flow name must match `[a-z][a-z0-9_]*`.
+- A failed clean-up after a launch whose flows passed now ends the launch with the error code
+  `cleanup_failed`. The message names the run directory.
+- `xeda run --scrub` is now `--prune-variants`. It asks for confirmation on a terminal only:
+  without one it removes nothing and the log says so.
+- `xeda scrub --json` prints `schema_version`, `outcome` and `error`, as `xeda run` does, and
+  `removed` replaces `scrubbed`. A failed scrub has the outcome `failed` and an `error` with a
+  `code`. A usage error has the outcome `null` and exits with status 2.
+- Messages and `--json` origins name the layer of `-s` and of the `flow_settings` given to
+  `run()` and `plan()` "the command line (`-s`) or `flow_settings`".
+- A flow whose producer ran again stays up to date when the outputs it takes from that producer
+  are the same, so a source edit that does not change the netlist no longer re-runs `nextpnr`.
+  Traces are format 15: each flow runs once more.
+- The `dc` flow now refuses `infer_multibit` and `vhdl_preserve_case` inside `hdlin`. Use the
+  settings of the same names.
+- By default, `ghdl_synth` writes its Verilog to `outputs/<design>.v` and `nextpnr` writes the
+  Xilinx placement dump to `outputs/<design>_placement.json`, the names a location already gave
+  them. `yosys_sim`'s `cxxrtl.filename` is now a name in the run directory and takes no location:
+  use `--outputs-to` to copy the file.
+- A setting that names an output file, such as `bitstream`, now refuses `true` and `false` and
+  says to give a name or a location. It used to write a file called `true`. Waveform settings
+  keep `true` and `false`.
+- Xeda refuses any delivery that would place a file where a design source entry reads it. This
+  prevents the delivered file from becoming a source on the next run.
+- `xeda run` and `xeda dse` refuse `DESIGN` together with `--design-name` as a usage error. Give
+  one of them.
+- `Design.load`, `Design(...)`, `with_updates` and `with_target` now raise errors that are
+  `xeda.errors.DesignError`, so `except xeda.errors.XedaError` catches a bad design.
+- A design file given by path is refused when the project lists it, by any path or link to it, and
+  otherwise runs without the project's settings. The project still supplies the run root.
+- The identity of a run now includes what the flow reads of the design (top, parameters, clocks,
+  source places and types). Every hashed run directory gets a new name once, and a plain run
+  directory runs again once.
+- `Source.type` is annotated as text, and `Design.dependencies` gives read-only mappings of the
+  fields of each reference. The `Design` methods `merged_with`, `parts_hash`, `sources_of_type`,
+  `sim_sources_of_type`, `source_artifact_name`, `source_path_as_named`, `source_entries` and
+  `tree_entries` are no longer public.
+- `xeda run --design-overrides` is now `--design-updates`. The old name is refused and names the
+  new one.
+- Every artifact is now one file under a key that `xeda list-results` documents. `log` is the
+  captured output of the main tool, a VCD is `waveform`, and a declared output is no longer an
+  artifact.
+- Xeda now reads run documents and records of a later minor version, and refuses an unknown outcome
+  or disposition as a corrupt document. `xeda design-schema` has a `schema_version` key.
+- `xeda run --dry-run --json` prints a new plan document, and a node that reuses a rejected run has
+  the state `rejected`. In the plan and the run document, an `--outputs-to` delivery has the key
+  `outputs_to`.
+- The Fmax search takes the run with the strictly smaller `lut` as the best run when two runs have
+  the same `fmax`.
+- `xeda dse` stops launching new runs after 12 hours by default. The default of
+  `max_runtime_minutes` was 43200 (30 days) because of a unit error, and it is now 720.
+- `xeda dse` runs each round as one sweep, and its `--json` document has `outcome`, `error`,
+  `best`, `best_run_dir` and `points`, with every failed point kept. A failure of the optimizer
+  ends the command with an error and keeps what the exploration found, and a usage error exits with
+  status 2.
+- An empty `--remote` is now a usage error. An empty `XEDA_REMOTE` still runs the request locally,
+  as an unset one does.
+- Every flow has `env` and `inherit_env`. A changed environment variable of the caller runs a node
+  again, and `BSC_OPTIONS` no longer only warns.
+- The `error` of a node in `results.json` has a stable `code` (`nonzero_exit`, `timeout`,
+  `reported_failure`, `producer_failed` and so on) instead of `type`, and a failed producer is
+  quoted with its code. Read `error.code` where you read `error.type`.
+- `examples/requirements.txt` was removed: the Python packages of the example testbenches are the
+  dependency group `examples` of `pyproject.toml`, which `uv sync` or `pip install --group examples`
+  installs.
+- The Python examples run through the public API. `examples/vhdl/sqrt/test.py` takes `--long`
+  instead of `LONG_TEST`, and both scripts exit with a nonzero status when a run fails.
+- Bare tox now runs compatibility checks on Python 3.11–3.14 and the full tool-backed suite on
+  Python 3.15. Use `tox -e py311,py312,py313,py314,py315` for the full matrix.
+- A setting with a unit is written in its own unit: `timeout: 2 min` is `120 s` in `settings.json`
+  and in `xeda run --json`. `xeda list-settings` has a `unit` column.
+- `check_design_supported` and `runs_without_testbench_top` of a flow now take the flow's settings:
+  an override has the signature `(cls, design, settings=None)`. An override that takes the design
+  alone fails with a `TypeError` when a launch is planned and the hook is called: add the argument.
+- `nextpnr`, `fpga_pack`, `openfpgaloader` and `vivado_power` are no longer stale after an edit to
+  an HDL source that only their producers read. Each flow runs once more.
+- A flow that registers files in `init()` or `prepare_inputs()` must say where they are in
+  `Flow.locate_prepared_inputs()`, which a dry run uses. A launch refuses a flow that does not.
+- Xeda no longer logs each flow class it registers at the info level.
+- Every flow takes `verbosity` (`quiet`, `normal`, `verbose` or `debug`) in place of `verbose`,
+  `quiet` and `debug`, `docker` (a switch) in place of `dockerized`, and `docker_image` in place of
+  the old `docker`. `redirect_stdout`, `print_commands` and `console_colors` are removed.
+- `-s flows.<flow>.<key>` names a converter such as `bsc` only for a design that has a source it
+  converts. Before, any flow that reads Verilog accepted `flows.bsc`.
+- The documentation, `xeda list-results` and the agent skill now say to compare `fmax` only
+  between runs of the same tool.
+- Vivado netlists are now typed `FpgaNetlist` (functional) and `FpgaTimingNetlist` (timing), and
+  checkpoints `SynthCheckpoint` or `RoutedCheckpoint`, so `vivado_synth.netlist+openroad`, a
+  pre-route checkpoint into `vivado_power` and a crossed netlist binding are refused. A `.dcp` or
+  Vivado netlist source now needs one of these as its `type`.
+- A `Design` and every value in it are read-only; an assignment raises an error, and `rtl.clocks`
+  holds tables with `port` and `name`. `RtlSettings`, `TbSettings` and `DesignSource` are now
+  `Rtl`, `Testbench` and `Source`.
+- A plain generated entry of `rtl.sources` is now a path below the design root that the
+  generator writes; write `$XEDA_GENERATED/<name>` for a file in the generator's storage.
+- A generator `cwd` must be a directory below the design root: an absolute path, or one that leaves
+  the root, is refused when the design loads.
+- A generator now starts in the design root (or in its `cwd`), so `./mill` works. It must write its
+  generated sources under `$XEDA_GENERATED`.
+- A design generator runs in the launch, in its own storage `<run root>/.generated/<design>/<key>/`
+  (`$XEDA_GENERATED`), so name a script as `$DESIGN_ROOT/gen.py`; a `rtl.sources` entry is wholly
+  generated or wholly written (see `generated_sources`), and a dependency's generator runs too.
+- A Git dependency is now fetched when Xeda plans a run, into `<run root>/.dependencies/`, and
+  `commit` must be a full hash. The keys `clone_dir` and `local_cache` are removed; use a local
+  dependency for a checkout that you manage.
+- `xeda.introspect.flow_info`, `settings_info` and `results_info` take a flow name and raise
+  `FlowNotFoundError` for an unknown one. `design_schema` takes `input_syntax` as a keyword.
+- `xeda run` reports an invalid `remotes.yaml` as `invalid_local_settings`, with or without
+  `--remote`.
+- In the JSON of `xeda run` and `xeda dse`, `design` is now always the design's name, and the new
+  `design_file` is the design file you named (absolute), or `null`. A failure or a dry run used to
+  give the path you typed as `design`.
+- `openroad_cts`, `openroad_grt`, `openroad` and `vivado_impl` no longer run again when only a
+  design source that they do not read changes.
+- A flow that a failed producer blocks no longer gets a failure `results.json`: it does not run,
+  and its run directory keeps its last record.
+- `ghdl_sim`, `ghdl_synth` and `nvc` take a relative `lib_paths` path as relative to the design
+  root, not the run directory.
+- `liberty` is now a setting of the OpenROAD flows too, and it agrees along a chain with `yosys`
+  like `platform` does. OpenROAD refuses a Liberty file with another time unit than the platform's,
+  or a first one with another capacitance unit, and earlier OpenROAD results are not reused.
+- `yosys` now refuses `liberty` together with `gates` or `lut`, as it already does for `platform`.
+  Mapping to library cells and mapping to generic gates or LUTs contradict each other.
+- Xeda now keeps the output of each tool in `logs/<tool>.log` in the run directory. A Python
+  program that launches flows sees no tool output on its streams unless it asks for the terminal.
+- Text such as `[]` or `[a,b]` for a list setting is now an error that names the right spellings,
+  `flags=` (the empty list) and `flags=a,b`. Before, `-s flags=[]` gave the one item `[]`.
+- Metric names in `results.json` are now lower snake case, and each quantity has one name:
+  `fmax`, `lut`, `ff`, `power.total`. The duplicate spellings (`Fmax`, `LUT`, `FF`) are gone, so
+  read the lower snake case name.
+- `xeda list-results --json` now lists `metrics`, each with a type and a unit, in place of `keys`,
+  `documented` and `canonical_aliases`. A flow's `results_description` takes `MetricSpec` values,
+  and `vivado_power` writes its power and temperature values as numbers.
+- A setting name in the wrong case, such as `Nthreads` or `group.Knob`, is now refused with a
+  hint that names the right spelling.
+- A `yosys` netlist that is not mapped to a Liberty library (`gates`, `lut`, or no `platform`,
+  `platform_file` or `liberty`) is now the output `netlist_generic`, type `GenericVerilogNetlist`.
+  Read `outputs.netlist_generic` in `results.json`; no flow takes it as an input.
+- `-s` and the `flow_settings` of the Python API name the flow of every setting: `-s nextpnr.seed=7`
+  or `{"nextpnr": {"seed": 7}}`. A key without a flow, such as `-s seed=7` or `-s
+  flows.nextpnr.seed=7`, is an error that gives the address to write.
+- On the command line, a whole number is digits with an optional `-`, and a number must be finite:
+  `-s seed=1_0` and `-s ratio=nan` are refused. A setting that also takes text gets a number only
+  when the number reads back as the same text, so `010` and `1e3` stay text.
+- A `.odb` source now needs a `type` that names its stage, such as `OpenroadDbPlaced`. The suffix
+  no longer infers the type `Odb`.
+- `openfpgaloader` chooses the probe whose FPGA matches the part when several probes fit the cable
+  and the run names none. It fails before programming, listing each probe and its `usb_serial_num`,
+  when no probe or several match, or when a probe cannot be read.
+- `openfpgaloader` now needs openFPGALoader 0.13.1 or newer, and refuses an older loader before
+  it builds or programs anything. Older loaders do not report whether a Xilinx FPGA finished its
+  configuration.
+- `xeda dse` refuses Fmax exploration of the OpenROAD flows.
+- Targets are now optional: without `--target`, Xeda uses the design itself.
+  A lone target is no longer selected automatically.
+- `--post-cleanup` now keeps the documented artifacts, the tool logs among them, beside
+  `settings.json`, `results.json` and the declared outputs. It removes every other file.
+- The implementation moved to `xeda._internal`. Import only `xeda`, `xeda.errors` and
+  `xeda.introspect`.
+- The message of a consumer whose producer failed now says `producer <flow> failed: ...` instead
+  of `dependency <flow> failed: ...`. The error type, `FlowDependencyFailure`, does not change.
+- A project file has the keys `designs` (a list), `flows`, `run_root` and `default_target`. Select
+  its design with `--design-name` and its target with `--target` or `--no-target`. A design file
+  given as `DESIGN` never gets the project's `flows`, and a design entry cannot set `design_root`:
+  use a `file` entry.
+- `XedaProject(...)` now requires `root_path`, the directory that the relative paths of the project
+  resolve against. `XedaProject.from_file` sets it to the directory of the project file.
+- A project file always supplies its run root (`run_root`, else `xeda_run` beside the file), unless
+  `--run-root` or `XEDA_RUN_ROOT` is set. `./xeda_run` applies only when no project is used.
+- With `--post-cleanup-purge`, a delivered output is moved out of the run directory, not copied,
+  when it can be: a plain file on one file system that no other delivery uses. A large output then
+  needs no second copy on disk.
+- With `--rebuild-all` or `--clean`, a flow that would have been reused now logs `rebuild_all` or
+  `clean` as its reason for running. A flow that always runs keeps its own.
+- `xeda run --dry-run` now shows refusals that `bsc`, `bsc_sim`, `ise_synth`, `vcs`, `verilator`,
+  `ghdl_sim`, `nvc`, `vivado_postsynth_sim`, `yosys`, `yosys_fpga` and `yosys_sim` made only after
+  the run began, and a clock setting that matches no design clock. A flow in a chain is refused
+  before the flows ahead of it run. `ise_synth` without `rtl.top` now fails with a settings
+  error, not a fatal error.
+- A flow refuses a setting it does not use, and the error says where the setting belongs.
+  `vivado_project` refuses the settings of `vivado_sim`, `yosys_sim` refuses the synthesis
+  settings of `yosys`, and `ghdl_synth` refuses the compiler and linker flags of `ghdl_sim`.
+  `vivado_alt_synth` refuses `set_synth_properties`, `set_impl_properties` and
+  `show_available_strategies`, which need a project. `optimization_flags` is a setting of
+  `bsc_sim`, `ghdl_sim`, `vivado_sim` and `vivado_postsynth_sim` only.
+- A mapping that writes one table both dotted and as a block (`fpga.part: P` beside
+  `fpga: {speed: -6}`) is now an error that names both spellings. It used to keep the keys of
+  whichever came last. Write the table in one spelling.
+- A plan that takes related inputs from different producers is refused, naming the bindings that
+  fix it. Before, binding only `netlist_timing` of `vivado_postsynth_sim` to `vivado_alt_synth`
+  paired its netlist with the delays of `vivado_synth`; the checkpoint and activity of
+  `vivado_power` had the same gap.
+- `xeda run --remote` with `--prune-variants`, `--post-cleanup` or `--post-cleanup-purge` now fails
+  with the error code `unsupported_with_remote`, not as a usage error.
+- `--remote` refuses, at planning, a generator with a declared input outside the root of its
+  design: place the input below the design root.
+- `xeda run --remote` no longer fetches an artifact that lies outside the run directory on the
+  host into `_external/` of the mirror: the results keep its path on the host, and a warning
+  names it.
+- `--remote` keeps a table of tool or netlist names whole when one layer gives `A` and another
+  gives `A.B`, as a local run merges it.
+- `--remote` runs through your own OpenSSH client, and the host needs no Xeda. The first run
+  installs the same Xeda there. Chains, `--dry-run` and reuse of earlier runs now work remotely.
+- A setting that two `-s` items give with different values is now an error that names both items.
+  Before, the last value won.
+- A run whose checks reject its results (a failed test, negative slack in a report) is no longer
+  run again on an unchanged launch: Xeda reports the recorded failure (`--rebuild-all` runs it).
+  In `xeda run --json`, such a node is `rejected again`, and a node whose producer failed is
+  `blocked`.
+- `results.json` is now one versioned record: `success` became `outcome`, metrics are nested by
+  their dotted path, and an input that several producers feed has one `inputs` entry for each. A
+  run directory from an older Xeda runs again.
+- `xeda run --json` now prints `outcome`, `error` and one entry per node with its record. `xeda run`
+  exits with status 2 for an invalid command line or request.
+- Xeda refuses a symbolic link at the design or target level of the run root, or in the mirror of a
+  remote run, and names the link. A run root that is itself a link still works.
+- The `sby` flow no longer requires `timeout` for `prove`. As in every other flow and mode, a
+  run has no time limit unless you set one.
+- `xeda scrub` now asks on a terminal only, as `xeda run --prune-variants` does. Without a terminal
+  it removes nothing, so `echo yes | xeda scrub` no longer removes: pass `--yes`. Both commands now
+  report `N run directories removed.`
+- The Python API no longer prompts when it scrubs: it removes nothing unless the caller passes a
+  confirmation. `xeda run --remote --scrub` is now refused, because the run directories are on the
+  host.
+- A settings error now starts with the flow and the setting as you write them after `-s`, for
+  example `vivado_synth.nope: the flow has no such setting`.
+- Settings that had no effect now work. `vivado_project` sets `set_synth_properties` and
+  `set_impl_properties` and shows the strategies for `show_available_strategies`. `extra_reports`
+  writes its reports in `vivado_synth` and `vivado_project`. `report_power` writes `power.xml` in
+  `vivado_alt_synth` and `vivado_impl`, as it does in `vivado_synth` and `vivado_project`. `nvc`
+  passes `werror` as `-Werror`, and `yosys_fpga` passes `splitnets_driver` and `splitnets_ports`.
+- `Result`, `Plan`, `RunRecord` and their parts have short reprs: `print(result)` shows the
+  outcome of each node, not every setting and metric.
+- `sim.time` is now an integer number of femtoseconds, and `sim.time_unit` is gone. `yosys`,
+  `yosys_fpga` and `nextpnr` report their cell or bel types in `cell_types`, `yosys_fpga` reports
+  `latch`, `bram.ramb18`, `bram.ramb36` and `dsp`, and the temperatures of `vivado_power` have
+  units.
+- Simulation times, delays and other timing settings now take a value with a unit, for example
+  `timeout: 2 min`, `stop_time: 100 us` or `freq: 6 MHz`. A bare number is refused, and the message
+  names the setting and suggests your number in its unit (`180` gives `180 s` for `timeout`).
+- With `prerun_time`, `vivado_sim` opens the SAIF file after the pre-run, so its duration and
+  toggle rates exclude that time. Power from `vivado_power` can change for a design that sets it.
+- Xeda no longer gives `--extern-modules` to `read_slang`, which yosys-slang has always on and
+  warns about as deprecated.
+- When a design has a SystemVerilog source and slang reads it, `yosys`, `yosys_fpga` and
+  `yosys_sim` give the Verilog sources to the same `read_slang`. A Verilog-only design is unchanged.
+- `Flow.sources_read()` now raises `TypeError` in a flow that declares no `reads_sources`, where it
+  returned every source. A plugin flow that reads the design's sources declares the types it reads.
+- A setting takes only the type it declares from Python and from files: an `int` setting refuses
+  `"4"`, `4.0` and `True`, and a boolean refuses `"true"`. The command line still writes
+  `-s seed=4`.
+- A tool that is older than the version a flow needs now fails with both versions in the error,
+  such as `Minimum version not met: yosys 0.62 was found. Xeda needs 0.63 or newer.`
+- A `Tool` that runs for no flow now needs an absolute `cwd=` each time it starts a process, and so
+  does `Docker.run`. Xeda no longer falls back to the current directory of the Python process.
+- Clock times and frequencies, and the `yosys` options `abc.delay_target`, `abc.max_slew` and
+  `abc.load`, need a unit, such as `clock.period: 5 ns`, `abc.load: 3.9 fF` or
+  `-s clock.freq=200MHz`. A bare number is refused, and `xeda list-settings` shows the kind of such
+  a setting (`time`) as its type.
+- By default (without cocotb, `main` unset), `verilator` runs an HDL top with Verilator's own
+  `--main`, and requires Verilator 5.048.
+  `stop_time` is an error (end the testbench with `$finish`, or use `timeout`); `sim.time` of a run
+  that drained is empty; `--coverage` now writes `coverage.dat`.
+- Verilator now enables timing by default, so testbench delays and event controls run as written.
+  Set `timing: false` to disable timing; Verilator then warns when it ignores a delay. Timing
+  support requires a compiler with C++20 coroutine support.
+- `verilator` waveforms: `vcd`, `fst` and `saif` (set to `true`) build the model with that trace
+  format, and the testbench's `$dumpfile` names the file. Any other name or location is an error
+  without cocotb, and so are two formats. The trace options keep Verilator's defaults.
+- `xeda list-flows`, `list-settings`, `list-results`, `list-boards`, `list-platforms` and
+  `list-optimizers` with `--json` print one object with `schema_version: 1`. The entries are in a
+  named field, such as `flows` or `platforms`.
+- A `verilator` run without cocotb fails when it wrote no `dump.<format>` for the trace format it
+  was built with: the testbench must call `$dumpfile("dump.vcd")`. The same holds for the
+  Verilator backend of `bsc_sim`.
+- A waveform setting such as `vcd` refuses the text `"true"` or `"false"` from Python or a file, as
+  a boolean setting does: write the boolean `true`. `-s vcd=true` on the command line still works.
+- A waveform setting given a location is written as `dump.<format>` in the run directory, and
+  `true` writes the same file. The `saif` of `vivado_sim` and `vivado_postsynth_sim` keeps
+  `outputs/<design>.saif`, and `true` writes it. `verilator` without cocotb accepts no location.
+  A name that ends in the extension of another format is refused: use `vcd` instead of
+  `wave: x.vcd`, and drop the `.gz` of a name given to a setting that writes plain VCD.
+- With a standard-cell mapping, `yosys` refuses each flag in `synth_flags`, `abc_flags`,
+  `read_verilog_flags` and `netlist_verilog_flags` that a setting or the script already gives,
+  and names the setting. `read_systemverilog_flags` now reaches the slang front end too, and with
+  `systemverilog: slang` it refuses the flags that Xeda sets itself.
+- With a standard-cell mapping, `yosys` refuses `abc_dff: true`, `post_synth_opt: true`,
+  `nosynth` and `noabc`, which that mapping cannot honor.
+- `yosys` maps to a standard-cell library in the order of OpenROAD-flow-scripts, passes
+  `dont_use_cells` as `-dont_use`, and passes `-D` to `abc` only with `abc.delay_target` (`auto`
+  gives the clock period). Its ASIC settings moved into groups such as `abc.strategy`; the old
+  names say where they went.
+- `yosys` refuses `dont_use_cells` together with `gates` or `lut`: generic cells have no library
+  cells to exclude.
+- `yosys` maps to a platform's cells from the PDK files in the PDK store: install the platform
+  first with `xeda pdk install <platform>`. It refuses `platform` or `platform_file` together
+  with `gates` or `lut`.
+- `yosys` refuses a Liberty file that includes another with `include_file`, before it starts. The
+  Liberty reader of yosys does not read `include_file`; the OpenROAD flows do.
 
 ### Removed
 - **Breaking for flows written outside Xeda: the undeclared dependency mechanism.** A flow can no
@@ -790,6 +1498,50 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   `Design.from_file` (same arguments); `Design.from_toml` is gone and raises `AttributeError`.
   Bundled platform databases are TOML only, and `Platform.from_toml`, which does parse TOML,
   stays.
+- `xeda.dataclass.asdict` was removed: use the model's `model_dump()`.
+- The `design_root` key of a design file was removed. The root of a design is the directory of its
+  design file; `Design(root=...)` sets it in Python.
+- `xeda dse` refuses the settings `debug`, `dump_settings_json`, `dump_results_json`,
+  `display_results`, `backups`, `prune_variants`, `outputs_to` and `overwrite_outputs`. An
+  exploration never read them.
+- `execnet` and `fabric` are no longer dependencies of Xeda.
+- `xeda.introspect` no longer lists `all_flow_classes`, `design_info`, `json_safe`,
+  `optimizers_info`, `provider_status` and `settings_completion_info` as public names.
+- `DefaultRunner`, `FlowRunner`, `Dse`, `Flow`, `SimFlow`, `SynthFlow`, `Tool`, `FPGA` and `Cocotb`
+  are no longer attributes of the `xeda` package. To run a flow from Python, use `Workspace`.
+- The design key `clock_port` and the flow setting `clock_period` were removed, and each now fails
+  with its replacement. Write `clock: <port>` in the design and `clock.period` (or `clock.freq`)
+  in the flow settings.
+- The `xeda list-*` documents no longer name Python classes or modules. The fields `class`,
+  `module`, `qualified_name`, `settings_class` and `declared_by` are gone, and `xeda list-flows`
+  has no `Class` column.
+- `nvc` has the waveform settings `vcd` and `fst`, as `verilator` and `ghdl_sim` do. `wave` was
+  removed: use `fst`. `wave_format` was removed: use `fst` or `vcd`.
+- Every setting, design key, flow and option now has one spelling. Xeda refuses the others
+  (`ncpus`, `hdl`, `ghdl`, `--flow-settings`, `--debug`, and more) and names the one to
+  write.
+- The bundled ASIC platform files were removed.
+- `xeda.introspect.plan_info` and `request_info` are gone. Use `Workspace(...).plan(spec)` and
+  `Plan.to_dict()`, which is the document of `xeda run --dry-run --json`.
+- The launcher setting `scrub_old_runs` is removed. Use `prune_variants` instead.
+- The `waveform` alias of `vcd` is removed from every simulator: use `vcd`. The `ucli` setting of
+  `vcs` is removed: Xeda always runs VCS with `-ucli`.
+- A source table no longer takes `standard` or `variant`, which no flow read: set the VHDL
+  standard of the design with `language.vhdl.standard`. A source table with any other unknown key
+  is refused too. A design with sources gets a new identity, so its flows run once more.
+- Settings that nothing used are removed. A design that sets one fails with a "was removed" error,
+  and the fix is to delete the setting, which did nothing. The simulators have `timeout` where
+  `timeout_seconds` was, and `dc` takes `target_libraries`. Removed: `timeout_seconds` and
+  `no_console` of every flow, `platform`, `extra_link_libraries`, `mw_ref_lib`, `mw_tf`,
+  `alib_dir` and `additional_search_path` of `dc`, `synthesis_effort` of `quartus`, `work_dir` of
+  `vcs`, `initialize_zeros` and `read_oneshot` of the Vivado simulation flows, `suppress_msgs` of
+  those flows and of `vivado_power`, `netlist_verilog_extmem` of `yosys` and `yosys_fpga`,
+  `retime` of `yosys` and `nosynth` of `yosys_fpga`.
+- `xeda.utils.WorkingDirectory` is removed. Pass `cwd=` to the process you start instead of
+  changing the working directory of Python.
+- `merge_libs_to` of `yosys` was removed: Xeda no longer merges Liberty files; delete it.
+- `script_format` was removed from the yosys flows: Xeda writes a Tcl script only when a setting
+  needs one, and a script of yosys otherwise. Existing yosys runs run once more.
 
 
 ## [v0.4.3] - 2026-09-29

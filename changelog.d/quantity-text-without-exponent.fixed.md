@@ -1,1 +1,0 @@
-- Xeda writes a small value without an exponent: `0.00001 ns`, not `1e-05 ns`.

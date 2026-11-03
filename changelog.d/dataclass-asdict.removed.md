@@ -1,1 +1,0 @@
-- `xeda.dataclass.asdict` was removed: use the model's `model_dump()`.

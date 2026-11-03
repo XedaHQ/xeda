@@ -1,1 +1,0 @@
-- Use the supported `TypedDict` implementation so design schemas load on Python 3.11.

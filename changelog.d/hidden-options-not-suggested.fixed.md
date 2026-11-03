@@ -1,1 +1,0 @@
-- A mistyped option no longer suggests a hidden, removed option such as `--xeda-run-dir`.

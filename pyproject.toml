@@ -66,7 +66,7 @@ dependencies = [
 [project.urls]
 homepage = "https://github.com/XedaHQ/xeda"
 repository = "https://github.com/XedaHQ/xeda.git"
-changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
+changelog = "https://github.com/XedaHQ/xeda/blob/main/CHANGELOG.md"
 # documentation = "..."
 
 [project.scripts]

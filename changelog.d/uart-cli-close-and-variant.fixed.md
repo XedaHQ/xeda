@@ -1,1 +1,0 @@
-- Keep CLI output valid when device cleanup fails and limit Ascon variants to Ascon self-tests.

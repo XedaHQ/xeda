@@ -44,7 +44,7 @@ the clock port and, optionally, a testbench. The settings of one tool go in a se
 flow. Paths are relative to the design file. YAML is the recommended format. TOML and JSON also
 work.
 
-This is [`examples/vhdl/sqrt/sqrt.yaml`](./examples/vhdl/sqrt/sqrt.yaml):
+This is [`examples/vhdl/sqrt/sqrt.yaml`](https://github.com/XedaHQ/xeda/blob/main/examples/vhdl/sqrt/sqrt.yaml):
 
 ```yaml
 name: sqrt
