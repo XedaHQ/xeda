@@ -316,6 +316,30 @@ def obligations(model: dict[str, Any]) -> Counter[str]:
     return count_in(tops[0]["name"], 0)
 
 
+def _top_module(model: dict[str, Any]) -> dict[str, Any]:
+    """Return the top of a flattened Yosys model (`TIMING_MODEL`), or raise `ValueError`."""
+    tops = [
+        module
+        for module in model["modules"].values()
+        if int(module.get("attributes", {}).get("top", "0"), 2) == 1
+    ]
+    if len(tops) != 1:
+        raise ValueError(f"the model has {len(tops)} top modules")
+    return tops[0]
+
+
+def is_combinational(model: dict[str, Any]) -> bool:
+    """Return whether a flattened model has no state and no clocked property. GHDL writes a clocked
+    assertion as a flop before an `$assert`, so the state counts as well as the trigger."""
+    for cell in _top_module(model)["cells"].values():
+        kind = cell["type"]
+        if kind in EDGE_CELLS or kind in LEVEL_CELLS or kind in GLOBAL_CELLS or kind == "$mem_v2":
+            return False
+        if kind in ("$check", "$print") and "1" in cell["parameters"]["TRG_ENABLE"]:
+            return False
+    return True
+
+
 def _fan_in(bits: set[Any], drivers: dict[Any, set[Any]]) -> set[Any]:
     """Return `bits` and every bit that reaches them through combinational cells."""
     found = set(bits)
@@ -382,14 +406,7 @@ def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str
     `_clock_races` says. Raise `ValueError`, `KeyError`, `IndexError` or `TypeError` for a model of
     another shape.
     """
-    tops = [
-        module
-        for module in model["modules"].values()
-        if int(module.get("attributes", {}).get("top", "0"), 2) == 1
-    ]
-    if len(tops) != 1:
-        raise ValueError(f"the model has {len(tops)} top modules")
-    module = tops[0]
+    module = _top_module(model)
     bit_names: dict[Any, str] = {}
     for wire, net in module["netnames"].items():
         for index, bit in enumerate(net["bits"]):
@@ -409,16 +426,20 @@ def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str
     owners: dict[Any, set[Any]] = {}
     for cell in module["cells"].values():
         kind, parameters, ports = cell["type"], cell["parameters"], cell["connections"]
-        clock_ports: tuple[str, ...] = ()
+        clock_ports: tuple[str, ...] = ()  # no data of the cell, in use or not
+        own: set[Any] = set()  # the clock bits in use
         if kind in LEVEL_CELLS:
             problems.add(f"the cell {kind} can change between clock edges")
             clock_ports = ("CLK",) if "CLK" in ports else ()
+            own = set(ports.get("CLK", ()))
         elif kind in EDGE_CELLS:
             clock_ports = ("CLK",)
+            own = {ports["CLK"][0]}
             events.add((ports["CLK"][0], parameters["CLK_POLARITY"][-1]))
         elif kind in ("$check", "$print"):
             clock_ports = ("TRG",)
             if "1" in parameters["TRG_ENABLE"]:
+                own = set(ports["TRG"])
                 polarities = parameters["TRG_POLARITY"][::-1]
                 events.update((bit, polarities[index]) for index, bit in enumerate(ports["TRG"]))
         elif kind in GLOBAL_CELLS:
@@ -429,6 +450,7 @@ def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str
                 polarities = parameters[f"{prefix}_CLK_POLARITY"][::-1]
                 for index, enabled in enumerate(parameters[f"{prefix}_CLK_ENABLE"][::-1]):
                     if enabled == "1":
+                        own.add(ports[f"{prefix}_CLK"][index])
                         events.add((ports[f"{prefix}_CLK"][index], polarities[index]))
             if any(bit != "0" for bit in ports["RD_ARST"]):
                 problems.add("a memory read port has an asynchronous reset")
@@ -447,7 +469,7 @@ def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str
             for bit in bits
         }
         read.update(data)
-        own = {bit for port in clock_ports for bit in ports[port]} - {"0", "1", "x"}
+        own -= CONSTANT_BITS
         outputs = {
             bit for port, bits in ports.items() if directions[port] == "output" for bit in bits
         }
@@ -519,7 +541,7 @@ def _word(value: Any) -> str:
 class Sby(Flow):
     """Check the formal properties of a design with SymbiYosys (SBY) and Yosys.
 
-    One run is one SBY task. `rtl.top` names the formal harness; its sources hold the design under
+    A run is one SBY task, and `prove` adds a second one after a proof. `rtl.top` names the formal harness; its sources hold the design under
     test, the assertions, assumptions and cover statements, and the clock, reset and initial state
     that the proof assumes. SystemVerilog and Verilog are read by yosys-slang with `FORMAL`
     defined and `SYNTHESIS` undefined, and VHDL by the GHDL plugin with PSL in comments.
@@ -638,11 +660,11 @@ class Sby(Flow):
         )
         depth: int | None = Field(
             None,
-            ge=2,
+            ge=1,
             description="The number of steps: the search bound of `bmc` and `cover` (20 when "
-            "unset, 40 with `multiclock`). The last step checks no clocked property, so the least "
-            "value is 2. A `bmc` pass holds only up to this bound. `prove` has no bound and "
-            "refuses `depth`.",
+            "unset, 40 with `multiclock`). The last step checks no clocked property, so 1 is only "
+            "for a design with no state. A `bmc` pass holds only up to this bound. `prove` has no "
+            "bound and refuses `depth`.",
             json_schema_extra=count(),
         )
         multiclock: bool = Field(
@@ -770,6 +792,8 @@ class Sby(Flow):
         self.properties: Counter[str] | None = None
         #: Why the default model of SBY cannot hold this design; None until the model is read.
         self.timing: list[str] | None = None
+        #: Whether the model has no state and no clocked property.
+        self.combinational = False
 
     def always_runs(self) -> str | None:
         return super().always_runs() or (
@@ -1025,7 +1049,9 @@ class Sby(Flow):
         timing = self.report_file(Path(WORK) / "src" / TIMING_MODEL, optional=True)
         if timing is not None:
             try:
-                self.timing = timing_problems(json.loads(timing.read_text()), ss.multiclock)
+                flattened = json.loads(timing.read_text())
+                self.timing = timing_problems(flattened, ss.multiclock)
+                self.combinational = is_combinational(flattened)
             except (ValueError, KeyError, IndexError, TypeError) as error:
                 log.error("The timing model %s is unreadable: %s", timing, error)
         status_file = self.report_file(Path(WORK) / "status")
@@ -1081,6 +1107,11 @@ class Sby(Flow):
                     f"the default model of SBY has one clock, and this design does not fit it: "
                     f"{'; '.join(self.timing)}. So a verdict could be wrong. Set "
                     "`multiclock` to model it, or change the design"
+                )
+            elif ss.depth == 1 and not self.combinational:
+                problem = (
+                    "a `depth` of 1 checks no clocked property, and this design has state or one: "
+                    "set `depth` to at least 2"
                 )
             elif not self.properties[kind]:
                 problem = (

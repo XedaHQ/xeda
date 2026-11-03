@@ -87,8 +87,9 @@ if spec.get("model", True):
     (work / "model" / "design.log").write_text("yosys\n")
 if spec.get("timing_model", True):
     empty = {"attributes": {"top": "1"}, "netnames": {}, "ports": {}, "cells": {}}
+    flattened = spec.get("flattened", {"modules": {"top": empty}})
     (work / "src").mkdir(exist_ok=True)
-    (work / "src" / "xeda_timing.json").write_text(json.dumps({"modules": {"top": empty}}))
+    (work / "src" / "xeda_timing.json").write_text(json.dumps(flattened))
 for index in range(spec.get("traces", 0)):
     (work / "engine_0").mkdir(exist_ok=True)
     (work / "engine_0" / f"trace{index}.vcd").write_text(f"trace {index}\n")
@@ -455,11 +456,6 @@ def test_the_default_depth_covers_the_same_cycles_in_both_time_models(
     assert flow.results["formal.depth"] == depth
 
 
-def test_a_depth_of_one_checks_no_clocked_property_and_is_refused(tmp_path, fake_sby):
-    with pytest.raises(FlowSettingsException, match="depth"):
-        _run(tmp_path, _design(tmp_path), depth=1)
-
-
 def test_a_proof_that_passes_checks_only_the_assumptions_next(tmp_path, fake_sby):
     flow = _run(tmp_path, _design(tmp_path), mode="prove")
     assert flow.outcome == "passed", _document(flow).get("error")
@@ -680,6 +676,26 @@ def _state(clock: Any, output: Any, data: Any = 100) -> dict:
         },
         {"a": _state(2, 12), "b": _gate(11, 2, 3), "c": _state(11, 20, data=12)},
         {"a": _gate(11, 10, "1"), "b": _state(11, 20, data="1"), "c": _state(2, 10)},
+        {"a": _state(2, 10), "b": _check([10], enable="0", data=10)},
+        {
+            "a": _state(2, 10),
+            "b": _state(2, 12),
+            "m": {
+                **_memory(read=10, write=3),
+                "connections": {
+                    **_memory(read=10, write=3)["connections"],
+                    "WR_DATA": [12],
+                },
+                "port_directions": {
+                    **_memory(read=10, write=3)["port_directions"],
+                    "WR_DATA": "input",
+                },
+                "parameters": {
+                    **_memory(read=10, write=3)["parameters"],
+                    "RD_CLK_ENABLE": "0",
+                },
+            },
+        },
     ],
     ids=[
         "independent-clocks",
@@ -690,6 +706,8 @@ def _state(clock: Any, output: Any, data: Any = 100) -> dict:
         "clock-divider-with-a-shared-reset",
         "gated-clock",
         "shared-constant",
+        "disabled-trigger",
+        "disabled-memory-port",
     ],
 )
 def test_multiclock_holds_what_its_time_model_reads_right(cells):
@@ -765,6 +783,32 @@ def test_multiclock_holds_what_its_time_model_reads_right(cells):
 def test_multiclock_refuses_what_its_time_model_reads_wrong(cells, problem):
     found = timing_problems(_timing_model(cells, "clk", "other"), multiclock=True)
     assert any(problem in text for text in found), found
+
+
+def _fake_model(monkeypatch, cells: dict[str, dict], **spec: Any) -> None:
+    _spec(monkeypatch, flattened=_timing_model(cells, "clk"), **spec)
+
+
+def test_a_depth_of_one_runs_a_design_with_no_state(tmp_path, fake_sby, monkeypatch):
+    _fake_model(monkeypatch, {"a": _check([], enable="0", polarity="x")})
+    flow = _run(tmp_path, _design(tmp_path), depth=1)
+    assert flow.outcome == "passed", _document(flow).get("error")
+    assert "depth 1\n" in _config(flow)
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [{"a": _flop(2)}, {"a": _check([2])}, {"a": _flop(2, "$ff")}],
+    ids=["state", "clocked-property", "global-clock-state"],
+)
+@pytest.mark.parametrize("status", ["PASS", "FAIL"])
+def test_a_depth_of_one_never_judges_a_design_with_state(
+    tmp_path, fake_sby, monkeypatch, cells, status
+):
+    _fake_model(monkeypatch, cells, status=status)
+    flow = _run(tmp_path, _design(tmp_path), depth=1)
+    assert flow.outcome == "failed"
+    assert "a `depth` of 1 checks no clocked property" in _document(flow)["error"]["message"]
 
 
 def test_two_bits_of_one_input_are_two_clocks():
@@ -1793,6 +1837,51 @@ def test_real_prove_with_assumptions_that_a_trace_meets_passes(tmp_path, ric3_sc
     )
     flow = _real(tmp_path, {"top.sv": source}, mode="prove")
     assert flow.outcome == "passed", _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "width, mode, outcome",
+    [(5, "bmc", "passed"), (4, "bmc", "rejected"), (5, "cover", "passed")],
+    ids=["holds", "fails", "covered"],
+)
+def test_real_a_depth_of_one_decides_a_combinational_design(tmp_path, width, mode, outcome):
+    require_sby()
+    statement = "assert (s >= a);" if mode == "bmc" else "cover (s == 5'd9);"
+    source = (
+        "module top(input logic [3:0] a, input logic [3:0] b);\n"
+        f"  wire [{width - 1}:0] s = a + b;\n  always_comb {statement}\nendmodule\n"
+    )
+    flow = _real(tmp_path, {"top.sv": source}, mode=mode, depth=1)
+    assert flow.outcome == outcome, _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "file, source",
+    [
+        (
+            "top.sv",
+            "module top(input logic clk, input logic [3:0] a);\n"
+            "  always_comb assert (a < 16);\n"
+            "  assert property (@(posedge clk) 1'b0);\nendmodule\n",
+        ),
+        (
+            "top.vhdl",
+            "library ieee; use ieee.std_logic_1164.all;\n"
+            "entity top is port (clk : in std_logic); end;\n"
+            "architecture a of top is begin\n"
+            "  process (clk) begin if rising_edge(clk) then assert false; end if; end process;\n"
+            "end;\n",
+        ),
+    ],
+    ids=["clocked-beside-unclocked", "vhdl-clocked-assertion"],
+)
+def test_real_a_depth_of_one_does_not_hide_a_clocked_failure(tmp_path, file, source):
+    require_sby_ghdl() if file.endswith(".vhdl") else require_sby()
+    flow = _real(tmp_path, {file: source}, depth=1)
+    assert flow.outcome == "failed"
+    assert "a `depth` of 1 checks no clocked property" in _document(flow)["error"]["message"]
 
 
 @pytest.mark.real_tool

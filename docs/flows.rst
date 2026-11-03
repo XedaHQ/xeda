@@ -1080,7 +1080,7 @@ It is required, and it has no default:
 - ``prove``: a proof that every assertion holds for all time, by the IC3 engine of rIC3.
 
 The ``depth`` setting is the number of steps of ``bmc`` and ``cover``. It defaults to 20, or to 40
-with ``multiclock``, and it is at least 2. ``prove`` has no depth: SBY gives none to rIC3, so Xeda
+with ``multiclock``. ``prove`` has no depth: SBY gives none to rIC3, so Xeda
 refuses ``depth`` for ``prove``. It does not ignore it.
 
 Sources and language
@@ -1195,8 +1195,8 @@ The second check does not compare clock edges. So it also refuses logic on ``d``
 on the falling edge of ``clk``, which SBY reads correctly.
 
 In both models, a clocked property is checked one step after its clock edge, so the last step of
-``depth`` checks no clocked property. A failure at cycle 5 needs ``depth`` 7, and a ``depth`` of 1
-would check nothing, so the least value is 2.
+``depth`` checks no clocked property. A failure at cycle 5 needs ``depth`` 7. So a ``depth`` of 1 is
+for a combinational design: the run fails if the model has state or a clocked property.
 
 Solvers
 -------
