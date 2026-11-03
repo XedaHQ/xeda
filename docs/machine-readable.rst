@@ -263,7 +263,7 @@ says so. The keys that every flow reports (``runtime``, ...) are no metrics and 
 table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
 A temperature is in ``degC``. A temperature difference is in ``delta_degC``, and 5 ``delta_degC`` is
-5 K. A thermal resistance is in ``K/W``. The simulated time ``sim.time`` is an integer number of
+5 K. A thermal resistance is in ``K/W``. An area in square micrometers is in ``um^2``. The simulated time ``sim.time`` is an integer number of
 femtoseconds. The counts of cells by type are one ``counts`` metric, ``cell_types``, with the name
 of the cell as the key.
 

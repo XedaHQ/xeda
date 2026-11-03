@@ -75,7 +75,7 @@ def test_scrub_design_without_a_confirmation_removes_nothing(tree, no_terminal, 
     run_root, design_dir, directories = tree
     with caplog.at_level(logging.INFO):
         result = scrub_design(FLOW, design_dir, run_root=run_root)
-    assert result.removed == []
+    assert result.removed == ()
     assert _all_exist(directories)
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "Not removing 2 run directories" in warnings[0].getMessage()
@@ -92,7 +92,7 @@ def test_scrub_with_nothing_to_remove_says_nothing(tmp_path, no_terminal, caplog
     assert run_root is not None
     (run_root / "sqrt").mkdir()
     with caplog.at_level(logging.INFO):
-        assert scrub_design(FLOW, run_root / "sqrt", run_root=run_root).removed == []
+        assert scrub_design(FLOW, run_root / "sqrt", run_root=run_root).removed == ()
     assert not caplog.records
 
 
@@ -117,8 +117,17 @@ def test_a_confirmation_that_says_no_removes_nothing(tree):
         FLOW, design_dir, run_root=run_root, confirm=lambda listed: asked.append(listed) or False
     )
     assert len(asked) == 1
-    assert result.removed == []
+    assert result.removed == ()
     assert _all_exist(directories)
+
+
+def test_a_scrub_result_is_immutable(tree):
+    run_root, design_dir, _ = tree
+    result = scrub_design(FLOW, design_dir, run_root=run_root, confirm=lambda listed: True)
+    for name in ("scanned", "removed", "kept", "gone", "skipped"):
+        assert isinstance(getattr(result, name), tuple), name
+    with pytest.raises(TypeError):
+        result.reasons[design_dir] = "x"  # type: ignore[index]
 
 
 def _launch(tmp_path: Path, text: str, *, prune_variants: bool, confirm=None) -> Path:

@@ -179,7 +179,7 @@ def test_library_generation_scrub_accepts_an_unresolved_run_root(tmp_path, spell
     storage.mkdir(parents=True)
     (storage / "top.v").write_text("module top; endmodule\n")
     result = scrub_generations("d", run_root=root, confirm=lambda candidates: True)
-    assert result.removed == [storage]
+    assert result.removed == (storage,)
     assert not storage.exists()
 
 
@@ -191,7 +191,7 @@ def test_library_design_scrub_accepts_an_unresolved_run_root(tmp_path, spelling)
     for name in ("settings.json", "results.json", "trace.json"):
         (run / name).write_text("{}")
     result = scrub_design(SCRUBBED, root / "d", run_root=root, confirm=lambda candidates: True)
-    assert result.removed == [run]
+    assert result.removed == (run,)
     assert not run.exists()
 
 

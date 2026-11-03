@@ -2574,27 +2574,27 @@
         "ScrubResult": {
           "attributes": [
             {
-              "annotation": "list[pathlib.Path]",
+              "annotation": "tuple[pathlib.Path, ...]",
               "default": "_tuplegetter(0, 'Alias for field number 0')",
               "name": "scanned"
             },
             {
-              "annotation": "list[pathlib.Path]",
+              "annotation": "tuple[pathlib.Path, ...]",
               "default": "_tuplegetter(1, 'Alias for field number 1')",
               "name": "removed"
             },
             {
-              "annotation": "list[pathlib.Path]",
+              "annotation": "tuple[pathlib.Path, ...]",
               "default": "_tuplegetter(2, 'Alias for field number 2')",
               "name": "kept"
             },
             {
-              "annotation": "list[pathlib.Path]",
+              "annotation": "tuple[pathlib.Path, ...]",
               "default": "_tuplegetter(3, 'Alias for field number 3')",
               "name": "gone"
             },
             {
-              "annotation": "list[pathlib.Path]",
+              "annotation": "tuple[pathlib.Path, ...]",
               "default": "_tuplegetter(4, 'Alias for field number 4')",
               "name": "skipped"
             },
@@ -2610,27 +2610,27 @@
           "constructor": {
             "parameters": [
               {
-                "annotation": "list[pathlib.Path]",
+                "annotation": "tuple[pathlib.Path, ...]",
                 "kind": "positional_or_keyword",
                 "name": "scanned"
               },
               {
-                "annotation": "list[pathlib.Path]",
+                "annotation": "tuple[pathlib.Path, ...]",
                 "kind": "positional_or_keyword",
                 "name": "removed"
               },
               {
-                "annotation": "list[pathlib.Path]",
+                "annotation": "tuple[pathlib.Path, ...]",
                 "kind": "positional_or_keyword",
                 "name": "kept"
               },
               {
-                "annotation": "list[pathlib.Path]",
+                "annotation": "tuple[pathlib.Path, ...]",
                 "kind": "positional_or_keyword",
                 "name": "gone"
               },
               {
-                "annotation": "list[pathlib.Path]",
+                "annotation": "tuple[pathlib.Path, ...]",
                 "kind": "positional_or_keyword",
                 "name": "skipped"
               },

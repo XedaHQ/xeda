@@ -125,7 +125,7 @@ def test_minutes_and_hours() -> None:
 
 
 def test_the_units_of_metrics_change_nothing_a_setting_reads() -> None:
-    """`degC`, `delta_degC` and `K/W` are units of metrics only. Every input that a setting
+    """`degC`, `delta_degC`, `K/W` and `um^2` are units of metrics only. Every input that a setting
     refused before still gets the message that it got."""
     assert not any(is_quantity_unit(unit) for unit in METRIC_ONLY_UNITS)
     assert all(is_metric_unit(unit) for unit in METRIC_ONLY_UNITS)

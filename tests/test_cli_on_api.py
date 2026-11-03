@@ -741,7 +741,7 @@ def test_workspace_scrub_takes_the_name_of_a_removed_flow_as_the_command_does(tm
     directory.mkdir(parents=True)
     (directory / "results.json").write_text("{}\n")
     result = Workspace(root, confirm=lambda question: True).scrub(design_name="demo", flow=spelling)
-    assert result.removed == [directory] and not directory.exists()
+    assert result.removed == (directory,) and not directory.exists()
 
 
 @pytest.mark.parametrize("spelling", ["ghdl-sim", "GhdlSim", "ghdl", "nosuch_flow"])

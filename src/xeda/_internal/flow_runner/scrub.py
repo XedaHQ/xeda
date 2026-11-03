@@ -77,12 +77,12 @@ class ScrubResult(NamedTuple):
     none is in another, and no skipped link is in any of them. A directory that has several
     names (links to it) is listed once, under the first name, and removed under all of them."""
 
-    scanned: list[Path]
-    removed: list[Path]
-    kept: list[Path]
-    gone: list[Path]
-    skipped: list[Path]
-    #: Why each skipped link was skipped.
+    scanned: tuple[Path, ...]
+    removed: tuple[Path, ...]
+    kept: tuple[Path, ...]
+    gone: tuple[Path, ...]
+    skipped: tuple[Path, ...]
+    #: Why each skipped link was skipped (read-only).
     reasons: Mapping[Path, str] = MappingProxyType({})
 
 
@@ -508,12 +508,12 @@ def scrub_runs(
     if on_result is not None:
         on_result(
             ScrubResult(
-                [dir],
-                done.removed,
-                done.kept,
-                done.gone,
-                [s.link for s in scan.skipped],
-                {s.link: s.problem for s in scan.skipped},
+                (dir,),
+                tuple(done.removed),
+                tuple(done.kept),
+                tuple(done.gone),
+                tuple(s.link for s in scan.skipped),
+                MappingProxyType({s.link: s.problem for s in scan.skipped}),
             )
         )
     return bool(done.removed)
@@ -584,12 +584,12 @@ def scrub_design(
     done = _remove_confirmed(listed, run_root, confirm, storages)
     base = run_root / GENERATION_DIRECTORY / design_dir.name
     return ScrubResult(
-        [*parents, base] if whole_design and base.is_dir() else parents,
-        done.removed,
-        done.kept,
-        done.gone,
-        [s.link for s in skipped],
-        {s.link: s.problem for s in skipped},
+        (*parents, base) if whole_design and base.is_dir() else tuple(parents),
+        tuple(done.removed),
+        tuple(done.kept),
+        tuple(done.gone),
+        tuple(s.link for s in skipped),
+        MappingProxyType({s.link: s.problem for s in skipped}),
     )
 
 
@@ -656,7 +656,7 @@ def scrub_generations(
     base = run_root / GENERATION_DIRECTORY / design_name
     found = _generation_storages(design_name, run_root)
     if not found:
-        return ScrubResult([base], [], [], [], [])
+        return ScrubResult((base,), (), (), (), ())
     if confirm is None:
         log.warning(
             "Not removing %d generation storage(s) of %s: nothing confirmed the removal, and only "
@@ -664,11 +664,11 @@ def scrub_generations(
             len(found),
             design_name,
         )
-        return ScrubResult([base], [], [], [], [])
+        return ScrubResult((base,), (), (), (), ())
     if not confirm([ScrubCandidate(path, ()) for path in found]):
-        return ScrubResult([base], [], [], [], [])
+        return ScrubResult((base,), (), (), (), ())
     removed, gone = _remove_storages(found, run_root)
-    return ScrubResult([base], removed, [], gone, [])
+    return ScrubResult((base,), tuple(removed), (), tuple(gone), ())
 
 
 def list_run_directories(

@@ -134,6 +134,7 @@ class OpenroadGrt(OpenroadStage):
             "Area of the standard cells after the global route and its repair, in square "
             "micrometers.",
             "number",
+            "um^2",
         ),
         hold_tns=MetricSpec(
             "Total negative hold slack after the global route, with propagated clocks and the "

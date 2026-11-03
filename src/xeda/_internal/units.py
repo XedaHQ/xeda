@@ -1011,9 +1011,9 @@ def is_quantity_unit(text: str) -> bool:
 
 
 #: The units that only metrics have, which no setting takes: a temperature, a temperature
-#: difference and a thermal resistance. 5 `delta_degC` is 5 K, and 5 `degC` is 278.15 K. A
+#: difference, a thermal resistance and an area in square micrometers. 5 `delta_degC` is 5 K, and 5 `degC` is 278.15 K. A
 #: quantity kind reads a unit as a number of settings and cannot hold these, so they are no kind.
-METRIC_ONLY_UNITS = ("degC", "delta_degC", "K/W")
+METRIC_ONLY_UNITS = ("degC", "delta_degC", "K/W", "um^2")
 
 
 def is_metric_unit(text: str) -> bool:

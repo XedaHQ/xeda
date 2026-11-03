@@ -604,7 +604,7 @@ def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_wa
             child.kill()
             child.communicate(timeout=10)
     assert "error" not in outcome, repr(outcome.get("error"))
-    assert outcome["result"].removed == []
+    assert outcome["result"].removed == ()
 
 
 def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path, monkeypatch):

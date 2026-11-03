@@ -3249,7 +3249,7 @@
         },
         "area": {
           "type": "number",
-          "unit": null
+          "unit": "um^2"
         },
         "clock_skew_hold": {
           "type": "number",
@@ -3261,11 +3261,11 @@
         },
         "core_area": {
           "type": "number",
-          "unit": null
+          "unit": "um^2"
         },
         "die_area": {
           "type": "number",
-          "unit": null
+          "unit": "um^2"
         },
         "drc_errors": {
           "type": "integer",
@@ -4184,7 +4184,7 @@
       "metrics": {
         "area": {
           "type": "number",
-          "unit": null
+          "unit": "um^2"
         },
         "clock_skew_hold": {
           "type": "number",
@@ -4803,7 +4803,7 @@
         },
         "area": {
           "type": "number",
-          "unit": null
+          "unit": "um^2"
         },
         "clock_skew_hold": {
           "type": "number",
@@ -5457,7 +5457,7 @@
       "metrics": {
         "area": {
           "type": "number",
-          "unit": null
+          "unit": "um^2"
         },
         "fmax": {
           "type": "number",

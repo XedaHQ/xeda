@@ -790,7 +790,7 @@ def test_scrub_without_confirm_removes_nothing_and_says_so(tmp_path, caplog):
     run_dir = workspace.run(spec).record.run_dir
     with caplog.at_level(logging.WARNING, logger="xeda"):
         result = workspace.scrub(design_name="d")
-    assert result.removed == [] and result.kept == [] and result.gone == []
+    assert result.removed == () and result.kept == () and result.gone == ()
     assert result.scanned and run_dir.is_dir()
     assert "nothing confirmed the removal" in caplog.text
 
@@ -817,9 +817,9 @@ def test_scrub_reports_removed_kept_and_gone(tmp_path):
     result = workspace.scrub(design_name="d")
     assert len(questions) == 1
     assert all(str(path) in questions[0] for path in (producer, consumer, stamp))
-    assert (result.removed, result.kept, result.gone) == ([stamp], [consumer], [producer])
+    assert (result.removed, result.kept, result.gone) == ((stamp,), (consumer,), (producer,))
     assert not stamp.exists() and consumer.is_dir() and not producer.exists()
-    assert result.skipped == [] and result.scanned
+    assert result.skipped == () and result.scanned
 
 
 def test_scrub_selects_by_flow_and_target(tmp_path):
@@ -827,12 +827,12 @@ def test_scrub_selects_by_flow_and_target(tmp_path):
     for target in ("a", "b", None):
         assert workspace.run(Spec("t_taker", target_design(tmp_path, target))).passed
     root = workspace.run_root / "d"
-    assert workspace.scrub(design_name="d", flow="t_taker", target="a").removed == [
-        root / "a" / "t_taker"
-    ]
-    assert workspace.scrub(design_name="d", flow="t_taker", target=None).removed == [
-        root / "t_taker"
-    ]
+    assert workspace.scrub(design_name="d", flow="t_taker", target="a").removed == (
+        root / "a" / "t_taker",
+    )
+    assert workspace.scrub(design_name="d", flow="t_taker", target=None).removed == (
+        root / "t_taker",
+    )
     assert sorted(workspace.scrub(design_name="d", flow="t_taker").removed) == [
         root / "b" / "t_taker"
     ]
@@ -873,13 +873,13 @@ def test_a_design_level_scrub_removes_the_generation_storages_a_flow_scrub_keeps
     questions: list[str] = []
     scrubbing = Workspace(world.run_root, confirm=lambda q: questions.append(q) or True)
     only_flow = scrubbing.scrub(design_name="generated", flow=flow)
-    assert only_flow.removed == [record.run_dir] and storage.is_dir()
+    assert only_flow.removed == (record.run_dir,) and storage.is_dir()
     assert workspace.run(Spec(flow, world.load())).passed
     everything = scrubbing.scrub(design_name="generated")
     assert sorted(everything.removed) == sorted([record.run_dir, storage])
     assert not storage.exists() and not record.run_dir.exists()
     assert len(questions) == 2 and str(storage) in questions[1], "one question for all"
-    assert scrubbing.scrub(design_name="generated").removed == []
+    assert scrubbing.scrub(design_name="generated").removed == ()
 
 
 def test_a_target_scrub_keeps_the_generation_storages_that_every_target_reads(tmp_path):
