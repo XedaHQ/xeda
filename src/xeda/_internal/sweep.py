@@ -84,7 +84,7 @@ class SweepPoint:
     """One spec of a sweep: its position in the input, the spec and what its launch did."""
 
     index: int
-    spec: Spec
+    spec: Spec = field(repr=False)
     result: Result
 
 
@@ -119,12 +119,16 @@ class SweepResult:
         `outcome`, `error_code` and `run_dir` (of the root node); then `design.<path>` for each
         leaf of the updates of the design (`Design.updates`, merged), then `settings.<node>.<path>`
         for each leaf of the settings of the spec, then one key for each of `metrics`. A metric is
-        named `<node>.<path>`, as `nextpnr.fmax`, and its key is that text. A setting of a node that
+        named `<node>.<path>`, as `nextpnr.fmax`, and its key is that text. The path of a group of
+        metrics gives the table of what is below it. A setting of a node that
         has a record is the value that the node ran with, in the canonical text of a quantity.
 
         A metric reads the record of its node in that point, whatever the outcome of the point. Its
         value is `None` when the node has no record there or the record has no such metric. A
-        `KeyError` names every node of the sweep when a metric names a node that no point has."""
+        `KeyError` names every node of the sweep when a metric names a node that no point has, and
+        every metric of the flow when the flow of the node describes no such metric or group."""
+        from .introspect import results_info
+
         names = {name for point in self.points for name in point.result.nodes}
         for text in metrics:
             if text.partition(".")[0] not in names or "." not in text:
@@ -132,6 +136,15 @@ class SweepResult:
                     f"`{text}` names no node of this sweep. Write `<node>.<metric>`, such as "
                     f"`nextpnr.fmax`. The nodes are: {', '.join(sorted(names))}."
                 )
+            node, _, path = text.partition(".")
+            flows = {p.result.nodes[node].flow for p in self.points if node in p.result.nodes}
+            for flow in sorted(flows):
+                described = [metric["path"] for metric in results_info(flow)["metrics"]]
+                if not any(m == path or m.startswith(f"{path}.") for m in described):
+                    raise KeyError(
+                        f"`{text}`: the flow `{flow}` has no metric `{path}`. Its metrics are: "
+                        f"{', '.join(described)}."
+                    )
         rows = [self._row(point, metrics) for point in self.points]
         keys = list(dict.fromkeys(key for row in rows for key in row))
         return [{key: row.get(key) for key in keys} for row in rows]
@@ -162,8 +175,10 @@ class SweepResult:
         for text in metrics:
             node, _, metric = text.partition(".")
             record = result.nodes[node].record if node in result.nodes else None
-            has = record is not None and metric in record.metric_info
-            row[text] = thaw(record.metric(metric)) if has and record is not None else None
+            try:
+                row[text] = None if record is None else thaw(record.metric(metric))
+            except KeyError:  # this record has no such metric, or only a part of the group
+                row[text] = None
         return row
 
     def to_pandas(self, *, metrics: Sequence[str] = ()) -> "pandas.DataFrame":

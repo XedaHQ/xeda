@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.introspect import results_info
 from xeda._internal.cancel import CancelToken
 from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
 from xeda._internal.events import Event
@@ -25,6 +26,7 @@ from xeda._internal.outcomes import Disposition, Outcome, Result
 from xeda._internal.records import ErrorInfo, encode_record, read_record
 from xeda._internal.spec import Spec
 from xeda._internal.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
+from xeda._internal.frozen import thaw
 from xeda._internal.utils import dump_json
 from xeda._internal.workspace import Workspace
 
@@ -1018,3 +1020,36 @@ def test_a_consumer_vouches_for_the_unchanged_outputs_of_its_producer_by_metadat
     assert outcome.result.outcome is Outcome.PASSED
     assert read, "the capture of the producer reads the files that nothing vouches for"
     assert not outputs & set(read), "an unchanged output is read in full again"
+
+
+def test_a_metric_that_the_flow_does_not_describe_raises_key_error(tmp_path, design):
+    result = _workspace(tmp_path).sweep(_seeds(design, 1))
+    with pytest.raises(KeyError) as raised:
+        result.rows(metrics=("nextpnr.fmx",))
+    described = ", ".join(metric["path"] for metric in results_info("nextpnr")["metrics"])
+    assert raised.value.args[0] == (
+        f"`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: {described}."
+    )
+    row = result.rows(metrics=("nextpnr.lut_basis", "yosys_fpga.lut_use"))[0]
+    record = result.points[0].result.nodes["nextpnr"].record
+    assert row["nextpnr.lut_basis"] == thaw(record.metric("lut_basis"))
+    assert set(row["nextpnr.lut_basis"]) == {"method", "stage"}
+    assert row["yosys_fpga.lut_use"] is None  # described, but this record has none
+
+
+def test_the_results_of_a_launch_have_short_reprs(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    spec = _seeds(design, 1)[0]
+    plan = workspace.plan(spec)
+    result = workspace.run(plan)
+    sweep = workspace.sweep([spec])
+    for value in (plan, result, result.record, sweep):
+        assert len(repr(value)) < 1500, type(value).__name__
+    assert repr(result.record).startswith("RunRecord(flow='nextpnr', design='top', target=None,")
+    assert "outcome=<Outcome.PASSED: 'passed'>" in repr(result)
+    hidden = [
+        (plan, ("identity=", "action=", "settings=", "spec=")),
+        (result, ("elapsed=", "record=")),
+    ]
+    for value, names in hidden:
+        assert not [name for name in names if name in repr(value)], type(value).__name__
