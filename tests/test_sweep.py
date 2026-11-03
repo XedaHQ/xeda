@@ -25,6 +25,7 @@ from xeda._internal.outcomes import Disposition, Outcome, Result
 from xeda._internal.records import ErrorInfo, encode_record, read_record
 from xeda._internal.spec import Spec
 from xeda._internal.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
+from xeda._internal.frozen import thaw
 from xeda._internal.utils import dump_json
 from xeda._internal.workspace import Workspace
 
@@ -1027,7 +1028,11 @@ def test_a_metric_that_the_flow_does_not_describe_raises_key_error(tmp_path, des
     assert raised.value.args[0].startswith(
         "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, wns,"
     )
-    assert "yosys_fpga.lut_use" in result.rows(metrics=("yosys_fpga.lut_use",))[0]
+    row = result.rows(metrics=("nextpnr.lut_basis", "yosys_fpga.lut_use"))[0]
+    record = result.points[0].result.nodes["nextpnr"].record
+    assert row["nextpnr.lut_basis"] == thaw(record.metric("lut_basis"))
+    assert set(row["nextpnr.lut_basis"]) == {"method", "stage"}
+    assert row["yosys_fpga.lut_use"] is None  # described, but this record has none
 
 
 def test_the_results_of_a_launch_have_short_reprs(tmp_path, design):

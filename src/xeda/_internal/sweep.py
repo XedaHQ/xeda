@@ -119,7 +119,8 @@ class SweepResult:
         `outcome`, `error_code` and `run_dir` (of the root node); then `design.<path>` for each
         leaf of the updates of the design (`Design.updates`, merged), then `settings.<node>.<path>`
         for each leaf of the settings of the spec, then one key for each of `metrics`. A metric is
-        named `<node>.<path>`, as `nextpnr.fmax`, and its key is that text. A setting of a node that
+        named `<node>.<path>`, as `nextpnr.fmax`, and its key is that text. The path of a group of
+        metrics gives the table of what is below it. A setting of a node that
         has a record is the value that the node ran with, in the canonical text of a quantity.
 
         A metric reads the record of its node in that point, whatever the outcome of the point. Its
@@ -174,8 +175,10 @@ class SweepResult:
         for text in metrics:
             node, _, metric = text.partition(".")
             record = result.nodes[node].record if node in result.nodes else None
-            has = record is not None and metric in record.metric_info
-            row[text] = thaw(record.metric(metric)) if has and record is not None else None
+            try:
+                row[text] = None if record is None else thaw(record.metric(metric))
+            except KeyError:  # this record has no such metric, or only a part of the group
+                row[text] = None
         return row
 
     def to_pandas(self, *, metrics: Sequence[str] = ()) -> "pandas.DataFrame":
