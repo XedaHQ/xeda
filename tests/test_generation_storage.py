@@ -788,13 +788,13 @@ def test_a_scrub_of_generations_asks_first_and_removes_only_that_design(tmp_path
     other = world.run_root / ".generated" / "another" / "0123456789abcdef"
     other.mkdir(parents=True)
     root = world.run_root.resolve()
-    assert scrub_generations("generated", run_root=root).removed == []
-    assert scrub_generations("generated", run_root=root, confirm=lambda c: False).removed == []
+    assert scrub_generations("generated", run_root=root).removed == ()
+    assert scrub_generations("generated", run_root=root, confirm=lambda c: False).removed == ()
     assert len(world.storages()) == 2
     result = scrub_generations("generated", run_root=root, confirm=lambda c: True)
-    assert len(result.removed) == 1 and result.gone == []
+    assert len(result.removed) == 1 and result.gone == ()
     assert world.storages() == [other]
-    assert scrub_generations("generated", run_root=root, confirm=lambda c: True).removed == []
+    assert scrub_generations("generated", run_root=root, confirm=lambda c: True).removed == ()
 
 
 # ---------------------------------------------------------------- a converter reads generated sources

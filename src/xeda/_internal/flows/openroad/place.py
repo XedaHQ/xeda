@@ -340,7 +340,9 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
         "utilization",
         "power",
         area=MetricSpec(
-            "Area of the standard cells after the placement, in square micrometers.", "number"
+            "Area of the standard cells after the placement, in square micrometers.",
+            "number",
+            "um^2",
         ),
         hold_tns=MetricSpec(
             "Total negative hold slack after the placement, from the parasitics that OpenROAD "

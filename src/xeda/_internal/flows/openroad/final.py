@@ -390,6 +390,7 @@ class Openroad(OpenroadStage):
             "Area of the standard cells after the detailed route, without the filler cells, in "
             "square micrometers.",
             "number",
+            "um^2",
         ),
         hold_tns=MetricSpec(
             "Total negative hold slack after the detailed route, from the final parasitics (see "
@@ -412,8 +413,8 @@ class Openroad(OpenroadStage):
         max_fanout_violations=MetricSpec(
             "Number of max fanout violations after the detailed route.", "integer"
         ),
-        core_area=MetricSpec("Area of the core, in square micrometers.", "number"),
-        die_area=MetricSpec("Area of the die, in square micrometers.", "number"),
+        core_area=MetricSpec("Area of the core, in square micrometers.", "number", "um^2"),
+        die_area=MetricSpec("Area of the die, in square micrometers.", "number", "um^2"),
         power_internal=MetricSpec(
             "Internal power of the cells, as OpenROAD estimates it.", "number", "W"
         ),

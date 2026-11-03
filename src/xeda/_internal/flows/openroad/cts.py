@@ -86,6 +86,7 @@ class OpenroadCts(OpenroadStage):
             "Area of the standard cells after the clock tree and its repair, in square "
             "micrometers.",
             "number",
+            "um^2",
         ),
         hold_tns=MetricSpec(
             "Total negative hold slack after the clock tree, with propagated clocks and the "

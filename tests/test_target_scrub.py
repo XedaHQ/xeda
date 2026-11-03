@@ -572,7 +572,7 @@ def test_a_run_that_ends_in_a_candidate_while_scrub_waits_for_its_lock_is_kept(
     thread.join(timeout=30)
     assert not thread.is_alive()
     assert "error" not in outcome, repr(outcome.get("error"))
-    assert outcome["result"].removed == [other] and not other.exists()
+    assert outcome["result"].removed == (other,) and not other.exists()
     assert (held / "results.json").read_text() == '{"success": true}\n'
     assert f"kept {held}: {KEPT}" in said
 
@@ -735,9 +735,9 @@ def test_a_scrub_that_listed_a_link_succeeds_while_another_is_between_its_two_re
     assert listed.wait(timeout=30), "the second scrub did not list the candidate"
     first = ask_scrub_design(FLOW, tree.design, run_root=tree.root, target="x")
     assert between.is_set() and not second.is_alive()
-    assert first.removed == [link]
+    assert first.removed == (link,)
     assert isinstance(outcome["second"], scrub_module.ScrubResult), repr(outcome["second"])
-    assert outcome["second"].gone == [link] and outcome["second"].removed == []
+    assert outcome["second"].gone == (link,) and outcome["second"].removed == ()
     assert not os.path.lexists(link) and not store.exists()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["xeda_run"], "nothing made outside"
     assert (link.parent / f"{link.name}.lock").is_file(), "its lock, beside the name it asked for"
@@ -812,7 +812,7 @@ def test_scrub_removes_the_directory_it_locked_when_the_link_leads_elsewhere_by_
 
     monkeypatch.setattr(scrub_module, "_completion_records", records_and_then_the_link_moves)
     result = ask_scrub_design(FLOW, tree.design, run_root=tree.root, target="x")
-    assert result.removed == [link]
+    assert result.removed == (link,)
     assert not old.exists() and not os.path.lexists(link)
     assert new.exists() and (new / "settings.json").exists(), "the directory it did not lock"
 
@@ -834,7 +834,7 @@ def test_a_candidate_that_became_a_link_beside_it_before_scrub_chose_its_lock_is
 
     monkeypatch.setattr(console, "input", ask)
     result = ask_scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
-    assert result.kept == [victim] and result.removed == [other]
+    assert result.kept == (victim,) and result.removed == (other,)
     assert victim.is_symlink() and (victim / "out.txt").exists()
     assert f"kept {victim}: {KEPT}" in said
 
@@ -1031,10 +1031,10 @@ def test_what_scrub_does_with_a_candidate_that_changed_after_it_was_listed(
     elif outcome == "kept":
         assert refusal is None, refusal
         assert victim not in result.removed and os.path.lexists(victim)
-        assert result.removed == [second] and not os.path.lexists(second)
+        assert result.removed == (second,) and not os.path.lexists(second)
     elif outcome == "gone":
         assert refusal is None, refusal
-        assert result.removed == [second] and not os.path.lexists(second)
+        assert result.removed == (second,) and not os.path.lexists(second)
     else:
         assert refusal is not None
         assert entries(later, locks=False) == after_the_swap[0], "something was removed"
@@ -1170,9 +1170,9 @@ def test_scrub_waits_for_a_reader_and_judges_the_directory_again_afterwards(
 def test_scrub_design_reports_what_it_scanned_and_removed(tmp_path, confirmations):
     tree = Tree(tmp_path)
     result = ask_scrub_design(FLOW, tree.design, run_root=tree.root, target="b")
-    assert result.scanned == [tree.design / "b"]
+    assert result.scanned == (tree.design / "b",)
     assert sorted(result.removed) == sorted(tree.b)
-    assert result.kept == [] and result.gone == []
+    assert result.kept == () and result.gone == ()
     everything = ask_scrub_design(FLOW, tree.design, run_root=tree.root)
     assert tree.design in everything.scanned
     assert sorted(everything.removed) == sorted([*tree.direct, *tree.a, *tree.ghost])

@@ -444,7 +444,7 @@ def test_scrub_leaves_what_a_refused_link_leads_to_and_does_not_wait_for_its_loc
         assert not thread.is_alive(), "scrub waited for a lock that is not its run's"
     assert "error" not in outcome, repr(outcome.get("error"))
     result = outcome["result"]
-    assert result.removed == [world.sibling], "only the run directory beside the links"
+    assert result.removed == (world.sibling,), "only the run directory beside the links"
     assert link in result.skipped and link.is_symlink()
     world.intact()
     problem = run_directory_problem(link, FLOW, world.parent.resolve())
@@ -457,7 +457,7 @@ def test_scrub_removes_a_link_that_leads_to_a_run_directory_beside_it_and_that_d
 ):
     world, link = made(tmp_path, case, hashed)
     result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
-    assert result.skipped == []
+    assert result.skipped == ()
     assert not os.path.lexists(link) and not world.sibling.exists()
     world.intact()
 
@@ -508,7 +508,7 @@ def test_a_link_to_another_flow_s_run_directory_in_a_target_is_not_scrubbed(
     link = world.parent / f"{FLOW}_{HASH}"
     link.symlink_to(inner, target_is_directory=True)
     result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
-    assert result.skipped == [link] and link.is_symlink()
+    assert result.skipped == (link,) and link.is_symlink()
     assert (inner / "out.txt").read_text() == "output\n"
 
 
@@ -626,7 +626,7 @@ def test_a_link_is_said_even_when_the_removal_is_declined_or_there_is_nothing_to
     monkeypatch.setattr(console, "input", lambda *a, **k: asked.append(a) or "no")
     on_a_terminal(monkeypatch)
     result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
-    assert result.skipped == [link] and result.removed == [] and asked == []
+    assert result.skipped == (link,) and result.removed == () and asked == []
     assert any(line.startswith(f"skipped {link}: ") for line in said)
 
 
@@ -685,12 +685,12 @@ def test_scrub_leaves_no_link_that_leads_nowhere(tmp_path, confirmations, names)
     world = World(tmp_path)
     links = a_directory_with_links(world, *names)
     result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
-    assert result.removed == [min([world.sibling, *links])], "one name for the directory"
-    assert result.skipped == []
+    assert result.removed == (min([world.sibling, *links]),), "one name for the directory"
+    assert result.skipped == ()
     assert not world.sibling.exists()
     assert not any(os.path.lexists(link) for link in links)
     again = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
-    assert again.removed == [] and again.skipped == []
+    assert again.removed == () and again.skipped == ()
     for hashed in (False, True):
         assert world.accepted_by_a_launch(hashed), "a launch may use the name again"
     world.intact()
@@ -760,7 +760,7 @@ def test_a_directory_kept_because_a_run_ended_in_it_keeps_its_links(
 
     monkeypatch.setattr(scrub, "run_dir_lock", a_run_ends)
     result = ask_scrub_design(FLOW, world.design, run_root=world.root, target="a")
-    assert result.kept == [links[0]] and result.removed == []
+    assert result.kept == (links[0],) and result.removed == ()
     assert world.sibling.exists() and all(link.is_symlink() for link in links)
 
 
