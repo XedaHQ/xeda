@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.introspect import results_info
 from xeda._internal.cancel import CancelToken
 from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
 from xeda._internal.events import Event
@@ -1025,8 +1026,9 @@ def test_a_metric_that_the_flow_does_not_describe_raises_key_error(tmp_path, des
     result = _workspace(tmp_path).sweep(_seeds(design, 1))
     with pytest.raises(KeyError) as raised:
         result.rows(metrics=("nextpnr.fmx",))
-    assert raised.value.args[0].startswith(
-        "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, wns,"
+    described = ", ".join(metric["path"] for metric in results_info("nextpnr")["metrics"])
+    assert raised.value.args[0] == (
+        f"`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: {described}."
     )
     row = result.rows(metrics=("nextpnr.lut_basis", "yosys_fpga.lut_use"))[0]
     record = result.points[0].result.nodes["nextpnr"].record
@@ -1045,3 +1047,6 @@ def test_the_results_of_a_launch_have_short_reprs(tmp_path, design):
         assert len(repr(value)) < 1500, type(value).__name__
     assert repr(result.record).startswith("RunRecord(flow='nextpnr', design='top', target=None,")
     assert "outcome=<Outcome.PASSED: 'passed'>" in repr(result)
+    hidden = {plan: ("identity=", "action=", "settings=", "spec="), result: ("elapsed=", "record=")}
+    for value, names in hidden.items():
+        assert not [name for name in names if name in repr(value)], type(value).__name__
