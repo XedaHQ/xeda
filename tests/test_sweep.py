@@ -1018,3 +1018,25 @@ def test_a_consumer_vouches_for_the_unchanged_outputs_of_its_producer_by_metadat
     assert outcome.result.outcome is Outcome.PASSED
     assert read, "the capture of the producer reads the files that nothing vouches for"
     assert not outputs & set(read), "an unchanged output is read in full again"
+
+
+def test_a_metric_that_the_flow_does_not_describe_raises_key_error(tmp_path, design):
+    result = _workspace(tmp_path).sweep(_seeds(design, 1))
+    with pytest.raises(KeyError) as raised:
+        result.rows(metrics=("nextpnr.fmx",))
+    assert raised.value.args[0].startswith(
+        "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, wns,"
+    )
+    assert "yosys_fpga.lut_use" in result.rows(metrics=("yosys_fpga.lut_use",))[0]
+
+
+def test_the_results_of_a_launch_have_short_reprs(tmp_path, design):
+    workspace = _workspace(tmp_path)
+    spec = _seeds(design, 1)[0]
+    plan = workspace.plan(spec)
+    result = workspace.run(plan)
+    sweep = workspace.sweep([spec])
+    for value in (plan, result, result.record, sweep):
+        assert len(repr(value)) < 1500, type(value).__name__
+    assert repr(result.record).startswith("RunRecord(flow='nextpnr', design='top', target=None,")
+    assert "outcome=<Outcome.PASSED: 'passed'>" in repr(result)

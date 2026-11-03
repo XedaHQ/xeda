@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -101,12 +101,12 @@ class NodeResult:
     outcome: Outcome
     disposition: Disposition
     reason: str
-    blocked_by: str | None
-    elapsed: float
-    record: RunRecord | None
+    blocked_by: str | None = field(repr=False)
+    elapsed: float = field(repr=False)
+    record: RunRecord | None = field(repr=False)
     error: ErrorInfo | None
-    deliveries: tuple[DeliveryRecord, ...]
-    run_dir: Path
+    deliveries: tuple[DeliveryRecord, ...] = field(repr=False)
+    run_dir: Path = field(repr=False)
     flow: str
 
     def __post_init__(self) -> None:
@@ -175,8 +175,8 @@ class Result:
     `outcome` is the aggregate and `error` is the cause (`aggregate`). `nodes` holds every
     planned node, in plan order. `roots` are the nodes that the request asked for."""
 
-    launch_id: str
-    spec: Spec
+    launch_id: str = field(repr=False)
+    spec: Spec = field(repr=False)
     roots: tuple[str, ...]
     outcome: Outcome
     error: ErrorInfo | None

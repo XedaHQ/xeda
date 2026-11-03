@@ -245,28 +245,28 @@ class RunRecord:
     output. `artifacts` maps a key to the name of a file written by the run, relative to the run
     directory."""
 
-    schema_version: int
-    run_id: str
-    xeda_version: str
+    schema_version: int = field(repr=False)
+    run_id: str = field(repr=False)
+    xeda_version: str = field(repr=False)
     flow: str
     design: str
     target: str | None
-    identity: str
-    configuration: Mapping[str, Any]
-    run_root: Path
+    identity: str = field(repr=False)
+    configuration: Mapping[str, Any] = field(repr=False)
+    run_root: Path = field(repr=False)
     run_dir: Path
     outcome: Outcome
     error: ErrorInfo | None
-    metrics: Mapping[str, Any]
-    metric_info: Mapping[str, MetricInfo]
-    outputs: Mapping[str, OutputRecord]
-    artifacts: Mapping[str, str]
-    settings: Mapping[str, Any]
-    inputs: tuple[InputRecord, ...]
-    started: datetime
-    finished: datetime
-    runtime: float
-    inherited_variables: tuple[str, ...]
+    metrics: Mapping[str, Any] = field(repr=False)
+    metric_info: Mapping[str, MetricInfo] = field(repr=False)
+    outputs: Mapping[str, OutputRecord] = field(repr=False)
+    artifacts: Mapping[str, str] = field(repr=False)
+    settings: Mapping[str, Any] = field(repr=False)
+    inputs: tuple[InputRecord, ...] = field(repr=False)
+    started: datetime = field(repr=False)
+    finished: datetime = field(repr=False)
+    runtime: float = field(repr=False)
+    inherited_variables: tuple[str, ...] = field(repr=False)
     dependencies: tuple[Mapping[str, str | None], ...] = field(default=())
 
     def __post_init__(self) -> None:

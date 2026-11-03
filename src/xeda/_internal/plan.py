@@ -90,16 +90,16 @@ class PlanNode:
     name: str
     flow: str
     run_dir: Path
-    identity: str
+    identity: str = field(repr=False)
     state: Literal["fresh", "rejected", "stale", "unknown", "blocked"]
     reason: str
-    action: bool
-    settings: Mapping[str, Any]
-    inputs: tuple[PlanInput, ...]
-    outputs_enabled: tuple[str, ...]
-    input_types: Mapping[str, tuple[str, ...]]
-    output_types: Mapping[str, tuple[str, ...]]
-    deliveries: tuple[PlanDelivery, ...]
+    action: bool = field(repr=False)
+    settings: Mapping[str, Any] = field(repr=False)
+    inputs: tuple[PlanInput, ...] = field(repr=False)
+    outputs_enabled: tuple[str, ...] = field(repr=False)
+    input_types: Mapping[str, tuple[str, ...]] = field(repr=False)
+    output_types: Mapping[str, tuple[str, ...]] = field(repr=False)
+    deliveries: tuple[PlanDelivery, ...] = field(repr=False)
 
     def __post_init__(self) -> None:
         for name in ("settings", "input_types", "output_types"):
@@ -116,9 +116,9 @@ class Plan:
     name (`outputs_to` is an absolute path or `None`). `nodes` holds every node by name, in
     execution order."""
 
-    spec: Spec
+    spec: Spec = field(repr=False)
     roots: tuple[str, ...]
-    options: Mapping[str, Any]
+    options: Mapping[str, Any] = field(repr=False)
     nodes: Mapping[str, PlanNode]
     #: The options of the workspace that made the plan. Running the plan compares them.
     _workspace: WorkspaceOptions | None = field(default=None, repr=False, compare=False)
