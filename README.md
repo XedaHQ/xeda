@@ -38,7 +38,7 @@ Check the installation with `xeda --version`.
 ### Supported platforms
 
 - Python 3.11 through 3.15.
-- Linux x86_64: CI runs the full test suite with every open-source flow against the real tools.
+- Linux x86_64: CI runs the full test suite, with the open-source flows against the real tools.
 - macOS: CI runs only the tests of operating-system-sensitive code (processes, locks, files, the
   remote client). It installs no EDA tool.
 - Linux arm64: not tested in CI.
