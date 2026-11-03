@@ -42,6 +42,9 @@ STAGE = "sby_stage"
 #: The temporary and state directory of SBY and every program it starts.
 TEMPORARY = "sby_tmp"
 CONFIG = "task.sby"
+#: The second task of `prove`, which checks the assumptions, and its work directory.
+ASSUMPTIONS_CONFIG = "assumptions.sby"
+ASSUMPTIONS_WORK = "sby_assumptions"
 #: The directory of the task that holds the files of the storage of the design's generator. They
 #: have no place in the design tree.
 GENERATED_DIRECTORY = "xeda_generated"
@@ -54,17 +57,27 @@ TIMING_MODEL = "xeda_timing.json"
 ARCHIVE = "sby_evidence.zip"
 #: The SBY engine line of each mode. `smtbmc` runs its presat check of the assumptions. `prove` uses
 #: one process of rIC3, IC3 only: the default portfolio of rIC3 writes `/tmp/rIC3` outside the run
-#: root, and `btor` has no presat check. SBY gives `btor rIC3` in `prove` no depth.
+#: root. `btor` has no presat check, so a second task checks the assumptions of a `prove` that
+#: passed. SBY gives `btor rIC3` in `prove` no depth.
 ENGINES = {"bmc": "smtbmc bitwuzla", "cover": "smtbmc bitwuzla", "prove": "btor rIC3 -e ic3"}
-#: The depth of `bmc` and `cover` when `depth` is not set.
+#: The depth of `bmc` and `cover` when `depth` is not set, and of the check of the assumptions of
+#: `prove`. `multiclock` takes twice this: a regular clock needs two steps for each cycle.
 DEFAULT_DEPTH = 20
 #: The programs that SBY starts in each mode, by the option of SBY that names each one. SBY finds a
 #: program without an option (None) on its PATH.
 PROGRAMS: dict[str, dict[str, str | None]] = {
     "bmc": {"yosys": "--yosys", "yosys-smtbmc": "--smtbmc", "bitwuzla": None},
     "cover": {"yosys": "--yosys", "yosys-smtbmc": "--smtbmc", "bitwuzla": None},
-    # A counterexample of `btor` runs `yosys-witness` and `btorsim`.
-    "prove": {"yosys": "--yosys", "rIC3": "--rIC3", "yosys-witness": "--witness", "btorsim": None},
+    # A counterexample of `btor` runs `yosys-witness` and `btorsim`. The check of the assumptions
+    # runs `yosys-smtbmc` and `bitwuzla`.
+    "prove": {
+        "yosys": "--yosys",
+        "yosys-smtbmc": "--smtbmc",
+        "bitwuzla": None,
+        "rIC3": "--rIC3",
+        "yosys-witness": "--witness",
+        "btorsim": None,
+    },
 }
 #: A directory that SBY can name in its `sh` commands, which hold the paths of programs unquoted.
 SHELL_WORD = re.compile(r"[A-Za-z0-9_./+-]+", re.ASCII)
@@ -129,6 +142,10 @@ LEVEL_CELLS = (
     "$adlatch",
     "$dlatchsr",
 )
+#: The ports of `LEVEL_CELLS` that change the state with no clock edge.
+ASYNCHRONOUS_PORTS = ("ARST", "ALOAD", "AD", "SET", "CLR")
+#: The bits of a Yosys model that are no signal: two equal constants share nothing.
+CONSTANT_BITS = {"0", "1", "x", "z"}
 #: The state cells of the implicit global clock. It counts as one more clock next to a real one.
 GLOBAL_CELLS = ("$ff", "$anyinit")
 GLOBAL_CLOCK = "the global clock"
@@ -299,16 +316,8 @@ def obligations(model: dict[str, Any]) -> Counter[str]:
     return count_in(tops[0]["name"], 0)
 
 
-def timing_problems(model: dict[str, Any]) -> list[str]:
-    """Return why the default model of SBY cannot hold a flattened design, or an empty list.
-
-    The model is the output of Yosys `write_json` (`TIMING_MODEL`). With `multiclock off`, SBY
-    replaces every clock with one implicit step and does not check that this is valid. It is valid
-    for state, assertions and memory ports on the rising edge of one bit of one top-level input,
-    and for logic that reads no such clock. A clock bit that is read as data has a value in the
-    model that it never has in the design. Raise `ValueError`, `KeyError`, `IndexError` or
-    `TypeError` for a model of another shape.
-    """
+def _top_module(model: dict[str, Any]) -> dict[str, Any]:
+    """Return the top of a flattened Yosys model (`TIMING_MODEL`), or raise `ValueError`."""
     tops = [
         module
         for module in model["modules"].values()
@@ -316,7 +325,98 @@ def timing_problems(model: dict[str, Any]) -> list[str]:
     ]
     if len(tops) != 1:
         raise ValueError(f"the model has {len(tops)} top modules")
-    module = tops[0]
+    return tops[0]
+
+
+def is_combinational(model: dict[str, Any]) -> bool:
+    """Return whether a flattened model has no state and no clocked property. GHDL writes a clocked
+    assertion as a flop before an `$assert`, so the state counts as well as the trigger."""
+    for cell in _top_module(model)["cells"].values():
+        kind = cell["type"]
+        parameters = cell["parameters"]
+        if kind in EDGE_CELLS or kind in LEVEL_CELLS or kind in GLOBAL_CELLS:
+            return False
+        # A memory with no write port and no clocked read port is a table.
+        if kind == "$mem_v2" and (
+            int(parameters["WR_PORTS"], 2) or "1" in parameters["RD_CLK_ENABLE"]
+        ):
+            return False
+        if kind == "$check" and "1" in parameters["TRG_ENABLE"]:
+            return False
+    return True
+
+
+def _fan_in(bits: set[Any], drivers: dict[Any, set[Any]]) -> set[Any]:
+    """Return `bits` and every bit that reaches them through combinational cells."""
+    found = set(bits)
+    pending = list(bits)
+    while pending:
+        for bit in drivers.get(pending.pop(), ()):
+            if bit not in found:
+                found.add(bit)
+                pending.append(bit)
+    return found
+
+
+def _clock_races(
+    clocked: list[tuple[Any, set[Any]]],
+    drivers: dict[Any, set[Any]],
+    owners: dict[Any, set[Any]],
+    bit_names: dict[Any, str],
+) -> set[str]:
+    """Return why the time model of `multiclock on` differs from the design.
+
+    `clk2fflogic` gives a cell the value of its data one step before its clock edge. That differs
+    from the design for a cell that reads its own clock, because the edge has changed that value.
+    It also differs for a cell on a clock that state drives, when it reads state of the clock that
+    drives that state: that state changes on the same edge, before the clock of the cell does.
+    `clocked` lists each clock bit of a cell with the data bits of the cell, `owners` what changes each state bit
+    (its clock and its level-sensitive inputs), and `drivers` the input bits of each output bit of a
+    combinational cell.
+    """
+    problems: set[str] = set()
+    clock_side: dict[Any, tuple[set[Any], set[Any]]] = {}
+    for clock, data in clocked:
+        if clock not in clock_side:
+            sources = _fan_in({clock}, drivers)
+            # What changes a state bit in the fan-in of this clock, and its sources in turn.
+            upstream: set[Any] = set()
+            pending = list(sources)
+            while pending:
+                for changes in owners.get(pending.pop(), ()):
+                    for bit in _fan_in({changes}, drivers) - upstream:
+                        upstream.add(bit)
+                        pending.append(bit)
+            clock_side[clock] = (sources, upstream)
+        sources, upstream = clock_side[clock]
+        read = _fan_in(data, drivers)
+        for bit in (sources & read) - CONSTANT_BITS:
+            problems.add(
+                f"logic on the clock it drives reads {bit_names.get(bit, str(bit))} as data"
+            )
+        for bit in read:
+            # State on this clock changes with this cell, so a shared reset is no race.
+            changed_by = owners.get(bit, set())
+            if changed_by & upstream and clock not in changed_by:
+                problems.add(
+                    f"logic on the state-driven clock {bit_names.get(clock, str(clock))} reads "
+                    f"{bit_names.get(bit, str(bit))}, which changes on the same edge"
+                )
+    return problems
+
+
+def timing_problems(model: dict[str, Any], multiclock: bool = False) -> list[str]:
+    """Return why the time model of SBY cannot hold a flattened design, or an empty list.
+
+    The model is the output of Yosys `write_json` (`TIMING_MODEL`). With `multiclock off`, SBY
+    replaces every clock with one implicit step and does not check that this is valid. It is valid
+    for state, assertions and memory ports on the rising edge of one bit of one top-level input,
+    and for logic that reads no such clock. A clock bit that is read as data has a value in the
+    model that it never has in the design. `multiclock` models the rest and needs only what
+    `_clock_races` says. Raise `ValueError`, `KeyError`, `IndexError` or `TypeError` for a model of
+    another shape.
+    """
+    module = _top_module(model)
     bit_names: dict[Any, str] = {}
     for wire, net in module["netnames"].items():
         for index, bit in enumerate(net["bits"]):
@@ -330,27 +430,37 @@ def timing_problems(model: dict[str, Any]) -> list[str]:
     events: set[tuple[Any, str]] = set()
     read: set[Any] = set()
     problems: set[str] = set()
+    unknown: set[str] = set()
+    clocked: list[tuple[Any, set[Any]]] = []
+    drivers: dict[Any, set[Any]] = {}
+    owners: dict[Any, set[Any]] = {}
     for cell in module["cells"].values():
         kind, parameters, ports = cell["type"], cell["parameters"], cell["connections"]
-        timing: tuple[str, ...] = ()  # the ports that are no data of the model
+        clock_ports: tuple[str, ...] = ()  # no data of the cell, in use or not
+        own: set[Any] = set()  # the clock bits in use
         if kind in LEVEL_CELLS:
             problems.add(f"the cell {kind} can change between clock edges")
+            clock_ports = ("CLK",) if "CLK" in ports else ()
+            own = set(ports.get("CLK", ()))
         elif kind in EDGE_CELLS:
-            timing = ("CLK",)
+            clock_ports = ("CLK",)
+            own = {ports["CLK"][0]}
             events.add((ports["CLK"][0], parameters["CLK_POLARITY"][-1]))
         elif kind in ("$check", "$print"):
-            timing = ("TRG", "ARGS")  # only a message reads `ARGS`
+            clock_ports = ("TRG",)
             if "1" in parameters["TRG_ENABLE"]:
+                own = set(ports["TRG"])
                 polarities = parameters["TRG_POLARITY"][::-1]
                 events.update((bit, polarities[index]) for index, bit in enumerate(ports["TRG"]))
         elif kind in GLOBAL_CELLS:
             events.add((GLOBAL_CLOCK, "1"))
         elif kind == "$mem_v2":
-            timing = ("RD_CLK", "WR_CLK")
+            clock_ports = ("RD_CLK", "WR_CLK")
             for prefix in ("RD", "WR"):
                 polarities = parameters[f"{prefix}_CLK_POLARITY"][::-1]
                 for index, enabled in enumerate(parameters[f"{prefix}_CLK_ENABLE"][::-1]):
                     if enabled == "1":
+                        own.add(ports[f"{prefix}_CLK"][index])
                         events.add((ports[f"{prefix}_CLK"][index], polarities[index]))
             if any(bit != "0" for bit in ports["RD_ARST"]):
                 problems.add("a memory read port has an asynchronous reset")
@@ -359,14 +469,35 @@ def timing_problems(model: dict[str, Any]) -> list[str]:
             or (kind.startswith("$_") and any(state in kind for state in ("FF", "LATCH", "SR")))
             or any("CLK" in port or port == "TRG" for port in ports)
         ):
-            problems.add(f"the cell {kind} has timing that the flow does not know")
+            unknown.add(f"the cell {kind} has timing that the flow does not know")
         directions = cell["port_directions"]
-        read.update(
+        data = {
             bit
             for port, bits in ports.items()
-            if directions[port] == "input" and port not in timing
+            # only a message reads `ARGS`
+            if directions[port] == "input" and port not in clock_ports and port != "ARGS"
             for bit in bits
-        )
+        }
+        read.update(data)
+        own -= CONSTANT_BITS
+        outputs = {
+            bit for port, bits in ports.items() if directions[port] == "output" for bit in bits
+        }
+        clocked.extend((clock, data) for clock in own)
+        if kind in LEVEL_CELLS:
+            level = ASYNCHRONOUS_PORTS if clock_ports else (*ASYNCHRONOUS_PORTS, "EN", "D")
+            changes = {bit for port in level for bit in ports.get(port, ())} - CONSTANT_BITS
+            owners.update(dict.fromkeys(outputs, own | changes))
+        elif kind in EDGE_CELLS or kind in GLOBAL_CELLS or kind == "$mem_v2":
+            owners.update(dict.fromkeys(outputs, own))
+            if kind == "$mem_v2" and "0" in parameters["RD_CLK_ENABLE"]:
+                # An asynchronous read passes its address through.
+                drivers.update(dict.fromkeys(ports["RD_DATA"], set(ports["RD_ADDR"])))
+        else:
+            for bit in outputs:
+                drivers[bit] = data
+    if multiclock:
+        return sorted(unknown | _clock_races(clocked, drivers, owners, bit_names))
     clocks = sorted({bit for bit, _ in events}, key=str)
     if len(clocks) > 1:
         shown = ", ".join(bit_names.get(bit, str(bit)) for bit in clocks)
@@ -381,13 +512,18 @@ def timing_problems(model: dict[str, Any]) -> list[str]:
             problems.add(f"the clock {shown} is no top-level input: it is derived or constant")
         elif bit in read:
             problems.add(f"the clock {shown} is also read as data")
-    return sorted(problems)
+    return sorted(unknown | problems)
+
+
+def default_depth(settings: Sby.Settings) -> int:
+    """Return the depth of a task when `depth` is not set."""
+    return 2 * DEFAULT_DEPTH if settings.multiclock else DEFAULT_DEPTH
 
 
 def depth_of(settings: Sby.Settings) -> int | None:
     """Return the depth that the task asks for: `depth` or its default for `bmc` and `cover`, and
     None for `prove`, which has none."""
-    return None if settings.mode == "prove" else settings.depth or DEFAULT_DEPTH
+    return None if settings.mode == "prove" else settings.depth or default_depth(settings)
 
 
 def _refuse_default_disable(names: dict[str, Source]) -> None:
@@ -417,7 +553,7 @@ def _word(value: Any) -> str:
 class Sby(Flow):
     """Check the formal properties of a design with SymbiYosys (SBY) and Yosys.
 
-    One run is one SBY task. `rtl.top` names the formal harness; its sources hold the design under
+    A run is one SBY task, and `prove` adds a second one after a proof. `rtl.top` names the formal harness; its sources hold the design under
     test, the assertions, assumptions and cover statements, and the clock, reset and initial state
     that the proof assumes. SystemVerilog and Verilog are read by yosys-slang with `FORMAL`
     defined and `SYNTHESIS` undefined, and VHDL by the GHDL plugin with PSL in comments.
@@ -430,14 +566,17 @@ class Sby(Flow):
     With the default `multiclock` false, the model has one implicit clock. The run fails for a
     design that does not fit it: more than one clock, a falling edge, a derived clock, a clock read
     as data, an asynchronous reset or a latch. `multiclock` models them, and `depth` then counts
-    global sampling steps.
+    global sampling steps. It still refuses logic that reads its own clock as data, and logic that
+    reads the state behind a state-driven clock: SBY gives such a cell the value before the edge.
 
     `mode` is required. `bmc` passes when no assertion fails within `depth` steps, and `cover`
     when every cover statement is reached within `depth` steps (assertions are not checked); both
     run `smtbmc bitwuzla`, which first checks that the assumptions are satisfiable. `prove` passes
     when `btor rIC3 -e ic3` (the IC3 engine of rIC3) proves every assertion for all time. It has no
-    `depth`, needs a `timeout`, and has no check of the assumptions: contradictory assumptions pass
-    vacuously, and the counts of the results do not show it. A failed assertion or an unreached
+    `depth` and needs a `timeout`. After a proof, a second task checks with `smtbmc bitwuzla` that the
+    assumptions hold for a trace of 20 steps (40 with `multiclock`), and the run fails if they do
+    not. A contradiction that appears only after these steps still passes vacuously, and so does
+    one that a stalled clock avoids with `multiclock`. A failed assertion or an unreached
     cover goal is a rejection, with the traces in the evidence archive. Any other status of SBY, a
     status that does not agree with its exit code, a model with no assertion (`bmc`, `prove`) or
     no cover statement (`cover`), and a symbolic-value (`anyconst`, `anyseq`, `allconst`,
@@ -517,7 +656,8 @@ class Sby(Flow):
         evidence_archive=ArtifactSpec(
             f"Every file of the SBY work directory as a zip file, `{ARCHIVE}`: the task log, the "
             "model and its logs, the engine logs and every trace (`.vcd`, `.yw`, testbench). "
-            "Symbolic links are left out.",
+            f"After a proof, `{ASSUMPTIONS_WORK}/` holds the check of the assumptions. Symbolic "
+            "links are left out.",
             "when SBY ended by itself",
         ),
     )
@@ -534,8 +674,9 @@ class Sby(Flow):
             None,
             ge=1,
             description="The number of steps: the search bound of `bmc` and `cover` (20 when "
-            "unset). A `bmc` pass holds only up to this bound. `prove` has no bound and refuses "
-            "`depth`.",
+            "unset, 40 with `multiclock`). The last step checks no clocked property, so 1 is only "
+            "for a design with no state. A `bmc` pass holds only up to this bound. `prove` has no "
+            "bound and refuses `depth`.",
             json_schema_extra=count(),
         )
         multiclock: bool = Field(
@@ -543,7 +684,9 @@ class Sby(Flow):
             description="Model every clock edge and asynchronous change (SBY `multiclock on`). "
             "`depth` then counts global sampling steps, and a regular clock needs two for each "
             "cycle. When false, the run fails for a design that has more than one clock, a falling "
-            "edge, a derived clock, a clock that is read as data, an asynchronous reset or a latch.",
+            "edge, a derived clock, a clock that is read as data, an asynchronous reset or a latch. "
+            "When true, it still fails for logic that reads its own clock as data, or that reads "
+            "the state behind a state-driven clock.",
         )
         timeout: Time | None = Field(
             None,
@@ -661,6 +804,8 @@ class Sby(Flow):
         self.properties: Counter[str] | None = None
         #: Why the default model of SBY cannot hold this design; None until the model is read.
         self.timing: list[str] | None = None
+        #: Whether the model has no state and no clocked property.
+        self.combinational = False
 
     def always_runs(self) -> str | None:
         return super().always_runs() or (
@@ -675,7 +820,7 @@ class Sby(Flow):
         design = self.design
         run_directory = self.run_directory
         # First, so that a run that stops before SBY starts leaves no evidence of an earlier one.
-        run_directory.remove(WORK, STAGE, TEMPORARY, ARCHIVE)
+        run_directory.remove(WORK, ASSUMPTIONS_WORK, STAGE, TEMPORARY, ARCHIVE)
         names = staged_names(design, self.sources_read())
         _refuse_default_disable(names)
         mode = ss.mode or "bmc"
@@ -688,13 +833,8 @@ class Sby(Flow):
         vhdl = any(src.type is SourceType.Vhdl for src in names.values())
         parameters = process_parameters(design.rtl.parameters)
         ghdl = GhdlSynth.Settings()
-        config = self.copy_from_template(
-            "task.sby",
-            script_filename=CONFIG,
+        task = dict(
             timeout=None if ss.timeout is None else int(ss.timeout.to("s")),
-            engine=engine,
-            depth=depth_of(ss),
-            obligation=OBLIGATION[mode],
             vhdl=vhdl,
             units=[name for name, src in names.items() if src.type in UNIT_TYPES],
             include_dirs=list(
@@ -719,6 +859,16 @@ class Sby(Flow):
             staged=list(names),
             stage=STAGE,
         )
+        config = self.copy_from_template(
+            "task.sby",
+            script_filename=CONFIG,
+            task_mode=mode,
+            engine=engine,
+            depth=depth_of(ss),
+            obligation=OBLIGATION[mode],
+            assumptions_only=False,
+            **task,
+        )
         temporary = run_directory.writable(TEMPORARY)
         temporary.mkdir()
         # Put the directory of `sby` first on its PATH, as the SBY wrapper of the OSS CAD Suite
@@ -729,13 +879,16 @@ class Sby(Flow):
         env = {"PATH": path, "TMPDIR": temporary, "XDG_STATE_HOME": temporary}
         try:
             sby.run(*options, "-d", WORK, config, env=env)
-            self.exit_status = 0
         except NonZeroExitCode as error:
             self.exit_status = error.exit_code
             # A failed assertion or an unreached cover goal is a verdict: `check_results` judges
             # it from the status. Every other exit fails the run.
             if error.exit_code != EXIT_CODES["FAIL"]:
                 raise error.with_message(self._failure_text(error.exit_code)) from error
+        else:
+            self.exit_status = 0
+            if mode == "prove":
+                self._check_assumptions(sby, options, env, task)
         finally:
             run_directory.remove(TEMPORARY)
             if self.exit_status is not None:
@@ -748,6 +901,37 @@ class Sby(Flow):
             ):
                 if self.wrote_output(name):
                     self.artifacts[key] = name
+
+    def _check_assumptions(
+        self, sby: Tool, options: list[str], env: dict[str, Any], task: dict[str, Any]
+    ) -> None:
+        """Fail a proof whose assumptions no trace can meet, as `smtbmc` does for `bmc`.
+
+        A second task keeps only the assumptions and asks `smtbmc` for its presat check at each
+        step, so it solves no assertion. A counterexample of `prove` meets the assumptions along
+        its trace, so only a pass needs this. It checks `default_depth` steps."""
+        assert isinstance(self.settings, self.Settings)
+        config = self.copy_from_template(
+            "task.sby",
+            script_filename=ASSUMPTIONS_CONFIG,
+            task_mode="bmc",
+            engine=ENGINES["bmc"],
+            depth=default_depth(self.settings),
+            obligation=OBLIGATION["prove"],
+            assumptions_only=True,
+            **task,
+        )
+        try:
+            sby.run(*options, "-d", ASSUMPTIONS_WORK, config, env=env)
+        except NonZeroExitCode as error:
+            text = self._failure_text(error.exit_code, ASSUMPTIONS_WORK)
+            raise error.with_message(f"rIC3 passed, but its assumptions fail: {text}") from error
+        status = self.report_file(Path(ASSUMPTIONS_WORK) / "status", optional=True)
+        match = (
+            None if status is None else STATUS_LINE.fullmatch(status.read_text(errors="replace"))
+        )
+        if match is None or (match["status"], match["code"]) != ("PASS", "0"):
+            self.status_problem = "SBY wrote no PASS for the check of the assumptions"
 
     def _programs(self, mode: str) -> tuple[Tool, list[str]]:
         """Return the `sby` on PATH and the SBY options that select the programs of `mode` in its
@@ -776,15 +960,16 @@ class Sby(Flow):
             if option is not None:
                 options += [option, str(program)]
         Tool(executable=str(sby.parent / "yosys"), version_flag="-V")
-        Tool(executable=str(sby.parent / ENGINES[mode].split()[1]))
+        for solver in {ENGINES[mode].split()[1], ENGINES["bmc"].split()[1]} & set(PROGRAMS[mode]):
+            Tool(executable=str(sby.parent / solver))
         return Tool(executable=str(sby)), options
 
-    def _failure_text(self, exit_code: int) -> str:
+    def _failure_text(self, exit_code: int, work: str = WORK) -> str:
         """Return what SBY says about a run that ended with `exit_code`: the status that the code
-        stands for and the first error of the task log."""
+        stands for and the first error of the log of the task in `work`."""
         status = {code: name for name, code in EXIT_CODES.items()}.get(exit_code, "no status")
         text = f"SBY ended with {status} (exit code {exit_code})"
-        task_log = self.report_file(Path(WORK) / "logfile.txt", optional=True)
+        task_log = self.report_file(Path(work) / "logfile.txt", optional=True)
         if task_log is None:
             return text
         for line in task_log.read_text(errors="replace").splitlines():
@@ -807,6 +992,8 @@ class Sby(Flow):
                     f"(anyconst, anyseq, allconst, allseq), liveness, fairness or a blackbox "
                     f"({error})"
                 )
+            if "clk2fflogic" in error:
+                return f"{text}: {error} Set `multiclock` to model this design"
             if "unsupported SVA feature" in error:
                 return (
                     f"{text}: {error}. The frontend reads a concurrent assertion only as "
@@ -841,12 +1028,15 @@ class Sby(Flow):
             return
         target = self.run_directory.writable(ARCHIVE)
         with replacing_file(target, "wb") as f, zipfile.ZipFile(f, "w", zipfile.ZIP_DEFLATED) as z:
-            for directory, subdirectories, files in os.walk(work):
-                subdirectories.sort()
-                for name in sorted(files):
-                    path = Path(directory) / name
-                    if not path.is_symlink() and path.is_file():
-                        z.write(path, path.relative_to(work).as_posix())
+            for tree, prefix in ((work, ""), (self.run_file(ASSUMPTIONS_WORK), ASSUMPTIONS_WORK)):
+                if tree.is_symlink():
+                    continue
+                for directory, subdirectories, files in os.walk(tree):
+                    subdirectories.sort()
+                    for name in sorted(files):
+                        path = Path(directory) / name
+                        if not path.is_symlink() and path.is_file():
+                            z.write(path, (Path(prefix) / path.relative_to(tree)).as_posix())
 
     def parse_reports(self) -> bool:
         """Read the status of the task and the properties of its model. Judge nothing."""
@@ -868,13 +1058,14 @@ class Sby(Flow):
                 self.results["formal.assertions"] = self.properties["assert"]
                 self.results["formal.assumptions"] = self.properties["assume"]
                 self.results["formal.covers"] = self.properties["cover"]
-        if not ss.multiclock:
-            timing = self.report_file(Path(WORK) / "src" / TIMING_MODEL, optional=True)
-            if timing is not None:
-                try:
-                    self.timing = timing_problems(json.loads(timing.read_text()))
-                except (ValueError, KeyError, IndexError, TypeError) as error:
-                    log.error("The timing model %s is unreadable: %s", timing, error)
+        timing = self.report_file(Path(WORK) / "src" / TIMING_MODEL, optional=True)
+        if timing is not None:
+            try:
+                flattened = json.loads(timing.read_text())
+                self.timing = timing_problems(flattened, ss.multiclock)
+                self.combinational = is_combinational(flattened)
+            except (ValueError, KeyError, IndexError, TypeError) as error:
+                log.error("The timing model %s is unreadable: %s", timing, error)
         status_file = self.report_file(Path(WORK) / "status")
         if status_file is None:
             self.status_problem = "SBY wrote no status for this run"
@@ -915,13 +1106,24 @@ class Sby(Flow):
                     f"the model has unsupported formal constructs: {', '.join(unsupported)}; "
                     "sby checks only assertions, assumptions and cover statements"
                 )
-            elif not ss.multiclock and self.timing is None:
+            elif self.timing is None:
                 problem = "SBY wrote no readable timing model for this run"
-            elif not ss.multiclock and self.timing:
+            elif self.timing and ss.multiclock:
+                problem = (
+                    f"SBY reads the data of a clocked cell one step before its clock edge, and "
+                    f"this design depends on the later value: {'; '.join(self.timing)}. So a "
+                    "verdict could be wrong. Change the design"
+                )
+            elif self.timing:
                 problem = (
                     f"the default model of SBY has one clock, and this design does not fit it: "
                     f"{'; '.join(self.timing)}. So a verdict could be wrong. Set "
                     "`multiclock` to model it, or change the design"
+                )
+            elif ss.depth == 1 and not self.combinational:
+                problem = (
+                    "a `depth` of 1 checks no clocked property, and this design has state or one: "
+                    "set `depth` to at least 2"
                 )
             elif not self.properties[kind]:
                 problem = (

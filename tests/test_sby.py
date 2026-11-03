@@ -64,6 +64,8 @@ for line in config.read_text().splitlines():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, target)
 spec = json.loads(os.environ.get("FAKE_SBY", "{}"))
+if work.name == "sby_assumptions":
+    spec = {**spec, **spec.get("assumptions", {})}
 codes = {"PASS": 0, "FAIL": 2, "UNKNOWN": 4, "TIMEOUT": 8, "ERROR": 16, "CANCELLED": 32}
 status = spec.get("status", "PASS")
 code = spec.get("exit", codes.get(status, 1))
@@ -85,8 +87,9 @@ if spec.get("model", True):
     (work / "model" / "design.log").write_text("yosys\n")
 if spec.get("timing_model", True):
     empty = {"attributes": {"top": "1"}, "netnames": {}, "ports": {}, "cells": {}}
+    flattened = spec.get("flattened", {"modules": {"top": empty}})
     (work / "src").mkdir(exist_ok=True)
-    (work / "src" / "xeda_timing.json").write_text(json.dumps({"modules": {"top": empty}}))
+    (work / "src" / "xeda_timing.json").write_text(json.dumps(flattened))
 for index in range(spec.get("traces", 0)):
     (work / "engine_0").mkdir(exist_ok=True)
     (work / "engine_0" / f"trace{index}.vcd").write_text(f"trace {index}\n")
@@ -434,14 +437,74 @@ def test_the_systemverilog_task_keeps_every_property_and_reads_strictly(tmp_path
     assert "chformal" not in config and "setundef" not in config
 
 
-def test_only_the_default_model_inspects_the_clocks(tmp_path, fake_sby):
+def test_both_time_models_inspect_a_copy_of_the_model(tmp_path, fake_sby):
     default = (_run(tmp_path / "a", _design(tmp_path)).run_path / "task.sby").read_text()
     assert "multiclock" not in default
     assert default.index("write_json xeda_timing.json") > default.index("prep -top")
     assert default.index("design -load xeda_prepared") > default.index("write_json")
     other = _run(tmp_path / "b", _design(tmp_path), multiclock=True)
     text = (other.run_path / "task.sby").read_text()
-    assert "\nmulticlock on\n" in text and "write_json" not in text
+    assert "\nmulticlock on\n" in text and "write_json xeda_timing.json" in text
+
+
+@pytest.mark.parametrize("multiclock, depth", [(False, 20), (True, 40)])
+def test_the_default_depth_covers_the_same_cycles_in_both_time_models(
+    tmp_path, fake_sby, multiclock, depth
+):
+    flow = _run(tmp_path, _design(tmp_path), multiclock=multiclock)
+    assert f"depth {depth}\n" in _config(flow)
+    assert flow.results["formal.depth"] == depth
+
+
+def test_a_proof_that_passes_checks_only_the_assumptions_next(tmp_path, fake_sby):
+    flow = _run(tmp_path, _design(tmp_path), mode="prove")
+    assert flow.outcome == "passed", _document(flow).get("error")
+    first, second = _calls(flow)
+    assert first["argv"][-1].endswith("task.sby") and second["argv"][-1].endswith("assumptions.sby")
+    text = (flow.run_path / "assumptions.sby").read_text()
+    assert "mode bmc\n" in text and "[engines]\nsmtbmc bitwuzla\n" in text and "depth 20\n" in text
+    assert text.index("chformal -assert -cover -remove") > text.index("prep -top")
+    assert "write_json" not in text
+    assert "sby_assumptions/logfile.txt" in _archived(flow)
+
+
+def test_a_proof_with_unsatisfiable_assumptions_fails(tmp_path, fake_sby, monkeypatch):
+    log = "SBY [w] engine_0: ##   0:00:00  Assumptions are unsatisfiable!\n"
+    _spec(monkeypatch, assumptions={"status": "ERROR", "log": log})
+    flow = _run(tmp_path, _design(tmp_path), mode="prove")
+    assert flow.outcome == "failed"
+    message = _document(flow)["error"]["message"]
+    assert "rIC3 passed, but its assumptions fail" in message
+    assert "the assumptions are unsatisfiable" in message
+    assert "sby_assumptions/logfile.txt" in _archived(flow)
+
+
+def test_a_counterexample_of_a_proof_needs_no_check_of_the_assumptions(
+    tmp_path, fake_sby, monkeypatch
+):
+    _spec(monkeypatch, status="FAIL")
+    flow = _run(tmp_path, _design(tmp_path), mode="prove")
+    assert flow.outcome == "rejected"
+    assert len(_calls(flow)) == 1
+
+
+@pytest.mark.parametrize(
+    "assumptions",
+    [{"no_status": True}, {"status_text": "UNKNOWN 4 0\n"}],
+    ids=["no-status", "other-status"],
+)
+def test_a_second_task_passes_only_on_its_own_status(tmp_path, fake_sby, monkeypatch, assumptions):
+    _spec(monkeypatch, assumptions=assumptions)
+    flow = _run(tmp_path, _design(tmp_path), mode="prove")
+    assert flow.outcome == "failed"
+    assert "no PASS for the check of the assumptions" in _document(flow)["error"]["message"]
+
+
+def test_a_second_task_that_does_not_end_never_passes(tmp_path, fake_sby, monkeypatch):
+    _spec(monkeypatch, assumptions={"status": "TIMEOUT"})
+    flow = _run(tmp_path, _design(tmp_path), mode="prove")
+    assert flow.outcome == "failed"
+    assert "TIMEOUT" in _document(flow)["error"]["message"]
 
 
 def _timing_model(cells: dict[str, dict], *inputs: str, **wires: list) -> dict:
@@ -479,7 +542,7 @@ def _check(trigger: list, polarity: str = "1", enable: str = "1", data: Any = 10
     }
 
 
-def _memory(read: Any = "x", write: Any = 2, read_reset: Any = "0") -> dict:
+def _memory(read: Any = "x", write: Any = 2, read_reset: Any = "0", address: Any = 50) -> dict:
     return {
         "type": "$mem_v2",
         "parameters": {
@@ -487,9 +550,22 @@ def _memory(read: Any = "x", write: Any = 2, read_reset: Any = "0") -> dict:
             "RD_CLK_POLARITY": "1",
             "WR_CLK_ENABLE": "1",
             "WR_CLK_POLARITY": "1",
+            "WR_PORTS": "1",
         },
-        "connections": {"RD_CLK": [read], "WR_CLK": [write], "RD_ARST": [read_reset]},
-        "port_directions": {"RD_CLK": "input", "WR_CLK": "input", "RD_ARST": "input"},
+        "connections": {
+            "RD_CLK": [read],
+            "WR_CLK": [write],
+            "RD_ARST": [read_reset],
+            "RD_ADDR": [address],
+            "RD_DATA": [51],
+        },
+        "port_directions": {
+            "RD_CLK": "input",
+            "WR_CLK": "input",
+            "RD_ARST": "input",
+            "RD_ADDR": "input",
+            "RD_DATA": "output",
+        },
     }
 
 
@@ -565,6 +641,208 @@ def test_the_default_model_holds_one_rising_top_level_clock(cells):
 def test_the_default_model_refuses_what_it_cannot_hold(cells, problem):
     found = timing_problems(_timing_model(cells, "clk", "other", derived=[9]))
     assert any(problem in text for text in found), found
+
+
+def _async_state(clock: Any, output: Any, reset: Any, data: Any = 100) -> dict:
+    flop = _flop(clock, "$adff", data=data)
+    return {
+        **flop,
+        "connections": {"CLK": [clock], "ARST": [reset], "D": [data], "Q": [output]},
+        "port_directions": {**flop["port_directions"], "ARST": "input"},
+    }
+
+
+def _latch(enable: Any, output: Any, data: Any = 100) -> dict:
+    return {
+        "type": "$dlatch",
+        "parameters": {},
+        "connections": {"EN": [enable], "D": [data], "Q": [output]},
+        "port_directions": {"EN": "input", "D": "input", "Q": "output"},
+    }
+
+
+def _gate(output: Any, *inputs: Any) -> dict:
+    return {
+        "type": "$and",
+        "parameters": {},
+        "connections": {"A": list(inputs), "Y": [output]},
+        "port_directions": {"A": "input", "Y": "output"},
+    }
+
+
+def _state(clock: Any, output: Any, data: Any = 100) -> dict:
+    return {**_flop(clock, data=data), "connections": {"CLK": [clock], "D": [data], "Q": [output]}}
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        {"a": _flop(2), "b": _flop(3), "c": _check([3], data=101)},
+        {"a": _flop(2, "$adff", data=3)},
+        {"a": _state(2, 10), "b": _gate(11, 2, 10), "c": _check([3], data=11)},
+        {"a": _state(2, 10, data=10), "b": _state(10, 20, data=20), "c": _check([10], data=20)},
+        {"a": _state(2, 10), "b": _state(10, 20), "c": _state(2, 30, data=20)},
+        {
+            "a": _async_state(2, 10, reset=3, data=10),
+            "b": _async_state(10, 20, reset=3, data=20),
+            "c": _check([10], data=20),
+        },
+        {"a": _state(2, 12), "b": _gate(11, 2, 3), "c": _state(11, 20, data=12)},
+        {"a": _gate(11, 10, "1"), "b": _state(11, 20, data="1"), "c": _state(2, 10)},
+        {"a": _state(2, 10), "b": _check([10], enable="0", data=10)},
+        {
+            "a": _state(2, 10),
+            "b": _state(2, 12),
+            "m": {
+                **_memory(read=10, write=3),
+                "connections": {
+                    **_memory(read=10, write=3)["connections"],
+                    "WR_DATA": [12],
+                },
+                "port_directions": {
+                    **_memory(read=10, write=3)["port_directions"],
+                    "WR_DATA": "input",
+                },
+                "parameters": {
+                    **_memory(read=10, write=3)["parameters"],
+                    "RD_CLK_ENABLE": "0",
+                },
+            },
+        },
+    ],
+    ids=[
+        "independent-clocks",
+        "async-reset",
+        "clock-read-on-another-clock",
+        "clock-divider",
+        "read-from-a-slower-clock",
+        "clock-divider-with-a-shared-reset",
+        "gated-clock",
+        "shared-constant",
+        "disabled-trigger",
+        "disabled-memory-port",
+    ],
+)
+def test_multiclock_holds_what_its_time_model_reads_right(cells):
+    assert timing_problems(_timing_model(cells, "clk", "other"), multiclock=True) == []
+
+
+@pytest.mark.parametrize(
+    "cells, problem",
+    [
+        ({"a": _flop(2, data=2)}, "reads clk as data"),
+        ({"a": _flop(2, data=11), "b": _gate(11, 2, 3)}, "reads clk as data"),
+        ({"a": _check([2], data=2)}, "reads clk as data"),
+        ({"a": _state(11, 10, data=3), "b": _gate(11, 2, 3)}, "reads other as data"),
+        (
+            {"a": _state(2, 10), "b": _state(2, 12), "c": _state(10, 20, data=12)},
+            "state-driven clock",
+        ),
+        (
+            {
+                "a": _state(2, 10),
+                "b": _state(2, 12),
+                "c": _gate(11, 10),
+                "d": _check([11], data=12),
+            },
+            "state-driven clock",
+        ),
+        (
+            {
+                "a": _state(2, 10),
+                "b": _state(10, 12),
+                "c": _state(2, 14),
+                "d": _state(12, 20, data=14),
+            },
+            "state-driven clock",
+        ),
+        (
+            {"a": _latch(2, 10), "b": _state(2, 12), "c": _state(10, 20, data=12)},
+            "state-driven clock",
+        ),
+        (
+            {
+                "a": _latch(11, 10),
+                "b": _state(2, 11),
+                "c": _state(2, 12),
+                "d": _state(10, 20, data=12),
+            },
+            "state-driven clock",
+        ),
+        (
+            {
+                "a": _async_state(2, 10, reset=3),
+                "b": _async_state(3, 12, reset=2),
+                "c": _state(10, 20, data=12),
+            },
+            "state-driven clock",
+        ),
+        ({"a": _flop(2, data=51), "m": _memory(write=3, address=2)}, "reads clk as data"),
+        (
+            {"a": _state(2, 10), "b": _state(2, 12), "c": _check([2, 10], "11", data=12)},
+            "state-driven clock",
+        ),
+        ({"a": _flop(2, "$memrd_v2")}, "does not know"),
+    ],
+    ids=[
+        "own-clock",
+        "own-clock-through-logic",
+        "own-clock-in-an-assertion",
+        "enable-of-a-gated-clock",
+        "state-behind-a-derived-clock",
+        "state-behind-a-gated-derived-clock",
+        "state-behind-two-derived-clocks",
+        "state-behind-a-latch-enable",
+        "state-behind-a-latch-data-path",
+        "state-behind-an-asynchronous-reset",
+        "own-clock-through-a-memory-address",
+        "one-derived-trigger-of-two",
+        "unknown-cell",
+    ],
+)
+def test_multiclock_refuses_what_its_time_model_reads_wrong(cells, problem):
+    found = timing_problems(_timing_model(cells, "clk", "other"), multiclock=True)
+    assert any(problem in text for text in found), found
+
+
+def _fake_model(monkeypatch, cells: dict[str, dict], **spec: Any) -> None:
+    _spec(monkeypatch, flattened=_timing_model(cells, "clk"), **spec)
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        {"a": _check([], enable="0", polarity="x")},
+        {"a": {**_check([2]), "type": "$print"}},
+        {
+            "a": {
+                **_memory(write="x"),
+                "parameters": {**_memory()["parameters"], "WR_PORTS": "0", "WR_CLK_ENABLE": ""},
+            }
+        },
+    ],
+    ids=["unclocked-property", "clocked-message", "table"],
+)
+def test_a_depth_of_one_runs_a_design_with_no_state(tmp_path, fake_sby, monkeypatch, cells):
+    _fake_model(monkeypatch, cells)
+    flow = _run(tmp_path, _design(tmp_path), depth=1)
+    assert flow.outcome == "passed", _document(flow).get("error")
+    assert "depth 1\n" in _config(flow)
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [{"a": _flop(2)}, {"a": _check([2])}, {"a": _flop(2, "$ff")}, {"a": _memory()}],
+    ids=["state", "clocked-property", "global-clock-state", "memory"],
+)
+@pytest.mark.parametrize("status", ["PASS", "FAIL"])
+def test_a_depth_of_one_never_judges_a_design_with_state(
+    tmp_path, fake_sby, monkeypatch, cells, status
+):
+    _fake_model(monkeypatch, cells, status=status)
+    flow = _run(tmp_path, _design(tmp_path), depth=1)
+    assert flow.outcome == "failed"
+    assert "a `depth` of 1 checks no clocked property" in _document(flow)["error"]["message"]
 
 
 def test_two_bits_of_one_input_are_two_clocks():
@@ -693,7 +971,14 @@ def test_prove_needs_a_time_limit_because_the_proof_has_no_bound(tmp_path, fake_
 #: it on its PATH).
 PROGRAMS = {
     "bmc": {"yosys": "--yosys", "yosys-smtbmc": "--smtbmc", "bitwuzla": None},
-    "prove": {"yosys": "--yosys", "rIC3": "--rIC3", "yosys-witness": "--witness", "btorsim": None},
+    "prove": {
+        "yosys": "--yosys",
+        "yosys-smtbmc": "--smtbmc",
+        "rIC3": "--rIC3",
+        "yosys-witness": "--witness",
+        "btorsim": None,
+        "bitwuzla": None,
+    },
 }
 PROGRAMS["cover"] = PROGRAMS["bmc"]
 
@@ -703,7 +988,7 @@ PROGRAMS["cover"] = PROGRAMS["bmc"]
     [
         ("bmc", ["rIC3", "yosys-witness", "btorsim"]),
         ("cover", ["rIC3", "yosys-witness", "btorsim"]),
-        ("prove", ["bitwuzla", "yosys-smtbmc"]),
+        ("prove", []),
     ],
 )
 def test_a_mode_needs_only_the_programs_of_its_engine(
@@ -732,18 +1017,21 @@ def test_sby_runs_and_records_the_programs_beside_it_and_no_decoy(
     for variable, name in SBY_VARIABLES.items():
         monkeypatch.setenv(variable, str(decoys / name))
     flow = _run(tmp_path, _design(tmp_path), mode=mode)
-    (call,) = _calls(flow)
-    options = call["argv"][:-3]
-    assert dict(zip(options[::2], options[1::2])) == {
-        option: str(fake_sby / name) for name, option in PROGRAMS[mode].items() if option
-    }
-    assert call["PATH"].split(os.pathsep)[0] == str(fake_sby)
+    calls = _calls(flow)
+    assert len(calls) == (2 if mode == "prove" else 1)
     solver = next(name for name, option in PROGRAMS[mode].items() if option is None)
-    assert call["found"][solver] == str(fake_sby / solver)
+    for call in calls:
+        options = call["argv"][:-3]
+        assert dict(zip(options[::2], options[1::2])) == {
+            option: str(fake_sby / name) for name, option in PROGRAMS[mode].items() if option
+        }
+        assert call["PATH"].split(os.pathsep)[0] == str(fake_sby)
+        assert call["found"][solver] == str(fake_sby / solver)
     versions = {tool["executable"]: tool["version"] for tool in flow.results.tools}
-    engine = {"bmc": "bitwuzla", "prove": "rIC3"}[mode]
-    assert set(versions) == {str(fake_sby / name) for name in ("sby", "yosys", engine)}
-    assert versions[str(fake_sby / engine)] == {"bmc": "0.9.1", "prove": "1.5.2"}[mode]
+    solvers = {"bmc": {"bitwuzla": "0.9.1"}, "prove": {"rIC3": "1.5.2", "bitwuzla": "0.9.1"}}[mode]
+    assert set(versions) == {str(fake_sby / name) for name in ("sby", "yosys", *solvers)}
+    for name, version in solvers.items():
+        assert versions[str(fake_sby / name)] == version
     assert versions[str(fake_sby / "yosys")].startswith("0.70")
     assert "9.9.9" not in versions.values()
 
@@ -1554,21 +1842,217 @@ endmodule
 
 
 @pytest.mark.real_tool
-def test_real_prove_has_no_presat_check_so_contradictory_assumptions_pass_vacuously(
-    tmp_path, ric3_scratch
-):
-    """rIC3 does not check the assumptions for satisfiability. With `assume(a); assume(!a)` no
-    state is reachable, so `assert(a)` passes for no reason. The counts of the results do not show
-    it: `formal.assumptions` is 2 and `formal.assertions` is 1. `bmc` (smtbmc) does check, and
-    fails the same source (`test_real_input_without_a_checkable_theorem_fails`)."""
+@pytest.mark.parametrize(
+    "source",
+    [
+        "module top(input clk, input a); always @(posedge clk) begin assume(a); assume(!a); "
+        "assert(a); end endmodule\n",
+        "module top(input logic clk); logic [3:0] c = 0; always_ff @(posedge clk) c <= c + 1; "
+        "assume property (@(posedge clk) c != 3); assert property (@(posedge clk) c < 3); "
+        "endmodule\n",
+    ],
+    ids=["contradiction", "no-trace-after-a-step"],
+)
+def test_real_prove_of_assumptions_that_no_trace_meets_fails(tmp_path, ric3_scratch, source):
+    """rIC3 proves both for no reason. The second task finds what `bmc` finds."""
+    require_sby_ric3()
+    flow = _real(tmp_path, {"top.sv": source}, mode="prove")
+    assert flow.outcome == "failed"
+    message = _document(flow)["error"]["message"]
+    assert "rIC3 passed, but its assumptions fail" in message
+    assert "the assumptions are unsatisfiable" in message
+
+
+@pytest.mark.real_tool
+def test_real_prove_with_assumptions_that_a_trace_meets_passes(tmp_path, ric3_scratch):
     require_sby_ric3()
     source = (
-        "module top(input clk, input a); always @(posedge clk) begin assume(a); assume(!a); "
-        "assert(a); end endmodule\n"
+        "module top(input logic clk, input logic a); logic q = 0; "
+        "always_ff @(posedge clk) q <= a; assume property (@(posedge clk) !a); "
+        "assert property (@(posedge clk) !q); endmodule\n"
     )
     flow = _real(tmp_path, {"top.sv": source}, mode="prove")
     assert flow.outcome == "passed", _document(flow).get("error")
-    assert (flow.results["formal.assumptions"], flow.results["formal.assertions"]) == (2, 1)
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "width, mode, outcome",
+    [(5, "bmc", "passed"), (4, "bmc", "rejected"), (5, "cover", "passed")],
+    ids=["holds", "fails", "covered"],
+)
+def test_real_a_depth_of_one_decides_a_combinational_design(tmp_path, width, mode, outcome):
+    require_sby()
+    statement = "assert (s >= a);" if mode == "bmc" else "cover (s == 5'd9);"
+    source = (
+        "module top(input logic [3:0] a, input logic [3:0] b);\n"
+        f"  wire [{width - 1}:0] s = a + b;\n  always_comb {statement}\nendmodule\n"
+    )
+    flow = _real(tmp_path, {"top.sv": source}, mode=mode, depth=1)
+    assert flow.outcome == outcome, _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "value, outcome", [("v != 0", "passed"), ("v != 2", "rejected")], ids=["holds", "fails"]
+)
+def test_real_a_depth_of_one_decides_a_table(tmp_path, value, outcome):
+    require_sby()
+    source = (
+        "module top(input logic [1:0] a);\n"
+        "  logic [3:0] m [0:3];\n"
+        "  initial begin m[0] = 1; m[1] = 2; m[2] = 3; m[3] = 4; end\n"
+        f"  wire [3:0] v = m[a];\n  always_comb assert ({value});\nendmodule\n"
+    )
+    flow = _real(tmp_path, {"top.sv": source}, depth=1)
+    assert flow.outcome == outcome, _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "file, source",
+    [
+        (
+            "top.sv",
+            "module top(input logic clk, input logic [3:0] a);\n"
+            "  always_comb assert (a < 16);\n"
+            "  assert property (@(posedge clk) 1'b0);\nendmodule\n",
+        ),
+        (
+            "top.vhdl",
+            "library ieee; use ieee.std_logic_1164.all;\n"
+            "entity top is port (clk : in std_logic); end;\n"
+            "architecture a of top is begin\n"
+            "  process (clk) begin if rising_edge(clk) then assert false; end if; end process;\n"
+            "end;\n",
+        ),
+    ],
+    ids=["clocked-beside-unclocked", "vhdl-clocked-assertion"],
+)
+def test_real_a_depth_of_one_does_not_hide_a_clocked_failure(tmp_path, file, source):
+    require_sby_ghdl() if file.endswith(".vhdl") else require_sby()
+    flow = _real(tmp_path, {file: source}, depth=1)
+    assert flow.outcome == "failed"
+    assert "a `depth` of 1 checks no clocked property" in _document(flow)["error"]["message"]
+
+
+@pytest.mark.real_tool
+def test_real_depth_two_finds_a_failure_at_the_first_edge(tmp_path):
+    require_sby()
+    source = "module top(input logic clk); assert property (@(posedge clk) 1'b0); endmodule\n"
+    flow = _real(tmp_path, {"top.sv": source}, depth=2)
+    assert flow.outcome == "rejected", _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "source, problem",
+    [
+        (
+            """module top(input logic clk);
+              logic q = 0;
+              always_ff @(posedge clk) q <= clk;
+              assert property (@(posedge clk) q == 0);
+            endmodule""",
+            "reads clk as data",
+        ),
+        (
+            """module top(input logic clk);
+              logic d = 0;
+              logic e = 0;
+              logic q = 0;
+              logic [2:0] n = 0;
+              always_ff @(posedge clk) begin d <= ~d; e <= ~e; if (n != 7) n <= n + 1; end
+              always_ff @(posedge d) q <= e;
+              assert property (@(posedge clk) n < 3 || q == 0);
+            endmodule""",
+            "state-driven clock d reads e",
+        ),
+        (
+            """module top(input logic clk);
+              logic d = 0;
+              logic e = 0;
+              logic q = 0;
+              logic [3:0] n = 0;
+              always_latch if (clk) d <= 1;
+              always_ff @(posedge clk) begin e <= 1; if (n != 15) n <= n + 1; end
+              always_ff @(posedge d) q <= e;
+              assert property (@(posedge clk) n < 2 || q == 0);
+            endmodule""",
+            "state-driven clock d reads e",
+        ),
+        (
+            """module top(input logic clk, input logic other);
+              always_comb assume (!other);
+              logic d = 1;
+              logic e = 0;
+              logic q = 0;
+              logic [3:0] n = 0;
+              always @(posedge other or posedge clk) if (clk) d <= 0; else d <= 1;
+              always @(posedge clk) begin e <= 1; if (n != 15) n <= n + 1; end
+              always @(negedge d) q <= e;
+              assert property (@(posedge clk) n < 2 || q == 0);
+            endmodule""",
+            "state-driven clock d reads e",
+        ),
+        (
+            """module top(input logic clk);
+              logic [1:0] m [0:1];
+              initial begin m[0] = 0; m[1] = 1; end
+              logic [1:0] q = 0;
+              always_ff @(posedge clk) q <= m[clk];
+              assert property (@(posedge clk) q == 0);
+            endmodule""",
+            "reads clk as data",
+        ),
+    ],
+    ids=[
+        "clock-as-data",
+        "state-behind-a-derived-clock",
+        "state-behind-a-latch",
+        "state-behind-an-asynchronous-reset",
+        "memory-addressed-by-the-clock",
+    ],
+)
+def test_real_multiclock_refuses_a_pass_that_a_simulator_would_contradict(
+    tmp_path, source, problem
+):
+    require_sby()
+    flow = _real(tmp_path, {"top.sv": source}, multiclock=True, depth=30)
+    assert flow.outcome == "failed"
+    assert problem in _document(flow)["error"]["message"]
+
+
+@pytest.mark.real_tool
+def test_real_multiclock_keeps_a_clock_divider(tmp_path):
+    require_sby()
+    source = """module top(input logic clk);
+      logic d = 0;
+      logic [1:0] slow = 0;
+      always_ff @(posedge clk) d <= ~d;
+      always_ff @(posedge d) slow <= slow + 1;
+      assert property (@(posedge d) slow != 2'd3 || slow == 2'd3);
+      assert property (@(posedge clk) slow <= 2'd3 && d == d);
+    endmodule"""
+    flow = _real(tmp_path, {"top.sv": source}, multiclock=True, depth=8)
+    assert flow.outcome == "passed", _document(flow).get("error")
+
+
+@pytest.mark.real_tool
+@pytest.mark.parametrize(
+    "body",
+    [
+        "logic a = 0; always_ff @(negedge clk) a <= ~a; assert property (@(posedge clk) a == 0);",
+        "logic d = 0; logic a = 0; always_ff @(posedge clk) d <= ~d; "
+        "always_ff @(posedge d) a <= ~a; assert property (@(posedge clk) a == 0);",
+    ],
+    ids=["falling-edge", "derived-clock"],
+)
+def test_real_an_error_of_the_default_model_names_the_setting(tmp_path, body):
+    require_sby()
+    flow = _real(tmp_path, {"top.sv": f"module top(input logic clk); {body} endmodule\n"})
+    assert flow.outcome == "failed"
+    assert "Set `multiclock` to model this design" in _document(flow)["error"]["message"]
 
 
 @pytest.mark.real_tool
