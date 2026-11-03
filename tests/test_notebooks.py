@@ -272,10 +272,9 @@ def test_the_sweep_notebook(executions):
     assert reason[1].startswith("nextpnr: timing constraints are not met")
     assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
     assert cell_output(nb, "empty-history").startswith("no runs yet")
-    missing = cell_output(nb, "missing-metric").splitlines()
-    assert missing[0] == "every value is empty: True"
-    assert missing[1].startswith("'fmx' is not a metric of nextpnr. Its metrics are: ")
-    assert "fmax" in missing[1]
+    assert cell_output(nb, "missing-metric").startswith(
+        "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, "
+    )
     work = work / "notebook-output"
     rows = (work / "fifo-sweep.csv").read_text().splitlines()
     assert len(rows) == 1 + 7
