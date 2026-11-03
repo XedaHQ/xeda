@@ -321,15 +321,25 @@ PLAN_OUTPUTS = {
     "rebuild-plan": "[('yosys_fpga', 'stale', 'rebuild_all'), ('nextpnr', 'stale', 'rebuild_all')]\nran",
     "plan-options": "plan_options",
     "stale-plan": "stale_plan\nthe run root differs: the plan was made for",
-    "unscoped-setting": "unscoped_setting node=None setting=seed",
-    "unknown-setting": "unknown_setting node=nextpnr setting=sed",
-    "invalid-value": "invalid_value node=nextpnr setting=seed",
-    "invalid-quantity": "invalid_quantity node=nextpnr setting=hold_detour_max",
-    "node-and-key-errors": "unknown_node node=None setting=nextpnr",
-    "several-errors": "unknown_setting node=nextpnr setting=sed",
     "canonical-quantity": "6 ns True",
     "flow-errors": "FlowNotFoundError flow_not_found\nChainError no_edge",
     "module-plan": "fresh",
+}
+
+#: The problems that each error cell prints, one line for each problem of each request.
+PLAN_PROBLEMS = {
+    "unscoped-setting": ["unscoped_setting node=None setting=seed"],
+    "unknown-setting": ["unknown_setting node=nextpnr setting=sed"],
+    "invalid-value": ["invalid_value node=nextpnr setting=seed"],
+    "invalid-quantity": ["invalid_quantity node=nextpnr setting=hold_detour_max"] * 2,
+    "node-and-key-errors": [
+        "unknown_node node=None setting=nextpnr",
+        "conflicting_keys node=None setting=nextpnr",
+    ],
+    "several-errors": [
+        "unknown_setting node=nextpnr setting=sed",
+        "invalid_value node=nextpnr setting=seed",
+    ],
 }
 
 
@@ -343,15 +353,9 @@ def test_the_plan_notebook_plans_runs_and_refuses(executions):
     for nb in (first, second):
         for tag, text in PLAN_OUTPUTS.items():
             assert _squeezed(cell_output(nb, tag)).startswith(text), tag
+        for tag, problems in PLAN_PROBLEMS.items():
+            lines = cell_output(nb, tag).splitlines()
+            assert [line for line in lines if line and not line[0].isspace()] == problems, tag
         assert cell_output(nb, "run-plan").startswith("passed True\nyosys_fpga  passed")
     assert cell_output(first, "first-plan").count("stale") == 2
     assert cell_output(first, "run-plan").endswith("nextpnr     passed  ran")
-
-
-def test_the_plan_notebook_lists_every_problem_of_a_request(executions):
-    _, nb, _ = executions("04-plan")
-    lines = _squeezed(cell_output(nb, "several-errors")).splitlines()
-    assert [line for line in lines if line.startswith(("unknown_setting", "invalid_value"))] == [
-        "unknown_setting node=nextpnr setting=sed",
-        "invalid_value node=nextpnr setting=seed",
-    ]
