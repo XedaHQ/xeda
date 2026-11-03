@@ -35,6 +35,18 @@ python3 -m pip install -U xeda
 
 Check the installation with `xeda --version`.
 
+### Supported platforms
+
+- Python 3.11 through 3.15.
+- Linux x86_64: CI runs the full test suite with every open-source flow against the real tools.
+- macOS: CI runs only the tests of operating-system-sensitive code (processes, locks, files, the
+  remote client). It installs no EDA tool.
+- Linux arm64: not tested in CI.
+- Native Windows: not supported. Use WSL.
+
+The [documentation](https://xeda.readthedocs.io/) has a table of the flows that CI verifies against
+the real tool (section "Verification of the built-in flows" of the Flows page).
+
 ## Usage
 
 ### Design file
