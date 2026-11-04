@@ -8,6 +8,7 @@ from ...flow import (
     FlowFatalError,
     FlowSettingsException,
     FpgaSynthFlow,
+    MetricSpec,
     describe_results,
     ArtifactSpec,
     describe_artifacts,
@@ -15,6 +16,11 @@ from ...flow import (
 from ...tool import Tool
 
 log = logging.getLogger(__name__)
+
+#: The sysDSP primitives of the ECP5 (Lattice TN1267 / FPGA-TN-02205): multipliers, ALUs and
+#: pre-adders. The map report lists a count for each. A multiply-accumulate is a multiplier and
+#: an ALU, so it counts as two, as the nextpnr flow counts `MULT18X18D` and `ALU54B`.
+DSP_PRIMITIVES = ("MULT18X18D", "MULT9X9D", "ALU54B", "ALU24B", "PRADD18A", "PRADD9A")
 
 
 class DiamondSynth(FpgaSynthFlow):
@@ -46,8 +52,12 @@ class DiamondSynth(FpgaSynthFlow):
         "lut",
         "ff",
         "slice",
-        "dsp",
         "bram",
+        dsp=MetricSpec(
+            "Number of DSP primitives used: multipliers, ALUs and pre-adders. A multiply-accumulate "
+            "counts its multiplier and its ALU.",
+            "integer",
+        ),
     )
 
     reads_sources = frozenset(
@@ -163,6 +173,16 @@ class DiamondSynth(FpgaSynthFlow):
 \s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d+)*)\s+(?P<_status>\w+)\s*$"""
         self.parse_report_regex(reports_dir / f"{design_name}_{impl_name}.par", slice_pat, time_pat)
 
+        self.parse_map_report(reports_dir / f"{design_name}_{impl_name}.mrp")
+
+        status = str(self.results["_status"])
+        if status.lower() != "completed":
+            log.error("Diamond's place and route status is %s, not completed.", status)
+            return False
+        return True
+
+    def parse_map_report(self, path: Path) -> None:
+        """Read the resource counts of the map report (`.mrp`)."""
         # The `.mrp` file can have page breaks anywhere (TODO: check for other kinds of break), so
         # the patterns match only lines. The report states:
         #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
@@ -178,21 +198,16 @@ class DiamondSynth(FpgaSynthFlow):
 \s+Number\s+used\s+as\s+shift\s+registers:\s*(?P<_lut_shift>\d+)\s*.*
 \s*Number\s+of\s+block\s+RAMs:\s*(?P<bram>\d+)\s+out\s+of\s+(?P<_bram_avail>\d+).*"""
 
-        dsp_pattern = r"""\s+MULT18X18D\s+(?P<_dsp_MULT18X18D>\d+)\s*.*
-\s+MULT9X9D\s+(?P<_dsp_MULT9X9D>\d+)\s*.*"""
+        # One pattern for each sysDSP primitive that the map report lists (ECP5).
+        dsp_patterns = [rf"^[ \t]+{kind}[ \t]+(?P<_dsp_{kind}>\d+)\b" for kind in DSP_PRIMITIVES]
 
-        self.parse_report_regex(
-            reports_dir / f"{design_name}_{impl_name}.mrp", slice_pattern, dsp_pattern
-        )
+        self.parse_report_regex(path, slice_pattern, *dsp_patterns)
 
-        # FIXME: count the other kinds of ALUs and DSPs too.
-        self.results["dsp"] = self.results["_dsp_MULT18X18D"] + self.results["_dsp_MULT9X9D"]
-
-        status = str(self.results["_status"])
-        if status.lower() != "completed":
-            log.error("Diamond's place and route status is %s, not completed.", status)
-            return False
-        return True
+        counts = [self.results.get(f"_dsp_{kind}") for kind in DSP_PRIMITIVES]
+        if any(count is not None for count in counts):
+            self.results["dsp"] = sum(count or 0 for count in counts)
+        else:
+            log.warning("The map report lists no DSP primitive; the dsp metric is not set.")
 
     def check_results(self) -> bool:
         """Reject the run if the map report shows a resource that the settings forbid, or the
