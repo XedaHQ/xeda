@@ -945,6 +945,7 @@
         "sdc",
         "sdf"
       ],
+      "experimental": true,
       "metrics": {
         "area": {
           "type": "object",
@@ -6546,6 +6547,7 @@
         },
         "global_placement.timing_driven.repair_timing": {
           "default": false,
+          "experimental": true,
           "type": "boolean",
           "unit": null
         },
@@ -7787,6 +7789,7 @@
         "vlogan_log",
         "vpd2vcd_log"
       ],
+      "experimental": true,
       "metrics": {
         "sim.ended_by": {
           "type": "text",
@@ -10045,6 +10048,7 @@
         "coverage",
         "log"
       ],
+      "experimental": true,
       "metrics": {
         "cocotb.errors": {
           "type": "integer",

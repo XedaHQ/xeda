@@ -56,7 +56,7 @@ Discovering flows and their settings
 
 ``asic_synthesis``
     Builds a design for a standard-cell process (``dc``). ``dc`` takes the libraries of the
-    process in ``target_libraries``.
+    process in ``target_libraries``. The flow ``dc`` is experimental (see :doc:`stability`).
 
 ``synthesis``
     Synthesis that the base class does not tie to an FPGA or an ASIC (``yosys`` and
@@ -2645,7 +2645,7 @@ current time, and Xeda skips further execution after a finish or after the bound
 because the evidence of a VHDL stop would otherwise be ambiguous.
 
 VCS and Questa adapters are documentation-only and have not been verified against licensed real
-tools. They fail closed when native evidence is not recognizable. VCS quiet ``$finish(0)`` and VHDL
+tools. The flow ``vcs`` is experimental (see :doc:`stability`). They fail closed when native evidence is not recognizable. VCS quiet ``$finish(0)`` and VHDL
 completion fail without a native finish diagnostic, and a UCLI time checkpoint alone does not prove
 HDL completion. Questa requires the ModelSim-style owned runtime transcript and checkpoint. An
 unrecognized native stop reason or missing source-qualified VHDL evidence fails. Do not treat their
@@ -2882,7 +2882,8 @@ xezim
 
 ``xezim`` compiles and simulates Verilog and SystemVerilog in one process. Upstream ships no
 binaries: build ``xezim`` from source with Cargo and put it on ``PATH``. The flow supports cocotb,
-UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms.
+UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms. The flow is experimental
+(see :doc:`stability`).
 
 * A run passes on the end line that ``xezim`` writes in this run, and on its diagnostics. The
   line comes after all output of the design, so output of the design cannot stand in for it.

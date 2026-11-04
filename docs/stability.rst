@@ -17,7 +17,8 @@ What is public
   the output of ``xeda run --json``, and the other JSON documents of the commands.
 - The built-in flows: their names, the names, types and defaults of their settings, the names,
   kinds and cardinality of their outputs, the paths, types and units of their metrics, and their
-  artifact keys.
+  artifact keys. A flow or setting marked ``experimental`` is the exception (see
+  :ref:`experimental`).
 - The error codes.
 - The order of the settings layers, the grammars of the specification text, the names and keys of
   the private files and the session variables, and the layout of the run directories (see
@@ -45,6 +46,24 @@ These changes happen only in a major release:
 - removing or renaming a public item;
 - changing the type, unit, default, cardinality, positional order or meaning of a public item;
 - adding a member to a closed set.
+
+.. _experimental:
+
+Experimental flows and settings
+===============================
+
+A built-in flow or setting marked ``experimental`` may change or be removed in any release; all
+other public interfaces on this page remain stable.
+
+A mark on a flow covers its name, settings, outputs, metrics and artifacts. A mark on a setting
+covers that setting and the settings inside it. To see a mark, run ``xeda list-flows`` or
+``xeda list-settings``. The table starts the description of a marked entry with "Experimental.",
+and the JSON output has ``"experimental": true`` on it. An entry without the key is not
+experimental. At present the flows ``xezim``, ``vcs`` and ``dc`` are experimental, and so is the
+setting ``global_placement.timing_driven.repair_timing`` of ``openroad_place``.
+
+Marking a stable item experimental is a breaking change. Removing a mark makes the item part of the
+stable interface of that release.
 
 Closed and open sets
 ====================

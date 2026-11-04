@@ -3079,6 +3079,9 @@
             "description": {
               "type": "string"
             },
+            "experimental": {
+              "type": "boolean"
+            },
             "inputs": {
               "items": {
                 "properties": {
@@ -3466,6 +3469,9 @@
                 "array",
                 "null"
               ]
+            },
+            "experimental": {
+              "type": "boolean"
             },
             "group": {
               "type": [

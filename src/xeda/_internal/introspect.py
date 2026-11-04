@@ -43,6 +43,7 @@ from .dataclass import (
     input_names,
     opaque_key_fields_of,
     single_item_fields_of,
+    is_experimental,
     tier_of,
     written_role,
     XedaBaseModel,
@@ -209,6 +210,7 @@ def flow_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "description": _own_docstring(cls),
         "category": _category(cls),
         "supports_cocotb": bool(getattr(cls, "cocotb_sim_name", None)),
+        **({"experimental": True} if cls.experimental else {}),
         "dependencies": unique(
             [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
         ),
@@ -524,6 +526,7 @@ def _group_entries(
                 "json_schema": json_safe(prop),
                 "tier": tier_of(group_class, name) or "common",
                 "group": top,
+                **({"experimental": True} if is_experimental(group_class, name) else {}),
             }
         )
         sub_group = _group_class(info.annotation)
@@ -563,6 +566,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "json_schema": json_safe(prop),
                 "tier": tier_of(cls.Settings, name) or "common",
                 "group": None,
+                **({"experimental": True} if is_experimental(cls.Settings, name) else {}),
             }
         )
         group_class = _group_class(model_field.annotation)
