@@ -111,7 +111,7 @@ verifies each built-in flow. The verification is one of these:
      - fake tool only
    * - ``fpga_pack``
      - ecppack, icepack, fpga-as
-     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml`` (ECP5, iCE40) and the openXC7 workflow (Artix-7). Fake tool only for Nexus.
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml`` (ECP5, iCE40) and the openXC7 workflow (Artix-7). It has no Nexus packer, and the tests check only the refusal.
    * - ``ghdl_sim``
      - GHDL
      - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``

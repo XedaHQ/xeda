@@ -32,7 +32,7 @@ Python
     3.11 to 3.14.
 
 Linux x86_64
-    CI runs the full test suite on it, with the open-source flows against the real tools.
+    CI runs the full test suite on it. Some open-source flows run against the real tools.
     :ref:`flow-verification` lists what verifies each flow and device family.
 
 macOS
