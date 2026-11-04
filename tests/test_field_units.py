@@ -353,7 +353,7 @@ def test_a_launch_writes_the_timeout_in_seconds(tmp_path, monkeypatch):
 def test_the_document_of_a_run_echoes_the_settings_it_got_in_the_unit_of_each_field():
     document = spec_document(
         flow="ghdl_sim",
-        design="d",
+        design_name="d",
         design_file=None,
         target=None,
         settings={"ghdl_sim": {"timeout": "2min", "stop_time": "1 us", "vcd": "w.vcd"}},
@@ -377,7 +377,7 @@ def test_a_list_of_quantities_given_as_comma_separated_text_shows_the_unit_of_th
     assert shown == {"floorplan": {"die_area": ["0 um", "0 um", "100 um", "100 um"]}}
     document = spec_document(
         flow="openroad_place",
-        design="d",
+        design_name="d",
         design_file=None,
         target=None,
         settings={"openroad_place": given},

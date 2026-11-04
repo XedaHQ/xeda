@@ -110,7 +110,7 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
     assert document == expected
     assert document["spec"] == {
         "flow": "nextpnr",
-        "design": "blink",
+        "design_name": "blink",
         "design_file": str(design),
         "target": None,
         "settings": {},

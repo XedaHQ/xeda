@@ -157,7 +157,7 @@ def test_setup_failure_invalidates_a_previous_success(tmp_path, design, monkeypa
         _runner(tmp_path).launch_flow(TTaker, design, {})
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
-    for key in ("design", "flow", "identity", "run_id", "started", "finished"):
+    for key in ("design_name", "flow", "identity", "run_id", "started_at", "finished_at"):
         assert recorded[key]
     assert not (first.run_path / "trace.json").exists()
 
@@ -340,7 +340,7 @@ def test_a_failed_handover_invalidates_previous_success_without_delivery(
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
     assert recorded["error"]["code"] == "producer_failed"
-    assert all(recorded[key] for key in ("identity", "run_id", "started", "finished"))
+    assert all(recorded[key] for key in ("identity", "run_id", "started_at", "finished_at"))
     assert not (first.run_path / "trace.json").exists()
     assert not (tmp_path / "out").exists()
 

@@ -326,7 +326,7 @@ def test_a_missing_output_replaces_old_success_and_keeps_failure_identity(
         document["outputs"]["made"]["names"] == [] and document["outputs"]["made"]["digests"] == []
     )
     assert document["error"]["code"] == "missing_output"
-    assert document["design"] == "d" and document["flow"] == first.name
+    assert document["design_name"] == "d" and document["flow"] == first.name
     assert document["identity"] == again.flow_hash and document["run_id"] == again.run_id
     assert not (again.run_path / "trace.json").exists()
     with pytest.raises(FlowDependencyFailure, match="output `made`"):
