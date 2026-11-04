@@ -189,7 +189,7 @@ def test_a_user_named_path_reaches_the_tool_whole(flow, tmp_path, monkeypatch) -
     calls = _calls(flow, design, settings, tmp_path, monkeypatch, elements=True)
     arguments = [arg for call in calls for arg in call]
     simulates = flow in ("vivado_sim", "modelsim")
-    sources = design.sim_sources if simulates else design.rtl.sources
+    sources = design._sim_sources if simulates else design.rtl.sources
     for path in [str(src.file) for src in sources] + files:
         assert path in arguments, f"{path!r} did not reach {flow} whole"
 

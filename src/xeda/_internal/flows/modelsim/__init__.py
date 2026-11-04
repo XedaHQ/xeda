@@ -99,7 +99,7 @@ class Modelsim(SimFlow):
         assert isinstance(self.settings, self.Settings)
         tb = self.design.tb
         ss = self.settings
-        if not self.design.sim_tops:
+        if not self.design._sim_tops:
             raise DesignValidationError(
                 [(None, "ModelSim needs a simulation top module: `tb.top` is not set", None, None)],
                 self.design.model_dump(),

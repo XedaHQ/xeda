@@ -259,7 +259,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   the remote client locks its whole mirror in one `acquire_all`; a thread that holds a lock gets
   `lease_held` from a launch, sweep or scrub (`tests/test_graph_locks.py`).
 - Loading a design runs no generator and writes nothing; its generated `rtl.sources` are
-  declarations (`Source.declaration`, never expanded): a tree path below the design root, or
+  declarations (`Source._declaration`, never expanded): a tree path below the design root, or
   `$XEDA_GENERATED/<name>` in the storage; an entry is wholly generated or wholly written
   (`tests/test_generated_declarations.py`). A launch
   generates after the declarative checks and before the first producer
@@ -279,7 +279,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   releases all and waits for that one), generates under its exclusive locks, takes the storages
   again shared, and keeps them with the node locks until the last delivery
   (`tests/test_graph_locks.py`, `tests/test_storage_locks.py`). A dependency with a generator is a
-  unit of generation (`Design.generation_units`, `Source.owner`) with a storage of its own,
+  unit of generation (`Design.generation_units`, `Source._owner`) with a storage of its own,
   dependencies first; a Git dependency writes no tree entry; a generator takes no lock of its own, and the shared leases of all
   storages come after all generations (`tests/test_dependency_generation.py`). Loading reads no
   dependency. Planning merges them (`flow_runner/dependencies.py`): a Git fetch runs after every
@@ -334,6 +334,8 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 ## Changelog
 
+- A frozen member of a public class is documented in `docs/api` or it has a leading underscore
+  (`tests/test_api_documented.py`); a base class that no public module exports is not frozen.
 - Never edit a released baseline in `tests/baselines/`. After a change to the public API, run
   `python tools/api_baseline.py`; an additive change passes, and a breaking one needs a new major
   version (`docs/stability.rst`, `tests/test_public_api.py`). Until 1.0.0 is released, the 1.0

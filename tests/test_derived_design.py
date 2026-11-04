@@ -366,8 +366,8 @@ def test_the_hash_of_a_derived_design_does_not_depend_on_where_the_run_directory
     assert generated != [src.file for src in far.rtl.sources if src.file.name == "Top.v"]
     for parts in ({"rtl"}, {"rtl", "tb"}):
         assert near._parts_hash(parts) == far._parts_hash(parts)
-    assert near.rtl_hash == far.rtl_hash
-    text = json.dumps(near.rtl_fingerprint)
+    assert near._rtl_hash == far._rtl_hash
+    text = json.dumps(near._rtl_fingerprint)
     assert str(tmp_path) not in text and "run" not in text.replace("rtl", "")
 
 
@@ -388,7 +388,7 @@ def test_a_source_on_another_drive_has_no_path_from_the_design_root(tmp_path, mo
     outside.parent.mkdir()
     outside.write_text("module ext(); endmodule\n")
     design = Design(name="d", root=root, rtl={"sources": ["Top.bsv", str(outside)], "top": "mkTop"})
-    assert design.rtl_fingerprint["sources"][1]["path"] == outside.as_posix()
+    assert design._rtl_fingerprint["sources"][1]["path"] == outside.as_posix()
     flow = _launched(tmp_path, design)
     assert flow.results["outputs"]["design"]["sources"][-1] == {
         "source": 1,

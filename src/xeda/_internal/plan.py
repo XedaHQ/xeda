@@ -10,8 +10,8 @@ deliver. The values are immutable and can be pickled. `Plan.to_dict` is the docu
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -123,18 +123,17 @@ class Plan:
     options: Mapping[str, Any] = field(repr=False)
     nodes: Mapping[str, PlanNode]
     #: The options of the workspace that made the plan. Running the plan compares them.
-    _workspace: WorkspaceOptions | None = field(default=None, repr=False, compare=False)
+    _workspace: WorkspaceOptions | None = field(default=None, init=False, repr=False, compare=False)
     #: The dependencies as planning resolved them, as `RunRecord.dependencies` lists them: one
     #: entry for each element of `Design.resolved_dependencies`, in its order.
     _dependencies: tuple[Mapping[str, str | None], ...] = field(
-        default=(), repr=False, compare=False
+        default=(), init=False, repr=False, compare=False
     )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roots", tuple(self.roots))
         object.__setattr__(self, "options", FrozenDict(self.options))
         object.__setattr__(self, "nodes", FrozenDict(self.nodes))
-        object.__setattr__(self, "_dependencies", tuple(freeze(d) for d in self._dependencies))
 
     def to_dict(self) -> dict[str, Any]:
         """Return the document that `xeda run --dry-run --json` prints (schema 1).
@@ -153,6 +152,19 @@ class Plan:
             "dependencies": [thaw(entry) for entry in self._dependencies],
             "nodes": [node_document(node) for node in self.nodes.values()],
         }
+
+
+def with_planning(
+    plan: Plan, *, workspace: WorkspaceOptions | None, dependencies: Iterable[Mapping[str, Any]]
+) -> Plan:
+    """Return a copy of `plan` that keeps `workspace` and `dependencies` in its private fields.
+
+    They are no constructor parameters: only planning, and the reading of a plan document, set
+    them."""
+    result = replace(plan)
+    object.__setattr__(result, "_workspace", workspace)
+    object.__setattr__(result, "_dependencies", tuple(freeze(d) for d in dependencies))
+    return result
 
 
 def node_document(node: PlanNode) -> dict[str, Any]:
@@ -314,14 +326,8 @@ def plan_of(
         node.name: plan_node(node, states[node.name], deliveries.get(node.name, ()))
         for node in internal.nodes
     }
-    return Plan(
-        spec=spec,
-        roots=(internal.nodes[-1].name,),
-        options=options.as_dict(),
-        nodes=nodes,
-        _workspace=workspace,
-        _dependencies=tuple(dependencies),
-    )
+    plan = Plan(spec=spec, roots=(internal.nodes[-1].name,), options=options.as_dict(), nodes=nodes)
+    return with_planning(plan, workspace=workspace, dependencies=dependencies)
 
 
 #: The keys of an entry of `dependencies` in a plan document, as `DependencyRecord.as_mapping`.
@@ -380,14 +386,13 @@ def plan_from_dict(
         dependencies = tuple(
             {key: item[key] for key in _DEPENDENCY_KEYS} for item in document["dependencies"]
         )
-        return Plan(
+        plan = Plan(
             spec=spec,
             roots=tuple(document["roots"]),
             options=options,
             nodes={node.name: node for node in nodes},
-            _workspace=workspace,
-            _dependencies=dependencies,
         )
+        return with_planning(plan, workspace=workspace, dependencies=dependencies)
     except (KeyError, TypeError) as error:
         raise ValueError(f"the plan document has a bad part: {error!r}") from None
 

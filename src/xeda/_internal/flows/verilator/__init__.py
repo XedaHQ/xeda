@@ -751,7 +751,7 @@ class Verilator(SimFlow):
 
         # every header's directory, the testbench's included: Verilator compiles both
         include_dirs = unique(
-            [str(d) for d in ss.include_dirs] + [str(d) for d in self.design.header_dirs(tb=True)]
+            [str(d) for d in ss.include_dirs] + [str(d) for d in self.design._header_dirs(tb=True)]
         )
 
         args += compile_args

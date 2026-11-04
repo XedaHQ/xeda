@@ -460,7 +460,7 @@ class Nvc(SimFlow):
 
     def elaborate(self):
         """Elaborate the top units of the simulation, which `analyze` has analyzed."""
-        self.nvc.run(*self.global_options(), "-e", *self.design.sim_tops, *self.elaborate_flags())
+        self.nvc.run(*self.global_options(), "-e", *self.design._sim_tops, *self.elaborate_flags())
 
     def execute(self, one_shot=False) -> None:
         """Run the simulation."""
@@ -511,7 +511,7 @@ class Nvc(SimFlow):
         if loads:
             # NVC keeps only the last --load option; its argument is a comma-separated list.
             run_flags.append("--load=" + ",".join(loads))
-        tops = self.design.sim_tops
+        tops = self.design._sim_tops
         env = self.cocotb.env(self.design) if self.cocotb else {}
         runtime = self.nvc
         if not self.cocotb:

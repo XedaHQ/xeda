@@ -406,7 +406,7 @@ class Xezim(SimFlow):
         if self.cocotb:
             top = cocotb_toplevel(self.design)
             return [top] if top else []
-        return [top for top in self.design.sim_tops if top]
+        return [top for top in self.design._sim_tops if top]
 
     def _parameters(self, top: str) -> Dict[str, Any]:
         """Return the parameters of `top`. `rtl.parameters` apply only when it is the RTL top."""
@@ -430,7 +430,7 @@ class Xezim(SimFlow):
             args.append(STANDARD_FLAGS[standard])
         defines = {**design.rtl.defines, **design.tb.defines}
         args += [f"-D{k}" if v is None else f"-D{k}={_value_text(v)}" for k, v in defines.items()]
-        for directory in design.header_dirs(tb=True):
+        for directory in design._header_dirs(tb=True):
             args += ["-I", directory]
         for top in self._simulated_tops():
             args += ["-s", top]

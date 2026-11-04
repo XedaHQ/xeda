@@ -49,17 +49,17 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "key"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "destination"
               },
               {
                 "annotation": "bool",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "delivered"
               }
             ]
@@ -130,21 +130,9 @@
               "annotation": "str | None",
               "default": "None",
               "name": "target"
-            },
-            {
-              "annotation": "tuple[Any, ...]",
-              "default": "()",
-              "name": "generation_units"
-            },
-            {
-              "annotation": "tuple[Any, ...]",
-              "default": "()",
-              "name": "resolved_dependencies"
             }
           ],
-          "bases": [
-            "xeda.dataclass.XedaBaseModel"
-          ],
+          "bases": [],
           "constructor": {
             "parameters": [
               {
@@ -232,65 +220,6 @@
           },
           "kind": "class",
           "methods": {
-            "as_mapping": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                }
-              ],
-              "return": "Any"
-            },
-            "expanded": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "data"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "form_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, Any]]"
-            },
-            "generation_label": {
-              "annotation": "str",
-              "kind": "property"
-            },
-            "header_dirs": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "bool",
-                  "default": "True",
-                  "kind": "positional_or_keyword",
-                  "name": "rtl"
-                },
-                {
-                  "annotation": "bool",
-                  "default": "False",
-                  "kind": "positional_or_keyword",
-                  "name": "tb"
-                }
-              ],
-              "return": "list[pathlib.Path]"
-            },
-            "invalidate_cached_properties": {
-              "kind": "method",
-              "parameters": []
-            },
             "load": {
               "kind": "classmethod",
               "parameters": [
@@ -308,231 +237,12 @@
               ],
               "return": "DesignType"
             },
-            "merge_inputs": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "merged"
-                },
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "None"
-            },
-            "model_construct": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "Any"
-            },
-            "model_json_schema": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "model_post_init": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "positional_only",
-                  "name": "context"
-                }
-              ],
-              "return": "None"
-            },
-            "model_validate": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "Any"
-            },
-            "model_validate_json": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "Any"
-            },
-            "model_validate_strings": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "Any"
-            },
-            "part_metadata": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "str",
-                  "kind": "positional_or_keyword",
-                  "name": "part"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "process_dict": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "data"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "relative_to_root": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "str | os.PathLike",
-                  "kind": "positional_or_keyword",
-                  "name": "path"
-                }
-              ],
-              "return": "pathlib.Path | None"
-            },
-            "remove_keys": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "data"
-                },
-                {
-                  "annotation": "Iterable[str]",
-                  "kind": "positional_or_keyword",
-                  "name": "names"
-                }
-              ],
-              "return": "None"
-            },
-            "removed_input_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, str, str]]"
-            },
             "root": {
               "annotation": "pathlib.Path",
               "kind": "property"
             },
-            "rtl_fingerprint": {
-              "annotation": "dict[str, Any]",
-              "kind": "property"
-            },
-            "rtl_hash": {
-              "annotation": "str",
-              "kind": "property"
-            },
-            "select_target": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "data"
-                },
-                {
-                  "annotation": "str | None",
-                  "default": "None",
-                  "kind": "positional_or_keyword",
-                  "name": "target"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "sim_sources": {
-              "annotation": "list[xeda.Source]",
-              "kind": "property"
-            },
-            "sim_tops": {
-              "annotation": "tuple[str, ...] | tuple[str] | tuple[str, str]",
-              "kind": "property"
-            },
-            "source_place": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "xeda.Source",
-                  "kind": "positional_or_keyword",
-                  "name": "source"
-                }
-              ],
-              "return": "str"
-            },
             "targets": {
               "annotation": "tuple[str, ...]",
-              "kind": "property"
-            },
-            "tb_fingerprint": {
-              "annotation": "dict[str, Any]",
-              "kind": "property"
-            },
-            "tb_hash": {
-              "annotation": "str",
               "kind": "property"
             },
             "to_dict": {
@@ -543,17 +253,6 @@
             "updates": {
               "annotation": "tuple[Mapping[str, Any], ...]",
               "kind": "property"
-            },
-            "with_default_rtl": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "data"
-                }
-              ],
-              "return": "dict[str, Any]"
             },
             "with_target": {
               "kind": "method",
@@ -599,9 +298,7 @@
               "name": "defines"
             }
           ],
-          "bases": [
-            "xeda.dataclass.XedaBaseModel"
-          ],
+          "bases": [],
           "constructor": {
             "parameters": [
               {
@@ -624,77 +321,7 @@
             ]
           },
           "kind": "class",
-          "methods": {
-            "as_mapping": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                }
-              ],
-              "return": "Any"
-            },
-            "form_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, Any]]"
-            },
-            "invalidate_cached_properties": {
-              "kind": "method",
-              "parameters": []
-            },
-            "merge_inputs": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "merged"
-                },
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "None"
-            },
-            "model_json_schema": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "removed_input_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, str, str]]"
-            }
-          },
+          "methods": {},
           "special_methods": [
             "__hash__"
           ]
@@ -742,34 +369,39 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "code"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "message"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "node"
               },
               {
                 "annotation": "int | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "exit_status"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "log"
               }
             ]
           },
           "kind": "class",
           "methods": {
-            "from_dict": {
+            "as_json_value": {
+              "kind": "method",
+              "parameters": [],
+              "return": "dict[str, Any]"
+            },
+            "from_json": {
               "kind": "classmethod",
               "parameters": [
                 {
@@ -779,11 +411,6 @@
                 }
               ],
               "return": "xeda.ErrorInfo"
-            },
-            "to_dict": {
-              "kind": "method",
-              "parameters": [],
-              "return": "dict[str, Any]"
             }
           },
           "special_methods": [
@@ -815,7 +442,7 @@
             },
             {
               "annotation": "datetime.datetime",
-              "name": "occurred_at"
+              "name": "time"
             }
           ],
           "bases": [],
@@ -823,33 +450,33 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "kind"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "launch_id"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "node"
               },
               {
                 "annotation": "xeda.Outcome | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outcome"
               },
               {
                 "annotation": "xeda.Disposition | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "disposition"
               },
               {
                 "annotation": "datetime.datetime",
-                "kind": "keyword_only",
-                "name": "occurred_at"
+                "kind": "positional_or_keyword",
+                "name": "time"
               }
             ]
           },
@@ -896,37 +523,37 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "name"
               },
               {
                 "annotation": "Literal[\"source\", \"producer\", \"none\"]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "origin"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "producer"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "output"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "producer_run_id"
               },
               {
                 "annotation": "pathlib.Path | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "producer_run_dir"
               },
               {
                 "annotation": "tuple[xeda.InputSource, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "sources"
               }
             ]
@@ -973,35 +600,35 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "path"
               },
               {
                 "annotation": "bool",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "generated"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "digest"
               },
               {
                 "annotation": "int | None",
                 "default": "None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "dependency"
               },
               {
                 "annotation": "str | None",
                 "default": "None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "producer"
               },
               {
                 "annotation": "str | None",
                 "default": "None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "generation"
               }
             ]
@@ -1140,22 +767,22 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "path"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "description"
               },
               {
                 "annotation": "Literal[\"number\", \"integer\", \"boolean\", \"text\", \"text_list\", \"counts\", \"numbers\", \"object\"]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "type"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "unit"
               }
             ]
@@ -1190,7 +817,7 @@
               "name": "blocked_by"
             },
             {
-              "annotation": "str",
+              "annotation": "float",
               "name": "elapsed"
             },
             {
@@ -1219,68 +846,63 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "name"
               },
               {
                 "annotation": "xeda.Outcome",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outcome"
               },
               {
                 "annotation": "xeda.Disposition",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "disposition"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "reason"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "blocked_by"
               },
               {
-                "annotation": "str",
-                "kind": "keyword_only",
+                "annotation": "float",
+                "kind": "positional_or_keyword",
                 "name": "elapsed"
               },
               {
                 "annotation": "xeda.RunRecord | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "record"
               },
               {
                 "annotation": "xeda.ErrorInfo | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "error"
               },
               {
                 "annotation": "tuple[xeda.DeliveryRecord, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "deliveries"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "run_dir"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "flow"
               }
             ]
           },
           "kind": "class",
-          "methods": {
-            "passed": {
-              "annotation": "bool",
-              "kind": "property"
-            }
-          },
+          "methods": {},
           "special_methods": [
             "__eq__",
             "__hash__"
@@ -1318,32 +940,32 @@
             "parameters": [
               {
                 "annotation": "xeda.RunRecord",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "record"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "run_dir"
               },
               {
                 "annotation": "Mapping[str, tuple[pathlib.Path, ...]]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outputs"
               },
               {
                 "annotation": "Mapping[str, pathlib.Path]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "artifacts"
               },
               {
                 "annotation": "Mapping[str, pathlib.Path]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "generated_sources"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "missing_generated"
               }
             ]
@@ -1417,32 +1039,32 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "name"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "kind"
               },
               {
                 "annotation": "Literal[\"one\", \"optional\", \"many\"]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "cardinality"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "names"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "digests"
               },
               {
                 "annotation": "Mapping[str, Any] | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "design"
               }
             ]
@@ -1478,35 +1100,23 @@
             "parameters": [
               {
                 "annotation": "xeda.Spec",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "spec"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "roots"
               },
               {
                 "annotation": "Mapping[str, Any]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "options"
               },
               {
                 "annotation": "Mapping[str, xeda.PlanNode]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "nodes"
-              },
-              {
-                "annotation": "xeda.flow_runner.launch_options.WorkspaceOptions | None",
-                "default": "None",
-                "kind": "keyword_only",
-                "name": "_workspace"
-              },
-              {
-                "annotation": "tuple[Mapping[str, str | None], ...]",
-                "default": "()",
-                "kind": "keyword_only",
-                "name": "_dependencies"
               }
             ]
           },
@@ -1543,17 +1153,17 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "key"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "destination"
               },
               {
                 "annotation": "bool",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "replaces"
               }
             ]
@@ -1597,32 +1207,32 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "name"
               },
               {
                 "annotation": "Literal[\"source\", \"producer\", \"none\"]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "origin"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "producer"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "output"
               },
               {
                 "annotation": "tuple[pathlib.Path, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "sources"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "reason"
               }
             ]
@@ -1694,67 +1304,67 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "name"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "flow"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "run_dir"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "identity"
               },
               {
                 "annotation": "Literal[\"fresh\", \"rejected\", \"stale\", \"unknown\", \"blocked\"]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "state"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "reason"
               },
               {
                 "annotation": "bool",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "action"
               },
               {
                 "annotation": "Mapping[str, Any]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "settings"
               },
               {
                 "annotation": "tuple[xeda.PlanInput, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "inputs"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outputs_enabled"
               },
               {
                 "annotation": "Mapping[str, tuple[str, ...]]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "input_types"
               },
               {
                 "annotation": "Mapping[str, tuple[str, ...]]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "output_types"
               },
               {
                 "annotation": "tuple[xeda.PlanDelivery, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "deliveries"
               }
             ]
@@ -1794,20 +1404,6 @@
             }
           ],
           "bases": [],
-          "constructor": {
-            "parameters": [
-              {
-                "annotation": "Any",
-                "kind": "var_positional",
-                "name": "args"
-              },
-              {
-                "annotation": "Any",
-                "kind": "var_keyword",
-                "name": "kwargs"
-              }
-            ]
-          },
           "kind": "class",
           "methods": {
             "design": {
@@ -1838,17 +1434,6 @@
                 }
               ],
               "return": "xeda.Project"
-            },
-            "referenced_name": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "str | pathlib.Path | os.PathLike",
-                  "kind": "positional_or_keyword",
-                  "name": "file"
-                }
-              ],
-              "return": "str | None"
             }
           },
           "special_methods": []
@@ -1910,17 +1495,17 @@
             "parameters": [
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "path"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "code"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "message"
               }
             ]
@@ -2021,32 +1606,32 @@
             "parameters": [
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "launch_id"
               },
               {
                 "annotation": "xeda.Spec",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "spec"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "roots"
               },
               {
                 "annotation": "xeda.Outcome",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outcome"
               },
               {
                 "annotation": "xeda.ErrorInfo | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "error"
               },
               {
                 "annotation": "Mapping[str, xeda.NodeResult]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "nodes"
               }
             ]
@@ -2163,130 +1748,7 @@
             ]
           },
           "kind": "class",
-          "methods": {
-            "as_mapping": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                }
-              ],
-              "return": "Any"
-            },
-            "clock_expected": {
-              "kind": "classmethod",
-              "parameters": [],
-              "return": "str"
-            },
-            "clock_mistake": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "str",
-                  "kind": "positional_or_keyword",
-                  "name": "spelling"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                }
-              ],
-              "return": "bool"
-            },
-            "clock_tables": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "str",
-                  "kind": "positional_or_keyword",
-                  "name": "spelling"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                }
-              ],
-              "return": "list[Any]"
-            },
-            "form_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, Any]]"
-            },
-            "invalidate_cached_properties": {
-              "kind": "method",
-              "parameters": []
-            },
-            "merge_inputs": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "merged"
-                },
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "None"
-            },
-            "model_json_schema": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "removed_input_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, str, str]]"
-            },
-            "rtl_settings_validate": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "info"
-                }
-              ],
-              "return": "Any"
-            }
-          },
+          "methods": {},
           "special_methods": [
             "__hash__"
           ]
@@ -2307,12 +1769,12 @@
             "parameters": [
               {
                 "annotation": "tuple[xeda.RunRecord, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "records"
               },
               {
                 "annotation": "tuple[xeda.RecordProblem, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "problems"
               }
             ]
@@ -2346,7 +1808,7 @@
             },
             {
               "annotation": "str",
-              "name": "design_name"
+              "name": "design"
             },
             {
               "annotation": "str | None",
@@ -2402,14 +1864,14 @@
             },
             {
               "annotation": "datetime.datetime",
-              "name": "started_at"
+              "name": "started"
             },
             {
               "annotation": "datetime.datetime",
-              "name": "finished_at"
+              "name": "finished"
             },
             {
-              "annotation": "str",
+              "annotation": "float",
               "name": "runtime"
             },
             {
@@ -2427,118 +1889,118 @@
             "parameters": [
               {
                 "annotation": "int",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "schema_version"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "run_id"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "xeda_version"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "flow"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
-                "name": "design_name"
+                "kind": "positional_or_keyword",
+                "name": "design"
               },
               {
                 "annotation": "str | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "target"
               },
               {
                 "annotation": "str",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "identity"
               },
               {
                 "annotation": "Mapping[str, Any]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "configuration"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "run_root"
               },
               {
                 "annotation": "pathlib.Path",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "run_dir"
               },
               {
                 "annotation": "xeda.Outcome",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outcome"
               },
               {
                 "annotation": "xeda.ErrorInfo | None",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "error"
               },
               {
                 "annotation": "Mapping[str, Any]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "metrics"
               },
               {
                 "annotation": "Mapping[str, xeda.MetricInfo]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "metric_info"
               },
               {
                 "annotation": "Mapping[str, xeda.OutputRecord]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "outputs"
               },
               {
                 "annotation": "Mapping[str, str]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "artifacts"
               },
               {
                 "annotation": "Mapping[str, Any]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "settings"
               },
               {
                 "annotation": "tuple[xeda.InputRecord, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "inputs"
               },
               {
                 "annotation": "datetime.datetime",
-                "kind": "keyword_only",
-                "name": "started_at"
+                "kind": "positional_or_keyword",
+                "name": "started"
               },
               {
                 "annotation": "datetime.datetime",
-                "kind": "keyword_only",
-                "name": "finished_at"
+                "kind": "positional_or_keyword",
+                "name": "finished"
               },
               {
-                "annotation": "str",
-                "kind": "keyword_only",
+                "annotation": "float",
+                "kind": "positional_or_keyword",
                 "name": "runtime"
               },
               {
                 "annotation": "tuple[str, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "inherited_variables"
               },
               {
                 "annotation": "tuple[Mapping[str, str | None], ...]",
                 "default": "()",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "dependencies"
               }
             ]
@@ -2654,10 +2116,6 @@
         "Source": {
           "attributes": [
             {
-              "annotation": "pathlib.Path",
-              "name": "file"
-            },
-            {
               "annotation": "str",
               "name": "type"
             },
@@ -2668,23 +2126,9 @@
             {
               "annotation": "str | None",
               "name": "output_name"
-            },
-            {
-              "annotation": "str | None",
-              "name": "owner"
-            },
-            {
-              "annotation": "int | None",
-              "name": "dependency"
-            },
-            {
-              "annotation": "str | None",
-              "name": "dependency_place"
             }
           ],
-          "bases": [
-            "xeda.design.FileResource"
-          ],
+          "bases": [],
           "constructor": {
             "parameters": [
               {
@@ -2697,115 +2141,14 @@
                 "default": "None",
                 "kind": "positional_or_keyword",
                 "name": "typ"
-              },
-              {
-                "annotation": "pathlib.Path | None",
-                "default": "None",
-                "kind": "positional_or_keyword",
-                "name": "_root_path"
-              },
-              {
-                "annotation": "bool",
-                "default": "False",
-                "kind": "keyword_only",
-                "name": "generated"
-              },
-              {
-                "annotation": "str | None",
-                "default": "None",
-                "kind": "keyword_only",
-                "name": "output_name"
-              },
-              {
-                "annotation": "str | None",
-                "default": "None",
-                "kind": "keyword_only",
-                "name": "owner"
-              },
-              {
-                "annotation": "Any",
-                "kind": "var_keyword",
-                "name": "kwargs"
               }
             ]
           },
           "kind": "class",
           "methods": {
-            "as_json_value": {
-              "kind": "method",
-              "parameters": [],
-              "return": "str | dict[str, Any]"
-            },
-            "content_hash": {
-              "annotation": "str",
-              "kind": "property"
-            },
-            "declaration": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "str",
-                  "kind": "positional_or_keyword",
-                  "name": "name"
-                },
-                {
-                  "annotation": "str",
-                  "kind": "positional_or_keyword",
-                  "name": "typ"
-                },
-                {
-                  "annotation": "bool",
-                  "default": "False",
-                  "kind": "keyword_only",
-                  "name": "stated"
-                },
-                {
-                  "annotation": "str | None",
-                  "default": "None",
-                  "kind": "keyword_only",
-                  "name": "owner"
-                }
-              ],
-              "return": "xeda.Source"
-            },
-            "get_specified_path": {
-              "kind": "method",
-              "parameters": []
-            },
-            "in_dependency": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "int",
-                  "kind": "positional_or_keyword",
-                  "name": "index"
-                },
-                {
-                  "annotation": "str",
-                  "kind": "positional_or_keyword",
-                  "name": "place"
-                }
-              ],
-              "return": "xeda.Source"
-            },
-            "located": {
-              "annotation": "bool",
-              "kind": "property"
-            },
             "path": {
               "annotation": "pathlib.Path",
               "kind": "property"
-            },
-            "with_owner": {
-              "kind": "method",
-              "parameters": [
-                {
-                  "annotation": "str | None",
-                  "kind": "positional_or_keyword",
-                  "name": "owner"
-                }
-              ],
-              "return": "xeda.Source"
             }
           },
           "special_methods": [
@@ -2877,17 +2220,17 @@
             "parameters": [
               {
                 "annotation": "int",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "index"
               },
               {
                 "annotation": "xeda.Spec",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "spec"
               },
               {
                 "annotation": "xeda.Result",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "result"
               }
             ]
@@ -2915,12 +2258,12 @@
             "parameters": [
               {
                 "annotation": "tuple[xeda.SweepPoint, ...]",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "points"
               },
               {
                 "annotation": "bool",
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "canceled"
               }
             ]
@@ -3052,77 +2395,7 @@
             ]
           },
           "kind": "class",
-          "methods": {
-            "as_mapping": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "positional_or_keyword",
-                  "name": "value"
-                }
-              ],
-              "return": "Any"
-            },
-            "form_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, Any]]"
-            },
-            "invalidate_cached_properties": {
-              "kind": "method",
-              "parameters": []
-            },
-            "merge_inputs": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "merged"
-                },
-                {
-                  "annotation": "dict[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "None"
-            },
-            "model_json_schema": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Any",
-                  "kind": "var_positional",
-                  "name": "args"
-                },
-                {
-                  "annotation": "Any",
-                  "kind": "var_keyword",
-                  "name": "kwargs"
-                }
-              ],
-              "return": "dict[str, Any]"
-            },
-            "removed_input_problems": {
-              "kind": "classmethod",
-              "parameters": [
-                {
-                  "annotation": "Mapping[str, Any]",
-                  "kind": "positional_or_keyword",
-                  "name": "values"
-                }
-              ],
-              "return": "list[tuple[str, str, str]]"
-            }
-          },
+          "methods": {},
           "special_methods": [
             "__hash__"
           ]
@@ -3214,7 +2487,7 @@
           },
           "kind": "class",
           "methods": {
-            "load_record": {
+            "load": {
               "kind": "staticmethod",
               "parameters": [
                 {
@@ -3308,7 +2581,7 @@
                 {
                   "annotation": "xeda.Spec | xeda.Plan",
                   "kind": "positional_only",
-                  "name": "request"
+                  "name": "what"
                 },
                 {
                   "annotation": "bool | xeda.Unset",
@@ -3450,7 +2723,7 @@
           "kind": "constant",
           "type": "str"
         },
-        "load_record": {
+        "load": {
           "kind": "function",
           "parameters": [
             {
@@ -3592,7 +2865,7 @@
             {
               "annotation": "xeda.Spec",
               "kind": "positional_only",
-              "name": "request"
+              "name": "spec"
             },
             {
               "annotation": "str | pathlib.Path | os.PathLike | xeda.Unset",
@@ -4280,7 +3553,7 @@
         "XedaError": {
           "attributes": [],
           "bases": [
-            "xeda.utils.XedaException"
+            "Exception"
           ],
           "constructor": {
             "parameters": [
@@ -4368,7 +3641,7 @@
     },
     "xeda.workspace_verbs": {
       "names": {
-        "load_record": {
+        "load": {
           "kind": "function",
           "parameters": [
             {
@@ -4492,7 +3765,7 @@
             {
               "annotation": "xeda.Spec",
               "kind": "positional_only",
-              "name": "request"
+              "name": "spec"
             },
             {
               "annotation": "str | pathlib.Path | os.PathLike | xeda.Unset",

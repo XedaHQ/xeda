@@ -57,7 +57,7 @@ def test_every_entry_is_the_generators_when_generated_sources_is_empty(tmp_path)
         ("gen/*.sv", "SystemVerilog", True),
         ("x/y", "Data", True),
     ]
-    assert not any(source.located for source in design.rtl.sources)
+    assert not any(source._located for source in design.rtl.sources)
 
 
 def test_a_declaration_need_not_exist_and_is_not_expanded(tmp_path):
@@ -71,7 +71,7 @@ def test_generated_sources_names_the_entries_the_generator_writes(tmp_path):
     assert [s.generated for s in design.rtl.sources] == [False, True, True, False, False]
     written = [s for s in design.rtl.sources if not s.generated]
     assert [s.path.name for s in written] == ["top.v", "a.v", "b.v"], "written entries expand"
-    assert all(s.located for s in written)
+    assert all(s._located for s in written)
 
 
 def test_generated_sources_may_name_a_file_or_a_pattern(tmp_path):
@@ -186,7 +186,7 @@ def test_a_file_table_is_a_written_source_even_when_every_entry_is_generated(tmp
     """A `file` must exist when the design loads, so it can never be a declaration. With an empty
     `generated_sources` the other entries are the generator's, and this one stays written."""
     design = _design(tmp_path, [{"file": "top.v"}, "gen/a.v", {"path": "gen/b.v"}])
-    assert [(s.generated, s.located) for s in design.rtl.sources] == [
+    assert [(s.generated, s._located) for s in design.rtl.sources] == [
         (False, True),
         (True, False),
         (True, False),
@@ -300,7 +300,7 @@ def test_a_storage_entry_is_normalized_and_not_expanded(tmp_path, monkeypatch):
     design = _design(tmp_path, ["$XEDA_GENERATED/gen/./sub/../top.v", "$XEDA_GENERATED/gen/*.sv"])
     assert _names(design) == ["$XEDA_GENERATED/gen/top.v", "$XEDA_GENERATED/gen/*.sv"]
     assert [s.type for s in design.rtl.sources] == [SourceType.Verilog, SourceType.SystemVerilog]
-    assert not any(s.located for s in design.rtl.sources)
+    assert not any(s._located for s in design.rtl.sources)
 
 
 @pytest.mark.parametrize(

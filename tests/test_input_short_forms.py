@@ -26,7 +26,7 @@ def test_design_clock_short_form_has_canonical_state_and_identity(tmp_path, cloc
     short = Design(name="d", root=tmp_path, rtl={"sources": [], "clock": clock})
     canonical = Design(name="d", root=tmp_path, rtl={"sources": [], "clocks": clocks})
     assert short.model_dump() == canonical.model_dump()
-    assert short.rtl_hash == canonical.rtl_hash
+    assert short._rtl_hash == canonical._rtl_hash
     assert "clock" not in short.model_dump()["rtl"]
 
 

@@ -783,7 +783,7 @@ class GhdlSim(Ghdl, SimFlow):
         run_flags.extend(ss.generics_flags(tb_generics))
 
         tb_top = self.elaborate(self.sources_read(tb=True), tb_top, language_of(design).vhdl)
-        # like `design.sim_tops`, but with the top unit that `elaborate` found
+        # like `design._sim_tops`, but with the top unit that `elaborate` found
         sim_tops = (design.rtl.top,) if design.tb.cocotb is not None and design.rtl.top else tb_top
         runtime = self.ghdl
         if not self.cocotb:

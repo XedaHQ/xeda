@@ -425,13 +425,13 @@ def test_two_files_under_one_name_are_refused_and_one_file_twice_is_not(tmp_path
 def test_two_spellings_of_one_name_are_one_name(tmp_path, fake_sby):
     design = _design(tmp_path)
     declared = [
-        Source.declaration(name, SourceType.SystemVerilog) for name in ("x/top.sv", "./x/top.sv")
+        Source._declaration(name, SourceType.SystemVerilog) for name in ("x/top.sv", "./x/top.sv")
     ]
     assert list(staged_names(design, declared[:1])) == list(staged_names(design, declared[1:]))
 
 
 def test_a_source_of_an_unknown_generator_is_refused(tmp_path, fake_sby):
-    source = Source.declaration("top.sv", SourceType.SystemVerilog, owner="nobody")
+    source = Source._declaration("top.sv", SourceType.SystemVerilog, owner="nobody")
     with pytest.raises(FlowSettingsException, match="no generator 'nobody'"):
         staged_names(_design(tmp_path), [source])
 
@@ -439,7 +439,7 @@ def test_a_source_of_an_unknown_generator_is_refused(tmp_path, fake_sby):
 def test_a_file_named_as_a_directory_of_another_is_refused(tmp_path, fake_sby):
     design = _design(tmp_path)
     (tmp_path / "sub").write_text("")
-    generated = Source.declaration("sub/top.sv", SourceType.SystemVerilog)
+    generated = Source._declaration("sub/top.sv", SourceType.SystemVerilog)
     with pytest.raises(FlowSettingsException, match="is a file of the design"):
         staged_names(design, [Source(tmp_path / "sub", typ=SourceType.Verilog), generated])
 
@@ -447,7 +447,7 @@ def test_a_file_named_as_a_directory_of_another_is_refused(tmp_path, fake_sby):
 @pytest.mark.parametrize("name", ["../top.sv", "gen/../../top.sv", "/top.sv"])
 def test_a_generated_name_cannot_leave_the_stage(tmp_path, fake_sby, name):
     with pytest.raises(FlowSettingsException, match="(leaves the stage|outside the design root)"):
-        staged_names(_design(tmp_path), [Source.declaration(name, SourceType.SystemVerilog)])
+        staged_names(_design(tmp_path), [Source._declaration(name, SourceType.SystemVerilog)])
 
 
 # ---- the generated task --------------------------------------------------------------------

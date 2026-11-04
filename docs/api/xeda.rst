@@ -25,15 +25,16 @@ Designs and projects
    :undoc-members:
 
 .. autoclass:: xeda.Source
-   :members: path, type, generated
+   :members: path, type, generated, output_name
    :undoc-members:
 
 .. autoclass:: xeda.Project
    :members:
-   :exclude-members: referenced_name
+   :undoc-members:
 
 .. autoclass:: xeda.LocalSettings
    :members:
+   :undoc-members:
 
 .. autofunction:: xeda.local_settings
 
@@ -42,21 +43,26 @@ What to launch
 
 .. autoclass:: xeda.Spec
    :members:
+   :undoc-members:
 
 Plan a launch
 -------------
 
 .. autoclass:: xeda.Plan
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.PlanNode
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.PlanInput
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.PlanDelivery
    :members:
+   :undoc-members:
 
 .. autofunction:: xeda.plan
 
@@ -65,18 +71,22 @@ Run a launch
 
 .. autoclass:: xeda.Workspace
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.CancelToken
    :members:
 
 .. autoclass:: xeda.Event
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.Question
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.Remote
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.ScrubResult
    :members:
@@ -92,9 +102,11 @@ Results of a launch
 
 .. autoclass:: xeda.Result
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.NodeResult
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.Outcome
    :members:
@@ -106,42 +118,53 @@ Results of a launch
 
 .. autoclass:: xeda.DeliveryRecord
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.SweepResult
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.SweepPoint
    :members:
+   :undoc-members:
 
 Records of earlier runs
 -----------------------
 
 .. autoclass:: xeda.RunRecord
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.ErrorInfo
    :members:
 
 .. autoclass:: xeda.InputRecord
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.InputSource
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.MetricInfo
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.OutputRecord
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.OpenRun
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.RunListing
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.RecordProblem
    :members:
+   :undoc-members:
 
 .. autofunction:: xeda.records
 

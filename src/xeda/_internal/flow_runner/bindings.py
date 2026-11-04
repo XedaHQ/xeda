@@ -392,7 +392,7 @@ def input_origins(
 
     The origin of an input that sources of the design supply is `("source", entries)`, where the
     entries are the `(path, type)` of each file it takes, in order. The path is the place from
-    the design root (`Design.source_place`) and the entry holds no content, so two netlists are
+    the design root (`Design._source_place`) and the entry holds no content, so two netlists are
     two origins, and the same netlist in two checkouts is one. A file of a dependency is
     `(path, type, index)`: the index of its entry in `dependencies` tells the origins apart that
     differ only in the dependency. A generated file also holds the digest of the recipe of its
@@ -405,9 +405,9 @@ def input_origins(
     listed = {source.path: source for source in design.rtl.sources}
 
     def entry(source: Any) -> tuple[Any, ...]:
-        place, kind = design.source_place(source), source.type.name
+        place, kind = design._source_place(source), source.type.name
         # A file of a dependency also says which entry of `dependencies` it comes from.
-        found = (place, kind) if source.dependency is None else (place, kind, source.dependency)
+        found = (place, kind) if source._dependency is None else (place, kind, source._dependency)
         # A generated file also says which recipe writes it.
         recipe = generated_by(design, source)
         return found if recipe is None else (*found, recipe)

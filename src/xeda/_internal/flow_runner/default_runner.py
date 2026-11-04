@@ -2043,8 +2043,8 @@ class FlowLauncher:
                 all_settings = dict(
                     design=derived,
                     design_hash=design_hash,
-                    rtl_fingerprint=derived.rtl_fingerprint,
-                    rtl_hash=derived.rtl_hash,
+                    rtl_fingerprint=derived._rtl_fingerprint,
+                    rtl_hash=derived._rtl_hash,
                     flow_name=flow.name,
                     flow_settings=input_settings,
                     effective_flow_settings=flow.settings,

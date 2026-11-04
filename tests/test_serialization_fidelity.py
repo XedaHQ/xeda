@@ -309,19 +309,19 @@ def test_recording_a_design_is_a_fixed_point(tmp_path):
     second = tmp_path / "second.json"
     dump_json({"design": reloaded}, second, backup=False)
 
-    assert (reloaded.rtl_hash, reloaded.tb_hash) == (design.rtl_hash, design.tb_hash)
+    assert (reloaded._rtl_hash, reloaded._tb_hash) == (design._rtl_hash, design._tb_hash)
     assert json.loads(second.read_text()) == json.loads(first.read_text())
     recorded_sources = json.loads(first.read_text())["design"]["rtl"]["sources"]
     assert set(recorded_sources[-1]) == {"path", "type"}, "still unchecked, still Verilog"
     # A file-valued parameter is recorded as the one value the tool sees, and counted relative
     # to the design root, however it was spelled.
     assert reloaded.rtl.parameters == design.rtl.parameters
-    assert reloaded.rtl_fingerprint["parameters"] == {
+    assert reloaded._rtl_fingerprint["parameters"] == {
         "ROM": "$DESIGN_ROOT/rom.mem",
         "LOG": "$DESIGN_ROOT/out/log.txt",
         "W": 8,
     }
-    assert reloaded.tb_fingerprint["parameters"] == {"INIT": "$DESIGN_ROOT/init.mem"}
+    assert reloaded._tb_fingerprint["parameters"] == {"INIT": "$DESIGN_ROOT/init.mem"}
 
 
 def test_remote_design_package_carries_file_valued_parameters(tmp_path):
@@ -364,7 +364,7 @@ def test_remote_design_package_carries_file_valued_parameters(tmp_path):
     assert not dump.exists()
 
     assert remote.rtl.parameters["WIDTH"] == 8
-    assert (remote.rtl_hash, remote.tb_hash) == (design.rtl_hash, design.tb_hash)
+    assert (remote._rtl_hash, remote._tb_hash) == (design._rtl_hash, design._tb_hash)
 
 
 def test_remote_design_package_ships_a_parameter_file_from_outside_the_root(tmp_path):

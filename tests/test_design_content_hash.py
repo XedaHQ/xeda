@@ -25,11 +25,11 @@ def test_a_design_hash_follows_the_content_of_its_sources(tmp_path) -> None:
     source = tmp_path / "a.v"
     source.write_text("module a; endmodule\n")
     design = _design(tmp_path)
-    before = design.rtl_hash
-    assert design.rtl_hash == before  # asked again, the file unchanged
+    before = design._rtl_hash
+    assert design._rtl_hash == before  # asked again, the file unchanged
     source.write_text("module a; wire x; endmodule\n")
-    assert design.rtl_hash != before
-    assert design.rtl_hash == _design(tmp_path).rtl_hash
+    assert design._rtl_hash != before
+    assert design._rtl_hash == _design(tmp_path)._rtl_hash
 
 
 def test_a_launch_of_an_edited_design_records_the_hash_of_what_it_ran(

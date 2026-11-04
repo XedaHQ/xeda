@@ -133,7 +133,7 @@ def test_the_design_lists_the_generated_sources_of_its_dependency_with_their_own
     assert [s.generated for s in sources] == [True, False]
     generated = [s for s in sources if s.generated]
     label = (tmp_path / "lib1" / "lib1.yaml").absolute().as_posix()
-    assert generated[0].owner == label
+    assert generated[0]._owner == label
     assert [(owner, unit.name) for owner, unit in generating_units(design)] == [(label, "lib1")]
 
 
@@ -374,7 +374,7 @@ def test_two_dependency_designs_in_one_directory_are_two_units(tmp_path):
     design = merged_design(Design.load(design_file), run_root=None)
     assert [unit.name for _, unit in generating_units(design)] == ["a", "b"]
     assert len({owner for owner, _ in generating_units(design)}) == 2
-    assert len({s.owner for s in design.rtl.sources if s.generated}) == 2
+    assert len({s._owner for s in design.rtl.sources if s.generated}) == 2
     flow = reader_flow()
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     result = launch_result(

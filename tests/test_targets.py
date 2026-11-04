@@ -80,8 +80,8 @@ def test_a_selected_target_is_the_design_written_flat_by_hand(design, target, fl
     flat = Design.load(RESOURCES / flat)
 
     assert selected.target == target and flat.target is None
-    assert selected.rtl_hash == flat.rtl_hash
-    assert selected.tb_hash == flat.tb_hash
+    assert selected._rtl_hash == flat._rtl_hash
+    assert selected._tb_hash == flat._tb_hash
     assert design_hash(selected) == design_hash(flat)
     # A flow's section is settings as written; the launcher reads every section through the
     # merge of the layers (aliases and clock spellings canonical), so the sections are compared
@@ -312,7 +312,7 @@ def test_a_design_without_targets_is_what_it_was(tmp_path):
     dump = design.to_dict()
     assert "target" not in dump and "targets" not in dump
     # pinned on main (bfd08478) for this very design: the loader's result is unchanged
-    assert design.rtl_hash == Design(root=tmp_path, **BASE).rtl_hash
+    assert design._rtl_hash == Design(root=tmp_path, **BASE)._rtl_hash
 
 
 def test_an_empty_targets_table_is_no_targets(tmp_path):
@@ -393,7 +393,7 @@ def test_every_flow_name_is_refused_as_a_target_name(tmp_path):
     for name in registered_flows:
         # a flow's name, or (a test's own `_Flow`) no name at all
         with pytest.raises(DesignValidationError, match="name of a flow|not a target name"):
-            Design.select_target({**BASE, "targets": {name: {}}})
+            Design._select_target({**BASE, "targets": {name: {}}})
 
 
 def test_the_removed_design_root_is_refused_in_a_target(tmp_path):
@@ -446,7 +446,7 @@ def test_a_project_design_takes_a_target_the_same_way(tmp_path):
     design = project.design("knight", target="ulx3s")
     assert design.target == "ulx3s"
     flat = Design.load(RESOURCES / "knight_ulx3s_flat.yaml")
-    assert design.rtl_hash == flat.rtl_hash and design.flows == flat.flows
+    assert design._rtl_hash == flat._rtl_hash and design.flows == flat.flows
     with pytest.raises(DesignValidationError, match="arty, ulx3s"):
         project.design("knight", target="nexys")
     base = project.design("knight")

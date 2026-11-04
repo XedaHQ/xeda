@@ -735,7 +735,7 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
     (`$DESIGN_ROOT/c.xdc`), so moving a design, or starting Xeda elsewhere, keeps the hash. A
     path under the installation of Xeda (the files of a bundled platform) counts relative to
     that (`$XEDA/platforms/...`), so two installations agree on it. Paths count as their text:
-    only the source files of a design are hashed by content (`Design.rtl_hash`), and no
+    only the source files of a design are hashed by content (`Design._rtl_hash`), and no
     directory's content is ever read. Where an output is delivered is no part of the hash
     (`identity_settings`, for the design `design_name`): a deliverable given as a location counts
     as its conventional name.

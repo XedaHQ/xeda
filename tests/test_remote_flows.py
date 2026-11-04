@@ -181,7 +181,7 @@ def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remot
     assert parameters["ROM"] == str(design_root / "rom.mem")
     assert parameters["TRACE"] == str(design_root / "out" / "trace.txt")
     recorded = design_from_dump(settings["design"])
-    assert recorded.rtl_hash == settings["rtl_hash"]
+    assert recorded._rtl_hash == settings["rtl_hash"]
 
     # Artifacts were fetched, and the reported paths name the mirror.
     artifacts = results["artifacts"]

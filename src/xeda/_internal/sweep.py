@@ -164,7 +164,7 @@ class SweepResult:
         }
         updates: dict[str, Any] = {}
         for update in spec.design.updates:
-            updates = _merged(updates, Design.expanded(thaw(update)))
+            updates = _merged(updates, Design._expanded(thaw(update)))
         for path, value in _leaves(updates):
             row[f"design.{path}"] = value
         for path, value in _leaves(thaw(spec.settings)):

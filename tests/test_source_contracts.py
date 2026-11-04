@@ -791,15 +791,15 @@ def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_pa
 #: The one selection: what a flow reads of the design's sources is what it declares.
 SELECTION = "sources_read"
 #: Calls and attributes that read the design's sources around the declaration.
-DIRECT_CALLS = frozenset({"_sources_of_type", "_sim_sources_of_type", "header_dirs"})
-DIRECT_ATTRIBUTES = frozenset({"sources", "sim_sources"})
+DIRECT_CALLS = frozenset({"_sources_of_type", "_sim_sources_of_type", "_header_dirs"})
+DIRECT_ATTRIBUTES = frozenset({"sources", "_sim_sources"})
 #: Methods that judge a design instead of choosing what a tool reads: the contract's own checks
 #: (`check_design_supported` and what it asks) and the selection itself. A read in one of them
 #: hands nothing to a tool.
 JUDGING_METHODS = frozenset(
     {"check_design_supported", "runs_without_testbench_top", "has_cpp_driver", SELECTION}
 )
-#: The types `Design.header_dirs` reads: the include search path of a flow that declares both.
+#: The types `Design._header_dirs` reads: the include search path of a flow that declares both.
 HEADER_TYPES = frozenset({SourceType.VerilogHeader, SourceType.SVHeader})
 #: Reads around the declaration, as `<module:qualified name, or template name>: <what>`, each
 #: with why it hands the tool nothing the flow does not declare. A new one fails
@@ -842,11 +842,11 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     ): "the `Cocotb` (Python) sources, whose last names "
     "the test module cocotb imports: no simulator reads them",
     impl_module(
-        "flows.modelsim.sim_evidence:parse_modelsim_evidence: sim_sources"
+        "flows.modelsim.sim_evidence:parse_modelsim_evidence: _sim_sources"
     ): "the VHDL sources, "
     "to tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
     impl_module(
-        "flows.vivado.sim_evidence:parse_xsim_evidence: sim_sources"
+        "flows.vivado.sim_evidence:parse_xsim_evidence: _sim_sources"
     ): "the VHDL sources, to "
     "tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
 }
@@ -855,7 +855,7 @@ DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 TEMPLATE_SELECTION = re.compile(r"\bsources_read\s*\(")
 TEMPLATE_DIRECT = re.compile(
-    r"\b(_sources_of_type|_sim_sources_of_type|sim_sources|header_dirs)\b|\.sources\b"
+    r"\b(_sources_of_type|_sim_sources_of_type|_sim_sources|_header_dirs)\b|\.sources\b"
 )
 
 
@@ -1104,19 +1104,19 @@ def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
         "rtl.sources": ("def run(self): return self.design.rtl.sources", "sources"),
         "tb.sources": ("def run(self): return [s for s in self.design.tb.sources]", "sources"),
         "a part by name": ("def run(d, p): return getattr(d, p).sources", "sources"),
-        "sim_sources": ("def run(self): return self.design.sim_sources", "sim_sources"),
+        "sim_sources": ("def run(self): return self.design._sim_sources", "_sim_sources"),
         "_sources_of_type": ("def run(d): return d._sources_of_type('*')", "_sources_of_type"),
         "_sim_sources_of_type": (
             "def f(d): return d._sim_sources_of_type(1)",
             "_sim_sources_of_type",
         ),
-        "header_dirs": ("def run(d): return d.header_dirs(tb=True)", "header_dirs"),
+        "header_dirs": ("def run(d): return d._header_dirs(tb=True)", "_header_dirs"),
         "the selection": ("def run(self): return self.sources_read(tb=True)", SELECTION),
         "a method taken": (
             "def run(d): read = d._sources_of_type; return read('*')",
             "_sources_of_type",
         ),
-        "a function passed": ("def run(f): return map(header_dirs, f)", "header_dirs"),
+        "a function passed": ("def run(f): return map(_header_dirs, f)", "_header_dirs"),
     }
     for what, (source, expected) in reads.items():
         assert [hit[2] for hit in python_source_reads(source)] == [expected], what
@@ -1135,7 +1135,7 @@ def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
         (1, SELECTION)
     ]
     for line, expected in [
-        ("{% for s in design.sim_sources %}", "sim_sources"),
+        ("{% for s in design._sim_sources %}", "_sim_sources"),
         ("{% for s in design.rtl.sources %}", "sources"),
         ("{% set v = design._sources_of_type('Vhdl', rtl=true) %}", "_sources_of_type"),
     ]:
@@ -1294,7 +1294,7 @@ def test_a_flow_selects_what_it_reads_only_through_sources_read(cls, name):
         for where, line, what in source_reads(cls)
         if what != SELECTION and f"{where}: {what}" not in REVIEWED_DIRECT_READS
         # the include search path of the headers the flow declares
-        and not (what == "header_dirs" and headers)
+        and not (what == "_header_dirs" and headers)
     ]
     assert not direct, (
         f"{name} reads the design's sources around its declaration; select with "

@@ -1,7 +1,7 @@
 """The generation stage of a launch: run the design's generator into its storage, and give the
 flows a view of the design whose generated sources name their files.
 
-A design declares the sources that its generator writes (`Source.declaration`), and loading the
+A design declares the sources that its generator writes (`Source._declaration`), and loading the
 design runs nothing. A launch generates after every declarative check and before the first
 producer. The generator writes into a storage under the run root, named by the configuration it
 serves (`generation_key`), so two variants of one design keep their own files. A generated entry
@@ -13,7 +13,7 @@ files in the storage.
 A design may merge dependencies that have generators of their own. Each generator is a unit of
 generation (`Design.generation_units`, dependencies first, then the design itself), with a storage
 and a key of its own, and a launch holds the leases of them all (`Generations`). The sources of a
-dependency's generator keep that dependency as their owner (`Source.owner`).
+dependency's generator keep that dependency as their owner (`Source._owner`).
 
 A launch locks its whole graph in one acquisition: the run directories of its nodes, then the
 storages, then the design trees that the generators to run write into (`settle`). A generator
@@ -138,7 +138,7 @@ class Generations:
     """The generations of a design and of its dependencies that have generators, by owner.
 
     The owner is None for the generator of the design itself, and the root of the dependency
-    (`Source.owner`) for the generator of a dependency."""
+    (`Source._owner`) for the generator of a dependency."""
 
     by_owner: Mapping[str | None, Generation]
 
@@ -157,7 +157,7 @@ class Generations:
 
     def of(self, source: Source) -> Generation | None:
         """The generation that wrote, or writes, the generated `source`."""
-        return self.by_owner.get(source.owner)
+        return self.by_owner.get(source._owner)
 
 
 @dataclass(frozen=True)
@@ -180,7 +180,7 @@ def generating_units(design: Design) -> list[tuple[str | None, Design]]:
     before that: the units of the design come first, then the design itself. Each is paired with
     its owner (None for the design itself)."""
     units: list[tuple[str | None, Design]] = [
-        (unit.generation_label, unit) for unit in design.generation_units
+        (unit._generation_label, unit) for unit in design.generation_units
     ]
     if design.rtl.generator is not None:
         units.append((None, design))
@@ -194,9 +194,9 @@ def declarations(design: Design) -> tuple[str, ...]:
         source.output_name
         for source in design.rtl.sources
         if source.generated
-        and not source.located
+        and not source._located
         and source.output_name is not None
-        and source.owner is None
+        and source._owner is None
     )
 
 
@@ -292,7 +292,7 @@ class Unit:
     """One generator of a launch, with the storage its configuration names now.
 
     `owner` is None for the generator of the design itself, and the root of the dependency
-    (`Source.owner`) for the generator of a dependency."""
+    (`Source._owner`) for the generator of a dependency."""
 
     owner: str | None
     design: Design
@@ -721,19 +721,19 @@ def execution_design(design: Design, generations: Generations | None) -> Design:
         return design
     listed: list[Source] = []
     for source in design.rtl.sources:
-        if not (source.generated and not source.located):
+        if not (source.generated and not source._located):
             listed.append(source)
             continue
         generation = generations.of(source)
         if generation is None:
             continue
         for name in generation.matches.get(str(source.output_name), ()):
-            located = Source(
+            located = Source._create(
                 {"file": str(generation.storage / name)},
                 source.type,
                 generated=True,
                 output_name=output_name_of(name),
-                owner=source.owner,
+                owner=source._owner,
             )
             if not already_listed(listed, located):
                 listed.append(located)
@@ -754,7 +754,7 @@ def reads_generated(
     return tuple(
         source
         for source in design.rtl.sources
-        if source.generated and not source.located and (scope is None or source.type in scope)
+        if source.generated and not source._located and (scope is None or source.type in scope)
     )
 
 
@@ -870,7 +870,7 @@ def refuse_missing(
         raise MissingGenerated(
             name,
             generation.description if generation else "the generator",
-            misplaced_hint(design, source.owner, name, generation.storage if generation else None),
+            misplaced_hint(design, source._owner, name, generation.storage if generation else None),
         )
 
 
@@ -908,7 +908,7 @@ def reading_nodes(nodes: Iterable[Any], design: Design) -> dict[str | None, Any]
     found: dict[str | None, Any] = {}
     for node in nodes:
         for source in reads_generated(design, node.flow_class, node.settings):
-            found.setdefault(source.owner, node)
+            found.setdefault(source._owner, node)
     return found
 
 

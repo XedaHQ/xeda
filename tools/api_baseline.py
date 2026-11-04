@@ -232,10 +232,45 @@ def _is_xeda(cls: type) -> bool:
     return cls.__module__ == "xeda" or cls.__module__.startswith("xeda.")
 
 
+@functools.cache
+def _exported() -> frozenset[type]:
+    """The classes that a public module exports."""
+    return frozenset(
+        value
+        for module_name in PUBLIC_MODULES
+        for name in importlib.import_module(module_name).__all__
+        if isinstance(value := getattr(importlib.import_module(module_name), name), type)
+    )
+
+
+def _internal_bases(cls: type) -> list[type]:
+    """The Xeda base classes of `cls` that no public module exports: a user cannot import them."""
+    return [k for k in cls.__mro__ if _is_xeda(k) and k not in _exported()]
+
+
+def _public_bases(cls: type) -> list[type]:
+    """The bases of `cls` as the API names them. An internal base gives way to its own bases, and
+    pydantic is an implementation detail."""
+    result: list[type] = []
+    for base in cls.__bases__:
+        found = _public_bases(base) if _is_xeda(base) and base not in _exported() else [base]
+        result += [
+            k
+            for k in found
+            if k is not object and not k.__module__.startswith("pydantic") and k not in result
+        ]
+    return result
+
+
 def _member_entry(cls: type, name: str) -> dict[str, Any] | None:
-    """A public method or property that Xeda code defines for `cls`, or `None`."""
+    """A public method or property that a public Xeda class defines for `cls`, or `None`.
+
+    A name that an internal base class also defines is machinery of the models (a loader hook, a
+    cache reset), and the `model_` names are pydantic's: neither is API."""
     owner = next((k for k in cls.__mro__ if name in vars(k)), None)
-    if owner is None or not _is_xeda(owner):
+    if owner is None or not _is_xeda(owner) or name.startswith("model_"):
+        return None
+    if any(name in vars(k) for k in _internal_bases(cls)):
         return None
     raw = inspect.getattr_static(cls, name)
     if isinstance(raw, classmethod):
@@ -253,6 +288,12 @@ def _member_entry(cls: type, name: str) -> dict[str, Any] | None:
     if inspect.isfunction(raw):
         return {"kind": "method", **_signature_entry(raw, skip_first=True)}
     return None
+
+
+def _is_working_state(cls: type, name: str) -> bool:
+    """Whether `name` is a model field that a dump leaves out: state that planning sets."""
+    field = getattr(cls, "model_fields", {}).get(name)
+    return field is not None and bool(field.exclude)
 
 
 def _attribute_default(cls: type, name: str) -> str | None:
@@ -282,14 +323,18 @@ def _attributes(cls: type) -> list[dict[str, str]]:
     hints: dict[str, Any] = {}
     names: list[str] = []
     for klass in reversed(cls.__mro__):
-        if _is_xeda(klass):
+        if _is_xeda(klass) and klass not in _internal_bases(cls):
             own = _evaluate(dict(inspect.get_annotations(klass)), klass.__module__)
             hints.update(own)
             names += [n for n in own if n not in names]
     result = []
     for name in names:
         # A class variable is class-level configuration, not part of an instance.
-        if name.startswith("_") or typing.get_origin(hints[name]) is typing.ClassVar:
+        if (
+            name.startswith("_")
+            or typing.get_origin(hints[name]) is typing.ClassVar
+            or _is_working_state(cls, name)
+        ):
             continue
         entry = {"name": name, "annotation": render_annotation(hints[name])}
         default = _attribute_default(cls, name)
@@ -299,17 +344,25 @@ def _attributes(cls: type) -> list[dict[str, str]]:
     return result
 
 
+#: The classes that a loader builds: their `__init__` only refuses, so it is no API.
+LOADED_CLASSES = ("Project",)
+
+
 def _class_entry(cls: type) -> dict[str, Any]:
     is_enum = issubclass(cls, enum.Enum)
     entry: dict[str, Any] = {
         "kind": "enum" if is_enum else "class",
-        "bases": [render_annotation(b) for b in cls.__bases__ if b is not object],
+        "bases": [render_annotation(b) for b in _public_bases(cls)],
     }
     # A class that no Xeda code gives a constructor has the signature of its Python base, which
     # differs between Python versions.
-    if not is_enum and any(
-        _is_xeda(k) and ({"__init__", "__new__", "__signature__"} & vars(k).keys())
-        for k in cls.__mro__
+    if (
+        not is_enum
+        and cls.__name__ not in LOADED_CLASSES
+        and any(
+            _is_xeda(k) and ({"__init__", "__new__", "__signature__"} & vars(k).keys())
+            for k in cls.__mro__
+        )
     ):
         entry["constructor"] = _signature_entry(cls, returns=False)
     if is_enum:

@@ -424,7 +424,7 @@ class Vcs(SimFlow):
         if ss.functional_vital:
             vhdlan_args.append("-functional_vital")
         # every header's directory is an include directory, as for Verilator and yosys
-        for d in self.design.header_dirs(tb=True):
+        for d in self.design._header_dirs(tb=True):
             vlogan_args.append(f"+incdir+{d}")
         if language_of(self.design).vhdl.standard in ("08", "2008"):
             vhdlan_args.append("-vhdl08")

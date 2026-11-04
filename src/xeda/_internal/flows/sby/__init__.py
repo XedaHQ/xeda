@@ -169,7 +169,7 @@ def _staged_name(
     A generated file has the place where its generator writes it, so the location of the run root
     does not change the name, and a relative `include` to its neighbors works as in the tree. A
     file in a storage has no such place, and goes into `GENERATED_DIRECTORY` of its root. `roots`
-    gives the root of each generator of a dependency (`Source.owner`), and `outside` numbers the
+    gives the root of each generator of a dependency (`Source._owner`), and `outside` numbers the
     roots outside the design tree. A Git checkout is one of them wherever the run root is.
     """
     design_root = os.path.realpath(design.root)
@@ -180,16 +180,16 @@ def _staged_name(
     }
     if src.generated:
         name = str(src.output_name)
-        if src.owner is not None and src.owner not in roots:
+        if src._owner is not None and src._owner not in roots:
             raise FlowSettingsException(
-                f"sby cannot stage {name!r}: the design has no generator {src.owner!r}"
+                f"sby cannot stage {name!r}: the design has no generator {src._owner!r}"
             )
-        home = design.root if src.owner is None else roots[src.owner]
+        home = design.root if src._owner is None else roots[src._owner]
         stored = storage_name(name)
         if stored is not None:
             name = (PurePosixPath(GENERATED_DIRECTORY) / stored).as_posix()
-    elif src.dependency_place is not None:
-        name = src.dependency_place
+    elif src._dependency_place is not None:
+        name = src._dependency_place
         home = src.path.parents[len(PurePosixPath(name).parts) - 1]
     else:
         # The directory is resolved and the file name is kept, so a link names its own place.
@@ -237,13 +237,13 @@ def staged_names(design: Design, sources: list[Source]) -> dict[str, Source]:
     writes_parameters_file = bool(design.rtl.parameters) and not any(
         src.type is SourceType.Vhdl for src in sources
     )
-    roots = {unit.generation_label: unit.root for unit in design.generation_units}
+    roots = {unit._generation_label: unit.root for unit in design.generation_units}
     outside: dict[str, str] = {}
     names: dict[str, Source] = {}
     folded: dict[str, str] = {}
     for src in sources:
         name = _staged_name(design, src, roots, outside)
-        if not STAGED_NAME.fullmatch(name if src.located else name.replace("*", "_")):
+        if not STAGED_NAME.fullmatch(name if src._located else name.replace("*", "_")):
             raise FlowSettingsException(
                 f"sby cannot stage {name!r}: SBY splits its list of files at whitespace and "
                 "expands `$` and `~`, so a path relative to the design root may hold only "
@@ -284,8 +284,8 @@ def staged_names(design: Design, sources: list[Source]) -> dict[str, Source]:
 def _same_file(first: Source, second: Source) -> bool:
     """Whether two sources with one name are one file. A declaration has no file to resolve."""
     return first.path == second.path or (
-        first.located
-        and second.located
+        first._located
+        and second._located
         and os.path.realpath(first.path) == os.path.realpath(second.path)
     )
 

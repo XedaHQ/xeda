@@ -3,7 +3,6 @@
 import logging
 import sys
 import threading
-from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -20,7 +19,7 @@ from xeda._internal.flow_runner import DefaultRunner, launch_locks, run_lock
 from xeda._internal.flow_runner.plan_check import plan_difference
 from xeda._internal.local_settings import LocalSettings
 from xeda._internal.outcomes import Result
-from xeda._internal.plan import plan_from_dict
+from xeda._internal.plan import plan_from_dict, with_planning
 from xeda._internal.proc_utils import TOOL_OUTPUT
 from xeda._internal.run_root import ensure_run_root
 from xeda._internal.spec import Spec
@@ -569,9 +568,15 @@ def test_dependencies_are_compared_by_index(tmp_path, remote, toy):  # noqa: F81
     (entry,) = plan._dependencies
     repository = entry["repository"]
     assert plan_difference(plan, plan) is None
-    assert "was removed" in plan_difference(plan, replace(plan, _dependencies=()))
-    assert "was added" in plan_difference(replace(plan, _dependencies=()), plan)
-    moved = replace(plan, _dependencies=({**entry, "commit": "0" * 40},))
+    assert "was removed" in plan_difference(
+        plan, with_planning(plan, workspace=plan._workspace, dependencies=())
+    )
+    assert "was added" in plan_difference(
+        with_planning(plan, workspace=plan._workspace, dependencies=()), plan
+    )
+    moved = with_planning(
+        plan, workspace=plan._workspace, dependencies=({**entry, "commit": "0" * 40},)
+    )
     assert plan_difference(plan, moved) == f"dependency {repository} now resolves to {'0' * 40}"
 
 
@@ -598,7 +603,9 @@ def test_a_plan_made_from_its_document_holds_its_dependencies(tmp_path, remote, 
     assert plan_difference(plan, restored) is None
     assert plan_from_dict(restored.to_dict(), spec=plan.spec, workspace=None).to_dict() == document
     (entry,) = restored._dependencies
-    other = replace(restored, _dependencies=({**entry, "commit": "0" * 40},))
+    other = with_planning(
+        restored, workspace=restored._workspace, dependencies=({**entry, "commit": "0" * 40},)
+    )
     assert plan_difference(restored, other) == f"dependency {remote.url} now resolves to {'0' * 40}"
     assert workspace.run(restored).passed
 

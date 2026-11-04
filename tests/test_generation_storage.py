@@ -68,7 +68,7 @@ def test_loading_a_design_with_a_generator_runs_nothing_and_writes_nothing(tmp_p
     before = _tree(tmp_path)
     design = world.load()
     assert design.rtl.generator is not None
-    assert [(s.path, s.generated, s.located) for s in design.rtl.sources] == [
+    assert [(s.path, s.generated, s._located) for s in design.rtl.sources] == [
         (Path("$XEDA_GENERATED/gen/top.v"), True, False)
     ]
     assert world.runs == 0 and _tree(tmp_path) == before
@@ -228,7 +228,7 @@ def test_generated_source_paths_stay_names_before_and_after_a_launch(tmp_path):
         == before
         == [Path("$XEDA_GENERATED/gen/top.v")]
     )
-    assert not design.rtl.sources[0].located
+    assert not design.rtl.sources[0]._located
 
 
 def test_a_generator_failure_is_an_error_of_the_whole_launch(tmp_path):

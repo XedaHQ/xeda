@@ -101,7 +101,9 @@ def parse_modelsim_evidence(
         # for both stop forms. In mixed HDL, the native Note tells a Verilog `$stop`.
         verilog_stop = any(re.fullmatch(r"\*\* Note: \$stop(?:\s*:\s*.+)?", line) for line in lines)
         vhdl_names = {
-            source.file.name for source in flow.design.sim_sources if source.type is SourceType.Vhdl
+            source.file.name
+            for source in flow.design._sim_sources
+            if source.type is SourceType.Vhdl
         }
         vhdl_break = False
         for line in lines:

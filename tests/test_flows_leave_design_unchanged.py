@@ -153,10 +153,10 @@ def _snapshot(design: Design) -> Any:
     """Capture the design state before a flow runs."""
     return (
         design.model_dump(mode="json"),
-        design.rtl_fingerprint,
-        design.tb_fingerprint,
-        design.rtl_hash,
-        design.tb_hash,
+        design._rtl_fingerprint,
+        design._tb_fingerprint,
+        design._rtl_hash,
+        design._tb_hash,
     )
 
 
@@ -173,5 +173,5 @@ def test_a_flow_leaves_the_design_it_runs_on_unchanged(case: str, tmp_path: Path
     assert flow is not None and flow.succeeded
     assert _snapshot(design) == before
     recorded = json.loads((flow.run_path / "settings.json").read_text())
-    assert recorded["rtl_hash"] == design.rtl_hash
-    assert recorded["rtl_fingerprint"] == json.loads(json.dumps(design.rtl_fingerprint))
+    assert recorded["rtl_hash"] == design._rtl_hash
+    assert recorded["rtl_fingerprint"] == json.loads(json.dumps(design._rtl_fingerprint))

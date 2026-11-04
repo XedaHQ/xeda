@@ -201,7 +201,7 @@ def test_the_package_unpacks_into_the_design_it_describes(tmp_path):
         "rtl/defs.vh",
         "inc/defs.vh",
     ]
-    assert loaded.rtl_hash == design.rtl_hash
+    assert loaded._rtl_hash == design._rtl_hash
     rom = Path(loaded.rtl.parameters["ROM"])
     assert rom.read_text() == "00\n" and rom.is_relative_to(remote)
     assert Path(loaded.rtl.parameters["OUT"]) == remote / "out" / "t.txt"
@@ -635,7 +635,7 @@ def test_every_example_design_unpacks_with_the_same_sources(design_file, tmp_pat
     def sources(loaded: Design, part: str) -> list:
         return [
             (item["type"], item["content"])
-            for item in getattr(loaded, f"{part}_fingerprint")["sources"]
+            for item in getattr(loaded, f"_{part}_fingerprint")["sources"]
         ]
 
     for part in ("rtl", "tb"):

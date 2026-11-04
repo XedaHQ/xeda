@@ -547,7 +547,7 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
 )
 def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
     """`clocks` as one clock, a list of port names and tables, and the items that say there is
-    no clock (`null`, `""`, an empty table): `Rtl.clock_tables` reads all of them."""
+    no clock (`null`, `""`, an empty table): `Rtl._clock_tables` reads all of them."""
     data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
     assert len(design_of(data).rtl.clocks) == count
     assert list(validator().iter_errors(data)) == []

@@ -223,7 +223,7 @@ class VivadoSim(Vivado, SimFlow):
                 ],
                 self.design.model_dump(),
             )
-        if not self.design.sim_tops:
+        if not self.design._sim_tops:
             raise DesignValidationError(
                 [
                     (

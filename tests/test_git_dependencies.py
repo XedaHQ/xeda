@@ -430,7 +430,7 @@ def test_a_parameter_that_is_a_path_in_a_checkout_counts_without_the_commit(tmp_
         record = DependencyRecord("https://h/u/l.git", None, commit, "dep.yaml", checkout)
         design = design.model_copy(update={"resolved_dependencies": (record,)})
         design.invalidate_cached_properties()
-        counted.append(design.part_metadata("rtl")["parameters"])
+        counted.append(design._part_metadata("rtl")["parameters"])
     assert counted[0] == counted[1] == {"ROM": "$DEPENDENCY_0/rom.mem"}
 
 
@@ -936,7 +936,7 @@ def test_a_path_in_a_checkout_counts_under_the_index_of_its_entry(tmp_path):
     git = DependencyRecord("https://h/u/l.git", None, "a" * 40, "dep.yaml", checkout)
     design = design.model_copy(update={"resolved_dependencies": (local, git)})
     design.invalidate_cached_properties()
-    assert design.part_metadata("rtl")["parameters"] == {"ROM": "$DEPENDENCY_1/rom.mem"}
+    assert design._part_metadata("rtl")["parameters"] == {"ROM": "$DEPENDENCY_1/rom.mem"}
 
 
 def test_a_request_that_is_wrong_in_itself_reads_no_dependency(tmp_path, remote, git_log):

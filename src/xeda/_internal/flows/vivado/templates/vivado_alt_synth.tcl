@@ -56,8 +56,8 @@ if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") %} 
 {%- endif %}
 {%- endfor %}
 
-{%- if design.header_dirs() %}
-set_property include_dirs {{design.header_dirs()|tcl_list}} [current_fileset]
+{%- if design._header_dirs() %}
+set_property include_dirs {{design._header_dirs()|tcl_list}} [current_fileset]
 {%- endif %}
 
 # TODO: Skip saving some artifacts when timing is not met or synthesis failed.

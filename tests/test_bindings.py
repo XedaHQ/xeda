@@ -389,7 +389,7 @@ def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
     design = Design(
         name="d", root=tmp_path, rtl={"sources": [{"file": str(source), "type": "Data"}]}
     )
-    before = design.rtl_hash
+    before = design._rtl_hash
     request = DefaultRunner(tmp_path / "runs")._request(
         TTaker, design, flow_settings=node_settings(TTaker, {"inputs.made": "t_maker.made"})
     )
@@ -399,7 +399,7 @@ def test_binding_capture_keeps_sources_and_design_hash_unchanged(tmp_path):
         ProducerRef(NodeKey(TMaker.name), "made"),
     )
     assert request.design.rtl.sources[0].path == source
-    assert request.design.rtl_hash == before == design.rtl_hash
+    assert request.design._rtl_hash == before == design._rtl_hash
 
 
 def test_node_keys_are_immutable_hashable_and_pickle_for_dse_transport():

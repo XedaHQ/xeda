@@ -423,7 +423,7 @@ class Iverilog(SimFlow):
         # Testbench defines override RTL defines. `-DNAME` alone would define it as 1.
         defines = {**design.rtl.defines, **design.tb.defines}
         flags += [f"-D{k}=" if v is None else f"-D{k}={v}" for k, v in defines.items()]
-        include_dirs = [*ss.include_dirs, *design.header_dirs(tb=True)]
+        include_dirs = [*ss.include_dirs, *design._header_dirs(tb=True)]
         flags += [f"-I{d}" for d in unique(self.resolve_paths_to_design_or_cwd(include_dirs))]
         flags += [f"-y{path}" for _, path in ss.lib_paths]
         for library in self.resolve_paths_to_design_or_cwd(ss.verilog_libs):
