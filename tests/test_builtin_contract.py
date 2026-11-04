@@ -40,6 +40,94 @@ def test_a_changed_unit_is_breaking() -> None:
     assert tool.classify(old, new, kind="contract")[1]
 
 
+def _flow(*, experimental: bool = False, **settings: dict) -> dict:
+    return {
+        **({"experimental": True} if experimental else {}),
+        "settings": settings,
+        "outputs": {},
+        "metrics": {"m": {"type": "number", "unit": None}},
+        "artifacts": ["log"],
+    }
+
+
+def _contract(**flows: dict) -> dict:
+    return {"flows": flows, "codes": {}}
+
+
+def _group(default: dict, *, marked: bool = False) -> dict:
+    """A group `g` with the leaf `g.x`, which `marked` marks, and the sibling `g.y`."""
+    leaf = {"type": "boolean", "unit": None, "default": default["x"]}
+    return {
+        "g": {"type": "G", "unit": None, "default": default},
+        "g.x": leaf | ({"experimental": True} if marked else {}),
+        "g.y": {"type": "boolean", "unit": None, "default": default["y"]},
+    }
+
+
+def test_nothing_of_a_flow_marked_experimental_in_the_old_baseline_is_judged() -> None:
+    old = _contract(a=_flow(experimental=True, s={"type": "integer", "unit": None, "default": 1}))
+    new = _contract(a=_flow(experimental=True))
+    new["flows"]["a"]["metrics"] = {}
+    new["flows"]["a"]["artifacts"] = []
+    assert tool.classify(old, new, kind="contract") == ([], [])
+    assert tool.classify(old, _contract(), kind="contract") == ([], [])  # the flow is gone
+
+
+def test_a_flow_marked_experimental_only_in_the_new_contract_is_still_judged() -> None:
+    old = _contract(a=_flow(s={"type": "integer", "unit": None, "default": 1}))
+    new = _contract(a=_flow(experimental=True))
+    additive, breaking = tool.classify(old, new, kind="contract")
+    assert "flows.a: newly marked experimental" in breaking
+    assert "a.settings.s: settings removed" in breaking
+    assert not additive
+
+
+def test_a_removed_flow_mark_is_additive() -> None:
+    old = _contract(a=_flow(experimental=True))
+    assert tool.classify(old, _contract(a=_flow()), kind="contract") == (
+        ["flows.a: no longer experimental"],
+        [],
+    )
+
+
+def test_a_marked_setting_is_not_judged_but_its_siblings_and_group_are() -> None:
+    old = _contract(a=_flow(**_group({"x": True, "y": True}, marked=True)))
+    # The marked leaf changes its default, then leaves, in the group default too.
+    moved = _group({"x": False, "y": True}, marked=True)
+    assert tool.classify(old, _contract(a=_flow(**moved)), kind="contract") == ([], [])
+    del moved["g.x"]
+    assert tool.classify(old, _contract(a=_flow(**moved)), kind="contract") == ([], [])
+    changed = _contract(a=_flow(**_group({"x": True, "y": False}, marked=True)))
+    breaking = tool.classify(old, changed, kind="contract")[1]
+    assert any(m.startswith("a.settings.g.y: changed") for m in breaking)
+    assert any(m.startswith("a.settings.g: changed") for m in breaking)
+
+
+def test_a_setting_marked_only_in_the_new_contract_is_still_judged() -> None:
+    old = _contract(a=_flow(**_group({"x": True, "y": True})))
+    new = _contract(a=_flow(**_group({"x": False, "y": True}, marked=True)))
+    breaking = tool.classify(old, new, kind="contract")[1]
+    assert "a.settings.g.x: newly marked experimental" in breaking
+    assert any(m.startswith("a.settings.g.x: changed") for m in breaking)
+    assert any(m.startswith("a.settings.g: changed") for m in breaking)
+
+
+def test_a_removed_setting_mark_is_additive() -> None:
+    old = _contract(a=_flow(**_group({"x": True, "y": True}, marked=True)))
+    new = _contract(a=_flow(**_group({"x": True, "y": True})))
+    assert tool.classify(old, new, kind="contract") == (
+        ["a.settings.g.x: no longer experimental"],
+        [],
+    )
+
+
+def test_the_builtin_contract_records_the_marks() -> None:
+    flows = tool.builtin_contract()["flows"]
+    assert {n for n, f in flows.items() if f.get("experimental")} == {"xezim", "vcs", "dc"}
+    marked = [k for k, v in flows["openroad_place"]["settings"].items() if v.get("experimental")]
+    assert marked == ["global_placement.timing_driven.repair_timing"]
+
+
 def test_a_new_code_is_additive_and_a_removed_code_breaking() -> None:
     old = {"flows": {}, "codes": {"node": ["old"]}}
     new = {"flows": {}, "codes": {"node": ["new"]}}
@@ -262,3 +350,14 @@ def test_a_new_required_setting_is_breaking() -> None:
     new = copy.deepcopy(old)
     new["flows"]["a"]["settings"]["required"] = {"type": "integer", "unit": None}
     assert tool.classify(old, new, kind="contract")[1]
+
+
+def test_the_listings_mark_only_the_experimental_entries() -> None:
+    from xeda.introspect import flow_info, settings_info
+
+    assert flow_info("xezim")["experimental"] is True
+    assert "experimental" not in flow_info("ghdl_sim")
+    fields = settings_info("openroad_place")["fields"]
+    assert [f["name"] for f in fields if f.get("experimental")] == [
+        "global_placement.timing_driven.repair_timing"
+    ]

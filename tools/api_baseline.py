@@ -363,10 +363,12 @@ def builtin_contract() -> dict[str, Any]:
     for cls in sorted(__builtin_flows__, key=lambda c: c.name):
         fields = settings_class_info(cls)["fields"]
         flows[cls.name] = {
+            **({"experimental": True} if cls.experimental else {}),
             "settings": {
                 f["name"]: {
                     **{k: f.get(k) for k in ("type", "unit")},
                     **({"default": f.get("default")} if not f.get("required") else {}),
+                    **({"experimental": True} if f.get("experimental") else {}),
                 }
                 for f in fields
             },
@@ -666,6 +668,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "description": _STRING,
             "category": _STRING,
             "supports_cocotb": _BOOLEAN,
+            "experimental": _BOOLEAN,
             "dependencies": _array(_STRING),
             "action_reason": _nullable(_STRING),
             "inputs": _array(
@@ -697,7 +700,8 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             ),
             "can_follow": _array(edge),
             "can_precede": _array(edge),
-        }
+        },
+        optional=("experimental",),  # only a flow marked experimental has it
     )
     setting = _object(
         {
@@ -714,8 +718,9 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "json_schema": _OBJECT,
             "tier": _STRING,
             "group": _nullable(_STRING),
+            "experimental": _BOOLEAN,
         },
-        optional=("unit",),  # a setting that only the input accepts has none
+        optional=("unit", "experimental"),  # an input-only setting has no unit; see the flow
     )
     metric = _object(
         {
@@ -963,14 +968,59 @@ def _classify_api(old: dict[str, Any], new: dict[str, Any], add: list[str], brk:
     add.extend(f"{m}: new module" for m in sorted(new["modules"].keys() - old["modules"].keys()))
 
 
+def _without_leaf(default: Any, path: list[str]) -> Any:
+    """A group default without the value at the nested key `path`."""
+    if not (isinstance(default, dict) and path[0] in default):
+        return default
+    if len(path) == 1:
+        return {k: v for k, v in default.items() if k != path[0]}
+    return {**default, path[0]: _without_leaf(default[path[0]], path[1:])}
+
+
 def _classify_contract(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
-    _diff_names("flows", "flow", old["flows"].keys(), new["flows"].keys(), add, brk)
+    """Compare the built-in flows. What the old baseline marks `experimental` is not judged: a
+    flow mark covers the flow, and a setting mark covers the setting, its subtree and its part of
+    the default of each enclosing group. A new mark on a stable item breaks; a removed mark adds."""
+    experimental_flows = {n for n, f in old["flows"].items() if f.get("experimental")}
+    kept = {n for n in old["flows"] if n in new["flows"] or n not in experimental_flows}
+    _diff_names("flows", "flow", kept, new["flows"].keys(), add, brk)
     for name in old["flows"].keys() & new["flows"].keys():
         before, after = old["flows"][name], new["flows"][name]
+        if before.get("experimental") != after.get("experimental"):
+            if after.get("experimental"):
+                brk.append(f"flows.{name}: newly marked experimental")
+            else:
+                add.append(f"flows.{name}: no longer experimental")
+        if before.get("experimental"):
+            continue
         for group in ("settings", "outputs", "metrics"):
             a, b = before[group], after[group]
+            if group == "settings":
+                marked = [k for k, v in a.items() if v.get("experimental")]
+                for key in a.keys() & b.keys():
+                    if bool(a[key].get("experimental")) != bool(b[key].get("experimental")):
+                        if b[key].get("experimental"):
+                            brk.append(f"{name}.{group}.{key}: newly marked experimental")
+                        else:
+                            add.append(f"{name}.{group}.{key}: no longer experimental")
+                a, b = dict(a), dict(b)
+                for mark in marked:
+                    for table in (a, b):
+                        for key in [k for k in table if k == mark or k.startswith(mark + ".")]:
+                            del table[key]
+                        for key in table:
+                            if mark.startswith(key + "."):
+                                table[key] = {
+                                    **table[key],
+                                    "default": _without_leaf(
+                                        table[key].get("default"), mark[len(key) + 1 :].split(".")
+                                    ),
+                                }
+                for table in (a, b):  # the marks themselves were compared above
+                    for key in table:
+                        table[key] = {k: v for k, v in table[key].items() if k != "experimental"}
             _diff_names(f"{name}.{group}", group, a.keys(), b.keys(), add, brk)
             if group == "settings":
                 for key in b.keys() - a.keys():

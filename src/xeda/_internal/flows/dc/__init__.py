@@ -50,6 +50,7 @@ def get_hier(dct, dotted_path, default=None):
 class Dc(AsicSynthFlow):
     """Synthesize a design for an ASIC with Synopsys Design Compiler."""
 
+    experimental = True
     executables = ("dc_shell",)
     locator_variables = ("SNPSLMD_LICENSE_FILE", "LM_LICENSE_FILE")
 

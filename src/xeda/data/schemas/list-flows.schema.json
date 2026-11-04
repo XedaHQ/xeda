@@ -132,6 +132,9 @@
           "description": {
             "type": "string"
           },
+          "experimental": {
+            "type": "boolean"
+          },
           "inputs": {
             "items": {
               "properties": {

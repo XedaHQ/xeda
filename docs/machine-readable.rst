@@ -81,7 +81,8 @@ Each entry describes one flow:
       }]
     }
 
-``name`` is the name of the flow, the only name that Xeda accepts for it. ``dependencies`` are
+``name`` is the name of the flow, the only name that Xeda accepts for it. A flow marked
+experimental (see :doc:`stability`) also has ``"experimental": true``. Other flows have no such key. ``dependencies`` are
 the default producers of the declared inputs of the flow. A design source or a binding can replace a
 default producer, so use the resolved plan to see the producers that a request needs.
 
@@ -202,6 +203,8 @@ under the name of the setting in its flow. Write the flow before it on the comma
 * ``tier`` is ``"common"``, ``"advanced"`` or ``"expert"``: how often a user needs the setting. It
   is for listings and documentation only, and it never changes what Xeda accepts. A setting that
   declares no tier is ``"common"``. The key ``common`` is not the tier: see the bullet above.
+* ``experimental`` is ``true`` on a setting marked experimental (see :doc:`stability`). Other
+  settings have no such key.
 * ``group`` is the name of the top-level setting that holds a settings group, for each entry of a
   group and of its sub-groups. It is ``null`` for any other entry, and for the entry of the
   top-level group setting itself.

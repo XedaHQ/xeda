@@ -49,6 +49,7 @@ class Vcs(SimFlow):
     UCLI time checkpoints alone do not establish HDL completion.
     """
 
+    experimental = True
     executables = ("vcs", "vlogan", "vhdlan", "fsdb2vcd", "vpd2vcd")
     locator_variables = ("VCS_HOME", "SNPSLMD_LICENSE_FILE", "LM_LICENSE_FILE", "*_LICENSE_FILE")
 

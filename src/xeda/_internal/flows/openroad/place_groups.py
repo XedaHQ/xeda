@@ -12,7 +12,7 @@ choose between flags or that need the platform.
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, extras, tier
+from ...dataclass import EXPERIMENTAL, Field, XedaBaseModel, extras, tier
 from ...flow.settings_group import Flag, SettingsGroup
 from ...units import Bounds, Length, Time, count, library_units, percent, ratio
 from .groups import Legalize, RepairDesign, RepairTiming, SetupMove, differing_leaves
@@ -1375,7 +1375,7 @@ class TimingDrivenGroup(SettingsGroup):
         description="Repair the setup of the worst paths in the last timing-driven iteration, "
         "with a few moves that keep the topology (`-timing_driven_repair_timing`). The "
         "documentation of OpenROAD calls it experimental and not ready for production use.",
-        json_schema_extra=tier("expert"),
+        json_schema_extra=extras(tier("expert"), EXPERIMENTAL),
     )
     repair_tns_end_percent: Optional[float] = Field(
         None,

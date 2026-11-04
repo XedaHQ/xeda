@@ -847,6 +847,19 @@ def tier_of(model: type[BaseModel], field: str) -> Optional[TierName]:
     return name if name in TIERS else None  # type: ignore[return-value]
 
 
+#: The marker of a built-in setting that may change or be removed in any release
+#: (`docs/stability.rst`). It is metadata for listings and the API baseline; it changes nothing
+#: that a setting accepts.
+EXPERIMENTAL: Dict[str, Any] = {"x-xeda-experimental": True}
+
+
+def is_experimental(model: type[BaseModel], field: str) -> bool:
+    """Return whether the `field` of `model` is marked `EXPERIMENTAL`."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    return isinstance(extra, dict) and extra.get("x-xeda-experimental") is True
+
+
 def extras(*markers: Mapping[str, Any]) -> Dict[str, Any]:
     """Return one `json_schema_extra` dictionary with the keys of all `markers` (`tier(...)`,
     `WORKING`, `deliverable(...)`). Two markers that give one key different values are an

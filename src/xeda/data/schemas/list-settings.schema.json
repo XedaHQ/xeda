@@ -24,6 +24,9 @@
               "null"
             ]
           },
+          "experimental": {
+            "type": "boolean"
+          },
           "group": {
             "type": [
               "string",

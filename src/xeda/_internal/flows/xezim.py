@@ -237,6 +237,7 @@ class Xezim(SimFlow):
     report. Verified with xezim 0.11.2 and 0.11.4.
     """
 
+    experimental = True
     executables = ("xezim",)
     locator_variables = ("XEZIM_UVM_DIR", "XEZIM_UVM_VERSION")
 

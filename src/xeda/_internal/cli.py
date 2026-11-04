@@ -42,6 +42,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         DeclaredEnvvarsCommand,
         XedaHelpGroup as _XedaHelpGroup,
         emit_structured,
+        experimental_text,
         info_table,
         machine_readable_mode,
         print_flow_settings,
@@ -263,7 +264,11 @@ def list_flows(output_format: str, json_flag: bool):
         table.add_row(
             escape(flow["name"]),
             flow["category"].replace("_", " "),
-            escape(flow["description"]) if flow["description"] else "[red]<no description>[/red]",
+            (
+                escape(experimental_text(flow, flow["description"]))
+                if flow["description"]
+                else "[red]<no description>[/red]"
+            ),
             escape(", ".join(flow["dependencies"])) or "-",
             *(escape(cell) for cell in flow_chain_cells(flow)),
         )

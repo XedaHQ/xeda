@@ -829,6 +829,11 @@ class Flow(metaclass=ABCMeta):
         (the Python hooks of nextpnr). Then it is None: every source of the parts."""
         return cls.design_source_types
 
+    #: True for a built-in flow that may change or be removed in any release
+    #: (`docs/stability.rst`). `xeda list-flows` shows it, and the API baseline does not judge the
+    #: flow (its name, settings, outputs, metrics and artifacts).
+    experimental: ClassVar[bool] = False
+
     #: A static reason why a flow can only end a chain, such as a programmer. `always_runs()` is
     #: a separate, dynamic decision: the launcher asks it at run time whether the flow must run.
     action_reason: ClassVar[str | None] = None

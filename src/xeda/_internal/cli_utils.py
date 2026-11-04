@@ -708,6 +708,11 @@ def _fmt_default(value: Any, required: bool) -> str:
     return escape(str(value))
 
 
+def experimental_text(entry: Dict[str, Any], description: str) -> str:
+    """Return the description of a listing entry, with "Experimental." first for a marked one."""
+    return f"Experimental. {description}".strip() if entry.get("experimental") else description
+
+
 def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     table = Table(
         title=title,
@@ -726,7 +731,7 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     table.add_column("Description", overflow="fold")
     for field in fields:
         name = escape(field["name"])
-        description = field.get("description") or ""
+        description = experimental_text(field, field.get("description") or "")
         if field.get("enum"):
             choices = ", ".join(str(c) for c in field["enum"])
             description = (description + f"\nOne of: {choices}").strip()
