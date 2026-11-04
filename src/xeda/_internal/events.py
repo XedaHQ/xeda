@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 __all__ = ["Event"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Event:
     """One step of a launch.
 
@@ -21,11 +21,11 @@ class Event:
     started (a reused or shared node has both), then one `launch_finished`. `node` names the node
     of a node event. `outcome` and `disposition` are those of the node in the `Result`
     (`node_finished`), and `outcome` is the aggregate of the launch (`launch_finished`). A field
-    that does not apply is `None`. `time` is aware and in UTC, as `RunRecord.started`."""
+    that does not apply is `None`. `occurred_at` is aware and in UTC, as `RunRecord.started_at`."""
 
     kind: str
     launch_id: str
     node: str | None
     outcome: "Outcome | None"
     disposition: "Disposition | None"
-    time: datetime
+    occurred_at: datetime

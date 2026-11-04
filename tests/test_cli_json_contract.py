@@ -143,7 +143,7 @@ def test_an_invalid_setting_exits_2_with_a_null_outcome(tmp_path):
     assert document["error"]["node"] == "nextpnr" and "sed" in document["error"]["message"]
     assert document["spec"] == {
         "flow": "nextpnr",
-        "design": "sqrt",
+        "design_name": "sqrt",
         "design_file": str(SQRT),
         "target": None,
         "settings": {"nextpnr": {"sed": "1"}},
@@ -375,7 +375,7 @@ def fake_run_remote(spec, *, workspace, options, **arguments):
         "error": None if passed else {"code": "remote_failed", "message": "did not complete",
                                        "node": None, "exit_status": None, "log": None},
         "launch_id": "abc", "roots": [], "nodes": [],
-        "spec": {"flow": "vivado_synth", "design": "sqrt", "design_file": %(design)r,
+        "spec": {"flow": "vivado_synth", "design_name": "sqrt", "design_file": %(design)r,
                  "target": None, "settings": {}},
     }
     return result_from_dict(document)
@@ -400,7 +400,9 @@ def test_remote_status_comes_from_the_remote_outcome(remote_passed, expected_exi
     document = json_stdout(proc)
     assert proc.returncode == expected_exit
     assert document["outcome"] == ("passed" if remote_passed else "failed")
-    assert document["spec"]["design"] == "sqrt" and document["spec"]["design_file"] == str(SQRT)
+    assert document["spec"]["design_name"] == "sqrt" and document["spec"]["design_file"] == str(
+        SQRT
+    )
     assert (document["error"] is None) is remote_passed
     if not remote_passed:
         assert document["error"]["code"] == "remote_failed"
@@ -470,7 +472,7 @@ def test_generator_output_never_corrupts_the_json_document(tmp_path, generator):
     design = _noisy_generator_design(tmp_path, generator.format(python=sys.executable))
     proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
     document = json_stdout(proc)  # fails loudly if anything leaked into stdout
-    assert document["spec"]["design"] == "gendes"
+    assert document["spec"]["design_name"] == "gendes"
     # both streams of the generator belong on stderr, where tool output goes in --json mode
     assert "generator stdout noise" in proc.stderr
     assert "generator stderr diagnostic" in proc.stderr
@@ -486,7 +488,7 @@ def test_generator_object_output_never_corrupts_the_json_document(tmp_path):
     )
     proc = run_xeda("run", "ghdl_sim", design.name, "--json", cwd=tmp_path)
     document = json_stdout(proc)
-    assert document["spec"]["design"] == "gendes"
+    assert document["spec"]["design_name"] == "gendes"
     assert "generator stdout noise" in proc.stderr
     assert "generator stderr diagnostic" in proc.stderr
 

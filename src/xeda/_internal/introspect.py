@@ -94,14 +94,14 @@ def json_safe(value: Any) -> Any:
 
 
 def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
-    """Return the `design` and `design_file` keys of a `run` or `dse` document.
+    """Return the `design_name` and `design_file` keys of a `run` or `dse` document.
 
     `requested` is the design that the command line gave: a design file (a `Path`, or text with
     a design file suffix, which the launcher reads as a design file) or the name of a design in
     a project. It is None when the command line gave none. `loaded` is the name of the design
     that the launcher loaded, if it got that far.
 
-    `design` is always the name of the design: the loaded design's name, else the name that the
+    `design_name` is always the name of the design: the loaded design's name, else the name that the
     request gave. A design file that was not read has no name to report, so `design` is None.
     `design_file` is the absolute path of the design file that the request named. It is None when
     the request named none (a design entry of a project, or no design). A failure to read the
@@ -114,7 +114,7 @@ def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
             file = os.path.abspath(requested)
         elif name is None:
             name = str(requested)
-    return {"design": name, "design_file": file}
+    return {"design_name": name, "design_file": file}
 
 
 def all_flow_classes() -> List[Type[Flow]]:

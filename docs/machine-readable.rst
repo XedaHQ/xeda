@@ -335,7 +335,7 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
 ``run_id``
     The id of this execution. It is new for each execution, a failed one included. The trace of the
     run and every consumer of its outputs name the same id.
-``xeda_version``, ``flow``, ``design``, ``target``
+``xeda_version``, ``flow``, ``design_name``, ``target``
     The version of Xeda that ran, the name of the flow, the name of the design, and the target (or
     ``null``).
 ``identity``
@@ -405,8 +405,12 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     in the order of the bindings. Each entry has its own ``producer``, ``output``, ``producer_run_id`` and
     ``producer_run_dir``. A binding that repeats gives an entry that repeats. A reader groups the
     entries by ``name``.
-``started``, ``finished``, ``runtime``
-    Two times in UTC (ISO 8601) and the duration in seconds.
+``started_at``, ``finished_at``, ``runtime``
+    Two instants in UTC (ISO 8601 text) and the duration of the execution. The duration is text
+    with a unit, always in seconds: ``"82.5 s"`` or ``"0 s"``. In Python, ``started_at`` and
+    ``finished_at`` are aware UTC ``datetime`` values, and ``runtime`` is that text. A reader
+    turns the text into a number with ``float(runtime.removesuffix(" s"))`` or with a quantity
+    library.
 ``dependencies``
     The design's resolved dependencies, in order. Each entry has ``repository`` (the Git repository
     URL without a user name or password, or ``null`` for a local dependency), ``reference`` (the
@@ -423,7 +427,7 @@ The record holds no deliveries: ``deliveries`` of a node in the document of ``xe
 lists them. The record names no file of the run by an absolute path. The run root and the run directory
 follow from where the file is. The old keys ``success``, ``run_path``, ``design_hash``, ``flow_hash``, ``settings_hash``,
 ``timestamp``, ``tools`` and ``design`` as a result key are gone. In Python,
-``Workspace.load(run_dir)`` returns the record as an immutable ``RunRecord``, and
+``Workspace.load_record(run_dir)`` returns the record as an immutable ``RunRecord``, and
 ``RunRecord.to_dict()`` returns the document. ``Workspace.records()`` lists the records of a run
 root, and names the run directories whose record it cannot read. ``RunRecord.open()`` holds the
 files of a run, so that no launch, clean-up or scrub changes them, and gives their paths. A
@@ -505,8 +509,8 @@ Running a flow
 ``launch_id``
     The id of the launch, or ``null`` for a request that started no launch.
 ``spec``
-    What you asked for: ``{flow, design, design_file, target, settings}``. ``flow`` is the text of
-    the request, such as ``yosys_fpga+nextpnr``. ``design`` is the name of the design. ``design_file``
+    What you asked for: ``{flow, design_name, design_file, target, settings}``. ``flow`` is the text
+    of the request, such as ``yosys_fpga+nextpnr``. ``design_name`` is the name of the design. ``design_file``
     is the absolute path of the design file that you named, or ``null`` when you named none (a design
     of a project). ``target`` is the name given with ``--target`` (see :ref:`targets`), or ``null``.
     ``settings`` is what ``-s`` gave, as a table of settings by flow name.
@@ -528,7 +532,7 @@ location, so Xeda delivered the file there once the run finished:
       "launch_id": "5d1f0c1b0d3e4f36a2f5a0c5f4f7a9c1",
       "spec": {
         "flow": "nextpnr",
-        "design": "blinky",
+        "design_name": "blinky",
         "design_file": "/path/to/blinky.yaml",
         "target": null,
         "settings": {"nextpnr": {"seed": "3"}}
@@ -536,11 +540,11 @@ location, so Xeda delivered the file there once the run finished:
       "roots": ["nextpnr"],
       "nodes": [
         {"name": "yosys_fpga", "flow": "yosys_fpga", "outcome": "passed",
-         "disposition": "reused", "reason": "up to date", "blocked_by": null, "elapsed": 0.0,
+         "disposition": "reused", "reason": "up to date", "blocked_by": null, "elapsed": "0 s",
          "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "deliveries": [],
          "record": {"schema_version": 1, "outcome": "passed", "...": "..."}, "error": null},
         {"name": "nextpnr", "flow": "nextpnr", "outcome": "passed", "disposition": "ran",
-         "reason": "settings changed: seed", "blocked_by": null, "elapsed": 4.2,
+         "reason": "settings changed: seed", "blocked_by": null, "elapsed": "4.2 s",
          "run_dir": "/path/to/xeda_run/blinky/nextpnr",
          "deliveries": [
            {"key": "textcfg", "destination": "/home/user/blinky_config.txt", "delivered": true}
@@ -589,7 +593,8 @@ name and meaning:
 ``blocked_by``
     The name of the producer whose outcome blocked the node, or ``null``.
 ``elapsed``
-    The seconds that this launch spent on the node. It is ``0.0`` unless the node ran.
+    The time that this launch spent on the node, as text with a unit in seconds, such as
+    ``"4.2 s"``. It is ``"0 s"`` unless the node ran.
 ``run_dir``
     The run directory of the node.
 ``deliveries``
@@ -678,7 +683,7 @@ line, or a remote host that cannot be reached or set up. The document then has `
       "launch_id": null,
       "spec": {
         "flow": "nextpnr",
-        "design": "blinky",
+        "design_name": "blinky",
         "design_file": "/path/to/blinky.yaml",
         "target": null,
         "settings": {"nextpnr": {"sed": "1"}}
@@ -1104,7 +1109,7 @@ and exit status 1. ``remote attach`` keeps the run document once it has found a 
     ``remote_failed``, and its message names the host, the launch and the number of survivors.
 
 ``xeda dse ... --json`` prints one document with ``schema_version``, ``outcome``, ``error``,
-``flow``, ``design``, ``target``, ``optimizer``, ``best``, ``best_run_dir`` and ``points``. Each
+``flow``, ``design_name``, ``target``, ``optimizer``, ``best``, ``best_run_dir`` and ``points``. Each
 round of the optimizer is one sweep of the Python API. ``points`` lists every point that the
 exploration tried, in order, as ``{"outcome": ..., "error": ..., "run_dir": ...}``: a point that
 failed is a point, with the ``error`` of its run. ``run_dir`` is ``null`` for a run directory that
@@ -1136,7 +1141,7 @@ its output. With ``--json``, scrub never asks: without ``--yes`` it removes noth
       "outcome": "passed",
       "error": null,
       "flow": "vivado_synth",
-      "design": "sqrt",
+      "design_name": "sqrt",
       "target": null,
       "run_root": "/path/to/xeda_run",
       "scanned": ["/path/to/xeda_run/sqrt"],
@@ -1174,7 +1179,7 @@ is no longer a directory, for example) and for a run root that scrub cannot use.
 A usage error (a missing argument, an unknown flow or a removed option) is a failure before scrub
 scanned anything. The document has the same keys, ``"outcome": null``, an ``error`` with the code
 ``usage_error`` (or ``flow_not_found`` for a flow that does not exist), empty lists, and the exit
-status 2. ``flow``, ``design``, ``target`` and ``run_root`` hold what the command line gave, as
+status 2. ``flow``, ``design_name``, ``target`` and ``run_root`` hold what the command line gave, as
 text, and are ``null`` when it gave nothing. In Python, ``Workspace.scrub`` does the same removal
 and returns the five lists.
 
@@ -1207,7 +1212,7 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
     {
       "schema_version": 1,
       "spec": {
-        "flow": "nextpnr", "design": "blinky", "design_file": "/path/to/blinky.yaml",
+        "flow": "nextpnr", "design_name": "blinky", "design_file": "/path/to/blinky.yaml",
         "target": null, "settings": {"nextpnr": {"fpga": {"part": "iCE40HX1K-TQ144"}}}
       },
       "roots": ["nextpnr"],
@@ -1242,8 +1247,8 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
       ]
     }
 
-``spec`` says what the launch is asked to do: the ``flow`` (the text of the chain), the ``design``
-name, the ``design_file`` that it was loaded from (or ``null``), the ``target`` and the ``settings``
+``spec`` says what the launch is asked to do: the ``flow`` (the text of the chain), the
+``design_name``, the ``design_file`` that it was loaded from (or ``null``), the ``target`` and the ``settings``
 table. ``roots`` names the nodes that the spec asks for. ``options`` holds the seven launch options
 by name, with the value that the plan was made with: ``rebuild_all``, ``clean``,
 ``prune_variants``, ``outputs_to`` (an absolute path or ``null``), ``overwrite_outputs``,
@@ -1254,10 +1259,11 @@ by name, with the value that the plan was made with: ``rebuild_all``, ``clean``,
 ``commit`` and ``design_file``. A local dependency has only its ``design_file``. A plan that was
 made earlier is stale when a Git dependency now resolves to another commit.
 
-``nodes`` is ordered with the producers before the consumers and the requested flow last. Each node
-has these keys:
+``nodes`` is ordered with the producers before the consumers and the requested flow last. In
+Python, ``Plan.nodes`` is a mapping by node name in the same order. Each node has these keys:
 
-- ``name`` and ``flow``: the node, and its flow.
+- ``name`` and ``flow``: the name that identifies the node in the plan, and the canonical name of
+  its flow.
 - ``run_dir``: the run directory that a launch would use. ``--hashed-run-dirs`` adds the usual
   16-character hash suffix.
 - ``identity``: the identity of the node, as opaque text. Compare it for equality only. It combines

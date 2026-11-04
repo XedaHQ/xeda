@@ -1828,7 +1828,7 @@ class Flow(metaclass=ABCMeta):
                 node=self.name,
                 exit_status=None,
                 log=None,
-            ).as_json_value()
+            ).to_dict()
 
     def sources_read(self, rtl: bool = True, tb: bool = False) -> list[Source]:
         """Return the sources of the design that this flow reads (`reads_sources`), in design order.

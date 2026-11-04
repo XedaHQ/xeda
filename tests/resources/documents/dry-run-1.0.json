@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec": {
     "flow": "vivado_synth",
-    "design": "sqrt",
+    "design_name": "sqrt",
     "design_file": "/work/sqrt.yaml",
     "target": null,
     "settings": {

@@ -190,16 +190,18 @@ def adopt_completed(
     try:
         record = read_record(run_path, run_root=run_root)
     except RecordError as problem:
-        cause = ErrorInfo(problem.code, problem.message, node.name, None, None)
+        cause = ErrorInfo(
+            code=problem.code, message=problem.message, node=node.name, exit_status=None, log=None
+        )
     else:
         if record.identity != node.flowrun_hash:
             cause = ErrorInfo(
-                "missing_record",
-                f"{run_path / 'results.json'} holds the run of another configuration of "
+                code="missing_record",
+                message=f"{run_path / 'results.json'} holds the run of another configuration of "
                 f"{node.name}",
-                node.name,
-                None,
-                None,
+                node=node.name,
+                exit_status=None,
+                log=None,
             )
         else:
             if record.run_id != done.run_id:
@@ -211,8 +213,8 @@ def adopt_completed(
                 )
             flow.record = record
             flow.run_id = record.run_id
-            flow.started = record.started
-            flow.timestamp = timestamp_text(record.started)
+            flow.started = record.started_at
+            flow.timestamp = timestamp_text(record.started_at)
             flow.results.update(**results_of(record, output_equivalences(run_path, node.name)))
             flow.artifacts = Box(flow.results["artifacts"])
             flow.outcome = str(record.outcome)  # type: ignore[assignment]
@@ -220,7 +222,7 @@ def adopt_completed(
         flow.run_id = done.run_id
         flow.outcome = "failed"
         flow.results.success = False
-        flow.results["error"] = cause.as_json_value()
+        flow.results["error"] = cause.to_dict()
     # As the launch of a producer does: the recorded outputs vouch for the files that did not change.
     recorded = previous_trace(run_path, node.name)
     token = CompletedRun.capture(
@@ -277,7 +279,11 @@ def execute_node(
             outcome=Outcome.FAILED,
             disposition=Disposition.RAN,
             error=ErrorInfo(
-                INTERNAL_ERROR, f"`{node.name}` was not reached", node.name, None, None
+                code=INTERNAL_ERROR,
+                message=f"`{node.name}` was not reached",
+                node=node.name,
+                exit_status=None,
+                log=None,
             ),
         )
     run_id = node.record.run_id if node.record is not None and _executed(node) else None

@@ -1052,7 +1052,7 @@ def read_xeda_results(document: Mapping[str, Any], half: str) -> dict[str, Any]:
     record = node.get("record") or {}
     results = record.get("metrics") or {}
     part: dict[str, Any] = {
-        "runtime_s": record.get("runtime"),
+        "runtime_s": _seconds(record.get("runtime")),
         "flow_hash": record.get("identity"),
         "run_path": node.get("run_dir"),
     }
@@ -1095,9 +1095,16 @@ def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
             found: dict[str, Any] = {
                 key: record.metric(key) for key in ("area", "cells") if key in record.metric_info
             }
-            found["runtime"] = record.runtime
+            found["runtime"] = _seconds(record.runtime)
             return found
     return {}
+
+
+def _seconds(duration: Optional[str]) -> Optional[float]:
+    """Return the seconds of a duration text of a record (`82.5 s`), or None without one."""
+    from xeda._internal.units import Time
+
+    return None if duration is None else Time(duration).to("s")
 
 
 def xeda_times(half: str, seconds: float, synthesis_seconds: Optional[float]) -> dict[str, float]:

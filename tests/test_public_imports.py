@@ -228,7 +228,7 @@ def _public_objects() -> dict[str, object]:
     return found
 
 
-_VERB_NAMES = ("plan", "run", "sweep", "load", "records", "scrub")
+_VERB_NAMES = ("plan", "run", "sweep", "load_record", "records", "scrub")
 PUBLIC_OBJECTS = _public_objects()
 PUBLIC_NAMES = sorted(PUBLIC_OBJECTS)
 _PUBLIC_IDS = {id(value) for value in PUBLIC_OBJECTS.values()}

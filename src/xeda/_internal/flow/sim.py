@@ -125,7 +125,7 @@ def record_failure(flow: Any, message: str) -> None:
             node=node,
             exit_status=None,
             log=None,
-        ).as_json_value()
+        ).to_dict()
 
 
 def record_rejection(flow: Any, message: str) -> None:

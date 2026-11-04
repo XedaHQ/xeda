@@ -21,6 +21,7 @@ from xeda.errors import RecordError
 from ..flow import Flow
 from ..records import RunRecord, encode_record, read_record, record_of
 from ..utils import LOCATION_FORMS, dump_json
+from ..units import Time
 from .launch_run import timestamp_text
 from .outputs import recorded_outputs
 from .trace import Freshness, output_equivalences
@@ -71,7 +72,7 @@ def report(
         # Only now: a record that could not be stored is no record of the flow.
         flow.record = stored
         if stored.error is not None:  # the record names the log to read
-            flow.results["error"] = stored.error.as_json_value()
+            flow.results["error"] = stored.error.to_dict()
 
 
 def adoptable_document(
@@ -118,9 +119,9 @@ def results_of(record: RunRecord, equivalences: Mapping[str, str] | None = None)
 
     results: dict[str, Any] = {path: thaw(record.metric(path)) for path in record.metric_info}
     results["success"] = record.passed
-    results["runtime"] = record.runtime
+    results["runtime"] = Time(record.runtime).to("s")
     if record.error is not None:
-        results["error"] = record.error.as_json_value()
+        results["error"] = record.error.to_dict()
     results["artifacts"] = {
         key: str(record.run_dir / name) for key, name in record.artifacts.items()
     }
@@ -149,7 +150,7 @@ def reuse_results(flow: Flow, run_root: Path, freshness: Freshness) -> bool:
     if not adoptable_document(record, freshness.verdict, freshness.error, freshness.run_id):
         return False
     flow.record = record
-    flow.timestamp = timestamp_text(record.started)
+    flow.timestamp = timestamp_text(record.started_at)
     flow.results.update(**results_of(record, output_equivalences(flow.run_path, flow.name)))
     flow.artifacts = Box(flow.results["artifacts"])
     flow.reused = True

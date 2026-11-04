@@ -290,7 +290,7 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     assert document["outcome"] == "passed" and document["error"] is None
     # The command line prints the tables of the best run, on stderr with --json.
     assert "Best so far" in proc.stderr and "Best results" in proc.stderr
-    assert (document["flow"], document["design"], document["optimizer"]) == (
+    assert (document["flow"], document["design_name"], document["optimizer"]) == (
         "vivado_synth",
         "sqrt",
         "fmax_optimizer",
@@ -379,7 +379,7 @@ def test_a_search_without_its_bounds_names_them(tmp_path):
     assert error["code"] == "required_setting"
     assert "initial_frequency_" in error["message"]
     # the optimizer is refused before the design is read
-    assert document["design"] is None
+    assert document["design_name"] is None
     assert "None" not in error["message"] and "float_type" not in error["message"]
     # the log of the command names both bounds
     assert "initial_frequency_low" in proc.stderr and "initial_frequency_high" in proc.stderr
@@ -427,7 +427,7 @@ def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     assert proc.returncode == 2 and document["outcome"] is None
     assert document["error"]["code"] == "required_setting"
     assert "`fpga`" in document["error"]["message"]
-    assert document["design"] == "sqrt", "the design had loaded"
+    assert document["design_name"] == "sqrt", "the design had loaded"
     assert not list(tmp_path.glob("xeda_run/**/settings.json")), "no run was started"
 
 
@@ -1129,7 +1129,7 @@ DSE_DOCUMENT_KEYS = [
     "outcome",
     "error",
     "flow",
-    "design",
+    "design_name",
     "target",
     "optimizer",
     "best",
@@ -1234,7 +1234,7 @@ def test_the_document_of_an_exploration_without_a_best_run(tmp_path, monkeypatch
     assert result.exit_code == 1
     assert list(document) == DSE_DOCUMENT_KEYS
     assert document["schema_version"] == 1
-    assert (document["flow"], document["design"], document["target"]) == (
+    assert (document["flow"], document["design_name"], document["target"]) == (
         "t_dse_failing",
         "d",
         None,

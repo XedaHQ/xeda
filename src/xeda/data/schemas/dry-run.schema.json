@@ -210,13 +210,13 @@
     },
     "spec": {
       "properties": {
-        "design": {
+        "design_file": {
           "type": [
             "string",
             "null"
           ]
         },
-        "design_file": {
+        "design_name": {
           "type": [
             "string",
             "null"
@@ -236,8 +236,8 @@
         }
       },
       "required": [
-        "design",
         "design_file",
+        "design_name",
         "flow",
         "settings",
         "target"

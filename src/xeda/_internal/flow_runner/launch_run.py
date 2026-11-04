@@ -148,7 +148,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 ),
                 e.exit_code,
             )
-        flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
+        flow.results["error"] = error_info(e, node=flow.name, flow=flow).to_dict()
     if flow.init_time is not None:
         flow.results.runtime = time.monotonic() - flow.init_time
     reports_ok: bool | None = None
@@ -183,7 +183,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 node=flow.name,
                 exit_status=None,
                 log=None,
-            ).as_json_value()
+            ).to_dict()
     # A value that is no metric fails the node, and the metrics that are valid stay.
     invalid = collect_metrics(flow.results, type(flow).results_description)[2]
     for bad in invalid:
@@ -200,7 +200,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 node=flow.name,
                 exit_status=None,
                 log=None,
-            ).as_json_value()
+            ).to_dict()
     # A bad artifact is a bug of the flow. The node fails, and the record is written without
     # the artifact. An earlier error stays the cause, a rejection included.
     bad_artifacts = drop_bad_artifacts(flow)
@@ -216,7 +216,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 node=flow.name,
                 exit_status=None,
                 log=None,
-            ).as_json_value()
+            ).to_dict()
     success = flow.outcome == "passed"
     if not success and input_settings.verbosity != "quiet":
         log.debug("Failure was reported in the parsed results.")
@@ -227,7 +227,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
         if tool_completed and reports_ok is False and flow.reports_missing:
             flow.results["error"] = missing_report_info(
                 flow.name, flow.reports_missing, run_path
-            ).as_json_value()
+            ).to_dict()
         else:
             flow.results["error"] = ErrorInfo(
                 code=REPORTED_FAILURE,
@@ -238,7 +238,7 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 node=flow.name,
                 exit_status=None,
                 log=None,
-            ).as_json_value()
+            ).to_dict()
     flow.results.success = success
     for k, v in flow.artifacts.items():
         if not flow.results.artifacts.get(k):

@@ -30,6 +30,7 @@ from xeda._internal.flow_runner.outputs import handed_entries
 from xeda._internal.flow_runner.trace import previous_trace
 from xeda._internal.frozen import FrozenDict, freeze, thaw
 from xeda._internal.outcomes import result_from_dict
+from xeda._internal.units import Time
 from xeda._internal.records import (
     ErrorInfo,
     InvalidMetric,
@@ -54,7 +55,7 @@ KEYS = {
     "run_id",
     "xeda_version",
     "flow",
-    "design",
+    "design_name",
     "target",
     "identity",
     "configuration",
@@ -66,8 +67,8 @@ KEYS = {
     "artifacts",
     "settings",
     "inputs",
-    "started",
-    "finished",
+    "started_at",
+    "finished_at",
     "runtime",
     "dependencies",
     "inherited_variables",
@@ -207,7 +208,7 @@ def test_a_passed_run_writes_schema_1(tmp_path, design):
     assert set(document) == KEYS
     assert document["schema_version"] == 1
     assert (document["outcome"], document["error"]) == ("passed", None)
-    assert (document["flow"], document["design"], document["target"]) == (flow.name, "d", None)
+    assert (document["flow"], document["design_name"], document["target"]) == (flow.name, "d", None)
     assert document["identity"] == flow.flow_hash
     # a dotted key is nested; an undescribed, an internal and an unknown value are no metrics
     assert document["metrics"] == {
@@ -237,9 +238,9 @@ def test_a_passed_run_writes_schema_1(tmp_path, design):
     # the flow reads no source of the design, so its configuration lists none
     assert "sources" not in document["configuration"]["rtl"]
     assert document["configuration"]["rtl"]["top"] == "top"
-    for name in ("started", "finished"):
+    for name in ("started_at", "finished_at"):
         assert datetime.fromisoformat(document[name]).utcoffset() == timezone.utc.utcoffset(None)
-    assert document["runtime"] >= 0
+    assert document["runtime"].endswith(" s") and Time(document["runtime"]).to("s") >= 0
     # the names of the inherited variables, sorted, never a value; the tests' snapshots leave
     # out what pytest sets per phase
     inherited = os.environ.keys() - SESSION_VARIABLES - set(PYTEST_OWN_VARIABLES)
@@ -395,9 +396,13 @@ def test_a_record_that_cannot_be_read_says_why(tmp_path, text, code):
         lambda d: d.update(
             metric_info={"ghost": {"description": "", "type": "integer", "unit": None}}
         ),
-        lambda d: d.update(started="yesterday"),
-        lambda d: d.update(started="2026-01-01T00:00:00"),
+        lambda d: d.update(started_at="yesterday"),
+        lambda d: d.update(started_at="2026-01-01T00:00:00"),
         lambda d: d.update(runtime=True),
+        lambda d: d.update(runtime=1.0),
+        lambda d: d.update(runtime="1"),
+        lambda d: d.update(runtime="-1 s"),
+        lambda d: d.update(runtime="soon"),
         lambda d: d.pop("outputs"),
     ],
 )
@@ -452,7 +457,7 @@ def test_a_failed_and_a_rejected_record_keep_their_metrics(tmp_path, design):
 def test_a_simulation_failure_error_survives_the_record(tmp_path, design):
     flow = _runner(tmp_path).launch_flow(TSimulator, design, {})
     assert not flow.succeeded
-    written = ErrorInfo.from_json(flow.results["error"])
+    written = ErrorInfo.from_dict(flow.results["error"])
     assert written.code == "reported_failure"
     loaded = read_record(flow.run_path, run_root=flow.record.run_root)
     assert loaded.outcome == "failed"

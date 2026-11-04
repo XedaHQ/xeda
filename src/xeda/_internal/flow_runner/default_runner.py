@@ -1909,9 +1909,7 @@ class FlowLauncher:
                         # writes nothing. Its run directory keeps its last record and trace.
                         launch_run.record_identity(flow, run_path)
                         flow.results.success = False
-                        flow.results["error"] = error_info(
-                            e, node=flow.name, flow=flow
-                        ).as_json_value()
+                        flow.results["error"] = error_info(e, node=flow.name, flow=flow).to_dict()
                         flow.blocked_by = e.producer
                         raise
                     if shared:
@@ -1923,7 +1921,7 @@ class FlowLauncher:
                     run_directory.remove(results_json)
                     launch_run.record_identity(flow, run_path)
                     flow.results.success = False
-                    flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
+                    flow.results["error"] = error_info(e, node=flow.name, flow=flow).to_dict()
                     report(
                         flow,
                         derived,
@@ -2089,7 +2087,7 @@ class FlowLauncher:
                     flow.results.success = False
                     if isinstance(e, Canceled):
                         flow.outcome = "canceled"
-                    flow.results["error"] = error_info(e, node=flow.name, flow=flow).as_json_value()
+                    flow.results["error"] = error_info(e, node=flow.name, flow=flow).to_dict()
                     if flow.init_time is not None:
                         flow.results.runtime = time.monotonic() - flow.init_time
                     for k, v in flow.artifacts.items():
@@ -3049,7 +3047,9 @@ class FlowLauncher:
             replaced = {id(d) for d in deliveries.replaced(expected)}
             planned_deliveries[planned.name] = tuple(
                 PlanDelivery(
-                    delivery_key(d.key), planned_destination(d.destination), id(d) in replaced
+                    key=delivery_key(d.key),
+                    destination=planned_destination(d.destination),
+                    replaces=id(d) in replaced,
                 )
                 for d in [*deliveries.named, *deliveries.generated, *expected]
             )

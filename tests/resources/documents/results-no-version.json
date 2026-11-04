@@ -2,7 +2,7 @@
   "run_id": "4150a29a30fa438f807bf42600dc7cae",
   "xeda_version": "0.4.4.dev432+g4f28a84d2",
   "flow": "t_copy",
-  "design": "d",
+  "design_name": "d",
   "target": null,
   "identity": "8daaa75b704973bb13017a88a4c15181f9fa91d2018a5c5a7738e746d512036e",
   "configuration": {
@@ -81,9 +81,9 @@
       ]
     }
   ],
-  "started": "2026-11-01T04:42:54.244162+00:00",
-  "finished": "2026-11-01T04:42:54.264730+00:00",
-  "runtime": 0.01844808296300471,
+  "started_at": "2026-11-01T04:42:54.244162+00:00",
+  "finished_at": "2026-11-01T04:42:54.264730+00:00",
+  "runtime": "0.01844808296300471 s",
   "dependencies": [],
   "inherited_variables": [
     "HOME",

@@ -143,8 +143,8 @@ def test_the_internal_errors_are_public_errors_with_a_code(tmp_path):
 
 def test_an_error_record_round_trips_through_json():
     info = ErrorInfo(code="nonzero_exit", message="m", node="n", exit_status=3, log="log")
-    assert ErrorInfo.from_json(json.loads(json.dumps(info.as_json_value()))) == info
-    assert list(info.as_json_value()) == ["code", "message", "node", "exit_status", "log"]
+    assert ErrorInfo.from_dict(json.loads(json.dumps(info.to_dict()))) == info
+    assert list(info.to_dict()) == ["code", "message", "node", "exit_status", "log"]
     for bad in (
         {"message": "m"},
         {"code": "c", "message": 1},
@@ -153,7 +153,7 @@ def test_an_error_record_round_trips_through_json():
         None,
     ):
         with pytest.raises(ValueError):
-            ErrorInfo.from_json(bad)  # type: ignore[arg-type]
+            ErrorInfo.from_dict(bad)  # type: ignore[arg-type]
 
 
 def test_the_codes_of_a_whole_launch_are_listed_where_a_reader_looks():
@@ -526,7 +526,9 @@ def test_an_absent_power_report_is_a_missing_report(tmp_path):
 
 
 def test_a_rejected_run_is_adopted_by_its_code_and_message():
-    error = ErrorInfo("rejected", "slack", "n", None, None).as_json_value()
+    error = ErrorInfo(
+        code="rejected", message="slack", node="n", exit_status=None, log=None
+    ).to_dict()
 
     def record(outcome="rejected", **changes):
         document = record_document(

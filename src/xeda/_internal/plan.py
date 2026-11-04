@@ -45,7 +45,7 @@ PLAN_DOCUMENT_VERSION = 1
 OUTPUTS_TO_KEY = "outputs_to"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class PlanInput:
     """Where one input of a node comes from, and why that producer or source was chosen.
 
@@ -63,7 +63,7 @@ class PlanInput:
         object.__setattr__(self, "sources", tuple(self.sources))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class PlanDelivery:
     """A file that a launch would deliver, known before any tool runs.
 
@@ -75,7 +75,7 @@ class PlanDelivery:
     replaces: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class PlanNode:
     """What a launch would do with one node.
 
@@ -84,8 +84,9 @@ class PlanNode:
     `unknown` (it depends on a producer that would run, or on something that only a process can
     tell) or `blocked` (a producer is rejected or blocked, so it would not run). `reason` says
     why, and it is empty for `fresh`. `identity` is opaque text: compare it for equality only.
-    `settings` are the effective settings of the node. `outputs_enabled` names the outputs that
-    a consumer switches on."""
+    `settings` are the effective settings of the node. `name` identifies the node in the plan, and
+    `flow` is the canonical name of its flow. `outputs_enabled` names the outputs that a consumer
+    switches on."""
 
     name: str
     flow: str
@@ -108,13 +109,14 @@ class PlanNode:
             object.__setattr__(self, name, tuple(getattr(self, name)))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Plan:
     """What a launch of `spec` would do: the nodes, and the options that the plan was made with.
 
     `roots` names the nodes that the spec asks for. `options` holds the seven launch options by
     name (`outputs_to` is an absolute path or `None`). `nodes` holds every node by name, in
-    execution order."""
+    plan order: producers come before their consumers. The `nodes` list of the document has the
+    same order."""
 
     spec: Spec = field(repr=False)
     roots: tuple[str, ...]
@@ -187,7 +189,7 @@ def node_document(node: PlanNode) -> dict[str, Any]:
 def spec_document(spec: Spec) -> dict[str, Any]:
     """Return the `spec` of a plan document and of a run document: what the launch is asked to do.
 
-    The keys are `flow`, `design` (the name of the design), `design_file` (the absolute path of
+    The keys are `flow`, `design_name` (the name of the design), `design_file` (the absolute path of
     the file that the design was loaded from, or `None`), `target` and `settings` (the table of
     the spec, each quantity in the unit of its field)."""
     from .outcomes import spec_document as document
@@ -195,7 +197,7 @@ def spec_document(spec: Spec) -> dict[str, Any]:
     design = spec.design
     return document(
         flow=spec.flow,
-        design=design.name,
+        design_name=design.name,
         # Only the loader sets the file of a design: it is no field.
         design_file=design._source_file,  # pylint: disable=protected-access
         target=design.target,
@@ -232,18 +234,25 @@ def _inputs_of(node: Any) -> tuple[PlanInput, ...]:
         reason = _input_reason(resolved)
         if resolved.references:
             found += [
-                PlanInput(resolved.name, resolved.origin, ref.node, ref.output, (), reason)
+                PlanInput(
+                    name=resolved.name,
+                    origin=resolved.origin,
+                    producer=ref.node,
+                    output=ref.output,
+                    sources=(),
+                    reason=reason,
+                )
                 for ref in resolved.references
             ]
         else:
             found.append(
                 PlanInput(
-                    resolved.name,
-                    resolved.origin,
-                    resolved.producer,
-                    resolved.output,
-                    resolved.sources,
-                    reason,
+                    name=resolved.name,
+                    origin=resolved.origin,
+                    producer=resolved.producer,
+                    output=resolved.output,
+                    sources=resolved.sources,
+                    reason=reason,
                 )
             )
     return tuple(found)
@@ -331,12 +340,12 @@ def _node_of(document: Any) -> PlanNode:
         settings=document["settings"],
         inputs=tuple(
             PlanInput(
-                item["name"],
-                item["origin"],
-                item["producer"],
-                item["output"],
-                tuple(Path(source) for source in item["sources"]),
-                item["reason"],
+                name=item["name"],
+                origin=item["origin"],
+                producer=item["producer"],
+                output=item["output"],
+                sources=tuple(Path(source) for source in item["sources"]),
+                reason=item["reason"],
             )
             for item in document["inputs"]
         ),
@@ -344,7 +353,9 @@ def _node_of(document: Any) -> PlanNode:
         input_types=document["input_types"],
         output_types=document["output_types"],
         deliveries=tuple(
-            PlanDelivery(item["key"], Path(item["destination"]), item["replaces"])
+            PlanDelivery(
+                key=item["key"], destination=Path(item["destination"]), replaces=item["replaces"]
+            )
             for item in document["deliveries"]
         ),
     )

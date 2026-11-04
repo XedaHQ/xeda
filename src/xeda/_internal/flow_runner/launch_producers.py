@@ -72,7 +72,7 @@ def recorded_error(flow: Flow) -> ErrorInfo:
     A failed run always records one. A document without a valid one is a bug of Xeda, and the
     consumer says so."""
     try:
-        return ErrorInfo.from_json(flow.results.get("error"))  # type: ignore[arg-type]
+        return ErrorInfo.from_dict(flow.results.get("error"))  # type: ignore[arg-type]
     except ValueError:
         return ErrorInfo(
             code=INTERNAL_ERROR,

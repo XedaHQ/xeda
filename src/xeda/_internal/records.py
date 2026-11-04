@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import math
 import os
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -23,6 +22,7 @@ from xeda.errors import RecordError, RunReplacedError
 from .frozen import freeze, thaw
 from .generation import generation_storage, stored_pattern
 from .outcomes import Outcome
+from .units import duration_text, seconds_text
 
 if TYPE_CHECKING:
     from .flow.flow import Flow
@@ -73,7 +73,7 @@ STORAGE_ERROR = "storage_error"
 INTERNAL_ERROR = "internal_error"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ErrorInfo:
     """Why a node failed, was rejected or was canceled, or why a launch failed.
 
@@ -88,8 +88,8 @@ class ErrorInfo:
     exit_status: int | None
     log: str | None
 
-    def as_json_value(self) -> dict[str, Any]:
-        """Return the JSON form: the document `results.json` holds under `error`."""
+    def to_dict(self) -> dict[str, Any]:
+        """Return the document that `results.json` holds under `error`."""
         return {
             "code": self.code,
             "message": self.message,
@@ -99,8 +99,8 @@ class ErrorInfo:
         }
 
     @classmethod
-    def from_json(cls, value: Mapping[str, Any]) -> ErrorInfo:
-        """Return the error that `as_json_value` wrote. A value of another shape is a `ValueError`."""
+    def from_dict(cls, value: Mapping[str, Any]) -> ErrorInfo:
+        """Return the error that `to_dict` wrote. A value of another shape is a `ValueError`."""
         if not isinstance(value, Mapping):
             raise ValueError(f"an error is a mapping, not {type(value).__name__}")
         for key in ("code", "message"):
@@ -154,7 +154,7 @@ class InvalidMetric(ValueError):
         self.problem = problem
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class MetricInfo:
     """What a metric of a record is: the path, the description, the type of its value and the unit.
 
@@ -169,7 +169,7 @@ class MetricInfo:
     unit: str | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OutputRecord:
     """One declared output of a run.
 
@@ -193,7 +193,7 @@ class OutputRecord:
             object.__setattr__(self, name, freeze(getattr(self, name)))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class InputSource:
     """One source file that a run read through a declared input.
 
@@ -214,7 +214,7 @@ class InputSource:
     generation: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class InputRecord:
     """Where one declared input of a run came from, through one binding.
 
@@ -234,7 +234,7 @@ class InputRecord:
         object.__setattr__(self, "sources", tuple(self.sources))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RunRecord:
     """Everything that one execution of a node left behind: the record in `results.json`.
 
@@ -250,7 +250,7 @@ class RunRecord:
     run_id: str = field(repr=False)
     xeda_version: str = field(repr=False)
     flow: str
-    design: str
+    design_name: str
     target: str | None
     identity: str = field(repr=False)
     configuration: Mapping[str, Any] = field(repr=False)
@@ -264,9 +264,9 @@ class RunRecord:
     artifacts: Mapping[str, str] = field(repr=False)
     settings: Mapping[str, Any] = field(repr=False)
     inputs: tuple[InputRecord, ...] = field(repr=False)
-    started: datetime = field(repr=False)
-    finished: datetime = field(repr=False)
-    runtime: float = field(repr=False)
+    started_at: datetime = field(repr=False)
+    finished_at: datetime = field(repr=False)
+    runtime: str = field(repr=False)
     inherited_variables: tuple[str, ...] = field(repr=False)
     dependencies: tuple[Mapping[str, str | None], ...] = field(default=())
 
@@ -275,6 +275,7 @@ class RunRecord:
         if outcome not in OUTCOMES:
             raise ValueError(f"a record cannot hold the outcome `{outcome}`")
         object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "runtime", duration_text(self.runtime))
         for name in (
             "configuration",
             "metrics",
@@ -364,7 +365,7 @@ class RunRecord:
             yield _open_run(self, places)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class OpenRun:
     """The files of a run, while `RunRecord.open()` holds them. It is valid only in its block.
 
@@ -410,7 +411,7 @@ class OpenRun:
         return files[0]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RecordProblem:
     """A run directory whose record could not be read: its `results.json` and why.
 
@@ -421,7 +422,7 @@ class RecordProblem:
     message: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class RunListing:
     """The records of the run directories that a listing found, sorted by run directory, and the
     run directories whose record could not be read."""
@@ -487,7 +488,9 @@ def collect_metrics(
             problems.append(InvalidMetric(key, f"clashes with the metric `{clash}`"))
             continue
         node[segments[-1]] = value
-        info[key] = MetricInfo(key, spec.description, spec.type, spec.unit)
+        info[key] = MetricInfo(
+            path=key, description=spec.description, type=spec.type, unit=spec.unit
+        )
     return metrics, info, problems
 
 
@@ -565,12 +568,12 @@ def encode_record(record: RunRecord) -> dict[str, Any]:
         "run_id": record.run_id,
         "xeda_version": record.xeda_version,
         "flow": record.flow,
-        "design": record.design,
+        "design_name": record.design_name,
         "target": record.target,
         "identity": record.identity,
         "configuration": thaw(record.configuration),
         "outcome": record.outcome.value,
-        "error": None if record.error is None else record.error.as_json_value(),
+        "error": None if record.error is None else record.error.to_dict(),
         "metrics": thaw(record.metrics),
         "metric_info": {
             path: {"description": info.description, "type": info.type, "unit": info.unit}
@@ -580,8 +583,8 @@ def encode_record(record: RunRecord) -> dict[str, Any]:
         "artifacts": dict(record.artifacts),
         "settings": thaw(record.settings),
         "inputs": [_encode_input(item, record.run_root) for item in record.inputs],
-        "started": _utc_text(record.started),
-        "finished": _utc_text(record.finished),
+        "started_at": _utc_text(record.started_at),
+        "finished_at": _utc_text(record.finished_at),
         "runtime": record.runtime,
         "dependencies": thaw(record.dependencies),
         "inherited_variables": list(record.inherited_variables),
@@ -751,10 +754,10 @@ def _decode_metric_info(value: Any, metrics: Mapping[str, Any]) -> dict[str, Met
         if not value_fits(metric_type, node) or non_finite_in(node) is not None:
             raise _Malformed(f"`metrics.{path}` is not a finite value of the type {metric_type}")
         info[path] = MetricInfo(
-            path,
-            _text(item.get("description"), f"metric_info.{path}.description"),
-            metric_type,
-            unit,
+            path=path,
+            description=_text(item.get("description"), f"metric_info.{path}.description"),
+            type=metric_type,
+            unit=unit,
         )
     return info
 
@@ -767,19 +770,16 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
     error: ErrorInfo | None = None
     if raw_error is not None:
         try:
-            error = ErrorInfo.from_json(raw_error)
+            error = ErrorInfo.from_dict(raw_error)
         except ValueError as problem:
             raise _Malformed(f"`error`: {problem}") from None
     if (outcome == "passed") != (error is None):
         raise _Malformed("`error` is there if and only if the outcome is not `passed`")
     metrics = _mapping(document.get("metrics"), "metrics")
-    runtime = document.get("runtime")
-    if (
-        isinstance(runtime, bool)
-        or not isinstance(runtime, (int, float))
-        or (isinstance(runtime, float) and not math.isfinite(runtime))
-    ):
-        raise _Malformed("`runtime` is not a finite number")
+    try:
+        runtime = seconds_text(_text(document.get("runtime"), "runtime"))
+    except ValueError as problem:
+        raise _Malformed(f"`runtime` is not a duration: {problem}") from None
     dependencies = []
     for entry in _sequence(document.get("dependencies"), "dependencies"):
         item = _mapping(entry, "dependencies[]")
@@ -801,7 +801,7 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
         run_id=_text(document.get("run_id"), "run_id"),
         xeda_version=_text(document.get("xeda_version"), "xeda_version"),
         flow=_text(document.get("flow"), "flow"),
-        design=_text(document.get("design"), "design"),
+        design_name=_text(document.get("design_name"), "design_name"),
         target=_optional_text(document.get("target"), "target"),
         identity=_text(document.get("identity"), "identity"),
         configuration=_mapping(document.get("configuration"), "configuration"),
@@ -820,8 +820,8 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
         inputs=tuple(
             _decode_input(item, run_root) for item in _sequence(document.get("inputs"), "inputs")
         ),
-        started=_moment(document.get("started"), "started"),
-        finished=_moment(document.get("finished"), "finished"),
+        started_at=_moment(document.get("started_at"), "started_at"),
+        finished_at=_moment(document.get("finished_at"), "finished_at"),
         runtime=runtime,
         inherited_variables=_texts(document.get("inherited_variables"), "inherited_variables"),
         dependencies=tuple(dependencies),
@@ -913,7 +913,10 @@ def read_stored_record(run_dir: Path | str) -> RunRecord:
     document = _read_document(where)
     names = []
     if isinstance(document, Mapping):
-        names = [document.get("design"), *([document["target"]] if document.get("target") else [])]
+        names = [
+            document.get("design_name"),
+            *([document["target"]] if document.get("target") else []),
+        ]
     above: Path | None = where.parent
     for name in reversed(names):
         above = above.parent if above is not None and above.name == name else None
@@ -980,7 +983,7 @@ def _generated_places(record: RunRecord) -> dict[str, tuple[str, Path | None, In
                 continue
             directory = None
             if source.generation is not None:
-                design = record.design if source.producer is None else source.producer
+                design = record.design_name if source.producer is None else source.producer
                 try:
                     directory = generation_storage(record.run_root, design, source.generation)
                 except RunDirectoryError:
@@ -1314,7 +1317,16 @@ def _inputs_of(flow: Flow, run_root: Path) -> list[InputRecord]:
     for name, declaration in declarations.items():
         if declaration.is_design and all(row.name != name for row in inputs):
             inputs.insert(
-                0, InputRecord(name, "source", None, None, None, None, _design_sources(flow))
+                0,
+                InputRecord(
+                    name=name,
+                    origin="source",
+                    producer=None,
+                    output=None,
+                    producer_run_id=None,
+                    producer_run_dir=None,
+                    sources=_design_sources(flow),
+                ),
             )
     return inputs
 
@@ -1346,7 +1358,7 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         )
     elif outcome != "passed":
         try:
-            error = ErrorInfo.from_json(results.get("error"))  # type: ignore[arg-type]
+            error = ErrorInfo.from_dict(results.get("error"))  # type: ignore[arg-type]
         except ValueError:
             error = ErrorInfo(
                 code=INTERNAL_ERROR,
@@ -1373,7 +1385,7 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         run_id=run_id,
         xeda_version=__version__,
         flow=flow.name,
-        design=flow.design.name,
+        design_name=flow.design.name,
         target=flow.design.target,
         identity=flow.flow_hash or "",
         configuration=_plain(flow.configuration),
@@ -1387,9 +1399,9 @@ def record_of(flow: Flow, *, run_root: Path, run_id: str, finished: datetime) ->
         artifacts=artifacts,
         settings=_plain(flow.settings),
         inputs=tuple(_inputs_of(flow, run_root)),
-        started=started.astimezone(timezone.utc),
-        finished=finished.astimezone(timezone.utc),
-        runtime=float(runtime),
+        started_at=started.astimezone(timezone.utc),
+        finished_at=finished.astimezone(timezone.utc),
+        runtime=seconds_text(float(runtime)),
         inherited_variables=flow.inherited_variables,
         dependencies=tuple(d.as_mapping() for d in flow.design.resolved_dependencies),
     )

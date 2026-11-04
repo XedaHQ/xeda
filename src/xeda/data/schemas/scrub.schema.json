@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "design": {
+    "design_name": {
       "type": [
         "string",
         "null"
@@ -115,7 +115,7 @@
     }
   },
   "required": [
-    "design",
+    "design_name",
     "error",
     "flow",
     "gone",

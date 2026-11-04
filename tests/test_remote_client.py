@@ -195,7 +195,9 @@ def test_remote_run_matches_a_local_run(tmp_path, remote_host):
     )
     run_root = tmp_path / "local" / "xeda_run"
     mirror = _mirror(tmp_path)
-    assert document["spec"]["design"] == "top" and document["spec"]["design_file"] == str(design)
+    assert document["spec"]["design_name"] == "top" and document["spec"]["design_file"] == str(
+        design
+    )
     directory = mirror / "top" / "nextpnr"
     assert _last(document)["run_dir"] == str(directory)
     for name in (
@@ -602,7 +604,7 @@ def test_an_error_before_the_connection_is_one_json_document(tmp_path, remote_ho
     assert result.exit_code == 2, result.output
     document = json.loads(result.stdout)
     assert document["outcome"] is None and document["error"]["code"] == "unknown_setting"
-    assert document["spec"]["design"] == "top" and document["spec"]["flow"] == "nextpnr"
+    assert document["spec"]["design_name"] == "top" and document["spec"]["flow"] == "nextpnr"
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
@@ -697,7 +699,7 @@ def test_ctrl_c_cancels_and_prints_one_json_document(tmp_path, remote_host):
     document = json.loads(program.out.read_text())
     assert document["outcome"] == "canceled" and document["error"]["code"] == "canceled"
     assert [node["outcome"] for node in document["nodes"]] == ["skipped", "skipped"]
-    assert document["spec"]["design"] == "top"
+    assert document["spec"]["design_name"] == "top"
     _assert_gone(pid)
     assert "Canceling the launch" in program.stderr
     _assert_mirror_emptied(mirror)
@@ -1455,7 +1457,7 @@ def test_a_request_that_only_the_host_refuses_starts_no_launch(tmp_path, remote_
     assert document["error"]["code"] == "unknown_setting"
     assert document["error"]["node"] == "nextpnr"
     assert document["error"]["message"] == "nextpnr.sed: the flow has no such setting"
-    assert document["spec"]["design"] == "top" and document["nodes"] == []
+    assert document["spec"]["design_name"] == "top" and document["nodes"] == []
     result = _cli(tmp_path, design, "nextpnr", "--json")
     assert result.exit_code == 2, result.output
     assert json.loads(result.stdout)["error"]["code"] == "unknown_setting"

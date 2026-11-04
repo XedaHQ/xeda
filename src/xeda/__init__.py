@@ -49,7 +49,7 @@ _LAZY_EXPORTS = {
     "UNSET": ("._internal.types", "UNSET"),
     "Unset": ("._internal.types", "Unset"),
     "Workspace": ("._internal.workspace", "Workspace"),
-    "load": ("._internal.workspace_verbs", "load"),
+    "load_record": ("._internal.workspace_verbs", "load_record"),
     "local_settings": ("._internal.local_settings", "local_settings"),
     "plan": ("._internal.workspace_verbs", "plan"),
     "records": ("._internal.workspace_verbs", "records"),
@@ -96,7 +96,7 @@ __all__ = [
     "Unset",
     "Workspace",
     "__version__",
-    "load",
+    "load_record",
     "local_settings",
     "plan",
     "records",
@@ -172,7 +172,7 @@ if TYPE_CHECKING:
         Workspace as Workspace,
     )
     from ._internal.workspace_verbs import (
-        load as load,
+        load_record as load_record,
         plan as plan,
         records as records,
         run as run,

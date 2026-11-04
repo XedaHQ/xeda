@@ -100,7 +100,7 @@ def test_a_seed_sweep_runs_one_shared_producer(tmp_path, design):
     assert dict(result.counts()) == {Outcome.PASSED: 4} and not result.canceled
     first, second = (point.result.nodes["yosys_fpga"] for point in list(result)[:2])
     assert second.outcome is first.outcome and second.record == first.record
-    assert second.elapsed == 0.0 and second.reason == "shared with point 0"
+    assert second.elapsed == "0 s" and second.reason == "shared with point 0"
     calls = _calls(workspace)
     assert calls["yosys"] == 1 and calls["nextpnr-ecp5"] == 4
 
@@ -663,7 +663,9 @@ def test_a_producer_replaced_by_a_failed_run_under_the_lease_fails_the_point(
     shared = workspace.plan(_spec(design, 1)).nodes["yosys_fpga"].run_dir
     failed = dict(
         outcome="failed",
-        error=ErrorInfo("nonzero_exit", "again", "yosys_fpga", 1, None),
+        error=ErrorInfo(
+            code="nonzero_exit", message="again", node="yosys_fpga", exit_status=1, log=None
+        ),
     )
     armed: list[bool] = []
     swapped: list[str] = []
@@ -702,7 +704,10 @@ def test_a_delivery_never_runs_a_generator_again(tmp_path):
 def test_a_root_replaced_by_a_failed_run_before_the_delivery_fails_the_point(tmp_path, design):
     destination = tmp_path / "out" / "top.v"
     workspace = _workspace(tmp_path)
-    failed = dict(outcome="failed", error=ErrorInfo("nonzero_exit", "x", "nextpnr", 1, None))
+    failed = dict(
+        outcome="failed",
+        error=ErrorInfo(code="nonzero_exit", message="x", node="nextpnr", exit_status=1, log=None),
+    )
 
     def on_event(event: Event) -> None:
         if event.kind == "node_finished" and event.node == "nextpnr":
@@ -1045,7 +1050,9 @@ def test_the_results_of_a_launch_have_short_reprs(tmp_path, design):
     sweep = workspace.sweep([spec])
     for value in (plan, result, result.record, sweep):
         assert len(repr(value)) < 1500, type(value).__name__
-    assert repr(result.record).startswith("RunRecord(flow='nextpnr', design='top', target=None,")
+    assert repr(result.record).startswith(
+        "RunRecord(flow='nextpnr', design_name='top', target=None,"
+    )
     assert "outcome=<Outcome.PASSED: 'passed'>" in repr(result)
     hidden = [
         (plan, ("identity=", "action=", "settings=", "spec=")),

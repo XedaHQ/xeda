@@ -375,7 +375,7 @@ class XedaHelpGroup(ColorizedGroup):
                 outcome=None,
                 error=_usage_error_info(e),
                 flow=text("flow"),
-                design=text("design_name"),
+                design_name=text("design_name"),
                 target=text("target"),
                 run_root=text("run_root"),
             )
@@ -384,7 +384,7 @@ class XedaHelpGroup(ColorizedGroup):
                 outcome=None,
                 error=_usage_error_info(e),
                 flow=text("flow"),
-                design=None,
+                design_name=None,
                 target=text("target"),
                 optimizer=text("optimizer"),
             )
@@ -453,7 +453,7 @@ def scrub_document(
     outcome: Any,
     error: Any,
     flow: Optional[str],
-    design: Optional[str],
+    design_name: Optional[str],
     target: Optional[str],
     run_root: Optional[str],
     result: Any = None,
@@ -461,7 +461,7 @@ def scrub_document(
     """Return the document that `xeda scrub --json` prints (schema 1).
 
     `outcome` is an `Outcome`, or `None` when the command line was refused before anything was
-    scanned. `error` is an `ErrorInfo` or `None`. `flow`, `design`, `target` and `run_root` are
+    scanned. `error` is an `ErrorInfo` or `None`. `flow`, `design_name`, `target` and `run_root` are
     what the command line gave, `None` for what it did not give. `result` is the `ScrubResult`; the
     lists are empty without it."""
 
@@ -471,9 +471,9 @@ def scrub_document(
     return {
         "schema_version": 1,
         "outcome": None if outcome is None else outcome.value,
-        "error": None if error is None else error.as_json_value(),
+        "error": None if error is None else error.to_dict(),
         "flow": flow,
-        "design": design,
+        "design_name": design_name,
         "target": target,
         "run_root": run_root,
         **{name: paths(name) for name in ("scanned", "removed", "kept", "gone", "skipped")},
@@ -485,7 +485,7 @@ def dse_document(
     outcome: Any,
     error: Any,
     flow: Optional[str],
-    design: Optional[str],
+    design_name: Optional[str],
     target: Optional[str],
     optimizer: Optional[str],
     best: Any = None,
@@ -501,9 +501,9 @@ def dse_document(
     return {
         "schema_version": 1,
         "outcome": None if outcome is None else outcome.value,
-        "error": None if error is None else error.as_json_value(),
+        "error": None if error is None else error.to_dict(),
         "flow": flow,
-        "design": design,
+        "design_name": design_name,
         "target": target,
         "optimizer": optimizer,
         "best": None if best is None else best.to_dict(),

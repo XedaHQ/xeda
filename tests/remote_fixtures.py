@@ -385,7 +385,7 @@ def run_of(call: Any) -> RemoteRun:
     except Exception as error:
         info = request_error_info(error)
         public = public_error(error)
-        document = {"outcome": None, "error": info.as_json_value(), "nodes": [], "roots": []}
+        document = {"outcome": None, "error": info.to_dict(), "nodes": [], "roots": []}
         document["error"]["code"] = public.code
         return RemoteRun(None, error, document)
     return RemoteRun(result, None, result.to_dict())

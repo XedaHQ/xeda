@@ -904,7 +904,7 @@ def run_document(metrics: dict[str, Any], *, runtime: float = 0.8, flow: str = "
                 "record": {
                     "schema_version": 1,
                     "identity": "f",
-                    "runtime": runtime,
+                    "runtime": f"{runtime} s",
                     "metrics": metrics,
                 },
             }
@@ -1008,7 +1008,7 @@ def test_the_results_of_a_node_are_read_from_its_record() -> None:
             "area": {"description": "area", "type": "number", "unit": "um^2"},
             "cells": {"description": "cells", "type": "integer", "unit": None},
         },
-        runtime=1.5,
+        runtime="1.5 s",
     )
     document = {
         "nodes": [

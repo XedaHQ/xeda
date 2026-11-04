@@ -121,7 +121,6 @@ Records of earlier runs
 
 .. autoclass:: xeda.ErrorInfo
    :members:
-   :exclude-members: as_json_value
 
 .. autoclass:: xeda.InputRecord
    :members:
@@ -146,7 +145,7 @@ Records of earlier runs
 
 .. autofunction:: xeda.records
 
-.. autofunction:: xeda.load
+.. autofunction:: xeda.load_record
 
 The unset value
 ---------------

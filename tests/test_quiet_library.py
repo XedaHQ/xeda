@@ -437,7 +437,7 @@ def test_a_failed_result_names_the_launch_of_the_records_of_the_launch_that_fail
     records = _collected(run)
     (inside,) = [r for r in records if r.getMessage() == "inside"]
     assert launch_id_of(raised[0]) == inside.xeda_launch_id is not None
-    error = ErrorInfo("internal_error", "a bug", None, None, None)
+    error = ErrorInfo(code="internal_error", message="a bug", node=None, exit_status=None, log=None)
     result = failed_result(runner, spec, None, error, launch_id=launch_id_of(raised[0]))
     assert result.launch_id == inside.xeda_launch_id
 
