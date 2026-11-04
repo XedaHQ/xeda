@@ -79,7 +79,6 @@ class FmaxOptimizer(Optimizer):
             # Only the values that both Quartus Prime editions (Standard and Pro) accept.
             "optimization_mode": ["HIGH PERFORMANCE EFFORT", "BALANCED"],
             "fitter_effort": ["AUTO FIT", "STANDARD FIT"],
-            "placement_effort_multiplier": [2.0, 1.0, 4.0],
         },
     }
 
