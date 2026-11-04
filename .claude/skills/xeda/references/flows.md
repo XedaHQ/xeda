@@ -155,7 +155,7 @@ Required settings: `fpga`
 
 10 flow-specific settings (plus the common ones): `xeda list-settings diamond_synth --json`
 
-Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `dsp`, `bram`
+Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `ff`, `slice`, `bram`, `dsp`
 
 Artifacts: `log`, `timing_report`, `place_route_report`, `map_report`, `bitstream`
 
