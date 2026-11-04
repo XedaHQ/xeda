@@ -769,6 +769,8 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         }
     )
     listing_of_flow = {"schema_version": _INTEGER, "flow": _STRING}
+    # `failure_document` fills a plain `dict`; the error has the keys of the error of a run.
+    failure = _object({"success": {"const": False}, "error": error})
 
     return {
         "results": _document("results.json", results),
@@ -800,6 +802,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         "list-boards": _listing("xeda list-boards --json", "boards", board),
         "list-platforms": _listing("xeda list-platforms --json", "platforms", platform),
         "list-optimizers": _listing("xeda list-optimizers --json", "optimizers", optimizer),
+        "failure": _document("a failed query, pdk or remote command", failure),
         "scrub": _document("xeda scrub --json", scrub),
         "dse": _document("xeda dse --json", dse, defs),
         "design": design_schema(),

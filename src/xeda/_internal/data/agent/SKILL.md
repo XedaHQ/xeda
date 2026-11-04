@@ -584,7 +584,7 @@ before the launch started exits 1 with the code `canceled`. Branch on
 `references/troubleshooting.md` has the messages and fixes. `scrub` has its own document with
 `outcome` (`passed`, `failed`, or `null` for a usage error, which exits 2) and the same `error`. `dse` has its own document with `outcome`, `error`, `best` (a `results.json` object, or `null`), `best_run_dir` (its run directory, or `null`) and `points`
 (one `{outcome, error, run_dir}` for each point that it tried); without a run that passed, the outcome is `failed` with the code `no_successful_run`. `pdk`, `remote check` and `list-*` keep
-their own documents: on failure they have `success: false` and `error.type`/`error.message`.
+their own documents: on failure they have `success: false` and an `error` with the same five keys (`code`, `message`, `node`, `exit_status`, `log`; the last three are `null`). `pdk` adds `pdk_not_installed`, `pdk_version_mismatch`, `pdk_install_busy` and `pdk_install_failed`.
 
 | `error.code` | Do |
 | --- | --- |

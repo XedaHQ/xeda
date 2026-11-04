@@ -143,7 +143,7 @@ def test_check_of_a_host_that_is_not_linux_fails_with_a_document(remote_host):
 
     document = _document(result)
     assert result.exit_code == 1 and document["success"] is False
-    assert document["error"]["type"] == "RemoteProvisionError"
+    assert document["error"]["code"] == "remote_setup_failed"
     assert "Linux" in document["error"]["message"]
 
 
@@ -163,25 +163,26 @@ def test_check_with_a_bad_profile_fails_with_a_document(remote_host):
 
     document = _document(result)
     assert result.exit_code == 1 and document["success"] is False
-    assert document["error"]["type"] == "RemoteConfigError"
+    assert document["error"]["code"] == "remote_setup_failed"
 
 
 @pytest.mark.parametrize(
-    ("arguments", "error_type"),
+    "arguments",
     [
-        (["check"], "MissingParameter"),
-        (["check", "somewhere", "--no-such-option"], "NoSuchOption"),
-        (["clean", "somewhere", "--older-than", "-1"], "BadParameter"),
-        (["clean", "somewhere", "--older-than", "soon"], "BadParameter"),
+        ["check"],
+        ["check", "somewhere", "--no-such-option"],
+        ["clean", "somewhere", "--older-than", "-1"],
+        ["clean", "somewhere", "--older-than", "soon"],
     ],
-    ids=lambda value: value if isinstance(value, str) else " ".join(value),
+    ids=" ".join,
 )
-def test_a_usage_error_is_a_document_with_json(arguments, error_type):
+def test_a_usage_error_is_a_document_with_json(arguments):
     result = _invoke(*arguments, "--json")
 
     document = _document(result)
     assert result.exit_code == 2 and document["success"] is False
-    assert document["error"]["type"] == error_type
+    assert document["error"]["code"] == "usage_error"
+    assert set(document["error"]) == {"code", "message", "node", "exit_status", "log"}
 
 
 # --- clean ------------------------------------------------------------------------------------
@@ -328,7 +329,7 @@ def test_clean_of_a_host_that_is_not_linux_fails_with_a_document(remote_host):
 
     document = _document(result)
     assert result.exit_code == 1 and document["success"] is False
-    assert document["error"]["type"] == "RemoteProvisionError"
+    assert document["error"]["code"] == "remote_setup_failed"
 
 
 def test_the_remote_group_is_listed_in_the_help():
@@ -374,7 +375,7 @@ def test_a_failed_connection_gives_exit_1_and_one_document(remote_host, monkeypa
 
     document = _document(result)  # the whole of stdout is this one document
     assert result.exit_code == 1 and document["success"] is False
-    assert document["error"]["type"] == "RemoteConnectionError"
+    assert document["error"]["code"] == "remote_unreachable"
     assert document["error"]["message"]
 
 
@@ -444,3 +445,75 @@ def test_clean_removes_exactly_what_was_listed_and_confirmed(remote_host, monkey
     assert not listed.exists()
     assert used.exists() and (remote.layout / "ws" / "late").exists()
     assert "recently used" in text
+
+
+# --- The failure envelope: one code for each kind of failure ----------------------------------
+
+
+def _fail_with(monkeypatch, error: BaseException) -> None:
+    def work(host, profile, work):
+        raise error
+
+    monkeypatch.setattr("xeda._internal.remote.commands._connect_and_run", work)
+
+
+@pytest.mark.parametrize(
+    ("make_error", "code"),
+    [
+        (lambda e: e.RemoteConfigError("bad"), "remote_setup_failed"),
+        (lambda e: e.RemoteProvisionError("step", "bad"), "remote_setup_failed"),
+        (lambda e: e.RemoteConnectionError("down"), "remote_unreachable"),
+        (lambda e: e.RemoteTimeout("slow"), "timeout"),
+        (lambda e: e.RemoteProtocolError("no document"), "remote_failed"),
+        (lambda e: e.RemoteError("agent failed"), "remote_failed"),
+        (lambda e: e.RemoteCanceled("stopped"), "canceled"),
+        (lambda e: KeyboardInterrupt(), "canceled"),
+        (lambda e: PermissionError("denied"), "storage_error"),
+        (lambda e: ValueError("bug"), "internal_error"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else "",
+)
+def test_a_remote_failure_has_the_code_of_its_kind(remote_host, monkeypatch, make_error, code):
+    from xeda._internal.remote import errors
+
+    _fail_with(monkeypatch, make_error(errors))
+
+    result = _invoke("check", "somewhere", "--json")
+
+    document = _document(result)
+    assert result.exit_code == 1 and document["success"] is False
+    assert document["error"]["code"] == code
+    assert set(document["error"]) == {"code", "message", "node", "exit_status", "log"}
+    assert document["error"]["node"] is None and document["error"]["log"] is None
+
+
+def test_an_agent_that_misses_its_deadline_is_a_timeout(remote_host, monkeypatch):
+    import subprocess
+
+    from xeda._internal.remote import commands
+    from xeda._internal.remote.ssh import SshSession
+
+    def late(self, command, **kwargs):
+        raise subprocess.TimeoutExpired(command, 1)
+
+    monkeypatch.setattr(commands, "_CHECK_TIMEOUT", 1.0)
+    monkeypatch.setattr(SshSession, "run", late)
+
+    result = _invoke("check", "somewhere", "--json")
+
+    assert result.exit_code == 1
+    assert _document(result)["error"]["code"] == "timeout"
+
+
+def test_a_cancel_with_survivors_is_a_failure_envelope(remote_host, monkeypatch):
+    survived = {"success": False, "host": "somewhere", "launch": "abc123", "survivors": 2}
+    monkeypatch.setattr("xeda._internal.remote.attach.cancel_launch", lambda *a, **k: survived)
+
+    result = _invoke("cancel", "somewhere", "--json")
+
+    document = _document(result)
+    assert result.exit_code == 1
+    assert set(document) == {"success", "error"} and document["success"] is False
+    assert document["error"]["code"] == "remote_failed"
+    for part in ("somewhere", "abc123", "2"):
+        assert part in document["error"]["message"]

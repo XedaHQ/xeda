@@ -37,7 +37,8 @@ and use no network.
 (``--json``, ``--format json``, ``--format jsonl`` and ``--format yaml``) installs without asking,
 as ``--yes`` does, because a program cannot answer a question. Tool output goes to stderr, and
 stdout carries one document: ``{"success": true, "directory": ..., "receipt": ...,
-"already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails. A failed
+"already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails (the ``error`` is the one of
+:ref:`failure-envelope`). A failed
 ``orfs`` or ``lambdapdk`` install leaves the store as it was, and it keeps no ``.git`` in it:
 several platforms can share the directory of one commit. A failed ``ciel`` install may leave files
 of ``ciel`` in the store, so a ``ciel`` store counts as installed for this command only when its
@@ -472,6 +473,8 @@ guessing its shape:
      - ``xeda/data/schemas/scrub.schema.json``
    * - ``xeda dse --json``
      - ``xeda/data/schemas/dse.schema.json``
+   * - a failure of a query, PDK or remote command
+     - ``xeda/data/schemas/failure.schema.json``
    * - a design file (``xeda design-schema``)
      - ``xeda/data/schemas/design.schema.json``
 
@@ -1011,6 +1014,45 @@ The command line (``cli``)
     The command line has a mistake that has no code of its own: an unknown option, no design, or
     options that need each other.
 
+The PDK store (``pdk``)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``pdk_not_installed``
+    ``xeda pdk path`` found no PDK files, or only some of them, for the platform.
+
+``pdk_version_mismatch``
+    The installed PDK files are not the version that the platform pins.
+
+``pdk_install_busy``
+    Another installation holds the lock of the PDK store. Try again later.
+
+``pdk_install_failed``
+    The download, checkout, verification or installation of the PDK files failed, or the store was
+    not safe to write.
+
+.. _failure-envelope:
+
+The failure of a query, PDK or remote command
+---------------------------------------------
+
+A failed ``list-*``, ``design-schema``, ``skill``, ``pdk`` or ``xeda remote`` command (except
+``remote attach`` after it found a launch) prints one document on stdout with ``--json`` (or another
+machine-readable format)::
+
+    {"success": false,
+     "error": {"code": "pdk_not_installed", "message": "...", "node": null,
+               "exit_status": null, "log": null}}
+
+The ``error`` has the keys of the ``error`` of a run document. ``node``, ``exit_status`` and ``log``
+are ``null`` for these failures. Branch on ``code``; the Python class that raised the error is not
+part of the document. The exit status is 2 for ``usage_error`` and ``flow_not_found`` (an unknown
+flow in ``list-settings`` or ``list-results``), else 1. Other codes: ``executable_not_found`` (no
+program can run the PDK installer), ``remote_setup_failed``, ``remote_unreachable``,
+``remote_failed``, ``timeout``, ``canceled``, ``storage_error`` and ``internal_error``. A report
+that finds a missing tool (``remote check``), a platform that is not installed (``pdk list``,
+``list-platforms``) or an entry that ``remote clean`` keeps is a success, not a failure.
+``xeda/data/schemas/failure.schema.json`` describes the document.
+
 Other documents of executional commands
 ---------------------------------------
 
@@ -1034,8 +1076,8 @@ The document of a remote dry run is the document of a local dry run, and has no 
 input files that the dry run uploaded to the host.
 
 ``xeda remote attach HOST [LAUNCH_ID] --json`` prints the document of the finished run. The other
-commands of ``xeda remote`` print one document each. A failure is ``{"success": false, "error": {"type": ..., "message": ...}}`` with exit status
-1.
+commands of ``xeda remote`` print one document each. A failure has the form of :ref:`failure-envelope`
+and exit status 1. ``remote attach`` keeps the run document once it has found a launch.
 
 ``check``
     ``success``, ``host``, ``platform`` (``system``, ``machine``, ``libc``, ``libc_version``),
@@ -1052,7 +1094,8 @@ commands of ``xeda remote`` print one document each. A failure is ``{"success": 
 
 ``cancel``
     ``success``, ``host``, ``launch`` and ``survivors``, the number of processes that SIGKILL did
-    not stop. ``success`` is false when ``survivors`` is not zero.
+    not stop. When ``survivors`` is not zero, the document is a failure with the code
+    ``remote_failed``, and its message names the host, the launch and the number of survivors.
 
 ``xeda dse ... --json`` prints one document with ``schema_version``, ``outcome``, ``error``,
 ``flow``, ``design``, ``target``, ``optimizer``, ``best``, ``best_run_dir`` and ``points``. Each

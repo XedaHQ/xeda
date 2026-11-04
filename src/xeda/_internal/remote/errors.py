@@ -48,6 +48,10 @@ class RemoteIncompatible(RemoteError):
     """The remote resolved another plan than the local xeda did."""
 
 
+class RemoteTimeout(RemoteError):
+    """The agent on the host did not finish an operation within its deadline."""
+
+
 class RemoteCanceled(RemoteError):
     """The launch on the remote was canceled: by Ctrl-C, or because the connection was lost."""
 

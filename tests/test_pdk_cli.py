@@ -391,14 +391,14 @@ def test_a_missing_pdk_fails_with_the_same_message_in_the_json_error(home, tmp_p
     assert proc.returncode != 0
     error = document(proc)
     assert error["success"] is False
-    assert error["error"]["type"] == "PdkNotInstalled"
+    assert error["error"]["code"] == "pdk_not_installed"
     assert error["error"]["message"] + "\n" == text.stderr
 
 
 def test_a_missing_pdk_in_the_default_store_fails_the_same_way(home):
     proc = run_xeda("pdk", "path", "nangate45", "--json", home=home)
     assert proc.returncode != 0
-    assert document(proc)["error"]["type"] == "PdkNotInstalled"
+    assert document(proc)["error"]["code"] == "pdk_not_installed"
 
 
 def test_an_unknown_platform_fails_naming_the_bundled_ones(home, store):
@@ -521,7 +521,7 @@ def test_a_missing_pdk_of_a_user_file_is_refused_like_a_bundled_one(home, tmp_pa
         home=home,
     )
     assert proc.returncode != 0
-    assert document(proc)["error"]["type"] == "PdkNotInstalled"
+    assert document(proc)["error"]["code"] == "pdk_not_installed"
     message = document(proc)["error"]["message"]
     assert "platform 'mine' needs the PDK files" in message
     assert f"install:   xeda pdk install --platform-file {user.resolve()} --root " in message
@@ -564,7 +564,7 @@ def test_pdk_path_refuses_files_whose_marker_names_another_version(home, tmp_pat
     assert proc.returncode != 0
     error = document(proc)
     assert error["success"] is False
-    assert error["error"]["type"] == "PdkVersionMismatch"
+    assert error["error"]["code"] == "pdk_version_mismatch"
     assert error["error"]["message"] + "\n" == text.stderr
 
 
@@ -624,7 +624,7 @@ def test_a_platform_or_a_platform_file_is_needed_but_not_both(home, tmp_path):
         assert proc.returncode != 0
         error = document(proc)
         assert error["success"] is False
-        assert error["error"]["type"] == "UsageError"
+        assert error["error"]["code"] == "usage_error"
         assert "--platform-file" in error["error"]["message"]
 
 
@@ -660,7 +660,7 @@ def test_the_default_root_follows_home_and_not_a_variable_of_xeda(home, store):
         timeout=HANG_GUARD,
     )
     assert proc.returncode != 0
-    assert document(proc)["error"]["type"] == "PdkNotInstalled"
+    assert document(proc)["error"]["code"] == "pdk_not_installed"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1274,7 +1274,7 @@ def test_a_failed_install_gives_a_failure_document_and_leaves_the_store(
     assert result.exit_code == 1
     answer = json.loads(result.stdout)
     assert answer["success"] is False
-    assert answer["error"]["type"] == "PdkInstallFailed"
+    assert answer["error"]["code"] == "pdk_install_failed"
     assert unknown in answer["error"]["message"]
     assert tree(root) == ["xeda", "xeda/.lock"]
 
@@ -1291,7 +1291,7 @@ def test_a_busy_store_fails_with_a_document(monkeypatch, home, tmp_path, upstrea
                         "--json", home=home)  # fmt: skip
     assert result.exit_code == 1
     answer = json.loads(result.stdout)
-    assert answer["error"]["type"] == "PdkInstallBusy"
+    assert answer["error"]["code"] == "pdk_install_busy"
     assert not nangate_directory(root, upstream.commit).exists()
 
 
@@ -1358,7 +1358,7 @@ def test_a_missing_installer_is_reported_before_anything_is_written(monkeypatch,
     result = invoke(monkeypatch, "--platform-file", str(user), "--root", str(root), "--json",
                     home=home)  # fmt: skip
     assert result.exit_code == 1
-    assert json.loads(result.stdout)["error"]["type"] == "PdkInstallerMissing"
+    assert json.loads(result.stdout)["error"]["code"] == "executable_not_found"
     assert not root.exists()
 
 
@@ -1481,7 +1481,7 @@ def test_a_root_that_cannot_be_written_fails_with_one_document(monkeypatch, home
     assert result.exit_code == 1
     answer = json.loads(result.stdout)
     assert answer["success"] is False
-    assert answer["error"]["type"] == "PdkInstallFailed"
+    assert answer["error"]["code"] == "pdk_install_failed"
     assert str(root) in answer["error"]["message"]
     assert tree(root) == []
 
@@ -1618,7 +1618,7 @@ def test_a_platform_file_that_fails_when_merged_is_refused_by_the_option(
     if fmt:
         error = document(proc)
         assert error["success"] is False
-        assert error["error"]["type"] == "BadParameter"
+        assert error["error"]["code"] == "usage_error"
         message = error["error"]["message"]
     else:
         message = proc.stderr
@@ -1730,7 +1730,7 @@ def test_an_orfs_install_refuses_a_link_in_the_store_and_writes_nothing(
     if fmt:
         answer = json.loads(result.stdout)
         assert answer["success"] is False
-        assert answer["error"]["type"] == "PdkInstallFailed"
+        assert answer["error"]["code"] == "pdk_install_failed"
         message = answer["error"]["message"]
     else:
         message = result.output
@@ -1938,7 +1938,7 @@ def test_a_link_to_a_directory_that_cannot_be_searched_is_refused_with_its_messa
     if fmt:
         answer = json.loads(result.stdout)
         assert answer["success"] is False
-        assert answer["error"]["type"] == "PdkInstallFailed"
+        assert answer["error"]["code"] == "pdk_install_failed"
         message = answer["error"]["message"]
     else:
         message = result.output
@@ -1977,7 +1977,7 @@ def test_a_file_check_that_fails_in_the_store_is_an_install_failure(
     if fmt:
         answer = json.loads(result.stdout)
         assert answer["success"] is False
-        assert answer["error"]["type"] == "PdkInstallFailed"
+        assert answer["error"]["code"] == "pdk_install_failed"
         message = answer["error"]["message"]
     else:
         message = result.output
