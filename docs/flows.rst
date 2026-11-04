@@ -640,9 +640,14 @@ A setting that holds a plain number takes no unit. These settings hold plain num
 Settings of the design-space search
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``xeda dse`` keeps plain numbers for its options and optimizer settings: the frequency bounds
-(``--init-freq-low`` and ``--init-freq-high``), ``resolution``, ``delta``, ``max_runtime_minutes``
-and ``timeout``.
+The settings of ``xeda dse`` follow the same rules. A duration or a frequency takes a unit:
+``max_runtime`` (``12 h``), ``round_timeout`` (``90 min``), ``initial_frequency_low`` and
+``initial_frequency_high`` (``100 MHz``), ``frequency_resolution``, ``frequency_delta`` and
+``variation_increase_threshold``. The options ``--initial-frequency-low`` and
+``--initial-frequency-high`` take the same text. The other numbers are counts: ``max_workers``,
+``max_failed_rounds``, ``max_failed_rounds_with_best``, ``initial_variation_count``,
+``max_unimproved_rounds`` and ``max_luts``. A *round* is one batch of points that the optimizer
+asks for. ``max_luts: 0`` allows no LUT; leave it unset for no limit.
 
 .. _settings-groups:
 

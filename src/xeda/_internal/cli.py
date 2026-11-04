@@ -64,7 +64,12 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     )
     from .flow_runner.chains import parse_request
     from .flow_runner.dse import Dse
-    from .flow_runner.dse.dse_runner import RESULTS_SHOWN, DseResult
+    from .flow_runner.dse.dse_runner import (
+        RESULTS_SHOWN,
+        DseResult,
+        load_optimizer_class,
+        unsupported_flow_reason,
+    )
     from .flow_runner.error_codes import NO_SUCCESSFUL_RUN, public_error, request_error_info
     from .flow_runner.launch_report import results_of
     from .records import CANCELED, INTERNAL_ERROR, ErrorInfo
@@ -125,6 +130,28 @@ else:
 log = logging.getLogger(__name__)
 
 
+LOG_LEVELS = ("debug", "info", "warning", "error", "critical")
+
+
+def _log_level_number(ctx: click.Context, param: click.Parameter, value: Optional[str]):
+    """Return the number of the named level that `--log-level` gave, or None."""
+    return None if value is None else getattr(logging, value.upper())
+
+
+def _log_level_option(func):
+    """Add `--log-level` (`XEDA_LOG_LEVEL`), which takes a level by name. The command gets its
+    number, or None when the option is not given."""
+    return click.option(
+        "--log-level",
+        envvar="XEDA_LOG_LEVEL",
+        show_envvar=True,
+        type=click.Choice(LOG_LEVELS),
+        default=None,
+        callback=_log_level_number,
+        help="Show log messages at this severity or higher (default: info).",
+    )(func)
+
+
 def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
     root = logging.getLogger()
     root.setLevel(log_level)
@@ -180,7 +207,7 @@ def _removed_debug_option(ctx: click.Context, param: click.Parameter, value: Any
         else:
             given = param.opts[0]
         raise click.UsageError(
-            f"`{given}` was removed: use --log-level 10 and --detailed-logs", ctx=ctx
+            f"`{given}` was removed: use --log-level debug and --detailed-logs", ctx=ctx
         )
 
 
@@ -221,8 +248,8 @@ def _removed_options(
 # click-extra uses the command name as prog_name, including for Click's completion protocol.
 # Keep it aligned with the console entry point and its _XEDA_COMPLETE environment variable.
 @click.group("xeda", cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
-@_removed_options("--log-level 10 for more log messages", "--verbose", "-v")
-@_removed_options("--log-level 30 for fewer log messages", "--quiet", "-q")
+@_removed_options("--log-level debug for more log messages", "--verbose", "-v")
+@_removed_options("--log-level warning for fewer log messages", "--quiet", "-q")
 @_removed_options(None, "--debug", "-d", callback=_removed_debug_option, envvar="XEDA_DEBUG")
 @click.version_option(message="Xeda v%(version)s")
 def cli():
@@ -1057,7 +1084,7 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
     show_envvar=True,
     default=False,
 )
-@click.option("--log-level", envvar="XEDA_LOG_LEVEL", show_envvar=True, type=int, default=None)
+@_log_level_option
 @click.option(
     "--post-cleanup",
     is_flag=True,
@@ -1492,8 +1519,9 @@ def run(
     envvar="XEDA_DETAILED_LOGS",
     show_envvar=True,
     default=True,
+    help="Include detailed context in log messages.",
 )
-@click.option("--log-level", envvar="XEDA_LOG_LEVEL", show_envvar=True, type=int, default=None)
+@_log_level_option
 @click.option(
     "--optimizer",
     envvar="XEDA_OPTIMIZER",
@@ -1501,6 +1529,7 @@ def run(
     type=str,
     default="fmax_optimizer",
     show_default=True,
+    help="Built-in optimizer to use. `xeda list-optimizers` lists them.",
 )
 @click.option(
     "--dse-settings",
@@ -1510,6 +1539,8 @@ def run(
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
+    help="Override exploration settings with KEY=VALUE items, using unit text for durations, "
+    "such as max_runtime='6 h'.",
 )
 @click.option(
     "--optimizer-settings",
@@ -1519,6 +1550,9 @@ def run(
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
+    help="Override optimizer settings with KEY=VALUE items, using unit text for frequencies, "
+    "such as initial_frequency_low='100 MHz'. They override --initial-frequency-low and "
+    "--initial-frequency-high.",
 )
 @click.option(
     "--max-workers",
@@ -1526,28 +1560,34 @@ def run(
     show_envvar=True,
     type=int,
     default=None,
-    help="Maximum number of concurrent runs.",
+    help="Run at most this many exploration points at the same time. Overrides the "
+    "`max_workers` exploration setting.",
 )
 @click.option(
-    "--init-freq-low",
-    type=float,
+    "--initial-frequency-low",
+    metavar="FREQUENCY",
+    type=str,
+    help="Lower frequency bound of the first round, such as '100 MHz'. Sets "
+    "`initial_frequency_low` unless --optimizer-settings gives it.",
 )
 @click.option(
-    "--init-freq-high",
-    type=float,
+    "--initial-frequency-high",
+    metavar="FREQUENCY",
+    type=str,
+    help="Upper frequency bound of the first round, such as '200 MHz'. Sets "
+    "`initial_frequency_high` unless --optimizer-settings gives it.",
 )
-@_removed_options("--init-freq-low", "--init_freq_low", took_value=True)
-@_removed_options("--init-freq-high", "--init_freq_high", took_value=True)
+@_removed_options("--initial-frequency-low", "--init-freq-low", "--init_freq_low", took_value=True)
+@_removed_options(
+    "--initial-frequency-high", "--init-freq-high", "--init_freq_high", took_value=True
+)
 @_removed_options(None, "--debug", "-d", callback=_removed_debug_option)
 @click.option(
     "--json",
     "json_flag",
     is_flag=True,
     default=False,
-    help=(
-        "Write a machine-readable JSON summary of the exploration to stdout; tool output and "
-        "logs go to stderr."
-    ),
+    help=("Write one JSON exploration summary to stdout. Tool output and logs go to stderr."),
 )
 @click.pass_context
 def dse(
@@ -1559,8 +1599,8 @@ def dse(
     optimizer_settings: Tuple[str, ...],
     dse_settings: Tuple[str, ...],
     max_workers: Optional[int],
-    init_freq_low: float,
-    init_freq_high: float,
+    initial_frequency_low: Optional[str],
+    initial_frequency_high: Optional[str],
     run_root: Path,
     config: Optional[Path] = None,
     no_config: bool = False,
@@ -1629,12 +1669,17 @@ def dse(
     # Resolving the optimizer inside Dse() raises an AttributeError that names nothing useful,
     # so check it here, where the available names are known.
     known_optimizers = {o["name"] for o in optimizers_info()}
-    if optimizer not in known_optimizers and "." not in optimizer:
+    if optimizer not in known_optimizers:
         raise click.UsageError(
             f"Unknown optimizer '{optimizer}'. Available optimizers: "
             f"{', '.join(sorted(known_optimizers))}. See `xeda list-optimizers`.",
             ctx=ctx,
         )
+
+    # The flow check is a usage error: it needs the flow and the optimizer, nothing of the design.
+    unsupported = unsupported_flow_reason(load_optimizer_class(optimizer), flow)
+    if unsupported is not None:
+        raise click.UsageError(unsupported, ctx=ctx)
 
     if log_level is None:
         log_level = logging.INFO
@@ -1647,7 +1692,7 @@ def dse(
         dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
     except XedaException as e:  # a key given as a value and as a table
         not_ended(e)
-    if max_workers:
+    if max_workers is not None:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 
     # `optimizer_settings` sets the same options; prefer it.
@@ -1658,7 +1703,8 @@ def dse(
         **{
             name: value
             for name, value in dict(
-                init_freq_low=init_freq_low, init_freq_high=init_freq_high
+                initial_frequency_low=initial_frequency_low,
+                initial_frequency_high=initial_frequency_high,
             ).items()
             if value is not None
         },

@@ -189,7 +189,7 @@ case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
   `stop_time` (`100 us`), `prerun_time`, `time_unit`, `time_resolution` and `lic_wait` of `vcs`,
   the Vivado `default_{max,min}_{input,output}_delay`, the two `max` delays of `dc`,
   `hold_detour_max` of `nextpnr` and `freq` of `openfpgaloader` (`6 MHz`). A bare number is refused
-  (`invalid_quantity`). Only the numbers of `xeda dse` stay plain.
+  (`invalid_quantity`).
 
 ## Source files
 

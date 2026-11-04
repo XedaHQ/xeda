@@ -22,8 +22,9 @@ import pytest
 from click.testing import CliRunner
 
 from xeda import Design
+from xeda._internal import cli as cli_module
 from xeda._internal.cli import cli
-from xeda._internal.flow import FlowSettingsException
+from xeda._internal.flow import Flow, FlowSettingsException
 from xeda._internal.flow_runner.chains import parse_request
 from xeda._internal.flows import VivadoSynth
 from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
@@ -269,12 +270,12 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
             "sqrt.yaml",
             "--max-workers",
             "2",
-            "--init-freq-low",
-            "100",
-            "--init-freq-high",
-            "300",
+            "--initial-frequency-low",
+            "100 MHz",
+            "--initial-frequency-high",
+            "300 MHz",
             "--dse-settings",
-            "max_failed_iters=2",
+            "max_failed_rounds=2",
             "--json",
         ],
         cwd=tmp_path,
@@ -342,7 +343,7 @@ def test_an_exploration_that_fails_at_input_makes_no_run_root(tmp_path, monkeypa
     assert result.exit_code != 0 and not (tmp_path / "xeda_run").exists()
 
 
-def _dse(tmp_path, design_toml: str, *args):
+def _dse(tmp_path, design_toml: str, *args, flow="vivado_synth"):
     """Configure a design space exploration run."""
     (tmp_path / "sqrt.vhdl").write_text((SQRT / "sqrt.vhdl").read_text())
     (tmp_path / "d.toml").write_text(design_toml)
@@ -352,7 +353,7 @@ def _dse(tmp_path, design_toml: str, *args):
             "-m",
             "xeda",
             "dse",
-            "vivado_synth",
+            flow,
             "d.toml",
             *args,
             "--json",
@@ -370,18 +371,18 @@ BARE = 'name = "sqrt"\n[rtl]\nsources = ["sqrt.vhdl"]\ntop = "sqrt"\nclocks = ["
 
 
 def test_a_search_without_its_bounds_names_them(tmp_path):
-    """Without `--init-freq-low/high`, the CLI handed the optimizer `None` for both and the user
+    """Without `--initial-frequency-low/high`, the CLI handed the optimizer `None` for both and the user
     got pydantic's `Input should be a valid number [type=float_type, input_value=None]`."""
     proc, document = _dse(tmp_path, BARE + '[flows.vivado_synth]\nfpga.part = "xc7a12tcsg325-1"\n')
     assert proc.returncode == 2 and document["outcome"] is None
     error = document["error"]
     assert error["code"] == "required_setting"
-    assert "init_freq_" in error["message"]
+    assert "initial_frequency_" in error["message"]
     # the optimizer is refused before the design is read
     assert document["design"] is None
     assert "None" not in error["message"] and "float_type" not in error["message"]
     # the log of the command names both bounds
-    assert "init_freq_low" in proc.stderr and "init_freq_high" in proc.stderr
+    assert "initial_frequency_low" in proc.stderr and "initial_frequency_high" in proc.stderr
 
 
 def test_a_removed_setting_of_an_exploration_has_the_code_of_a_removed_flow_setting(
@@ -409,17 +410,20 @@ def test_a_removed_setting_of_an_exploration_has_no_traceback_without_json(tmp_p
     assert result.exit_code == 2 and isinstance(result.exception, SystemExit), result.exception
 
 
-@pytest.mark.parametrize("timeout", [0, -1])
-def test_an_exploration_refuses_a_timeout_that_is_not_positive(timeout):
+@pytest.mark.parametrize("name", ["round_timeout", "max_runtime"])
+@pytest.mark.parametrize("duration", ["0 s", "-1 s"])
+def test_an_exploration_refuses_a_duration_that_is_not_positive(name, duration):
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        Dse.Settings(timeout=timeout)
+        Dse.Settings(**{name: duration})
 
 
 def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     """A search without a device says so before starting any run."""
-    proc, document = _dse(tmp_path, BARE, "--init-freq-low", "100", "--init-freq-high", "300")
+    proc, document = _dse(
+        tmp_path, BARE, "--initial-frequency-low", "100 MHz", "--initial-frequency-high", "300 MHz"
+    )
     assert proc.returncode == 2 and document["outcome"] is None
     assert document["error"]["code"] == "required_setting"
     assert "`fpga`" in document["error"]["message"]
@@ -556,14 +560,14 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
     runner = Dse(
         _ObservedFmax,
         optimizer_settings={
-            "init_freq_low": 100.0,
-            "init_freq_high": 300.0,
-            "stop_after_no_improves": 2,
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "300 MHz",
+            "max_unimproved_rounds": 2,
         },
         run_root=tmp_path / "run",
         variations={},
         max_workers=1,
-        max_failed_iters_with_best=1,
+        max_failed_rounds_with_best=1,
     )
     assert runner.run(
         TFmaxPlace,
@@ -596,7 +600,10 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     )
     runner = Dse(
         _IdleFmax,
-        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 200.0},
+        optimizer_settings={
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "200 MHz",
+        },
         run_root=tmp_path / "run",
         max_workers=1,
         **dse_settings,
@@ -646,7 +653,9 @@ def test_a_promotion_leaves_the_default_table_as_it_was(monkeypatch):
 
     pristine = copy.deepcopy(FmaxOptimizer.default_variations)
     monkeypatch.setattr(FmaxOptimizer, "default_variations", copy.deepcopy(pristine))
-    optimizer = FmaxOptimizer(max_workers=2, init_freq_low=100.0, init_freq_high=200.0)
+    optimizer = FmaxOptimizer(
+        max_workers=2, initial_frequency_low="100 MHz", initial_frequency_high="200 MHz"
+    )
     optimizer.variations = FmaxOptimizer.default_variations["vivado_alt_synth"]
     optimizer.num_variations = 2  # reached when a search stalls
     optimizer.variation_choices = [
@@ -720,8 +729,8 @@ def test_a_search_removes_its_log_handler_when_its_set_up_fails(tmp_path, monkey
 
 
 def test_the_default_runtime_limit_of_a_search_is_twelve_hours():
-    """`max_runtime_minutes` is compared with `Timer.minutes`, so the default is in minutes."""
-    assert Dse.Settings().max_runtime_minutes == 12 * 60
+    assert Dse.Settings().max_runtime == Time("12 h")
+    assert str(Dse.Settings().max_runtime) == "43200 s"
 
 
 class TTimingJudged(FpgaSynthFlow):
@@ -800,7 +809,10 @@ def _search_timing_judged(tmp_path) -> Dse:
     design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
     runner = Dse(
         _OneBatchFmax,
-        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 300.0},
+        optimizer_settings={
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "300 MHz",
+        },
         run_root=tmp_path / "run",
         variations={},
         max_workers=2,
@@ -859,8 +871,8 @@ def test_a_search_gets_the_same_outcomes_when_it_replays_the_rejections_of_the_f
 
 OPENROAD_DSE_REFUSAL = (
     "Fmax exploration of the OpenROAD flows is not supported yet: the clock is a setting of "
-    "openroad_place, which the optimizer does not reach. Run `xeda dse` on `yosys`, or vary "
-    "`flows.openroad_place.clocks` yourself."
+    "openroad_place, which the optimizer does not reach. Vary `flows.openroad_place.clocks` "
+    "yourself."
 )
 
 
@@ -938,10 +950,10 @@ def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
                 "dse",
                 "openroad_place",
                 str(design),
-                "--init-freq-low",
-                "100",
-                "--init-freq-high",
-                "300",
+                "--initial-frequency-low",
+                "100 MHz",
+                "--initial-frequency-high",
+                "300 MHz",
                 "--json",
             ],
         )
@@ -985,7 +997,10 @@ def test_a_search_checks_a_bluespec_design_as_the_verilog_that_bsc_converts_it_t
     )
     runner = Dse(
         _IdleFmax,
-        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 200.0},
+        optimizer_settings={
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "200 MHz",
+        },
         run_root=tmp_path / "run",
         max_workers=1,
     )
@@ -1084,6 +1099,10 @@ def _dse_command(tmp_path, monkeypatch, optimizer_class, *extra):
     does, and return the result of the command and its document."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "d.yaml").write_text("name: d\nrtl:\n  sources: []\n  top: t\n  clocks: [clk]\n")
+    # The command takes the built-in optimizers only: list this one among them.
+    name = f"{optimizer_class.__module__}.{camelcase_to_snakecase(optimizer_class.__name__)}"
+    listed = cli_module.optimizers_info
+    monkeypatch.setattr(cli_module, "optimizers_info", lambda: [*listed(), {"name": name}])
     result = CliRunner().invoke(
         cli,
         [
@@ -1091,8 +1110,7 @@ def _dse_command(tmp_path, monkeypatch, optimizer_class, *extra):
             "t_dse_failing",
             "d.yaml",
             "--optimizer",
-            # the command line names an optimizer in snake case, as `load_class` reads it
-            f"{optimizer_class.__module__}.{camelcase_to_snakecase(optimizer_class.__name__)}",
+            name,
             "--dse-settings",
             "max_workers=1",
             "--json",
@@ -1445,9 +1463,9 @@ def test_an_exploration_refuses_a_setting_that_it_does_not_read(tmp_path, name):
     assert f"`{name}` was removed: " in message and "; delete it" in message
 
 
-def test_the_timeout_describes_what_it_limits():
-    description = Dse.Settings.model_fields["timeout"].description
-    assert description and "one round" in description and "canceled" in description
+def test_the_round_timeout_describes_what_it_limits():
+    description = Dse.Settings.model_fields["round_timeout"].description
+    assert description and "round" in description and "next round" in description
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1472,7 +1490,9 @@ def _tagging_search(monkeypatch, choices):
     the next batches takes."""
     from xeda._internal.flow_runner.dse import fmax
 
-    optimizer = FmaxOptimizer(max_workers=2, init_freq_low=100.0, init_freq_high=200.0)
+    optimizer = FmaxOptimizer(
+        max_workers=2, initial_frequency_low="100 MHz", initial_frequency_high="200 MHz"
+    )
     optimizer.flow_class = TDseLeaf
     optimizer.base_settings = TDseLeaf.Settings()
     optimizer.variations = {"tag": ["a", "b", "c", "d"]}
@@ -1586,3 +1606,244 @@ def test_the_optimizer_gets_the_position_of_a_point_in_the_batch_it_gave(tmp_pat
     result = runner.run(TDseLeaf, design, **arguments)
     assert len(result.points) == 3
     assert runner.optimizer.positions == {"one": 0, "two": 1, "three": 1}
+
+
+# ---------------------------------------------------------------------------------------------
+# The public contract: which flows, which names, which limits
+# ---------------------------------------------------------------------------------------------
+
+
+class DseEndless(DseVariants):
+    """One point in each round: the first round passes when `first_passes`, every later one fails."""
+
+    first_passes = False
+
+    def next_batch(self):
+        self.rounds = getattr(self, "rounds", 0) + 1
+        tag = "good" if self.rounds == 1 and self.first_passes else f"bad {self.rounds}"
+        base = self.base_settings.model_dump()
+        return [merge_layers(base, {"tag": tag}, settings_cls=self.flow_class.Settings)]
+
+
+class DseEndlessWithBest(DseEndless):
+    first_passes = True
+
+
+@pytest.mark.parametrize(
+    ("optimizer", "settings", "rounds"),
+    [
+        (DseEndless, {"max_failed_rounds": 3}, 3),
+        (DseEndless, {"max_failed_rounds": 1}, 1),
+        (DseEndlessWithBest, {"max_failed_rounds_with_best": 2}, 3),
+    ],
+    ids=["failed", "one-failed", "failed-with-best"],
+)
+def test_a_search_stops_after_exactly_the_failed_rounds_that_the_setting_names(
+    tmp_path, monkeypatch, optimizer, settings, rounds
+):
+    runner, design, arguments = _leaf_dse(tmp_path, monkeypatch, optimizer, **settings)
+    runner.run(TDseFailing, design, **arguments)
+    assert runner.optimizer.rounds == rounds
+
+
+def test_max_luts_zero_allows_no_lut_and_unset_allows_any():
+    def best(max_luts, lut):
+        optimizer = FmaxOptimizer(
+            max_workers=1,
+            initial_frequency_low="100 MHz",
+            initial_frequency_high="200 MHz",
+            max_luts=max_luts,
+        )
+        optimizer.variation_choices = [{}]
+        return optimizer.process_outcome(_fmax_outcome(150.0, lut=lut), 0)
+
+    assert best(0, 1) is False
+    assert best(0, 0) is True
+    assert best(10, 11) is False
+    assert best(None, 10**6) is True
+
+
+def test_a_search_with_no_variations_looks_at_the_frequency_only(tmp_path, monkeypatch):
+    """A flow that the optimizer has no table for, and a caller that gives none: the search
+    varies the clock period and nothing else."""
+    monkeypatch.chdir(tmp_path)
+    assert "t_fmax_place" not in FmaxOptimizer.default_variations
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t", "clocks": ["clk"]})
+    runner = Dse(
+        _ObservedFmax,
+        optimizer_settings={
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "300 MHz",
+            "max_unimproved_rounds": 2,
+        },
+        run_root=tmp_path / "run",
+        max_workers=2,
+        max_failed_rounds_with_best=1,
+    )
+    result = runner.run(
+        TFmaxPlace,
+        design,
+        flow_settings=node_settings(
+            TFmaxPlace,
+            {"fpga": {"part": "LFE5U-25F-6BG256C"}, "clocks": {"main_clock": {"period": "10 ns"}}},
+        ),
+    )
+    assert runner.optimizer.variations == {}
+    assert result.best is not None and len(runner.optimizer.outcomes) >= 2
+    assert {outcome.settings.tag for outcome in runner.optimizer.outcomes} == {"base"}
+
+
+def test_the_explorable_flows_are_those_with_clocks_and_an_fmax_metric():
+    from xeda._internal import flows
+
+    classes = {
+        item.name: item
+        for item in map(lambda name: getattr(flows, name), flows.__all__)
+        if isinstance(item, type) and issubclass(item, Flow) and item.name
+    }
+    explorable = {
+        name
+        for name, flow_class in classes.items()
+        if "clocks" in flow_class.Settings.model_fields and "fmax" in flow_class.results_description
+    }
+    assert explorable == {
+        "dc",
+        "ise_synth",
+        "nextpnr",
+        "openroad_place",
+        "quartus",
+        "vivado_alt_synth",
+        "vivado_impl",
+        "vivado_synth",
+    }
+    for name in explorable - {"openroad_place"}:
+        assert FmaxOptimizer.unsupported_flow(classes[name]) is None, name
+    for name in set(classes) - explorable:
+        assert FmaxOptimizer.unsupported_flow(classes[name]), name
+
+
+@pytest.mark.parametrize(
+    ("flow", "missing"),
+    [
+        ("yosys_fpga", "no `fmax` metric"),
+        ("ghdl_synth", "no `fmax` metric"),
+        ("ghdl_sim", "no `clocks` setting and no `fmax` metric"),
+    ],
+)
+def test_an_unsupported_flow_is_a_usage_error_before_any_design_is_read(tmp_path, flow, missing):
+    proc, document = _dse(
+        tmp_path,
+        "",
+        "--initial-frequency-low",
+        "100 MHz",
+        "--initial-frequency-high",
+        "200 MHz",
+        flow=flow,
+    )
+    assert proc.returncode == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "usage_error"
+    assert document["error"]["message"] == (
+        f"xeda dse: optimizer 'fmax_optimizer' does not support flow '{flow}': "
+        f"the flow has {missing}."
+    )
+    assert document["design"] is None and document["points"] == []
+
+
+@pytest.mark.parametrize("flow", ["nextpnr", "quartus", "vivado_synth", "vivado_alt_synth"])
+def test_the_default_variation_tables_hold_valid_settings(flow):
+    from xeda._internal.flow_runner.settings_layers import registered_flow
+    from xeda._internal.utils import settings_to_dict
+
+    flow_class = registered_flow(flow)
+    table = FmaxOptimizer.default_variations[flow]
+    assert table
+    for key, choices in table.items():
+        assert choices, key
+        for choice in choices:
+            flow_class.Settings.from_input(settings_to_dict({key: choice}, hierarchical_keys=True))
+
+
+@pytest.mark.parametrize(
+    ("old", "value", "new"),
+    [
+        ("max_runtime_minutes", 60, "max_runtime"),
+        ("timeout", 60, "round_timeout"),
+        ("keep_optimal_run_dirs", True, "keep_all_run_dirs"),
+        ("max_failed_iters", 3, "max_failed_rounds"),
+        ("max_failed_iters_with_best", 3, "max_failed_rounds_with_best"),
+    ],
+)
+def test_a_renamed_exploration_setting_names_its_successor(old, value, new):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as refused:
+        Dse.Settings(**{old: value})
+    assert f"`{old}` was removed: use `{new}`" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("init_freq_low", "initial_frequency_low"),
+        ("init_freq_high", "initial_frequency_high"),
+        ("resolution", "frequency_resolution"),
+        ("delta", "frequency_delta"),
+        ("min_improve_inc_variations", "variation_increase_threshold"),
+        ("init_num_variations", "initial_variation_count"),
+        ("stop_after_no_improves", "max_unimproved_rounds"),
+    ],
+)
+def test_a_renamed_optimizer_setting_names_its_successor(old, new):
+    from pydantic import ValidationError
+
+    given = {"initial_frequency_low": "100 MHz", "initial_frequency_high": "200 MHz", old: 1}
+    with pytest.raises(ValidationError) as refused:
+        FmaxOptimizer.Settings(**given)
+    assert f"`{old}` was removed: use `{new}`" in str(refused.value)
+
+
+def test_the_optimizer_settings_take_frequencies_with_units():
+    from pydantic import ValidationError
+
+    settings = FmaxOptimizer.Settings(
+        initial_frequency_low="0.1 GHz", initial_frequency_high="200 MHz"
+    )
+    assert str(settings.initial_frequency_low) == "100 MHz"
+    assert str(settings.frequency_resolution) == "0.1 MHz"
+    for bad in (100, "0 MHz", "fast"):
+        with pytest.raises(ValidationError):
+            FmaxOptimizer.Settings(initial_frequency_low=bad, initial_frequency_high="200 MHz")
+    for name in ("initial_variation_count", "max_unimproved_rounds"):
+        with pytest.raises(ValidationError):
+            FmaxOptimizer.Settings(
+                initial_frequency_low="1 MHz", initial_frequency_high="2 MHz", **{name: 0}
+            )
+
+
+def test_a_zero_maximum_of_workers_is_refused_not_defaulted(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "dse",
+            "vivado_synth",
+            "--max-workers",
+            "0",
+            "--initial-frequency-low",
+            "1 MHz",
+            "--initial-frequency-high",
+            "2 MHz",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "max_workers" in json.loads(result.stdout)["error"]["message"]
+
+
+def test_the_command_refuses_an_optimizer_that_is_no_built_in_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        cli, ["dse", "vivado_synth", "--optimizer", "tests.test_dse_run.dse_only_bad", "--json"]
+    )
+    assert result.exit_code == 2
+    assert "Unknown optimizer" in json.loads(result.stdout)["error"]["message"]

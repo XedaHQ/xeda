@@ -648,10 +648,10 @@ def test_dse_takes_a_target(tmp_path, monkeypatch):
         str(KNIGHT),
         "--target",
         "nexys",
-        "--init-freq-low",
-        "100",
-        "--init-freq-high",
-        "200",
+        "--initial-frequency-low",
+        "100 MHz",
+        "--initial-frequency-high",
+        "200 MHz",
     )
     assert result.exit_code == 2 and document["outcome"] is None
     assert document["error"]["code"] == "unknown_target"
@@ -668,8 +668,15 @@ def test_dse_uses_the_design_unless_a_target_is_given(tmp_path, target):
     text = (sqrt / "sqrt.yaml").read_text() + "\ntargets:\n  a: {}\n  b: {}\n"
     (tmp_path / "sqrt.yaml").write_text(text)
     command = [sys.executable, "-m", "xeda", "dse", "vivado_synth", "sqrt.yaml"]
-    command += ["--max-workers", "2", "--init-freq-low", "100", "--init-freq-high", "300"]
-    command += ["--dse-settings", "max_failed_iters=2", "--json"]
+    command += [
+        "--max-workers",
+        "2",
+        "--initial-frequency-low",
+        "100 MHz",
+        "--initial-frequency-high",
+        "300 MHz",
+    ]
+    command += ["--dse-settings", "max_failed_rounds=2", "--json"]
     command += ["--target", target] if target else []
     fake_tools = str(Path(__file__).parent / "fake_tools")
     proc = subprocess.run(

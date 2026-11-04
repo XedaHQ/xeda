@@ -118,7 +118,7 @@ xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml          # simulate with GHDL and
 xeda run nvc examples/vhdl/sqrt/sqrt.yaml               # the same design and testbench with NVC
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml      # synthesize and implement with Vivado
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4.5ns   # change one setting
-xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml   # search for the highest clock frequency
+xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz"   # search for the highest clock frequency
 ```
 
 A flow whose inputs and outputs are declared can follow another flow. A chain joins them with

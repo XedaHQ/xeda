@@ -360,18 +360,22 @@ def test_a_design_update_that_is_no_number_names_the_setting(tmp_path):
 def test_the_text_of_the_exploration_settings_is_read_as_their_types():
     from xeda._internal.flow_runner.dse.dse_runner import Dse
 
-    optimizer = settings_to_dict(["init_freq_low=50", "init_freq_high=100"])
+    optimizer = settings_to_dict(["initial_frequency_low=50 MHz", "initial_frequency_high=100 MHz"])
     explorer = Dse(
         "fmax_optimizer",
         optimizer_settings=optimizer,
-        **settings_to_dict(["max_failed_iters=2", "keep_optimal_run_dirs=true"]),
+        **settings_to_dict(["max_failed_rounds=2", "keep_all_run_dirs=true"]),
     )
-    assert explorer.settings.max_failed_iters == 2
-    assert explorer.settings.keep_optimal_run_dirs is True
+    assert explorer.settings.max_failed_rounds == 2
+    assert explorer.settings.keep_all_run_dirs is True
     with pytest.raises(FlowSettingsError) as error:
-        Dse("fmax_optimizer", optimizer_settings=optimizer, **settings_to_dict(["timeout=soon"]))
+        Dse(
+            "fmax_optimizer",
+            optimizer_settings=optimizer,
+            **settings_to_dict(["max_failed_rounds=soon"]),
+        )
     assert settings_codes(error.value) == ["invalid_value"]
-    assert error.value.errors[0][0] == "timeout"
+    assert error.value.errors[0][0] == "max_failed_rounds"
 
 
 @pytest.mark.parametrize("text", ["1_0", "+5", "٣", " 4", "4 "])

@@ -90,8 +90,8 @@ def _scrub(tmp_path: Path) -> Any:
 
 def _dse(tmp_path: Path) -> Any:
     return _json(
-        "dse", FLOW, str(SQRT), "--optimizer", "fmax_optimizer", "--init-freq-low", "100",
-        "--init-freq-high", "200", "--max-workers", "1", cwd=tmp_path, fake_tools=True,
+        "dse", FLOW, str(SQRT), "--optimizer", "fmax_optimizer", "--initial-frequency-low", "100 MHz",
+        "--initial-frequency-high", "200 MHz", "--max-workers", "1", cwd=tmp_path, fake_tools=True,
     )  # fmt: skip
 
 

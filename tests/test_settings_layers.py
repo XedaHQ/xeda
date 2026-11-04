@@ -599,7 +599,9 @@ def test_fmax_variations_refine_nested_base_settings_instead_of_replacing_them()
 
     optimizer = FmaxOptimizer(
         max_workers=1,
-        settings=FmaxOptimizer.Settings(init_freq_low=100.0, init_freq_high=200.0),
+        settings=FmaxOptimizer.Settings(
+            initial_frequency_low="100 MHz", initial_frequency_high="200 MHz"
+        ),
     )
     optimizer.flow_class = VivadoSynth
     optimizer.base_settings = VivadoSynth.Settings(
@@ -620,7 +622,9 @@ def test_fmax_variations_change_only_the_target_clock_period():
 
     optimizer = FmaxOptimizer(
         max_workers=1,
-        settings=FmaxOptimizer.Settings(init_freq_low=100.0, init_freq_high=200.0),
+        settings=FmaxOptimizer.Settings(
+            initial_frequency_low="100 MHz", initial_frequency_high="200 MHz"
+        ),
     )
     optimizer.flow_class = VivadoSynth
     optimizer.base_settings = VivadoSynth.Settings(
@@ -670,7 +674,9 @@ def test_fmax_uses_the_deterministic_main_when_multiple_clocks_are_not_named_mai
 
     optimizer = FmaxOptimizer(
         max_workers=1,
-        settings=FmaxOptimizer.Settings(init_freq_low=100.0, init_freq_high=200.0),
+        settings=FmaxOptimizer.Settings(
+            initial_frequency_low="100 MHz", initial_frequency_high="200 MHz"
+        ),
     )
     optimizer.flow_class = VivadoSynth
     optimizer.base_settings = VivadoSynth.Settings(

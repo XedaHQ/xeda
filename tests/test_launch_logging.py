@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from collections.abc import Iterator
 
+import click
 import pytest
 
 from xeda.errors import SpecError
@@ -149,7 +150,10 @@ def test_a_direct_search_launch_leaves_the_level_alone(tmp_path, monkeypatch) ->
     )
     runner = Dse(
         Watching,
-        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 200.0},
+        optimizer_settings={
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "200 MHz",
+        },
         run_root=tmp_path / "run",
         max_workers=1,
     )
@@ -220,6 +224,33 @@ def test_the_command_line_hands_its_log_level_to_the_remote_run(tmp_path, monkey
     sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(client, "run_remote", recorded)
-    args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json", "--log-level", "10"]
+    args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json", "--log-level", "debug"]
     CliRunner().invoke(cli, args, catch_exceptions=False)
     assert given == [(None, logging.DEBUG)]
+
+
+@pytest.mark.parametrize("command", [["run", "vivado_synth", "d.yaml"], ["dse", "vivado_synth"]])
+@pytest.mark.parametrize("given", ["10", "INFO", "verbose"])
+def test_the_log_level_takes_only_the_five_names(command, given):
+    from click.testing import CliRunner
+
+    from xeda._internal.cli import cli
+
+    result = CliRunner().invoke(cli, [*command, "--log-level", given])
+    assert result.exit_code == 2
+    message = click.unstyle(result.output)
+    assert f"'{given}' is not one of 'debug', 'info', 'warning', 'error', 'critical'" in message
+
+
+def test_the_log_level_variable_takes_a_name_and_refuses_a_number(monkeypatch):
+    from click.testing import CliRunner
+
+    from xeda._internal.cli import cli
+
+    monkeypatch.setenv("XEDA_LOG_LEVEL", "20")
+    result = CliRunner().invoke(cli, ["dse", "vivado_synth"])
+    assert result.exit_code == 2
+    assert "is not one of 'debug', 'info'" in click.unstyle(result.output)
+    monkeypatch.setenv("XEDA_LOG_LEVEL", "debug")
+    result = CliRunner().invoke(cli, ["dse", "yosys_fpga", "--json"])
+    assert "log-level" not in click.unstyle(result.output)

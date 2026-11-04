@@ -444,17 +444,19 @@ REMOVED_OPTIONS = [
     ("--scrub", ["run", "vivado_synth", "d.yaml"], "--prune-variants"),
     ("--help-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
     ("--list-settings", ["run", "vivado_synth", "d.yaml"], "`xeda list-settings FLOW`"),
-    ("--debug", [], "--log-level 10 and --detailed-logs"),
-    ("-d", [], "--log-level 10 and --detailed-logs"),
-    ("--debug", ["run", "vivado_synth", "d.yaml"], "--log-level 10 and --detailed-logs"),
-    ("-d", ["run", "vivado_synth", "d.yaml"], "--log-level 10 and --detailed-logs"),
-    ("--debug", ["dse", "vivado_synth"], "--log-level 10 and --detailed-logs"),
-    ("-v", [], "--log-level 10 for more log messages"),
-    ("--verbose", [], "--log-level 10 for more log messages"),
-    ("-q", [], "--log-level 30 for fewer log messages"),
-    ("--quiet", [], "--log-level 30 for fewer log messages"),
-    ("--init_freq_low", ["dse", "vivado_synth"], "--init-freq-low"),
-    ("--init_freq_high", ["dse", "vivado_synth"], "--init-freq-high"),
+    ("--debug", [], "--log-level debug and --detailed-logs"),
+    ("-d", [], "--log-level debug and --detailed-logs"),
+    ("--debug", ["run", "vivado_synth", "d.yaml"], "--log-level debug and --detailed-logs"),
+    ("-d", ["run", "vivado_synth", "d.yaml"], "--log-level debug and --detailed-logs"),
+    ("--debug", ["dse", "vivado_synth"], "--log-level debug and --detailed-logs"),
+    ("-v", [], "--log-level debug for more log messages"),
+    ("--verbose", [], "--log-level debug for more log messages"),
+    ("-q", [], "--log-level warning for fewer log messages"),
+    ("--quiet", [], "--log-level warning for fewer log messages"),
+    ("--init_freq_low", ["dse", "vivado_synth"], "--initial-frequency-low"),
+    ("--init_freq_high", ["dse", "vivado_synth"], "--initial-frequency-high"),
+    ("--init-freq-low", ["dse", "vivado_synth"], "--initial-frequency-low"),
+    ("--init-freq-high", ["dse", "vivado_synth"], "--initial-frequency-high"),
 ]
 
 
@@ -486,8 +488,10 @@ REMOVED_VALUE_OPTIONS = [
     ("--design", ["run", "vivado_synth"], "d.yaml", "the positional DESIGN argument"),
     ("--design-overrides", ["run", "vivado_synth", "d.yaml"], "rtl.top=x", "--design-updates"),
     ("--design-file", ["dse", "vivado_synth"], "d.yaml", "the positional DESIGN argument"),
-    ("--init_freq_low", ["dse", "vivado_synth"], "100", "--init-freq-low"),
-    ("--init_freq_high", ["dse", "vivado_synth"], "200", "--init-freq-high"),
+    ("--init_freq_low", ["dse", "vivado_synth"], "100", "--initial-frequency-low"),
+    ("--init_freq_high", ["dse", "vivado_synth"], "200", "--initial-frequency-high"),
+    ("--init-freq-low", ["dse", "vivado_synth"], "100", "--initial-frequency-low"),
+    ("--init-freq-high", ["dse", "vivado_synth"], "200", "--initial-frequency-high"),
 ]
 
 
@@ -523,7 +527,7 @@ def test_the_removed_debug_variable_names_itself(monkeypatch):
     result = CliRunner().invoke(cli, ["list-flows"], env={"XEDA_DEBUG": "1"})
 
     assert result.exit_code == 2, result.output
-    assert "`XEDA_DEBUG` was removed: use --log-level 10 and --detailed-logs" in click.unstyle(
+    assert "`XEDA_DEBUG` was removed: use --log-level debug and --detailed-logs" in click.unstyle(
         result.output
     )
 
@@ -543,7 +547,7 @@ def test_the_commands_take_the_design_as_an_argument_and_the_settings_as_dash_s(
         arguments = [param.name for param in command.params if param.param_type_name == "argument"]
         assert arguments[-1] == ("design_file" if command is run else "design")
     assert [p.name for p in dse.params if p.param_type_name == "argument"] == ["flow", "design"]
-    assert "--init-freq-low" in {opt for p in dse.params for opt in p.opts}
+    assert "--initial-frequency-low" in {opt for p in dse.params for opt in p.opts}
 
 
 @pytest.mark.parametrize("command", [["run", "vivado_synth", "d.yaml"], ["dse", "vivado_synth"]])
