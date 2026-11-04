@@ -1934,3 +1934,15 @@ def test_the_runtime_limit_is_compared_without_truncation(tmp_path, monkeypatch,
     monkeypatch.setattr(dse_runner.Timer, "delta", lambda self: 0.6)
     _idle_search(tmp_path, monkeypatch, max_runtime="500 ms")
     assert "reached 'max_runtime'" in caplog.text
+
+
+def test_an_empty_variation_is_refused_so_a_misspelled_key_cannot_pass(tmp_path):
+    from xeda._internal.flow_runner.default_runner import get_flow_class
+
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={"no_such_setting": []})
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    with pytest.raises(FlowSettingsError, match="at least one value") as refused:
+        runner._checked_variations(
+            get_flow_class("nextpnr"), design, runner.settings.variations, set()
+        )
+    assert "no_such_setting" in str(refused.value)

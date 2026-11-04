@@ -498,6 +498,13 @@ class Dse(FlowLauncher):
         flow. A bad value is a `FlowSettingsError` that names it, before anything starts."""
         checked: Dict[str, List[Any]] = {}
         for key, values in variations.items():
+            if (
+                not values
+            ):  # no value would reach the settings check, so a misspelled key would pass
+                raise FlowSettingsError(
+                    [(f"variations.{key}", "a variation needs at least one value", None, None)],
+                    Dse.Settings,
+                )
             if key in text_keys:
                 values = [
                     _leaf(
