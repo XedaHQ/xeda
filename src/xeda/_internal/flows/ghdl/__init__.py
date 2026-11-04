@@ -701,7 +701,6 @@ class GhdlSim(Ghdl, SimFlow):
             ss.wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
 
         if ss.vcd:
-            # FIXME: process_path might be run twice
             ss.vcd = self.process_path(ss.vcd, subs_vars=True, resolve_to=None)
             run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", ss.vcd)
@@ -710,7 +709,6 @@ class GhdlSim(Ghdl, SimFlow):
             run_flags.append(f"--vcdgz={ss.vcdgz}")
             log.warning("Dumping compressed VCD to %s", ss.vcdgz)
         elif ss.fst:
-            # FIXME: process_path might be run twice
             ss.fst = self.process_path(ss.fst, subs_vars=True, resolve_to=None)
             run_flags += setting_flag(ss.fst, name="fst")
             log.warning("Dumping fst to %s", ss.fst)
@@ -760,7 +758,6 @@ class GhdlSim(Ghdl, SimFlow):
             vpi_path = self.cocotb.lib_path()
             assert vpi_path, "cocotb VPI library for GHDL was not found"
             vpi.append(vpi_path)
-            # tb_generics = list(design.tb.parameters)  # TODO pass to cocotb?
             tb_generics = design.rtl.parameters
             if not tb_top and design.rtl.top:
                 tb_top = (design.rtl.top,)

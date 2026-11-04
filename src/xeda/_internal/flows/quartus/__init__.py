@@ -344,7 +344,9 @@ class Quartus(FpgaSynthFlow):
             top_resources["ff"] = reg_only + lut_reg
             self.results.update(top_resources)
 
-        # TODO: say why this timing report is chosen.
+        # WNS and WHS come from the "Worst-case Slack" row of the multicorner summary: it is the
+        # worst slack over all timing models, so one report gives the slack the run must meet. Fmax
+        # is not in that summary. It comes from the Fmax summary of each slow model, below.
 
         slacks = parse_csv(
             mc_report,
