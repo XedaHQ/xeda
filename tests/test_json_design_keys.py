@@ -155,10 +155,10 @@ def test_an_exploration_that_fails_after_loading_its_design_names_it(world):
         "dse",
         "vivado_synth",
         "blink.toml",
-        "--init-freq-low",
-        "100",
-        "--init-freq-high",
-        "300",
+        "--initial-frequency-low",
+        "100 MHz",
+        "--initial-frequency-high",
+        "300 MHz",
     )
 
     assert status == 2 and document["outcome"] is None

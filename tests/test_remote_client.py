@@ -430,7 +430,7 @@ def test_the_options_that_remove_run_directories_are_refused_with_remote(
 @pytest.mark.parametrize(
     "arguments, detailed, level",
     [
-        (["--detailed-logs", "--log-level", "30"], True, 30),
+        (["--detailed-logs", "--log-level", "warning"], True, 30),
         (["--detailed-logs"], True, 20),
         ([], False, 20),
     ],
@@ -1627,6 +1627,6 @@ def test_a_path_in_a_git_dependency_checkout_of_the_remote_is_the_local_checkout
 
 def test_the_debug_log_level_does_not_change_the_plan_of_the_host(tmp_path, remote_host):
     """The log level is no setting: the host plans the nodes that the command planned."""
-    result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--log-level", "10", "--json")
+    result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--log-level", "debug", "--json")
     assert result.exit_code == 0, result.stderr
     assert json.loads(result.stdout)["outcome"] == "passed"

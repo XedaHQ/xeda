@@ -190,8 +190,13 @@ Explore the design space
 ========================
 
 ``xeda dse`` runs many instances of a flow in parallel under an optimizer. The default optimizer
-searches for the highest clock frequency::
+searches for the highest clock frequency. You give the frequency range of the first round::
 
-    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz"
 
-``xeda list-optimizers`` shows the available optimizers and their settings.
+The default optimizer explores a flow that has a ``clocks`` setting and reports an ``fmax`` metric,
+for example ``vivado_synth``, ``vivado_alt_synth``, ``vivado_impl``, ``nextpnr``, ``quartus``,
+``ise_synth`` and ``dc``. Any other flow is a usage error (exit status 2). The search varies the
+settings in the default variation table of the flow, or in the ``variations`` exploration setting.
+Without either, it searches over the frequency only. ``xeda list-optimizers`` shows the available
+optimizers and their settings.

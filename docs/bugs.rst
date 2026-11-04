@@ -26,10 +26,10 @@ The generated tool scripts and logs
     The ``.tcl``, ``.ys`` and ``.sdc``/``.xdc`` scripts that Xeda generated, and the log files of
     the tool.
 
-Run the command again with ``--log-level 10 --detailed-logs``. It turns on debug logging, which
+Run the command again with ``--log-level debug --detailed-logs``. It turns on debug logging, which
 helps in a bug report::
 
-    xeda run <flow> <design> --log-level 10 --detailed-logs
+    xeda run <flow> <design> --log-level debug --detailed-logs
 
 Also include:
 

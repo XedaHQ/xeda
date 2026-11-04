@@ -1,9 +1,10 @@
 import logging
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, List, Optional, Type, Union
 
-from ...dataclass import field_validator
-from ...units import Time
+from ...dataclass import Field, field_validator
+from ...flow import Flow
+from ...units import Bounds, Frequency, Time, Unit, count
 from ...utils import settings_to_dict, unique
 from ..dse.dse_runner import FlowOutcome, Optimizer, deep_hash, linspace
 from ..settings_layers import merge_layers
@@ -12,6 +13,13 @@ log = logging.getLogger(__name__)
 
 
 class FmaxOptimizer(Optimizer):
+    """Search for the highest frequency that a flow meets.
+
+    The search ranks its points by the `fmax` metric of the explored flow. For `ise_synth` and
+    `dc` this is the synthesis estimate, not routed timing. With `nextpnr`, the synthesis flow
+    `yosys_fpga` runs again for each frequency, because the clock is a shared setting that
+    changes its identity. Each point therefore costs a synthesis run."""
+
     writes_clocks = True
 
     default_variations: Dict[str, Dict[str, List[Any]]] = {
@@ -61,32 +69,104 @@ class FmaxOptimizer(Optimizer):
                 "ExtraTimingAltRouting",
             ],
         },
+        "nextpnr": {
+            "seed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            "placer": ["heap", "sa"],
+            "router": ["router1", "router2"],
+        },
+        "quartus": {
+            "seed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            # Only the values that both Quartus Prime editions (Standard and Pro) accept.
+            "optimization_mode": ["HIGH PERFORMANCE EFFORT", "BALANCED"],
+            "fitter_effort": ["AUTO FIT", "STANDARD FIT"],
+        },
     }
 
+    @classmethod
+    def unsupported_flow(cls, flow_class: Type[Flow]) -> Optional[str]:
+        """Return why `flow_class` cannot be explored: the search sets the period of a clock and
+        reads the `fmax` metric, so a flow needs a `clocks` setting and an `fmax` metric."""
+        missing = [
+            what
+            for what, present in (
+                ("a `clocks` setting", "clocks" in flow_class.Settings.model_fields),
+                ("an `fmax` metric", "fmax" in flow_class.results_description),
+            )
+            if not present
+        ]
+        if not missing:
+            return None
+        return (
+            f"xeda dse: optimizer 'fmax_optimizer' does not support flow '{flow_class.name}': "
+            f"the flow has no {' and no '.join(m.split(' ', 1)[1] for m in missing)}."
+        )
+
     class Settings(Optimizer.Settings):
-        init_freq_low: float
-        init_freq_high: float
-        max_luts: Optional[int] = None
-        init_num_variations: int = 1
+        removed_inputs: ClassVar[Dict[str, str]] = {
+            "init_freq_low": "`initial_frequency_low`, a frequency with a unit such as `100 MHz`",
+            "init_freq_high": "`initial_frequency_high`, a frequency with a unit such as `200 MHz`",
+            "resolution": "`frequency_resolution`, a frequency with a unit such as `0.1 MHz`",
+            "delta": "`frequency_delta`, a frequency with a unit such as `0.001 MHz`",
+            "min_improve_inc_variations": "`variation_increase_threshold`, a frequency with a "
+            "unit such as `5 MHz`",
+            "init_num_variations": "`initial_variation_count`",
+            "stop_after_no_improves": "`max_unimproved_rounds`",
+        }
 
-        delta: float = 0.001
-        resolution: float = 0.1
-        stop_after_no_improves: int = 10
+        initial_frequency_low: Annotated[Frequency, Unit("MHz"), Bounds(gt="0 MHz")] = Field(
+            description="Lower frequency bound of the first round, such as `100 MHz`.",
+        )
+        initial_frequency_high: Annotated[Frequency, Unit("MHz"), Bounds(gt="0 MHz")] = Field(
+            description="Upper frequency bound of the first round, such as `200 MHz`. It must be "
+            "greater than `initial_frequency_low`.",
+        )
+        max_luts: Optional[int] = Field(
+            None,
+            ge=0,
+            description="Exclude runs whose reported LUT count exceeds this limit. Zero allows no "
+            "LUT. Unset means no limit.",
+            json_schema_extra=count(),
+        )
+        initial_variation_count: int = Field(
+            1,
+            ge=1,
+            description="Start each frequency search with this many setting variations.",
+            json_schema_extra=count(),
+        )
+        frequency_delta: Annotated[Frequency, Unit("MHz"), Bounds(gt="0 MHz")] = Field(
+            Frequency("0.001 MHz"),
+            description="Base frequency offset that the search uses when it adjusts its bounds.",
+        )
+        frequency_resolution: Annotated[Frequency, Unit("MHz"), Bounds(gt="0 MHz")] = Field(
+            Frequency("0.1 MHz"),
+            description="Frequency span below which the search can stop after repeated rounds "
+            "without improvement.",
+        )
+        max_unimproved_rounds: int = Field(
+            10,
+            ge=1,
+            description="When a best run exists and several variations are active, stop after "
+            "this many consecutive rounds without an Fmax improvement.",
+            json_schema_extra=count(),
+        )
+        variation_increase_threshold: Annotated[Frequency, Unit("MHz"), Bounds(gt="0 MHz")] = Field(
+            Frequency("5 MHz"),
+            description="Increase the variation count when the last positive Fmax improvement is "
+            "below this threshold.",
+        )
 
-        # Minimum improvement in frequency before the variations increase.
-        min_improve_inc_variations: float = 5.0
-
-        @field_validator("init_freq_high")
+        @field_validator("initial_frequency_high")
         @classmethod
-        def validate_init_freq(cls, value, info):
+        def validate_initial_frequency(cls, value, info):
             values = info.data if isinstance(info.data, dict) else {}
             # Use `.get` and not `[...]`: `info.data` carries only the fields that validated, and a
-            # missing or non-numeric `init_freq_low` would turn `xeda dse` into a bare
-            # `KeyError: 'init_freq_low'` traceback instead of the own error of that field.
-            low = values.get("init_freq_low")
+            # missing or invalid `initial_frequency_low` would turn `xeda dse` into a bare
+            # `KeyError` traceback instead of the own error of that field.
+            low = values.get("initial_frequency_low")
             if low is not None and value <= low:
                 raise ValueError(
-                    f"init_freq_high ({value}) must be greater than init_freq_low ({low})"
+                    f"initial_frequency_high ({value}) must be greater than "
+                    f"initial_frequency_low ({low})"
                 )
             return value
 
@@ -109,11 +189,13 @@ class FmaxOptimizer(Optimizer):
         self.variation_choices: List[Dict[str, Any]] = []
 
         assert isinstance(self.settings, self.Settings)
-        assert self.settings.init_freq_high > self.settings.init_freq_low
-        self.hi_freq = self.settings.init_freq_high
-        self.lo_freq = self.settings.init_freq_low
-        self.num_variations = self.settings.init_num_variations
-        assert self.settings.resolution > 0.0
+        # The search computes in MHz.
+        self.hi_freq: float = self.settings.initial_frequency_high.to("MHz")
+        self.lo_freq: float = self.settings.initial_frequency_low.to("MHz")
+        self.num_variations = self.settings.initial_variation_count
+        self.resolution: float = self.settings.frequency_resolution.to("MHz")
+        self.delta: float = self.settings.frequency_delta.to("MHz")
+        self.increase_threshold: float = self.settings.variation_increase_threshold.to("MHz")
 
     @staticmethod
     def get_result_value(res):
@@ -133,9 +215,9 @@ class FmaxOptimizer(Optimizer):
 
         if self.num_iterations == 0:  # first time
             return True
-        resolution = self.settings.resolution
+        resolution = self.resolution
         max_workers = self.max_workers
-        delta = self.settings.delta
+        delta = self.delta
 
         best_freq = self.best_freq
 
@@ -153,15 +235,14 @@ class FmaxOptimizer(Optimizer):
         # previous iteration gave little or no improvement, increase num_variations.
         if best_freq or (self.failed_fmax and self.failed_fmax > self.lo_freq):
             if self.improved_idx is None or (
-                self.last_improvement
-                and self.last_improvement < self.settings.min_improve_inc_variations
+                self.last_improvement and self.last_improvement < self.increase_threshold
             ):
                 self.num_variations += 1
                 log.info("Increased number of variations to %d", self.num_variations)
 
             elif (
                 self.improved_idx > (self.max_workers + 1) // 2
-                or self.last_improvement > 2 * self.settings.min_improve_inc_variations
+                or self.last_improvement > 2 * self.increase_threshold
             ):
                 if self.num_variations > 1:
                     self.num_variations -= 1
@@ -179,7 +260,7 @@ class FmaxOptimizer(Optimizer):
             self.no_improvements += 1
             if (
                 self.last_best_freq
-                and self.no_improvements >= self.settings.stop_after_no_improves
+                and self.no_improvements >= self.settings.max_unimproved_rounds
                 and self.num_variations > 1
             ):
                 log.info(
@@ -317,13 +398,8 @@ class FmaxOptimizer(Optimizer):
         while not stop:
             max_var += 1
             if max_var > self.num_variations:
-                self.lo_freq += random.random() * self.settings.delta / 2
-                self.hi_freq += (
-                    random.uniform(
-                        self.settings.delta, self.settings.delta + self.settings.resolution
-                    )
-                    / 2
-                )
+                self.lo_freq += random.random() * self.delta / 2
+                self.hi_freq += random.uniform(self.delta, self.delta + self.resolution) / 2
 
             frequencies, freq_step = linspace(
                 self.lo_freq,
@@ -423,9 +499,9 @@ class FmaxOptimizer(Optimizer):
             )
             return False
 
-        if self.settings.max_luts:
+        if self.settings.max_luts is not None:
             lut = outcome.results.get("lut")
-            if lut and int(lut) > self.settings.max_luts:
+            if lut is not None and int(lut) > self.settings.max_luts:
                 log.warning(
                     "Used LUTs %s larger than maximum allowed %s. Fmax: %s",
                     lut,

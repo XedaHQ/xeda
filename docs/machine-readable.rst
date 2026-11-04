@@ -53,7 +53,7 @@ document:
 .. code-block:: bash
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
-    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz" --json
     xeda scrub vivado_synth sqrt --yes --json
 
 .. note::
@@ -1117,7 +1117,9 @@ A Ctrl-C ends the exploration with the outcome ``canceled`` and the error code `
 ``best``, ``best_run_dir`` and ``points`` hold what the exploration found before. A failure of the
 optimizer itself ends the command with the outcome ``failed`` and its error, and the same keys hold
 what the exploration found before. A request that starts no exploration (a usage error, an unknown
-optimizer, an invalid setting) has ``outcome: null`` and exits with status 2.
+optimizer, an invalid setting, a flow that the optimizer cannot explore) has ``outcome: null`` and
+exits with status 2. The error code of a flow that the optimizer cannot explore is ``usage_error``;
+its message names the flow and what the flow lacks (a ``clocks`` setting, an ``fmax`` metric).
 
 Removing run directories
 ========================

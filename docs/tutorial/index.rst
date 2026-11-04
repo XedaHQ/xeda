@@ -117,11 +117,11 @@ A script can read the results from the ``--json`` document that the command writ
 
 To find the clock period, let Xeda search for it. ``xeda dse`` runs many instances of a flow in
 parallel under an optimizer. The default optimizer searches for the highest frequency that still
-meets timing:
+meets timing. You give the frequency range of the first round:
 
 .. code-block:: bash
 
-    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --max-workers 4
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz" --max-workers 4
 
 Each time the search improves, Xeda writes the best result to a JSON file in the run root,
 ``xeda_run/fmax_<design>_<flow>_<timestamp>.json``. A search that stops early keeps its best

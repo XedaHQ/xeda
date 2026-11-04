@@ -178,9 +178,10 @@ def _envvars(param: click.Parameter) -> set:
 
 def test_no_option_of_run_is_a_choice_between_behaviors():
     """(2) A behavior switch is a flag. The names that set an API parameter are checked in
-    `test_cli_on_api`."""
+    `test_cli_on_api`. The log level names a severity, not a behavior."""
     for option in _options(run):
-        assert not isinstance(option.type, click.Choice), option.opts
+        if option.opts != ["--log-level"]:
+            assert not isinstance(option.type, click.Choice), option.opts
 
 
 @pytest.mark.parametrize("command", [run, dse, scrub], ids=lambda c: c.name)

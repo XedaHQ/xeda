@@ -100,24 +100,27 @@ def test_type_error_in_any_validator_becomes_a_validation_error():
 
 @pytest.mark.parametrize(
     "settings",
-    [{"init_freq_high": 100.0}, {"init_freq_low": "fast", "init_freq_high": 100.0}],
+    [
+        {"initial_frequency_high": "100 MHz"},
+        {"initial_frequency_low": "fast", "initial_frequency_high": "100 MHz"},
+    ],
     ids=["missing", "non_numeric"],
 )
-def test_a_bad_init_freq_low_is_reported_as_itself(settings):
-    """`xeda dse` crashed with `KeyError: 'init_freq_low'` instead of naming the setting."""
+def test_a_bad_initial_frequency_low_is_reported_as_itself(settings):
+    """`xeda dse` crashed with `KeyError: 'initial_frequency_low'` instead of naming the setting."""
     from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
     with pytest.raises(ValidationError) as excinfo:
         FmaxOptimizer.Settings(**settings)
-    assert [e["loc"] for e in excinfo.value.errors()] == [("init_freq_low",)]
+    assert [e["loc"] for e in excinfo.value.errors()] == [("initial_frequency_low",)]
 
 
-def test_init_freq_high_must_exceed_init_freq_low():
+def test_initial_frequency_high_must_exceed_initial_frequency_low():
     """A real check, not an `assert` that `python -O` would skip."""
     from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 
-    with pytest.raises(ValidationError, match="must be greater than init_freq_low"):
-        FmaxOptimizer.Settings(init_freq_low=200.0, init_freq_high=100.0)
+    with pytest.raises(ValidationError, match="must be greater than initial_frequency_low"):
+        FmaxOptimizer.Settings(initial_frequency_low="200 MHz", initial_frequency_high="100 MHz")
 
 
 def test_a_bad_pll_module_name_is_reported_as_itself():

@@ -5,14 +5,27 @@ from datetime import datetime
 from inspect import isclass
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import psutil
 from attrs import define
 from pydantic import ValidationError
 
 from ...cancel import CancelToken
-from ...dataclass import Field, NoReplacement, XedaBaseModel, validation_errors
+from ...dataclass import Field, SettingText, NoReplacement, XedaBaseModel, validation_errors
+from ...units import Bounds, Time, Unit, count
 from ...deliver import deliverable_locations
 from ...design import Design
 from ...flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
@@ -56,27 +69,59 @@ log = logging.getLogger(__name__)
 
 OPENROAD_DSE_REFUSAL = (
     "Fmax exploration of the OpenROAD flows is not supported yet: the clock is a setting of "
-    "openroad_place, which the optimizer does not reach. Run `xeda dse` on `yosys`, or vary "
-    "`flows.openroad_place.clocks` yourself."
+    "openroad_place, which the optimizer does not reach. Vary `flows.openroad_place.clocks` "
+    "yourself."
 )
 
 
-def _refuse_openroad(optimizer: "Optimizer", flow: Union[str, Type[Flow], FlowRequest]) -> None:
-    """Refuse an optimizer that writes clocks, for a request of one of the OpenROAD flows.
+def _refuse_flow(optimizer: "Optimizer", flow: Union[str, Type[Flow], FlowRequest]) -> None:
+    """Refuse a request that the optimizer cannot explore (`unsupported_flow_reason`)."""
+    reason = unsupported_flow_reason(type(optimizer), flow)
+    if reason is not None:
+        raise FlowSettingsException(reason)
 
-    Such an optimizer puts its candidate periods into the `clocks` of the requested flow. The
-    clock of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do not reach
-    it. An optimizer that varies other settings is not refused. The test is by class: every flow
-    built on `OpenroadStage` counts, whatever its name."""
+
+def unsupported_flow_reason(optimizer: Type["Optimizer"], flow: Any) -> Optional[str]:
+    """Return why `optimizer` cannot explore the flow of a request (a flow name, a chain, a
+    request or a flow class), or `None` when it can or when the flow is unknown.
+
+    An optimizer that writes clocks puts its candidate periods into the `clocks` of the requested
+    flow. The clock of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do
+    not reach it: every flow built on `OpenroadStage` counts, whatever its name. An optimizer
+    that varies other settings is not refused for that. Then the flow check of the optimizer
+    (`Optimizer.unsupported_flow`) decides."""
     from ...flows.openroad import OpenroadStage
 
-    if not optimizer.writes_clocks:
-        return
     if isinstance(flow, str):
         flow = parse_request(flow)
     requested = flow.requested if isinstance(flow, FlowRequest) else flow
-    if isclass(requested) and issubclass(requested, OpenroadStage):
-        raise FlowSettingsException(OPENROAD_DSE_REFUSAL)
+    if not (isclass(requested) and issubclass(requested, Flow)):
+        return None
+    if optimizer.writes_clocks and issubclass(requested, OpenroadStage):
+        return OPENROAD_DSE_REFUSAL
+    return optimizer.unsupported_flow(requested)
+
+
+def load_optimizer_class(optimizer_class: Union[str, Type["Optimizer"]]) -> Type["Optimizer"]:
+    """Return the optimizer class of a name (a module path in this package, or in `xeda`'s
+    implementation), or the class itself."""
+    if isinstance(optimizer_class, str):
+        try:
+            cls = load_class(optimizer_class, __package__)
+        except ModuleNotFoundError as error:
+            module = optimizer_class.rpartition(".")[0]
+            if (module == "xeda" or module.startswith("xeda.")) and not (
+                module == IMPL or module.startswith(f"{IMPL}.")
+            ):
+                raise ValueError(
+                    f"There is no module {module!r}. The optimizers of Xeda are in "
+                    f"{__package__!r}: name the optimizer without a module (for example, "
+                    f"'fmax_optimizer') or with that module."
+                ) from error
+            raise
+        assert cls and issubclass(cls, Optimizer)
+        return cls
+    return optimizer_class
 
 
 def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
@@ -148,13 +193,17 @@ class Optimizer:
     #: flow, as the Fmax search does.
     writes_clocks: ClassVar[bool] = False
 
+    @classmethod
+    def unsupported_flow(cls, flow_class: Type[Flow]) -> Optional[str]:
+        """Return why this optimizer cannot explore `flow_class`, or `None` when it can."""
+        return None
+
     class Settings(XedaBaseModel):
         pass
 
     def __init__(self, max_workers: int, settings: Optional[Settings] = None, **kwargs) -> None:
         assert max_workers > 0
         self.max_workers: int = max_workers
-        self.max_failed_iters: int = 2
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
         self._variations: Dict[str, List[Any]] = {}
@@ -257,6 +306,23 @@ class _RoundToken(CancelToken):
         return super().canceled or (self._outer is not None and self._outer.canceled)
 
 
+def _dotted(table: Mapping, prefix: str = "") -> Dict[str, Any]:
+    """Return a table of tables as one table with dotted keys."""
+    flat: Dict[str, Any] = {}
+    for key, value in table.items():
+        if isinstance(value, Mapping):
+            flat.update(_dotted(value, f"{prefix}{key}."))
+        else:
+            flat[f"{prefix}{key}"] = value
+    return flat
+
+
+def _leaf(table: Mapping, dotted_key: str) -> Any:
+    for part in dotted_key.split("."):
+        table = table[part]
+    return table
+
+
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     if n < 2:
         return [b], 0
@@ -265,45 +331,100 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
 
 
 class Dse(FlowLauncher):
+    """Explore the settings of a flow with an optimizer.
+
+    The optimizer decides how points rank. The Fmax search uses the `fmax` metric of the explored
+    flow: for `ise_synth` and `dc` it is the synthesis estimate, not routed timing. With `nextpnr`,
+    `yosys_fpga` runs again for each frequency, because the clock is a shared setting, so each
+    point costs a synthesis run."""
+
     accepts_bindings = False  # chains and input bindings are local `xeda run` requests
 
     class Settings(FlowLauncher.Settings):
-        max_runtime_minutes: int = Field(
-            12 * 60,
-            description="Maximum total running time, in minutes. After that, no new flow is "
-            "launched. Flows that are already launched continue until they complete or time out.",
+        max_runtime: Annotated[Time, Unit("s"), Bounds(gt="0 s")] = Field(
+            Time("12 h"),
+            description="Stop starting new rounds after this total duration, such as `12 h`. The "
+            "current round finishes or reaches its timeout.",
         )
-        keep_optimal_run_dirs: bool = False
-
-        max_failed_iters: int = 6
-        max_failed_iters_with_best: int = 4
+        round_timeout: Annotated[Time, Unit("s"), Bounds(gt="0 s")] = Field(
+            Time("90 min"),
+            description="Cancel the unfinished points of a round when this duration expires, "
+            "such as `90 min`. The exploration then continues with the next round.",
+        )
+        keep_all_run_dirs: bool = Field(
+            False,
+            description="Keep all run directories by disabling both post-run cleanup settings.",
+        )
+        max_failed_rounds: int = Field(
+            6,
+            ge=1,
+            description="Stop after this many consecutive rounds with no passed point.",
+            json_schema_extra=count(),
+        )
+        max_failed_rounds_with_best: int = Field(
+            4,
+            ge=1,
+            description="Once a best run exists, stop after this many consecutive rounds with "
+            "no passed point.",
+            json_schema_extra=count(),
+        )
         max_workers: int = Field(
             psutil.cpu_count(logical=False) or 2,
-            description="Number of parallel executions.",
+            ge=1,
+            description="Run at most this many exploration points at the same time.",
+            json_schema_extra=count(),
         )
-        timeout: int = Field(
-            90 * 60,
-            gt=0,
-            description="Time limit of one round, in seconds. When it passes, the points of the "
-            "round that have not finished end as canceled, and the exploration goes on with the "
-            "next round.",
+        variations: Optional[Dict[str, List[Any]]] = Field(
+            None,
+            description="Candidate values for settings of the explored flow, by setting name. "
+            "Without it, the search uses the default variation table of the flow, if the "
+            "optimizer has one. Every key and value must be valid for the flow; a physical "
+            "value needs a unit.",
         )
-        variations: Optional[Dict[str, List[Any]]] = None
+        rebuild_all: bool = Field(
+            False,
+            description="Run every node of each point even when its stored result is current.",
+        )
+        clean: bool = Field(
+            False,
+            description="Empty the run directory of each node before it runs, which also forces "
+            "a rebuild.",
+        )
+        post_cleanup: bool = Field(
+            False,
+            description="Remove intermediate files after an executed node finishes, and keep its "
+            "records, artifacts and declared outputs.",
+        )
+        post_cleanup_purge: bool = Field(
+            False,
+            description="Remove completed run directories that the exploration does not keep "
+            "as improvements.",
+        )
         #: Always true. Each variant keeps its own directory. Variants (and producers) with
         #: identical settings share one, locked while a launch uses it, so the second reuses what
         #: the first ran.
-        hashed_run_dirs: Literal[True] = True
+        hashed_run_dirs: Literal[True] = Field(
+            True,
+            description="Use a separate run directory for each distinct point. Exploration "
+            "requires this setting to be true.",
+        )
 
-        #: An exploration reads none of these settings of a launcher.
+        #: An exploration reads none of these settings of a launcher, and a renamed setting
+        #: gives its new name.
         removed_inputs: ClassVar[Mapping[str, str]] = {
+            "max_runtime_minutes": "`max_runtime`, a duration with a unit such as `12 h`",
+            "timeout": "`round_timeout`, a duration with a unit such as `90 min`",
+            "keep_optimal_run_dirs": "`keep_all_run_dirs`",
+            "max_failed_iters": "`max_failed_rounds`",
+            "max_failed_iters_with_best": "`max_failed_rounds_with_best`",
             "debug": NoReplacement("an exploration does not read it"),
-            "dump_settings_json": NoReplacement("an exploration does not read it"),
-            "dump_results_json": NoReplacement("an exploration does not read it"),
-            "display_results": NoReplacement("an exploration does not read it"),
-            "backups": NoReplacement("an exploration does not read it"),
-            "prune_variants": NoReplacement("an exploration never removes earlier runs"),
-            "outputs_to": NoReplacement("an exploration delivers nothing"),
-            "overwrite_outputs": NoReplacement("an exploration delivers nothing"),
+            "dump_settings_json": NoReplacement("an exploration always manages its run records"),
+            "dump_results_json": NoReplacement("an exploration always manages its run records"),
+            "display_results": NoReplacement("the command controls how results are shown"),
+            "backups": NoReplacement("an exploration does not create launcher backups"),
+            "prune_variants": NoReplacement("an exploration does not prune earlier variants"),
+            "outputs_to": NoReplacement("an exploration delivers no output directory"),
+            "overwrite_outputs": NoReplacement("an exploration delivers no output directory"),
         }
 
     def __init__(
@@ -317,30 +438,25 @@ class Dse(FlowLauncher):
 
         The text of `KEY=VALUE` items in `kwargs` and in `optimizer_settings` (as the command line
         gives them) is read as the type of each setting."""
+        # A key of `variations` is a setting name, so a table is its dotted spelling
+        # (`variations.nextpnr.seed=1,2`). Remember the values that came as command-line text:
+        # the explored flow reads them, as the type of the setting, when it is known.
+        if isinstance(kwargs.get("variations"), Mapping):
+            kwargs["variations"] = _dotted(kwargs["variations"])
+            self._text_variations = {
+                k for k, v in kwargs["variations"].items() if isinstance(v, SettingText)
+            }
+        else:
+            self._text_variations = set()
         super().__init__(run_root, **read_command_line_text(kwargs, self.Settings))
         assert isinstance(self.settings, self.Settings)
 
         # update settings
-        if self.settings.keep_optimal_run_dirs:
+        if self.settings.keep_all_run_dirs:
             self.settings.post_cleanup = False
             self.settings.post_cleanup_purge = False
 
-        if isinstance(optimizer_class, str):
-            try:
-                cls = load_class(optimizer_class, __package__)
-            except ModuleNotFoundError as error:
-                module = optimizer_class.rpartition(".")[0]
-                if (module == "xeda" or module.startswith("xeda.")) and not (
-                    module == IMPL or module.startswith(f"{IMPL}.")
-                ):
-                    raise ValueError(
-                        f"There is no module {module!r}. The optimizers of Xeda are in "
-                        f"{__package__!r}: name the optimizer without a module (for example, "
-                        f"'fmax_optimizer') or with that module."
-                    ) from error
-                raise
-            assert cls and issubclass(cls, Optimizer)
-            optimizer_class = cls
+        optimizer_class = load_optimizer_class(optimizer_class)
         if not isinstance(optimizer_settings, Optimizer.Settings):
             assert isinstance(optimizer_settings, dict)
             optimizer_settings = read_command_line_text(
@@ -369,6 +485,52 @@ class Dse(FlowLauncher):
         #: What the last run did. It is `None` before a run starts, and after an exception ended
         #: a run it holds the points and the best run that the run had until then.
         self.result: Optional[DseResult] = None
+
+    @staticmethod
+    def _checked_variations(
+        flow_class: Type[Flow],
+        design: Design,
+        variations: Dict[str, List[Any]],
+        text_keys: set,
+    ) -> Dict[str, List[Any]]:
+        """Return the variations, with the command-line text read as the type of each setting of
+        the flow, after every value of every variation validated against the settings of the
+        flow. A bad value is a `FlowSettingsError` that names it, before anything starts."""
+        checked: Dict[str, List[Any]] = {}
+        for key, values in variations.items():
+            if (
+                not values
+            ):  # no value would reach the settings check, so a misspelled key would pass
+                raise FlowSettingsError(
+                    [(f"variations.{key}", "a variation needs at least one value", None, None)],
+                    Dse.Settings,
+                )
+            if key in text_keys:
+                values = [
+                    _leaf(
+                        read_command_line_text(
+                            settings_to_dict([f"{key}={value}"]), flow_class.Settings
+                        ),
+                        key,
+                    )
+                    for value in values
+                ]
+            for value in values:
+                try:
+                    flow_class.Settings.from_input(
+                        settings_to_dict({key: value}, hierarchical_keys=True),
+                        design_root=design.root,
+                    )
+                except FlowSettingsError as error:
+                    raise FlowSettingsError(
+                        [
+                            (loc, f"{msg}; the variation value is `{value}`", ctx, kind)
+                            for loc, msg, ctx, kind in error.errors
+                        ],
+                        error.model,
+                    ) from None
+            checked[key] = values
+        return checked
 
     def _new_optimizer(self) -> Optimizer:
         assert isinstance(self.settings, self.Settings)
@@ -443,7 +605,7 @@ class Dse(FlowLauncher):
     ) -> None:
         """Refuse a clock-writing optimizer on an OpenROAD flow or a chain that ends in one, then
         what a chain or a binding brings, before anything is loaded."""
-        _refuse_openroad(self.optimizer, flow)
+        _refuse_flow(self.optimizer, flow)
         super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject, design)
 
     @log_context.with_launch_context
@@ -462,12 +624,10 @@ class Dse(FlowLauncher):
         The exploration holds no lock while its workers run: a thread that holds one is refused."""
         refuse_if_held()
         assert isinstance(self.settings, self.Settings)
-        _refuse_openroad(self.optimizer, flow_class)
+        _refuse_flow(self.optimizer, flow_class)
         timer = Timer()
 
         optimizer = self.optimizer = self._new_optimizer()
-
-        optimizer.max_failed_iters = self.settings.max_failed_iters
 
         # Consecutive "unsuccessful" iterations where in all runs success == False.
         consecutive_failed_iters = 0
@@ -493,7 +653,10 @@ class Dse(FlowLauncher):
         if self.settings.variations is not None:
             optimizer.variations = self.settings.variations
         else:
-            optimizer.variations = optimizer.default_variations[flow_class.name]
+            optimizer.variations = optimizer.default_variations.get(flow_class.name, {})
+        optimizer.variations = self._checked_variations(
+            flow_class, design, optimizer.variations, self._text_variations
+        )
 
         possible_variations = 1
         for v in optimizer.variations.values():
@@ -648,7 +811,7 @@ class Dse(FlowLauncher):
                     ram_usage,
                 )
 
-                if consecutive_failed_iters > self.settings.max_failed_iters:
+                if consecutive_failed_iters >= self.settings.max_failed_rounds:
                     log.info(
                         "Stopping after %d unsuccessful iterations.",
                         consecutive_failed_iters,
@@ -656,20 +819,21 @@ class Dse(FlowLauncher):
                     break
                 if (
                     optimizer.best
-                    and consecutive_failed_iters > self.settings.max_failed_iters_with_best
+                    and consecutive_failed_iters >= self.settings.max_failed_rounds_with_best
                 ):
                     log.info(
-                        "Stopping after %d unsuccessful iterations (max_failed_iters_with_best=%d)",
+                        "Stopping after %d unsuccessful iterations (max_failed_rounds_with_best=%d)",
                         consecutive_failed_iters,
-                        self.settings.max_failed_iters_with_best,
+                        self.settings.max_failed_rounds_with_best,
                     )
                     break
 
-                if timer.minutes > self.settings.max_runtime_minutes:
+                elapsed = timer.delta()  # not truncated to whole seconds
+                if elapsed >= self.settings.max_runtime.to("s"):
                     log.warning(
-                        "Total execution time (%d minutes) exceed 'max_runtime_minutes'=%d",
-                        timer.minutes,
-                        self.settings.max_runtime_minutes,
+                        "Total execution time (%.1f seconds) reached 'max_runtime'=%s",
+                        elapsed,
+                        self.settings.max_runtime,
                     )
                     break
                 batch_settings = optimizer.next_batch()
@@ -725,7 +889,7 @@ class Dse(FlowLauncher):
                     swept = workspace.sweep(
                         specs,
                         max_workers=self.settings.max_workers,
-                        cancel=_RoundToken(self.settings.timeout, self.cancel),
+                        cancel=_RoundToken(self.settings.round_timeout.to("s"), self.cancel),
                         rebuild_all=self.settings.rebuild_all,
                         clean=self.settings.clean,
                         post_cleanup=self.settings.post_cleanup,
@@ -736,8 +900,8 @@ class Dse(FlowLauncher):
                             canceled = True
                         else:
                             log.critical(
-                                "Flow run took longer than %d seconds. Canceled the remaining runs.",
-                                self.settings.timeout,
+                                "Flow run took longer than %s. Canceled the remaining runs.",
+                                self.settings.round_timeout,
                             )
                     # Every point of the round is a point of the result before the optimizer reads
                     # the first of them: an exception of the optimizer loses none.

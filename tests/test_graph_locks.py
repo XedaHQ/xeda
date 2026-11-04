@@ -1133,7 +1133,7 @@ def test_a_sweep_is_refused_by_a_thread_that_holds_a_lock(tmp_path):
     root = ensure_run_root(tmp_path / "xeda_run")
     sweep = Dse(
         FmaxOptimizer,
-        {"init_freq_low": 100, "init_freq_high": 200},
+        {"initial_frequency_low": "100 MHz", "initial_frequency_high": "200 MHz"},
         run_root=root,
         max_workers=1,
     )

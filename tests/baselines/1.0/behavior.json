@@ -186,27 +186,27 @@
         "required": false,
         "type": "tuple"
       },
-      "init_freq_high": {
+      "initial_frequency_high": {
         "default": "Sentinel",
         "flag": false,
         "hidden": false,
         "multiple": false,
         "names": [
-          "--init-freq-high"
+          "--initial-frequency-high"
         ],
         "required": false,
-        "type": "float"
+        "type": "text"
       },
-      "init_freq_low": {
+      "initial_frequency_low": {
         "default": "Sentinel",
         "flag": false,
         "hidden": false,
         "multiple": false,
         "names": [
-          "--init-freq-low"
+          "--initial-frequency-low"
         ],
         "required": false,
-        "type": "float"
+        "type": "text"
       },
       "json_flag": {
         "default": false,
@@ -228,7 +228,7 @@
           "--log-level"
         ],
         "required": false,
-        "type": "integer"
+        "type": "choice"
       },
       "max_workers": {
         "default": null,
@@ -1095,7 +1095,7 @@
           "--log-level"
         ],
         "required": false,
-        "type": "integer"
+        "type": "choice"
       },
       "no_config": {
         "default": false,

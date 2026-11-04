@@ -207,7 +207,7 @@ def test_an_exploration_refuses_before_the_generator_runs(tmp_path, monkeypatch)
     generated = Generated(tmp_path, ["gen/top.v", "gen/top.sc"])
     runner = Dse(
         FmaxOptimizer,
-        {"init_freq_low": 50.0, "init_freq_high": 200.0},
+        {"initial_frequency_low": "50 MHz", "initial_frequency_high": "200 MHz"},
         run_root=tmp_path / "xeda_run",
         variations={},
         max_workers=1,

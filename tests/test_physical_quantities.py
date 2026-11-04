@@ -6,7 +6,7 @@ quantity type of `xeda._internal.units`, and the user writes its unit. Every oth
 rule like this holds only while a test finds the next setting that breaks it. The sweep below walks
 every settings model, recursively, and fails on a number that is neither.
 
-A setting of the design-space search, which keeps plain numbers, is in `NOT_MIGRATED_YET`. A map
+A number that waits for its unit or marker is in `NOT_MIGRATED_YET`; the table is empty now. A map
 of tool options whose values the flow hands to the tool in the tool's own words is in
 `PASS_THROUGH`. The sweep keeps both tables true: an entry names an existing field, and a field that gains a unit or a
 marker has to leave `NOT_MIGRATED_YET`. The first table may only shrink.
@@ -75,27 +75,10 @@ from .test_cli_json_contract import json_stdout, run_xeda
 
 pytestmark = pytest.mark.python_compat
 
-FMAX = "FmaxOptimizer.Settings"
-SEARCH_UNCHANGED = "the design-space search (`xeda dse`) is internal and keeps plain numbers"
 
-#: Settings that are neither a quantity nor marked: every number of the design-space search, which
-#: `xeda dse` keeps internal. A field leaves this table when it becomes a quantity or gets a
-#: marker; the table never grows. Every entry says why the setting is here.
-NOT_MIGRATED_YET: dict[FieldKey, str] = {
-    ("Dse.Settings", "max_failed_iters"): SEARCH_UNCHANGED,
-    ("Dse.Settings", "max_failed_iters_with_best"): SEARCH_UNCHANGED,
-    ("Dse.Settings", "max_runtime_minutes"): SEARCH_UNCHANGED,
-    ("Dse.Settings", "max_workers"): SEARCH_UNCHANGED,
-    ("Dse.Settings", "timeout"): SEARCH_UNCHANGED,
-    (FMAX, "init_freq_low"): SEARCH_UNCHANGED,
-    (FMAX, "init_freq_high"): SEARCH_UNCHANGED,
-    (FMAX, "resolution"): SEARCH_UNCHANGED,
-    (FMAX, "delta"): SEARCH_UNCHANGED,
-    (FMAX, "min_improve_inc_variations"): SEARCH_UNCHANGED,
-    (FMAX, "max_luts"): SEARCH_UNCHANGED,
-    (FMAX, "init_num_variations"): SEARCH_UNCHANGED,
-    (FMAX, "stop_after_no_improves"): SEARCH_UNCHANGED,
-}
+#: Settings that are neither a quantity nor marked. A field leaves this table when it becomes a
+#: quantity or gets a marker; the table never grows. Every entry says why the setting is here.
+NOT_MIGRATED_YET: dict[FieldKey, str] = {}
 
 #: Maps of tool options. The flow hands each value to the tool in the tool's own words, so xeda
 #: neither converts nor checks a unit.
@@ -229,8 +212,8 @@ def test_the_sweep_reaches_the_fields_of_the_models_nested_in_the_settings_of_th
         ("FPGA", "pins"),  # a model, Optional
         ("CocotbSettings", "random_seed"),
         ("AbcGroup", "delay_target"),  # a group in a group
-        ("FmaxOptimizer.Settings", "init_freq_low"),  # the design-space search
-        ("Dse.Settings", "timeout"),
+        ("FmaxOptimizer.Settings", "initial_frequency_low"),  # the design-space search
+        ("Dse.Settings", "round_timeout"),
     ):
         assert key in fields, key
     clock = fields[("PhysicalClock", "period")]

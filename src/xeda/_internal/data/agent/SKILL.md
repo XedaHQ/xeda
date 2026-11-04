@@ -23,7 +23,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s <flow>.pdk_provider=lambdapdk` then selects) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s <flow>.KEY=VALUE --json` |
-| Search for the highest clock frequency | `xeda dse <flow> <design> --json` |
+| Search for the highest clock frequency | `xeda dse <flow> <design> --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz" --json` |
 | Remove a flow's old run directories | `xeda scrub <flow> <design> [--target NAME] --json` |
 
 Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`, `yaml`); `--json` is
@@ -607,7 +607,7 @@ their own documents: on failure they have `success: false` and an `error` with t
 | `storage_error` | A file or directory error of the operating system, or a path that leaves the run directory, ended the node (the record may be missing). Check the disk and permissions. |
 | `internal_error` | A bug of Xeda. Report it with the message. |
 
-Add `--log-level 10 --detailed-logs` for debug logs. Flow names and setting names are exact: a
+Add `--log-level debug --detailed-logs` for debug logs. Flow names and setting names are exact: a
 second spelling is refused, and the error names the right one.
 
 ## References
