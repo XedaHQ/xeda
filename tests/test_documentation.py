@@ -780,3 +780,16 @@ def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class)
         assert info["can_precede"] == []
     if not info["inputs"] and not info["outputs"]:
         assert info["can_follow"] == info["can_precede"] == []
+
+
+def test_the_verification_table_has_one_row_per_flow():
+    """docs/flows.rst says what verifies each flow; a new flow needs a row, a removed one loses it."""
+    from xeda._internal.flows import __builtin_flows__
+
+    text = (ROOT / "docs" / "flows.rst").read_text(encoding="utf-8")
+    start = text.index("Verification of the built-in flows\n")
+    section = text[start : text.index("\nSettings\n========\n", start)]
+    table = section[section.index(".. list-table::") :]
+    rows = re.findall(r"^   \* - ``(\w+)``$", table, re.MULTILINE)
+    # the registry also holds the flows that other tests register
+    assert sorted(rows) == sorted(flow.name for flow in __builtin_flows__)

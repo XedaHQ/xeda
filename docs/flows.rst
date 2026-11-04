@@ -69,6 +69,134 @@ A flow has one name, the one that ``list-flows`` shows (``vivado_synth``). Anoth
 (``vivado-synth``, ``VivadoSynth``, or ``ghdl`` for ``ghdl_sim``) is an error that suggests the
 name. An unrecognized name gets a list of close matches.
 
+.. _flow-verification:
+
+Verification of the built-in flows
+==================================
+
+Not every flow has been run against its real tool in an automated way. This table shows what
+verifies each built-in flow. The verification is one of these:
+
+``CI, real tool``
+    A GitHub Actions workflow runs the flow against the real tool on every change, on Linux x86_64.
+    The workflow is named in the table.
+
+``maintainer, real tool``
+    The repository has tests that run the real tool, but they are opt-in, and no workflow runs
+    them. The maintainer runs them by hand.
+
+``fake tool only``
+    The scripts and the report parsers of the flow are tested against recorded or synthetic tool
+    output, not against the tool. A flow of this kind can still fail on a real tool for a reason
+    that its tests cannot show. Check its results the first time you use it.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 25 55
+
+   * - Flow
+     - Tool
+     - Verification
+   * - ``bsc``
+     - bsc
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``bsc_sim``
+     - bsc (Bluesim, Verilator, Icarus)
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``dc``
+     - Design Compiler
+     - fake tool only
+   * - ``diamond_synth``
+     - Lattice Diamond
+     - fake tool only
+   * - ``fpga_pack``
+     - ecppack, icepack, fpga-as
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml`` (ECP5, iCE40) and the openXC7 workflow (Artix-7). It has no Nexus packer, and the tests check only the refusal.
+   * - ``ghdl_sim``
+     - GHDL
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``ghdl_synth``
+     - GHDL
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``ise_synth``
+     - Xilinx ISE
+     - fake tool only
+   * - ``iverilog``
+     - Icarus Verilog
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``modelsim``
+     - ModelSim
+     - maintainer, real tool: ``XEDA_TESTS_DOCKER`` with ModelSim-Intel Starter 2020.1 (no workflow runs it)
+   * - ``nextpnr``
+     - nextpnr
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml`` (ECP5, iCE40) and the openXC7 workflow (Artix-7). Fake tool only for Nexus.
+   * - ``nvc``
+     - NVC
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``openfpgaloader``
+     - openFPGALoader
+     - fake tool only (the flow needs hardware, and no test starts a real programmer)
+   * - ``openroad``
+     - OpenROAD
+     - CI, real tool: ``openroad.yml``
+   * - ``openroad_cts``
+     - OpenROAD
+     - CI, real tool: ``openroad.yml``
+   * - ``openroad_grt``
+     - OpenROAD
+     - CI, real tool: ``openroad.yml``
+   * - ``openroad_place``
+     - OpenROAD
+     - CI, real tool: ``openroad.yml``
+   * - ``quartus``
+     - Intel Quartus
+     - fake tool only
+   * - ``sby``
+     - SymbiYosys
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``vcs``
+     - Synopsys VCS
+     - fake tool only
+   * - ``verilator``
+     - Verilator
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``vivado_alt_synth``
+     - Vivado
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``vivado_impl``
+     - Vivado
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``vivado_postsynth_sim``
+     - Vivado (xsim)
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``vivado_power``
+     - Vivado
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``vivado_project``
+     - Vivado
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``vivado_sim``
+     - Vivado (xsim)
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``vivado_synth``
+     - Vivado
+     - maintainer, real tool: ``XEDA_TESTS_VIVADO`` (no workflow runs it)
+   * - ``xezim``
+     - xezim
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+   * - ``yosys``
+     - Yosys
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml`` and ``openroad.yml`` (ASIC)
+   * - ``yosys_fpga``
+     - Yosys
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml`` (ECP5, iCE40) and the openXC7 workflow (Artix-7)
+   * - ``yosys_sim``
+     - Yosys (CXXRTL)
+     - CI, real tool: the ``tox`` job on Python 3.15 in ``ci.yml``
+
+The VCS and Questa adapters of the simulation flows are documentation-only too. Nobody has verified
+them against a licensed real tool (see `Simulation results`_).
+
 Settings
 ========
 

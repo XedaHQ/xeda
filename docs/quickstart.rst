@@ -24,6 +24,29 @@ Check the installation::
 
     xeda --version
 
+Supported platforms
+===================
+
+Python
+    3.11 through 3.15. CI runs the full test suite on Python 3.15 and the compatibility tests on
+    3.11 to 3.14.
+
+Linux x86_64
+    CI runs the full test suite on it. Some open-source flows run against the real tools.
+    :ref:`flow-verification` lists what verifies each flow and device family.
+
+macOS
+    CI runs only the tests of operating-system-sensitive code (processes, locks, files and the
+    remote client), on Python 3.11. It installs no EDA tool, so no flow runs against a real tool
+    there.
+
+Linux arm64
+    Not tested in CI.
+
+Windows
+    Native Windows is not supported. Use WSL. A native Windows machine cannot start a remote run
+    either (see :doc:`remote`).
+
 Shell completion
 ================
 
