@@ -148,11 +148,7 @@ def _agent_document(
         raise RemoteProtocolError(f"The agent on {host} sent a document that is not an object.")
     problem = document.get("error")
     if problem is not None:
-        text = (
-            f"{problem.get('type', 'error')}: {problem.get('message', '')}"
-            if isinstance(problem, dict)
-            else str(problem)
-        )
+        text = problem.get("message", "") if isinstance(problem, dict) else str(problem)
         raise RemoteError(f"The agent on {host} failed while {step}: {text}{detail}")
     if done.returncode != 0:
         raise RemoteError(
