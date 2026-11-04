@@ -525,11 +525,11 @@ def remote_cancel(
     after the grace periods, to the launch and to the processes it started.
     """
     _set_up(ctx, json_flag)
-    from .attach import cancel_launch
+    from . import attach
 
     profile = _profile_of(host, json_flag)
     try:
-        document = cancel_launch(host, launch_id, run_root=run_root, profile=profile)
+        document = attach.cancel_launch(host, launch_id, run_root=run_root, profile=profile)
     except KeyboardInterrupt:
         _fail(
             "canceled",
