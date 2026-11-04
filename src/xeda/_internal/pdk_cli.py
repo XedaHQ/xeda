@@ -57,15 +57,26 @@ def _short(version: str) -> str:
     return version[:SHORT_VERSION] if len(version) == 40 else version
 
 
-def _fail(error_type: str, message: str, fmt: str) -> NoReturn:
+#: The code of each failure that a `pdk` command reports, by the name of its exception class.
+_FAILURE_CODES = {
+    "PdkNotInstalled": "pdk_not_installed",
+    "PdkVersionMismatch": "pdk_version_mismatch",
+    "PdkInstallerMissing": "executable_not_found",
+    "PdkInstallBusy": "pdk_install_busy",
+    "PdkInstallFailed": "pdk_install_failed",
+}
+
+
+def _fail(error: Exception, fmt: str) -> NoReturn:
     """Report a failure as every command does: a document with `success` false in a
     machine-readable format, else the message alone on stderr. Exit with status 1."""
-    from .cli_utils import emit_structured
+    from .cli_utils import emit_structured, failure_document
 
+    message = str(error)
     if fmt == "table":
         click.echo(message, err=True)
     else:
-        emit_structured({"success": False, "error": {"type": error_type, "message": message}}, fmt)
+        emit_structured(failure_document(_FAILURE_CODES[type(error).__name__], message), fmt)
     sys.exit(1)
 
 
@@ -283,7 +294,7 @@ def pdk_path(
         )
         verify_pin(located, residue)
     except (PdkNotInstalled, PdkVersionMismatch) as error:
-        _fail(type(error).__name__, str(error), fmt)
+        _fail(error, fmt)
     except ValueError as error:
         raise click.UsageError(str(error)) from None
     if fmt == "table":
@@ -384,7 +395,7 @@ def pdk_install(
                 sys.exit(1)
         result = install(residue, provider, version, store)
     except (PdkInstallerMissing, PdkInstallFailed, PdkInstallBusy) as error:
-        _fail(type(error).__name__, str(error), fmt)
+        _fail(error, fmt)
     except ValueError as error:
         raise click.UsageError(str(error)) from None
     located = result.located

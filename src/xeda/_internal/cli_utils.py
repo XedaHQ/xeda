@@ -3,6 +3,7 @@
 import json
 import logging
 import sys
+import traceback
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import (
@@ -339,9 +340,13 @@ class XedaHelpGroup(ColorizedGroup):
         except click.ClickException as e:
             self._report_click_error(e, fmt)
         except click.exceptions.Abort:
-            emit_structured(
-                {"success": False, "error": {"type": "Abort", "message": "Aborted."}}, fmt
-            )
+            emit_structured(failure_document("canceled", "Aborted."), fmt)
+            sys.exit(1)
+        except Exception as e:  # pylint: disable=broad-except
+            # A failure that no command reports itself: a file system error, or a bug.
+            traceback.print_exc()
+            code = "storage_error" if isinstance(e, OSError) else "internal_error"
+            emit_structured(failure_document(code, str(e) or type(e).__name__), fmt)
             sys.exit(1)
 
     @staticmethod
@@ -388,13 +393,15 @@ class XedaHelpGroup(ColorizedGroup):
 
     @staticmethod
     def _report_click_error(e: click.ClickException, fmt: str) -> NoReturn:
-        emit_structured(
-            {
-                "success": False,
-                "error": {"type": type(e).__name__, "message": e.format_message()},
-            },
-            fmt,
-        )
+        if isinstance(e, click.UsageError):
+            info = _usage_error_info(e)
+            document = failure_document(info.code, info.message)
+        else:
+            file_error = isinstance(e, click.FileError)
+            document = failure_document(
+                "storage_error" if file_error else "internal_error", e.format_message()
+            )
+        emit_structured(document, fmt)
         sys.exit(e.exit_code)
 
 
@@ -526,6 +533,16 @@ def info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Tab
 def resolve_format(output_format: str, json_flag: bool) -> str:
     """Return the output format, with `--json` as shorthand for `--format json`."""
     return "json" if json_flag else output_format
+
+
+def failure_document(code: str, message: str) -> dict[str, Any]:
+    """Return the document of a failed command that has no result of its own: `success` false and
+    an `error` with the five keys of the error of a run (`node`, `exit_status` and `log` are null).
+    """
+    from .records import ErrorInfo
+
+    error = ErrorInfo(code=code, message=message, node=None, exit_status=None, log=None)
+    return {"success": False, "error": error.as_json_value()}
 
 
 def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None) -> None:

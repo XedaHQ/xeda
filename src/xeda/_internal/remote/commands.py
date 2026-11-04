@@ -44,18 +44,44 @@ _CLEAN_TIMEOUT = 3600.0
 DOCKER = "docker"
 
 
-def _fail(error_type: str, message: str, json_flag: bool) -> NoReturn:
-    """Report a failure as every command does: a document with `success` false with `--json`, else
-    the message alone on stderr. Exit with status 1."""
+def _fail(code: str, message: str, json_flag: bool) -> NoReturn:
+    """Report a failure as every command does: a document with `success` false and an `error`
+    with `code` with `--json`, else the message alone on stderr. Exit with status 1."""
     if json_flag:
-        from ..cli_utils import emit_structured
+        from ..cli_utils import emit_structured, failure_document
 
-        emit_structured(
-            {"success": False, "error": {"type": error_type, "message": message}}, "json"
-        )
+        emit_structured(failure_document(code, message), "json")
     else:
         click.echo(message, err=True)
     sys.exit(1)
+
+
+def _fail_with(error: BaseException, json_flag: bool) -> NoReturn:
+    """Report the exception `error` of a remote command by `_fail`, with the code of its kind."""
+    from .errors import (
+        RemoteCanceled,
+        RemoteConfigError,
+        RemoteConnectionError,
+        RemoteDependencyError,
+        RemoteError,
+        RemoteProvisionError,
+        RemoteTimeout,
+    )
+
+    code = "internal_error"
+    if isinstance(error, (RemoteCanceled, KeyboardInterrupt)):
+        code = "canceled"
+    elif isinstance(error, RemoteConnectionError):
+        code = "remote_unreachable"
+    elif isinstance(error, RemoteTimeout):
+        code = "timeout"
+    elif isinstance(error, (RemoteConfigError, RemoteProvisionError, RemoteDependencyError)):
+        code = "remote_setup_failed"
+    elif isinstance(error, RemoteError):
+        code = "remote_failed"
+    elif isinstance(error, OSError):
+        code = "storage_error"
+    _fail(code, str(error), json_flag)
 
 
 def _profile_of(host: str, json_flag: bool) -> HostProfile:
@@ -66,7 +92,7 @@ def _profile_of(host: str, json_flag: bool) -> HostProfile:
         return host_profile(host, read_host_profiles(remotes_file()))
     except Exception as error:  # pylint: disable=broad-except
         log.debug("The host profiles could not be read", exc_info=True)
-        _fail(type(error).__name__, str(error), json_flag)
+        _fail("remote_setup_failed", str(error), json_flag)
 
 
 def _set_up(ctx: click.Context, json_flag: bool) -> None:
@@ -89,7 +115,7 @@ def _agent_document(
 ) -> dict[str, Any]:
     """Run a one-shot command of the agent on the host and return its document."""
     from .client import _during
-    from .errors import RemoteConfigError, RemoteError, RemoteProtocolError
+    from .errors import RemoteConfigError, RemoteError, RemoteProtocolError, RemoteTimeout
     from .frames import skip_to_magic
     from .provision import agent_command
 
@@ -105,7 +131,7 @@ def _agent_document(
         try:
             done = session.run(command, timeout=timeout)
         except subprocess.TimeoutExpired:
-            raise RemoteError(
+            raise RemoteTimeout(
                 f"The agent on {host} did not finish {step} in {timeout:.0f} seconds."
             ) from None
     detail = done.stderr.decode("utf-8", "replace").strip()
@@ -140,11 +166,11 @@ def _connect_and_run(host: str, profile: HostProfile, work: Any) -> Any:
     call `work(session, probe, provisioned)`. Return its value."""
     from .client import _is_windows, _provision
     from .environment import code_snapshot, dependency_spec
-    from .errors import RemoteError
+    from .errors import RemoteConfigError
     from .ssh import SshSession, resolve_destination
 
     if _is_windows():
-        raise RemoteError(
+        raise RemoteConfigError(
             "`xeda remote` does not work on native Windows. Use WSL, or run xeda on a Linux or "
             "macOS machine."
         )
@@ -164,13 +190,13 @@ def _run(json_flag: bool, host: str, work: Any) -> Any:
         return _connect_and_run(host, profile, work)
     except KeyboardInterrupt:
         _fail(
-            "RemoteCanceled",
+            "canceled",
             f"Canceled by Ctrl-C. The command on {host} may be unfinished.",
             json_flag,
         )
     except Exception as error:  # pylint: disable=broad-except
         log.debug("The remote command failed", exc_info=True)
-        _fail(type(error).__name__, str(error), json_flag)
+        _fail_with(error, json_flag)
 
 
 def _size(count: int) -> str:
@@ -361,7 +387,7 @@ def _clean_host(
                 return {"success": True, "host": host, "removed": [], "kept": listing["kept"]}
         except click.Abort:
             _fail(
-                "Aborted",
+                "canceled",
                 "No answer. Nothing was removed. Pass --yes to remove without asking.",
                 False,
             )
@@ -475,7 +501,7 @@ def remote_attach(
         )
     except Exception as error:  # pylint: disable=broad-except
         log.debug("The attach failed", exc_info=True)
-        _fail(type(error).__name__, str(error), json_flag)
+        _fail_with(error, json_flag)
     if result.error is not None:
         log.critical("%s", result.error.message)
     elif not result.passed:
@@ -510,26 +536,27 @@ def remote_cancel(
         document = cancel_launch(host, launch_id, run_root=run_root, profile=profile)
     except KeyboardInterrupt:
         _fail(
-            "RemoteCanceled",
+            "canceled",
             f"Canceled by Ctrl-C. The cancel on {host} may be unfinished: run it again.",
             json_flag,
         )
     except Exception as error:  # pylint: disable=broad-except
         log.debug("The remote command failed", exc_info=True)
-        _fail(type(error).__name__, str(error), json_flag)
-    if json_flag:
-        from ..cli_utils import emit_structured
+        _fail_with(error, json_flag)
+    if document["success"]:
+        if json_flag:
+            from ..cli_utils import emit_structured
 
-        emit_structured(document, "json")
-    elif document["success"]:
-        click.echo(f"Canceled the launch {document['launch']} on {host}.")
-    else:
-        click.echo(
-            f"Canceled the launch {document['launch']} on {host}, but {document['survivors']} "
-            "process(es) of it did not stop after SIGKILL and may still run there.",
-            err=True,
-        )
-    sys.exit(0 if document["success"] else 1)
+            emit_structured(document, "json")
+        else:
+            click.echo(f"Canceled the launch {document['launch']} on {host}.")
+        sys.exit(0)
+    _fail(
+        "remote_failed",
+        f"Canceled the launch {document['launch']} on {host}, but {document['survivors']} "
+        "process(es) of it did not stop after SIGKILL and may still run there.",
+        json_flag,
+    )
 
 
 # ---------------------------------------------------------------------------------------------

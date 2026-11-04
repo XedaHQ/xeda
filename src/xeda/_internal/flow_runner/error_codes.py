@@ -219,6 +219,9 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
         ]
     ),
     "cli": frozenset(["usage_error"]),
+    "pdk": frozenset(
+        ["pdk_not_installed", "pdk_version_mismatch", "pdk_install_busy", "pdk_install_failed"]
+    ),
     "launch": frozenset(
         [
             "generator_failed",

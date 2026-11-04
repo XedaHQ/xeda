@@ -95,6 +95,12 @@ def _dse(tmp_path: Path) -> Any:
     )  # fmt: skip
 
 
+def _failure() -> Any:
+    proc = run_xeda("list-settings", "no_such_flow", "--json")
+    assert proc.returncode == 2, proc.stderr
+    return json.loads(proc.stdout)
+
+
 PRODUCERS = {
     "list-flows": lambda tmp_path: _json("list-flows"),
     "list-settings": lambda tmp_path: _json("list-settings", FLOW),
@@ -102,6 +108,7 @@ PRODUCERS = {
     "list-boards": lambda tmp_path: _json("list-boards"),
     "list-platforms": lambda tmp_path: _json("list-platforms"),
     "list-optimizers": lambda tmp_path: _json("list-optimizers"),
+    "failure": lambda tmp_path: _failure(),
     "run": lambda tmp_path: _run(tmp_path),
     "dry-run": lambda tmp_path: _run(tmp_path, "--dry-run"),
     "scrub": _scrub,

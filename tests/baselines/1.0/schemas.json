@@ -2899,6 +2899,56 @@
     "title": "xeda dse --json",
     "type": "object"
   },
+  "failure": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "error": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "exit_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "log": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "exit_status",
+          "log",
+          "message",
+          "node"
+        ],
+        "type": "object"
+      },
+      "success": {
+        "const": false
+      }
+    },
+    "required": [
+      "error",
+      "success"
+    ],
+    "title": "a failed query, pdk or remote command",
+    "type": "object"
+  },
   "list-boards": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {

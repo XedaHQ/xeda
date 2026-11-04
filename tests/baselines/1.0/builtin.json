@@ -117,6 +117,12 @@
       "reported_failure",
       "storage_error",
       "timeout"
+    ],
+    "pdk": [
+      "pdk_install_busy",
+      "pdk_install_failed",
+      "pdk_not_installed",
+      "pdk_version_mismatch"
     ]
   },
   "flows": {

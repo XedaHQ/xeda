@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import click
 import pytest
 
 from xeda._internal.platforms import bundled_platform_names
@@ -192,7 +193,7 @@ def test_group_level_json_is_itself_a_usage_error():
     rejection is still reported as JSON."""
     proc = run_xeda("--json", "--help")
     assert proc.returncode != 0
-    assert json_stdout(proc)["error"]["type"] == "NoSuchOption"
+    assert json_stdout(proc)["error"]["code"] == "usage_error"
 
 
 # ------------------------------------------------------------- the PDK commands read one store
@@ -208,22 +209,22 @@ def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("command", "error_type"),
+    ("command", "code"),
     [
-        (["pdk", "path", "nangate45"], "PdkNotInstalled"),  # the empty store under HOME
-        (["pdk", "path", "nangate"], "BadParameter"),
-        (["pdk", "path"], "UsageError"),
-        (["pdk", "path", "nangate45", "--no-such-option"], "NoSuchOption"),
+        (["pdk", "path", "nangate45"], "pdk_not_installed"),  # the empty store under HOME
+        (["pdk", "path", "nangate"], "usage_error"),
+        (["pdk", "path"], "usage_error"),
+        (["pdk", "path", "nangate45", "--no-such-option"], "usage_error"),
         # An install that fails before it writes or uses the network.
-        (["pdk", "install", "nangate45", "--provider", "directory"], "UsageError"),
-        (["pdk", "install", "nangate45", "--version", "main"], "UsageError"),
-        (["pdk", "install", "nangate"], "BadParameter"),
-        (["pdk", "install"], "UsageError"),
-        (["pdk", "path", "--platform-file", "MERGE_FAILS"], "BadParameter"),
+        (["pdk", "install", "nangate45", "--provider", "directory"], "usage_error"),
+        (["pdk", "install", "nangate45", "--version", "main"], "usage_error"),
+        (["pdk", "install", "nangate"], "usage_error"),
+        (["pdk", "install"], "usage_error"),
+        (["pdk", "path", "--platform-file", "MERGE_FAILS"], "usage_error"),
     ],
     ids=lambda value: value if isinstance(value, str) else " ".join(value),
 )
-def test_a_failed_pdk_command_reports_json_and_fails(command, error_type, tmp_path):
+def test_a_failed_pdk_command_reports_json_and_fails(command, code, tmp_path):
     if "MERGE_FAILS" in command:  # a file that loads alone but is wrong over nangate45
         broken = tmp_path / "mine.yaml"
         broken.write_text("name: mine\nextends: nangate45\ncorners: {default: missing}\n")
@@ -232,7 +233,8 @@ def test_a_failed_pdk_command_reports_json_and_fails(command, error_type, tmp_pa
     document = json_stdout(proc)
     assert proc.returncode != 0
     assert document["success"] is False
-    assert document["error"]["type"] == error_type
+    assert document["error"]["code"] == code
+    assert set(document["error"]) == {"code", "message", "node", "exit_status", "log"}
 
 
 # --------------------------------------------------------------- flow-name resolution at the CLI
@@ -533,3 +535,49 @@ def test_highlighted_tool_output_does_not_corrupt_stdout(tmp_path):
     assert "TOOL-STDOUT: ERROR: highlighted" in proc.stderr
     assert "TOOL-STDERR: diagnostic" in proc.stderr
     assert "\033[" in proc.stderr, "highlighting was not applied, so the branch was not exercised"
+
+
+# ------------------------------------------------------------- the failure envelope of the queries
+
+
+def test_an_unknown_flow_in_a_query_is_flow_not_found():
+    proc = run_xeda("list-settings", "no_such_flow", "--json")
+    assert proc.returncode == 2
+    document = json_stdout(proc)
+    assert document["success"] is False
+    assert document["error"]["code"] == "flow_not_found"
+    assert set(document["error"]) == {"code", "message", "node", "exit_status", "log"}
+
+
+def test_a_chain_where_one_flow_is_required_is_a_usage_error():
+    proc = run_xeda("list-settings", "yosys_synth+nextpnr_ecp5", "--json")
+    assert proc.returncode == 2
+    assert json_stdout(proc)["error"]["code"] == "usage_error"
+
+
+def _fails_with(monkeypatch, error: BaseException) -> dict:
+    from click.testing import CliRunner
+
+    from xeda._internal import cli as cli_module
+
+    def broken(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(cli_module.cli.commands["list-flows"], "callback", broken)
+    result = CliRunner().invoke(cli_module.cli, ["list-flows", "--json"])
+    assert result.exit_code == 1
+    return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (click.Abort(), "canceled"),
+        (OSError("disk full"), "storage_error"),
+        (RuntimeError("bug"), "internal_error"),
+    ],
+    ids=["abort", "oserror", "bug"],
+)
+def test_an_unreported_failure_of_a_query_has_a_code(monkeypatch, error, code):
+    document = _fails_with(monkeypatch, error)
+    assert document["success"] is False and document["error"]["code"] == code
