@@ -413,9 +413,10 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     ``commit`` (the resolved Git commit, or ``null`` for a local dependency), and ``design_file``
     (the dependency's design-file path).
 ``inherited_variables``
-    The sorted names of the variables that the node used and that came from the caller's
-    environment or from the private ``env`` table (see :ref:`environment`). The session variables
-    are not in it. It holds no value. Xeda keeps a digest of the values as freshness evidence.
+    The sorted names of the variables in the node's freshness evidence: every variable that the
+    node inherits from the caller's environment, except the session variables, and every variable
+    of the private ``env`` table (see :ref:`environment`). It holds no value. Xeda keeps a digest
+    of the values as freshness evidence.
 
 The record holds no deliveries: ``deliveries`` of a node in the document of ``xeda run --json``
 lists them. The record names no file of the run by an absolute path. The run root and the run directory
