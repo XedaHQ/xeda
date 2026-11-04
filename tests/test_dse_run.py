@@ -1747,7 +1747,7 @@ def test_an_unsupported_flow_is_a_usage_error_before_any_design_is_read(tmp_path
         f"xeda dse: optimizer 'fmax_optimizer' does not support flow '{flow}': "
         f"the flow has {missing}."
     )
-    assert document["design"] is None and document["points"] == []
+    assert document["design_name"] is None and document["points"] == []
 
 
 @pytest.mark.parametrize("flow", ["nextpnr", "quartus", "vivado_synth", "vivado_alt_synth"])
