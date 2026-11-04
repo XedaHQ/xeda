@@ -453,7 +453,10 @@ shows a value. The variables of a shell session, a terminal or a login never cou
 ``OLDPWD``, ``SHLVL``, ``_``, ``COLUMNS``, ``LINES``, ``TERM_SESSION_ID``, ``ITERM_SESSION_ID``,
 ``WINDOWID``, ``TMUX``, ``TMUX_PANE``, ``STY``, ``SSH_AUTH_SOCK``, ``SSH_AGENT_PID``,
 ``SSH_CLIENT``, ``SSH_CONNECTION``, ``SSH_TTY``, ``XDG_SESSION_ID``, ``XEDA_RUN_ROOT``,
-``XEDA_REMOTE``, ``XEDA_LOG_LEVEL`` and ``XEDA_DETAILED_LOGS``. ``results.json`` lists the names of
+``XEDA_REMOTE``, ``XEDA_LOG_LEVEL`` and ``XEDA_DETAILED_LOGS``. This list is fixed. Any other
+inherited variable counts. A notebook kernel, an editor terminal, a plain shell and a CI job usually
+have different values for such variables, so each of them may run a node again once.
+``results.json`` lists the names of
 the inherited variables in ``inherited_variables``. It holds no value.
 
 With ``--remote``, Xeda takes the environment on the host, in the environment of the agent. Xeda

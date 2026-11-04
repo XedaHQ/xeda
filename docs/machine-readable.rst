@@ -386,9 +386,12 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     ``producer`` or ``none``), ``producer``, ``output``, ``producer_run_id``, ``producer_run_dir``
     (relative to the run root) and the ``sources`` that the input read, each as
     ``{path, generated, digest, dependency, producer, generation}``. ``generated`` is ``true`` for a
-    source that a generator wrote and ``false`` for a written one. ``path`` is relative to the
-    design root, ``digest`` is the content digest, and ``dependency`` is the index of the source's
-    dependency in ``dependencies``, or ``null``. ``producer_run_id`` and ``producer_run_dir`` are
+    source that a generator wrote and ``false`` for a written one. ``digest`` is the content
+    digest. ``dependency`` is the index of the source's dependency in ``dependencies``, or
+    ``null``. ``path`` has three bases. For a written source of the design itself, it is relative
+    to the design root. For a written source of a dependency, it is relative to the root of that
+    dependency (its checkout, for a Git dependency), and ``dependency`` gives the index. For a
+    generated source, it is the name in the output of its producer. ``producer_run_id`` and ``producer_run_dir`` are
     ``null`` when no producer run supplied the input, and ``producer`` and ``output`` are ``null``
     when the input has no producer. For a generated source,
     ``path`` is its name in the output of its producer, and ``producer`` tells which one wrote it:
@@ -411,7 +414,10 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     ``commit`` (the resolved Git commit, or ``null`` for a local dependency), and ``design_file``
     (the dependency's design-file path).
 ``inherited_variables``
-    A list of inherited variables; empty for now.
+    The sorted names of the variables in the node's freshness evidence: every variable that the
+    node inherits from the caller's environment, except the session variables, and every variable
+    of the private ``env`` table (see :ref:`environment`). It holds no value. Xeda keeps a digest
+    of the values as freshness evidence.
 
 The record holds no deliveries: ``deliveries`` of a node in the document of ``xeda run --json``
 lists them. The record names no file of the run by an absolute path. The run root and the run directory

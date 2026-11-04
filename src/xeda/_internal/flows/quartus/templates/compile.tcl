@@ -17,8 +17,6 @@ if {[catch {execute_flow -compile} result]} {
 
 puts "clocks: [get_clocks]"
 
-# TODO: set up Verilog include directories, VHDL generics and Verilog parameters.
-
 load_package report
 load_report
 

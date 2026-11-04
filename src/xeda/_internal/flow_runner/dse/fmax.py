@@ -102,7 +102,6 @@ class FmaxOptimizer(Optimizer):
         self.improved_idx: Optional[int] = None
         self.failed_fmax: Optional[float] = None
 
-        # TODO: remove
         self.batch_hashes = set()
 
         # The variation of each point of the last batch, by the position of the point in the batch:

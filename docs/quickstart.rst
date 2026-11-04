@@ -118,7 +118,19 @@ the same keys. See :doc:`design-file` for the full reference.
 Run a flow
 ==========
 
-``xeda run <FLOW_NAME> <DESIGN_FILE>``. To simulate the design with GHDL::
+``xeda run <FLOW_NAME> <DESIGN_FILE>``.
+
+The example files come from a clone of the repository (``git clone
+https://github.com/XedaHQ/xeda``). The wheel has no ``examples/``. The cocotb testbench of this
+example also needs ``cocotb`` and ``cocolight`` in the environment that runs Xeda. The wheel
+installs neither, and ``cocolight`` comes from Git::
+
+    python3 -m pip install "cocotb~=2.1.0" "cocolight @ git+https://github.com/kammoh/cocolight.git"
+
+For a ``uv tool`` install, add ``--with "cocotb~=2.1.0" --with "cocolight @
+git+https://github.com/kammoh/cocolight.git"`` to ``uv tool install --upgrade xeda``.
+
+To simulate the design with GHDL::
 
     xeda run ghdl_sim examples/vhdl/sqrt/sqrt.yaml
 

@@ -89,6 +89,7 @@ class _Stub:
 
     name = "stub_sim"
     reject = Flow.reject
+    artifacts: dict = {}
 
     def __init__(self, stop_time=None):
         self.results = {}
@@ -233,7 +234,7 @@ def test_a_failed_cocotb_run_records_its_counts_through_check_results():
 
     flow = _Stub()
     flow.cocotb = Cocotb()
-    flow.report_file = lambda path: None
+    flow.report_file = lambda path, optional=False: None
     assert SimFlow.check_results(flow) is False
     assert flow.results["error"]["message"].startswith("`stub_sim` reported failure: 2 of 3")
 
@@ -960,3 +961,24 @@ def test_vivado_oracle_detects_suppressed_native_finish(family, tmp_path, monkey
     with monkeypatch.context() as patch:
         missing = launch_case(SimCase(family), tmp_path / "missing", patch)
     assert not missing.succeeded
+
+
+def test_a_cocotb_run_without_results_names_a_module_the_testbench_could_not_import(tmp_path):
+    log = tmp_path / "sim.log"
+    log.write_text(
+        "Traceback (most recent call last):\nModuleNotFoundError: No module named 'cocolight'\n"
+    )
+
+    class Cocotb:
+        def add_results(self, results, results_file=None):
+            return False
+
+        results_xml = "results.xml"
+
+    flow = _Stub()
+    flow.cocotb = Cocotb()
+    flow.artifacts = {"log": "logs/ghdl.log"}
+    flow.report_file = lambda path, optional=False: log if optional else None
+    assert SimFlow.check_results(flow) is False
+    message = flow.results["error"]["message"]
+    assert "needs the Python module `cocolight`" in message

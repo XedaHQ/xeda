@@ -99,6 +99,18 @@ accepts only `true` or `false`, so `debug: yes` and `debug: 1` are errors.
 
 ### Running flows
 
+The example files come from a clone of the repository (`git clone https://github.com/XedaHQ/xeda`);
+the wheel has no `examples/`. The cocotb testbench of this example also needs `cocotb` and
+`cocolight` in the environment that runs Xeda. The wheel installs neither, and `cocolight` comes
+from Git:
+
+```bash
+python3 -m pip install "cocotb~=2.1.0" "cocolight @ git+https://github.com/kammoh/cocolight.git"
+# or, for a `uv tool` install:
+uv tool install --upgrade xeda --with "cocotb~=2.1.0" \
+  --with "cocolight @ git+https://github.com/kammoh/cocolight.git"
+```
+
 The same design file serves every flow:
 
 ```bash

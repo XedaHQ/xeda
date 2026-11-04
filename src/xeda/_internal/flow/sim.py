@@ -145,10 +145,23 @@ def problem(cause: str, fix: str) -> str:
 LOG_ADVICE = "read the simulation log in the run directory"
 
 
-def _cocotb_problem(results: Any) -> str:
-    """Return why the verdict of cocotb failed, from the counts it recorded in the results."""
+_MISSING_MODULE = re.compile(r"(?:ModuleNotFoundError|ImportError): No module named '([^']+)'")
+
+
+def _cocotb_problem(results: Any, log_text: str = "") -> str:
+    """Return why the verdict of cocotb failed, from the counts it recorded in the results.
+
+    `log_text` is the simulation log. It names a Python module that the testbench could not
+    import, if the log says so."""
     tests = results.get("cocotb.tests")
     if tests is None:
+        missing = _MISSING_MODULE.search(log_text)
+        if missing:
+            return problem(
+                f"cocotb left no readable test results: the testbench needs the Python module "
+                f"`{missing.group(1)}`, which is not installed",
+                f"install it in the environment that runs Xeda ({LOG_ADVICE})",
+            )
         return problem("cocotb left no readable test results", LOG_ADVICE)
     errors, failures = results.get("cocotb.errors", 0), results.get("cocotb.failures", 0)
     if errors or failures:
@@ -617,7 +630,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 # Results that were read and did not pass are a judgment. A run that left no
                 # readable results has nothing to judge.
                 if self.results.get("cocotb.tests") is None:
-                    record_failure(self, _cocotb_problem(self.results))
+                    log = next((k for k in ("simulation_log", "log") if k in self.artifacts), None)
+                    log_file = log and self.report_file(self.artifacts[log], optional=True)
+                    log_text = log_file.read_text(errors="replace") if log_file else ""
+                    record_failure(self, _cocotb_problem(self.results, log_text))
                 else:
                     record_rejection(self, _cocotb_problem(self.results))
             return passed

@@ -197,9 +197,10 @@ class OutputRecord:
 class InputSource:
     """One source file that a run read through a declared input.
 
-    `path` is relative to the design root. For a generated source, it is the name in the output of
-    its producer. `dependency` is the index of the dependency in `RunRecord.dependencies`, or
-    `None`. `producer` tells which producer wrote a generated source: `None` for the generator of
+    `path` has three bases. A written source of the design itself: relative to the design root.
+    A written source of a dependency: relative to the root of that dependency (the checkout of a
+    Git dependency). A generated source: its name in the output of its producer. `dependency` is
+    the index of the dependency in `RunRecord.dependencies`, or `None`. `producer` tells which producer wrote a generated source: `None` for the generator of
     the design itself, the name of the design for the generator of a dependency, and the name of
     the node for a converter. It is `None` for a written source. `generation` is the key of the
     generation storage that holds a source of a generator, `<run root>/.generated/<design>/<key>`,
