@@ -542,7 +542,7 @@ def failure_document(code: str, message: str) -> dict[str, Any]:
     from .records import ErrorInfo
 
     error = ErrorInfo(code=code, message=message, node=None, exit_status=None, log=None)
-    return {"success": False, "error": error.as_json_value()}
+    return {"success": False, "error": error.to_dict()}
 
 
 def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None) -> None:
