@@ -24,7 +24,7 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda._internal import cli as cli_module
 from xeda._internal.cli import cli
-from xeda._internal.flow import Flow, FlowSettingsException
+from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException
 from xeda._internal.flow_runner.chains import parse_request
 from xeda._internal.flows import VivadoSynth
 from xeda._internal.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
@@ -33,7 +33,7 @@ from xeda._internal.flow_runner.settings_layers import merge_layers
 from xeda._internal.project import Project
 from xeda._internal.dataclass import Field
 from xeda._internal.units import Time
-from xeda._internal.utils import camelcase_to_snakecase, replacing_file
+from xeda._internal.utils import camelcase_to_snakecase, replacing_file, settings_to_dict
 from xeda._internal.flow import FpgaSynthFlow, MetricSpec
 from .scoping import node_settings
 from .design_edits import design_from_dump
@@ -960,6 +960,7 @@ def test_dse_of_the_command_line_refuses_the_openroad_flows(tmp_path):
     document = json.loads(result.stdout)
     assert result.exit_code == 2
     assert document["outcome"] is None and document["points"] == []
+    assert document["error"]["code"] == "usage_error"
     assert OPENROAD_DSE_REFUSAL in document["error"]["message"]
 
 
@@ -1847,3 +1848,89 @@ def test_the_command_refuses_an_optimizer_that_is_no_built_in_name(tmp_path, mon
     )
     assert result.exit_code == 2
     assert "Unknown optimizer" in json.loads(result.stdout)["error"]["message"]
+
+
+def _checked(tmp_path, flow, **variations):
+    """Plan the variations of a flow, as a search does, given as a caller of the command line
+    gives them (`--dse-settings variations.KEY=a,b`)."""
+    from xeda._internal.flow_runner.default_runner import get_flow_class
+
+    text = settings_to_dict([f"variations.{k}={v}" for k, v in variations.items()])
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", **text)
+    design = Design(name="d", root=tmp_path, rtl={"sources": [], "top": "t"})
+    return runner._checked_variations(
+        get_flow_class(flow), design, runner.settings.variations, runner._text_variations
+    )
+
+
+def test_text_variations_are_read_as_the_type_of_each_setting(tmp_path):
+    assert _checked(tmp_path, "nextpnr", seed="1,2")["seed"] == [1, 2]
+    assert _checked(tmp_path, "quartus", optimization_mode="BALANCED,HIGH PERFORMANCE EFFORT")[
+        "optimization_mode"
+    ] == ["BALANCED", "HIGH PERFORMANCE EFFORT"]
+    assert _checked(tmp_path, "nextpnr", hold_detour_max="1 ns,2 ns")["hold_detour_max"] == [
+        "1 ns",
+        "2 ns",
+    ]
+
+
+@pytest.mark.parametrize(
+    "flow, key, text, shown",
+    [
+        ("nextpnr", "seed", "1,two", "`two` is not a whole number"),
+        ("quartus", "optimization_mode", "BALANCED,bogus", "bogus"),
+    ],
+)
+def test_a_bad_text_variation_names_the_setting_and_the_value(tmp_path, flow, key, text, shown):
+    with pytest.raises(FlowSettingsError, match=shown) as refused:
+        _checked(tmp_path, flow, **{key: text})
+    assert key in str(refused.value)
+
+
+def test_every_value_of_a_variation_is_validated_not_the_first_only(tmp_path):
+    """A bad value after a good one refuses the exploration before any run."""
+    runner = Dse(
+        _IdleFmax,
+        optimizer_settings={
+            "initial_frequency_low": "100 MHz",
+            "initial_frequency_high": "200 MHz",
+        },
+        run_root=tmp_path / "run",
+        variations={"seed": [1, "x"]},
+    )
+    (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
+    design = Design(
+        name="d", root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clocks": ["clk"]}
+    )
+    with pytest.raises(FlowSettingsError, match="seed"):
+        runner.run(
+            "nextpnr",
+            design,
+            flow_settings=node_settings("nextpnr", {"fpga": {"part": "LFE5U-25F-6BG256C"}}),
+        )
+    assert not (tmp_path / "run").exists()
+
+
+def test_the_command_line_refuses_a_bad_later_value_with_exit_status_2(tmp_path):
+    proc, document = _dse(
+        tmp_path,
+        BARE + '[flows.vivado_synth]\nfpga.part = "xc7a12tcsg325-1"\n',
+        "--initial-frequency-low",
+        "100 MHz",
+        "--initial-frequency-high",
+        "300 MHz",
+        "--dse-settings",
+        "variations.nthreads=1,two",
+    )
+    assert proc.returncode == 2 and document["outcome"] is None
+    assert "`two` is not a whole number" in document["error"]["message"]
+    assert not list(tmp_path.glob("xeda_run/**/settings.json")), "no run was started"
+
+
+def test_the_runtime_limit_is_compared_without_truncation(tmp_path, monkeypatch, caplog):
+    """A limit of 0.5 s is reached after 0.6 s: the whole-second count was still 0."""
+    from xeda._internal.flow_runner.dse import dse_runner
+
+    monkeypatch.setattr(dse_runner.Timer, "delta", lambda self: 0.6)
+    _idle_search(tmp_path, monkeypatch, max_runtime="500 ms")
+    assert "reached 'max_runtime'" in caplog.text

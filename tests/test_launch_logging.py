@@ -251,6 +251,7 @@ def test_the_log_level_variable_takes_a_name_and_refuses_a_number(monkeypatch):
     result = CliRunner().invoke(cli, ["dse", "vivado_synth"])
     assert result.exit_code == 2
     assert "is not one of 'debug', 'info'" in click.unstyle(result.output)
+    assert "(env var: 'XEDA_LOG_LEVEL')" in click.unstyle(result.output)
     monkeypatch.setenv("XEDA_LOG_LEVEL", "debug")
     result = CliRunner().invoke(cli, ["dse", "yosys_fpga", "--json"])
     assert "log-level" not in click.unstyle(result.output)

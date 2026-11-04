@@ -13,6 +13,13 @@ log = logging.getLogger(__name__)
 
 
 class FmaxOptimizer(Optimizer):
+    """Search for the highest frequency that a flow meets.
+
+    The search ranks its points by the `fmax` metric of the explored flow. For `ise_synth` and
+    `dc` this is the synthesis estimate, not routed timing. With `nextpnr`, the synthesis flow
+    `yosys_fpga` runs again for each frequency, because the clock is a shared setting that
+    changes its identity. Each point therefore costs a synthesis run."""
+
     writes_clocks = True
 
     default_variations: Dict[str, Dict[str, List[Any]]] = {
@@ -62,7 +69,6 @@ class FmaxOptimizer(Optimizer):
                 "ExtraTimingAltRouting",
             ],
         },
-        # The owner should confirm the values of the `nextpnr` and `quartus` tables.
         "nextpnr": {
             "seed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
             "placer": ["heap", "sa"],
@@ -70,11 +76,8 @@ class FmaxOptimizer(Optimizer):
         },
         "quartus": {
             "seed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-            "optimization_mode": [
-                "HIGH PERFORMANCE EFFORT",
-                "AGGRESSIVE PERFORMANCE",
-                "Superior Performance",
-            ],
+            # Only the values that both Quartus Prime editions (Standard and Pro) accept.
+            "optimization_mode": ["HIGH PERFORMANCE EFFORT", "BALANCED"],
             "fitter_effort": ["AUTO FIT", "STANDARD FIT"],
             "placement_effort_multiplier": [2.0, 1.0, 4.0],
         },

@@ -138,11 +138,22 @@ def _log_level_number(ctx: click.Context, param: click.Parameter, value: Optiona
     return None if value is None else getattr(logging, value.upper())
 
 
+class _LogLevelOption(click.Option):
+    """`--log-level`, whose error names the environment variable plainly (Click 8.5 prints the
+    tuple that it keeps, `('XEDA_LOG_LEVEL',)`)."""
+
+    def get_error_hint(self, ctx: Optional[click.Context]) -> str:
+        names = (self.envvar,) if isinstance(self.envvar, str) else tuple(self.envvar or ())
+        hint = super(click.Option, self).get_error_hint(ctx)
+        return f"{hint} (env var: '{', '.join(names)}')" if names else hint
+
+
 def _log_level_option(func):
     """Add `--log-level` (`XEDA_LOG_LEVEL`), which takes a level by name. The command gets its
     number, or None when the option is not given."""
     return click.option(
         "--log-level",
+        cls=_LogLevelOption,
         envvar="XEDA_LOG_LEVEL",
         show_envvar=True,
         type=click.Choice(LOG_LEVELS),

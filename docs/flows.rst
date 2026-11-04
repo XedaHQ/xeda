@@ -649,6 +649,15 @@ The settings of ``xeda dse`` follow the same rules. A duration or a frequency ta
 ``max_unimproved_rounds`` and ``max_luts``. A *round* is one batch of points that the optimizer
 asks for. ``max_luts: 0`` allows no LUT; leave it unset for no limit.
 
+The search ranks its points by the ``fmax`` metric of the explored flow. For ``ise_synth`` and
+``dc`` this metric is the estimate of synthesis, not routed timing. With ``nextpnr``, the synthesis
+flow ``yosys_fpga`` runs again for each frequency, because the clock is a shared setting that
+changes its identity. Each point therefore costs a synthesis run.
+
+A ``variations`` value given on the command line (``--dse-settings variations.seed=1,2``) is a
+comma-separated list. Xeda reads each item as the type of the setting, and checks every value of
+every variation before it starts any run.
+
 .. _settings-groups:
 
 Settings groups and tiers

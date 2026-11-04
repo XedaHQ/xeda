@@ -53,7 +53,7 @@ document:
 .. code-block:: bash
 
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
-    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --json
+    xeda dse vivado_synth examples/vhdl/sqrt/sqrt.yaml --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz" --json
     xeda scrub vivado_synth sqrt --yes --json
 
 .. note::

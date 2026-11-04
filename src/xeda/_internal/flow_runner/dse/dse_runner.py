@@ -24,7 +24,7 @@ from attrs import define
 from pydantic import ValidationError
 
 from ...cancel import CancelToken
-from ...dataclass import Field, NoReplacement, XedaBaseModel, validation_errors
+from ...dataclass import Field, SettingText, NoReplacement, XedaBaseModel, validation_errors
 from ...units import Bounds, Time, Unit, count
 from ...deliver import deliverable_locations
 from ...design import Design
@@ -75,34 +75,31 @@ OPENROAD_DSE_REFUSAL = (
 
 
 def _refuse_flow(optimizer: "Optimizer", flow: Union[str, Type[Flow], FlowRequest]) -> None:
-    """Refuse a request that the optimizer cannot explore: one of the OpenROAD flows for an
-    optimizer that writes clocks, or a flow that `Optimizer.unsupported_flow` refuses.
-
-    Such an optimizer puts its candidate periods into the `clocks` of the requested flow. The
-    clock of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do not reach
-    it. An optimizer that varies other settings is not refused. The test is by class: every flow
-    built on `OpenroadStage` counts, whatever its name."""
-    from ...flows.openroad import OpenroadStage
-
-    if isinstance(flow, str):
-        flow = parse_request(flow)
-    requested = flow.requested if isinstance(flow, FlowRequest) else flow
-    if optimizer.writes_clocks and isclass(requested) and issubclass(requested, OpenroadStage):
-        raise FlowSettingsException(OPENROAD_DSE_REFUSAL)
-    reason = unsupported_flow_reason(type(optimizer), requested)
+    """Refuse a request that the optimizer cannot explore (`unsupported_flow_reason`)."""
+    reason = unsupported_flow_reason(type(optimizer), flow)
     if reason is not None:
         raise FlowSettingsException(reason)
 
 
 def unsupported_flow_reason(optimizer: Type["Optimizer"], flow: Any) -> Optional[str]:
     """Return why `optimizer` cannot explore the flow of a request (a flow name, a chain, a
-    request or a flow class), or `None` when it can or when the flow is unknown."""
+    request or a flow class), or `None` when it can or when the flow is unknown.
+
+    An optimizer that writes clocks puts its candidate periods into the `clocks` of the requested
+    flow. The clock of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do
+    not reach it: every flow built on `OpenroadStage` counts, whatever its name. An optimizer
+    that varies other settings is not refused for that. Then the flow check of the optimizer
+    (`Optimizer.unsupported_flow`) decides."""
+    from ...flows.openroad import OpenroadStage
+
     if isinstance(flow, str):
         flow = parse_request(flow)
     requested = flow.requested if isinstance(flow, FlowRequest) else flow
-    if isclass(requested) and issubclass(requested, Flow):
-        return optimizer.unsupported_flow(requested)
-    return None
+    if not (isclass(requested) and issubclass(requested, Flow)):
+        return None
+    if optimizer.writes_clocks and issubclass(requested, OpenroadStage):
+        return OPENROAD_DSE_REFUSAL
+    return optimizer.unsupported_flow(requested)
 
 
 def load_optimizer_class(optimizer_class: Union[str, Type["Optimizer"]]) -> Type["Optimizer"]:
@@ -309,6 +306,23 @@ class _RoundToken(CancelToken):
         return super().canceled or (self._outer is not None and self._outer.canceled)
 
 
+def _dotted(table: Mapping, prefix: str = "") -> Dict[str, Any]:
+    """Return a table of tables as one table with dotted keys."""
+    flat: Dict[str, Any] = {}
+    for key, value in table.items():
+        if isinstance(value, Mapping):
+            flat.update(_dotted(value, f"{prefix}{key}."))
+        else:
+            flat[f"{prefix}{key}"] = value
+    return flat
+
+
+def _leaf(table: Mapping, dotted_key: str) -> Any:
+    for part in dotted_key.split("."):
+        table = table[part]
+    return table
+
+
 def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
     if n < 2:
         return [b], 0
@@ -317,6 +331,13 @@ def linspace(a: float, b: float, n: int) -> Tuple[List[float], float]:
 
 
 class Dse(FlowLauncher):
+    """Explore the settings of a flow with an optimizer.
+
+    The optimizer decides how points rank. The Fmax search uses the `fmax` metric of the explored
+    flow: for `ise_synth` and `dc` it is the synthesis estimate, not routed timing. With `nextpnr`,
+    `yosys_fpga` runs again for each frequency, because the clock is a shared setting, so each
+    point costs a synthesis run."""
+
     accepts_bindings = False  # chains and input bindings are local `xeda run` requests
 
     class Settings(FlowLauncher.Settings):
@@ -417,6 +438,16 @@ class Dse(FlowLauncher):
 
         The text of `KEY=VALUE` items in `kwargs` and in `optimizer_settings` (as the command line
         gives them) is read as the type of each setting."""
+        # A key of `variations` is a setting name, so a table is its dotted spelling
+        # (`variations.nextpnr.seed=1,2`). Remember the values that came as command-line text:
+        # the explored flow reads them, as the type of the setting, when it is known.
+        if isinstance(kwargs.get("variations"), Mapping):
+            kwargs["variations"] = _dotted(kwargs["variations"])
+            self._text_variations = {
+                k for k, v in kwargs["variations"].items() if isinstance(v, SettingText)
+            }
+        else:
+            self._text_variations = set()
         super().__init__(run_root, **read_command_line_text(kwargs, self.Settings))
         assert isinstance(self.settings, self.Settings)
 
@@ -454,6 +485,45 @@ class Dse(FlowLauncher):
         #: What the last run did. It is `None` before a run starts, and after an exception ended
         #: a run it holds the points and the best run that the run had until then.
         self.result: Optional[DseResult] = None
+
+    @staticmethod
+    def _checked_variations(
+        flow_class: Type[Flow],
+        design: Design,
+        variations: Dict[str, List[Any]],
+        text_keys: set,
+    ) -> Dict[str, List[Any]]:
+        """Return the variations, with the command-line text read as the type of each setting of
+        the flow, after every value of every variation validated against the settings of the
+        flow. A bad value is a `FlowSettingsError` that names it, before anything starts."""
+        checked: Dict[str, List[Any]] = {}
+        for key, values in variations.items():
+            if key in text_keys:
+                values = [
+                    _leaf(
+                        read_command_line_text(
+                            settings_to_dict([f"{key}={value}"]), flow_class.Settings
+                        ),
+                        key,
+                    )
+                    for value in values
+                ]
+            for value in values:
+                try:
+                    flow_class.Settings.from_input(
+                        settings_to_dict({key: value}, hierarchical_keys=True),
+                        design_root=design.root,
+                    )
+                except FlowSettingsError as error:
+                    raise FlowSettingsError(
+                        [
+                            (loc, f"{msg}; the variation value is `{value}`", ctx, kind)
+                            for loc, msg, ctx, kind in error.errors
+                        ],
+                        error.model,
+                    ) from None
+            checked[key] = values
+        return checked
 
     def _new_optimizer(self) -> Optimizer:
         assert isinstance(self.settings, self.Settings)
@@ -577,6 +647,9 @@ class Dse(FlowLauncher):
             optimizer.variations = self.settings.variations
         else:
             optimizer.variations = optimizer.default_variations.get(flow_class.name, {})
+        optimizer.variations = self._checked_variations(
+            flow_class, design, optimizer.variations, self._text_variations
+        )
 
         possible_variations = 1
         for v in optimizer.variations.values():
@@ -748,10 +821,11 @@ class Dse(FlowLauncher):
                     )
                     break
 
-                if timer.seconds > self.settings.max_runtime.to("s"):
+                elapsed = timer.delta()  # not truncated to whole seconds
+                if elapsed >= self.settings.max_runtime.to("s"):
                     log.warning(
-                        "Total execution time (%d seconds) exceeds 'max_runtime'=%s",
-                        timer.seconds,
+                        "Total execution time (%.1f seconds) reached 'max_runtime'=%s",
+                        elapsed,
                         self.settings.max_runtime,
                     )
                     break
