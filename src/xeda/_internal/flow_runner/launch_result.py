@@ -40,6 +40,7 @@ from ..utils import Canceled
 from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, GENERATOR_FAILED, error_info
 from .resolver import Plan, PlanNode
 from .run_lock import callback_guard
+from ..units import seconds_text
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +97,14 @@ class _Progress:
         if self._on_event is None or self.raised is not None or (kind, node) in self._told:
             return
         self._told.add((kind, node))
-        event = Event(kind, self.launch_id, node, outcome, disposition, datetime.now(timezone.utc))
+        event = Event(
+            kind=kind,
+            launch_id=self.launch_id,
+            node=node,
+            outcome=outcome,
+            disposition=disposition,
+            occurred_at=datetime.now(timezone.utc),
+        )
         try:
             if locked:
                 with callback_guard():
@@ -129,7 +137,7 @@ class _Ended:
 
     flow: Flow | None
     error: BaseException | None
-    elapsed: float
+    elapsed: str
 
 
 @dataclass(frozen=True)
@@ -223,7 +231,7 @@ class LaunchCollector:
             return
         end = self.ended.get(node.name)
         if end is None:
-            self.ended[node.name] = _Ended(None, error, 0.0)
+            self.ended[node.name] = _Ended(None, error, "0 s")
         elif end.error is not error:
             self.ended[node.name] = replace(end, error=error)
 
@@ -232,7 +240,7 @@ class LaunchCollector:
         exception that left the node, or `None`. The time of the node is that of its own
         execution, after its producers."""
         started = self._own_start.get(node.name)
-        elapsed = 0.0 if started is None else time.monotonic() - started
+        elapsed = seconds_text(0 if started is None else time.monotonic() - started)
         end = self.ended[node.name] = _Ended(flow, error, elapsed)
         if isinstance(error, Canceled):
             self.canceled = True
@@ -287,7 +295,7 @@ class LaunchCollector:
         was refused: it stays an exception."""
         if self.refused is None or self.refused[1] is not error or not self.ended:
             return False
-        self.ended[self.refused[0].name] = _Ended(None, error, 0.0)
+        self.ended[self.refused[0].name] = _Ended(None, error, "0 s")
         return True
 
 
@@ -357,7 +365,7 @@ def _blocked(name: str, flow: str, run_dir: Path, blocker: str, message: str) ->
         disposition=Disposition.NOT_RUN,
         reason=f"{blocker} did not pass",
         blocked_by=blocker,
-        elapsed=0.0,
+        elapsed="0 s",
         record=None,
         error=ErrorInfo(
             code=PRODUCER_FAILED, message=message, node=name, exit_status=None, log=None
@@ -376,7 +384,7 @@ def skipped_result(name: str, flow: str, run_dir: Path) -> NodeResult:
         disposition=Disposition.NOT_RUN,
         reason="the launch stopped before its turn",
         blocked_by=None,
-        elapsed=0.0,
+        elapsed="0 s",
         record=None,
         error=None,
         deliveries=(),
@@ -394,7 +402,7 @@ def shared_result(result: NodeResult, point: int) -> NodeResult:
     if result.disposition is not Disposition.RAN:
         return result
     return replace(
-        result, disposition=Disposition.SHARED, elapsed=0.0, reason=f"shared with point {point}"
+        result, disposition=Disposition.SHARED, elapsed="0 s", reason=f"shared with point {point}"
     )
 
 
@@ -410,7 +418,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             disposition=Disposition.RAN,
             reason="",
             blocked_by=None,
-            elapsed=0.0,
+            elapsed="0 s",
             record=None,
             error=error_info(error, node=node.name),
             deliveries=(),
@@ -434,7 +442,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
             disposition=Disposition.REUSED if reused else Disposition.RAN,
             reason=reason,
             blocked_by=None,
-            elapsed=0.0 if reused else end.elapsed,
+            elapsed="0 s" if reused else end.elapsed,
             record=record,
             error=record.error,
             deliveries=deliveries,
@@ -683,7 +691,7 @@ def failed_result(
                 disposition=Disposition.RAN,
                 reason="",
                 blocked_by=None,
-                elapsed=0.0,
+                elapsed="0 s",
                 record=None,
                 error=ErrorInfo(
                     code=CANCELED,

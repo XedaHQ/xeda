@@ -57,6 +57,12 @@ A ``Plan`` is what a launch would do, and a ``RunRecord`` is the stored descript
 ``results.json`` file of a run directory). A ``Project`` and a ``LocalSettings`` hold the settings
 of a project file and of one user (see `Projects and private settings`_).
 
+The result and record classes (``Result``, ``NodeResult``, ``RunRecord``, ``Plan``, ``Event`` and
+the others that Xeda builds for you) take keyword arguments only. ``Spec(flow, design)`` and
+``Remote(host)`` keep their one or two positional parameters; their other parameters are keyword
+only too. The first parameter of ``Workspace.run`` and ``xeda.run`` is positional only and is named
+``request``.
+
 Outcomes and errors
 ===================
 
@@ -83,7 +89,15 @@ key of its ``log``. The codes are in :doc:`machine-readable`.
 
 ``result.nodes`` has one ``NodeResult`` for each planned node, in plan order. A node has an outcome,
 a disposition (``ran``, ``reused``, ``not_run``, or ``shared`` in a sweep), a ``reason``, the
-``elapsed`` seconds, its ``record``, its ``error`` and its ``deliveries``.
+``elapsed`` time, its ``record``, its ``error`` and its ``deliveries``. ``node.passed`` is true
+only for the outcome ``passed``. ``name`` identifies the node in the plan, and ``flow`` is the
+canonical name of its flow.
+
+A duration is text with a unit, always in seconds: ``node.elapsed`` is ``"1.25 s"``, and it is
+``"0 s"`` for a node that this launch did not run. ``RunRecord.runtime`` has the same form. It is
+the duration of the recorded execution, which stays when a later launch reuses the run. A point in
+time is an aware UTC ``datetime`` (``RunRecord.started_at``, ``RunRecord.finished_at`` and
+``Event.occurred_at``). In a JSON document it is ISO 8601 text in UTC.
 
 ``result.record`` raises ``RecordError`` (code ``missing_record``) when the requested node has no
 record: it was blocked, skipped or detached, or Xeda could not store the record. To test for it,
@@ -416,10 +430,10 @@ A run root is a folder that Xeda owns. The same ``Workspace`` reads it without r
         print(record.run_dir.name, record.outcome, record.metrics.get("fmax"))
     for problem in listing.problems:
         print(problem.code, problem.path)                # a record that Xeda could not read
-    same = ws.load(listing.records[0].run_dir)           # the record of one run directory
+    same = ws.load_record(listing.records[0].run_dir)           # the record of one run directory
 
 ``ws.records()`` does not raise for a damaged record. It puts the problem in ``listing.problems``
-and reads the others. ``ws.load`` raises ``RecordError`` with the same codes. The records of failed
+and reads the others. ``ws.load_record`` raises ``RecordError`` with the same codes. The records of failed
 and rejected runs are in the listing.
 
 ``ws.scrub(design_name="sqrt")`` removes the run directories of a design, after the ``confirm``

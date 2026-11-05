@@ -1108,5 +1108,5 @@ def build_trace(
         declared_inputs=[_consumed(record, snapshot) for record in expected.declared_inputs],
         output_equivalences=_output_equivalences(flow),
         verdict="rejected" if rejected else "passed",
-        error=ErrorInfo.from_json(flow.results["error"]).as_json_value() if rejected else None,
+        error=ErrorInfo.from_dict(flow.results["error"]).to_dict() if rejected else None,
     )

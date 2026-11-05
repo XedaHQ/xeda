@@ -53,10 +53,10 @@ Other commands exit 0 or 1, and 2 for a usage error. The `run` document has exac
 | `outcome` | `passed`, `rejected`, `failed`, `canceled`, `skipped` or `detached`; `null` when no launch started |
 | `error` | `null`, or the cause: `{code, message, node, exit_status, log}`; see "When a run fails" |
 | `launch_id` | the id of the launch; `null` when no launch started |
-| `spec` | `{flow, design, design_file, target, settings}`: the request text, the design's name, the design file you named (absolute, or `null`), the selected target (or `null`), and `-s` as a table of settings by flow name; `null` for a usage error |
+| `spec` | `{flow, design_name, design_file, target, settings}`: the request text, the design's name, the design file you named (absolute, or `null`), the selected target (or `null`), and `-s` as a table of settings by flow name; `null` for a usage error |
 | `roots`, `nodes` | the requested node (the last flow of a chain); every planned node, producers first |
 
-A node has `name`, `flow`, `outcome`, `disposition`, `reason`, `blocked_by`, `elapsed`, `run_dir`,
+A node has `name`, `flow`, `outcome`, `disposition`, `reason`, `blocked_by`, `elapsed` (text with a unit in seconds, such as `1.25 s`), `run_dir`,
 `deliveries` (`{key, destination, delivered}`), `error` (why the node did not pass, or `null`) and
 `record`, the `results.json` object (`null` for a node that did not run or whose record could not be
 stored). The metrics are in `record.metrics`; metric keys: `xeda list-results`.
@@ -71,7 +71,7 @@ launch stopped before its turn) and `detached` (a remote launch that keeps runni
 that failed or was rejected.
 
 `--dry-run --json` prints a document of its own, not the `run` document. Its keys are
-`schema_version`, `spec` (`flow`, `design`, `design_file`, `target`, `settings`), `roots`, `options`
+`schema_version`, `spec` (`flow`, `design_name`, `design_file`, `target`, `settings`), `roots`, `options`
 (the seven launch options by name), `dependencies` (the entries of `dependencies` in a run record)
 and `nodes`. A plan node has `name`, `flow`, `run_dir`,
 `identity`, `state`, `reason`, `action`, `settings`, `inputs` (`name`, `origin`: `producer`, `source`
@@ -357,8 +357,8 @@ sets `platform` and `clock.period`, and `bsc` converts the design first.
 `outcome` (`passed`, `rejected`, `failed` or `canceled`; it replaces the old `success`), `error`
 (`{code, message, node, exit_status, log}` or null), `metrics` nested by dotted path (`sim.ended_by`)
 with `metric_info` (description, type, unit) for each, `outputs` and `artifacts` (names relative to
-the run directory), `settings`, `configuration`, `inputs`, `run_id`, `identity`, `started`,
-`finished` and `runtime`. It names no file of the run by an absolute path. Which metrics a flow writes:
+the run directory), `settings`, `configuration`, `inputs`, `run_id`, `identity`, `design_name`, `started_at`,
+`finished_at` (UTC times) and `runtime` (text with a unit in seconds, such as `82.5 s`). It names no file of the run by an absolute path. Which metrics a flow writes:
 `xeda list-results <flow> --json`. Every metric name is lower snake case, with dots between the
 parts of a group (`fmax`, `lut`, `ff`, `lut_use.logic`); a quantity has one name in every flow. A
 file without `schema_version` was written by an older Xeda: a launch runs that flow again.
@@ -644,7 +644,7 @@ else:
   per node) and `record` (the `RunRecord` of the requested flow, the `results.json` of its run
   directory). `result.to_dict()` is the document of `xeda run --json`.
 - `Workspace.plan(spec)` returns the `Plan` without a run. `Workspace.records()` lists the records
-  of earlier runs, and `Workspace.load(run_dir)` reads one.
+  of earlier runs, and `Workspace.load_record(run_dir)` reads one.
 - A `Design`, a `Spec` and everything in them is read-only (assigning raises an error). Make a
   changed design with `design.with_updates({"rtl.parameters.WIDTH": 16})`; never use `model_copy`.
 - Use `hashed_run_dirs=True` when you compare configurations of one flow and design, or they

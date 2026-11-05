@@ -400,7 +400,7 @@ def canned(outcome: str, code: str = "reported_failure"):
                     "disposition": "ran" if outcome == "passed" else "not_run",
                     "reason": "",
                     "blocked_by": None,
-                    "elapsed": 0.0,
+                    "elapsed": "0 s",
                     "record": None,
                     "error": error and {"exit_status": None, "log": None, **error},
                     "deliveries": [],
@@ -410,7 +410,7 @@ def canned(outcome: str, code: str = "reported_failure"):
             ],
             "spec": {
                 "flow": FLOW,
-                "design": "demo",
+                "design_name": "demo",
                 "design_file": None,
                 "target": None,
                 "settings": {},
@@ -451,7 +451,7 @@ def test_an_invalid_spec_exits_with_2_and_has_no_outcome(monkeypatch, world, jso
         document = json.loads(answer.stdout)
         assert document["outcome"] is None and document["launch_id"] is None
         assert document["error"]["code"] == "unknown_setting"
-        assert document["spec"]["flow"] == FLOW and document["spec"]["design"] == "demo"
+        assert document["spec"]["flow"] == FLOW and document["spec"]["design_name"] == "demo"
         assert (document["roots"], document["nodes"]) == ([], [])
 
 
@@ -475,7 +475,7 @@ def test_a_bug_in_a_launch_is_a_failed_launch_with_exit_status_1(monkeypatch, wo
     document = json.loads(answer.stdout)
     assert answer.exit_code == 1 and document["outcome"] == "failed"
     assert document["error"]["code"] == "internal_error" and document["error"]["message"] == "a bug"
-    assert document["spec"]["design"] == "demo"
+    assert document["spec"]["design_name"] == "demo"
 
 
 def test_a_bug_in_a_launch_keeps_its_traceback_without_json(monkeypatch, world):
@@ -757,7 +757,7 @@ SCRUB_KEYS = [
     "outcome",
     "error",
     "flow",
-    "design",
+    "design_name",
     "target",
     "run_root",
     "scanned",
@@ -781,7 +781,7 @@ def test_the_scrub_document_has_the_keys_of_the_contract(tmp_path):
         "passed",
         None,
     )
-    assert (document["flow"], document["design"], document["target"]) == (FLOW, "demo", None)
+    assert (document["flow"], document["design_name"], document["target"]) == (FLOW, "demo", None)
     assert document["run_root"] == str(root) and document["removed"] == [str(variant)]
     assert not variant.exists()
 
@@ -825,7 +825,7 @@ def test_a_usage_error_of_scrub_prints_the_scrub_document(tmp_path, arguments, g
     assert document["error"]["code"] in ("usage_error", "flow_not_found")
     assert message in document["error"]["message"]
     expected = tuple(item and item.replace("{root}", str(root)) for item in given)
-    assert tuple(document[key] for key in ("flow", "design", "target", "run_root")) == expected
+    assert tuple(document[key] for key in ("flow", "design_name", "target", "run_root")) == expected
     assert [document[name] for name in ("scanned", "removed", "kept", "gone", "skipped")] == [
         []
     ] * 5

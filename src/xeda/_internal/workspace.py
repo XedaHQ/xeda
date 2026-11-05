@@ -237,7 +237,7 @@ class Workspace:
 
     def run(
         self,
-        what: Spec | Plan,
+        request: Spec | Plan,
         /,
         *,
         rebuild_all: bool | Unset = UNSET,
@@ -252,9 +252,10 @@ class Workspace:
     ) -> Result:
         """Run a `Spec` or a `Plan`, and return what the launch did to every node.
 
-        A launch option that is not given has the default of `plan`. A `Plan` brings its own
-        options, so giving any option with a plan is an error (`plan_options`), also one equal to
-        the plan's. Running a plan takes the locks of its graph and resolves its spec again
+        A launch option that is not given (`UNSET`) has the default of `plan`, so that an omitted
+        option differs from an explicit `False` or `None`. A `Plan` brings its own options, so
+        giving any option with a plan is an error (`plan_options`), also one equal to the
+        plan's. Running a plan takes the locks of its graph and resolves its spec again
         under them. It raises `StalePlanError` when the graph, an identity, a run directory, a
         delivery, the settings, the commit of a Git dependency or an option of this workspace
         differs from the plan. A stale plan prunes nothing, asks nothing, generates nothing and
@@ -298,24 +299,24 @@ class Workspace:
             name: value for name, value in given.items() if not isinstance(value, Unset)
         }
         expected: Plan | None = None
-        if isinstance(what, Plan):
+        if isinstance(request, Plan):
             if named:
                 raise SpecError(
                     f"{', '.join(named)} given with a plan: a plan has its own launch options. "
                     "Pass them to `plan`.",
                     code="plan_options",
                 )
-            difference = workspace_difference(what._workspace, self._options())
+            difference = workspace_difference(request._workspace, self._options())
             if difference is not None:
                 raise StalePlanError(
                     f"The plan is stale: {difference}. Plan again.",
                     code="stale_plan",
                     difference=difference,
                 )
-            expected, spec = what, what.spec
-            options = LaunchOptions(**what.options)
+            expected, spec = request, request.spec
+            options = LaunchOptions(**request.options)
         else:
-            spec = what
+            spec = request
             options = LaunchOptions(**named)
         self._refuse_project_run_root(spec)
         if self.remote is not None:
@@ -516,7 +517,7 @@ class Workspace:
             TOOL_OUTPUT.reset(token)
 
     @staticmethod
-    def load(run_dir: PathLike, /) -> RunRecord:
+    def load_record(run_dir: PathLike, /) -> RunRecord:
         """Return the record that the run directory `run_dir` holds now.
 
         The run root of the record follows from where the directory is: a run directory is
@@ -567,8 +568,10 @@ class Workspace:
             try:
                 found.append(read_record(directory, run_root=self.run_root))
             except RecordError as error:
-                problems.append(RecordProblem(error.path, error.code, error.message))
-        return RunListing(tuple(found), tuple(problems))
+                problems.append(
+                    RecordProblem(path=error.path, code=error.code, message=error.message)
+                )
+        return RunListing(records=tuple(found), problems=tuple(problems))
 
     def scrub(
         self,

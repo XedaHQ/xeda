@@ -23,7 +23,7 @@
           },
           "type": "array"
         },
-        "design": {
+        "design_name": {
           "type": "string"
         },
         "error": {
@@ -65,7 +65,7 @@
             "null"
           ]
         },
-        "finished": {
+        "finished_at": {
           "format": "date-time",
           "type": "string"
         },
@@ -271,7 +271,7 @@
           "type": "string"
         },
         "runtime": {
-          "type": "number"
+          "type": "string"
         },
         "schema_version": {
           "type": "integer"
@@ -279,7 +279,7 @@
         "settings": {
           "type": "object"
         },
-        "started": {
+        "started_at": {
           "format": "date-time",
           "type": "string"
         },
@@ -297,9 +297,9 @@
         "artifacts",
         "configuration",
         "dependencies",
-        "design",
+        "design_name",
         "error",
-        "finished",
+        "finished_at",
         "flow",
         "identity",
         "inherited_variables",
@@ -312,7 +312,7 @@
         "runtime",
         "schema_version",
         "settings",
-        "started",
+        "started_at",
         "target",
         "xeda_version"
       ],
@@ -337,7 +337,7 @@
         "null"
       ]
     },
-    "design": {
+    "design_name": {
       "type": [
         "string",
         "null"
@@ -493,7 +493,7 @@
   "required": [
     "best",
     "best_run_dir",
-    "design",
+    "design_name",
     "error",
     "flow",
     "optimizer",

@@ -40,6 +40,7 @@ from xeda._internal.records import ErrorInfo, decode_record, read_record
 from xeda._internal.run_dir import RunDirectory, RunDirectoryError
 from xeda._internal.spec import Spec
 from xeda._internal.utils import ExecutableNotFound, replacing_file
+from xeda._internal.units import Time
 
 from .flow_registry import preserved_flow_registry
 from .record_documents import record_document
@@ -53,6 +54,10 @@ MAY_FAIL = TMayFail.name
 
 #: The clock of the collector in the timing test: `TSlow` advances it, not the wall clock.
 _CLOCK = [0.0]
+
+
+def _seconds(text: str) -> float:
+    return Time(text).to("s")
 
 
 @pytest.fixture(autouse=True)
@@ -248,10 +253,10 @@ def test_a_failed_producer_blocks_its_consumer_and_is_the_cause(tmp_path):
     producer = result.nodes[MAY_FAIL]
     assert (producer.outcome, producer.disposition) == ("failed", "ran")
     assert producer.record is not None and producer.record.outcome == "failed"
-    assert producer.elapsed > 0
+    assert _seconds(producer.elapsed) > 0
     consumer = result.nodes[TNeedsMayFail.name]
     assert (consumer.outcome, consumer.disposition) == ("blocked", "not_run")
-    assert consumer.blocked_by == MAY_FAIL and consumer.record is None and consumer.elapsed == 0.0
+    assert consumer.blocked_by == MAY_FAIL and consumer.record is None and consumer.elapsed == "0 s"
     assert consumer.error is not None and consumer.error.code == "producer_failed"
     # the consumer's error names the producer, its code and its message
     assert f"producer {MAY_FAIL} failed (reported_failure): boom" in consumer.error.message
@@ -293,7 +298,7 @@ def test_a_rejected_root_aggregates_rejected_with_its_error(tmp_path, flows):
     # reported again from the trace: still rejected, reused, with its error unchanged
     again = _launch(runner, rejects, design)
     reused = again.nodes[rejects.name]
-    assert (reused.outcome, reused.disposition, reused.elapsed) == ("rejected", "reused", 0.0)
+    assert (reused.outcome, reused.disposition, reused.elapsed) == ("rejected", "reused", "0 s")
     assert again.outcome == "rejected" and again.error == result.error
 
 
@@ -320,11 +325,11 @@ def test_a_reused_node_has_disposition_reused_and_zero_elapsed(tmp_path):
     design, runner = _design(tmp_path), _runner(tmp_path)
     first = _launch(runner, TNeedsMayFail, design)
     assert {n.disposition for n in first.nodes.values()} == {Disposition.RAN}
-    assert all(n.elapsed > 0 for n in first.nodes.values())
+    assert all(_seconds(n.elapsed) > 0 for n in first.nodes.values())
     second = _launch(runner, TNeedsMayFail, design)
     assert second.passed
     for node in second.nodes.values():
-        assert (node.outcome, node.disposition, node.elapsed) == ("passed", "reused", 0.0)
+        assert (node.outcome, node.disposition, node.elapsed) == ("passed", "reused", "0 s")
         assert node.record is not None
         assert node.record.run_id == first.nodes[node.name].record.run_id
 
@@ -473,14 +478,16 @@ def _node(
     ran = outcome in ("passed", "rejected", "failed", "canceled")
     error = None
     if outcome not in ("passed", "skipped"):
-        error = ErrorInfo(code or outcome, f"{name} {outcome}", name, None, None)
+        error = ErrorInfo(
+            code=code or outcome, message=f"{name} {outcome}", node=name, exit_status=None, log=None
+        )
     return NodeResult(
         name=name,
         outcome=outcome,  # type: ignore[arg-type]
         disposition="ran" if ran else "not_run",  # type: ignore[arg-type]
         reason="",
         blocked_by=blocked_by,
-        elapsed=0.0,
+        elapsed="0 s",
         record=record,
         error=error,
         deliveries=[],  # type: ignore[arg-type]
@@ -493,7 +500,7 @@ def test_a_result_does_not_alias_the_data_it_was_built_from(tmp_path):
     design = _design(tmp_path)
     nodes = {"a": _node("a", "passed")}
     roots = ["a"]
-    result = Result("id", Spec("a", design), roots, "passed", None, nodes)  # type: ignore[arg-type]
+    result = Result(launch_id="id", spec=Spec("a", design), roots=roots, outcome="passed", error=None, nodes=nodes)  # type: ignore[arg-type]
     nodes["b"] = _node("b", "failed")
     roots.append("b")
     assert list(result.nodes) == ["a"] and result.roots == ("a",)
@@ -506,7 +513,9 @@ def _nodes(*nodes: NodeResult) -> dict[str, NodeResult]:
     return {node.name: node for node in nodes}
 
 
-LAUNCH_ERROR = ErrorInfo("delivery_failed", "disk full", None, None, None)
+LAUNCH_ERROR = ErrorInfo(
+    code="delivery_failed", message="disk full", node=None, exit_status=None, log=None
+)
 
 
 def test_the_aggregate_follows_the_rules_in_order():
@@ -536,12 +545,14 @@ def test_the_aggregate_follows_the_rules_in_order():
     # a canceled node, or the launch-level `canceled`, makes the aggregate canceled
     canceled = _node("c", "canceled")
     assert aggregate(_nodes(passed, canceled), ["p"], None) == ("canceled", canceled.error)
-    stopped = ErrorInfo("canceled", "canceled", None, None, None)
+    stopped = ErrorInfo(code="canceled", message="canceled", node=None, exit_status=None, log=None)
     assert aggregate(_nodes(skipped), ["s"], stopped) == ("canceled", stopped)
     assert aggregate(_nodes(failed, canceled), ["f"], stopped) == ("canceled", stopped)
     # a detached node comes first of all
     detached = _node("d", "detached")
-    note = ErrorInfo("remote_detached", "left running", None, None, None)
+    note = ErrorInfo(
+        code="remote_detached", message="left running", node=None, exit_status=None, log=None
+    )
     assert aggregate(_nodes(canceled, detached), ["d"], note) == ("detached", note)
     assert aggregate(_nodes(failed, detached), ["f"], None) == ("detached", detached.error)
 
@@ -641,7 +652,9 @@ def test_a_failed_delivery_is_a_launch_error_and_the_node_records_stay(
     node = result.nodes[deliverer.name]
     assert (node.outcome, node.disposition) == ("passed", "ran")
     assert node.record is not None and node.record.outcome == "passed"
-    assert node.deliveries == (DeliveryRecord("netlist", destination, False),)
+    assert node.deliveries == (
+        DeliveryRecord(key="netlist", destination=destination, delivered=False),
+    )
     assert read_record(node.run_dir, run_root=runner.run_root).run_id == node.record.run_id
     assert not destination.exists()
 
@@ -649,7 +662,7 @@ def test_a_failed_delivery_is_a_launch_error_and_the_node_records_stay(
     delivered = _launch(_runner(tmp_path), deliverer, design, sections)
     assert delivered.passed and destination.read_text() == "net\n"
     assert delivered.nodes[deliverer.name].deliveries == (
-        DeliveryRecord("netlist", destination, True),
+        DeliveryRecord(key="netlist", destination=destination, delivered=True),
     )
 
 
@@ -817,8 +830,8 @@ def test_the_time_of_a_node_is_that_of_its_own_execution(tmp_path, flows, monkey
     monkeypatch.setattr(launch_result, "time", SimpleNamespace(monotonic=monotonic))
     result = _launch(_runner(tmp_path), flows["TAfterSlow"], _design(tmp_path))
     slow, after = result.nodes[flows["TSlow"].name], result.nodes[flows["TAfterSlow"].name]
-    assert slow.elapsed > 100.0
-    assert 0.0 < after.elapsed < 1.0, "the consumer's time includes its producer's"
+    assert _seconds(slow.elapsed) > 100.0
+    assert 0.0 < _seconds(after.elapsed) < 1.0, "the consumer's time includes its producer's"
 
 
 def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):
@@ -844,8 +857,8 @@ def test_a_delivery_that_xeda_skipped_is_noted_as_not_delivered(tmp_path):
         ],
     )
     assert collector.deliveries_of(flow) == (  # type: ignore[arg-type]
-        DeliveryRecord("netlist", user / "net.v", True),
-        DeliveryRecord("outputs_to", user / "got" / "link.v", False),
+        DeliveryRecord(key="netlist", destination=user / "net.v", delivered=True),
+        DeliveryRecord(key="outputs_to", destination=user / "got" / "link.v", delivered=False),
     )
 
 
@@ -889,7 +902,7 @@ def test_a_failed_result_round_trips_through_its_document(tmp_path):
     document = result.to_dict()
     _document_keys(document)
     assert document["outcome"] == "failed" and document["roots"] == [TNeedsMayFail.name]
-    assert document["spec"]["design"] == "d" and document["spec"]["design_file"] is None
+    assert document["spec"]["design_name"] == "d" and document["spec"]["design_file"] is None
     assert document["spec"]["settings"] == {MAY_FAIL: {"fail": True}}
     producer, consumer = document["nodes"]
     assert producer["record"]["outcome"] == "failed" and producer["flow"] == MAY_FAIL
@@ -915,8 +928,10 @@ def _mixed_result(tmp_path: Path) -> Result:
         flow="flow_f",
         run_dir=tmp_path / "run" / "d" / "flow_f",
         reason="settings changed: seed",
-        elapsed=1.5,
-        deliveries=(DeliveryRecord("netlist", tmp_path / "user" / "net.v", False),),
+        elapsed="1.5 s",
+        deliveries=(
+            DeliveryRecord(key="netlist", destination=tmp_path / "user" / "net.v", delivered=False),
+        ),
     )
     nodes = _nodes(
         _node("p", "passed"),
@@ -924,7 +939,7 @@ def _mixed_result(tmp_path: Path) -> Result:
         _node("b", "blocked", blocked_by="f", code="producer_failed"),
         _node("s", "skipped"),
     )
-    return Result("id", Spec("b", _design(tmp_path)), ["b"], "failed", failed.error, nodes)  # type: ignore[arg-type]
+    return Result(launch_id="id", spec=Spec("b", _design(tmp_path)), roots=["b"], outcome="failed", error=failed.error, nodes=nodes)  # type: ignore[arg-type]
 
 
 def test_a_node_document_has_the_fields_of_the_node_result_and_their_meaning(tmp_path):
@@ -941,7 +956,7 @@ def test_a_node_document_has_the_fields_of_the_node_result_and_their_meaning(tmp
         assert document["reason"] == node.reason and document["blocked_by"] == node.blocked_by
         assert document["elapsed"] == node.elapsed and document["run_dir"] == str(node.run_dir)
         assert document["record"] is None and node.record is None
-        assert document["error"] == (None if node.error is None else node.error.as_json_value())
+        assert document["error"] == (None if node.error is None else node.error.to_dict())
         assert document["deliveries"] == [
             {"key": d.key, "destination": str(d.destination), "delivered": d.delivered}
             for d in node.deliveries
@@ -958,7 +973,7 @@ def test_the_document_of_a_result_has_the_fields_of_the_result(tmp_path):
     }
     assert document["launch_id"] == result.launch_id and document["roots"] == list(result.roots)
     assert document["outcome"] == result.outcome.value
-    assert document["error"] == result.error.as_json_value()  # type: ignore[union-attr]
+    assert document["error"] == result.error.to_dict()  # type: ignore[union-attr]
     assert document["spec"]["flow"] == result.spec.flow
 
 
@@ -1014,9 +1029,11 @@ def test_result_from_dict_reads_a_detached_and_a_skipped_node(tmp_path):
         "b": _node("b", "detached"),
         "c": _node("c", "skipped"),
     }
-    error = ErrorInfo("remote_detached", "keeps running", None, None, None)
+    error = ErrorInfo(
+        code="remote_detached", message="keeps running", node=None, exit_status=None, log=None
+    )
     result = Result(
-        "launch-1", Spec("a+b+c", _design(tmp_path)), ["c"], "detached", error, nodes  # type: ignore[arg-type]
+        launch_id="launch-1", spec=Spec("a+b+c", _design(tmp_path)), roots=["c"], outcome="detached", error=error, nodes=nodes  # type: ignore[arg-type]
     )
     document = result.to_dict()
     assert document["outcome"] == "detached" and document["error"]["code"] == "remote_detached"
@@ -1034,13 +1051,13 @@ def test_result_from_dict_reads_a_detached_and_a_skipped_node(tmp_path):
         {"nodes": [{"name": "a"}]},
         {"roots": "a"},
         {"spec": None},
-        {"spec": {"flow": "a", "design": "a/b", "target": None, "settings": {}}},
+        {"spec": {"flow": "a", "design_name": "a/b", "target": None, "settings": {}}},
     ],
     ids=lambda change: next(iter(change)) + "=" + repr(next(iter(change.values()))),
 )
 def test_result_from_dict_refuses_a_document_that_is_no_result(tmp_path, change):
     result = Result(
-        "id", Spec("a", _design(tmp_path)), ["a"], "passed", None, {"a": _node("a", "passed")}  # type: ignore[arg-type]
+        launch_id="id", spec=Spec("a", _design(tmp_path)), roots=["a"], outcome="passed", error=None, nodes={"a": _node("a", "passed")}  # type: ignore[arg-type]
     )
     with pytest.raises(ValueError):
         result_from_dict({**result.to_dict(), **change})
@@ -1057,7 +1074,7 @@ def test_the_documented_run_document_has_the_keys_of_the_real_one(tmp_path):
     assert block, "the section needs a JSON example"
     example = json.loads(textwrap.dedent(block.group(1)))
     result = Result(
-        "id", Spec("a", _design(tmp_path)), ["a"], "passed", None, {"a": _node("a", "passed")}  # type: ignore[arg-type]
+        launch_id="id", spec=Spec("a", _design(tmp_path)), roots=["a"], outcome="passed", error=None, nodes={"a": _node("a", "passed")}  # type: ignore[arg-type]
     )
     actual = result.to_dict()
     assert list(example) == list(actual)
@@ -1080,7 +1097,13 @@ def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_ru
     spec = Spec(TNeedsMayFail.name, design)
     with pytest.raises(KeyboardInterrupt):
         launch_result(runner, spec, lambda: runner.run_flow(TNeedsMayFail, design, {}))
-    error = ErrorInfo("canceled", "The launch was interrupted.", None, None, None)
+    error = ErrorInfo(
+        code="canceled",
+        message="The launch was interrupted.",
+        node=None,
+        exit_status=None,
+        log=None,
+    )
     result = failed_result(runner, spec, None, error, interrupted=True)
     assert result.outcome is Outcome.CANCELED and result.error == error
     producer, consumer = result.nodes.values()
@@ -1088,7 +1111,12 @@ def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_ru
     assert (consumer.outcome, consumer.record) == (Outcome.CANCELED, None)
     assert consumer.error is not None and consumer.error.code == "canceled"
     # without `interrupted`, the node that the interrupt left is a failure like any other
-    failed = failed_result(runner, spec, None, ErrorInfo("internal_error", "x", None, None, None))
+    failed = failed_result(
+        runner,
+        spec,
+        None,
+        ErrorInfo(code="internal_error", message="x", node=None, exit_status=None, log=None),
+    )
     assert failed.outcome is Outcome.FAILED
     assert failed.nodes[TNeedsMayFail.name].outcome is Outcome.FAILED
 
@@ -1107,7 +1135,13 @@ def test_a_node_that_ended_before_the_interrupt_keeps_its_outcome(tmp_path, monk
     spec = Spec(TNeedsMayFail.name, design)
     with pytest.raises(KeyboardInterrupt):
         launch_result(runner, spec, lambda: runner.run_flow(TNeedsMayFail, design, {}))
-    error = ErrorInfo("canceled", "The launch was interrupted.", None, None, None)
+    error = ErrorInfo(
+        code="canceled",
+        message="The launch was interrupted.",
+        node=None,
+        exit_status=None,
+        log=None,
+    )
     result = failed_result(runner, spec, None, error, interrupted=True)
     assert result.outcome is Outcome.CANCELED and result.error == error
     producer, consumer = result.nodes.values()
@@ -1130,11 +1164,11 @@ def test_the_design_file_of_a_document_is_absolute(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     document = spec_document(
-        flow="a", design="d", design_file="sub/d.yaml", target=None, settings={}
+        flow="a", design_name="d", design_file="sub/d.yaml", target=None, settings={}
     )
     assert document["design_file"] == str(tmp_path / "sub" / "d.yaml")
     assert (
-        spec_document(flow="a", design=None, design_file=None, target=None, settings={})[
+        spec_document(flow="a", design_name=None, design_file=None, target=None, settings={})[
             "design_file"
         ]
         is None

@@ -280,7 +280,7 @@ def test_a_delivery_is_planned_and_says_whether_it_replaces_a_file(tmp_path):
     )
     workspace = Workspace(tmp_path / "runs")
     planned = workspace.plan(spec).nodes["fpga_pack"].deliveries
-    assert planned == (PlanDelivery("bitstream", destination, False),)
+    assert planned == (PlanDelivery(key="bitstream", destination=destination, replaces=False),)
     destination.parent.mkdir()
     destination.write_text("yours\n")
     (replaced,) = workspace.plan(spec).nodes["fpga_pack"].deliveries

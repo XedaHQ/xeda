@@ -1,4 +1,4 @@
-"""`Workspace.load`, `records` and `scrub`, and `RunRecord.open()`: read a stored run under leases.
+"""`Workspace.load_record`, `records` and `scrub`, and `RunRecord.open()`: read a stored run under leases.
 
 The oracles are the files and the locks. A record opens only while its `results.json` holds its
 `run_id`, and the leases keep every later launch, clean-up or scrub out until the block ends: a
@@ -130,18 +130,18 @@ def test_load_reads_the_record_that_a_run_directory_holds(tmp_path):
     result = workspace.run(spec)
     assert result.passed
     run_dir = result.record.run_dir
-    record = workspace.load(run_dir)
+    record = workspace.load_record(run_dir)
     assert record.run_id == result.record.run_id and record.flow == "t_stamp"
     assert record.run_dir == run_dir and record.run_root == workspace.run_root
-    assert workspace.load(str(run_dir)) == record
+    assert workspace.load_record(str(run_dir)) == record
 
 
 def test_load_finds_the_run_root_of_a_run_directory_of_a_target(tmp_path):
     workspace = Workspace(tmp_path / "xeda_run")
     for target in ("a", None):
         assert workspace.run(Spec("t_maker", target_design(tmp_path, target))).passed
-    with_target = workspace.load(workspace.run_root / "d" / "a" / "t_maker")
-    without = workspace.load(workspace.run_root / "d" / "t_maker")
+    with_target = workspace.load_record(workspace.run_root / "d" / "a" / "t_maker")
+    without = workspace.load_record(workspace.run_root / "d" / "t_maker")
     assert (with_target.target, without.target) == ("a", None)
     assert with_target.run_root == without.run_root == workspace.run_root
 
@@ -163,7 +163,7 @@ def test_load_names_why_a_directory_holds_no_record(tmp_path, content, code):
     if content is not None:
         (run_dir / "results.json").write_text(content)
     with pytest.raises(RecordError) as raised:
-        workspace.load(run_dir)
+        workspace.load_record(run_dir)
     assert raised.value.code == code and raised.value.path == run_dir / "results.json"
 
 
@@ -204,7 +204,7 @@ def test_records_selects_by_design_flow_and_target(tmp_path):
     def found(**selection) -> list[tuple[str, str | None, str]]:
         listing = workspace.records(**selection)
         assert listing.problems == ()
-        return [(r.design, r.target, r.flow) for r in listing]
+        return [(r.design_name, r.target, r.flow) for r in listing]
 
     everything = [  # sorted by run directory: a target's below the design, then the design's own
         ("d", "a", "t_maker"),
@@ -283,7 +283,7 @@ def test_opening_a_replaced_or_purged_record_raises(tmp_path):
     workspace, spec = stamped(tmp_path)
     record = workspace.run(spec).record
     assert workspace.run(spec, rebuild_all=True).passed
-    replacement = workspace.load(record.run_dir)
+    replacement = workspace.load_record(record.run_dir)
     assert replacement.run_id != record.run_id
     with pytest.raises(RunReplacedError) as raised:
         with record.open():
@@ -323,12 +323,12 @@ def test_a_rebuild_waits_while_a_record_is_open(tmp_path, monkeypatch):
         before = run.output("made").read_bytes()
         thread.start()
         assert waits.wait(PROMPT), "the rebuild must wait for the lease"
-        assert workspace.load(record.run_dir).run_id == record.run_id
+        assert workspace.load_record(record.run_dir).run_id == record.run_id
         assert run.output("made").read_bytes() == before
         assert "result" not in outcome
     thread.join(PROMPT)
     assert not thread.is_alive() and outcome["result"].passed
-    assert workspace.load(record.run_dir).run_id != record.run_id
+    assert workspace.load_record(record.run_dir).run_id != record.run_id
 
 
 def test_open_checks_the_run_id_after_it_holds_the_lease(tmp_path, monkeypatch):
@@ -358,7 +358,7 @@ def test_a_callback_under_locks_reopens_a_held_record_and_nothing_else(tmp_path)
     run_dirs = {name: workspace.run_root / "d" / name for name in ("cut_producer", "cut_consumer")}
 
     def probe(where: str, node: str) -> None:
-        held = workspace.load(run_dirs[node])
+        held = workspace.load_record(run_dirs[node])
         with held.open() as run:
             assert run.run_dir == run_dirs[node] and run.artifacts
         with pytest.raises(LeaseHeldError) as record_error:
@@ -765,7 +765,7 @@ def test_loading_imports_no_flow_module(tmp_path):
         from pathlib import Path
         from xeda.workspace import Workspace
         workspace = Workspace(Path(sys.argv[1]))
-        record = workspace.load(Path(sys.argv[2]))
+        record = workspace.load_record(Path(sys.argv[2]))
         assert [r.run_id for r in workspace.records()] == [record.run_id]
         with record.open() as run:
             assert run.output("made").is_file()

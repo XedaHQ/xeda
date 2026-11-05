@@ -772,7 +772,7 @@ def test_declared_setup_failures_return_the_failure_document(tmp_path, remote_ho
     assert "broken setup" in document["error"]["message"]
     assert document["outcome"] == "failed"
     assert document["error"]["code"] == "reported_failure"
-    assert document["spec"]["design"] == "d"
+    assert document["spec"]["design_name"] == "d"
     assert Path(document["nodes"][0]["run_dir"]).is_relative_to(_mirror(tmp_path))
     assert not (tmp_path / "out").exists()
 

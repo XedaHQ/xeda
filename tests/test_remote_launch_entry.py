@@ -143,7 +143,7 @@ def test_result_is_the_json_document_of_a_local_run(tmp_path, fake_fpga):
     assert set(result) == set(document) | {"written", "unreadable", "named"}
     assert result["roots"] == document["roots"]
     assert result["spec"]["flow"] == document["spec"]["flow"] == "nextpnr"
-    assert result["spec"]["design"] == document["spec"]["design"]
+    assert result["spec"]["design_name"] == document["spec"]["design_name"]
     assert result["spec"]["target"] == document["spec"]["target"]
 
     def shown(nodes):

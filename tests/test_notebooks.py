@@ -49,7 +49,7 @@ FLOW_PROBES = {
 PUBLIC_NAMES = """
 Design DesignPart Rtl Testbench Source Project Spec LocalSettings local_settings
 Plan PlanNode PlanInput PlanDelivery
-Workspace Remote CancelToken Event plan run sweep load records scrub
+Workspace Remote CancelToken Event plan run sweep load_record records scrub
 Result NodeResult RunRecord OutputRecord InputRecord InputSource DeliveryRecord
 MetricInfo ErrorInfo Outcome Disposition OpenRun
 SweepResult SweepPoint RunListing RecordProblem ScrubResult

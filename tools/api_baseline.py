@@ -43,7 +43,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_MODULES = ("xeda", "xeda.errors", "xeda.introspect")
 VERB_MODULE = impl_module("workspace_verbs")
 VERB_KEY = "xeda.workspace_verbs"
-VERBS = ("plan", "run", "sweep", "load", "records", "scrub")
+VERBS = ("plan", "run", "sweep", "load_record", "records", "scrub")
 
 SPECIAL_METHODS = (
     "__iter__",
@@ -594,7 +594,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     spec = _object(
         {
             "flow": _STRING,
-            "design": _nullable(_STRING),
+            "design_name": _nullable(_STRING),
             "design_file": _nullable(_STRING),
             "target": _nullable(_STRING),
             "settings": _OBJECT,
@@ -630,7 +630,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "outcome": _nullable(outcome),
             "error": _nullable(error),
             "flow": _nullable(_STRING),
-            "design": _nullable(_STRING),
+            "design_name": _nullable(_STRING),
             "target": _nullable(_STRING),
             "run_root": _nullable(_STRING),
             **scrub_lists,
@@ -642,7 +642,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "outcome": _nullable(outcome),
             "error": _nullable(error),
             "flow": _nullable(_STRING),
-            "design": _nullable(_STRING),
+            "design_name": _nullable(_STRING),
             "target": _nullable(_STRING),
             "optimizer": _nullable(_STRING),
             "best": _nullable({"$ref": "#/$defs/results"}),

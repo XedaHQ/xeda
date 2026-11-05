@@ -222,9 +222,9 @@ def test_events_come_in_order_in_the_calling_thread(tmp_path):
         (Outcome.PASSED, Disposition.RAN),
         (Outcome.PASSED, None),
     ]
-    assert all(e.time.tzinfo is timezone.utc for e in events)
-    assert [e.time for e in events] == sorted(e.time for e in events)
-    assert isinstance(events[0].time, datetime)
+    assert all(e.occurred_at.tzinfo is timezone.utc for e in events)
+    assert [e.occurred_at for e in events] == sorted(e.occurred_at for e in events)
+    assert isinstance(events[0].occurred_at, datetime)
     # A reused node has both events, with the disposition `reused`.
     again: list[Event] = []
     workspace.run(spec, on_event=again.append)

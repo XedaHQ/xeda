@@ -256,7 +256,7 @@ def test_run_json_stdout_carries_only_the_json_document(tmp_path):
     assert document["outcome"] == "passed", proc.stderr
     assert proc.returncode == 0
     assert document["spec"]["flow"] == "vivado_synth"
-    assert document["spec"]["design"] == "sqrt"
+    assert document["spec"]["design_name"] == "sqrt"
     (node,) = document["nodes"]
     run_dir = Path(node["run_dir"])
     assert run_dir.is_dir() and (run_dir / "results.json").is_file()
@@ -280,7 +280,7 @@ def test_run_takes_the_design_as_an_argument(tmp_path):
     document = json.loads(proc.stdout)
     assert proc.returncode == 0, proc.stderr
     assert document["outcome"] == "passed"
-    assert document["spec"]["design"] == "sqrt"
+    assert document["spec"]["design_name"] == "sqrt"
 
 
 def test_run_json_reports_failures_as_json_and_a_nonzero_exit(tmp_path):

@@ -160,7 +160,7 @@ class DsePoint:
     def as_json_value(self) -> Dict[str, Any]:
         return {
             "outcome": str(self.outcome),
-            "error": None if self.error is None else self.error.as_json_value(),
+            "error": None if self.error is None else self.error.to_dict(),
             "run_dir": None if self.run_dir is None else str(self.run_dir),
         }
 

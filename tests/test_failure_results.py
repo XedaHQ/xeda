@@ -117,8 +117,8 @@ def test_a_raising_run_replaces_the_previous_success_with_a_failure_document(tmp
         "exit_status": None,
         "log": None,
     }
-    assert document["design"] == "d" and document["flow"] == first.name
-    assert document["identity"] and document["started"] and document["finished"]
+    assert document["design_name"] == "d" and document["flow"] == first.name
+    assert document["identity"] and document["started_at"] and document["finished_at"]
     assert not (first.run_path / "trace.json").exists()
 
 

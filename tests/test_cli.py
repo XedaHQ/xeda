@@ -101,7 +101,7 @@ def test_dash_s_stops_before_the_design_file(tmp_path, monkeypatch):
     )
     document = json.loads(result.stdout)
     assert result.exit_code == 0, document
-    assert document["spec"]["design"] == "sqrt"
+    assert document["spec"]["design_name"] == "sqrt"
 
 
 def test_dash_s_keeps_a_value_that_contains_equals_signs():

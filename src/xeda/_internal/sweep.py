@@ -79,7 +79,7 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class SweepPoint:
     """One spec of a sweep: its position in the input, the spec and what its launch did."""
 
@@ -88,7 +88,7 @@ class SweepPoint:
     result: Result
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class SweepResult:
     """What a sweep did: one `SweepPoint` for each spec, in input order.
 
@@ -464,18 +464,39 @@ def _execute_in_worker(task: NodeTask) -> NodeOutcome:
             importlib.import_module(name)
         except BaseException as error:  # noqa: BLE001 - a module may exit; a failure is a value
             message = f"a worker process cannot import `{name}`, the module of a flow: {error}"
-            return _failed(task, ErrorInfo(FLOW_NOT_IMPORTABLE, message, task.node, None, None))
+            return _failed(
+                task,
+                ErrorInfo(
+                    code=FLOW_NOT_IMPORTABLE,
+                    message=message,
+                    node=task.node,
+                    exit_status=None,
+                    log=None,
+                ),
+            )
     try:
         return run_node(task, canceled=_stop_requested, emit=lambda event: None)
     except StalePlanError as error:
         return _failed(
-            task, ErrorInfo(error.code or "stale_plan", str(error), task.node, None, None)
+            task,
+            ErrorInfo(
+                code=error.code or "stale_plan",
+                message=str(error),
+                node=task.node,
+                exit_status=None,
+                log=None,
+            ),
         )
     except Exception as error:  # noqa: BLE001 - the failure of a node is a value
         return _failed(task, error_info(error, node=task.node))
     except BaseException as error:  # a flow that exits, or a signal that stops this process
         message = f"the node ended its worker process with {error!r}"
-        return _failed(task, ErrorInfo(REPORTED_FAILURE, message, task.node, None, None))
+        return _failed(
+            task,
+            ErrorInfo(
+                code=REPORTED_FAILURE, message=message, node=task.node, exit_status=None, log=None
+            ),
+        )
 
 
 def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
@@ -487,7 +508,7 @@ def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
         disposition=Disposition.RAN,
         reason="",
         blocked_by=None,
-        elapsed=0.0,
+        elapsed="0 s",
         record=None,
         error=error,
         deliveries=(),
@@ -606,7 +627,14 @@ class _Sweep:
             return
         point.told.add((kind, node))
         self.on_event(
-            Event(kind, point.launch_id, node, outcome, disposition, datetime.now(timezone.utc))
+            Event(
+                kind=kind,
+                launch_id=point.launch_id,
+                node=node,
+                outcome=outcome,
+                disposition=disposition,
+                occurred_at=datetime.now(timezone.utc),
+            )
         )
 
     def _begin(self, point: _Point) -> None:
@@ -750,7 +778,7 @@ class _Sweep:
             disposition=Disposition.RAN,
             reason="",
             blocked_by=None,
-            elapsed=0.0,
+            elapsed="0 s",
             record=None,
             error=error,
             deliveries=(),
@@ -902,7 +930,9 @@ class _Sweep:
         for point, (error, generation) in zip(self.points, errors):
             point.generation = generation
             if error is not None:
-                point.launch_error = ErrorInfo(GENERATOR_FAILED, str(error), None, None, None)
+                point.launch_error = ErrorInfo(
+                    code=GENERATOR_FAILED, message=str(error), node=None, exit_status=None, log=None
+                )
 
     def run(self) -> SweepResult:
         # As in a launch, the start is told before the generators run, while no lock is held: a
@@ -929,11 +959,11 @@ class _Sweep:
         results = [p.finished for p in self.points]
         assert all(result is not None for result in results)
         return SweepResult(
-            tuple(
-                SweepPoint(point.index, self.specs[point.index], point.finished)  # type: ignore[arg-type]
+            points=tuple(
+                SweepPoint(index=point.index, spec=self.specs[point.index], result=point.finished)  # type: ignore[arg-type]
                 for point in self.points
             ),
-            stopped,
+            canceled=stopped,
         )
 
     # ------------------------------------------------------------------------------- clean-up
@@ -1138,12 +1168,28 @@ def _unplanned(specs: Sequence[Spec], on_event: Callable[[Event], None] | None) 
     points = []
     for index, spec in enumerate(specs):
         launch_id = os.urandom(16).hex()
-        result = Result(launch_id, spec, (), Outcome.CANCELED, CANCELED_ERROR, {})
+        result = Result(
+            launch_id=launch_id,
+            spec=spec,
+            roots=(),
+            outcome=Outcome.CANCELED,
+            error=CANCELED_ERROR,
+            nodes={},
+        )
         for kind, outcome in (("launch_started", None), ("launch_finished", Outcome.CANCELED)):
             if on_event is not None:
-                on_event(Event(kind, launch_id, None, outcome, None, datetime.now(timezone.utc)))
-        points.append(SweepPoint(index, spec, result))
-    return SweepResult(tuple(points), True)
+                on_event(
+                    Event(
+                        kind=kind,
+                        launch_id=launch_id,
+                        node=None,
+                        outcome=outcome,
+                        disposition=None,
+                        occurred_at=datetime.now(timezone.utc),
+                    )
+                )
+        points.append(SweepPoint(index=index, spec=spec, result=result))
+    return SweepResult(points=tuple(points), canceled=True)
 
 
 def run_sweep(

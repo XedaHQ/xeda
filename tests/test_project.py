@@ -661,7 +661,7 @@ def test_design_name_selects_a_project_design(tmp_path, monkeypatch):
     cli_project(tmp_path, monkeypatch)
     result, document = invoke("run", "vivado_synth", "--design-name", "fifo", "--dry-run")
     assert result.exit_code == 0, document
-    assert document["spec"]["design"] == "fifo" and document["spec"]["target"] is None
+    assert document["spec"]["design_name"] == "fifo" and document["spec"]["target"] is None
 
 
 def test_the_default_target_applies_unless_target_or_no_target_is_given(tmp_path, monkeypatch):
@@ -1029,7 +1029,7 @@ def test_the_only_design_of_a_project_is_selected_without_a_name_on_the_command_
     write_project(tmp_path, {"designs": [{"name": "solo", "rtl": rtl()}]})
     result, document = invoke("run", "vivado_synth", "--dry-run", *PART)
     assert result.exit_code == 0, document
-    assert document["spec"]["design"] == "solo"
+    assert document["spec"]["design_name"] == "solo"
 
 
 def test_a_project_with_several_designs_needs_a_name_on_the_command_line(tmp_path, monkeypatch):

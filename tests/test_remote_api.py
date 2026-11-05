@@ -437,7 +437,7 @@ def test_a_host_that_fails_before_the_launch_gives_no_outcome_and_exit_status_2(
     assert document["outcome"] is None and document["launch_id"] is None
     assert document["roots"] == [] and document["nodes"] == []
     assert document["error"]["code"] == code and document["error"]["node"] is None
-    assert document["spec"]["flow"] == "nextpnr" and document["spec"]["design"] == "top"
+    assert document["spec"]["flow"] == "nextpnr" and document["spec"]["design_name"] == "top"
     assert document["spec"]["design_file"] == str(design)
     assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
 

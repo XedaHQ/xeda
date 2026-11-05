@@ -1,7 +1,7 @@
 Package xeda
 ============
 
-The module-level functions ``plan``, ``run``, ``sweep``, ``records``, ``load`` and ``scrub`` do
+The module-level functions ``plan``, ``run``, ``sweep``, ``records``, ``load_record`` and ``scrub`` do
 what the methods of :class:`~xeda.Workspace` do. They take the options of a workspace as keyword
 arguments.
 
@@ -121,7 +121,6 @@ Records of earlier runs
 
 .. autoclass:: xeda.ErrorInfo
    :members:
-   :exclude-members: as_json_value
 
 .. autoclass:: xeda.InputRecord
    :members:
@@ -146,7 +145,7 @@ Records of earlier runs
 
 .. autofunction:: xeda.records
 
-.. autofunction:: xeda.load
+.. autofunction:: xeda.load_record
 
 The unset value
 ---------------

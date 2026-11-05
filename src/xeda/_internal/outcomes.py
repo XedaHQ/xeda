@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from xeda.errors import RecordError, RunFailedError
 from .frozen import FrozenDict, thaw
+from .units import duration_text
 
 if TYPE_CHECKING:
     from .records import ErrorInfo, RunRecord
@@ -74,7 +75,7 @@ class Disposition(StrEnum):
     NOT_RUN = "not_run"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class DeliveryRecord:
     """One delivery of a node: where the file was to go, and whether it got there.
 
@@ -86,23 +87,24 @@ class DeliveryRecord:
     delivered: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class NodeResult:
     """What happened to one planned node.
 
     `reason` says why the node ran, was reused, was blocked or was not reached. `blocked_by` names
-    the producer whose outcome blocked the node. `elapsed` is the time in seconds that this launch
-    spent on the node: it is 0.0 unless the node `ran`. `record` is the record of the run, or
-    `None` when the node did not run or when its record could not be stored. A `skipped` node has
-    no `error`. `run_dir` is the run directory of the node, and `flow` is the name of its flow.
-    Both are public fields. The run document has a key of the same name for each field."""
+    the producer whose outcome blocked the node. `elapsed` is the time that this launch spent on
+    the node, as text with a unit in seconds (`1.25 s`): it is `0 s` unless the node `ran`.
+    `record` is the record of the run, or `None` when the node did not run or when its record
+    could not be stored. A `skipped` node has no `error`. `name` identifies the node in the plan,
+    `run_dir` is its run directory, and `flow` is the canonical name of its flow. The run
+    document has a key of the same name for each field."""
 
     name: str
     outcome: Outcome
     disposition: Disposition
     reason: str
     blocked_by: str | None = field(repr=False)
-    elapsed: float = field(repr=False)
+    elapsed: str = field(repr=False)
     record: RunRecord | None = field(repr=False)
     error: ErrorInfo | None
     deliveries: tuple[DeliveryRecord, ...] = field(repr=False)
@@ -112,7 +114,13 @@ class NodeResult:
     def __post_init__(self) -> None:
         object.__setattr__(self, "outcome", Outcome(self.outcome))
         object.__setattr__(self, "disposition", Disposition(self.disposition))
+        object.__setattr__(self, "elapsed", duration_text(self.elapsed))
         object.__setattr__(self, "deliveries", tuple(self.deliveries))
+
+    @property
+    def passed(self) -> bool:
+        """Whether the node passed."""
+        return self.outcome is Outcome.PASSED
 
 
 #: The order of the verdicts of the roots: the first one decides.
@@ -168,12 +176,13 @@ def aggregate(
     raise ValueError(f"a root ended with an outcome that decides nothing: {causes!r}")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Result:
     """What one launch did: the verdict, and an outcome for every planned node.
 
     `outcome` is the aggregate and `error` is the cause (`aggregate`). `nodes` holds every
-    planned node, in plan order. `roots` are the nodes that the request asked for."""
+    planned node by name, in plan order (producers first), as `Plan.nodes` does. `roots` are the nodes that the request asked for.
+    """
 
     launch_id: str = field(repr=False)
     spec: Spec = field(repr=False)
@@ -259,7 +268,7 @@ def _in_field_units(settings: Any) -> Any:
 def spec_document(
     *,
     flow: str,
-    design: str | None,
+    design_name: str | None,
     design_file: Path | str | None,
     target: str | None,
     settings: Mapping[str, Any],
@@ -267,7 +276,7 @@ def spec_document(
     """Return the `spec` of a run document: what the launch was asked to do."""
     return {
         "flow": flow,
-        "design": design,
+        "design_name": design_name,
         "design_file": None if design_file is None else os.path.abspath(design_file),
         "target": target,
         "settings": _in_field_units(_plain(settings)),
@@ -279,7 +288,7 @@ def spec_document_of(spec: Spec) -> dict[str, Any]:
     design = spec.design
     return spec_document(
         flow=spec.flow,
-        design=design.name,
+        design_name=design.name,
         # Only the loader sets the file of a design: it is no field.
         design_file=design._source_file,
         target=design.target,
@@ -304,7 +313,7 @@ def run_document(
     return {
         "schema_version": RUN_DOCUMENT_VERSION,
         "outcome": None if outcome is None else Outcome(outcome).value,
-        "error": None if error is None else error.as_json_value(),
+        "error": None if error is None else error.to_dict(),
         "launch_id": launch_id,
         "spec": None if spec is None else dict(spec),
         "roots": list(roots),
@@ -330,7 +339,7 @@ def node_document(node: NodeResult) -> dict[str, Any]:
             for d in node.deliveries
         ],
         "record": None if node.record is None else encode_record(node.record),
-        "error": None if node.error is None else node.error.as_json_value(),
+        "error": None if node.error is None else node.error.to_dict(),
     }
 
 
@@ -343,6 +352,14 @@ def _field(document: Mapping[str, Any], key: str, kinds: type | tuple[type, ...]
     if not isinstance(value, kinds):
         raise ValueError(f"{what} has no valid `{key}`: {value!r}")
     return value
+
+
+def _duration(document: Mapping[str, Any], key: str, what: str) -> str:
+    """Return the duration text at `key`, or raise `ValueError` if it is not one."""
+    try:
+        return duration_text(_field(document, key, str, what))
+    except ValueError as problem:
+        raise ValueError(f"{what} has no valid `{key}`: {problem}") from None
 
 
 def _closed(kind: type[Outcome] | type[Disposition], value: str, what: str, path: Path) -> Any:
@@ -391,7 +408,7 @@ def _node_of(document: Any) -> NodeResult:
     if "error" not in document:
         raise ValueError(f"{what} has no `error`")
     try:
-        error = None if document["error"] is None else ErrorInfo.from_json(document["error"])
+        error = None if document["error"] is None else ErrorInfo.from_dict(document["error"])
     except ValueError as problem:
         raise ValueError(f"{what} has a bad error: {problem}") from None
     deliveries = []
@@ -411,7 +428,7 @@ def _node_of(document: Any) -> NodeResult:
         disposition=_closed(Disposition, _field(document, "disposition", str, what), what, run_dir),
         reason=_field(document, "reason", str, what),
         blocked_by=blocked_by,
-        elapsed=float(_field(document, "elapsed", (int, float), what)),
+        elapsed=_duration(document, "elapsed", what),
         record=record,
         error=error,
         deliveries=tuple(deliveries),
@@ -434,7 +451,7 @@ def _spec_of(document: Mapping[str, Any]) -> Spec:
     target = document.get("target")
     if target is not None and not isinstance(target, str):
         raise ValueError(f"the spec has no valid `target`: {target!r}")
-    name = _field(document, "design", str, "the spec")
+    name = _field(document, "design_name", str, "the spec")
     # The document holds no root: a design of a file has the directory of that file, any other
     # design the root of the file system.
     try:
@@ -445,7 +462,7 @@ def _spec_of(document: Mapping[str, Any]) -> Spec:
             source_file=None if design_file is None else Path(design_file),
         )
     except AnyDesignValidationException as error:
-        raise ValueError(f"the spec has no valid `design` name: {name!r}: {error}") from None
+        raise ValueError(f"the spec has no valid `design_name`: {name!r}: {error}") from None
     return Spec(
         _field(document, "flow", str, "the spec"),
         design,
@@ -479,7 +496,7 @@ def result_from_dict(document: Mapping[str, Any]) -> Result:
     if not all(isinstance(root, str) for root in roots):
         raise ValueError(f"the roots of the document are not all text: {roots!r}")
     try:
-        parsed_error = None if error is None else ErrorInfo.from_json(error)
+        parsed_error = None if error is None else ErrorInfo.from_dict(error)
     except ValueError as problem:
         raise ValueError(f"the document has a bad error: {problem}") from None
     return Result(

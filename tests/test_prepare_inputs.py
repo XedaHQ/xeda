@@ -133,7 +133,7 @@ def test_cache_failure_after_success_records_preparation_cause(tmp_path, generat
         "generator" in recorded["error"]["message"]
         and "nextpnr failure" not in recorded["error"]["message"]
     )
-    for key in ("design", "flow", "identity", "run_id", "started", "finished"):
+    for key in ("design_name", "flow", "identity", "run_id", "started_at", "finished_at"):
         assert recorded[key]
     assert not (first.run_path / "trace.json").exists()
 
@@ -333,7 +333,7 @@ def test_preparation_failure_invalidates_success_and_releases_lease(tmp_path, mo
     recorded = json.loads((first.run_path / "results.json").read_text())
     assert recorded["outcome"] == "failed"
     assert recorded["error"]["message"] == "broken preparation"
-    for key in ("design", "flow", "identity", "run_id", "started", "finished"):
+    for key in ("design_name", "flow", "identity", "run_id", "started_at", "finished_at"):
         assert recorded[key]
     assert not (first.run_path / "trace.json").exists()
     assert _probe(first.inputs.made.parent) == "free"

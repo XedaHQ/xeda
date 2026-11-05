@@ -677,6 +677,27 @@ class Time(
     __slots__ = ()
 
 
+def duration_text(value: str) -> str:
+    """Return the duration text `value` in seconds. A number, not text, is a `TypeError`."""
+    if not isinstance(value, str):
+        raise TypeError(f"a duration is text with a unit such as `1.25 s`, not {value!r}")
+    return seconds_text(value)
+
+
+def seconds_text(value: Union[str, int, float]) -> str:
+    """Return the duration `value` as quantity text in seconds (`1.25 s`, `0 s`).
+
+    `value` is a non-negative number of seconds or text with a time unit (`"1250 ms"`). Any other
+    value raises `ValueError`."""
+    if isinstance(value, str):
+        duration = Time(value)
+    else:
+        duration = Time.of(value, "s")
+    if duration.magnitude < 0:
+        raise ValueError(f"a duration is not negative: {value!r}")
+    return str(duration.with_unit("s"))
+
+
 class Frequency(
     Quantity,
     kind="frequency",

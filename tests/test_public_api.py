@@ -61,7 +61,7 @@ def test_the_newest_baseline_has_the_package_major() -> None:
 CONTRACT_XEDA = {
     "Design", "DesignPart", "Rtl", "Testbench", "Source", "Project", "Spec", "LocalSettings",
     "local_settings", "Plan", "PlanNode", "PlanInput", "PlanDelivery", "Workspace", "Remote",
-    "CancelToken", "Event", "plan", "run", "sweep", "load", "records", "scrub", "Result",
+    "CancelToken", "Event", "plan", "run", "sweep", "load_record", "records", "scrub", "Result",
     "NodeResult", "RunRecord", "OutputRecord", "InputRecord", "InputSource", "DeliveryRecord",
     "MetricInfo", "ErrorInfo", "Outcome", "Disposition", "OpenRun", "SweepResult", "SweepPoint",
     "RunListing", "RecordProblem", "ScrubResult", "UNSET", "Unset", "__version__",
@@ -104,7 +104,7 @@ CONTRACT_VERBS = {
     "plan": (["spec: xeda.Spec", "/", "*", *RUN_ROOT, *REMOTE, *OPTIONS, *DELIVERY], "xeda.Plan"),
     "run": (
         [
-            "spec: xeda.Spec", "/", "*", *RUN_ROOT, TOOL_OUTPUT, CONFIRM, *REMOTE, *OPTIONS,
+            "request: xeda.Spec", "/", "*", *RUN_ROOT, TOOL_OUTPUT, CONFIRM, *REMOTE, *OPTIONS,
             *DELIVERY, *CANCEL,
         ],
         "xeda.Result",
@@ -117,7 +117,7 @@ CONTRACT_VERBS = {
         ],
         "xeda.SweepResult",
     ),
-    "load": ([f"run_dir: {PATH}", "/"], "xeda.RunRecord"),
+    "load_record": ([f"run_dir: {PATH}", "/"], "xeda.RunRecord"),
     "records": (["*", f"run_root: {PATH} | xeda.Unset = UNSET", *FILTERS], "xeda.RunListing"),
     "scrub": (
         [

@@ -970,7 +970,7 @@ class Openfpgaloader(FpgaSynthFlow):
         log.error("%s", message)
         self.results["error"] = ErrorInfo(
             code=REPORTED_FAILURE, message=message, node=self.name, exit_status=None, log=None
-        ).as_json_value()
+        ).to_dict()
         return False
 
     def run(self) -> None:

@@ -337,7 +337,7 @@ def power_report_written(flow: Any) -> bool:
     if not flow.results.get("error"):  # a failed tool's own error is the cause
         flow.results["error"] = ErrorInfo(
             code=MISSING_REPORT, message=message, node=flow.name, exit_status=None, log=None
-        ).as_json_value()
+        ).to_dict()
     return False
 
 

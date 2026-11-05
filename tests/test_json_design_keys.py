@@ -1,9 +1,9 @@
-"""`design` and `design_file` in the JSON documents of `xeda run` and `xeda dse`.
+"""`design_name` and `design_file` in the JSON documents of `xeda run` and `xeda dse`.
 
-`design` is always the design's name: the one the design file gives, or the one the request gave
+`design_name` is always the design's name: the one the design file gives, or the one the request gave
 for a design of a project. `design_file` is the design file the request named, as an absolute
 path, and `null` when the request named none (a design of a project, or no design). A failure
-that comes before the design is loaded has no name to report for a design file: `design` is then
+that comes before the design is loaded has no name to report for a design file: `design_name` is then
 `null`, and `design_file` still says which file was named. The two keys are in every document:
 success, failure, dry run and `--remote`. A run and a dry run put them in `spec`; `dse` keeps
 them at the top level.
@@ -60,7 +60,7 @@ def test_a_run_reports_the_design_s_name_and_the_file_it_was_read_from(world):
     status, document = _json("run", "vivado_synth", "sqrt.yaml", *SQRT_SETTINGS)
 
     assert status == 0, document
-    assert document["spec"]["design"] == "sqrt"
+    assert document["spec"]["design_name"] == "sqrt"
     assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
 
 
@@ -71,7 +71,7 @@ def test_a_failure_after_the_design_loaded_still_names_it(world):
 
     assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "unknown_setting"
-    assert document["spec"]["design"] == "sqrt"
+    assert document["spec"]["design_name"] == "sqrt"
     assert _is(document["spec"]["design_file"], world / "sqrt.yaml")
 
 
@@ -83,7 +83,7 @@ def test_a_design_file_that_does_not_load_has_no_name_but_the_file_is_named(worl
 
     assert status == 2 and document["error"]["code"] == "invalid_design"
     assert not document["error"]["message"].startswith("DesignValidationError")
-    assert document["spec"]["design"] is None
+    assert document["spec"]["design_name"] is None
     assert _is(document["spec"]["design_file"], world / "bad.toml")
 
 
@@ -91,7 +91,7 @@ def test_a_dry_run_reports_the_same_two_keys(world):
     status, document = _json("run", "verilator", "blink.toml", "--dry-run")
 
     assert status == 0, document
-    assert document["spec"]["design"] == "blink"
+    assert document["spec"]["design_name"] == "blink"
     assert _is(document["spec"]["design_file"], world / "blink.toml")
 
 
@@ -102,7 +102,7 @@ def test_a_design_of_a_project_has_a_name_and_no_file(world):
     status, document = _json("run", "verilator", "--design-name", "blink", "--dry-run")
 
     assert status == 0, document
-    assert document["spec"]["design"] == "blink"
+    assert document["spec"]["design_name"] == "blink"
     assert document["spec"]["design_file"] is None
 
 
@@ -113,7 +113,7 @@ def test_a_design_of_a_project_that_is_not_there_is_named_as_asked(world):
     status, document = _json("run", "verilator", "--design-name", "nosuch", "--dry-run")
 
     assert status == 2 and document["outcome"] is None
-    assert document["spec"]["design"] == "nosuch"
+    assert document["spec"]["design_name"] == "nosuch"
     assert document["spec"]["design_file"] is None
 
 
@@ -133,7 +133,7 @@ def test_a_remote_run_reports_the_same_two_keys(world, remote_host, monkeypatch)
     assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "remote_unreachable"
     assert "cannot connect to somewhere" in document["error"]["message"]
-    assert document["spec"]["design"] == "blink"
+    assert document["spec"]["design_name"] == "blink"
     assert _is(document["spec"]["design_file"], world / "blink.toml")
 
 
@@ -145,7 +145,7 @@ def test_a_remote_run_whose_design_does_not_load_has_no_name(world, monkeypatch)
 
     assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "invalid_design"
-    assert document["spec"]["design"] is None
+    assert document["spec"]["design_name"] is None
     assert _is(document["spec"]["design_file"], world / "bad.toml")
 
 
@@ -164,7 +164,7 @@ def test_an_exploration_that_fails_after_loading_its_design_names_it(world):
     assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "required_setting"
     assert "`fpga`" in document["error"]["message"]
-    assert document["design"] == "blink"
+    assert document["design_name"] == "blink"
 
 
 def test_an_exploration_that_fails_before_loading_its_design_has_no_name(world):
@@ -172,7 +172,7 @@ def test_an_exploration_that_fails_before_loading_its_design_has_no_name(world):
 
     assert status == 2 and document["outcome"] is None
     assert document["error"]["code"] == "usage_error"
-    assert document["design"] is None
+    assert document["design_name"] is None
 
 
 @pytest.mark.parametrize(
@@ -192,4 +192,4 @@ def test_the_two_keys_follow_one_rule(requested, loaded, name, file, tmp_path, m
     monkeypatch.chdir(tmp_path)
     document = design_info(requested, loaded)
 
-    assert document == {"design": name, "design_file": os.path.abspath(file) if file else None}
+    assert document == {"design_name": name, "design_file": os.path.abspath(file) if file else None}

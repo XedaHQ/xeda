@@ -830,7 +830,11 @@ def _check_outputs_to(
     deliveries.refuse(expected)
     replaced = {id(d) for d in deliveries.replaced(expected)}
     return deliveries, tuple(
-        PlanDelivery(delivery_key(d.key), planned_destination(d.destination), id(d) in replaced)
+        PlanDelivery(
+            key=delivery_key(d.key),
+            destination=planned_destination(d.destination),
+            replaces=id(d) in replaced,
+        )
         for d in expected
     )
 
@@ -1195,7 +1199,7 @@ def _spec_fields(run: _Run) -> Dict[str, Any]:
     the remote."""
     return spec_document(
         flow=run.chain,
-        design=run.design_name,
+        design_name=run.design_name,
         design_file=run.design,
         target=run.target,
         settings=run.settings,
@@ -1584,7 +1588,7 @@ def _unreached(run: _Run, outcome: Outcome) -> Dict[str, NodeResult]:
                 else "the launch stopped before its turn"
             ),
             blocked_by=None,
-            elapsed=0.0,
+            elapsed="0 s",
             record=None,
             error=None,
             deliveries=(),
@@ -1636,7 +1640,13 @@ def _failed(run: _Run, error: Exception) -> Result:
     if isinstance(error, Canceled) and not run.started:
         document = run_document(
             outcome=Outcome.CANCELED,
-            error=ErrorInfo(CANCELED, "The launch was canceled.", None, None, None),
+            error=ErrorInfo(
+                code=CANCELED,
+                message="The launch was canceled.",
+                node=None,
+                exit_status=None,
+                log=None,
+            ),
             launch_id=run.launch_id or new_launch_id(),
             spec=spec,
             roots=(),

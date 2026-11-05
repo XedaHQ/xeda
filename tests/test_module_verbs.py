@@ -26,12 +26,12 @@ VERBS = {
     "plan": ("run_root", "hashed_run_dirs", "remote", "local_settings"),
     "run": ("run_root", "hashed_run_dirs", "tool_output", "confirm", "remote", "local_settings"),
     "sweep": ("run_root", "hashed_run_dirs", "tool_output", "remote", "local_settings"),
-    "load": (),
+    "load_record": (),
     "records": ("run_root",),
     "scrub": ("run_root", "confirm"),
 }
-#: The module-level `run` takes a `Spec` only, so its parameter has another name.
-RENAMED = {("run", "what"): "spec"}
+#: The parameters that a module-level verb names differently from the method (none now).
+RENAMED: dict[tuple[str, str], str] = {}
 LAUNCH_OPTIONS = {
     "rebuild_all": False,
     "clean": False,
@@ -73,7 +73,7 @@ def test_the_annotations_are_the_methods(name: str) -> None:
     for key, hint in verb_hints.items():
         if key in VERBS[name]:
             assert hint == constructor_hints[key]
-        elif (name, key) == ("run", "spec"):
+        elif (name, key) == ("run", "request"):
             assert hint is xeda.Spec
         elif name == "run" and key in LAUNCH_OPTIONS:
             assert hint == typing.get_type_hints(xeda.Workspace.plan)[key]
@@ -132,9 +132,9 @@ def test_the_call_delegates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
     calls = []
     monkeypatch.setattr(
-        Recorder, "load", lambda path: calls.append(path) or "record", raising=False
+        Recorder, "load_record", lambda path: calls.append(path) or "record", raising=False
     )
-    assert xeda._internal.workspace_verbs.load(tmp_path) == "record"
+    assert xeda._internal.workspace_verbs.load_record(tmp_path) == "record"
     assert calls == [tmp_path]
 
 
@@ -165,7 +165,7 @@ def test_the_docstrings_share_one_source() -> None:
             assert method_doc.split("\n\n")[2] in verb_doc
         else:
             assert verb_doc.startswith(method_doc.splitlines()[0])
-        assert "`run_root`" in verb_doc or name == "load"
+        assert "`run_root`" in verb_doc or name == "load_record"
 
 
 def test_the_generated_verbs_are_current() -> None:
@@ -182,7 +182,7 @@ PUBLIC_NAMES = {
         "Design", "DesignPart", "Rtl", "Testbench", "Source", "Project", "Spec", "LocalSettings",
         "local_settings", "Plan", "PlanNode", "PlanInput", "PlanDelivery",
         "Workspace", "Remote", "CancelToken", "Event",
-        "plan", "run", "sweep", "load", "records", "scrub",
+        "plan", "run", "sweep", "load_record", "records", "scrub",
         "Result", "NodeResult", "RunRecord", "OutputRecord", "InputRecord", "InputSource",
         "DeliveryRecord", "MetricInfo", "ErrorInfo", "Outcome", "Disposition", "OpenRun",
         "SweepResult", "SweepPoint", "RunListing", "RecordProblem", "ScrubResult",
@@ -212,15 +212,15 @@ def test_the_public_names_are_exported(module: str) -> None:
 
 
 def test_package_verbs() -> None:
-    for name in ("plan", "run", "sweep", "load", "records", "scrub"):
+    for name in ("plan", "run", "sweep", "load_record", "records", "scrub"):
         assert getattr(xeda, name) is getattr(xeda._internal.workspace_verbs, name)
     assert xeda.local_settings is xeda._internal.local_settings.local_settings
     for name in ("plan", "records", "sweep", "local_settings"):
         assert not isinstance(getattr(xeda, name), types.ModuleType)
 
 
-def test_load_needs_no_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An unrelated `xeda_run` in the current directory does not stop `xeda.load`."""
+def test_load_record_needs_no_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unrelated `xeda_run` in the current directory does not stop `xeda.load_record`."""
     from .test_records_api import stamped
 
     workspace, spec = stamped(tmp_path / "work")
@@ -234,4 +234,4 @@ def test_load_needs_no_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.chdir(elsewhere)
     with pytest.raises(xeda.errors.RunRootError):
         xeda.Workspace()
-    assert xeda.load(record.run_dir) == record
+    assert xeda.load_record(record.run_dir) == record

@@ -1265,15 +1265,15 @@ def run(
         if not json_flag:
             raise  # pylint: disable=misplaced-bare-raise
         canceled = ErrorInfo(
-            CANCELED,
-            (
+            code=CANCELED,
+            message=(
                 "Ctrl-C canceled the command before the launch started."
                 if launch_id is None
                 else "A second Ctrl-C ended the command while the launch was running."
             ),
-            None,
-            None,
-            None,
+            node=None,
+            exit_status=None,
+            log=None,
         )
         log.critical("%s", canceled.message)
         emit_structured(
@@ -1646,7 +1646,7 @@ def dse(
                     outcome=outcome,
                     error=error,
                     flow=flow,
-                    design=dse.design_name if dse is not None else None,
+                    design_name=dse.design_name if dse is not None else None,
                     target=(dse.target if dse is not None else None) or target,
                     optimizer=optimizer,
                     best=None if result is None or result.best is None else result.best.record,
@@ -1749,7 +1749,13 @@ def dse(
         raise
     except KeyboardInterrupt:
         # A second Ctrl-C, or one before the exploration could stop.
-        interrupted = ErrorInfo(CANCELED, "Ctrl-C ended the exploration.", None, None, None)
+        interrupted = ErrorInfo(
+            code=CANCELED,
+            message="Ctrl-C ended the exploration.",
+            node=None,
+            exit_status=None,
+            log=None,
+        )
         log.critical("%s", interrupted.message)
         report(Outcome.CANCELED, interrupted, None if dse is None else dse.result)
         sys.exit(1)
@@ -1759,11 +1765,21 @@ def dse(
         print_results(result.best.results, title="Best results", subset=RESULTS_SHOWN)
     error: ErrorInfo | None
     if result.canceled:
-        error = ErrorInfo(CANCELED, "Ctrl-C ended the exploration.", None, None, None)
+        error = ErrorInfo(
+            code=CANCELED,
+            message="Ctrl-C ended the exploration.",
+            node=None,
+            exit_status=None,
+            log=None,
+        )
         outcome = Outcome.CANCELED
     elif result.best is None:
         error = ErrorInfo(
-            NO_SUCCESSFUL_RUN, "The exploration produced no successful run.", None, None, None
+            code=NO_SUCCESSFUL_RUN,
+            message="The exploration produced no successful run.",
+            node=None,
+            exit_status=None,
+            log=None,
         )
         outcome = Outcome.FAILED
     else:
@@ -1843,7 +1859,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, yes, json_fla
                     outcome=Outcome.PASSED if error is None else Outcome.FAILED,
                     error=None if error is None else request_error_info(error),
                     flow=flow,
-                    design=design_name,
+                    design_name=design_name,
                     target=target,
                     run_root=None if workspace is None else str(workspace.run_root),
                     result=result,
