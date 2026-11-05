@@ -137,6 +137,7 @@ Records of earlier runs
 
 .. autoclass:: xeda.ErrorInfo
    :members:
+   :undoc-members:
 
 .. autoclass:: xeda.InputRecord
    :members:

@@ -20,37 +20,33 @@ API_DOCS = Path(__file__).parent.parent / "docs" / "api"
 
 #: `class name -> {member: reason}`: frozen members that the reference does not render. Each row is
 #: a reviewed exception.
-REVIEWED_EXCEPTIONS: dict[str, dict[str, str]] = {
-    "ErrorInfo": {
-        name: "the change that renames `as_json_value` to `to_dict` also documents the fields"
-        for name in ("as_json_value", "code", "message", "node", "exit_status", "log")
-    }
-}
+REVIEWED_EXCEPTIONS: dict[str, dict[str, str]] = {}
 
 _DIRECTIVE = re.compile(r"^\.\. auto(?:class|exception):: (?P<name>\S+)\s*$")
 _OPTION = re.compile(r"^\s+:(?P<key>[a-z-]+):\s*(?P<value>.*)$")
 
 
-def _rendered() -> dict[str, tuple[bool, set[str], set[str]]]:
-    """For each class in the reference: whether it renders every member (`:undoc-members:`), the
-    members it lists, and the members it excludes."""
-    result: dict[str, tuple[bool, set[str], set[str]]] = {}
+def _rendered() -> dict[str, tuple[bool, bool, set[str], set[str]]]:
+    """For each class in the reference: whether it renders members at all (`:members:`; without it
+    Sphinx renders none), whether it renders every member (`:undoc-members:`), the members it
+    lists, and the members it excludes."""
+    result: dict[str, tuple[bool, bool, set[str], set[str]]] = {}
     name = ""
     for path in sorted(API_DOCS.glob("*.rst")):
         for line in path.read_text(encoding="utf-8").splitlines():
             if match := _DIRECTIVE.match(line):
                 name = match["name"]
-                result[name] = (False, set(), set())
+                result[name] = (False, False, set(), set())
             elif name and (option := _OPTION.match(line)):
-                everything, listed, excluded = result[name]
+                any_members, everything, listed, excluded = result[name]
                 names = {n.strip() for n in option["value"].split(",") if n.strip()}
                 if option["key"] == "undoc-members":
                     everything = True
                 elif option["key"] == "members":
-                    listed = names
+                    any_members, listed = True, names
                 elif option["key"] == "exclude-members":
                     excluded = names
-                result[name] = (everything, listed, excluded)
+                result[name] = (any_members, everything, listed, excluded)
             elif line.strip() and not line.startswith(" "):
                 name = ""
     return result
@@ -81,17 +77,20 @@ def test_every_frozen_member_is_documented() -> None:
     problems = []
     for module in ("xeda", "xeda.errors"):
         for name, entry in snapshot[module]["names"].items():
-            if entry["kind"] != "class":
+            if entry["kind"] not in ("class", "enum"):
                 continue
             cls = getattr(xeda if module == "xeda" else xeda.errors, name)
             frozen = set(entry["methods"]) | {a["name"] for a in entry["attributes"]}
+            frozen |= set(entry.get("members", ()))  # the names of an enum
             # A member documented on a public base class counts for its subclasses.
             documented: set[str] = set()
             for klass in cls.__mro__:
                 key = f"{module}.{klass.__name__}"
                 if key not in rendered:
                     continue
-                everything, listed, excluded = rendered[key]
+                any_members, everything, listed, excluded = rendered[key]
+                if not any_members:
+                    continue
                 if listed:
                     documented |= listed - excluded
                 elif everything:
