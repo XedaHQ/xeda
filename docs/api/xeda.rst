@@ -176,6 +176,7 @@ The unset value
 
 .. autoclass:: xeda.Unset
    :members:
+   :undoc-members:
 
 .. autodata:: xeda.UNSET
    :no-value:

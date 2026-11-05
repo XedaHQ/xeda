@@ -6,6 +6,7 @@ render is an accident of the code (a loader hook, a fingerprint), and it would s
 major version. Rename such a member with a leading underscore, or document it.
 """
 
+import enum
 import inspect
 import re
 from pathlib import Path
@@ -56,7 +57,9 @@ def _has_text(cls: type, member: str) -> bool:
     """Whether autodoc finds a description of `member` in `cls`: a docstring, or for an attribute a
     `#:` comment or a string below it."""
     own = vars(cls).get(member)
-    if own is not None and not isinstance(own, (str, int, float, bool, tuple, frozenset)):
+    # An enum member's `__doc__` is its class docstring, which Sphinx does not count for the member.
+    values = (str, int, float, bool, tuple, frozenset, enum.Enum)
+    if own is not None and not isinstance(own, values):
         target = getattr(own, "__func__", None) or getattr(own, "fget", None) or own
         if getattr(target, "__doc__", None):
             return True
