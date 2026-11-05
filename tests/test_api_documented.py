@@ -92,7 +92,9 @@ def test_every_frozen_member_is_documented() -> None:
                 if not any_members:
                     continue
                 if listed:
-                    documented |= listed - excluded
+                    documented |= {
+                        m for m in listed - excluded if everything or _has_text(klass, m)
+                    }
                 elif everything:
                     documented |= {m for m in frozen if m not in excluded}
                 else:
