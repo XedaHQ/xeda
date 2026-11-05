@@ -3,7 +3,7 @@ beside the design's hash.
 
 A run's identity depends on what its inputs mean, not on where anything is: moving a design,
 copying it, or starting xeda from another directory keeps it. Design sources count by content,
-metadata and path relative to the design root in the design hash (`Design.rtl_hash`), which is
+metadata and path relative to the design root in the design hash (`Design._rtl_hash`), which is
 evidence of freshness. In the identity they count by type and path, without content
 (`flow_runner/configuration.py`). Settings count by value, with a path counting as its text
 relative to the design root or start directory -- no file or directory named in the settings is
@@ -80,7 +80,7 @@ def test_an_identical_copy_of_the_design_elsewhere_hashes_the_same(tmp_path, xdc
     there = _hash(other, tmp_path, xdc_files=[xdc.format(root=other)])
 
     assert here == there
-    assert _design(one).rtl_hash == _design(other).rtl_hash
+    assert _design(one)._rtl_hash == _design(other)._rtl_hash
 
 
 def test_a_different_setting_is_a_different_run(tmp_path):
@@ -95,14 +95,14 @@ def test_design_sources_count_by_content_and_settings_paths_by_text(tmp_path):
     """Editing an RTL source is a different run; editing a file a setting names is not -- a
     file whose content should matter belongs in the design's sources (`SourceType.Xdc`, ...)."""
     root = _design_copy(tmp_path / "d")
-    rtl, settings = _design(root).rtl_hash, _hash(root, tmp_path, xdc_files=["c.xdc"])
+    rtl, settings = _design(root)._rtl_hash, _hash(root, tmp_path, xdc_files=["c.xdc"])
 
     (root / "c.xdc").write_text("create_clock -period 2 [get_ports clk]\n")
     assert _hash(root, tmp_path, xdc_files=["c.xdc"]) == settings
 
     with open(root / "sqrt.vhdl", "a") as f:
         f.write("\n-- edited\n")
-    assert _design(root).rtl_hash != rtl
+    assert _design(root)._rtl_hash != rtl
 
 
 def test_design_source_order_and_type_are_part_of_the_hash(tmp_path):
@@ -119,8 +119,8 @@ def test_design_source_order_and_type_are_part_of_the_hash(tmp_path):
         )
 
     original = design(["a.vhd", "b.vhd"])
-    assert original.rtl_hash != design(["b.vhd", "a.vhd"]).rtl_hash
-    assert original.rtl_hash != design([{"file": "a.vhd", "type": "Data"}, "b.vhd"]).rtl_hash
+    assert original._rtl_hash != design(["b.vhd", "a.vhd"])._rtl_hash
+    assert original._rtl_hash != design([{"file": "a.vhd", "type": "Data"}, "b.vhd"])._rtl_hash
 
 
 def test_every_source_path_is_part_of_the_hash_relative_to_the_design_root(tmp_path):
@@ -143,7 +143,7 @@ def test_every_source_path_is_part_of_the_hash_relative_to_the_design_root(tmp_p
             name="d",
             root=root,
             rtl={"sources": [source], "top": "top"},
-        ).rtl_hash
+        )._rtl_hash
 
     for source in ("top.vhd", "top.v", "timing.xdc"):
         assert source_hash(one, f"rtl/{source}") != source_hash(one, f"vendor/{source}")
@@ -183,10 +183,10 @@ def test_where_an_include_finds_a_header_is_part_of_the_hash(tmp_path):
 
     ones = layout(tmp_path / "d1", beside="1", elsewhere="2")
     twos = layout(tmp_path / "d2", beside="2", elsewhere="1")
-    assert ones.rtl_hash != twos.rtl_hash
+    assert ones._rtl_hash != twos._rtl_hash
 
     # Still relative to the root: the same layout elsewhere is the same design.
-    assert layout(tmp_path / "moved" / "d1", beside="1", elsewhere="2").rtl_hash == ones.rtl_hash
+    assert layout(tmp_path / "moved" / "d1", beside="1", elsewhere="2")._rtl_hash == ones._rtl_hash
 
 
 def test_a_tcl_script_counts_by_its_place(tmp_path):
@@ -197,7 +197,7 @@ def test_a_tcl_script_counts_by_its_place(tmp_path):
         (tmp_path / sub / "setup.tcl").write_text("source [file dirname [info script]]/more.tcl\n")
 
     def rtl_hash(script: str) -> str:
-        return Design(name="d", root=tmp_path, rtl={"sources": [script]}).rtl_hash
+        return Design(name="d", root=tmp_path, rtl={"sources": [script]})._rtl_hash
 
     assert rtl_hash("a/setup.tcl") != rtl_hash("b/setup.tcl")
 
@@ -221,14 +221,16 @@ def test_a_header_outside_the_root_counts_by_its_place_relative_to_the_root(tmp_
 
     here = tree(tmp_path / "here")
     written = design(here, "../lib/defs.vh")
-    assert written.rtl_hash == design(here, str(here.parent / "lib" / "defs.vh")).rtl_hash
+    assert written._rtl_hash == design(here, str(here.parent / "lib" / "defs.vh"))._rtl_hash
 
     recorded = tmp_path / "settings.json"
     dump_json({"design": written}, recorded)
-    assert design_from_dump(json.loads(recorded.read_text())["design"]).rtl_hash == written.rtl_hash
+    assert (
+        design_from_dump(json.loads(recorded.read_text())["design"])._rtl_hash == written._rtl_hash
+    )
 
     # moved together with the directory beside it, it is the same design
-    assert design(tree(tmp_path / "there"), "../lib/defs.vh").rtl_hash == written.rtl_hash
+    assert design(tree(tmp_path / "there"), "../lib/defs.vh")._rtl_hash == written._rtl_hash
 
 
 def test_behavior_affecting_design_metadata_is_part_of_the_hash(tmp_path):
@@ -244,16 +246,16 @@ def test_behavior_affecting_design_metadata_is_part_of_the_hash(tmp_path):
         )
 
     original = design(clocks=["clk"])
-    assert original.rtl_hash != design(clocks=["other_clk"]).rtl_hash
-    assert original.rtl_hash != design(attributes={"keep": {"top": True}}).rtl_hash
+    assert original._rtl_hash != design(clocks=["other_clk"])._rtl_hash
+    assert original._rtl_hash != design(attributes={"keep": {"top": True}})._rtl_hash
     assert (
-        original.rtl_hash
+        original._rtl_hash
         != Design(
             name="d",
             root=root,
             rtl={"sources": ["top.v"], "top": "top", "clocks": ["clk"]},
             language={"verilog": "2005"},
-        ).rtl_hash
+        )._rtl_hash
     )
 
 
@@ -375,7 +377,7 @@ def test_a_source_hashes_the_same_however_its_path_is_written(tmp_path):
         "$DESIGN_ROOT/../shared/*.vhd",
     ]
     hashes = {
-        Design(name="d", root=root, rtl={"sources": [spelling, "top.vhd"], "top": "top"}).rtl_hash
+        Design(name="d", root=root, rtl={"sources": [spelling, "top.vhd"], "top": "top"})._rtl_hash
         for root in roots
         for spelling in spellings + [str(root.parent / "shared" / "pkg.vhd")]
     }
@@ -410,22 +412,22 @@ def test_a_file_valued_parameter_hashes_by_its_path_under_the_design_root(tmp_pa
     designs = [design(tree(tmp_path / where), **parameters) for where in ("here", "there")]
 
     assert designs[0].rtl.parameters["ROM"] == str(designs[0].root / "rom.mem")
-    assert designs[0].rtl_fingerprint["parameters"] == {
+    assert designs[0]._rtl_fingerprint["parameters"] == {
         "ROM": "$DESIGN_ROOT/rom.mem",
         "DUMP": "$DESIGN_ROOT/out/dump.txt",
         "WIDTH": 8,
     }
-    assert designs[0].rtl_hash == designs[1].rtl_hash
+    assert designs[0]._rtl_hash == designs[1]._rtl_hash
 
     # `file` and `path` differ only in whether the file must exist when the design is loaded.
     # The tool is handed the same text either way, so it is the same design.
     as_input = design(designs[0].root, ROM={"file": "rom.mem"}, DUMP={"file": "rom.mem"})
     as_output = design(designs[0].root, ROM={"file": "rom.mem"}, DUMP={"path": "rom.mem"})
-    assert as_input.rtl_hash == as_output.rtl_hash
+    assert as_input._rtl_hash == as_output._rtl_hash
 
     # Which file a parameter names still decides it.
     moved = design(designs[0].root, ROM={"file": "rom.mem"}, DUMP={"path": "dump.txt"})
-    assert moved.rtl_hash != designs[0].rtl_hash
+    assert moved._rtl_hash != designs[0]._rtl_hash
 
     # The identity survives the design's own round trip: a reloaded design is counted exactly
     # as the one recorded, which is what `settings.json` is compared against. Written exactly
@@ -433,8 +435,8 @@ def test_a_file_valued_parameter_hashes_by_its_path_under_the_design_root(tmp_pa
     recorded = tmp_path / "settings.json"
     dump_json({"design": designs[0]}, recorded, backup=False)
     reloaded = design_from_dump(json.loads(recorded.read_text())["design"])
-    assert reloaded.rtl_fingerprint["parameters"] == designs[0].rtl_fingerprint["parameters"]
-    assert reloaded.rtl_hash == designs[0].rtl_hash
+    assert reloaded._rtl_fingerprint["parameters"] == designs[0]._rtl_fingerprint["parameters"]
+    assert reloaded._rtl_hash == designs[0]._rtl_hash
 
 
 def test_a_parameter_inherited_from_a_dependency_keeps_how_it_was_written(tmp_path):
@@ -473,7 +475,7 @@ def test_a_parameter_inherited_from_a_dependency_keeps_how_it_was_written(tmp_pa
         )
 
     assert designs[0].rtl.parameters["ROM"] == str(designs[0].root / "dep" / "rom.mem")
-    assert designs[0].rtl_hash == designs[1].rtl_hash
+    assert designs[0]._rtl_hash == designs[1]._rtl_hash
 
 
 @pytest.mark.parametrize("own_tb", [None, {"top": "own_tb"}], ids=["no_tb", "tb_top_only"])
@@ -516,8 +518,8 @@ def test_a_recorded_design_with_a_dependency_reloads_as_itself(tmp_path, pos, ow
     assert sorted(names) == ["core.vhd", "top.vhd"]
     assert [src.file.name for src in reloaded.tb.sources] == ["tb.vhd"]
     assert reloaded.tb.top == design.tb.top
-    assert reloaded.rtl_hash == design.rtl_hash
-    assert reloaded.tb_hash == design.tb_hash
+    assert reloaded._rtl_hash == design._rtl_hash
+    assert reloaded._tb_hash == design._tb_hash
 
 
 @pytest.mark.parametrize("pos", [-1, 0])
@@ -549,7 +551,7 @@ def test_a_file_the_design_and_its_dependency_both_list_is_compiled_once(tmp_pat
     dump_json({"design": design}, recorded)
     reloaded = design_from_dump(json.loads(recorded.read_text())["design"])
     assert [src.file.name for src in reloaded.rtl.sources] == names
-    assert reloaded.rtl_hash == design.rtl_hash
+    assert reloaded._rtl_hash == design._rtl_hash
 
 
 @pytest.mark.parametrize(
@@ -583,7 +585,7 @@ def test_a_change_inside_a_nested_value_is_recorded(tmp_path, monkeypatch, name)
     reloaded = design_from_dump(json.loads(recorded.read_text())["design"])
 
     assert reloaded.model_dump(mode="json") == assigned
-    assert (reloaded.rtl_hash, reloaded.tb_hash) == (changed.rtl_hash, changed.tb_hash)
+    assert (reloaded._rtl_hash, reloaded._tb_hash) == (changed._rtl_hash, changed._tb_hash)
     assert changed.model_fields_set == fields_set, "a dump changes nothing"
 
 
@@ -605,20 +607,22 @@ def test_a_parameter_is_counted_by_its_one_value(tmp_path):
     parameters to themselves rebuilt the record from absolute paths and made the hash depend on
     location, and a record reloaded with the design outranked a parameter overridden since."""
     design = _design_with_a_rom(tmp_path / "d", ROM={"file": "rom.mem"}, W=8)
-    before = design.rtl_hash
+    before = design._rtl_hash
 
     same = with_updates(design, rtl={"parameters": design.rtl.parameters})
-    assert same.rtl_hash == before, "giving the parameters again changes nothing"
+    assert same._rtl_hash == before, "giving the parameters again changes nothing"
 
     other = with_updates(design, rtl={"parameters": {**design.rtl.parameters, "W": 16}})
-    assert other.rtl_hash != before
-    assert other.rtl_fingerprint["parameters"]["ROM"] == "$DESIGN_ROOT/rom.mem"
+    assert other._rtl_hash != before
+    assert other._rtl_fingerprint["parameters"]["ROM"] == "$DESIGN_ROOT/rom.mem"
 
     recorded = tmp_path / "settings.json"
     dump_json({"design": _design_with_a_rom(tmp_path / "d", ROM={"file": "rom.mem"})}, recorded)
     reloaded = json.loads(recorded.read_text())["design"]
     reloaded["rtl"]["parameters"]["ROM"] = 7
-    assert design_from_dump(reloaded).rtl_hash == _design_with_a_rom(tmp_path / "d", ROM=7).rtl_hash
+    assert (
+        design_from_dump(reloaded)._rtl_hash == _design_with_a_rom(tmp_path / "d", ROM=7)._rtl_hash
+    )
 
 
 def test_naming_an_artifact_after_a_source_keeps_two_sources_apart(tmp_path):

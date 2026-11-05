@@ -708,7 +708,7 @@ def _selected_project(xedaproject: Any, design: Any) -> Project | None:
     path = resolve_project_file(xedaproject)
     project = None if path is None else Project.load(path)
     if design is not None and project is not None:
-        referenced = project.referenced_name(design)
+        referenced = project._referenced_name(design)
         if referenced is None and not Path(design).exists() and str(design) in project.designs:
             referenced = str(design)
         if referenced is not None:

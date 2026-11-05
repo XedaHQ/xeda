@@ -139,7 +139,7 @@ def _derived(design: Design, sources: DerivedSources, *, checked: bool) -> Desig
             listed.append(design.rtl.sources[entry.index])
         else:
             listed.append(
-                Source(
+                Source._create(
                     {("file" if checked else "path"): str(entry.path)},
                     entry.type,
                     generated=True,

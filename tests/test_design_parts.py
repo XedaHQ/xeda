@@ -124,7 +124,7 @@ def test_both_parts_are_the_hash_a_design_always_had(tmp_path: Path) -> None:
     design did (`rtl_hash` and `tb_hash`, in that order)."""
     design = _small_design(tmp_path)
     assert design._parts_hash(BOTH) == semantic_hash(
-        dict(rtl_hash=design.rtl_hash, tb_hash=design.tb_hash)
+        dict(rtl_hash=design._rtl_hash, tb_hash=design._tb_hash)
     )
 
 
@@ -372,7 +372,7 @@ def test_the_trace_of_a_flow_names_the_files_of_the_parts_it_reads(project: Proj
 # ---------------------------------------------------------------------------------------------
 
 #: The calls that take a `tb` argument, and the number of positional arguments that precede it.
-TB_TAKERS = {"_sources_of_type": None, "header_dirs": 1, "sources_read": 1}
+TB_TAKERS = {"_sources_of_type": None, "_header_dirs": 1, "sources_read": 1}
 
 #: Flows declared `{"rtl"}` that nevertheless read `tb`, each with why it is allowed. Nothing is
 #: allowed today: a part wrongly left out is a stale reuse of other sources, and a read that
@@ -498,7 +498,7 @@ def test_the_scan_sees_each_way_of_reading_the_testbench() -> None:
         "getattr": "def f(d): return getattr(d, 'tb')",
         "tb=True": "def f(d): return d._sources_of_type('*', rtl=True, tb=True)",
         "tb=name": "def f(d, flag): return d.sources_read(tb=flag)",
-        "positional": "def f(d): return d.header_dirs(True, True)",
+        "positional": "def f(d): return d._header_dirs(True, True)",
         "expansion": "def f(d, **kw): return d._sources_of_type('*', **kw)",
         "forwarded default True": "def f(d, tb=True): return d._sources_of_type('*', tb=tb)",
     }
@@ -506,7 +506,7 @@ def test_the_scan_sees_each_way_of_reading_the_testbench() -> None:
         assert python_tb_reads(source), what
     clean = {
         "tb=False": "def f(d): return d._sources_of_type('*', rtl=True, tb=False)",
-        "no tb": "def f(d): return d._sources_of_type('*') + d.header_dirs()",
+        "no tb": "def f(d): return d._sources_of_type('*') + d._header_dirs()",
         "forwarded default False": "def f(d, tb=False): return d._sources_of_type('*', tb=tb)",
         "forwarded default False, keyword only": "def f(d, *, tb=False): return d.sources_read(tb=tb)",
         "a skipped class": "class Other:\n    def f(self): return self.design.tb\n",
@@ -526,7 +526,7 @@ def test_the_defaults_of_the_calls_that_take_tb_are_false() -> None:
     """A call that does not name `tb` reads none, which holds only while every default is False."""
     from xeda._internal.design import Design as D
 
-    for function in (D._sources_of_type, D.header_dirs, Flow.sources_read):
+    for function in (D._sources_of_type, D._header_dirs, Flow.sources_read):
         default = inspect.signature(function).parameters["tb"].default
         assert default is False, function.__qualname__
 

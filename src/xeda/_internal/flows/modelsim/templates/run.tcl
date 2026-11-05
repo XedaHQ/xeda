@@ -24,7 +24,7 @@ vcd file {{settings.vcd|tcl_word}}
 puts "\n===========================( *ENABLE ECHO* )==========================="
 {#- `-onfinish stop` makes `$finish` (VHDL `std.env.finish`) return to this script. Otherwise
     `$finish` exits vsim with status 0 and skips the VCD flush and the test-status check below. #}
-if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|map("tcl_word")|join(' ')}} {{vsim_opts|map("tcl_word")|join(' ')}} } error]} {
+if { [catch {vsim -t ps -onfinish stop {{design._sim_tops|map("tcl_word")|join(' ')}} {{vsim_opts|map("tcl_word")|join(' ')}} } error]} {
     puts $error
     exit -code 1
 }

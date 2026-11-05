@@ -11,7 +11,7 @@ the launcher recomputes it from the same view of the design, and the record of a
 
 The shape is that of a part of `Design.to_dict()`:
 
-- for each part of `Flow.design_parts` (`rtl`, `tb`): its metadata (`Design.part_metadata`) and,
+- for each part of `Flow.design_parts` (`rtl`, `tb`): its metadata (`Design._part_metadata`) and,
   for a node that reads the design's sources, its `sources`, a list of `{path, type}` (a file of a
   Git dependency also says which dependency, and its path is in the checkout; a generated source
   also holds the digest of the recipe of its generator, `generated_by`);
@@ -70,7 +70,7 @@ def generated_by(design: Design, source: Source) -> str | None:
     that no generator writes.
 
     The generator is that of `design`, or that of the unit of generation that owns the source
-    (`Source.owner`, `Design.generation_units`). The digest covers the fields of the recipe that
+    (`Source._owner`, `Design.generation_units`). The digest covers the fields of the recipe that
     shape what the generator writes (all but `NOT_SHAPING`). It holds no file content and no file
     digest, and no value of the recipe (an `env` value may be a secret) appears in the
     configuration. It is location-free and the same on a remote host: `cwd` counts as its place
@@ -80,13 +80,13 @@ def generated_by(design: Design, source: Source) -> str | None:
     freshness only."""
     if not source.generated:
         return None
-    if source.owner is None:
+    if source._owner is None:
         unit = design
     else:
-        units = {unit.generation_label: unit for unit in design.generation_units}
-        if source.owner not in units:
+        units = {unit._generation_label: unit for unit in design.generation_units}
+        if source._owner not in units:
             raise ValueError(f"no unit of generation of {design.name} owns {source.path}")
-        unit = units[source.owner]
+        unit = units[source._owner]
     if unit.rtl.generator is None:
         return None
     table = {key: value for key, value in thaw(unit.rtl.generator).items() if key != "sources"}
@@ -109,7 +109,7 @@ def source_entries(
 ) -> list[dict[str, Any]]:
     """Return the `{path, type}` of each source in `scope` (None: all), in design order.
 
-    The path is the place from the design root (`Design.source_place`), and the entry holds no
+    The path is the place from the design root (`Design._source_place`), and the entry holds no
     content. A file of a Git dependency is `{dependency, path, type}`: the index of the
     dependency, and the path in its checkout. The commit is no part of it. A generated source is
     its declaration, as the design states it: a name or a pattern in the output of the generator
@@ -122,11 +122,11 @@ def source_entries(
         if scope is not None and source.type not in scope:
             continue
         entry: dict[str, Any] = {
-            "path": design.source_place(source),
+            "path": design._source_place(source),
             "type": SourceType(source.type).name,
         }
-        if source.dependency is not None:
-            entry["dependency"] = source.dependency
+        if source._dependency is not None:
+            entry["dependency"] = source._dependency
         if ownership:
             entry["generated"] = source.generated
         if recipes and (recipe := generated_by(design, source)) is not None:
@@ -146,7 +146,7 @@ def design_configuration(design: Design) -> dict[str, Any]:
     configuration."""
     configuration: dict[str, Any] = {}
     for part in ("rtl", "tb"):
-        entry = design.part_metadata(part)
+        entry = design._part_metadata(part)
         entry["sources"] = source_entries(
             design, getattr(design, part).sources, None, ownership=True
         )
@@ -176,7 +176,7 @@ def node_configuration(
     for part in ("rtl", "tb"):
         if part not in flow_class.design_parts:
             continue
-        entry = design.part_metadata(part)
+        entry = design._part_metadata(part)
         if reads:
             entry["sources"] = source_entries(
                 design, getattr(design, part).sources, scope, recipes=True

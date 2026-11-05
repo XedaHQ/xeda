@@ -1185,7 +1185,7 @@ def _source_digest(flow: Flow, path: Path) -> str:
 
     source = _design_source(flow, path)
     try:
-        return cast(str, source.content_hash) if source is not None else content_digest(path)
+        return cast(str, source._content_hash) if source is not None else content_digest(path)
     except (OSError, ValueError):
         return ""
 
@@ -1193,10 +1193,10 @@ def _source_digest(flow: Flow, path: Path) -> str:
 def _generated_producer(flow: Flow, source: Any) -> str | None:
     """Return who wrote the generated `source` of the design: None for the design's own generator,
     else the name of the design whose generator wrote it (its owner)."""
-    if source.owner is None:
+    if source._owner is None:
         return None
-    names = {unit.generation_label: unit.name for unit in flow.design.generation_units}
-    return names[source.owner]
+    names = {unit._generation_label: unit.name for unit in flow.design.generation_units}
+    return names[source._owner]
 
 
 def _input_source(flow: Flow, path: str) -> InputSource:
@@ -1208,13 +1208,13 @@ def _input_source(flow: Flow, path: str) -> InputSource:
 
     source = _design_source(flow, Path(path))
     generated = source is not None and source.generated
-    dependency = None if source is None else source.dependency
+    dependency = None if source is None else source._dependency
     return InputSource(
         path=(
             cast(str, source.output_name)
             if generated
             else (
-                source.dependency_place
+                source._dependency_place
                 if dependency is not None
                 else root_relative_text(flow.design.root, Path(path))
             )
@@ -1224,7 +1224,7 @@ def _input_source(flow: Flow, path: str) -> InputSource:
         dependency=dependency,
         producer=_generated_producer(flow, source) if generated else None,
         generation=(
-            flow.generation_keys.get(source.owner) if generated and source is not None else None
+            flow.generation_keys.get(source._owner) if generated and source is not None else None
         ),
     )
 

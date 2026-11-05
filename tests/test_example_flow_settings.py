@@ -57,7 +57,7 @@ def _targets(path):
     """Every selection to check: None (no target), then each target of each design."""
     selections = []
     for index, raw in enumerate(_raw_designs(path)):
-        expanded = Design.expanded(raw)
+        expanded = Design._expanded(raw)
         selections.append((index, None))
         selections.extend((index, name) for name in expanded.get("targets") or {})
     return selections
@@ -108,7 +108,7 @@ def _flow_names(node):
     expanded."""
     names = set()
     for key in ("flow", "flows"):
-        value = Design.expanded(node).get(key)
+        value = Design._expanded(node).get(key)
         if isinstance(value, dict):
             names.update(value)
     return names
@@ -120,7 +120,7 @@ def _raw_flow_count(path, index, target):
     raw = _raw_designs(path)[index]
     names = _flow_names(raw)
     if target is not None:
-        names |= _flow_names(Design.expanded(raw)["targets"][target])
+        names |= _flow_names(Design._expanded(raw)["targets"][target])
     count = len(names)
     if path.stem == "xedaproject" and target is None:
         count += len(_flow_names(_raw(path)))

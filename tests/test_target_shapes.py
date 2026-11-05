@@ -158,7 +158,7 @@ def test_a_target_in_another_form_gives_the_design_written_flat_by_hand(
 ):
     selected, expected = selected_and_flat(tmp_path, design, target, flat)
     assert selected.to_dict() == expected.to_dict()
-    assert selected.rtl_hash == expected.rtl_hash and selected.tb_hash == expected.tb_hash
+    assert selected._rtl_hash == expected._rtl_hash and selected._tb_hash == expected._tb_hash
 
 
 # ------------------------------------------------------------------------------ a flow's section
@@ -571,7 +571,7 @@ def test_design_updates_give_the_design_written_flat_by_hand(
     selected = Design.load(path, target="t" if with_target else None).with_updates(overrides)
     expected = Design.load(flat_path)
     assert selected.to_dict() == expected.to_dict()
-    assert selected.rtl_hash == expected.rtl_hash
+    assert selected._rtl_hash == expected._rtl_hash
 
 
 @pytest.mark.parametrize(

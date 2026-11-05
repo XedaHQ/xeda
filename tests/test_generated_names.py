@@ -108,7 +108,7 @@ def test_the_hash_follows_the_target_of_a_link(tmp_path) -> None:
     link.unlink()
     link.symlink_to("b/top.v")
     second = derive_design(design, _record(link), base)
-    assert first.rtl_hash != second.rtl_hash
+    assert first._rtl_hash != second._rtl_hash
 
 
 def test_the_hash_does_not_depend_on_where_the_output_is(tmp_path) -> None:
@@ -118,9 +118,9 @@ def test_the_hash_does_not_depend_on_where_the_output_is(tmp_path) -> None:
         base = _output(tmp_path / place)
         derived = derive_design(design, _record(base / "a" / "top.v"), base)
         assert derived.rtl.sources[0].output_name == "a/top.v"
-        hashes.append(derived.rtl_hash)
+        hashes.append(derived._rtl_hash)
     assert hashes[0] == hashes[1]
-    assert str(tmp_path) not in str(design.rtl_fingerprint)
+    assert str(tmp_path) not in str(design._rtl_fingerprint)
 
 
 def test_a_copy_of_a_derived_design_keeps_its_identity(tmp_path) -> None:
@@ -130,7 +130,7 @@ def test_a_copy_of_a_derived_design_keeps_its_identity(tmp_path) -> None:
     derived = derive_design(design, _record(base / "a" / "top.v"), base)
     copied = derived.model_copy(deep=True)
     assert copied.rtl.sources[0].output_name == "a/top.v"
-    assert copied.rtl_hash == derived.rtl_hash
+    assert copied._rtl_hash == derived._rtl_hash
     assert copied.rtl.sources[0].type is SourceType.Verilog
 
 
@@ -140,29 +140,29 @@ def test_a_copy_of_a_derived_design_keeps_its_identity(tmp_path) -> None:
 def test_a_declaration_is_a_name_in_the_output_and_names_no_file() -> None:
     import copy
 
-    source = Source.declaration("gen/*.v", SourceType.Verilog)
-    assert source.generated and not source.located
+    source = Source._declaration("gen/*.v", SourceType.Verilog)
+    assert source.generated and not source._located
     assert source.output_name == "gen/*.v" and source.path == Path("gen/*.v")
     assert source.file is None and str(source) == "gen/*.v"
     with pytest.raises(FileNotFoundError, match="generator has not run"):
-        source.content_hash
+        source._content_hash
     with pytest.raises(AttributeError):
         source.output_name = "x"  # type: ignore[misc]
     again = copy.deepcopy(source)
-    assert again == source and hash(again) == hash(source) and not again.located
+    assert again == source and hash(again) == hash(source) and not again._located
 
 
 def test_a_declaration_is_equal_to_the_same_name_and_type_only() -> None:
-    verilog = Source.declaration("gen/*.v", SourceType.Verilog)
-    assert verilog == Source.declaration("gen/*.v", SourceType.Verilog)
-    assert verilog != Source.declaration("gen/*.v", SourceType.SystemVerilog)
-    assert verilog != Source.declaration("gen/*.sv", SourceType.Verilog)
+    verilog = Source._declaration("gen/*.v", SourceType.Verilog)
+    assert verilog == Source._declaration("gen/*.v", SourceType.Verilog)
+    assert verilog != Source._declaration("gen/*.v", SourceType.SystemVerilog)
+    assert verilog != Source._declaration("gen/*.sv", SourceType.Verilog)
     assert verilog != Source({"path": "/x/gen/*.v"}, SourceType.Verilog)
 
 
 def test_a_declaration_is_written_as_a_name_or_a_table_with_its_stated_type() -> None:
-    assert Source.declaration("gen/top.v", SourceType.Verilog).as_json_value() == "gen/top.v"
-    stated = Source.declaration("gen/top", SourceType.Verilog, stated=True)
+    assert Source._declaration("gen/top.v", SourceType.Verilog).as_json_value() == "gen/top.v"
+    stated = Source._declaration("gen/top", SourceType.Verilog, stated=True)
     assert stated.as_json_value() == {"path": "gen/top", "type": "Verilog"}
 
 
@@ -170,24 +170,24 @@ def test_a_converter_output_and_a_declaration_are_generated_in_one_sense(tmp_pat
     base = _output(tmp_path / "out")
     derived = derive_design(_design(tmp_path / "d"), _record(base / "a" / "top.v"), base)
     written, converted = derived.rtl.sources[1], derived.rtl.sources[0]
-    assert converted.generated and converted.output_name == "a/top.v" and converted.located
+    assert converted.generated and converted.output_name == "a/top.v" and converted._located
     assert not written.generated and written.output_name is None
-    assert derived.source_place(converted) == "a/top.v"
-    assert derived.source_place(Source.declaration("gen/*.v", SourceType.Verilog)) == "gen/*.v"
+    assert derived._source_place(converted) == "a/top.v"
+    assert derived._source_place(Source._declaration("gen/*.v", SourceType.Verilog)) == "gen/*.v"
 
 
 def test_a_generated_source_needs_its_name_and_a_written_source_has_none(tmp_path) -> None:
     with pytest.raises(ValueError, match="output_name"):
-        Source({"path": str(tmp_path / "top.v")}, SourceType.Verilog, generated=True)
+        Source._create({"path": str(tmp_path / "top.v")}, SourceType.Verilog, generated=True)
     with pytest.raises(ValueError, match="output_name"):
-        Source({"path": str(tmp_path / "top.v")}, SourceType.Verilog, output_name="top.v")
+        Source._create({"path": str(tmp_path / "top.v")}, SourceType.Verilog, output_name="top.v")
 
 
 def test_a_declaration_has_an_owner_and_the_same_name_of_two_owners_is_two_declarations() -> None:
-    mine = Source.declaration("gen/top.v", SourceType.Verilog)
-    theirs = Source.declaration("gen/top.v", SourceType.Verilog, owner="/dep")
-    assert mine.owner is None and theirs.owner == "/dep"
+    mine = Source._declaration("gen/top.v", SourceType.Verilog)
+    theirs = Source._declaration("gen/top.v", SourceType.Verilog, owner="/dep")
+    assert mine._owner is None and theirs._owner == "/dep"
     assert mine != theirs and hash(mine) != hash(theirs)
-    assert theirs == Source.declaration("gen/top.v", SourceType.Verilog, owner="/dep")
-    assert theirs.with_owner("/other").owner == "/other" and theirs.owner == "/dep"
+    assert theirs == Source._declaration("gen/top.v", SourceType.Verilog, owner="/dep")
+    assert theirs._with_owner("/other")._owner == "/other" and theirs._owner == "/dep"
     assert theirs.as_json_value() == "gen/top.v", "a dump holds no owner"

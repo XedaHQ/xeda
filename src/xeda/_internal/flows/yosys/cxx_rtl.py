@@ -168,7 +168,7 @@ class YosysSim(YosysBase, SimFlow):
         cxxrtl_filename = ss.cxxrtl.filename or f"{self.design.rtl.top or self.design.name}.cpp"
         cxxrtl_cpp = Path(cxxrtl_filename)
         self.run_file(cxxrtl_cpp).parent.mkdir(parents=True, exist_ok=True)
-        simulation_top = self.design.sim_tops[0] if self.design.sim_tops else self.design.rtl.top
+        simulation_top = self.design._sim_tops[0] if self.design._sim_tops else self.design.rtl.top
         ghdl_top = (
             simulation_top
             if any(src.type is SourceType.Vhdl for src in self.design.tb.sources)

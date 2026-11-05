@@ -81,13 +81,13 @@ def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
         root=tmp_path,
         rtl={"sources": ["top.vhd"], "top": "top", "parameters": {"W": 5}},
     )
-    before = design.rtl_hash
+    before = design._rtl_hash
 
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(editor, design)
 
     assert flow is not None and flow.succeeded
     assert seen == {"flow": {}, "dependency": {"W": 5}}, "the producer got the design as given"
-    assert design.rtl.parameters == {"W": 5} and design.rtl_hash == before
+    assert design.rtl.parameters == {"W": 5} and design._rtl_hash == before
     recorded = json.loads((flow.run_path / "settings.json").read_text())
     assert recorded["design"]["rtl"]["parameters"] == {"W": 5}
     assert recorded["rtl_hash"] == before

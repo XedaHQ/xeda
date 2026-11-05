@@ -193,8 +193,8 @@ def flow_info(flow: str) -> Dict[str, Any]:
     flows that can follow this flow in a chain (`this+other`), and `can_follow` lists the flows
     that this flow can follow (`other+this`). The direct relations come first. A relation whose
     link passes through the flows between the two lists them in `through`, which is empty for a
-    direct relation. The chain validator judges both on declarations alone (`chains.followers`
-    and `chains.predecessors`), so a hint and a refusal cannot disagree. A relation is
+    direct relation. The chain validator judges both on declarations alone, so a hint and a
+    refusal cannot disagree. A relation is
     `target_dependent` when a union of types decides it and the target settings narrow that
     union. The resolved plan is authoritative.
     """
@@ -983,7 +983,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
     """Describe `targets`. Each target is an overlay that takes the design's own keys, in every
     form the root takes them, except the keys that belong to the design alone
     (`TARGET_FORBIDDEN_KEYS`). This is input syntax only: the loader applies the selected target
-    (`Design.select_target`) and records its name as `target`, so a design file does not write
+    (`Design._select_target`) and records its name as `target`, so a design file does not write
     `target`."""
     root = schema.setdefault("properties", {})
     root.pop("target", None)
@@ -1098,7 +1098,7 @@ _CLOCK_ITEM_FORMS: List[Dict[str, Any]] = [
 
 
 def _accept_clock_forms(schema: Dict[str, Any]) -> None:
-    """Accept every form of a clock in the items of `clocks`, as `Rtl.clock_tables`
+    """Accept every form of a clock in the items of `clocks`, as `Rtl._clock_tables`
     reads them."""
     properties = schema.get("$defs", {}).get("Rtl", {}).get("properties", {})
     clocks = properties.get("clocks")

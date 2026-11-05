@@ -37,7 +37,7 @@ def test_every_spelling_of_the_design_root_names_the_same_file(root, source):
     `$DESIGN_ROOT` component and only failed once something read the file."""
     design = Design(name="d", root=root, rtl={"sources": [source], "top": "a"})
     assert [s.file for s in design.rtl.sources] == [root / "a.vhd"]
-    assert design.rtl_hash  # reads the file
+    assert design._rtl_hash  # reads the file
 
 
 @pytest.mark.parametrize(
@@ -211,7 +211,7 @@ def test_a_glob_expands_in_a_stable_order(root):
         root=root,
         rtl={"sources": [f"many/{name}" for name in sorted(names)], "top": "a"},
     )
-    assert design.rtl_hash == spelled_out.rtl_hash
+    assert design._rtl_hash == spelled_out._rtl_hash
 
 
 @pytest.mark.parametrize(
@@ -282,7 +282,7 @@ def test_a_generated_source_is_the_same_declaration_however_it_is_spelled(genera
     from xeda._internal.flow_runner.launch_generation import generation_key
 
     design = _generated_design(generated, sources)
-    assert [(s.output_name, s.type.name, s.located) for s in design.rtl.sources] == [
+    assert [(s.output_name, s.type.name, s._located) for s in design.rtl.sources] == [
         ("out.vhd", "Vhdl", False)
     ]
     reference = _generated_design(generated, ["out.vhd"])
@@ -390,7 +390,7 @@ def test_an_unwritten_source_says_why_the_design_cannot_be_hashed(root):
     )
 
     with pytest.raises(FileNotFoundError, match="cannot be identified"):
-        _ = design.rtl_hash
+        _ = design._rtl_hash
 
 
 # ---------------------------------------------------------------------------------------------

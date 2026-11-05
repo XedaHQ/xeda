@@ -35,7 +35,7 @@ def parse_xsim_evidence(flow: Flow) -> SimEvidence | None:
         lines = lines[: lines.index("XEDA_XSIM_RUNTIME_END")]
     evidence = SimEvidence(ended_by="unknown")
     vhdl_files = {
-        str(source.file) for source in flow.design.sim_sources if source.type is SourceType.Vhdl
+        str(source.file) for source in flow.design._sim_sources if source.type is SourceType.Vhdl
     }
     # Resolve relative native paths against the simulator's working directory, never by suffix.
     vhdl_paths = {(flow.run_path / path).resolve() for path in vhdl_files}

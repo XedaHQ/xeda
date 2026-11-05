@@ -238,7 +238,9 @@ def test_a_converted_design_plans_and_runs_with_frozen_values(tmp_path):
 
 
 def test_a_generated_source_is_built_in_one_call():
-    source = Source({"path": "out/top.v"}, SourceType.Verilog, generated=True, output_name="top.v")
+    source = Source._create(
+        {"path": "out/top.v"}, SourceType.Verilog, generated=True, output_name="top.v"
+    )
     assert source.generated and source.output_name == "top.v"
     assert source.type is SourceType.Verilog
     assert not Source({"path": "out/top.v"}).generated

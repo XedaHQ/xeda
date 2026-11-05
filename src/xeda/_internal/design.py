@@ -554,11 +554,7 @@ class FileResource:
         attributes["_entries"] = ((_entry if _entry is not None else str(specified_path), root),)
 
     @property
-    def path(self) -> Path:
-        return self.file
-
-    @property
-    def content_hash(self) -> str:
+    def _content_hash(self) -> str:
         """The hash of the file's content, which identifies the design.
 
         The file is read on each call. A file that an application edits between two launches of
@@ -601,7 +597,7 @@ class FileResource:
     def __repr__(self) -> str:
         return f"file:{self.file}"
 
-    def get_specified_path(self):
+    def _get_specified_path(self):
         return self._specified_path
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
@@ -1016,7 +1012,7 @@ class Source(FileResource):
 
     A generated source is in one of two states:
 
-    - A declaration (`Source.declaration`) is what a design file lists for a generator. It is a
+    - A declaration (`Source._declaration`) is what a design file lists for a generator. It is a
       name or a pattern (`gen/*.v`) in the output of the generator, and the generator has not run
       yet, or the design is not run. It names no file: `file` is None, and the source has no
       content.
@@ -1040,26 +1036,58 @@ class Source(FileResource):
     #: that lists the source: the root of the dependency whose generator it is. A design that
     #: merges a dependency lists the dependency's generated sources with the owner set, and the
     #: execution copy names their files in the storage of that owner. None: the design's own.
-    owner: str | None
+    _owner: str | None
     #: The index of the dependency (`DependencyRecord`) whose root holds a written source, and its
     #: path relative to that root. Both are None for any other source. The identity of a run counts
     #: such a source by these two, since the place of a Git checkout in the run root holds the
     #: commit.
-    dependency: int | None
-    dependency_place: str | None
+    _dependency: int | None
+    _dependency_place: str | None
 
     def __init__(
-        self,
+        self, path: Union[str, os.PathLike, Dict[str, str]], typ: str | None = None
+    ) -> None:
+        """Build a written source of the design from a path or a table (see `FileResource`).
+
+        `typ` is the name of the source type; without it, the suffix of the file gives the type."""
+        self._set_up(path, typ)
+
+    @classmethod
+    def _create(
+        cls,
         path: Union[str, os.PathLike, Dict[str, str]],
         typ: str | None = None,
-        _root_path: Optional[Path] = None,
         *,
+        root: Optional[Path] = None,
         generated: bool = False,
         output_name: str | None = None,
         owner: str | None = None,
-        **kwargs: Any,
+        entry: str | None = None,
+    ) -> Source:
+        """Build a source with the parts that only the loader and the launch set."""
+        source = object.__new__(cls)
+        source._set_up(
+            path,
+            typ,
+            root=root,
+            generated=generated,
+            output_name=output_name,
+            owner=owner,
+            entry=entry,
+        )
+        return source
+
+    def _set_up(
+        self,
+        path: Union[str, os.PathLike, Dict[str, str]],
+        typ: str | None = None,
+        *,
+        root: Optional[Path] = None,
+        generated: bool = False,
+        output_name: str | None = None,
+        owner: str | None = None,
+        entry: str | None = None,
     ) -> None:
-        """Build a design source while retaining its stated type."""
         if generated != (output_name is not None):
             raise ValueError("a generated source has an `output_name`, and no other source has")
         if isinstance(path, dict):
@@ -1070,7 +1098,7 @@ class Source(FileResource):
             stated_type = path.pop("type", None)
             if typ is None:
                 typ = stated_type
-        super().__init__(path, _root_path=_root_path, **kwargs)
+        FileResource.__init__(self, path, _root_path=root, _entry=entry)
 
         attributes = vars(self)
         if isinstance(typ, SourceType):
@@ -1089,14 +1117,14 @@ class Source(FileResource):
         attributes["_stated"] = {"type": str(self.type)} if typ is not None else {}
         attributes["generated"] = generated
         attributes["output_name"] = output_name
-        attributes["owner"] = owner
-        attributes["dependency"] = None
-        attributes["dependency_place"] = None
+        attributes["_owner"] = owner
+        attributes["_dependency"] = None
+        attributes["_dependency_place"] = None
         if generated:
             attributes["_entries"] = ()
 
     @classmethod
-    def declaration(
+    def _declaration(
         cls, name: str, typ: str, *, stated: bool = False, owner: str | None = None
     ) -> Source:
         """Return the declaration of a generated source: a `name` or pattern in the output of the
@@ -1115,28 +1143,28 @@ class Source(FileResource):
         attributes["_stated"] = {"type": str(member)} if stated else {}
         attributes["generated"] = True
         attributes["output_name"] = name
-        attributes["owner"] = owner
-        attributes["dependency"] = None
-        attributes["dependency_place"] = None
+        attributes["_owner"] = owner
+        attributes["_dependency"] = None
+        attributes["_dependency_place"] = None
         return source
 
-    def with_owner(self, owner: str | None) -> Source:
+    def _with_owner(self, owner: str | None) -> Source:
         """Return this declaration with another owner (see `owner`)."""
         assert self.file is None, "only a declaration changes owner"
-        return Source.declaration(
+        return Source._declaration(
             str(self.output_name), self.type, stated=bool(self._stated), owner=owner
         )
 
-    def in_dependency(self, index: int, place: str) -> Source:
+    def _in_dependency(self, index: int, place: str) -> Source:
         """Return this written source as a file of the Git dependency `index`, at `place` in its
         checkout (see `dependency`)."""
         assert not self.generated, "only a written source is a file of a checkout"
         marked = object.__new__(type(self))
-        vars(marked).update(vars(self), dependency=index, dependency_place=place)
+        vars(marked).update(vars(self), _dependency=index, _dependency_place=place)
         return marked
 
     @property
-    def located(self) -> bool:
+    def _located(self) -> bool:
         """Whether the source names a file. A declaration of a generated source does not."""
         return self.file is not None
 
@@ -1149,13 +1177,13 @@ class Source(FileResource):
         return self.file
 
     @property
-    def content_hash(self) -> str:
+    def _content_hash(self) -> str:
         if self.file is None:
             raise FileNotFoundError(
                 f"the generated source {self.output_name} names no file yet: the generator has "
                 "not run, so the design that uses it cannot be identified by content"
             )
-        return super().content_hash
+        return super()._content_hash
 
     def __eq__(self, other: Any) -> bool:
         # Added attributes do not change semantic equality. A declaration is its name and type.
@@ -1167,7 +1195,7 @@ class Source(FileResource):
                 and self.file is None
                 and other.file is None
                 and self.output_name == other.output_name
-                and self.owner == other.owner
+                and self._owner == other._owner
                 and self.type is other.type
             )
         return super().__eq__(other)
@@ -1175,7 +1203,7 @@ class Source(FileResource):
     def __hash__(self) -> int:
         # Added attributes do not change semantic identity.
         if self.file is None:
-            return hash(("declaration", self.output_name, self.owner))
+            return hash(("declaration", self.output_name, self._owner))
         return super().__hash__()
 
     def __str__(self) -> str:
@@ -1537,7 +1565,7 @@ def generated_declarations(
 
     An entry is the generator's when `recipe.generated_sources` names it or a directory that
     holds it, or when that list is empty (then every entry is). A generated entry becomes the
-    declaration of a generated source (`Source.declaration`), typed by its extension or by the
+    declaration of a generated source (`Source._declaration`), typed by its extension or by the
     `type` that it states. It is not expanded and need not exist. Any other entry is left as it
     is, for the sources validator.
 
@@ -1631,7 +1659,9 @@ def generated_declarations(
                         f"(`{item}`): the generator would change its own input. Write the entry "
                         "as `$XEDA_GENERATED/<name>` or take the file out of those `sources`"
                     )
-        declared = Source.declaration(name, _declared_type(name, stated), stated=stated is not None)
+        declared = Source._declaration(
+            name, _declared_type(name, stated), stated=stated is not None
+        )
         if declared not in result:
             result.append(declared)
     if not seen_declaration:
@@ -1652,8 +1682,8 @@ def tree_declarations(design: Design) -> tuple[str, ...]:
         str(source.output_name)
         for source in design.rtl.sources
         if source.generated
-        and not source.located
-        and source.owner is None
+        and not source._located
+        and source._owner is None
         and storage_name(str(source.output_name)) is None
     )
 
@@ -1739,7 +1769,7 @@ class DesignPart(XedaBaseModel):
                 src_type = None
                 if _is_source_pattern(src):
                     glob_sources = _expand_source_glob(src, design_relative_root())
-                    srcs = [Source(s, typ=src_type, _entry=src) for s in glob_sources]
+                    srcs = [Source._create(s, src_type, entry=src) for s in glob_sources]
                     for matched in srcs:
                         _list_source(sources, matched)
                     continue  # skip the append at the bottom
@@ -2422,8 +2452,7 @@ class Rtl(DesignPart):
     )
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"generator": _generator_form}
     #: The recipe of the generator as a table. A design file may write a command line or a list
-    #: of arguments too, and the design keeps the table that stands for it
-    #: (`_generator_recipe`). `generator_of(rtl, root=...)` gives the validated `Generator`.
+    #: of arguments too, and the design keeps the table that stands for it.
     generator: Annotated[Optional[Mapping[str, Any]], _GeneratorRecipe()] = None
     attributes: Annotated[Mapping[str, Mapping[str, Any]], Frozen()] = Field(
         dict(),
@@ -2466,7 +2495,7 @@ class Rtl(DesignPart):
 
     @model_validator(mode="before")
     @classmethod
-    def rtl_settings_validate(cls, values, info):  # pylint: disable=no-self-argument
+    def _rtl_settings_validate(cls, values, info):  # pylint: disable=no-self-argument
         """Normalize the single accepted clock input into the canonical `clocks` list."""
         if info.field_name is not None and info.data is None:
             # Assignment to a real field. The clocks field validator handles clocks itself;
@@ -2483,9 +2512,9 @@ class Rtl(DesignPart):
             spelling = present[0]
             if spelling != "clocks":
                 value = values.pop(spelling)
-                if cls.clock_mistake(spelling, value):
+                if cls._clock_mistake(spelling, value):
                     # Report it at the key as written, not at the `clocks` it would become.
-                    what = cls.clock_expected()
+                    what = cls._clock_expected()
                     raise ValidationError.from_exception_data(
                         cls.__name__,
                         [
@@ -2500,7 +2529,7 @@ class Rtl(DesignPart):
                             )
                         ],
                     )
-                values["clocks"] = cls.clock_tables(spelling, value)
+                values["clocks"] = cls._clock_tables(spelling, value)
         return values
 
     @model_validator(mode="before")
@@ -2532,10 +2561,10 @@ class Rtl(DesignPart):
     @field_validator("clocks", mode="before")
     @classmethod
     def _normalize_clocks(cls, clocks):
-        return cls.clock_tables("clocks", clocks)
+        return cls._clock_tables("clocks", clocks)
 
     @classmethod
-    def clock_tables(cls, spelling: str, value: Any) -> list[Any]:
+    def _clock_tables(cls, spelling: str, value: Any) -> list[Any]:
         """Return the clocks that `value` gives when it is written as `spelling` of the clock.
 
         Each clock is the table it stands for. The validators read a clock with this function,
@@ -2565,17 +2594,17 @@ class Rtl(DesignPart):
         ]
 
     @classmethod
-    def clock_expected(cls) -> str:
+    def _clock_expected(cls) -> str:
         """Return, in words, what the design's `clock` takes."""
         return "a port name or a table"
 
     @classmethod
-    def clock_mistake(cls, spelling: str, value: Any) -> bool:
+    def _clock_mistake(cls, spelling: str, value: Any) -> bool:
         """Return whether `value`, written as `spelling` of the design's clock, is not a clock.
 
         A clock is a port name or a table (`clock_tables`)."""
         try:
-            tables = cls.clock_tables(spelling, value)
+            tables = cls._clock_tables(spelling, value)
         except ValueError:
             return True
         return not all(isinstance(table, (Mapping, Clock)) for table in tables)
@@ -2588,7 +2617,7 @@ class Rtl(DesignPart):
         return [
             (spelling, values[spelling])
             for spelling in CLOCK_SPELLINGS
-            if spelling in values and cls.clock_mistake(spelling, values[spelling])
+            if spelling in values and cls._clock_mistake(spelling, values[spelling])
         ]
 
     @classmethod
@@ -2616,7 +2645,7 @@ class Rtl(DesignPart):
 
         def tables(spelling: str, value: Any) -> list[Any] | None:
             try:
-                clocks = cls.clock_tables(spelling, value)
+                clocks = cls._clock_tables(spelling, value)
             except ValueError:
                 return None
             return clocks if all(isinstance(clock, Mapping) for clock in clocks) else None
@@ -3121,11 +3150,11 @@ class MergedDependency:
             self.index is None
             or self.checkout is None
             or source.generated
-            or source.dependency is not None
+            or source._dependency is not None
             or not source.path.is_relative_to(self.checkout)
         ):
             return source
-        return source.in_dependency(self.index, source.path.relative_to(self.checkout).as_posix())
+        return source._in_dependency(self.index, source.path.relative_to(self.checkout).as_posix())
 
 
 _NO_ROOT = (
@@ -3357,7 +3386,7 @@ class Design(XedaBaseModel):
     )
 
     # The Git dependencies that the sources of this design come from, in the order of their index
-    # (`Source.dependency`): set by planning, when it merges them. It is no part of a dump of the
+    # (`Source._dependency`): set by planning, when it merges them. It is no part of a dump of the
     # design.
     resolved_dependencies: Tuple[Any, ...] = Field(
         (), exclude=True, json_schema_extra={"hidden_from_schema": True}
@@ -3506,7 +3535,7 @@ class Design(XedaBaseModel):
         return value
 
     @classmethod
-    def with_default_rtl(cls, data: dict[str, Any]) -> dict[str, Any]:
+    def _with_default_rtl(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Return `data` with an empty `rtl` section when it has none. A design with no RTL
         sources is a design."""
         if "rtl" not in data:
@@ -3514,7 +3543,7 @@ class Design(XedaBaseModel):
         return data
 
     @classmethod
-    def select_target(cls, data: Mapping[str, Any], target: str | None = None) -> dict[str, Any]:
+    def _select_target(cls, data: Mapping[str, Any], target: str | None = None) -> dict[str, Any]:
         """Return the design that `data` describes once one of its `targets` is selected.
 
         The result is an ordinary design with the target's name recorded as `target`. Without a
@@ -3583,7 +3612,7 @@ class Design(XedaBaseModel):
             )
         overlay = overlays[target]
         try:
-            base = cls.with_default_rtl(deepcopy(data))
+            base = cls._with_default_rtl(deepcopy(data))
         except ValueError as e:
             raise invalid("", str(e)) from e
         # The flows table is judged first, as the design validator judges it: the design is as
@@ -3709,7 +3738,7 @@ class Design(XedaBaseModel):
                 # This is the design's clocks, not any key of that name (an `rtl.attributes`
                 # entry).
                 takes = (
-                    Rtl.clock_expected()
+                    Rtl._clock_expected()
                     if path in (("rtl", "clock"), ("rtl", "clocks"))
                     else "a table or a short form of one"
                 )
@@ -3724,8 +3753,8 @@ class Design(XedaBaseModel):
         return folded
 
     @classmethod
-    def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        data = cls.with_default_rtl(data)
+    def _process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        data = cls._with_default_rtl(data)
         log.debug("Design data: %s", _shown_dependencies(data))
         return data
 
@@ -3756,7 +3785,7 @@ class Design(XedaBaseModel):
         target and keeps the names of its `targets`. A relative `root` resolves against the
         current directory now, once.
 
-        Raises `DesignValidationError`."""
+        Raises `DesignError`."""
         declared: dict[str, Any] = {"name": name, "rtl": rtl}
         for key, value in (
             ("tb", tb),
@@ -3827,13 +3856,13 @@ class Design(XedaBaseModel):
         # nested models, in the generators and in the dependencies alike. The working directory
         # of the process stays as it is.
         with loading_in_design_root(root_path):
-            declared = cls.expanded(deepcopy(dict(declared)))
+            declared = cls._expanded(deepcopy(dict(declared)))
             names = declared.get("targets")
             if data is None:
-                cls.select_target(declared, None)  # the form of every target, as written
+                cls._select_target(declared, None)  # the form of every target, as written
                 if target_rtl is None:
                     declared, target_rtl = cls._with_expanded_sources(declared, root_path)
-                data = cls.select_target(declared, target)
+                data = cls._select_target(declared, target)
                 if target is not None and target in target_rtl:
                     data["rtl"] = target_rtl[target]
                 steps = []
@@ -3847,11 +3876,11 @@ class Design(XedaBaseModel):
                     steps.append(step)
                 replay = steps
             data = dict(data)
-            cls.remove_keys(data, remove)
+            cls._remove_keys(data, remove)
             if recorded_target is not None:
                 data["target"] = recorded_target
             try:
-                data = Design.process_dict(data)
+                data = Design._process_dict(data)
             except (ValueError, TypeError, AssertionError) as e:
                 raise invalid(None, str(e)) from e
             tb_written = data.get("tb")
@@ -3967,7 +3996,7 @@ class Design(XedaBaseModel):
         else the one of `data`. An update that cannot be expanded now is returned as written, and
         applying it reports the mistake."""
         try:
-            resolved = cls.expanded(deepcopy(dict(update)))
+            resolved = cls._expanded(deepcopy(dict(update)))
         except DesignValidationError:
             return dict(update)
         with loading_in_design_root(root):
@@ -3993,7 +4022,7 @@ class Design(XedaBaseModel):
         Mappings merge key by key at every depth, and the `sources` of the update replace the
         design's: only a target adds its sources (`_merge_target`). The `target` of a design is
         selected and cannot be updated."""
-        update = cls.expanded(deepcopy(dict(update)))
+        update = cls._expanded(deepcopy(dict(update)))
         for key in ("target", "targets"):
             if key in update:
                 raise DesignValidationError(
@@ -4014,7 +4043,7 @@ class Design(XedaBaseModel):
             raise DesignValidationError([(".".join(path), message, "", kind)], data=dict(data))
         try:
             return cls._merge_target(
-                cls.with_default_rtl(deepcopy(dict(data))), update, append=False
+                cls._with_default_rtl(deepcopy(dict(data))), update, append=False
             )
         except SettingTextError as e:
             raise DesignValidationError(
@@ -4034,7 +4063,7 @@ class Design(XedaBaseModel):
         are those that the design has: a file added later is not. The result lists `updates` after
         the updates of this design (`updates`). No generator runs.
 
-        Raises `DesignValidationError` for a key that a design does not have."""
+        Raises `DesignError` for a key that a design does not have."""
         data = self._document("python")
         if self._cocotb_derived:
             del data["tb"]["cocotb"]  # the updated sources derive it again
@@ -4057,7 +4086,7 @@ class Design(XedaBaseModel):
         """Return the design with `target` selected, or with no target for `None`.
 
         The target folds into the design as the design declares it, and then each of `updates` is
-        applied again, in order. Raises `DesignValidationError` for a name that is no target."""
+        applied again, in order. Raises `DesignError` for a name that is no target."""
         return type(self)._built(
             self.root,
             self._declared,
@@ -4110,7 +4139,7 @@ class Design(XedaBaseModel):
         return document
 
     @property
-    def generation_label(self) -> str:
+    def _generation_label(self) -> str:
         """Return the text that tells this design apart as a unit of generation and as the owner
         of generated sources: its design file, or, for a design built in code, its root and name.
 
@@ -4129,7 +4158,7 @@ class Design(XedaBaseModel):
 
         The result lists the sources, top module, parameters and clocks of the dependencies, and
         keeps the dependencies that have generators as units of generation. `resolved` lists the
-        dependencies, at their indexes (`Source.dependency`). The result has no `dependencies`: a
+        dependencies, at their indexes (`Source._dependency`). The result has no `dependencies`: a
         record that kept them as well would merge them again when it is read back (a
         `settings.json`) and duplicate sources. The sources of the result are checked as a design's own are: a file
         that the design and a dependency both list is listed once.
@@ -4141,7 +4170,7 @@ class Design(XedaBaseModel):
         clocks = self.rtl.clocks
         tb_sources = self.tb.sources
         tb_top = self.tb.top
-        units: dict[str, Design] = {unit.generation_label: unit for unit in self.generation_units}
+        units: dict[str, Design] = {unit._generation_label: unit for unit in self.generation_units}
         for entry in merged:
             dep_design, dep = entry.design, entry.reference
             log.info("adding dependency sources from %s", dep_design.name)
@@ -4149,11 +4178,11 @@ class Design(XedaBaseModel):
             # own. The merged design lists them with the dependency as their owner, and keeps the
             # dependency (and the dependencies it merged) as a unit of generation, dependencies
             # first.
-            owner = dep_design.generation_label
+            owner = dep_design._generation_label
             dep_sources = tuple(
                 (
-                    src.with_owner(owner)
-                    if src.generated and not src.located and src.owner is None
+                    src._with_owner(owner)
+                    if src.generated and not src._located and src._owner is None
                     else entry.placed(src)
                 )
                 for src in dep_design.rtl.sources
@@ -4162,7 +4191,7 @@ class Design(XedaBaseModel):
                 *dep_design.generation_units,
                 *([dep_design] if dep_design.rtl.generator is not None else []),
             ):
-                units.setdefault(unit.generation_label, unit)
+                units.setdefault(unit._generation_label, unit)
             pos = dep.rtl.pos
             if pos == -1:  # -1 means append 'after' the last element
                 sources.extend(dep_sources)
@@ -4184,9 +4213,9 @@ class Design(XedaBaseModel):
         invalid = DesignValidationError
         owners: dict[str, str | None] = {}
         for src in sources:
-            if src.generated and not src.located:
+            if src.generated and not src._located:
                 name = str(src.output_name)
-                if owners.setdefault(name, src.owner) != src.owner:
+                if owners.setdefault(name, src._owner) != src._owner:
                     raise invalid(
                         [
                             (
@@ -4257,7 +4286,7 @@ class Design(XedaBaseModel):
                             design_name=merged.name,
                         )
 
-    def header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
+    def _header_dirs(self, rtl: bool = True, tb: bool = False) -> List[Path]:
         """Return the directory of every Verilog or SystemVerilog header that the design lists.
 
         Each directory appears once, in source order. A tool needs these directories as the
@@ -4286,13 +4315,13 @@ class Design(XedaBaseModel):
         return self._sources_of_type(*source_types, rtl=True, tb=True)
 
     @property
-    def sim_sources(self) -> List[Source]:
+    def _sim_sources(self) -> List[Source]:
         return self._sim_sources_of_type(
             SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl
         )
 
     @property
-    def sim_tops(self) -> Tuple012:
+    def _sim_tops(self) -> Tuple012:
         if self.tb:
             if self.tb.cocotb is not None and self.rtl.top:
                 return (self.rtl.top,)
@@ -4301,7 +4330,7 @@ class Design(XedaBaseModel):
         return tuple()
 
     @classmethod
-    def remove_keys(cls, data: dict[str, Any], names: Iterable[str]) -> None:
+    def _remove_keys(cls, data: dict[str, Any], names: Iterable[str]) -> None:
         """Remove the keys `names` from the design data `data`,"""
         spelled = input_names(cls)
         fields = {spelled.get(name, name) for name in names}
@@ -4365,7 +4394,7 @@ class Design(XedaBaseModel):
                     raise DesignValidationError(
                         [("target", problem, "", "value_error")], data=dict(design_dict)
                     )
-            declared = cls.expanded(design_dict)
+            declared = cls._expanded(design_dict)
             if packaged and "flows" in declared:
                 # the names of a table that layers merged, `A` and `A.B` (`dataclass.AtomicName`)
                 declared["flows"] = escaped_names_atomic(declared["flows"])
@@ -4399,7 +4428,7 @@ class Design(XedaBaseModel):
             raise e
 
     @classmethod
-    def expanded(cls, data: Mapping[str, Any]) -> dict[str, Any]:
+    def _expanded(cls, data: Mapping[str, Any]) -> dict[str, Any]:
         """Return `data` (a design or an overlay on one) with each dotted key expanded.
 
         A dotted key becomes the tables it stands for (`tb.top: x` means `tb: {top: x}`). This is
@@ -4427,7 +4456,7 @@ class Design(XedaBaseModel):
                 return src.file.absolute().relative_to(self.root.absolute())
             except ValueError:
                 pass
-        return src.get_specified_path()
+        return src._get_specified_path()
 
     def _source_artifact_name(self, src: FileResource, suffix: str = "") -> str:
         """Return a filename-safe name for something that a flow writes about one source.
@@ -4510,7 +4539,7 @@ class Design(XedaBaseModel):
                     found[("rtl.generator.sources", os.fspath(entry), unit.root)] = None
         return tuple(SourceEntry(*key) for key in found)
 
-    def part_metadata(self, part: str) -> Dict[str, Any]:
+    def _part_metadata(self, part: str) -> Dict[str, Any]:
         """Return the metadata of a design part (`rtl` or `tb`): everything but its sources.
 
         This is what the identity of a run counts of a part, beside the places and types of its
@@ -4548,13 +4577,13 @@ class Design(XedaBaseModel):
             for src in getattr(self, part).sources
             if source_types is None or src.type in source_types
         ]
-        fingerprint = {"sources": sources, **self.part_metadata(part)}
+        fingerprint = {"sources": sources, **self._part_metadata(part)}
         if part == "rtl":
             fingerprint["language"] = thaw(self.language)
         return fingerprint
 
     @property
-    def rtl_fingerprint(self) -> Dict[str, Any]:
+    def _rtl_fingerprint(self) -> Dict[str, Any]:
         """Location-independent inputs that can change RTL compilation or synthesis.
 
         Source order is significant (notably for VHDL), and the source type tells tools how to
@@ -4565,7 +4594,7 @@ class Design(XedaBaseModel):
         return self._part_fingerprint("rtl")
 
     @property
-    def tb_fingerprint(self) -> Dict[str, Any]:
+    def _tb_fingerprint(self) -> Dict[str, Any]:
         """The location-independent testbench inputs that identify a run."""
         return self._part_fingerprint("tb")
 
@@ -4596,7 +4625,7 @@ class Design(XedaBaseModel):
 
         return {k: counted(v) for k, v in dv.parameters.items()}
 
-    def relative_to_root(self, path: Union[str, os.PathLike]) -> Optional[Path]:
+    def _relative_to_root(self, path: Union[str, os.PathLike]) -> Optional[Path]:
         """Return `path` relative to the design root, or None when it is not an absolute path
         under the root.
 
@@ -4622,18 +4651,18 @@ class Design(XedaBaseModel):
         what it names keeps its identity, and so does any spelling of the path.
         """
         fingerprint: Dict[str, Any] = {
-            "content": source.content_hash,
+            "content": source._content_hash,
             "type": str(source.type) if source.type is not None else None,
         }
         if source.generated:
             # A generated file: where it sits in the output of its producer.
             fingerprint["generated"] = source.output_name
         else:
-            index = source.dependency
+            index = source._dependency
             if index is not None and self.resolved_dependencies[index].checkout is not None:
                 # A file in a Git checkout: its place in the run root holds the commit, so the
                 # fingerprint counts its path in the checkout.
-                fingerprint["path"] = self.source_place(source)
+                fingerprint["path"] = self._source_place(source)
                 fingerprint["dependency"] = index
             else:
                 known = path_identity(source.file, "source")
@@ -4642,7 +4671,7 @@ class Design(XedaBaseModel):
                 )
         return fingerprint
 
-    def source_place(self, source: Source) -> str:
+    def _source_place(self, source: Source) -> str:
         """Return the place of `source` as the identity of a run counts it: its path from the
         design root, as POSIX text (`root_relative_text`).
 
@@ -4650,7 +4679,7 @@ class Design(XedaBaseModel):
         place as the client does (`path_identity`, role `source`). A generated source has no path
         from the design root: its place is its name in the output of its producer (the name or
         pattern that a design file declares). A file of a dependency has its path in the root of the
-        dependency (`Source.dependency_place`): the place of a Git checkout in the run root holds
+        dependency (`Source._dependency_place`): the place of a Git checkout in the run root holds
         the commit, which the identity of a run does not count."""
         if source.generated:
             assert source.output_name is not None
@@ -4658,19 +4687,19 @@ class Design(XedaBaseModel):
         known = path_identity(source.file, "source")
         if known is not None:
             return known
-        if source.dependency_place is not None:
-            return source.dependency_place
+        if source._dependency_place is not None:
+            return source._dependency_place
         return root_relative_text(self.root, source.file)
 
     @property
-    def rtl_hash(self) -> str:
-        fingerprint = self.rtl_fingerprint
+    def _rtl_hash(self) -> str:
+        fingerprint = self._rtl_fingerprint
         log.debug("RTL fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
 
     @property
-    def tb_hash(self) -> str:
-        fingerprint = self.tb_fingerprint
+    def _tb_hash(self) -> str:
+        fingerprint = self._tb_fingerprint
         log.debug("TB fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
 
@@ -4698,7 +4727,7 @@ class Design(XedaBaseModel):
 
         def part_hash(part: str) -> str:
             if source_types is None:
-                return getattr(self, f"{part}_hash")
+                return getattr(self, f"_{part}_hash")
             return semantic_hash(self._part_fingerprint(part, source_types))[:32]
 
         return semantic_hash(

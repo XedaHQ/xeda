@@ -221,7 +221,7 @@ class Project:
             path=self.path,
         )
 
-    def referenced_name(self, file: PathLike) -> str | None:
+    def _referenced_name(self, file: PathLike) -> str | None:
         """Return the name of the design whose entry is the design file `file`, or None.
 
         Two paths name the same file when they resolve to one path."""
@@ -296,7 +296,7 @@ def _entries(file: Path, root: Path, data: Mapping[str, Any]) -> tuple[_Entry, .
             )
         # A design entry is a table of dotted keys, as in a design file.
         try:
-            table = Design.expanded(written)
+            table = Design._expanded(written)
         except DesignValidationError as e:
             raise _invalid(
                 file,

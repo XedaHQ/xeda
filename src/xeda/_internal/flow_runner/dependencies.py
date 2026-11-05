@@ -394,7 +394,7 @@ def _identity(design: Design) -> tuple[str, tuple[Any, ...]]:
     The file alone is not enough: a target can add dependencies, so the design of a file with its
     target and the same file loaded as a dependency, which takes no target, are two designs. When
     both parts repeat on the active path, so does everything below, which is a cycle."""
-    return os.path.realpath(design.generation_label), tuple(design._dependency_references)
+    return os.path.realpath(design._generation_label), tuple(design._dependency_references)
 
 
 def _extend_chain(design: Design, chain: DependencyChain, field: str) -> DependencyChain:

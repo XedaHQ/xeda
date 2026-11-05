@@ -177,7 +177,7 @@ def test_source_construction_and_round_trips_preserve_the_callers_table(tmp_path
         path.write_text("module top; endmodule\n")
     table = {key: "top.v", "type": "SystemVerilog"}
     before = dict(table)
-    source = Source(table, _root_path=tmp_path)
+    source = Source._create(table, root=tmp_path)
     assert table == before
     again = Source(source.as_json_value())
     assert again.type is SourceType.SystemVerilog

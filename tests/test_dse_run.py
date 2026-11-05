@@ -322,7 +322,7 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
         == best["settings"]["clocks"]["main_clock"]["period"]
     )
     explored = Design.load(tmp_path / "sqrt.yaml")
-    assert design_from_dump(recorded["design"]).rtl_hash == explored.rtl_hash
+    assert design_from_dump(recorded["design"])._rtl_hash == explored._rtl_hash
 
     # the start directory holds the design's files and the run root, nothing else
     assert {p.name for p in tmp_path.iterdir()} == {

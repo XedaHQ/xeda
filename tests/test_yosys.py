@@ -884,12 +884,12 @@ def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_
         root=tmp_path,
         rtl={"sources": ["inv.vhd"], "top": "inv", "parameters": {"W": 5}},
     )
-    before = (design.model_dump(mode="json"), design.rtl_fingerprint, design.rtl_hash)
+    before = (design.model_dump(mode="json"), design._rtl_fingerprint, design._rtl_hash)
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, {})
     assert flow is not None and flow.succeeded
-    assert (design.model_dump(mode="json"), design.rtl_fingerprint, design.rtl_hash) == before
+    assert (design.model_dump(mode="json"), design._rtl_fingerprint, design._rtl_hash) == before
     recorded = json.loads((flow.run_path / "settings.json").read_text())
-    assert recorded["rtl_hash"] == design.rtl_hash
+    assert recorded["rtl_hash"] == design._rtl_hash
     assert recorded["rtl_fingerprint"]["parameters"] == {"W": 5}
     netlist = json.loads((flow.run_path / "netlist.json").read_text())
     assert len(netlist["modules"]["inv"]["ports"]["y"]["bits"]) == 5

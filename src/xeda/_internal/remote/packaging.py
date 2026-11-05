@@ -75,7 +75,7 @@ def _unsendable(unit: Design, generator: Generator) -> str | None:
             f"{name} declares no `sources`, so `--remote` cannot know which files to send with "
             "it: declare its `sources` (the files and directories it reads) in `rtl.generator`"
         )
-    outside = [path for path in generator.sources if unit.relative_to_root(path) is None]
+    outside = [path for path in generator.sources if unit._relative_to_root(path) is None]
     if outside:
         return (
             f"{name} reads {outside[0]}, which lies outside the design root {unit.root}, "
@@ -253,7 +253,7 @@ def package_inputs(
         remote_sources_path = base / unit.name / "sources"
         place = remote_sources_path / local.name
         if place in places:
-            digest = resource.content_hash[:8]
+            digest = resource._content_hash[:8]
             place = remote_sources_path / f"{local.stem}_{digest}{local.suffix}"
             suffix = 2
             while place in places:
@@ -288,11 +288,11 @@ def package_inputs(
         of the requested design."""
         packaged: list[Dict[str, Any]] = []
         for src in sources:
-            if src.generated and not src.located:
+            if src.generated and not src._located:
                 # The generator of the host writes it: no file travels, the declaration does.
                 packaged.append({"path": src.output_name, "type": str(src.type)})
                 continue
-            relative = unit.relative_to_root(src.file)
+            relative = unit._relative_to_root(src.file)
             if relative is not None and archived_in_place(src.file, base / relative):
                 # The host counts it as this side does: by its place in the root of the unit.
                 place = base / relative
@@ -300,7 +300,7 @@ def package_inputs(
                 # A source outside the root of its unit has a place of its own, below the root of
                 # the request, and the host counts it by the text this side counts for it.
                 place = archived(src, design, Path("."))
-                identified(place, "source", design.source_place(src))
+                identified(place, "source", design._source_place(src))
             packaged.append({"file": inside(place, base), "type": str(src.type)})
         return packaged
 
@@ -331,7 +331,7 @@ def package_inputs(
             if not (isinstance(value, str) and os.path.isabs(value)):
                 continue
             path = Path(value)
-            relative = unit.relative_to_root(path)
+            relative = unit._relative_to_root(path)
             seen: str | Path = value
             # a parameter is any text: `os.path` answers no for a name the system refuses (too
             # long, say), where `Path.exists` and `Path.is_file` raise before Python 3.14
@@ -357,7 +357,7 @@ def package_inputs(
         where it lies under it, else in a place of its own.
 
         A directory counts as every file in it, and its empty directories travel too."""
-        relative = unit.relative_to_root(local)
+        relative = unit._relative_to_root(local)
         assert relative is not None, "an input outside the design root is refused at planning"
         if local.is_dir():
             directories.add((base / relative).as_posix())
@@ -392,7 +392,7 @@ def package_inputs(
                 entries.append(entry)
                 continue
             dependency = Design.load(unit.root / ref.uri)
-            file = dependency.generation_label
+            file = dependency._generation_label
             if file not in dependency_documents:
                 root = dependency_bases.setdefault(
                     dependency.root, Path("_dependencies") / str(len(dependency_bases))
@@ -467,7 +467,7 @@ def package_inputs(
             choices = [design.root / path, Path.cwd() / path]
             path = next((p for p in choices if p.exists()), choices[0])
         local = path.resolve()
-        relative = design.relative_to_root(path)
+        relative = design._relative_to_root(path)
         if relative is None:
             digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
             relative = Path("_setting_inputs") / digest / local.name
