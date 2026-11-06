@@ -30,9 +30,9 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   maintainer verifies against the real tool. The package declares Linux and macOS.
 
 ### Changed
-- `xeda dse` explores any flow that has a `clocks` setting and an `fmax` metric, and refuses
-  every other flow with a usage error (exit status 2). `nextpnr` and `quartus` get default
-  variation tables, and a flow without a table searches over the frequency only.
+- `xeda dse` explores any flow that has a `clocks` setting and an `fmax` metric, except the
+  OpenROAD flows, and refuses every other flow with a usage error (exit status 2). `nextpnr` and
+  `quartus` get default variation tables, and a flow without a table searches over the frequency.
 - `max_failed_rounds` now stops an exploration after exactly that many failed rounds, and
   `max_luts: 0` allows no LUT. `--optimizer` takes only a built-in optimizer name.
 - The settings of `xeda dse` have clearer names, and durations and frequencies need a unit
