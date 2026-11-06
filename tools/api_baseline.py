@@ -19,6 +19,7 @@ import collections.abc
 import dataclasses
 import datetime
 import enum
+import fractions
 import functools
 import hashlib
 import importlib
@@ -1154,6 +1155,49 @@ def _branch_kind(node: dict[str, Any]) -> str:
     return "any" if kind is None else "|".join(sorted(kind))
 
 
+#: Keywords that describe a schema and do not change what it accepts.
+_SCHEMA_METADATA = frozenset(
+    ("title", "description", "examples", "$schema", "$id", "$defs", "deprecated", "readOnly",
+     "writeOnly", "$comment", "hidden_from_schema")
+)  # fmt: skip
+#: Each group is one bound; the value says if the endpoint is exclusive.
+_SCHEMA_BOUNDS: tuple[dict[str, bool], ...] = (
+    {"minimum": False, "exclusiveMinimum": True},
+    {"maximum": False, "exclusiveMaximum": True},
+    {"minLength": False}, {"maxLength": False}, {"minItems": False}, {"maxItems": False},
+    {"minProperties": False}, {"maxProperties": False},
+)  # fmt: skip
+
+
+#: Keywords that `_classify_schema` judges. Any other keyword is an error of the tool.
+_SCHEMA_JUDGED = frozenset(
+    ("type", "enum", "const", "anyOf", "oneOf", "properties", "required", "items", "prefixItems",
+     "additionalProperties", "patternProperties", "propertyNames", "default", "pattern", "format",
+     "multipleOf", "uniqueItems")
+)  # fmt: skip
+#: Keywords with no order: any change breaks. `schema_version` is the version of the design file.
+_SCHEMA_OPAQUE = ("not", "schema_version")
+_SCHEMA_JUDGED |= set(_SCHEMA_OPAQUE)
+_SCHEMA_JUDGED |= {key for group in _SCHEMA_BOUNDS for key in group}
+
+
+def _with_integers(types: frozenset[str]) -> frozenset[str]:
+    """The types with `integer`, if `number` is among them: a number holds every integer."""
+    return types | {"integer"} if "number" in types else types
+
+
+def _openness(extra: Any) -> int:
+    """What `additionalProperties` accepts: 2 any key, 1 the keys that a schema accepts, 0 none."""
+    return 0 if extra is False else 1 if isinstance(extra, dict) and extra else 2
+
+
+def _tightness(node: dict[str, Any], group: dict[str, bool]) -> tuple[float, bool]:
+    """How tight a bound is: a larger result is tighter. No bound is the loosest."""
+    sign = -1 if next(iter(group)).startswith("max") else 1
+    found = [(sign * node[key], exclusive) for key, exclusive in group.items() if key in node]
+    return max(found, default=(float("-inf"), False))
+
+
 def _classify_schema(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
@@ -1163,8 +1207,58 @@ def _classify_schema(
     type, another enum or a key that is no longer required breaks a reader of it, and a new
     optional key is an addition. The design file is what Xeda reads, so the direction reverses:
     it may accept more and never less, and a new key must be optional. A `$ref` is compared by
-    what it names. Other keywords, such as `minimum` or `pattern`, are not compared."""
+    what it names.
+
+    Bounds compare by value and endpoint (`minimum` against `exclusiveMinimum` too), `multipleOf`
+    by exact division, and `uniqueItems`, `const` and `additionalProperties` by what they accept.
+    A looser input or a tighter output is additive; the reverse breaks. `pattern` and `format`
+    have no order: any change breaks, but dropping one from an input or adding one to an output
+    is additive. A changed default breaks, and so does a change of `not`, `schema_version` or the
+    combinator.
+    A keyword that is neither judged nor metadata raises `ValueError`: it would be unchecked."""
     _diff_names("schemas", "document", set(old), set(new), add, brk)
+
+    def judge(path: str, message: str, widened: bool, reader: bool) -> None:
+        """Input accepts more or output promises more: additive. The reverse breaks."""
+        (add if widened == reader else brk).append(f"{path}: {message}")
+
+    def keywords(
+        path: str, before: dict[str, Any], after: dict[str, Any], roots: tuple[Any, Any],
+        reader: bool, seen: frozenset[tuple[str, str]],
+    ) -> None:  # fmt: skip
+        for group in _SCHEMA_BOUNDS:
+            old_bound, new_bound = _tightness(before, group), _tightness(after, group)
+            if old_bound != new_bound:
+                judge(path, f"{'/'.join(group)} changed", new_bound < old_bound, reader)
+        old_step, new_step = before.get("multipleOf"), after.get("multipleOf")
+        if old_step != new_step:
+            if old_step is None or new_step is None:
+                judge(path, "multipleOf changed", new_step is None, reader)
+            else:
+                ratio = fractions.Fraction(str(old_step)) / fractions.Fraction(str(new_step))
+                if ratio != 1:
+                    if ratio.denominator == 1:
+                        judge(path, "multipleOf changed", True, reader)
+                    elif ratio.numerator == 1:
+                        judge(path, "multipleOf changed", False, reader)
+                    else:  # neither divides the other
+                        brk.append(f"{path}: multipleOf changed")
+        if bool(before.get("uniqueItems")) != bool(after.get("uniqueItems")):
+            judge(path, "uniqueItems changed", not after.get("uniqueItems"), reader)
+        for key in ("pattern", "format"):
+            old_value, new_value = before.get(key), after.get(key)
+            if old_value != new_value:
+                dropped = new_value is None and reader
+                added = old_value is None and not reader
+                (add if dropped or added else brk).append(f"{path}: {key} changed")
+        if "default" in before and "default" in after and before["default"] != after["default"]:
+            brk.append(f"{path}: default changed")
+        for key in _SCHEMA_OPAQUE:
+            if before.get(key) != after.get(key):
+                brk.append(f"{path}: {key} changed")
+        old_names, new_names = before.get("propertyNames"), after.get("propertyNames")
+        if old_names is not None or new_names is not None:
+            visit(f"{path}.names", old_names or {}, new_names or {}, roots, reader, seen)
 
     def visit(
         path: str, before: Any, after: Any, roots: tuple[Any, Any], reader: bool,
@@ -1180,19 +1274,34 @@ def _classify_schema(
                 return
             seen = seen | {pair}
         before, after = _resolve(before, roots[0]), _resolve(after, roots[1])
+        for key in before.keys() | after.keys():
+            if key not in _SCHEMA_JUDGED | _SCHEMA_METADATA and not key.startswith("x-"):
+                raise ValueError(f"{path}: the schema keyword {key!r} is not compared")
         old_branches, new_branches = _branches(before), _branches(after)
+        if (
+            _has_branches(before)
+            and _has_branches(after)
+            and (("anyOf" in before) != ("anyOf" in after))
+        ):
+            brk.append(f"{path}: anyOf and oneOf exchanged")
         if len(old_branches) > 1 or len(new_branches) > 1:
             alternatives(path, old_branches, new_branches, roots, reader, seen)
             if not (_has_branches(before) and _has_branches(after)):
                 return
             # The keywords beside `anyOf` or `oneOf` hold for every branch: compare them too.
             before, after = _without_branches(before), _without_branches(after)
+        keywords(path, before, after, roots, reader, seen)
         old_types, new_types = _type_set(before), _type_set(after)
         if old_types != new_types:
-            grew = new_types is None or (old_types is not None and old_types < new_types)
+            grew = new_types is None or (
+                old_types is not None and _with_integers(old_types) <= _with_integers(new_types)
+            )
             (add if grew and reader else brk).append(f"{path}: type changed")
-        old_enum, new_enum = before.get("enum"), after.get("enum")
-        if old_enum != new_enum:
+        old_enum = before.get("enum", [before["const"]] if "const" in before else None)
+        new_enum = after.get("enum", [after["const"]] if "const" in after else None)
+        if (old_enum is None) != (new_enum is None) or (
+            old_enum is not None and {repr(v) for v in old_enum} != {repr(v) for v in new_enum}
+        ):
             grew = new_enum is None or (
                 old_enum is not None and {repr(v) for v in old_enum} < {repr(v) for v in new_enum}
             )
@@ -1252,11 +1361,28 @@ def _classify_schema(
                     f"{path}.{key}: now " + ("required" if now_required else "optional")
                 )
             visit(f"{path}.{key}", old_props[key], new_props[key], roots, reader, seen)
+        old_patterns = before.get("patternProperties", {})
+        new_patterns = after.get("patternProperties", {})
+        for pattern in sorted(old_patterns.keys() - new_patterns.keys()):
+            brk.append(f"{path}.{pattern}: pattern property removed")
+        for pattern in sorted(new_patterns.keys() - old_patterns.keys()):
+            add.append(f"{path}.{pattern}: new pattern property")
+        for pattern in sorted(old_patterns.keys() & new_patterns.keys()):
+            visit(
+                f"{path}.{pattern}",
+                old_patterns[pattern],
+                new_patterns[pattern],
+                roots,
+                reader,
+                seen,
+            )
         old_extra, new_extra = before.get("additionalProperties"), after.get("additionalProperties")
-        if isinstance(old_extra, dict) and isinstance(new_extra, dict):
+        # From the most open to the most closed: no schema (or `true`), a schema, `false`.
+        old_open, new_open = _openness(old_extra), _openness(new_extra)
+        if old_open != new_open:
+            judge(path, "additional keys changed", new_open > old_open, reader)
+        elif old_open == 1:
             visit(f"{path}.*", old_extra, new_extra, roots, reader, seen)
-        elif reader and old_extra is not False and new_extra is False:
-            brk.append(f"{path}: unknown keys refused")
 
     for name in sorted(old.keys() & new.keys()):
         both = (old[name], new[name])

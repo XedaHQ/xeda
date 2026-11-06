@@ -323,3 +323,140 @@ def _source_entry(types: list[str], keys: tuple[str, ...] = ("file", "path", "ty
 def test_the_keywords_beside_one_of_are_compared(new: dict) -> None:
     old = {"design": _source_entry(["Verilog", "VHDL"])}
     assert tool.classify(old, {"design": new}, kind="schema")[1]
+
+
+def _effect(document: str, old: Any, new: Any) -> str:
+    additive, found = _classify({document: _property(old)}, {document: _property(new)})
+    return "breaks" if found else "adds" if additive else "same"
+
+
+NUM = {"type": "number"}
+OBJ = {"type": "object"}
+ARR = {"type": "array"}
+# old, new, effect on the design file (input), effect on a written document (output)
+RULES = {
+    "integer to number": ({"type": "integer"}, NUM, "adds", "breaks"),
+    "number to integer": (NUM, {"type": "integer"}, "breaks", "breaks"),
+    "anyOf to oneOf": ({"anyOf": [NUM]}, {"oneOf": [NUM]}, "breaks", "breaks"),
+    "oneOf to anyOf": ({"oneOf": [NUM, STRING]}, {"anyOf": [NUM, STRING]}, "breaks", "breaks"),
+    "minimum looser": (NUM | {"minimum": 2}, NUM | {"minimum": 1}, "adds", "breaks"),
+    "minimum tighter": (NUM | {"minimum": 1}, NUM | {"minimum": 2}, "breaks", "adds"),
+    "minimum removed": (NUM | {"minimum": 1}, NUM, "adds", "breaks"),
+    "minimum added": (NUM, NUM | {"minimum": 1}, "breaks", "adds"),
+    "maximum looser": (NUM | {"maximum": 1}, NUM | {"maximum": 2}, "adds", "breaks"),
+    "maximum tighter": (NUM | {"maximum": 2}, NUM | {"maximum": 1}, "breaks", "adds"),
+    "maximum equal": (NUM | {"maximum": 2}, NUM | {"maximum": 2.0}, "same", "same"),
+    "minimum made exclusive": (NUM | {"minimum": 1}, NUM | {"exclusiveMinimum": 1}, "breaks", "adds"),
+    "exclusive minimum made inclusive": (
+        NUM | {"exclusiveMinimum": 1}, NUM | {"minimum": 1}, "adds", "breaks",
+    ),
+    "exclusive minimum tighter": (
+        NUM | {"exclusiveMinimum": 1}, NUM | {"exclusiveMinimum": 2}, "breaks", "adds",
+    ),
+    "maximum made exclusive": (NUM | {"maximum": 1}, NUM | {"exclusiveMaximum": 1}, "breaks", "adds"),
+    "exclusive maximum looser": (
+        NUM | {"exclusiveMaximum": 1}, NUM | {"exclusiveMaximum": 2}, "adds", "breaks",
+    ),
+    "minLength looser": (STRING | {"minLength": 2}, STRING | {"minLength": 1}, "adds", "breaks"),
+    "maxLength tighter": (STRING | {"maxLength": 2}, STRING | {"maxLength": 1}, "breaks", "adds"),
+    "minItems looser": (ARR | {"minItems": 2}, ARR | {"minItems": 1}, "adds", "breaks"),
+    "maxItems added": (ARR, ARR | {"maxItems": 1}, "breaks", "adds"),
+    "minProperties removed": (OBJ | {"minProperties": 1}, OBJ, "adds", "breaks"),
+    "maxProperties tighter": (
+        OBJ | {"maxProperties": 2}, OBJ | {"maxProperties": 1}, "breaks", "adds",
+    ),
+    "multipleOf divisor": (NUM | {"multipleOf": 4}, NUM | {"multipleOf": 2}, "adds", "breaks"),
+    "multipleOf multiple": (NUM | {"multipleOf": 2}, NUM | {"multipleOf": 4}, "breaks", "adds"),
+    "multipleOf fraction": (NUM | {"multipleOf": 0.5}, NUM | {"multipleOf": 0.25}, "adds", "breaks"),
+    "multipleOf of decimals": (NUM | {"multipleOf": 0.3}, NUM | {"multipleOf": 0.1}, "adds", "breaks"),
+    "multipleOf unrelated": (NUM | {"multipleOf": 2}, NUM | {"multipleOf": 3}, "breaks", "breaks"),
+    "multipleOf removed": (NUM | {"multipleOf": 2}, NUM, "adds", "breaks"),
+    "multipleOf added": (NUM, NUM | {"multipleOf": 2}, "breaks", "adds"),
+    "uniqueItems added": (ARR, ARR | {"uniqueItems": True}, "breaks", "adds"),
+    "uniqueItems removed": (ARR | {"uniqueItems": True}, ARR, "adds", "breaks"),
+    "uniqueItems false added": (ARR, ARR | {"uniqueItems": False}, "same", "same"),
+    "const to enum": ({"const": "a"}, {"enum": ["a", "b"]}, "adds", "breaks"),
+    "enum to const": ({"enum": ["a", "b"]}, {"const": "a"}, "breaks", "breaks"),
+    "const changed": ({"const": "a"}, {"const": "b"}, "breaks", "breaks"),
+    "const equals one-value enum": ({"const": "a"}, {"enum": ["a"]}, "same", "same"),
+    "const removed": ({"const": "a"}, {}, "adds", "breaks"),
+    "pattern changed": (STRING | {"pattern": "a"}, STRING | {"pattern": "b"}, "breaks", "breaks"),
+    "pattern removed": (STRING | {"pattern": "a"}, STRING, "adds", "breaks"),
+    "pattern added": (STRING, STRING | {"pattern": "a"}, "breaks", "adds"),
+    "format changed": (STRING | {"format": "uri"}, STRING | {"format": "date"}, "breaks", "breaks"),
+    "format removed": (STRING | {"format": "uri"}, STRING, "adds", "breaks"),
+    "format added": (STRING, STRING | {"format": "uri"}, "breaks", "adds"),
+    "default changed": (STRING | {"default": "a"}, STRING | {"default": "b"}, "breaks", "breaks"),
+    "default added": (STRING, STRING | {"default": "a"}, "same", "same"),
+    "default removed": (STRING | {"default": "a"}, STRING, "same", "same"),
+    "not changed": (
+        {"not": {"type": "null"}}, {"not": {"type": "string"}}, "breaks", "breaks",
+    ),
+    "propertyNames tighter": (
+        OBJ, OBJ | {"propertyNames": {"pattern": "^a"}}, "breaks", "adds",
+    ),
+    "propertyNames looser": (
+        OBJ | {"propertyNames": {"maxLength": 1}}, OBJ | {"propertyNames": {"maxLength": 3}},
+        "adds", "breaks",
+    ),
+    "pattern property removed": (
+        OBJ | {"patternProperties": {"^a": STRING}}, OBJ, "breaks", "breaks",
+    ),
+    "pattern property added": (OBJ, OBJ | {"patternProperties": {"^a": STRING}}, "adds", "adds"),
+    "pattern property type": (
+        OBJ | {"patternProperties": {"^a": STRING}},
+        OBJ | {"patternProperties": {"^a": NUM}},
+        "breaks", "breaks",
+    ),
+    "pattern property widened": (
+        OBJ | {"patternProperties": {"^a": STRING}},
+        OBJ | {"patternProperties": {"^a": NULLABLE}},
+        "adds", "breaks",
+    ),
+    "open to closed": (OBJ, OBJ | {"additionalProperties": False}, "breaks", "adds"),
+    "true to closed": (
+        OBJ | {"additionalProperties": True}, OBJ | {"additionalProperties": False}, "breaks", "adds",
+    ),
+    "closed to open": (OBJ | {"additionalProperties": False}, OBJ, "adds", "breaks"),
+    "closed to true": (
+        OBJ | {"additionalProperties": False}, OBJ | {"additionalProperties": True}, "adds", "breaks",
+    ),
+    "open to true": (OBJ, OBJ | {"additionalProperties": True}, "same", "same"),
+    "open to schema": (OBJ, OBJ | {"additionalProperties": STRING}, "breaks", "adds"),
+    "schema to open": (OBJ | {"additionalProperties": STRING}, OBJ, "adds", "breaks"),
+    "schema to closed": (
+        OBJ | {"additionalProperties": STRING}, OBJ | {"additionalProperties": False}, "breaks", "adds",
+    ),
+    "closed to schema": (
+        OBJ | {"additionalProperties": False}, OBJ | {"additionalProperties": STRING}, "adds", "breaks",
+    ),
+    "schema to schema": (
+        OBJ | {"additionalProperties": STRING}, OBJ | {"additionalProperties": NULLABLE},
+        "adds", "breaks",
+    ),
+    "bound beside a branch": (
+        {"anyOf": [STRING, NUM], "minLength": 1}, {"anyOf": [STRING, NUM], "minLength": 2},
+        "breaks", "adds",
+    ),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("name", sorted(RULES))
+def test_the_classifier_judges_every_keyword_by_the_direction_of_the_document(name: str) -> None:
+    old, new, as_input, as_output = RULES[name]
+    assert (_effect("design", old, new), _effect("run", old, new)) == (as_input, as_output)
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    ["title", "description", "examples", "$comment", "deprecated", "readOnly", "writeOnly", "x-a"],
+)
+def test_a_metadata_keyword_is_not_judged(keyword: str) -> None:
+    assert _effect("design", STRING, STRING | {keyword: "text"}) == "same"
+    assert _effect("run", STRING | {keyword: "a"}, STRING | {keyword: "b"}) == "same"
+
+
+@pytest.mark.parametrize("keyword", ["allOf", "if", "contains", "dependentRequired", "unknown"])
+def test_a_keyword_that_the_classifier_does_not_judge_is_an_error(keyword: str) -> None:
+    with pytest.raises(ValueError, match=keyword):
+        _effect("design", STRING, STRING | {keyword: []})
