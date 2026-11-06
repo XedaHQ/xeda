@@ -828,6 +828,12 @@ def test_a_click_path_change_breaks_only_when_the_path_accepts_less(
     assert bool(tool.classify(_path_cli(), _path_cli(**change), kind="behavior")[1]) is breaks
 
 
+def test_a_path_type_name_that_its_flags_do_not_explain_is_judged() -> None:
+    """A custom type with path flags: its name is judged like any other type name."""
+    custom = _path() | {"type": "text"}
+    assert tool.classify(_cli(_path()), _cli(custom), kind="behavior")[1]
+
+
 @pytest.mark.parametrize(
     "change",
     [{"exists": True}, {"file_okay": False}, {"dir_okay": False}, {"writable": True}],

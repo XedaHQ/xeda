@@ -1500,6 +1500,10 @@ def _range_bound(bound: list[Any], low: bool) -> tuple[float, bool]:
     return (value if low else -value), is_open
 
 
+#: The name that click gives a `click.Path` type, by `(file_okay, dir_okay)`.
+_PATH_TYPE_NAMES = {(True, True): "path", (True, False): "file", (False, True): "directory"}
+
+
 def _classify_parameter(
     path: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
@@ -1533,7 +1537,13 @@ def _classify_parameter(
         if key not in (*skipped, "path"):
             before, after = old.get(key), new.get(key)
             if key == "type" and kind_path and kind_after:
-                continue  # click names a path type by its kinds (`file`, `path`): judged above
+                # click names a path type by its kinds (`file`, `path`), judged above; any other
+                # name (a custom type) is judged here.
+                if all(
+                    t == _PATH_TYPE_NAMES.get((k.get("file_okay"), k.get("dir_okay")))
+                    for t, k in ((before, kind_path), (after, kind_after))
+                ):
+                    continue
             if key == "type" and (old.get("range") or new.get("range")):
                 # click names a range type by its range (`integer range`): judged above
                 before, after = (str(t).removesuffix(" range") for t in (before, after))
