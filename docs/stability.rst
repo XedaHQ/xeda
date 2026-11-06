@@ -144,12 +144,22 @@ The test suite compares four snapshots with the release baseline in
 ``tests/baselines/<major>.<minor>/``: the public Python API; the built-in flows and the error
 codes; the name grammars, the private files, the session variables, the length of the run hash and
 the CLI; and the JSON Schema of each document that Xeda writes or reads (:ref:`document-schemas`).
+A test fails when a snapshot has a breaking difference from the baseline. Nobody rewrites a
+baseline after its release.
+
+Xeda reads settings, CLI options and arguments, and the design file. For these, accepting more is
+an addition and accepting less is a break. A setting keeps its name, unit and default: a changed
+default, a removed table key in a default, a removed choice, a narrower bound or type, a new
+required setting and a new required nested field are breaks. A new choice, a wider type or bound,
+a new optional nested field and a new optional setting are additions. A flow keeps its declared
+inputs: a removed input, a removed kind and a new required input are breaks. A CLI option keeps its
+names, choices, environment variables, type, ``nargs`` and default. An argument keeps its
+position, and a new argument is an addition only if it is optional and last.
+
 For a document that Xeda writes, a removed key, a changed type, any change of an enum or a key that
-is no longer required is a break, and a new optional key is an addition. For the design file, which Xeda reads, a
-narrower type or enum, a removed key and a new required key are breaks, and a new optional key or a
-wider type is an addition. Nobody rewrites a baseline after its release. A breaking difference
-fails a test. Their own tests check the other rules on this page, such as the order of the settings layers
-and the exit statuses.
+is no longer required is a break, and a new optional key is an addition. Other tests check the
+rules on this page that a snapshot cannot hold, such as the order of the settings layers and the
+exit statuses.
 
 For an additive change, regenerate the snapshots in ``tests/snapshots/current/`` and the shipped
 schemas in ``src/xeda/data/schemas/``, and commit them:

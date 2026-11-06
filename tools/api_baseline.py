@@ -406,25 +406,99 @@ def public_api_snapshot() -> dict[str, Any]:
     return {"modules": modules}
 
 
+#: Keywords whose value is data, not a schema, and keywords whose value maps names to schemas.
+_SCHEMA_DATA = ("default", "enum", "const", "examples")
+_SCHEMA_NAME_MAPS = ("properties", "patternProperties", "$defs")
+
+
+def _plain_schema(node: Any) -> Any:
+    """`node` without the `title`, `description` and `examples` keywords, at every level."""
+    if isinstance(node, list):
+        return [_plain_schema(v) for v in node]
+    if not isinstance(node, dict):
+        return node
+    return {
+        k: (
+            v
+            if k in _SCHEMA_DATA
+            else (
+                {n: _plain_schema(s) for n, s in v.items()}
+                if k in _SCHEMA_NAME_MAPS
+                else _plain_schema(v)
+            )
+        )
+        for k, v in node.items()
+        if k not in ("title", "description", "examples")
+    }
+
+
+def _reachable_definitions(schemas: list[Any], definitions: dict[str, Any]) -> dict[str, Any]:
+    """The entries of `definitions` that `schemas` name with `$ref`, directly or through each other."""
+    found: dict[str, Any] = {}
+
+    def walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/") and ref[8:] not in found:
+                found[ref[8:]] = definitions[ref[8:]]
+                walk(found[ref[8:]])
+            for key, value in node.items():
+                if key not in _SCHEMA_DATA:
+                    walk(value)
+
+    walk(schemas)
+    return {name: _plain_schema(found[name]) for name in sorted(found)}
+
+
+def _flow_settings(cls: Any) -> dict[str, Any]:
+    """The settings of a flow by name, and the `$defs` that their schemas name."""
+    from xeda._internal.introspect import settings_class_info
+
+    fields = settings_class_info(cls)["fields"]
+    names = {f["name"] for f in fields}
+    is_group = {f["name"] for f in fields if any(n.startswith(f["name"] + ".") for n in names)}
+    settings: dict[str, Any] = {}
+    for f in fields:
+        schema = (
+            None
+            if f["name"] in is_group
+            else {k: v for k, v in _plain_schema(f["json_schema"]).items() if k != "default"}
+        )
+        settings[f["name"]] = {
+            **{k: f.get(k) for k in ("type", "unit")},
+            **({"default": f.get("default")} if not f.get("required") else {}),
+            **({"experimental": True} if f.get("experimental") else {}),
+            **({"schema": schema} if schema is not None else {}),
+        }
+    definitions = _reachable_definitions(
+        [s["schema"] for s in settings.values() if "schema" in s],
+        cls.Settings.model_json_schema().get("$defs", {}),
+    )
+    return {"settings": settings, **({"$defs": definitions} if definitions else {})}
+
+
 def builtin_contract() -> dict[str, Any]:
     """Return the declared built-in flow interfaces and error codes."""
-    from xeda._internal.flow.io import declared_outputs
+    from xeda._internal.flow.io import declared_inputs, declared_outputs
     from xeda._internal.flow_runner.error_codes import ALL_CODES
     from xeda._internal.flows import __builtin_flows__
-    from xeda._internal.introspect import settings_class_info
 
     flows = {}
     for cls in sorted(__builtin_flows__, key=lambda c: c.name):
-        fields = settings_class_info(cls)["fields"]
         flows[cls.name] = {
             **({"experimental": True} if cls.experimental else {}),
-            "settings": {
-                f["name"]: {
-                    **{k: f.get(k) for k in ("type", "unit")},
-                    **({"default": f.get("default")} if not f.get("required") else {}),
-                    **({"experimental": True} if f.get("experimental") else {}),
+            **_flow_settings(cls),
+            "required_settings": sorted(cls.required_settings),
+            "inputs": {
+                name: {
+                    "kinds": [t.name for t in d.types],
+                    "cardinality": d.cardinality,
+                    "required": d.required,
                 }
-                for f in fields
+                for name, d in declared_inputs(cls).items()
             },
             "outputs": {
                 name: {"kinds": [t.name for t in d.types], "cardinality": d.cardinality}
@@ -464,25 +538,60 @@ def behavior_snapshot() -> dict[str, Any]:
 
     commands: dict[str, Any] = {}
 
-    def visit(command: Any, path: str) -> None:
+    def parameter(p: click.Parameter, ctx: click.Context) -> dict[str, Any]:
+        envvars = {p.envvar} if isinstance(p.envvar, str) else set(p.envvar or ())
+        prefix = ctx.auto_envvar_prefix
+        if isinstance(p, click.Option) and p.allow_from_autoenv and prefix and p.name:
+            envvars.add(f"{prefix}_{p.name.upper()}")
+        choice = p.type if isinstance(p.type, click.Choice) else None
+        ranged = p.type if isinstance(p.type, (click.IntRange, click.FloatRange)) else None
+        return {
+            "type": p.type.name,
+            "required": p.required,
+            "nargs": p.nargs,
+            "default": _option_default(p.default),
+            **(
+                {"choices": list(choice.choices), "case_sensitive": choice.case_sensitive}
+                if choice
+                else {}
+            ),
+            **(
+                {"range": [ranged.min, ranged.max, ranged.min_open, ranged.max_open]}
+                if ranged
+                else {}
+            ),
+            **({"environment": sorted(envvars)} if envvars else {}),
+        }
+
+    def visit(command: Any, path: str, ctx: click.Context) -> None:
         commands[path] = {
-            p.name: {
-                "names": p.opts + p.secondary_opts,
-                "flag": p.is_flag,
-                "hidden": p.hidden,
-                "type": p.type.name,
-                "required": p.required,
-                "multiple": p.multiple,
-                "default": _option_default(p.default),
-            }
-            for p in command.params
-            if isinstance(p, click.Option)
+            "options": {
+                p.name: {
+                    "names": p.opts + p.secondary_opts,
+                    "flag": p.is_flag,
+                    "hidden": p.hidden,
+                    "multiple": p.multiple,
+                    "default": _option_default(p.default),
+                    **parameter(p, ctx),
+                }
+                for p in command.params
+                if isinstance(p, click.Option)
+            },
+            "arguments": [
+                {"name": p.name, **parameter(p, ctx)}
+                for p in command.params
+                if isinstance(p, click.Argument)
+            ],
         }
         if isinstance(command, click.Group):
             for name, child in sorted(command.commands.items()):
-                visit(child, f"{path} {name}")
+                visit(
+                    child,
+                    f"{path} {name}",
+                    child.make_context(name, [], parent=ctx, resilient_parsing=True),
+                )
 
-    visit(cli, "xeda")
+    visit(cli, "xeda", cli.make_context("xeda", [], resilient_parsing=True))
     return {
         "grammars": {
             "flow": FLOW_NAME.pattern,
@@ -1034,6 +1143,73 @@ def _without_leaf(default: Any, path: list[str]) -> Any:
     return {**default, path[0]: _without_leaf(default[path[0]], path[1:])}
 
 
+def _classify_default(path: str, old: Any, new: Any, add: list[str], brk: list[str]) -> None:
+    """A changed default breaks. A table loses no key; a new key is an addition."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        brk.extend(f"{path}.{k}: default removed" for k in sorted(old.keys() - new.keys()))
+        add.extend(f"{path}.{k}: default added" for k in sorted(new.keys() - old.keys()))
+        for key in sorted(old.keys() & new.keys()):
+            _classify_default(f"{path}.{key}", old[key], new[key], add, brk)
+    elif old != new:
+        brk.append(f"{path}: default changed from {old!r} to {new!r}")
+
+
+def _classify_setting(
+    path: str, old: dict[str, Any], new: dict[str, Any], roots: tuple[Any, Any],
+    add: list[str], brk: list[str],
+) -> None:  # fmt: skip
+    """Compare a setting, which Xeda reads: its `type` is display text and is not judged."""
+    if old.get("unit") != new.get("unit"):
+        brk.append(f"{path}: unit changed from {old.get('unit')} to {new.get('unit')}")
+    if ("default" in old) != ("default" in new):
+        if "default" in new:
+            add.append(f"{path}: no longer required")
+        else:
+            brk.append(f"{path}: now required")
+    elif "default" in old:
+        _classify_default(path, old["default"], new["default"], add, brk)
+    if ("schema" in old) != ("schema" in new):
+        brk.append(f"{path}: a setting and a settings group exchanged")
+    elif "schema" in old:
+        _schema_visitor(add, brk)(path, old["schema"], new["schema"], roots, True, frozenset())
+
+
+def _classify_requirements(
+    name: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    """Compare what a user must give: the required settings and the declared inputs."""
+    old_names, new_names = set(old.get("required_settings", ())), set(
+        new.get("required_settings", ())
+    )
+    brk.extend(
+        f"{name}.required_settings.{n}: newly required" for n in sorted(new_names - old_names)
+    )
+    add.extend(
+        f"{name}.required_settings.{n}: no longer required" for n in sorted(old_names - new_names)
+    )
+    before, after = old.get("inputs", {}), new.get("inputs", {})
+    _diff_names(f"{name}.inputs", "input", before.keys(), after.keys(), add, brk)
+    for key in sorted(after.keys() - before.keys()):
+        if after[key]["required"]:
+            add.remove(f"{name}.inputs.{key}: new input")
+            brk.append(f"{name}.inputs.{key}: new required input")
+    for key in sorted(before.keys() & after.keys()):
+        a, b, where = before[key], after[key], f"{name}.inputs.{key}"
+        brk.extend(f"{where}: kind {k} removed" for k in sorted(set(a["kinds"]) - set(b["kinds"])))
+        add.extend(f"{where}: kind {k} added" for k in sorted(set(b["kinds"]) - set(a["kinds"])))
+        if a["cardinality"] != b["cardinality"] and (a["cardinality"], b["cardinality"]) != (
+            "one",
+            "optional",
+        ):
+            brk.append(
+                f"{where}: cardinality changed from {a['cardinality']} to {b['cardinality']}"
+            )
+        if a["required"] != b["required"]:
+            (brk if b["required"] else add).append(
+                f"{where}: now " + ("required" if b["required"] else "optional")
+            )
+
+
 def _classify_contract(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
@@ -1085,12 +1261,70 @@ def _classify_contract(
                         add.remove(f"{name}.{group}.{key}: new {group}")
                         brk.append(f"{name}.{group}.{key}: new required setting")
             for key in a.keys() & b.keys():
-                if a[key] != b[key]:
+                if group == "settings":
+                    _classify_setting(
+                        f"{name}.{group}.{key}", a[key], b[key], (before, after), add, brk
+                    )
+                elif a[key] != b[key]:
                     brk.append(f"{name}.{group}.{key}: changed from {a[key]} to {b[key]}")
+        _classify_requirements(name, before, after, add, brk)
         _diff_names(name, "artifact", set(before["artifacts"]), set(after["artifacts"]), add, brk)
     _diff_names("codes", "category", old["codes"].keys(), new["codes"].keys(), add, brk)
     for name in old["codes"].keys() & new["codes"].keys():
         _diff_names(name, "code", set(old["codes"][name]), set(new["codes"][name]), add, brk)
+
+
+def _classify_set(path: str, what: str, old: Any, new: Any, add: list[str], brk: list[str]) -> None:
+    """A user of the old set keeps working: a removed member breaks, an added one is additive."""
+    brk.extend(f"{path}: {what} {m!r} removed" for m in sorted(set(old or ()) - set(new or ())))
+    add.extend(f"{path}: {what} {m!r} added" for m in sorted(set(new or ()) - set(old or ())))
+
+
+def _range_bound(bound: list[Any], low: bool) -> tuple[float, bool]:
+    """The tightness of a range bound (see `_tightness`): the value, then whether it is open."""
+    value, is_open = bound
+    if value is None:
+        return float("-inf"), False
+    return (value if low else -value), is_open
+
+
+def _classify_parameter(
+    path: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    """Compare an option or an argument, which a user gives to Xeda. `hidden` is not judged."""
+    for key in ("names", "environment", "choices"):
+        _classify_set(path, key, old.get(key), new.get(key), add, brk)
+    if old["required"] != new["required"]:
+        (brk if new["required"] else add).append(f"{path}: required changed")
+    if old.get("range") != new.get("range"):
+        if old.get("range") and new.get("range"):
+            lows = [_range_bound([r[0], r[2]], True) for r in (old["range"], new["range"])]
+            highs = [_range_bound([r[1], r[3]], False) for r in (old["range"], new["range"])]
+            (brk if lows[1] > lows[0] or highs[1] > highs[0] else add).append(
+                f"{path}: range changed"
+            )
+        else:
+            brk.append(f"{path}: range changed")
+    for key in sorted(old.keys() | new.keys()):
+        if key not in ("names", "environment", "choices", "required", "range", "hidden"):
+            if old.get(key) != new.get(key):
+                brk.append(f"{path}: {key} changed from {old.get(key)!r} to {new.get(key)!r}")
+
+
+def _classify_arguments(
+    path: str, old: list[dict[str, Any]], new: list[dict[str, Any]], add: list[str], brk: list[str]
+) -> None:
+    """A removed, reordered or changed argument breaks. A new one is additive when it is optional
+    and last, and no variadic argument comes before it."""
+    for index, (before, after) in enumerate(zip(old, new)):
+        if before["name"] != after["name"]:
+            brk.append(f"{path}.arguments[{index}]: {before['name']} replaced by {after['name']}")
+        else:
+            _classify_parameter(f"{path}.{before['name']}", before, after, add, brk)
+    brk.extend(f"{path}.{a['name']}: argument removed" for a in old[len(new) :])
+    for extra in new[len(old) :]:
+        fits = not extra["required"] and not any(a["nargs"] == -1 for a in old)
+        (add if fits else brk).append(f"{path}.{extra['name']}: new argument")
 
 
 def _classify_behavior(
@@ -1102,12 +1336,15 @@ def _classify_behavior(
     a, b = old["cli"], new["cli"]
     _diff_names("cli", "command", a.keys(), b.keys(), add, brk)
     for command in a.keys() & b.keys():
-        _diff_names(command, "option", a[command].keys(), b[command].keys(), add, brk)
-        for option in a[command].keys() & b[command].keys():
-            if a[command][option] != b[command][option]:
-                brk.append(
-                    f"{command}.{option}: changed from {a[command][option]} to {b[command][option]}"
-                )
+        before, after = a[command]["options"], b[command]["options"]
+        _diff_names(command, "option", before.keys(), after.keys(), add, brk)
+        for option in sorted(after.keys() - before.keys()):
+            if after[option]["required"]:  # a new demand on every caller
+                add.remove(f"{command}.{option}: new option")
+                brk.append(f"{command}.{option}: new required option")
+        for option in before.keys() & after.keys():
+            _classify_parameter(f"{command}.{option}", before[option], after[option], add, brk)
+        _classify_arguments(command, a[command]["arguments"], b[command]["arguments"], add, brk)
 
 
 #: The document whose schema describes what Xeda reads. The others describe what it writes.
@@ -1198,25 +1435,10 @@ def _tightness(node: dict[str, Any], group: dict[str, bool]) -> tuple[float, boo
     return max(found, default=(float("-inf"), False))
 
 
-def _classify_schema(
-    old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
-) -> None:
-    """Compare the schemas of the documents.
-
-    A document that Xeda writes keeps its types, its enums and its keys: a removed key, another
-    type, another enum or a key that is no longer required breaks a reader of it, and a new
-    optional key is an addition. The design file is what Xeda reads, so the direction reverses:
-    it may accept more and never less, and a new key must be optional. A `$ref` is compared by
-    what it names.
-
-    Bounds compare by value and endpoint (`minimum` against `exclusiveMinimum` too), `multipleOf`
-    by exact division, and `uniqueItems`, `const` and `additionalProperties` by what they accept.
-    A looser input or a tighter output is additive; the reverse breaks. `pattern` and `format`
-    have no order: any change breaks, but dropping one from an input or adding one to an output
-    is additive. A changed default breaks, and so does a change of `not`, `schema_version` or the
-    combinator.
-    A keyword that is neither judged nor metadata raises `ValueError`: it would be unchecked."""
-    _diff_names("schemas", "document", set(old), set(new), add, brk)
+def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
+    """The visitor `visit(path, before, after, roots, reader, seen)` of two schemas that records
+    the differences in `add` and `brk`. `roots` are the documents that a `$ref` resolves against;
+    `reader` is true for an input, which Xeda reads."""
 
     def judge(path: str, message: str, widened: bool, reader: bool) -> None:
         """Input accepts more or output promises more: additive. The reverse breaks."""
@@ -1389,6 +1611,30 @@ def _classify_schema(
         elif old_open == 1:
             visit(f"{path}.*", old_extra, new_extra, roots, reader, seen)
 
+    return visit
+
+
+def _classify_schema(
+    old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    """Compare the schemas of the documents.
+
+    A document that Xeda writes keeps its types, its enums and its keys: a removed key, another
+    type, another enum or a key that is no longer required breaks a reader of it, and a new
+    optional key is an addition. The design file is what Xeda reads, so the direction reverses:
+    it may accept more and never less, and a new key must be optional. A `$ref` is compared by
+    what it names.
+
+    Bounds compare by value and endpoint (`minimum` against `exclusiveMinimum` too), `multipleOf`
+    by exact division, and `uniqueItems`, `const` and `additionalProperties` by what they accept.
+    A looser input or a tighter output is additive; the reverse breaks. `pattern` and `format`
+    have no order: any change breaks, but dropping one from an input or adding one to an output
+    is additive. A changed default breaks, and so does a change of `not`, `schema_version` or the
+    combinator.
+    A keyword that is neither judged nor metadata raises `ValueError`: it would be unchecked."""
+    _diff_names("schemas", "document", set(old), set(new), add, brk)
+
+    visit = _schema_visitor(add, brk)
     for name in sorted(old.keys() & new.keys()):
         both = (old[name], new[name])
         visit(name, both[0], both[1], both, name in INPUT_DOCUMENTS, frozenset())

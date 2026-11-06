@@ -99,8 +99,7 @@ def test_a_marked_setting_is_not_judged_but_its_siblings_and_group_are() -> None
     assert tool.classify(old, _contract(a=_flow(**moved)), kind="contract") == ([], [])
     changed = _contract(a=_flow(**_group({"x": True, "y": False}, marked=True)))
     breaking = tool.classify(old, changed, kind="contract")[1]
-    assert any(m.startswith("a.settings.g.y: changed") for m in breaking)
-    assert any(m.startswith("a.settings.g: changed") for m in breaking)
+    assert breaking.count("a.settings.g.y: default changed from True to False") == 2  # leaf, group
 
 
 def test_a_setting_marked_only_in_the_new_contract_is_still_judged() -> None:
@@ -108,8 +107,7 @@ def test_a_setting_marked_only_in_the_new_contract_is_still_judged() -> None:
     new = _contract(a=_flow(**_group({"x": False, "y": True}, marked=True)))
     breaking = tool.classify(old, new, kind="contract")[1]
     assert "a.settings.g.x: newly marked experimental" in breaking
-    assert any(m.startswith("a.settings.g.x: changed") for m in breaking)
-    assert any(m.startswith("a.settings.g: changed") for m in breaking)
+    assert breaking.count("a.settings.g.x: default changed from True to False") == 2
 
 
 def test_a_removed_setting_mark_is_additive() -> None:
@@ -336,8 +334,8 @@ def test_error_codes_match_the_published_list(row: str, expected: set[str]) -> N
 
 
 def test_a_new_cli_command_is_additive() -> None:
-    old = {"cli": {"xeda": {}}}
-    new = {"cli": {"xeda": {}, "xeda new": {}}}
+    old = {"cli": {"xeda": _command()}}
+    new = {"cli": {"xeda": _command(), "xeda new": _command()}}
     additive, breaking = tool.classify(old, new, kind="behavior")
     assert additive and not breaking
 
@@ -361,3 +359,305 @@ def test_the_listings_mark_only_the_experimental_entries() -> None:
     assert [f["name"] for f in fields if f.get("experimental")] == [
         "global_placement.timing_driven.repair_timing"
     ]
+
+
+@pytest.fixture(scope="module")
+def current() -> dict:
+    return tool.builtin_contract()
+
+
+def _judged(old: dict, mutate, kind: str = "contract") -> tuple[list[str], list[str]]:
+    new = copy.deepcopy(old)
+    mutate(new)
+    return tool.classify(old, new, kind=kind)
+
+
+def _option_schema(contract: dict, flow: str, setting: str) -> dict:
+    return contract["flows"][flow]["settings"][setting]["schema"]
+
+
+def test_the_snapshot_of_the_current_contract_has_no_difference(current: dict) -> None:
+    assert tool.classify(current, copy.deepcopy(current), kind="contract") == ([], [])
+
+
+def test_the_snapshot_records_definitions_inputs_and_required_settings(current: dict) -> None:
+    flow = current["flows"]["openroad_place"]
+    assert "PhysicalClock" in flow["$defs"]
+    assert flow["required_settings"] == ["platform"]
+    assert flow["inputs"]["netlist"] == {
+        "kinds": ["VerilogNetlist"],
+        "cardinality": "one",
+        "required": True,
+    }
+    assert "schema" not in flow["settings"]["global_placement.timing_driven"]
+    assert "schema" in flow["settings"]["global_placement.timing_driven.enabled"]
+
+
+def test_a_removed_choice_of_a_setting_breaks_and_an_added_one_is_additive(current: dict) -> None:
+    def remove(c: dict) -> None:
+        _option_schema(c, "quartus", "final_placement_optimization")["enum"].pop()
+
+    def add(c: dict) -> None:
+        _option_schema(c, "quartus", "final_placement_optimization")["enum"].append("new-choice")
+
+    assert _judged(current, remove)[1]
+    additive, breaking = _judged(current, add)
+    assert additive and not breaking
+
+
+def _clock(c: dict) -> dict:
+    return c["flows"]["openroad_place"]["$defs"]["PhysicalClock"]
+
+
+def test_a_new_optional_field_of_a_nested_model_is_additive(current: dict) -> None:
+    def optional(c: dict) -> None:
+        _clock(c)["properties"]["extra"] = {"type": "integer"}
+
+    additive, breaking = _judged(current, optional)
+    assert additive and not breaking
+
+
+def test_a_new_required_field_of_a_nested_model_breaks(current: dict) -> None:
+    def required(c: dict) -> None:
+        _clock(c)["properties"]["extra"] = {"type": "integer"}
+        _clock(c)["required"] = [*_clock(c).get("required", []), "extra"]
+
+    assert any("extra" in m for m in _judged(current, required)[1])
+
+
+def test_a_removed_field_of_a_nested_model_breaks(current: dict) -> None:
+    def remove(c: dict) -> None:
+        del _clock(c)["properties"]["period"]
+
+    assert _judged(current, remove)[1]
+
+
+def test_a_new_group_leaf_is_additive_even_though_the_group_default_gains_a_key(
+    current: dict,
+) -> None:
+    def add_leaf(c: dict) -> None:
+        settings = c["flows"]["openroad_place"]["settings"]
+        settings["global_placement.timing_driven.new_leaf"] = {
+            **settings["global_placement.timing_driven.enabled"],
+            "default": 1,
+        }
+        settings["global_placement.timing_driven"]["default"]["new_leaf"] = 1
+
+    additive, breaking = _judged(current, add_leaf)
+    assert additive and not breaking
+
+
+def test_a_removed_key_of_a_group_default_breaks_and_a_changed_value_breaks(current: dict) -> None:
+    key = "global_placement.timing_driven"
+
+    def drop(c: dict) -> None:
+        del c["flows"]["openroad_place"]["settings"][key]["default"]["enabled"]
+
+    def change(c: dict) -> None:
+        c["flows"]["openroad_place"]["settings"][key]["default"]["virtual_cts"] = True
+
+    assert _judged(current, drop)[1]
+    assert _judged(current, change)[1]
+
+
+def test_a_changed_nested_default_of_a_definition_breaks(current: dict) -> None:
+    def change(c: dict) -> None:
+        for definition in c["flows"]["openroad_place"]["$defs"].values():
+            for schema in definition.get("properties", {}).values():
+                if "default" in schema:
+                    schema["default"] = "changed"
+                    return
+        raise AssertionError("no definition has a default")
+
+    assert _judged(current, change)[1]
+
+
+def test_a_changed_display_type_is_not_judged(current: dict) -> None:
+    def retype(c: dict) -> None:
+        c["flows"]["quartus"]["settings"]["final_placement_optimization"]["type"] = "other text"
+
+    assert _judged(current, retype) == ([], [])
+
+
+def test_a_change_under_an_experimental_setting_is_not_judged(current: dict) -> None:
+    leaf = "global_placement.timing_driven.repair_timing"
+    assert current["flows"]["openroad_place"]["settings"][leaf]["experimental"]
+
+    def change(c: dict) -> None:
+        settings = c["flows"]["openroad_place"]["settings"]
+        settings[leaf]["schema"]["type"] = "string"
+        settings[leaf]["default"] = True
+        settings["global_placement.timing_driven"]["default"]["repair_timing"] = True
+
+    assert _judged(current, change) == ([], [])
+
+
+def test_a_new_required_setting_name_breaks_and_a_removed_one_is_additive(current: dict) -> None:
+    def add(c: dict) -> None:
+        c["flows"]["openroad_place"]["required_settings"].append("extra")
+
+    def remove(c: dict) -> None:
+        c["flows"]["openroad_place"]["required_settings"].remove("platform")
+
+    assert _judged(current, add)[1]
+    additive, breaking = _judged(current, remove)
+    assert additive and not breaking
+
+
+def test_a_setting_that_gains_a_default_is_additive_and_one_that_loses_it_breaks() -> None:
+    required = _contract(a=_flow(s={"type": "integer", "unit": None}))
+    optional = _contract(a=_flow(s={"type": "integer", "unit": None, "default": 1}))
+    additive, breaking = tool.classify(required, optional, kind="contract")
+    assert additive and not breaking
+    assert tool.classify(optional, required, kind="contract")[1]
+
+
+def _inputs(c: dict) -> dict:
+    return c["flows"]["openroad_place"]["inputs"]
+
+
+def test_declared_inputs_follow_the_direction_of_a_user(current: dict) -> None:
+    def remove(c: dict) -> None:
+        del _inputs(c)["netlist"]
+
+    def new_required(c: dict) -> None:
+        _inputs(c)["extra"] = {"kinds": ["Sdc"], "cardinality": "one", "required": True}
+
+    def new_optional(c: dict) -> None:
+        _inputs(c)["extra"] = {"kinds": ["Sdc"], "cardinality": "optional", "required": False}
+
+    def drop_kind(c: dict) -> None:
+        _inputs(c)["netlist"]["kinds"] = []
+
+    def add_kind(c: dict) -> None:
+        _inputs(c)["netlist"]["kinds"].append("Sdc")
+
+    def optional(c: dict) -> None:
+        _inputs(c)["netlist"].update(cardinality="optional", required=False)
+
+    assert _judged(current, remove)[1]
+    assert _judged(current, new_required)[1]
+    assert _judged(current, new_optional)[0] and not _judged(current, new_optional)[1]
+    assert _judged(current, drop_kind)[1]
+    assert _judged(current, add_kind)[0] and not _judged(current, add_kind)[1]
+    assert _judged(current, optional)[0] and not _judged(current, optional)[1]
+    relaxed = copy.deepcopy(current)
+    optional(relaxed)
+    assert tool.classify(relaxed, current, kind="contract")[1]
+
+
+def test_a_changed_unit_of_a_real_setting_breaks(current: dict) -> None:
+    flow, key = next(
+        (n, k) for n, f in current["flows"].items() for k, v in f["settings"].items() if v["unit"]
+    )
+
+    def change(c: dict) -> None:
+        c["flows"][flow]["settings"][key]["unit"] = "other"
+
+    assert _judged(current, change)[1]
+
+
+def _command(options: dict | None = None, arguments: list | None = None) -> dict:
+    return {"options": options or {}, "arguments": arguments or []}
+
+
+def _option(**changes: object) -> dict:
+    return {
+        "names": ["--mode", "-m"],
+        "flag": False,
+        "hidden": False,
+        "multiple": False,
+        "default": None,
+        "type": "choice",
+        "required": False,
+        "nargs": 1,
+        "choices": ["a", "b"],
+        "case_sensitive": True,
+        "environment": ["XEDA_MODE"],
+        **changes,
+    }
+
+
+def _cli(*options: dict, arguments: list | None = None) -> dict:
+    return {"cli": {"xeda x": _command({f"o{i}": o for i, o in enumerate(options)}, arguments)}}
+
+
+@pytest.mark.parametrize(
+    ("change", "breaks"),
+    [
+        ({"choices": ["a"]}, True),
+        ({"choices": ["a", "b", "c"]}, False),
+        ({"names": ["--mode"]}, True),
+        ({"names": ["--mode", "-m", "--kind"]}, False),
+        ({"environment": []}, True),
+        ({"environment": ["XEDA_MODE", "XEDA_OTHER"]}, False),
+        ({"required": True}, True),
+        ({"case_sensitive": False}, True),
+        ({"nargs": 2}, True),
+        ({"type": "text"}, True),
+        ({"flag": True}, True),
+        ({"multiple": True}, True),
+        ({"default": "a"}, True),
+        ({"hidden": True}, None),
+    ],
+)
+def test_option_rules(change: dict, breaks: bool | None) -> None:
+    additive, breaking = tool.classify(_cli(_option()), _cli(_option(**change)), kind="behavior")
+    assert bool(breaking) == bool(breaks)
+    assert bool(additive) == (breaks is False)
+
+
+def test_an_option_that_becomes_optional_is_additive() -> None:
+    additive, breaking = tool.classify(
+        _cli(_option(required=True)), _cli(_option()), kind="behavior"
+    )
+    assert additive and not breaking
+
+
+def test_a_new_required_option_breaks() -> None:
+    assert tool.classify(_cli(), _cli(_option(required=True)), kind="behavior")[1]
+    assert tool.classify(_cli(), _cli(_option()), kind="behavior")[0]
+
+
+def test_a_range_that_widens_is_additive_and_one_that_narrows_breaks() -> None:
+    def ranged(low: int | None, high: int | None, is_open: bool = False) -> dict:
+        return _option(type="integer range", choices=None, range=[low, high, is_open, False])
+
+    wide, narrow = _cli(ranged(0, 10)), _cli(ranged(1, 10))
+    assert tool.classify(narrow, wide, kind="behavior")[0]
+    assert not tool.classify(narrow, wide, kind="behavior")[1]
+    assert tool.classify(wide, narrow, kind="behavior")[1]
+    assert tool.classify(wide, _cli(ranged(0, 5)), kind="behavior")[1]
+    assert tool.classify(wide, _cli(ranged(0, 10, True)), kind="behavior")[1]
+    assert not tool.classify(wide, _cli(ranged(None, None)), kind="behavior")[1]
+
+
+def _argument(name: str, *, required: bool = False, nargs: int = 1) -> dict:
+    return {"name": name, "type": "text", "required": required, "nargs": nargs}
+
+
+def test_arguments_are_ordered_and_a_new_one_is_additive_only_when_optional_and_last() -> None:
+    base = _cli(arguments=[_argument("a", required=True)])
+    optional = _cli(arguments=[_argument("a", required=True), _argument("b")])
+    required = _cli(arguments=[_argument("a", required=True), _argument("b", required=True)])
+    swapped = _cli(arguments=[_argument("b"), _argument("a", required=True)])
+    variadic = _cli(arguments=[_argument("a", nargs=-1)])
+    after_variadic = _cli(arguments=[_argument("a", nargs=-1), _argument("b")])
+    assert tool.classify(base, optional, kind="behavior")[0]
+    assert not tool.classify(base, optional, kind="behavior")[1]
+    assert tool.classify(base, required, kind="behavior")[1]
+    assert tool.classify(base, swapped, kind="behavior")[1]
+    assert tool.classify(optional, base, kind="behavior")[1]
+    assert tool.classify(variadic, after_variadic, kind="behavior")[1]
+    assert tool.classify(
+        base, _cli(arguments=[_argument("a", required=True, nargs=2)]), kind="behavior"
+    )[1]
+
+
+def test_the_cli_snapshot_records_choices_environment_and_arguments() -> None:
+    commands = tool.behavior_snapshot()["cli"]
+    level = commands["xeda run"]["options"]["log_level"]
+    assert level["choices"][0] == "debug" and level["case_sensitive"] is True
+    assert level["environment"] == ["XEDA_LOG_LEVEL"]
+    assert [a["name"] for a in commands["xeda run"]["arguments"]] == ["flow", "design_file"]
+    assert commands["xeda remote clean"]["options"]["older_than"]["range"][0] == 0
