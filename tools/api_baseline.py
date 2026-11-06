@@ -498,6 +498,13 @@ def builtin_contract() -> dict[str, Any]:
                     "kinds": [t.name for t in d.types],
                     "cardinality": d.cardinality,
                     "required": d.required,
+                    # What a default producer runs, and how the plan binds the input.
+                    "producer": d.producer,
+                    "output": d.output,
+                    "same_producer_as": d.same_producer_as,
+                    "paired": d.paired,
+                    "via": d.via,
+                    "equivalence": d.equivalence,
                 }
                 for name, d in declared_inputs(cls).items()
             },
@@ -574,6 +581,19 @@ def behavior_snapshot() -> dict[str, Any]:
                 if ranged
                 else {}
             ),
+            **(
+                {
+                    "path": {
+                        key: getattr(p.type, key)
+                        for key in (
+                            "exists", "file_okay", "dir_okay", "readable", "writable",
+                            "resolve_path", "allow_dash",
+                        )
+                    }  # fmt: skip
+                }
+                if isinstance(p.type, click.Path)
+                else {}
+            ),
             **({"environment": sorted(envvars)} if envvars else {}),
         }
 
@@ -581,7 +601,8 @@ def behavior_snapshot() -> dict[str, Any]:
         commands[path] = {
             "options": {
                 p.name: {
-                    "names": p.opts + p.secondary_opts,
+                    "names": p.opts,
+                    "secondary_names": p.secondary_opts,
                     "flag": p.is_flag,
                     "hidden": p.hidden,
                     "multiple": p.multiple,
@@ -1304,23 +1325,26 @@ def _without_leaf(default: Any, path: list[str]) -> Any:
 
 
 def _classify_default(
-    path: str, old: Any, new: Any, grouped: bool, add: list[str], brk: list[str]
+    path: str, key: str, old: Any, new: Any, groups: set[str], add: list[str], brk: list[str]
 ) -> None:
-    """A changed default breaks. The default of a settings group is a table that must keep each of
-    its keys; a new key is an addition, since it comes with a new leaf. Any other table must stay
-    as it is."""
-    if grouped and isinstance(old, dict) and isinstance(new, dict):
+    """A changed default breaks, compared as a JSON value. The default of a settings group (`key`
+    names a group in `groups`) is a table that must keep each of its keys, with a sub-group's
+    default inside; a new key is an addition, since it comes with a new leaf. Any other table,
+    such as the default of a leaf, must stay as it is."""
+    if key in groups and isinstance(old, dict) and isinstance(new, dict):
         brk.extend(f"{path}.{k}: default removed" for k in sorted(old.keys() - new.keys()))
         add.extend(f"{path}.{k}: default added" for k in sorted(new.keys() - old.keys()))
-        for key in sorted(old.keys() & new.keys()):
-            _classify_default(f"{path}.{key}", old[key], new[key], grouped, add, brk)
-    elif old != new:
+        for name in sorted(old.keys() & new.keys()):
+            _classify_default(
+                f"{path}.{name}", f"{key}.{name}", old[name], new[name], groups, add, brk
+            )
+    elif _canonical(old) != _canonical(new):
         brk.append(f"{path}: default changed from {old!r} to {new!r}")
 
 
 def _classify_setting(
-    path: str, old: dict[str, Any], new: dict[str, Any], roots: tuple[Any, Any],
-    add: list[str], brk: list[str],
+    path: str, key: str, old: dict[str, Any], new: dict[str, Any], roots: tuple[Any, Any],
+    groups: set[str], add: list[str], brk: list[str],
 ) -> None:  # fmt: skip
     """Compare a setting, which Xeda reads: its `type` is display text and is not judged."""
     if old.get("unit") != new.get("unit"):
@@ -1331,8 +1355,7 @@ def _classify_setting(
         else:
             brk.append(f"{path}: now required")
     elif "default" in old:
-        # A settings group records no schema.
-        _classify_default(path, old["default"], new["default"], "schema" not in old, add, brk)
+        _classify_default(path, key, old["default"], new["default"], groups, add, brk)
     if ("schema" in old) != ("schema" in new):
         brk.append(f"{path}: a setting and a settings group exchanged")
     elif "schema" in old:
@@ -1343,9 +1366,13 @@ def _classify_requirements(
     name: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
     """Compare what a user must give: the required settings and the declared inputs."""
-    old_names, new_names = set(old.get("required_settings", ())), set(
-        new.get("required_settings", ())
-    )
+    marked = [k for k, v in old.get("settings", {}).items() if v.get("experimental")]
+
+    def judged(names: Any) -> set[str]:  # what the old baseline marks experimental is not judged
+        return {n for n in names if not any(n == m or n.startswith(m + ".") for m in marked)}
+
+    old_names = judged(old.get("required_settings", ()))
+    new_names = judged(new.get("required_settings", ()))
     brk.extend(
         f"{name}.required_settings.{n}: newly required" for n in sorted(new_names - old_names)
     )
@@ -1362,13 +1389,16 @@ def _classify_requirements(
         a, b, where = before[key], after[key], f"{name}.inputs.{key}"
         brk.extend(f"{where}: kind {k} removed" for k in sorted(set(a["kinds"]) - set(b["kinds"])))
         add.extend(f"{where}: kind {k} added" for k in sorted(set(b["kinds"]) - set(a["kinds"])))
-        if a["cardinality"] != b["cardinality"] and (a["cardinality"], b["cardinality"]) != (
+        if a["cardinality"] != b["cardinality"] and {a["cardinality"], b["cardinality"]} != {
             "one",
             "optional",
-        ):
-            brk.append(
+        }:  # one and optional differ in `required`; a list still takes a single file
+            (add if b["cardinality"] == "many" else brk).append(
                 f"{where}: cardinality changed from {a['cardinality']} to {b['cardinality']}"
             )
+        for field in ("producer", "output", "same_producer_as", "paired", "via", "equivalence"):
+            if _canonical(a.get(field)) != _canonical(b.get(field)):
+                brk.append(f"{where}: {field} changed from {a.get(field)!r} to {b.get(field)!r}")
         if a["required"] != b["required"]:
             (brk if b["required"] else add).append(
                 f"{where}: now " + ("required" if b["required"] else "optional")
@@ -1426,6 +1456,9 @@ def _classify_contract(
                 for table in (a, b):  # the marks themselves were compared above
                     for key in table:
                         table[key] = {k: v for k, v in table[key].items() if k != "experimental"}
+                # A settings group records no schema.
+                groups = {k for k, v in a.items() if "schema" not in v}
+                groups &= {k for k, v in b.items() if "schema" not in v}
             _diff_names(f"{name}.{group}", group, a.keys(), b.keys(), add, brk)
             if group == "settings":
                 for key in b.keys() - a.keys():
@@ -1435,7 +1468,14 @@ def _classify_contract(
             for key in a.keys() & b.keys():
                 if group == "settings":
                     _classify_setting(
-                        f"{name}.{group}.{key}", a[key], b[key], (before, after), add, brk
+                        f"{name}.{group}.{key}",
+                        key,
+                        a[key],
+                        b[key],
+                        (before, after),
+                        groups,
+                        add,
+                        brk,
                     )
                 elif a[key] != b[key]:
                     brk.append(f"{name}.{group}.{key}: changed from {a[key]} to {b[key]}")
@@ -1464,7 +1504,7 @@ def _classify_parameter(
     path: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
     """Compare an option or an argument, which a user gives to Xeda. `hidden` is not judged."""
-    for key in ("names", "environment", "choices"):
+    for key in ("names", "secondary_names", "environment", "choices"):
         _classify_set(path, key, old.get(key), new.get(key), add, brk)
     if old["required"] != new["required"]:
         (brk if new["required"] else add).append(f"{path}: required changed")
@@ -1475,12 +1515,26 @@ def _classify_parameter(
             (brk if lows[1] > lows[0] or highs[1] > highs[0] else add).append(
                 f"{path}: range changed"
             )
-        else:
-            brk.append(f"{path}: range changed")
+        else:  # without a range, the parameter accepts every value
+            (add if new.get("range") is None else brk).append(f"{path}: range changed")
+    kind_path, kind_after = old.get("path"), new.get("path")
+    if kind_path and kind_after:
+        for key in sorted(kind_path.keys() | kind_after.keys()):
+            before, after = kind_path.get(key), kind_after.get(key)
+            if before != after:
+                # A file that must exist asks more; a kind of path that is refused takes less.
+                loosened = (key == "exists" and before) or (key.endswith("_okay") and not before)
+                (add if loosened else brk).append(f"{path}: path {key} changed")
+    skipped = ("names", "secondary_names", "environment", "choices", "required", "range", "hidden")
     for key in sorted(old.keys() | new.keys()):
-        if key not in ("names", "environment", "choices", "required", "range", "hidden"):
-            if old.get(key) != new.get(key):
-                brk.append(f"{path}: {key} changed from {old.get(key)!r} to {new.get(key)!r}")
+        if key not in (*skipped, "path"):
+            before, after = old.get(key), new.get(key)
+            if key == "case_sensitive" and before is True and after is False:
+                add.append(f"{path}: case_sensitive changed")  # more spellings are accepted
+            elif _canonical(before) != _canonical(after):
+                brk.append(f"{path}: {key} changed from {before!r} to {after!r}")
+    if bool(kind_path) != bool(kind_after):
+        brk.append(f"{path}: path changed")
 
 
 def _classify_arguments(
@@ -1544,11 +1598,17 @@ def _type_set(node: dict[str, Any]) -> frozenset[str] | None:
     return frozenset([kind] if isinstance(kind, str) else kind)
 
 
-def _branches(node: dict[str, Any], spread: bool) -> list[Any]:
-    """The alternatives of a schema. With `spread`, the keywords beside the combinator join each."""
+def _branches(path: str, node: dict[str, Any], spread: bool) -> list[Any]:
+    """The alternatives of a schema. With `spread`, the keywords beside the combinator join each.
+    A keyword that a branch states with another value is an error: the two would both apply, and
+    one must not overwrite the other."""
     for key in ("anyOf", "oneOf"):
         if key in node:
             rest = _without_branches(node) if spread else {}
+            for b in node[key]:
+                for k in rest.keys() & (b if isinstance(b, dict) else {}).keys():
+                    if k not in _SCHEMA_METADATA and _canonical(rest[k]) != _canonical(b[k]):
+                        raise ValueError(f"{path}: {k!r} beside {key} and in a branch differ")
             return [{**rest, **b} if isinstance(b, dict) else b for b in node[key]]
     return [node]
 
@@ -1673,6 +1733,8 @@ def _check_keywords(path: str, node: Any) -> None:
     for key in node:
         if key not in _SCHEMA_KNOWN and (not key.startswith("x-") or key.startswith("x-xeda-")):
             raise ValueError(f"{path}: the schema keyword {key!r} is not compared")
+    if "anyOf" in node and "oneOf" in node:
+        raise ValueError(f"{path}: anyOf and oneOf in one schema are not compared")
     for key in _SUBSCHEMA:
         _check_keywords(f"{path}.{key}", node.get(key))
     for key in _SUBSCHEMAS:
@@ -1688,9 +1750,17 @@ def _with_integers(types: frozenset[str]) -> frozenset[str]:
     return types | {"integer"} if "number" in types else types
 
 
+def _accepts_everything(node: Any) -> bool:
+    """Whether a schema (not a `$ref`) has no keyword that rejects a value."""
+    return node is True or (
+        isinstance(node, dict)
+        and all(k in _SCHEMA_METADATA or k == "default" or k.startswith("x-") for k in node)
+    )
+
+
 def _openness(extra: Any) -> int:
     """What `additionalProperties` accepts: 2 any key, 1 the keys that a schema accepts, 0 none."""
-    return 0 if extra is False else 1 if isinstance(extra, dict) and extra else 2
+    return 0 if extra is False else 2 if extra is None or _accepts_everything(extra) else 1
 
 
 def _extra_keys(node: dict[str, Any]) -> Any:
@@ -1746,10 +1816,11 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
                 dropped = new_value is None and reader
                 added = old_value is None and not reader
                 (add if dropped or added else brk).append(f"{path}: {key} changed")
-        if "default" in before and "default" in after and before["default"] != after["default"]:
-            brk.append(f"{path}: default changed")
+        if "default" in before and "default" in after:
+            if _canonical(before["default"]) != _canonical(after["default"]):
+                brk.append(f"{path}: default changed")
         for key in (*_SCHEMA_OPAQUE, *_SCHEMA_MEANING):
-            if before.get(key) != after.get(key):
+            if _canonical(before.get(key)) != _canonical(after.get(key)):
                 brk.append(f"{path}: {key} changed")
         old_names, new_names = before.get("propertyNames"), after.get("propertyNames")
         if old_names is not None or new_names is not None:
@@ -1785,7 +1856,8 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
         if old_has or new_has:
             spread = old_has != new_has  # the keywords beside one combinator hold for its branches
             alternatives(
-                path, _branches(before, spread), _branches(after, spread), roots, reader, seen,
+                path, _branches(path, before, spread), _branches(path, after, spread),
+                roots, reader, seen,
                 "oneOf" in before or "oneOf" in after,
             )  # fmt: skip
             if spread:
@@ -1894,11 +1966,7 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
         old_extra, new_extra = _extra_keys(before), _extra_keys(after)
 
         def everything(node: Any) -> bool:
-            node = _resolve(node, roots[1]) if isinstance(node, dict) else node
-            return node is True or (
-                isinstance(node, dict)
-                and all(k in _SCHEMA_METADATA or k == "default" or k.startswith("x-") for k in node)
-            )
+            return _accepts_everything(_resolve(node, roots[1]) if isinstance(node, dict) else node)
 
         def appears(place: str, schema: Any, name: str, is_pattern: bool) -> None:
             """A new property or pattern of an input accepts less, unless it accepts everything or
@@ -1907,7 +1975,10 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
             """
             what = "new pattern property" if is_pattern else "new property"
             if is_pattern:
-                shared = bool(old_patterns) or any(_may_match(name, key) for key in old_props)
+                # A property that goes in the same change is judged where it vanishes.
+                shared = bool(old_patterns) or any(
+                    _may_match(name, key) for key in old_props if key in new_props
+                )
             else:
                 shared = any(_may_match(pattern, name) for pattern in old_patterns)
             fallback = _openness(old_extra)
@@ -1925,7 +1996,16 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
             `additionalProperties`: it accepts more if that takes them, and less if it refuses."""
             what = "pattern property" if is_pattern else "property"
             fallback = _openness(new_extra)
-            if fallback == 2 or (not is_pattern and any(_may_match(p, name) for p in new_patterns)):
+            matching = [] if is_pattern else [p for p in new_patterns if _may_match(p, name)]
+            if matching:  # the key now comes under these patterns, not under `additionalProperties`
+                mark = len(brk)
+                for pattern in matching:
+                    if (
+                        pattern not in old_patterns
+                    ):  # an old pattern held the key besides the property
+                        visit(place, schema, new_patterns[pattern], roots, True, seen)
+                (brk if len(brk) > mark else add).append(f"{place}: {what} removed")
+            elif fallback == 2:
                 add.append(f"{place}: {what} removed")
             elif fallback == 1:
                 mark = len(brk)

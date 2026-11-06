@@ -13,6 +13,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_debug_option": {
@@ -28,6 +29,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_q_option": {
@@ -40,6 +42,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_quiet_option": {
@@ -52,6 +55,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_v_option": {
@@ -64,6 +68,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_verbose_option": {
@@ -76,6 +81,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "version": {
@@ -88,6 +94,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -119,6 +126,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -136,6 +144,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -153,6 +162,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -170,6 +180,15 @@
           "default": null,
           "name": "design",
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": true,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
           "type": "file"
         }
@@ -184,7 +203,17 @@
             "--config"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": false,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "file"
         },
         "design_allow_extra": {
@@ -193,11 +222,13 @@
           "hidden": true,
           "multiple": false,
           "names": [
-            "--design-allow-extra",
-            "--no-design-allow-extra"
+            "--design-allow-extra"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-design-allow-extra"
+          ],
           "type": "boolean"
         },
         "design_name": {
@@ -210,6 +241,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "detailed_logs": {
@@ -221,11 +253,13 @@
           "hidden": false,
           "multiple": false,
           "names": [
-            "--detailed-logs",
-            "--no-detailed-logs"
+            "--detailed-logs"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-detailed-logs"
+          ],
           "type": "boolean"
         },
         "dse_settings": {
@@ -241,6 +275,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "tuple"
         },
         "flow_settings": {
@@ -254,6 +289,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "tuple"
         },
         "initial_frequency_high": {
@@ -266,6 +302,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "initial_frequency_low": {
@@ -278,6 +315,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "json_flag": {
@@ -290,6 +328,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "log_level": {
@@ -313,6 +352,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "max_workers": {
@@ -328,6 +368,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "integer"
         },
         "no_config": {
@@ -340,6 +381,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "no_target": {
@@ -352,6 +394,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "optimizer": {
@@ -367,6 +410,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "optimizer_settings": {
@@ -382,6 +426,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "tuple"
         },
         "removed_d_option": {
@@ -394,6 +439,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_debug_option": {
@@ -406,6 +452,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_design_file_option": {
@@ -418,6 +465,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_design_option": {
@@ -430,6 +478,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_flow_settings_option": {
@@ -442,6 +491,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_init_freq_high_option": {
@@ -454,6 +504,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_init_freq_low_option": {
@@ -466,6 +517,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "run_root": {
@@ -480,7 +532,17 @@
             "--run-root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": true,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": true,
+            "writable": true
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "target": {
@@ -493,6 +555,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "xeda_run_dir": {
@@ -508,6 +571,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "xedaproject": {
@@ -522,7 +586,17 @@
             "--xedaproject"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": true,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "file"
         }
       }
@@ -548,6 +622,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         }
       }
@@ -565,6 +640,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -584,6 +660,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -601,6 +678,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -620,6 +698,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -637,6 +716,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -656,6 +736,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -673,6 +754,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -692,6 +774,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -717,6 +800,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -736,6 +820,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -757,11 +842,13 @@
           "hidden": false,
           "multiple": false,
           "names": [
-            "--common",
-            "--no-common"
+            "--common"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-common"
+          ],
           "type": "boolean"
         },
         "json_flag": {
@@ -774,6 +861,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -793,6 +881,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "tier": {
@@ -811,6 +900,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         }
       }
@@ -840,6 +930,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         }
       }
@@ -865,6 +956,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -884,6 +976,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "platform_file": {
@@ -895,7 +988,17 @@
             "--platform-file"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": true,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "file"
         },
         "provider": {
@@ -915,6 +1018,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "root": {
@@ -926,7 +1030,17 @@
             "--root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "version": {
@@ -939,6 +1053,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "yes": {
@@ -951,6 +1066,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -968,6 +1084,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -987,6 +1104,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "root": {
@@ -998,7 +1116,17 @@
             "--root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         }
       }
@@ -1024,6 +1152,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "json_flag": {
@@ -1036,6 +1165,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "output_format": {
@@ -1055,6 +1185,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "platform_file": {
@@ -1066,7 +1197,17 @@
             "--platform-file"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": true,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "file"
         },
         "provider": {
@@ -1086,6 +1227,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "root": {
@@ -1097,7 +1239,17 @@
             "--root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "version": {
@@ -1110,6 +1262,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         }
       }
@@ -1146,6 +1299,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "run_root": {
@@ -1160,7 +1314,17 @@
             "--run-root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         }
       }
@@ -1193,6 +1357,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "run_root": {
@@ -1207,7 +1372,17 @@
             "--run-root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         }
       }
@@ -1233,6 +1408,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -1258,6 +1434,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "json_flag": {
@@ -1270,6 +1447,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "older_than": {
@@ -1288,6 +1466,7 @@
             false
           ],
           "required": false,
+          "secondary_names": [],
           "type": "float range"
         },
         "yes": {
@@ -1300,6 +1479,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -1325,6 +1505,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         }
       }
@@ -1342,6 +1523,15 @@
           "default": null,
           "name": "design_file",
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": false,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
           "type": "file"
         }
@@ -1353,11 +1543,13 @@
           "hidden": true,
           "multiple": false,
           "names": [
-            "--cached-dependencies",
-            "--no-cached-dependencies"
+            "--cached-dependencies"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-cached-dependencies"
+          ],
           "type": "boolean"
         },
         "clean": {
@@ -1370,6 +1562,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "config": {
@@ -1381,7 +1574,17 @@
             "--config"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": false,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "file"
         },
         "cwd": {
@@ -1394,6 +1597,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "design_allow_extra": {
@@ -1402,11 +1606,13 @@
           "hidden": true,
           "multiple": false,
           "names": [
-            "--design-allow-extra",
-            "--no-design-allow-extra"
+            "--design-allow-extra"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-design-allow-extra"
+          ],
           "type": "boolean"
         },
         "design_name": {
@@ -1419,6 +1625,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "design_updates": {
@@ -1431,6 +1638,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "tuple"
         },
         "detailed_logs": {
@@ -1442,11 +1650,13 @@
           "hidden": false,
           "multiple": false,
           "names": [
-            "--detailed-logs",
-            "--no-detailed-logs"
+            "--detailed-logs"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-detailed-logs"
+          ],
           "type": "boolean"
         },
         "dry_run": {
@@ -1459,6 +1669,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "fetch_all": {
@@ -1471,6 +1682,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "flow_settings": {
@@ -1484,6 +1696,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "tuple"
         },
         "hashed_run_dirs": {
@@ -1496,6 +1709,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "incremental": {
@@ -1504,11 +1718,13 @@
           "hidden": true,
           "multiple": false,
           "names": [
-            "--incremental",
-            "--no-incremental"
+            "--incremental"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-incremental"
+          ],
           "type": "boolean"
         },
         "json_flag": {
@@ -1521,6 +1737,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "keep_running": {
@@ -1533,6 +1750,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "log_level": {
@@ -1556,6 +1774,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "choice"
         },
         "no_config": {
@@ -1568,6 +1787,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "no_target": {
@@ -1580,6 +1800,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "outputs_to": {
@@ -1591,7 +1812,17 @@
             "--outputs-to"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "overwrite_outputs": {
@@ -1604,6 +1835,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "post_cleanup": {
@@ -1616,6 +1848,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "post_cleanup_purge": {
@@ -1628,6 +1861,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "prune_variants": {
@@ -1640,6 +1874,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "rebuild_all": {
@@ -1652,6 +1887,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "remote": {
@@ -1667,6 +1903,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_d_option": {
@@ -1679,6 +1916,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_debug_option": {
@@ -1691,6 +1929,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_design_file_option": {
@@ -1703,6 +1942,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_design_option": {
@@ -1715,6 +1955,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_design_overrides_option": {
@@ -1727,6 +1968,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_flow_settings_option": {
@@ -1739,6 +1981,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "removed_help_settings_option": {
@@ -1751,6 +1994,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_list_settings_option": {
@@ -1763,6 +2007,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "removed_scrub_option": {
@@ -1775,6 +2020,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "run_root": {
@@ -1789,7 +2035,17 @@
             "--run-root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": true,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": true,
+            "writable": true
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "target": {
@@ -1802,6 +2058,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "xeda_run_dir": {
@@ -1817,6 +2074,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "xedaproject": {
@@ -1828,7 +2086,17 @@
             "--xedaproject"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": true,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "file"
         },
         "yes": {
@@ -1841,6 +2109,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -1869,11 +2138,13 @@
           "hidden": true,
           "multiple": false,
           "names": [
-            "--incremental",
-            "--no-incremental"
+            "--incremental"
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [
+            "--no-incremental"
+          ],
           "type": "boolean"
         },
         "json_flag": {
@@ -1886,6 +2157,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         },
         "run_root": {
@@ -1900,7 +2172,17 @@
             "--run-root"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": true,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": true,
+            "writable": true
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "target": {
@@ -1913,6 +2195,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "xeda_run_dir": {
@@ -1928,6 +2211,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         },
         "yes": {
@@ -1940,6 +2224,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }
@@ -1969,6 +2254,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "text"
         }
       }
@@ -1985,7 +2271,17 @@
             "--dir"
           ],
           "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
           "required": false,
+          "secondary_names": [],
           "type": "directory"
         },
         "force": {
@@ -1998,6 +2294,7 @@
           ],
           "nargs": 1,
           "required": false,
+          "secondary_names": [],
           "type": "boolean"
         }
       }

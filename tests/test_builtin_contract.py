@@ -391,11 +391,12 @@ def test_the_snapshot_records_definitions_inputs_and_required_settings(current: 
     flow = current["flows"]["openroad_place"]
     assert "PhysicalClock" in flow["$defs"]
     assert flow["required_settings"] == ["platform"]
-    assert flow["inputs"]["netlist"] == {
-        "kinds": ["VerilogNetlist"],
-        "cardinality": "one",
-        "required": True,
-    }
+    netlist = flow["inputs"]["netlist"]
+    assert (netlist["kinds"], netlist["cardinality"], netlist["required"]) == (
+        ["VerilogNetlist"],
+        "one",
+        True,
+    )
     assert "schema" not in flow["settings"]["global_placement.timing_driven"]
     assert "schema" in flow["settings"]["global_placement.timing_driven.enabled"]
 
@@ -599,7 +600,7 @@ def _cli(*options: dict, arguments: list | None = None) -> dict:
         ({"environment": []}, True),
         ({"environment": ["XEDA_MODE", "XEDA_OTHER"]}, False),
         ({"required": True}, True),
-        ({"case_sensitive": False}, True),
+        ({"case_sensitive": False}, False),
         ({"nargs": 2}, True),
         ({"type": "text"}, True),
         ({"flag": True}, True),
@@ -778,3 +779,215 @@ def test_clicks_sentinel_for_an_omitted_default_is_recorded_as_none() -> None:
     assert tool._option_default(None) is None
     assert tool._option_default(3) == 3
     assert "Sentinel" not in json.dumps(tool.behavior_snapshot())
+
+
+# ------------------------------------------------------------------ the review of the pull request
+
+
+def _with(contract: dict, **changes: object) -> dict:
+    """The contract with the keys of the flow `a` replaced."""
+    contract = copy.deepcopy(contract)
+    contract["flows"]["a"].update(changes)
+    return contract
+
+
+def _path(**changes: bool) -> dict:
+    return _option(type="path", choices=None) | {
+        "path": {
+            "exists": False,
+            "file_okay": True,
+            "dir_okay": True,
+            "readable": True,
+            "writable": False,
+            "resolve_path": False,
+            "allow_dash": False,
+        }
+        | changes
+    }
+
+
+def _path_cli(**changes: bool) -> dict:
+    return _cli(_path(**changes))
+
+
+@pytest.mark.parametrize(
+    ("change", "breaks"),
+    [
+        ({"exists": True}, True),
+        ({"file_okay": False}, True),
+        ({"dir_okay": False}, True),
+        ({"readable": False}, True),
+        ({"writable": True}, True),
+        ({"resolve_path": True}, True),
+        ({"allow_dash": True}, True),
+    ],
+)
+def test_a_click_path_that_demands_more_breaks(change: dict, breaks: bool) -> None:
+    assert bool(tool.classify(_path_cli(), _path_cli(**change), kind="behavior")[1]) is breaks
+
+
+@pytest.mark.parametrize("change", [{"exists": True}, {"file_okay": False}, {"dir_okay": False}])
+def test_a_click_path_that_demands_less_is_additive(change: dict) -> None:
+    additive, breaking = tool.classify(_path_cli(**change), _path_cli(), kind="behavior")
+    assert (bool(additive), bool(breaking)) == (True, False)
+
+
+def test_the_cli_snapshot_records_what_a_click_path_demands() -> None:
+    commands = tool.behavior_snapshot()["cli"]
+    paths = [
+        o["path"]
+        for c in commands.values()
+        for o in [*c["options"].values(), *c["arguments"]]
+        if "path" in o
+    ]
+    assert paths and all({"exists", "file_okay", "dir_okay"} <= set(p) for p in paths)
+
+
+def test_defaults_compare_as_json_values_not_as_python_ones() -> None:
+    def setting(default: object) -> dict:
+        return _contract(a=_flow(s={"type": "integer", "unit": None, "default": default}))
+
+    assert tool.classify(setting(True), setting(1), kind="contract")[1]
+    assert tool.classify(setting(0), setting(False), kind="contract")[1]
+    assert tool.classify(setting(1), setting(1.0), kind="contract") == ([], [])
+    assert tool.classify(_cli(_option(default=True)), _cli(_option(default=1)), kind="behavior")[1]
+    assert tool.classify(_cli(_option(default=1)), _cli(_option(default=1.0)), kind="behavior") == (
+        [],
+        [],
+    )
+
+
+def test_a_required_setting_that_the_old_contract_marks_experimental_is_not_judged() -> None:
+    marked = {"type": "integer", "unit": None, "default": 1, "experimental": True}
+    old = _contract(a=_flow(s=marked, t={"type": "integer", "unit": None, "default": 1}))
+    new = _with(old, required_settings=["s"])
+    assert tool.classify(old, new, kind="contract") == ([], [])
+    assert tool.classify(old, _with(old, required_settings=["t"]), kind="contract")[1]
+    assert tool.classify(_with(old, required_settings=["s"]), old, kind="contract") == ([], [])
+
+
+def test_option_names_and_secondary_names_are_judged_apart() -> None:
+    old = _cli(_option(names=["--x"], secondary_names=["--no-x"]))
+    moved = _cli(_option(names=["--x", "--no-x"], secondary_names=[]))
+    assert tool.classify(old, moved, kind="behavior")[1]
+    assert tool.classify(moved, old, kind="behavior")[1]
+    assert tool.classify(old, _cli(_option(names=["--x"], secondary_names=[])), kind="behavior")[1]
+    more = _cli(_option(names=["--x", "-x"], secondary_names=["--no-x", "--off"]))
+    additive, breaking = tool.classify(old, more, kind="behavior")
+    assert additive and not breaking
+
+
+def test_the_cli_snapshot_records_secondary_names_apart() -> None:
+    options = [o for c in tool.behavior_snapshot()["cli"].values() for o in c["options"].values()]
+    flags = [o for o in options if o["secondary_names"]]
+    assert flags and all(not set(o["names"]) & set(o["secondary_names"]) for o in flags)
+
+
+def test_a_removed_range_is_additive_and_a_new_one_breaks() -> None:
+    ranged = _option(type="integer range", choices=None, range=[0, 10, False, False])
+    plain = _option(type="integer range", choices=None)
+    additive, breaking = tool.classify(_cli(ranged), _cli(plain), kind="behavior")
+    assert additive and not breaking
+    assert tool.classify(_cli(plain), _cli(ranged), kind="behavior")[1]
+
+
+def test_a_case_insensitive_choice_accepts_more_spellings() -> None:
+    sensitive, insensitive = _cli(_option()), _cli(_option(case_sensitive=False))
+    additive, breaking = tool.classify(sensitive, insensitive, kind="behavior")
+    assert additive and not breaking
+    assert tool.classify(insensitive, sensitive, kind="behavior")[1]
+
+
+def test_a_mapping_valued_leaf_default_inside_a_group_is_a_value() -> None:
+    def group(env: dict) -> dict:
+        return _flow(
+            g={"type": "G", "unit": None, "default": {"env": env, "n": 1}},
+            **{
+                "g.env": {
+                    "type": "object",
+                    "unit": None,
+                    "default": env,
+                    "schema": {"type": "object"},
+                },
+                "g.n": {
+                    "type": "integer",
+                    "unit": None,
+                    "default": 1,
+                    "schema": {"type": "integer"},
+                },
+            },
+        )
+
+    additive, breaking = tool.classify(
+        _contract(a=group({"A": 1})), _contract(a=group({"A": 1, "B": 2})), kind="contract"
+    )
+    assert "a.settings.g.env: default changed from {'A': 1} to {'A': 1, 'B': 2}" in breaking
+    assert not any("default added" in m for m in additive)
+
+
+def _input(**changes: object) -> dict:
+    return {
+        "kinds": ["Sdc"],
+        "cardinality": "one",
+        "required": True,
+        "producer": None,
+        "output": None,
+        "same_producer_as": None,
+        "paired": False,
+        "via": None,
+        "equivalence": False,
+    } | changes
+
+
+def _inputs_of(**inputs: dict) -> dict:
+    return _with(_contract(a=_flow()), inputs=inputs)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "breaks"),
+    [
+        ({"cardinality": "one"}, {"cardinality": "many"}, False),
+        (
+            {"cardinality": "optional", "required": False},
+            {"cardinality": "many", "required": False},
+            False,
+        ),
+        ({"cardinality": "many"}, {"cardinality": "one"}, True),
+        (
+            {"cardinality": "many", "required": False},
+            {"cardinality": "optional", "required": False},
+            True,
+        ),
+        ({"cardinality": "one"}, {"cardinality": "optional", "required": False}, False),
+        ({"cardinality": "optional", "required": False}, {"cardinality": "one"}, True),
+    ],
+)
+def test_the_cardinality_of_an_input_may_move_toward_many(old, new, breaks) -> None:
+    result = tool.classify(
+        _inputs_of(x=_input(**old)), _inputs_of(x=_input(**new)), kind="contract"
+    )
+    assert bool(result[1]) is breaks
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"producer": "yosys"},
+        {"output": "netlist"},
+        {"same_producer_as": "sdc"},
+        {"paired": True},
+        {"via": "netlist"},
+        {"equivalence": True},
+    ],
+)
+def test_the_binding_of_an_input_is_judged(change: dict) -> None:
+    old, new = _inputs_of(x=_input()), _inputs_of(x=_input(**change))
+    assert tool.classify(old, new, kind="contract")[1]
+    assert tool.classify(new, old, kind="contract")[1]
+
+
+def test_the_snapshot_records_the_binding_of_each_input() -> None:
+    flows = tool.builtin_contract()["flows"]
+    keys = {"producer", "output", "same_producer_as", "paired", "via", "equivalence"}
+    assert all(keys <= set(i) for f in flows.values() for i in f["inputs"].values())
+    assert any(i["producer"] for f in flows.values() for i in f["inputs"].values())

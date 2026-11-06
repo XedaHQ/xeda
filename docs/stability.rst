@@ -153,8 +153,11 @@ default (a settings group may add a key together with a new leaf), a removed tab
 default, a removed choice, a narrower bound or type, a new constraint on keys that an object
 accepted before, a new required setting and a new required nested field are breaks. A new choice,
 a wider type or bound, a new optional nested field and a new optional setting are additions. A flow keeps its declared
-inputs: a removed input, a removed kind and a new required input are breaks. A CLI option keeps its
-names, choices, environment variables, type, ``nargs`` and default. An argument keeps its
+inputs: a removed input, a removed kind, a new required input, a list input that becomes a single
+file and a changed default producer or binding are breaks. A CLI option keeps its names (a
+``--x/--no-x`` pair keeps each name on its side), choices, environment variables, type, ``nargs``
+and default. It may take more: an option may lose its range, ignore case, or demand less of a
+path (it need not exist, or it may be a file or a directory). An argument keeps its
 position, and a new argument is an addition only if it is optional and last.
 
 For a document that Xeda writes, a removed key, a wider or unrelated type, any change of an enum or

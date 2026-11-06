@@ -133,8 +133,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -931,8 +937,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -2009,8 +2021,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -2934,8 +2952,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -3546,12 +3570,18 @@
       "inputs": {
         "config": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "EcpConfig",
             "IceAsc",
             "Fasm"
           ],
-          "required": true
+          "output": "config",
+          "paired": false,
+          "producer": "nextpnr",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {},
@@ -4016,8 +4046,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -4803,8 +4839,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {},
@@ -5515,8 +5557,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -6046,8 +6094,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -6592,8 +6646,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -7157,27 +7217,45 @@
       "inputs": {
         "constraints": {
           "cardinality": "many",
+          "equivalence": false,
           "kinds": [
             "Lpf",
             "Pcf",
             "Pdc",
             "Xdc"
           ],
-          "required": false
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": false,
+          "same_producer_as": null,
+          "via": null
         },
         "netlist": {
           "cardinality": "one",
+          "equivalence": true,
           "kinds": [
             "JsonNetlist"
           ],
-          "required": true
+          "output": "netlist",
+          "paired": false,
+          "producer": "yosys_fpga",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "sdc": {
           "cardinality": "many",
+          "equivalence": false,
           "kinds": [
             "Sdc"
           ],
-          "required": false
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": false,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -8316,8 +8394,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -9203,10 +9287,16 @@
       "inputs": {
         "bitstream": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "Bitstream"
           ],
-          "required": true
+          "output": "bitstream",
+          "paired": false,
+          "producer": "fpga_pack",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {},
@@ -9831,17 +9921,29 @@
       "inputs": {
         "odb": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "OpenroadDbGlobalRouted"
           ],
-          "required": true
+          "output": "odb",
+          "paired": false,
+          "producer": "openroad_grt",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "sdc": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "OpenroadSdcGlobalRouted"
           ],
-          "required": true
+          "output": "sdc",
+          "paired": true,
+          "producer": "openroad_grt",
+          "required": true,
+          "same_producer_as": "odb",
+          "via": null
         }
       },
       "metrics": {
@@ -11857,17 +11959,29 @@
       "inputs": {
         "odb": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "OpenroadDbPlaced"
           ],
-          "required": true
+          "output": "odb",
+          "paired": false,
+          "producer": "openroad_place",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "sdc": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "OpenroadSdcPlaced"
           ],
-          "required": true
+          "output": "sdc",
+          "paired": true,
+          "producer": "openroad_place",
+          "required": true,
+          "same_producer_as": "odb",
+          "via": null
         }
       },
       "metrics": {
@@ -13482,17 +13596,29 @@
       "inputs": {
         "odb": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "OpenroadDbCts"
           ],
-          "required": true
+          "output": "odb",
+          "paired": false,
+          "producer": "openroad_cts",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "sdc": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "OpenroadSdcCts"
           ],
-          "required": true
+          "output": "sdc",
+          "paired": true,
+          "producer": "openroad_cts",
+          "required": true,
+          "same_producer_as": "odb",
+          "via": null
         }
       },
       "metrics": {
@@ -16050,17 +16176,29 @@
       "inputs": {
         "netlist": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "VerilogNetlist"
           ],
-          "required": true
+          "output": "netlist",
+          "paired": false,
+          "producer": "yosys",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "sdc": {
           "cardinality": "many",
+          "equivalence": false,
           "kinds": [
             "Sdc"
           ],
-          "required": false
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": false,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -21021,8 +21159,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -21489,8 +21633,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -21802,8 +21952,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -22603,8 +22759,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -23527,8 +23689,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -24537,18 +24705,30 @@
       "inputs": {
         "constraints": {
           "cardinality": "many",
+          "equivalence": false,
           "kinds": [
             "Xdc",
             "Sdc"
           ],
-          "required": false
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": false,
+          "same_producer_as": null,
+          "via": null
         },
         "netlist": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "Edif"
           ],
-          "required": true
+          "output": "netlist_edif",
+          "paired": false,
+          "producer": "yosys_fpga",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -25488,29 +25668,53 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "netlist": {
           "cardinality": "optional",
+          "equivalence": false,
           "kinds": [
             "FpgaNetlist"
           ],
-          "required": false
+          "output": "netlist",
+          "paired": false,
+          "producer": "vivado_synth",
+          "required": false,
+          "same_producer_as": "netlist_timing",
+          "via": null
         },
         "netlist_timing": {
           "cardinality": "optional",
+          "equivalence": false,
           "kinds": [
             "FpgaTimingNetlist"
           ],
-          "required": false
+          "output": "netlist_timing",
+          "paired": false,
+          "producer": "vivado_synth",
+          "required": false,
+          "same_producer_as": null,
+          "via": null
         },
         "sdf": {
           "cardinality": "optional",
+          "equivalence": false,
           "kinds": [
             "Sdf"
           ],
-          "required": false
+          "output": "sdf",
+          "paired": false,
+          "producer": "vivado_synth",
+          "required": false,
+          "same_producer_as": "netlist_timing",
+          "via": null
         }
       },
       "metrics": {
@@ -26325,17 +26529,29 @@
       "inputs": {
         "activity": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "Saif"
           ],
-          "required": true
+          "output": "timing_saif",
+          "paired": false,
+          "producer": "vivado_postsynth_sim",
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         },
         "checkpoint": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [
             "RoutedCheckpoint"
           ],
-          "required": true
+          "output": "checkpoint_route",
+          "paired": false,
+          "producer": "vivado_synth",
+          "required": true,
+          "same_producer_as": "activity",
+          "via": "netlist_timing"
         }
       },
       "metrics": {
@@ -26938,8 +27154,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {},
@@ -27674,8 +27896,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -28426,8 +28654,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -29221,8 +29455,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -30171,8 +30411,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -33007,8 +33253,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {
@@ -34746,8 +34998,14 @@
       "inputs": {
         "design": {
           "cardinality": "one",
+          "equivalence": false,
           "kinds": [],
-          "required": true
+          "output": null,
+          "paired": false,
+          "producer": null,
+          "required": true,
+          "same_producer_as": null,
+          "via": null
         }
       },
       "metrics": {

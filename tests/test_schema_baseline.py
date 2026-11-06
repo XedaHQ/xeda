@@ -755,3 +755,60 @@ def test_a_new_key_of_a_parameter_entry_is_additive_and_an_unmarked_object_is_no
         "additionalProperties"
     )
     assert _classify(old, new)[1]
+
+
+# ------------------------------------------------------------------ the review of the pull request
+
+
+def test_a_default_compares_as_a_json_value() -> None:
+    assert _judge(INT | {"default": True}, INT | {"default": 1}) == "breaks"
+    assert _judge(INT | {"default": 1}, INT | {"default": 1.0}) == "same"
+    assert _judge(INT | {"default": False}, INT | {"default": 0}, "run") == "breaks"
+
+
+def test_a_keyword_beside_a_combinator_that_a_branch_states_otherwise_is_an_error() -> None:
+    """With a combinator on one side only, its sibling keywords join each branch."""
+
+    def beside(branch: dict, **sibling: Any) -> dict:
+        return {"anyOf": [STRING | branch, NULL], **sibling}
+
+    with pytest.raises(ValueError, match="minLength"):
+        _judge(STRING, beside({"minLength": 1}, minLength=2))
+    with pytest.raises(ValueError, match="minLength"):
+        _judge(beside({"minLength": 1}, minLength=2), STRING)
+    # the same value on both, a keyword in one place only, or a metadata keyword is no collision
+    _judge(STRING, beside({"minLength": 2}, minLength=2))
+    _judge(STRING, beside({}, minLength=2))
+    _judge(STRING, beside({"title": "a"}, title="b"))
+
+
+@pytest.mark.parametrize("where", ["root", "property", "definition"])
+def test_a_node_with_anyof_and_oneof_is_an_error(where: str) -> None:
+    both = {"anyOf": [STRING], "oneOf": [STRING]}
+    build = {
+        "root": both,
+        "property": _object(properties={"a": both}),
+        "definition": _object(**{"$defs": {"a": both}}),
+    }[where]
+    for pair in ((build, OBJ), (OBJ, build)):
+        with pytest.raises(ValueError, match="anyOf and oneOf"):
+            _judge(*pair)
+
+
+def test_a_schema_with_only_metadata_accepts_everything_as_additional_properties() -> None:
+    described = _object(additionalProperties={"description": "any value", "x-note": 1})
+    assert _judge(_object(additionalProperties=True), described) == "same"
+    assert _judge(described, _object(additionalProperties=True), "run") == "same"
+    assert _judge(OBJ, described) == "same"
+
+
+def test_a_removed_property_that_a_new_pattern_replaces_is_judged_by_the_pattern() -> None:
+    closed = CLOSED | {"properties": {"ab": STRING}}
+    wide = CLOSED | {"patternProperties": {"^a": NULLABLE}}
+    narrow = CLOSED | {"patternProperties": {"^a": {"type": "string", "maxLength": 3}}}
+    assert _judge(closed, wide) == "adds"
+    assert _judge(closed, narrow) == "breaks"
+    # the pattern was there already and holds the key besides the property: dropping the property
+    # leaves only the pattern, which is wider
+    kept = CLOSED | {"properties": {"ab": STRING}, "patternProperties": {"^a": NULLABLE}}
+    assert _judge(kept, wide) == "adds"
