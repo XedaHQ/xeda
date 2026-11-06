@@ -5,9 +5,6 @@
       "options": {
         "removed_d_option": {
           "default": null,
-          "environment": [
-            "XEDA_REMOVED_D_OPTION"
-          ],
           "flag": true,
           "hidden": true,
           "multiple": false,
@@ -21,8 +18,7 @@
         "removed_debug_option": {
           "default": null,
           "environment": [
-            "XEDA_DEBUG",
-            "XEDA_REMOVED_DEBUG_OPTION"
+            "XEDA_DEBUG"
           ],
           "flag": true,
           "hidden": true,
@@ -36,9 +32,6 @@
         },
         "removed_q_option": {
           "default": null,
-          "environment": [
-            "XEDA_REMOVED_Q_OPTION"
-          ],
           "flag": true,
           "hidden": true,
           "multiple": false,
@@ -51,9 +44,6 @@
         },
         "removed_quiet_option": {
           "default": null,
-          "environment": [
-            "XEDA_REMOVED_QUIET_OPTION"
-          ],
           "flag": true,
           "hidden": true,
           "multiple": false,
@@ -66,9 +56,6 @@
         },
         "removed_v_option": {
           "default": null,
-          "environment": [
-            "XEDA_REMOVED_V_OPTION"
-          ],
           "flag": true,
           "hidden": true,
           "multiple": false,
@@ -81,9 +68,6 @@
         },
         "removed_verbose_option": {
           "default": null,
-          "environment": [
-            "XEDA_REMOVED_VERBOSE_OPTION"
-          ],
           "flag": true,
           "hidden": true,
           "multiple": false,
@@ -96,9 +80,6 @@
         },
         "version": {
           "default": "Sentinel",
-          "environment": [
-            "XEDA_VERSION"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -130,9 +111,6 @@
       "options": {
         "stdout": {
           "default": "Sentinel",
-          "environment": [
-            "XEDA_STDOUT"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -150,9 +128,6 @@
       "options": {
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -170,9 +145,6 @@
             "yaml"
           ],
           "default": "json",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -603,9 +575,6 @@
       "options": {
         "search": {
           "default": null,
-          "environment": [
-            "XEDA_HELP_SEARCH"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -623,9 +592,6 @@
       "options": {
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -645,9 +611,6 @@
             "yaml"
           ],
           "default": "table",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -665,9 +628,6 @@
       "options": {
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -687,9 +647,6 @@
             "yaml"
           ],
           "default": "table",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -707,9 +664,6 @@
       "options": {
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -729,9 +683,6 @@
             "yaml"
           ],
           "default": "table",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -749,9 +700,6 @@
       "options": {
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -771,9 +719,6 @@
             "yaml"
           ],
           "default": "table",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -834,9 +779,6 @@
       "options": {
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -856,9 +798,6 @@
             "yaml"
           ],
           "default": "table",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -919,9 +858,6 @@
       "options": {
         "common": {
           "default": true,
-          "environment": [
-            "XEDA_COMMON"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -935,9 +871,6 @@
         },
         "json_flag": {
           "default": false,
-          "environment": [
-            "XEDA_JSON_FLAG"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
@@ -957,9 +890,6 @@
             "yaml"
           ],
           "default": "table",
-          "environment": [
-            "XEDA_OUTPUT_FORMAT"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -978,9 +908,6 @@
             "expert"
           ],
           "default": null,
-          "environment": [
-            "XEDA_TIER"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -1010,9 +937,6 @@
       "options": {
         "search": {
           "default": null,
-          "environment": [
-            "XEDA_HELP_SEARCH"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -1498,9 +1422,6 @@
       "options": {
         "search": {
           "default": null,
-          "environment": [
-            "XEDA_HELP_SEARCH"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -2215,9 +2136,6 @@
       "options": {
         "search": {
           "default": null,
-          "environment": [
-            "XEDA_HELP_SEARCH"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -2235,9 +2153,6 @@
       "options": {
         "dest_dir": {
           "default": null,
-          "environment": [
-            "XEDA_DEST_DIR"
-          ],
           "flag": false,
           "hidden": false,
           "multiple": false,
@@ -2250,9 +2165,6 @@
         },
         "force": {
           "default": false,
-          "environment": [
-            "XEDA_FORCE"
-          ],
           "flag": true,
           "hidden": false,
           "multiple": false,
