@@ -417,9 +417,9 @@ RULES = {
     "true to closed": (
         OBJ | {"additionalProperties": True}, OBJ | {"additionalProperties": False}, "breaks", "adds",
     ),
-    "closed to open": (OBJ | {"additionalProperties": False}, OBJ, "adds", "breaks"),
+    "closed to open": (OBJ | {"additionalProperties": False}, OBJ, "adds", "adds"),
     "closed to true": (
-        OBJ | {"additionalProperties": False}, OBJ | {"additionalProperties": True}, "adds", "breaks",
+        OBJ | {"additionalProperties": False}, OBJ | {"additionalProperties": True}, "adds", "adds",
     ),
     "open to true": (OBJ, OBJ | {"additionalProperties": True}, "same", "same"),
     "open to schema": (OBJ, OBJ | {"additionalProperties": STRING}, "breaks", "adds"),
@@ -428,7 +428,7 @@ RULES = {
         OBJ | {"additionalProperties": STRING}, OBJ | {"additionalProperties": False}, "breaks", "adds",
     ),
     "closed to schema": (
-        OBJ | {"additionalProperties": False}, OBJ | {"additionalProperties": STRING}, "adds", "breaks",
+        OBJ | {"additionalProperties": False}, OBJ | {"additionalProperties": STRING}, "adds", "adds",
     ),
     "schema to schema": (
         OBJ | {"additionalProperties": STRING}, OBJ | {"additionalProperties": NULLABLE},

@@ -1380,7 +1380,12 @@ def _classify_schema(
         # From the most open to the most closed: no schema (or `true`), a schema, `false`.
         old_open, new_open = _openness(old_extra), _openness(new_extra)
         if old_open != new_open:
-            judge(path, "additional keys changed", new_open > old_open, reader)
+            # A reader of a document ignores keys it does not know, as for a new property: opening
+            # a closed output object adds. Opening a schema-valued map breaks a reader of its values.
+            if old_open == 0 and not reader:
+                add.append(f"{path}: additional keys changed")
+            else:
+                judge(path, "additional keys changed", new_open > old_open, reader)
         elif old_open == 1:
             visit(f"{path}.*", old_extra, new_extra, roots, reader, seen)
 
