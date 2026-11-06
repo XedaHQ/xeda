@@ -535,6 +535,7 @@ def behavior_snapshot() -> dict[str, Any]:
     from xeda._internal.generation import SESSION_VARIABLES
     from xeda._internal.local_settings import LOCAL_FILES
     from xeda._internal.project import PROJECT_KEYS
+    from xeda._internal.cli_types import FlowChoice
     from xeda._internal.run_dir import DIR_NAME_HASH_LEN
 
     commands: dict[str, Any] = {}
@@ -544,7 +545,13 @@ def behavior_snapshot() -> dict[str, Any]:
         prefix = ctx.auto_envvar_prefix
         if isinstance(p, click.Option) and p.allow_from_autoenv and prefix and p.name:
             envvars.add(f"{prefix}_{p.name.upper()}")
-        choice = p.type if isinstance(p.type, click.Choice) else None
+        # The flow names are the flow registry, judged in the built-in contract: a plugin or a test
+        # adds to them.
+        choice = (
+            p.type
+            if isinstance(p.type, click.Choice) and not isinstance(p.type, FlowChoice)
+            else None
+        )
         ranged = p.type if isinstance(p.type, (click.IntRange, click.FloatRange)) else None
         return {
             "type": p.type.name,

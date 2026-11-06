@@ -236,8 +236,9 @@ def unit_after_space_hint(message: str, args: Sequence[str]) -> Optional[str]:
     return None
 
 
-class _DeclaredEnvvars:
-    """Options read only the environment variables that they declare (`envvar=`).
+def _declared_envvars_only(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """The settings of a command or group whose options read only the environment variables
+    that they declare (`envvar=`).
 
     With an `auto_envvar_prefix`, every option has a hidden second name. A leftover
     `export XEDA_CLEAN=1` would then empty every run directory on every run, and
@@ -246,21 +247,21 @@ class _DeclaredEnvvars:
     in the help), and derives a prefix from the command name when none is given, so both the
     settings of the command and its context drop the prefix.
     """
+    return {
+        **kwargs,
+        "context_settings": {**(kwargs.get("context_settings") or {}), "auto_envvar_prefix": None},
+    }
+
+
+class XedaCommand(ColorizedCommand):
+    """The command class of the Xeda commands. Its options read only the environment variables
+    that they declare. It suggests only options that its help lists, and explains a unit that a
+    user wrote after a space."""
 
     context_class = _DeclaredEnvvarsContext
 
     def __init__(self, *args, **kwargs) -> None:
-        kwargs["context_settings"] = {
-            **(kwargs.get("context_settings") or {}),
-            "auto_envvar_prefix": None,
-        }
-        super().__init__(*args, **kwargs)
-
-
-class XedaCommand(_DeclaredEnvvars, ColorizedCommand):
-    """The command class of the Xeda commands. Its options read only the environment variables
-    that they declare. It suggests only options that its help lists, and explains a unit that a
-    user wrote after a space."""
+        super().__init__(*args, **_declared_envvars_only(kwargs))
 
     def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
         command_line = list(args)  # the parser consumes `args`
@@ -275,10 +276,15 @@ class XedaCommand(_DeclaredEnvvars, ColorizedCommand):
             raise click.UsageError(f"{error.message}. {hint}", ctx=error.ctx) from error
 
 
-class XedaHelpGroup(_DeclaredEnvvars, ColorizedGroup):
+class XedaHelpGroup(ColorizedGroup):
     """The command group that shows the Xeda help screens and reports errors in the requested
     output format. Its options, like those of its commands, read only the environment variables
     that they declare."""
+
+    context_class = _DeclaredEnvvarsContext
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **_declared_envvars_only(kwargs))
 
     command_class = XedaCommand
 
