@@ -201,6 +201,20 @@ def test_a_new_optional_design_key_is_additive() -> None:
     assert not breaking
 
 
+def test_a_new_optional_key_of_the_design_and_its_targets_is_additive() -> None:
+    """A target is an overlay that takes the design's own keys, and the loader refuses an unknown
+    key of a target as of the design."""
+    old = _schemas()
+    new = copy.deepcopy(old)
+    new["design"]["properties"]["note"] = {"type": "string"}
+    new["design"]["properties"]["targets"]["additionalProperties"]["properties"]["note"] = {
+        "type": "string"
+    }
+    additive, breaking = _classify(old, new)
+    assert not breaking and len(additive) == 2
+    assert _classify(new, old)[1]
+
+
 def test_a_removed_document_is_breaking_and_a_new_one_is_additive() -> None:
     schemas = _schemas()
     assert _classify(schemas, {k: v for k, v in schemas.items() if k != "run"})[1]
@@ -512,6 +526,7 @@ PROBES = {
     "oneOf drops the overlapping branch": (
         {"oneOf": [NUM, INT]}, {"oneOf": [INT]}, "breaks", "breaks",
     ),
+    "oneOf drops a duplicate branch": ({"oneOf": [INT, INT]}, {"oneOf": [INT]}, "breaks", "breaks"),
     "oneOf of equal branches in another order": (
         {"oneOf": [NUM, INT]}, {"oneOf": [INT, NUM]}, "same", "same",
     ),

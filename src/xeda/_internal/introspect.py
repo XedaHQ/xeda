@@ -1033,7 +1033,8 @@ def _add_targets(schema: dict[str, Any]) -> None:
         "is selected with `--target NAME`; without it, the design is used with no target. "
         "A target name cannot be the name of a flow.",
         "propertyNames": {"pattern": f"^{DESIGN_NAME.pattern}$"},
-        "additionalProperties": {"type": "object", "properties": properties},
+        # The loader refuses an unknown key of a target, as of the design.
+        "additionalProperties": {"type": "object", "properties": properties, CLOSED_KEY: True},
     }
 
 

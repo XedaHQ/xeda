@@ -1860,7 +1860,11 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
             match = next((j for j, k in enumerate(new_kinds) if k == kind and j not in used), None)
             if match is None:
                 match = next(
-                    (j for j, k in enumerate(new_kinds) if _covers(k, kind) or _covers(kind, k)),
+                    (
+                        j
+                        for j, k in enumerate(new_kinds)
+                        if j not in used and (_covers(k, kind) or _covers(kind, k))
+                    ),
                     None,
                 )
             if match is None:
