@@ -35,6 +35,7 @@ NOTEBOOK_PROBES: dict[str, tuple] = {
     "03-sweep": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "04-plan": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "05-generated": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
+    "06-qor-history": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
 }
 
 # The probe of each flow that a notebook may launch, and of the cocotb testbenches.
@@ -312,6 +313,15 @@ def test_the_generated_notebook_compares_variants_by_their_exact_bytes(execution
     assert (out / "delivered" / "counter.v").read_bytes() == expected[16]
     for run in (nb, again):
         assert cell_output(run, "delivered-bytes").splitlines() == ["True", "[('generator', True)]"]
+
+
+def test_the_history_notebook_reads_past_runs(executions):
+    work, nb, again = executions("06-qor-history")
+    rows = (work / "notebook-output" / "history.csv").read_text().splitlines()
+    for run in (nb, again):
+        assert cell_output(run, "empty-history").startswith("no runs yet")
+        assert "nosuch.metric" in cell_output(run, "missing-metric")
+        assert cell_output(run, "csv-rows") == str(len(rows) - 1) == "4"
 
 
 PLAN_OUTPUTS = {

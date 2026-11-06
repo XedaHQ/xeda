@@ -12,6 +12,8 @@ Each numbered notebook shows one part of the Python API. The test suite runs the
 - `04-plan.ipynb`: see what a launch will do, inspect a node, run the plan, and get a stale plan
   and settings errors.
 - `05-generated.ipynb`: compare variants of a design that a generator writes.
+- `06-qor-history.ipynb`: read the records of past runs, build a table of settings and metrics, and
+  plot a metric over time.
 
 ## Run a notebook
 
