@@ -668,3 +668,113 @@ def test_the_cli_snapshot_records_choices_environment_and_arguments() -> None:
     assert level["environment"] == ["XEDA_LOG_LEVEL"]
     assert [a["name"] for a in commands["xeda run"]["arguments"]] == ["flow", "design_file"]
     assert commands["xeda remote clean"]["options"]["older_than"]["range"][0] == 0
+
+
+# ------------------------------------------------------------------ the review of the classifier
+
+
+def _setting(schema: dict, **entry: object) -> dict:
+    return {"type": "object", "unit": None, "default": {}, "schema": schema} | entry
+
+
+def _judge_settings(old: dict, new: dict) -> tuple[list[str], list[str]]:
+    return tool.classify(_contract(a=_flow(s=old)), _contract(a=_flow(s=new)), kind="contract")
+
+
+def test_a_changed_default_table_of_a_plain_setting_breaks_and_a_group_may_gain_a_key() -> None:
+    """A table that is the default of a setting stays as it is; only a settings group gains a
+    key, together with a new leaf."""
+    plain = _judge_settings(
+        _setting({"type": "object"}), _setting({"type": "object"}, default={"x": 1})
+    )
+    assert plain[1] and not plain[0]
+    old = _contract(a=_flow(g={"type": "G", "unit": None, "default": {}}))
+    new = _contract(a=_flow(g={"type": "G", "unit": None, "default": {"x": 1}}))
+    assert tool.classify(old, new, kind="contract") == (["a.settings.g.x: default added"], [])
+
+
+def test_the_default_of_ghdl_sim_env_is_not_a_group_default() -> None:
+    contract = tool.builtin_contract()
+    entry = contract["flows"]["ghdl_sim"]["settings"]["env"]
+    assert "schema" in entry
+    new = copy.deepcopy(contract)
+    new["flows"]["ghdl_sim"]["settings"]["env"]["default"] = {"X": "1"}
+    assert tool.classify(contract, new, kind="contract")[1]
+
+
+def test_a_new_property_of_an_open_setting_schema_narrows() -> None:
+    open_object = {"type": "object"}
+    with_property = {"type": "object", "properties": {"a": {"type": "string"}}}
+    assert _judge_settings(_setting(open_object), _setting(with_property))[1]
+    closed = {"type": "object", "additionalProperties": False}
+    assert not _judge_settings(_setting(closed), _setting(closed | with_property))[1]
+
+
+NS = {"type": "string", "x-xeda-quantity": "time", "x-xeda-unit": "ns"}
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "breaks"),
+    [
+        ("x-xeda-unit", "s", True),
+        ("x-xeda-quantity", "frequency", True),
+        ("x-xeda-measure", "percent", True),
+        ("x-xeda-writes", "working", True),
+        ("x-xeda-tier", "expert", False),
+        ("x-xeda-experimental", True, False),
+        ("x-xeda-input-only", True, False),
+    ],
+)
+def test_the_xeda_extensions_of_a_nested_schema_are_judged_or_ignored(
+    key: str, value: object, breaks: bool
+) -> None:
+    def setting(node: dict) -> dict:
+        return _setting({"type": "object", "properties": {"x": node}})
+
+    result = _judge_settings(setting(NS), setting(NS | {key: value}))
+    assert bool(result[1]) is breaks
+
+
+def test_a_changed_unit_of_a_nested_definition_breaks() -> None:
+    contract = tool.builtin_contract()
+    flow = contract["flows"]["openroad_place"]
+    new = copy.deepcopy(contract)
+    clock = new["flows"]["openroad_place"]["$defs"]["PhysicalClock"]["properties"]["period"]
+    assert "x-xeda-unit" in json.dumps(flow["$defs"]["PhysicalClock"]["properties"]["period"])
+    for node in [clock, *clock.get("anyOf", ())]:
+        if "x-xeda-unit" in node:
+            node["x-xeda-unit"] = "other"
+    assert tool.classify(contract, new, kind="contract")[1]
+
+
+def test_an_unlisted_xeda_extension_is_an_error_in_the_contract() -> None:
+    node = {"type": "object", "properties": {"x": {"type": "string", "x-xeda-bogus": 1}}}
+    with pytest.raises(ValueError, match="x-xeda-bogus"):
+        _judge_settings(_setting({"type": "object"}), _setting(node))
+
+
+def test_a_mark_inside_an_experimental_group_is_not_judged() -> None:
+    """The old mark covers the subtree, so a mark on a leaf in it is no new mark."""
+    old = _group({"x": True, "y": True})
+    old["g"]["experimental"] = True
+    new = copy.deepcopy(old)
+    new["g.x"]["experimental"] = True
+    assert tool.classify(_contract(a=_flow(**old)), _contract(a=_flow(**new)), kind="contract") == (
+        [],
+        [],
+    )
+    # a sibling group outside the mark is still judged
+    sibling = {"s": {"type": "boolean", "unit": None, "default": True}}
+    marked = _contract(a=_flow(**old, **sibling))
+    unmarked_sibling = copy.deepcopy(marked)
+    unmarked_sibling["flows"]["a"]["settings"]["s"]["experimental"] = True
+    assert tool.classify(marked, unmarked_sibling, kind="contract")[1]
+
+
+def test_clicks_sentinel_for_an_omitted_default_is_recorded_as_none() -> None:
+    from click.core import UNSET
+
+    assert tool._option_default(UNSET) is None
+    assert tool._option_default(None) is None
+    assert tool._option_default(3) == 3
+    assert "Sentinel" not in json.dumps(tool.behavior_snapshot())

@@ -149,15 +149,16 @@ baseline after its release.
 
 Xeda reads settings, CLI options and arguments, and the design file. For these, accepting more is
 an addition and accepting less is a break. A setting keeps its name, unit and default: a changed
-default, a removed table key in a default, a removed choice, a narrower bound or type, a new
-required setting and a new required nested field are breaks. A new choice, a wider type or bound,
-a new optional nested field and a new optional setting are additions. A flow keeps its declared
+default (a settings group may add a key together with a new leaf), a removed table key in a
+default, a removed choice, a narrower bound or type, a new constraint on keys that an object
+accepted before, a new required setting and a new required nested field are breaks. A new choice,
+a wider type or bound, a new optional nested field and a new optional setting are additions. A flow keeps its declared
 inputs: a removed input, a removed kind and a new required input are breaks. A CLI option keeps its
 names, choices, environment variables, type, ``nargs`` and default. An argument keeps its
 position, and a new argument is an addition only if it is optional and last.
 
-For a document that Xeda writes, a removed key, a changed type, any change of an enum or a key that
-is no longer required is a break, and a new optional key is an addition. Other tests check the
+For a document that Xeda writes, a removed key, a wider or unrelated type, any change of an enum or
+a key that is no longer required is a break. A new optional key and a narrower type are additions. Other tests check the
 rules on this page that a snapshot cannot hold, such as the order of the settings layers and the
 exit statuses.
 

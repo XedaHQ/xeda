@@ -222,7 +222,7 @@ def _property(schema: dict[str, Any], **extra: Any) -> dict[str, Any]:
         # an output document: any other type or enum breaks a reader
         ("run", STRING, {"type": "integer"}, "breaks"),
         ("run", STRING, NULLABLE, "breaks"),
-        ("run", NULLABLE, STRING, "breaks"),
+        ("run", NULLABLE, STRING, "adds"),  # every new value meets the old promise
         ("run", {"enum": ["a", "b"]}, {"enum": ["a"]}, "breaks"),
         ("run", {"enum": ["a"]}, {"enum": ["a", "b"]}, "breaks"),
         ("run", {"type": "array", "items": STRING}, {"type": "array", "items": NULLABLE}, "breaks"),
@@ -350,7 +350,7 @@ ARR = {"type": "array"}
 # old, new, effect on the design file (input), effect on a written document (output)
 RULES = {
     "integer to number": ({"type": "integer"}, NUM, "adds", "breaks"),
-    "number to integer": (NUM, {"type": "integer"}, "breaks", "breaks"),
+    "number to integer": (NUM, {"type": "integer"}, "breaks", "adds"),
     "anyOf to oneOf": ({"anyOf": [NUM]}, {"oneOf": [NUM]}, "breaks", "breaks"),
     "oneOf to anyOf": ({"oneOf": [NUM, STRING]}, {"anyOf": [NUM, STRING]}, "breaks", "breaks"),
     "minimum looser": (NUM | {"minimum": 2}, NUM | {"minimum": 1}, "adds", "breaks"),
@@ -474,3 +474,219 @@ def test_a_metadata_keyword_is_not_judged(keyword: str) -> None:
 def test_a_keyword_that_the_classifier_does_not_judge_is_an_error(keyword: str) -> None:
     with pytest.raises(ValueError, match=keyword):
         _effect("design", STRING, STRING | {keyword: []})
+
+
+# ------------------------------------------------------------------ the review of the classifier
+
+INT = {"type": "integer"}
+NULL = {"type": "null"}
+
+
+def _judge(old: Any, new: Any, document: str = "design") -> str:
+    """The effect of a change of a whole document schema; `design` is read by Xeda."""
+    additive, found = _classify({document: old}, {document: new})
+    return "breaks" if found else "adds" if additive else "same"
+
+
+def _object(**extra: Any) -> dict[str, Any]:
+    return OBJ | extra
+
+
+OPEN = _object(additionalProperties=True)
+CLOSED = _object(additionalProperties=False)
+# old, new, effect on the design file (input), effect on a written document (output)
+PROBES = {
+    # a required name needs no property
+    "required without a property": (OBJ, _object(required=["x"]), "breaks", "adds"),
+    "required dropped without a property": (_object(required=["x"]), OBJ, "adds", "breaks"),
+    # alternatives
+    "singleton anyOf retyped": ({"anyOf": [STRING]}, {"anyOf": [INT]}, "breaks", "breaks"),
+    "singleton anyOf widened": ({"anyOf": [INT]}, {"anyOf": [NUM]}, "adds", "breaks"),
+    "oneOf gains an overlapping branch": (
+        {"oneOf": [NUM, STRING]}, {"oneOf": [NUM, STRING, INT]}, "breaks", "breaks",
+    ),
+    "oneOf gains a disjoint branch": (
+        {"oneOf": [NUM, STRING]}, {"oneOf": [NUM, STRING, NULL]}, "adds", "breaks",
+    ),
+    "oneOf loses a branch": ({"oneOf": [NUM, STRING]}, {"oneOf": [NUM]}, "breaks", "adds"),
+    "nullable integer to number": (
+        {"anyOf": [INT, NULL]}, {"anyOf": [NUM, NULL]}, "adds", "breaks",
+    ),
+    "nullable number to integer": (
+        {"anyOf": [NUM, NULL]}, {"anyOf": [INT, NULL]}, "breaks", "adds",
+    ),
+    "enum branch to string": (
+        {"anyOf": [{"enum": ["a"]}, NULL]}, {"anyOf": [STRING, NULL]}, "adds", "breaks",
+    ),
+    "branch added to anyOf": ({"anyOf": [STRING]}, {"anyOf": [STRING, NULL]}, "adds", "breaks"),
+    "branch removed from anyOf": ({"anyOf": [STRING, NULL]}, {"anyOf": [STRING]}, "breaks", "adds"),
+    "plain to anyOf with a bound": (
+        STRING | {"minLength": 1}, {"anyOf": [STRING, NULL], "minLength": 2}, "breaks", "breaks",
+    ),
+    # an object that gains or loses a property, where the loader of the design file is not the judge
+    "property on an open object": (OPEN, _object(additionalProperties=True, properties={"a": STRING}), "breaks", "adds"),
+    "property that accepts everything": (OPEN, _object(additionalProperties=True, properties={"a": {}}), "adds", "adds"),
+    "property on a closed object": (CLOSED, CLOSED | {"properties": {"a": STRING}}, "adds", "adds"),
+    "property on a map of strings": (
+        _object(additionalProperties=STRING),
+        _object(additionalProperties=STRING, properties={"a": STRING}),
+        "adds", "adds",
+    ),
+    "property on a map, narrower": (
+        _object(additionalProperties=NULLABLE),
+        _object(additionalProperties=NULLABLE, properties={"a": STRING}),
+        "breaks", "adds",
+    ),
+    "property on a map, other type": (
+        _object(additionalProperties=STRING),
+        _object(additionalProperties=STRING, properties={"a": INT}),
+        "breaks", "adds",
+    ),
+    "property removed from an open object": (
+        _object(additionalProperties=True, properties={"a": STRING}), OPEN, "adds", "breaks",
+    ),
+    "property removed from a closed object": (
+        CLOSED | {"properties": {"a": STRING}}, CLOSED, "breaks", "breaks",
+    ),
+    "property removed from a map, wider": (
+        _object(additionalProperties=NULLABLE, properties={"a": STRING}),
+        _object(additionalProperties=NULLABLE), "adds", "breaks",
+    ),
+    "property removed from a map, narrower": (
+        _object(additionalProperties=STRING, properties={"a": NULLABLE}),
+        _object(additionalProperties=STRING), "breaks", "breaks",
+    ),
+    "pattern on an open object": (
+        OPEN, _object(additionalProperties=True, patternProperties={"^a": STRING}), "breaks", "adds",
+    ),
+    "pattern that accepts everything": (
+        OPEN, _object(additionalProperties=True, patternProperties={"^a": {}}), "adds", "adds",
+    ),
+    "pattern on a closed object": (
+        CLOSED, CLOSED | {"patternProperties": {"^a": STRING}}, "adds", "adds",
+    ),
+    "pattern that overlaps a property": (
+        CLOSED | {"properties": {"ab": NUM}}, CLOSED | {"properties": {"ab": NUM}, "patternProperties": {"^a": STRING}},
+        "breaks", "adds",
+    ),
+    "second pattern": (
+        CLOSED | {"patternProperties": {"^a": STRING}},
+        CLOSED | {"patternProperties": {"^a": STRING, "^ab": STRING}}, "breaks", "adds",
+    ),
+    "pattern removed from an open object": (
+        _object(additionalProperties=True, patternProperties={"^a": STRING}), OPEN, "adds", "breaks",
+    ),
+    "pattern removed from a closed object": (
+        CLOSED | {"patternProperties": {"^a": STRING}}, CLOSED, "breaks", "breaks",
+    ),
+    "property under a pattern that stays": (
+        CLOSED | {"properties": {"ab": STRING}, "patternProperties": {"^a": STRING}},
+        CLOSED | {"patternProperties": {"^a": STRING}}, "adds", "breaks",
+    ),
+    # the design file refuses a key that no property names, so a new key narrows nothing
+    "property on an object of the design file": (OBJ, _object(properties={"a": STRING}), "adds", "adds"),
+    "property removed from an object of the design file": (
+        _object(properties={"a": STRING}), OBJ, "breaks", "breaks",
+    ),
+    # `true`, `false` and an absent schema
+    "false to true": (False, True, "adds", "breaks"),
+    "true to false": (True, False, "breaks", "adds"),
+    "false to a schema": (False, STRING, "adds", "breaks"),
+    "items unrestricted to forbidden": (ARR | {"items": {}}, ARR | {"items": False}, "breaks", "adds"),
+    "items forbidden to unrestricted": (ARR | {"items": False}, ARR | {"items": {}}, "adds", "breaks"),
+    "items added as a schema": (ARR, ARR | {"items": STRING}, "breaks", "adds"),
+    "propertyNames forbidden": (OBJ, OBJ | {"propertyNames": False}, "breaks", "adds"),
+    "propertyNames allowed again": (OBJ | {"propertyNames": False}, OBJ, "adds", "breaks"),
+    # a narrower output type is additive, an output enum stays a closed set
+    "number to integer as output": (NUM, INT, "breaks", "adds"),
+    "string list to string": (NULLABLE, STRING, "breaks", "adds"),
+    "type removed": (STRING, {}, "adds", "breaks"),
+    "type added": ({}, STRING, "breaks", "adds"),
+    # `const` beside `enum` keeps the values of both
+    "const narrows an enum": (
+        {"enum": ["a", "b"]}, {"enum": ["a", "b"], "const": "a"}, "breaks", "breaks",
+    ),
+    "const outside the enum": (
+        {"enum": ["a"]}, {"enum": ["a", "b"], "const": "b"}, "breaks", "breaks",
+    ),
+    "const beside the same enum": (
+        {"enum": ["a"]}, {"enum": ["a", "b"], "const": "a"}, "same", "same",
+    ),
+    # enum values compare as JSON values
+    "enum 1 and 1.0": ({"enum": [1]}, {"enum": [1.0]}, "same", "same"),
+    "enum keys in another order": (
+        {"enum": [{"a": 1, "b": 2}]}, {"enum": [{"b": 2, "a": 1}]}, "same", "same",
+    ),
+    "enum true and 1": ({"enum": [True]}, {"enum": [1]}, "breaks", "breaks"),
+    "enum false and 0": ({"enum": [0, False]}, {"enum": [0]}, "breaks", "breaks"),
+    # a meaning of a value
+    "unit changed": (
+        STRING | {"x-xeda-unit": "ns"}, STRING | {"x-xeda-unit": "s"}, "breaks", "breaks",
+    ),
+    "tier changed": (
+        STRING | {"x-xeda-tier": "common"}, STRING | {"x-xeda-tier": "expert"}, "same", "same",
+    ),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("name", sorted(PROBES))
+def test_the_classifier_gives_the_review_probes_the_right_verdict(name: str) -> None:
+    old, new, as_input, as_output = PROBES[name]
+    assert (_judge(old, new), _judge(old, new, "run")) == (as_input, as_output)
+
+
+def test_a_new_property_of_an_open_input_object_narrows_where_the_loader_is_not_the_judge() -> None:
+    """The design file refuses a key that no property names (`_judge` says so for `design`). A
+    schema that is open and says nothing more (a setting of a flow) accepts any other key."""
+    old, new = [OBJ, _object(properties={"a": STRING})]
+    visit = tool._schema_visitor(additive := [], breaking := [])
+    visit("x", old, new, (old, new), True, frozenset())
+    assert breaking and not additive
+
+
+def test_a_standalone_required_name_is_judged_inside_a_definition() -> None:
+    def schema(required: list[str]) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {"x": {"$ref": "#/$defs/a"}},
+            "$defs": {"a": OBJ | {"anyOf": [{"required": required}, {"required": ["p"]}]}},
+        }
+
+    assert _judge(schema(["q"]), schema(["q", "r"])) == "breaks"
+    assert _judge(schema(["q"]), schema(["q"])) == "same"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"allOf": [STRING]}, {"if": {}}, {"x-xeda-bogus": 1}],
+    ids=["allOf", "if", "unlisted x-xeda key"],
+)
+@pytest.mark.parametrize(
+    "where", ["new property", "old property", "branch", "definition", "map value", "tuple"]
+)
+def test_a_keyword_that_nothing_judges_is_an_error_in_every_node_of_both_schemas(
+    bad: dict, where: str
+) -> None:
+    def build(node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "new property": _object(properties={"a": node}),
+            "old property": _object(properties={"a": node}),
+            "branch": {"anyOf": [STRING, node]},
+            "definition": _object(**{"$defs": {"a": node}}),
+            "map value": _object(additionalProperties=node),
+            "tuple": ARR | {"prefixItems": [node]},
+        }[where]
+
+    plain = OBJ if where != "branch" else STRING
+    pair = (plain, build(bad)) if where != "old property" else (build(bad), plain)
+    with pytest.raises(ValueError, match=next(iter(bad))):
+        _judge(*pair)
+
+
+def test_a_property_that_the_design_file_names_is_unchanged_by_an_unrelated_new_key() -> None:
+    """The classifier compares real design files too: a new optional key stays additive."""
+    old = _schemas()
+    new = copy.deepcopy(old)
+    new["design"]["$defs"]["Rtl"]["properties"]["seed"] = {"type": "integer"}
+    additive, breaking = _classify(old, new)
+    assert additive and not breaking

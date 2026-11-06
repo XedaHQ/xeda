@@ -24,6 +24,7 @@ import functools
 import hashlib
 import importlib
 import inspect
+import itertools
 import json
 import pathlib
 import re
@@ -514,8 +515,13 @@ def builtin_contract() -> dict[str, Any]:
 
 
 def _option_default(value: Any) -> Any:
-    """A literal default as itself; any other default (a callable, a sentinel) by its type name."""
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """A literal default as itself, an omitted one (Click's sentinel) as `None`, and any other
+    default (a callable) by its type name."""
+    from click.core import UNSET
+
+    if value is None or value is UNSET:
+        return None
+    if isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, (tuple, list)) and all(
         isinstance(v, (bool, int, float, str)) for v in value
@@ -1297,13 +1303,17 @@ def _without_leaf(default: Any, path: list[str]) -> Any:
     return {**default, path[0]: _without_leaf(default[path[0]], path[1:])}
 
 
-def _classify_default(path: str, old: Any, new: Any, add: list[str], brk: list[str]) -> None:
-    """A changed default breaks. A table must keep each of its keys; a new key is an addition."""
-    if isinstance(old, dict) and isinstance(new, dict):
+def _classify_default(
+    path: str, old: Any, new: Any, grouped: bool, add: list[str], brk: list[str]
+) -> None:
+    """A changed default breaks. The default of a settings group is a table that must keep each of
+    its keys; a new key is an addition, since it comes with a new leaf. Any other table must stay
+    as it is."""
+    if grouped and isinstance(old, dict) and isinstance(new, dict):
         brk.extend(f"{path}.{k}: default removed" for k in sorted(old.keys() - new.keys()))
         add.extend(f"{path}.{k}: default added" for k in sorted(new.keys() - old.keys()))
         for key in sorted(old.keys() & new.keys()):
-            _classify_default(f"{path}.{key}", old[key], new[key], add, brk)
+            _classify_default(f"{path}.{key}", old[key], new[key], grouped, add, brk)
     elif old != new:
         brk.append(f"{path}: default changed from {old!r} to {new!r}")
 
@@ -1321,7 +1331,8 @@ def _classify_setting(
         else:
             brk.append(f"{path}: now required")
     elif "default" in old:
-        _classify_default(path, old["default"], new["default"], add, brk)
+        # A settings group records no schema.
+        _classify_default(path, old["default"], new["default"], "schema" not in old, add, brk)
     if ("schema" in old) != ("schema" in new):
         brk.append(f"{path}: a setting and a settings group exchanged")
     elif "schema" in old:
@@ -1370,6 +1381,11 @@ def _classify_contract(
     """Compare the built-in flows. What the old baseline marks `experimental` is not judged: a
     flow mark covers the flow, and a setting mark covers the setting, its subtree and its part of
     the default of each enclosing group. A new mark on a stable item breaks; a removed mark adds."""
+    for contract in (old, new):  # a keyword that nothing judges is an error, marked or not
+        for name, flow in contract["flows"].items():
+            _check_keywords(f"{name}.$defs", {"$defs": flow.get("$defs", {})})
+            for key, entry in flow["settings"].items():
+                _check_keywords(f"{name}.settings.{key}", entry.get("schema"))
     experimental_flows = {n for n, f in old["flows"].items() if f.get("experimental")}
     kept = {n for n in old["flows"] if n in new["flows"] or n not in experimental_flows}
     _diff_names("flows", "flow", kept, new["flows"].keys(), add, brk)
@@ -1387,6 +1403,8 @@ def _classify_contract(
             if group == "settings":
                 marked = [k for k, v in a.items() if v.get("experimental")]
                 for key in a.keys() & b.keys():
+                    if any(key.startswith(mark + ".") for mark in marked):
+                        continue  # the subtree of an old mark is not judged
                     if bool(a[key].get("experimental")) != bool(b[key].get("experimental")):
                         if b[key].get("experimental"):
                             brk.append(f"{name}.{group}.{key}: newly marked experimental")
@@ -1526,10 +1544,12 @@ def _type_set(node: dict[str, Any]) -> frozenset[str] | None:
     return frozenset([kind] if isinstance(kind, str) else kind)
 
 
-def _branches(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _branches(node: dict[str, Any], spread: bool) -> list[Any]:
+    """The alternatives of a schema. With `spread`, the keywords beside the combinator join each."""
     for key in ("anyOf", "oneOf"):
         if key in node:
-            return list(node[key])
+            rest = _without_branches(node) if spread else {}
+            return [{**rest, **b} if isinstance(b, dict) else b for b in node[key]]
     return [node]
 
 
@@ -1541,12 +1561,65 @@ def _without_branches(node: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in node.items() if key not in ("anyOf", "oneOf")}
 
 
-def _branch_kind(node: dict[str, Any]) -> str:
-    """What pairs a branch of an old schema with a branch of a new one."""
-    if "enum" in node:
-        return "enum"
-    kind = _type_set(node)
-    return "any" if kind is None else "|".join(sorted(kind))
+_JSON_NAMES = {
+    bool: "boolean", int: "integer", float: "number", str: "string", type(None): "null",
+    list: "array", dict: "object",
+}  # fmt: skip
+
+
+def _value_type(value: Any) -> str:
+    """The narrowest JSON type of a value: `1.0` is an `integer`."""
+    if isinstance(value, float) and value.is_integer():
+        return "integer"
+    return _JSON_NAMES[type(value)]
+
+
+def _accepted_types(node: dict[str, Any]) -> frozenset[str] | None:
+    """The JSON types that a schema accepts: its `type`, else the types of its `enum` or `const`
+    values. `None` means any."""
+    if "type" not in node and ("enum" in node or "const" in node):
+        values = node["enum"] if "enum" in node else [node["const"]]
+        return frozenset(_value_type(v) for v in values)
+    return _type_set(node)
+
+
+def _branch_types(node: dict[str, Any]) -> frozenset[str] | None:
+    """What pairs a branch of an old schema with one of a new schema: its types, with `integer`
+    as `number`."""
+    kind = _accepted_types(node)
+    return None if kind is None else frozenset("number" if t == "integer" else t for t in kind)
+
+
+def _covers(wide: frozenset[str] | None, narrow: frozenset[str] | None) -> bool:
+    """Whether the types `wide` accept every value of the types `narrow`; `None` is any."""
+    return wide is None or (narrow is not None and _with_integers(narrow) <= _with_integers(wide))
+
+
+def _canonical(value: Any) -> Any:
+    """A JSON value as a hashable that compares as JSON does: `1` equals `1.0`, `true` is no `1`."""
+    if isinstance(value, (bool, str)) or value is None:
+        return type(value).__name__, value
+    if isinstance(value, (int, float)):
+        return "number", fractions.Fraction(str(value))
+    if isinstance(value, list):
+        return "array", tuple(_canonical(v) for v in value)
+    return "object", frozenset((k, _canonical(v)) for k, v in value.items())
+
+
+def _enum_values(node: dict[str, Any]) -> frozenset[Any] | None:
+    """The values that `enum` and `const` allow together, or `None` for a node with neither."""
+    found = [frozenset(_canonical(v) for v in node["enum"])] if "enum" in node else []
+    if "const" in node:
+        found.append(frozenset([_canonical(node["const"])]))
+    return frozenset.intersection(*found) if found else None
+
+
+def _may_match(pattern: str, name: str) -> bool:
+    """Whether a `patternProperties` regular expression may match the key `name`."""
+    try:
+        return re.search(pattern, name) is not None
+    except re.error:
+        return True
 
 
 #: Keywords that describe a schema and do not change what it accepts.
@@ -1573,6 +1646,37 @@ _SCHEMA_JUDGED = frozenset(
 _SCHEMA_OPAQUE = ("not", "schema_version")
 _SCHEMA_JUDGED |= set(_SCHEMA_OPAQUE)
 _SCHEMA_JUDGED |= {key for group in _SCHEMA_BOUNDS for key in group}
+#: The `x-xeda-*` keys that say what a value means (its unit, the file it names): any change breaks.
+_SCHEMA_MEANING = (
+    "x-xeda-unit", "x-xeda-quantity", "x-xeda-measure", "x-xeda-writes", "x-xeda-output",
+    "x-xeda-always", "x-xeda-waveform", "x-xeda-locator", "x-xeda-inline-prefix",
+)  # fmt: skip
+#: The `x-xeda-*` keys that are not judged: `tier` and `input-only` only sort a listing, and the
+#: built-in contract judges the mark `experimental` on the entry of the setting.
+_SCHEMA_LISTING = ("x-xeda-tier", "x-xeda-input-only", "x-xeda-experimental")
+_SCHEMA_KNOWN = _SCHEMA_JUDGED | _SCHEMA_METADATA | {"$ref", *_SCHEMA_MEANING, *_SCHEMA_LISTING}
+#: The keywords whose value is a schema, a list of schemas or a table of schemas.
+_SUBSCHEMA = ("items", "additionalProperties", "propertyNames", "not")
+_SUBSCHEMAS = ("anyOf", "oneOf", "prefixItems")
+_SUBSCHEMA_TABLES = ("properties", "patternProperties", "$defs")
+
+
+def _check_keywords(path: str, node: Any) -> None:
+    """Raise `ValueError` for a keyword anywhere in the schema `node` that nothing judges. Another
+    tool's `x-*` key is metadata, and an `x-xeda-*` key must be listed above."""
+    if not isinstance(node, dict):
+        return
+    for key in node:
+        if key not in _SCHEMA_KNOWN and (not key.startswith("x-") or key.startswith("x-xeda-")):
+            raise ValueError(f"{path}: the schema keyword {key!r} is not compared")
+    for key in _SUBSCHEMA:
+        _check_keywords(f"{path}.{key}", node.get(key))
+    for key in _SUBSCHEMAS:
+        for index, item in enumerate(node.get(key, ())):
+            _check_keywords(f"{path}.{key}[{index}]", item)
+    for key in _SUBSCHEMA_TABLES:
+        for name, item in node.get(key, {}).items():
+            _check_keywords(f"{path}.{key}.{name}", item)
 
 
 def _with_integers(types: frozenset[str]) -> frozenset[str]:
@@ -1592,10 +1696,14 @@ def _tightness(node: dict[str, Any], group: dict[str, bool]) -> tuple[float, boo
     return max(found, default=(float("-inf"), False))
 
 
-def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
+def _schema_visitor(
+    add: list[str], brk: list[str], unknown_keys_rejected: bool = False
+) -> Callable[..., None]:
     """The visitor `visit(path, before, after, roots, reader, seen)` of two schemas that records
     the differences in `add` and `brk`. `roots` are the documents that a `$ref` resolves against;
-    `reader` is true for an input, which Xeda reads."""
+    `reader` is true for an input, which Xeda reads. An input schema that says nothing about other
+    keys (`additionalProperties` absent) is open, unless `unknown_keys_rejected`: the loader of the
+    design file refuses a key that no property names."""
 
     def judge(path: str, message: str, widened: bool, reader: bool) -> None:
         """Input accepts more or output promises more: additive. The reverse breaks."""
@@ -1632,18 +1740,28 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
                 (add if dropped or added else brk).append(f"{path}: {key} changed")
         if "default" in before and "default" in after and before["default"] != after["default"]:
             brk.append(f"{path}: default changed")
-        for key in _SCHEMA_OPAQUE:
+        for key in (*_SCHEMA_OPAQUE, *_SCHEMA_MEANING):
             if before.get(key) != after.get(key):
                 brk.append(f"{path}: {key} changed")
         old_names, new_names = before.get("propertyNames"), after.get("propertyNames")
         if old_names is not None or new_names is not None:
-            visit(f"{path}.names", old_names or {}, new_names or {}, roots, reader, seen)
+            visit(
+                f"{path}.names", True if old_names is None else old_names,
+                True if new_names is None else new_names, roots, reader, seen,
+            )  # fmt: skip
 
     def visit(
         path: str, before: Any, after: Any, roots: tuple[Any, Any], reader: bool,
         seen: frozenset[tuple[str, str]],
     ) -> None:  # fmt: skip
-        if not (isinstance(before, dict) and isinstance(after, dict)):  # `true` or `false`
+        if isinstance(before, bool) or isinstance(after, bool):  # `true` is `{}`, `false` nothing
+            before, after = ({} if node is True else node for node in (before, after))
+            if before == after:
+                return
+            if before is False or after is False:
+                judge(path, "schema changed", before is False, reader)
+                return
+        if not (isinstance(before, dict) and isinstance(after, dict)):
             if before != after:
                 brk.append(f"{path}: schema changed")
             return
@@ -1653,47 +1771,38 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
                 return
             seen = seen | {pair}
         before, after = _resolve(before, roots[0]), _resolve(after, roots[1])
-        for key in before.keys() | after.keys():
-            if key not in _SCHEMA_JUDGED | _SCHEMA_METADATA and not key.startswith("x-"):
-                raise ValueError(f"{path}: the schema keyword {key!r} is not compared")
-        old_branches, new_branches = _branches(before), _branches(after)
-        if (
-            _has_branches(before)
-            and _has_branches(after)
-            and (("anyOf" in before) != ("anyOf" in after))
-        ):
+        old_has, new_has = _has_branches(before), _has_branches(after)
+        if old_has and new_has and (("anyOf" in before) != ("anyOf" in after)):
             brk.append(f"{path}: anyOf and oneOf exchanged")
-        if len(old_branches) > 1 or len(new_branches) > 1:
-            alternatives(path, old_branches, new_branches, roots, reader, seen)
-            if not (_has_branches(before) and _has_branches(after)):
+        if old_has or new_has:
+            spread = old_has != new_has  # the keywords beside one combinator hold for its branches
+            alternatives(
+                path, _branches(before, spread), _branches(after, spread), roots, reader, seen,
+                "oneOf" in before or "oneOf" in after,
+            )  # fmt: skip
+            if spread:
                 return
             # The keywords beside `anyOf` or `oneOf` hold for every branch: compare them too.
             before, after = _without_branches(before), _without_branches(after)
         keywords(path, before, after, roots, reader, seen)
-        old_types, new_types = _type_set(before), _type_set(after)
+        old_types, new_types = _accepted_types(before), _accepted_types(after)
         if old_types != new_types:
-            grew = new_types is None or (
-                old_types is not None and _with_integers(old_types) <= _with_integers(new_types)
-            )
-            (add if grew and reader else brk).append(f"{path}: type changed")
-        old_enum = before.get("enum", [before["const"]] if "const" in before else None)
-        new_enum = after.get("enum", [after["const"]] if "const" in after else None)
-        if (old_enum is None) != (new_enum is None) or (
-            old_enum is not None and {repr(v) for v in old_enum} != {repr(v) for v in new_enum}
-        ):
-            grew = new_enum is None or (
-                old_enum is not None and {repr(v) for v in old_enum} < {repr(v) for v in new_enum}
-            )
+            wider, narrower = _covers(new_types, old_types), _covers(old_types, new_types)
+            if wider != narrower:  # a narrower output type keeps the promise of the old one
+                judge(path, "type changed", wider, reader)
+            elif not wider:
+                brk.append(f"{path}: type changed")
+        old_enum, new_enum = _enum_values(before), _enum_values(after)
+        if old_enum != new_enum:
+            grew = new_enum is None or (old_enum is not None and old_enum < new_enum)
             # A document holds closed sets (an outcome, a disposition): a new member breaks a reader.
             (add if grew and reader else brk).append(
                 f"{path}: enum {'widened' if grew else 'narrowed'}"
             )
         properties(path, before, after, roots, reader, seen)
-        old_items, new_items = before.get("items"), after.get("items")
-        if isinstance(old_items, dict) and isinstance(new_items, dict):
+        if "items" in before or "items" in after:
+            old_items, new_items = before.get("items", True), after.get("items", True)
             visit(f"{path}.items", old_items, new_items, roots, reader, seen)
-        elif bool(old_items) != bool(new_items):
-            (add if reader and not new_items else brk).append(f"{path}: items changed")
         old_tuple, new_tuple = before.get("prefixItems", []), after.get("prefixItems", [])
         if len(old_tuple) != len(new_tuple):
             brk.append(f"{path}: tuple length changed")
@@ -1702,60 +1811,140 @@ def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
 
     def alternatives(
         path: str, left: list[Any], right: list[Any], roots: tuple[Any, Any], reader: bool,
-        seen: frozenset[tuple[str, str]],
+        seen: frozenset[tuple[str, str]], exclusive: bool,
     ) -> None:  # fmt: skip
-        unmatched = list(right)
-        for branch in left:
-            kind = _branch_kind(_resolve(branch, roots[0]))
-            same = [n for n in unmatched if _branch_kind(_resolve(n, roots[1])) == kind]
-            if not same:
-                brk.append(f"{path}: alternative {kind} removed")
+        """Pair each old alternative with the new one of the same JSON types (else one that holds
+        more or less) and compare the pairs. In a `oneOf`, a new alternative that overlaps another
+        can make a value match twice: a change that adds there breaks."""
+
+        def kinds(branches: list[Any], root: Any) -> list[frozenset[str] | None]:
+            return [
+                _branch_types(_resolve(b, root) if isinstance(b, dict) else {}) for b in branches
+            ]
+
+        def name(kind: frozenset[str] | None) -> str:
+            return "any" if kind is None else "|".join(sorted(kind))
+
+        mark = len(add)
+        old_kinds, new_kinds = kinds(left, roots[0]), kinds(right, roots[1])
+        used: set[int] = set()
+        for branch, kind in zip(left, old_kinds):
+            match = next((i for i, k in enumerate(new_kinds) if k == kind and i not in used), None)
+            if match is None:
+                match = next(
+                    (i for i, k in enumerate(new_kinds) if _covers(k, kind) or _covers(kind, k)),
+                    None,
+                )
+            if match is None:
+                judge(path, f"alternative {name(kind)} removed", False, reader)
                 continue
-            unmatched.remove(same[0])
-            visit(path, branch, same[0], roots, reader, seen)
-        for branch in unmatched:
-            kind = _branch_kind(_resolve(branch, roots[1]))
-            (add if reader else brk).append(f"{path}: alternative {kind} added")
+            used.add(match)
+            visit(path, branch, right[match], roots, reader, seen)
+        for index, kind in enumerate(new_kinds):
+            if index not in used:
+                judge(path, f"alternative {name(kind)} added", True, reader)
+        overlap = any(
+            a is None or b is None or a & b for a, b in itertools.combinations(new_kinds, 2)
+        )
+        if exclusive and overlap:
+            brk.extend(add[mark:])
+            del add[mark:]
 
     def properties(
         path: str, before: dict[str, Any], after: dict[str, Any], roots: tuple[Any, Any],
         reader: bool, seen: frozenset[tuple[str, str]],
     ) -> None:  # fmt: skip
         old_props, new_props = before.get("properties", {}), after.get("properties", {})
-        old_req, new_req = set(before.get("required", ())), set(after.get("required", ()))
-        for key in sorted(old_props.keys() - new_props.keys()):
-            brk.append(f"{path}.{key}: property removed")
-        for key in sorted(new_props.keys() - old_props.keys()):
-            required = reader and key in new_req
-            (brk if required else add).append(
-                f"{path}.{key}: " + ("new required property" if required else "new property")
-            )
-        for key in sorted(old_props.keys() & new_props.keys()):
-            if (key in old_req) != (key in new_req):
-                now_required = key in new_req
-                # A reader of a written document needs the key: it must not become optional.
-                # Xeda, as the reader of the design file, must not get a new demand.
-                breaking = now_required if reader else not now_required
-                (brk if breaking else add).append(
-                    f"{path}.{key}: now " + ("required" if now_required else "optional")
-                )
-            visit(f"{path}.{key}", old_props[key], new_props[key], roots, reader, seen)
         old_patterns = before.get("patternProperties", {})
         new_patterns = after.get("patternProperties", {})
+        old_extra, new_extra = before.get("additionalProperties"), after.get("additionalProperties")
+
+        def openness(extra: Any) -> int:
+            """What an input does with a key that no property names: 2 takes it, 1 checks it,
+            0 refuses it."""
+            return 0 if extra is None and unknown_keys_rejected else _openness(extra)
+
+        def everything(node: Any) -> bool:
+            node = _resolve(node, roots[1]) if isinstance(node, dict) else node
+            return node is True or (
+                isinstance(node, dict)
+                and all(k in _SCHEMA_METADATA or k == "default" or k.startswith("x-") for k in node)
+            )
+
+        def appears(place: str, schema: Any, name: str, is_pattern: bool) -> None:
+            """A new property or pattern of an input accepts less, unless it accepts everything or
+            the keys that it names were refused. Where `additionalProperties` was a schema, compare
+            it with the new one. Another pattern or property may hold the same keys: not provable.
+            """
+            what = "new pattern property" if is_pattern else "new property"
+            if is_pattern:
+                shared = bool(old_patterns) or any(_may_match(name, key) for key in old_props)
+            else:
+                shared = any(_may_match(pattern, name) for pattern in old_patterns)
+            fallback = openness(old_extra)
+            if everything(schema) or (fallback == 0 and not shared):
+                add.append(f"{place}: {what}")
+            elif fallback == 1 and not shared:
+                mark = len(brk)
+                visit(place, old_extra, schema, roots, True, seen)
+                (brk if len(brk) > mark else add).append(f"{place}: {what}")
+            else:
+                brk.append(f"{place}: {what} narrows the accepted keys")
+
+        def vanishes(place: str, schema: Any, name: str, is_pattern: bool) -> None:
+            """A removed property or pattern of an input hands its keys to a pattern or to
+            `additionalProperties`: it accepts more if that takes them, and less if it refuses."""
+            what = "pattern property" if is_pattern else "property"
+            fallback = openness(new_extra)
+            if fallback == 2 or (not is_pattern and any(_may_match(p, name) for p in new_patterns)):
+                add.append(f"{place}: {what} removed")
+            elif fallback == 1:
+                mark = len(brk)
+                visit(place, schema, new_extra, roots, True, seen)
+                (brk if len(brk) > mark else add).append(f"{place}: {what} removed")
+            else:
+                brk.append(f"{place}: {what} removed")
+
+        # An output reader ignores a new key and needs an old one.
+        for key in sorted(old_props.keys() - new_props.keys()):
+            if reader:
+                vanishes(f"{path}.{key}", old_props[key], key, False)
+            else:
+                brk.append(f"{path}.{key}: property removed")
+        for key in sorted(new_props.keys() - old_props.keys()):
+            if reader:
+                appears(f"{path}.{key}", new_props[key], key, False)
+            else:
+                add.append(f"{path}.{key}: new property")
         for pattern in sorted(old_patterns.keys() - new_patterns.keys()):
-            brk.append(f"{path}.{pattern}: pattern property removed")
+            if reader:
+                vanishes(f"{path}.{pattern}", old_patterns[pattern], pattern, True)
+            else:
+                brk.append(f"{path}.{pattern}: pattern property removed")
         for pattern in sorted(new_patterns.keys() - old_patterns.keys()):
-            add.append(f"{path}.{pattern}: new pattern property")
+            if reader:
+                appears(f"{path}.{pattern}", new_patterns[pattern], pattern, True)
+            else:
+                add.append(f"{path}.{pattern}: new pattern property")
+        old_required, new_required = set(before.get("required", ())), set(after.get("required", ()))
+        for key in sorted(old_required ^ new_required):  # a required name needs no property
+            now_required = key in new_required
+            # A reader of a written document needs the key: it must not become optional.
+            # Xeda, as the reader of the design file, must not get a new demand.
+            breaking = now_required if reader else not now_required
+            fresh = now_required and key in new_props.keys() - old_props.keys()
+            state = (
+                "new required property"
+                if fresh
+                else f"now {'required' if now_required else 'optional'}"
+            )
+            (brk if breaking else add).append(f"{path}.{key}: {state}")
+        for key in sorted(old_props.keys() & new_props.keys()):
+            visit(f"{path}.{key}", old_props[key], new_props[key], roots, reader, seen)
         for pattern in sorted(old_patterns.keys() & new_patterns.keys()):
             visit(
-                f"{path}.{pattern}",
-                old_patterns[pattern],
-                new_patterns[pattern],
-                roots,
-                reader,
-                seen,
-            )
-        old_extra, new_extra = before.get("additionalProperties"), after.get("additionalProperties")
+                f"{path}.{pattern}", old_patterns[pattern], new_patterns[pattern], roots, reader, seen
+            )  # fmt: skip
         # From the most open to the most closed: no schema (or `true`), a schema, `false`.
         old_open, new_open = _openness(old_extra), _openness(new_extra)
         if old_open != new_open:
@@ -1788,10 +1977,13 @@ def _classify_schema(
     have no order: any change breaks, but dropping one from an input or adding one to an output
     is additive. A changed default breaks, and so does a change of `not`, `schema_version` or the
     combinator.
-    A keyword that is neither judged nor metadata raises `ValueError`: it would be unchecked."""
+    A keyword anywhere in either schema that is neither judged nor metadata raises `ValueError`: it
+    would be unchecked."""
     _diff_names("schemas", "document", set(old), set(new), add, brk)
+    for name, schema in [*old.items(), *new.items()]:
+        _check_keywords(name, schema)
 
-    visit = _schema_visitor(add, brk)
+    visit = _schema_visitor(add, brk, unknown_keys_rejected=True)
     for name in sorted(old.keys() & new.keys()):
         both = (old[name], new[name])
         visit(name, both[0], both[1], both, name in INPUT_DOCUMENTS, frozenset())
