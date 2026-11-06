@@ -6,6 +6,7 @@ examples through the `XEDA_EXAMPLES` variable. A notebook writes only under its 
 """
 
 import ast
+import csv
 import re
 import subprocess
 import sys
@@ -317,11 +318,25 @@ def test_the_generated_notebook_compares_variants_by_their_exact_bytes(execution
 
 def test_the_history_notebook_reads_past_runs(executions):
     work, nb, again = executions("06-qor-history")
-    rows = (work / "notebook-output" / "history.csv").read_text().splitlines()
+    with (work / "notebook-output" / "history.csv").open(newline="") as file:
+        rows = list(csv.DictReader(file))
+    assert [(r["clocks.main_clock.period"], r["seed"]) for r in rows] == [
+        ("12 ns", "1"),
+        ("10 ns", "1"),
+        ("8 ns", "1"),
+        ("10 ns", "2"),
+    ]
+    assert all(
+        r["outcome"] == "passed" and float(r["fmax"]) > 0 and int(r["lut"]) > 0 for r in rows
+    )
     for run in (nb, again):
         assert cell_output(run, "empty-history").startswith("no runs yet")
         assert "nosuch.metric" in cell_output(run, "missing-metric")
-        assert cell_output(run, "csv-rows") == str(len(rows) - 1) == "4"
+        assert cell_output(run, "csv-rows") == "4"
+    # The fourth run changes only the seed of nextpnr, so it reuses the yosys_fpga run of the
+    # second. (The second execution is not checked for reuse: the harness gives each execution
+    # its own IPYTHONDIR, and an inherited variable is evidence of a run, so it runs again.)
+    assert cell_output(nb, "runs").splitlines()[3] == "10 ns 2 passed reused ran"
 
 
 PLAN_OUTPUTS = {
