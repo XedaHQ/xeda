@@ -792,18 +792,18 @@ def _with(contract: dict, **changes: object) -> dict:
 
 
 def _path(**changes: bool) -> dict:
-    return _option(type="path", choices=None) | {
-        "path": {
-            "exists": False,
-            "file_okay": True,
-            "dir_okay": True,
-            "readable": True,
-            "writable": False,
-            "resolve_path": False,
-            "allow_dash": False,
-        }
-        | changes
-    }
+    flags = {
+        "exists": False,
+        "file_okay": True,
+        "dir_okay": True,
+        "readable": True,
+        "writable": False,
+        "resolve_path": False,
+        "allow_dash": False,
+    } | changes
+    # The name that click gives the type follows the kinds of path it takes.
+    kind = {(True, True): "path", (True, False): "file", (False, True): "directory"}
+    return _option(type=kind[flags["file_okay"], flags["dir_okay"]], choices=None) | {"path": flags}
 
 
 def _path_cli(**changes: bool) -> dict:
@@ -816,17 +816,22 @@ def _path_cli(**changes: bool) -> dict:
         ({"exists": True}, True),
         ({"file_okay": False}, True),
         ({"dir_okay": False}, True),
-        ({"readable": False}, True),
+        ({"readable": False}, False),
         ({"writable": True}, True),
         ({"resolve_path": True}, True),
-        ({"allow_dash": True}, True),
+        ({"allow_dash": True}, False),
     ],
 )
-def test_a_click_path_that_demands_more_breaks(change: dict, breaks: bool) -> None:
+def test_a_click_path_change_breaks_only_when_the_path_accepts_less(
+    change: dict, breaks: bool
+) -> None:
     assert bool(tool.classify(_path_cli(), _path_cli(**change), kind="behavior")[1]) is breaks
 
 
-@pytest.mark.parametrize("change", [{"exists": True}, {"file_okay": False}, {"dir_okay": False}])
+@pytest.mark.parametrize(
+    "change",
+    [{"exists": True}, {"file_okay": False}, {"dir_okay": False}, {"writable": True}],
+)
 def test_a_click_path_that_demands_less_is_additive(change: dict) -> None:
     additive, breaking = tool.classify(_path_cli(**change), _path_cli(), kind="behavior")
     assert (bool(additive), bool(breaking)) == (True, False)
@@ -884,8 +889,9 @@ def test_the_cli_snapshot_records_secondary_names_apart() -> None:
 
 
 def test_a_removed_range_is_additive_and_a_new_one_breaks() -> None:
+    # click names the type by whether it has a range.
     ranged = _option(type="integer range", choices=None, range=[0, 10, False, False])
-    plain = _option(type="integer range", choices=None)
+    plain = _option(type="integer", choices=None)
     additive, breaking = tool.classify(_cli(ranged), _cli(plain), kind="behavior")
     assert additive and not breaking
     assert tool.classify(_cli(plain), _cli(ranged), kind="behavior")[1]

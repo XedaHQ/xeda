@@ -1522,13 +1522,21 @@ def _classify_parameter(
         for key in sorted(kind_path.keys() | kind_after.keys()):
             before, after = kind_path.get(key), kind_after.get(key)
             if before != after:
-                # A file that must exist asks more; a kind of path that is refused takes less.
-                loosened = (key == "exists" and before) or (key.endswith("_okay") and not before)
+                # A path that need no longer exist or be readable or writable, or that takes another
+                # kind or `-`, accepts more. Every other change asks more or changes the value.
+                loosened = (key in ("exists", "readable", "writable") and before) or (
+                    (key.endswith("_okay") or key == "allow_dash") and not before
+                )
                 (add if loosened else brk).append(f"{path}: path {key} changed")
     skipped = ("names", "secondary_names", "environment", "choices", "required", "range", "hidden")
     for key in sorted(old.keys() | new.keys()):
         if key not in (*skipped, "path"):
             before, after = old.get(key), new.get(key)
+            if key == "type" and kind_path and kind_after:
+                continue  # click names a path type by its kinds (`file`, `path`): judged above
+            if key == "type" and (old.get("range") or new.get("range")):
+                # click names a range type by its range (`integer range`): judged above
+                before, after = (str(t).removesuffix(" range") for t in (before, after))
             if key == "case_sensitive" and before is True and after is False:
                 add.append(f"{path}: case_sensitive changed")  # more spellings are accepted
             elif _canonical(before) != _canonical(after):

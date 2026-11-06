@@ -157,7 +157,8 @@ inputs: a removed input, a removed kind, a new required input, a list input that
 file and a changed default producer or binding are breaks. A CLI option keeps its names (a
 ``--x/--no-x`` pair keeps each name on its side), choices, environment variables, type, ``nargs``
 and default. It may take more: an option may lose its range, ignore case, or demand less of a
-path (it need not exist, or it may be a file or a directory). An argument keeps its
+path (it need not exist or be readable or writable, it may be a file or a directory, or it may be
+``-``). An argument keeps its
 position, and a new argument is an addition only if it is optional and last.
 
 For a document that Xeda writes, a removed key, a wider or unrelated type, any change of an enum or
