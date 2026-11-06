@@ -23,7 +23,8 @@
         "port"
       ],
       "title": "Clock",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "ClockOverlay": {
       "properties": {
@@ -45,7 +46,8 @@
         }
       },
       "title": "Clock",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "CocotbTestbench": {
       "properties": {
@@ -84,7 +86,8 @@
         }
       },
       "title": "CocotbTestbench",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "DesignReference": {
       "properties": {
@@ -109,7 +112,8 @@
         "uri"
       ],
       "title": "DesignReference",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "Generator": {
       "properties": {
@@ -257,7 +261,8 @@
         }
       },
       "title": "Generator",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "Language": {
       "properties": {
@@ -296,7 +301,8 @@
         }
       },
       "title": "Language",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "LanguageSettings": {
       "properties": {
@@ -318,7 +324,8 @@
         }
       },
       "title": "LanguageSettings",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "Rtl": {
       "description": "The RTL: sources, top module, clocks, generator, attributes, parameters and defines.",
@@ -431,6 +438,7 @@
             },
             {
               "items": {
+                "additionalProperties": false,
                 "properties": {
                   "name": {
                     "minLength": 1,
@@ -690,7 +698,8 @@
         "sources"
       ],
       "title": "Rtl",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "RtlDep": {
       "properties": {
@@ -701,7 +710,8 @@
         }
       },
       "title": "RtlDep",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "RtlOverlay": {
       "description": "The RTL: sources, top module, clocks, generator, attributes, parameters and defines.",
@@ -814,6 +824,7 @@
             },
             {
               "items": {
+                "additionalProperties": false,
                 "properties": {
                   "name": {
                     "minLength": 1,
@@ -1070,7 +1081,8 @@
         }
       },
       "title": "Rtl",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "TbDep": {
       "properties": {
@@ -1081,7 +1093,8 @@
         }
       },
       "title": "TbDep",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "Testbench": {
       "description": "The testbench: sources, top modules, unit under test, cocotb, parameters and defines.",
@@ -1116,6 +1129,7 @@
             },
             {
               "items": {
+                "additionalProperties": false,
                 "properties": {
                   "name": {
                     "minLength": 1,
@@ -1421,7 +1435,8 @@
         }
       },
       "title": "Testbench",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "TestbenchOverlay": {
       "description": "The testbench: sources, top modules, unit under test, cocotb, parameters and defines.",
@@ -1456,6 +1471,7 @@
             },
             {
               "items": {
+                "additionalProperties": false,
                 "properties": {
                   "name": {
                     "minLength": 1,
@@ -1761,7 +1777,8 @@
         }
       },
       "title": "Testbench",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "VhdlSettings": {
       "properties": {
@@ -1788,7 +1805,8 @@
         }
       },
       "title": "VhdlSettings",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     },
     "_GitReferenceInput": {
       "description": "The Git mapping form accepted by `DesignReference.from_data`.",
@@ -1839,7 +1857,8 @@
         "design_file"
       ],
       "title": "_GitReferenceInput",
-      "type": "object"
+      "type": "object",
+      "x-xeda-closed": true
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2084,7 +2103,8 @@
             "title": "Version"
           }
         },
-        "type": "object"
+        "type": "object",
+        "x-xeda-closed": true
       },
       "description": "Named targets (for example, one per board), each an overlay on the design: it takes the design's own keys, merged over them. Mappings merge key by key; `sources` are appended after the design's; any other list replaces the design's. One is selected with `--target NAME`; without it, the design is used with no target. A target name cannot be the name of a flow.",
       "propertyNames": {
@@ -2131,5 +2151,6 @@
   },
   "schema_version": 1,
   "title": "Design",
-  "type": "object"
+  "type": "object",
+  "x-xeda-closed": true
 }

@@ -53,6 +53,11 @@ class XedaError(XedaException):
 
     `code` is the stable code of the failure, and `message` is the text for a person."""
 
+    #: The stable code of the failure.
+    code: str
+    #: The text of the error for a person.
+    message: str
+
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
@@ -68,6 +73,9 @@ class SpecError(XedaError):
     `points` holds the indexes of the sweep points that the error is about, and is empty for
     any other request."""
 
+    #: The indexes of the sweep points that the error is about. It is empty for any other request.
+    points: tuple[int, ...]
+
     def __init__(self, message: str, *, code: str, points: Iterable[int] = ()) -> None:
         super().__init__(message, code=code)
         self.points = tuple(points)
@@ -81,6 +89,19 @@ class SettingsError(SpecError):
     `None`, they are full addresses. `errors` holds every finding of one validation, in address
     order. This exception is the first of them, so a script that reads only the exception sees
     the first mistake. `origin` names the layer that gave the setting."""
+
+    #: The node that the setting addresses, or `None` when the key addresses none.
+    node: str | None
+    #: The address of the wrong setting below `node`, or `None`.
+    setting: str | None
+    #: What is wrong with the setting. It is the message when the error gives no other text.
+    problem: str
+    #: Close addresses, below `node`.
+    suggestions: tuple[str, ...]
+    #: The layer that gave the setting, or `None`.
+    origin: str | None
+    #: Every finding of one validation, in address order. This error is the first of them.
+    errors: tuple[SettingsError, ...]
 
     def __init__(
         self,
@@ -101,11 +122,18 @@ class SettingsError(SpecError):
         self.problem = message if problem is None else problem
         self.suggestions = tuple(suggestions)
         self.origin = origin
-        self.errors: tuple[SettingsError, ...] = tuple(errors) or (self,)
+        self.errors = tuple(errors) or (self,)
 
 
 class DesignError(SpecError):
     """The design is wrong, or the file of the design is missing or unreadable."""
+
+    #: The field of the design that is wrong, or `None`.
+    field: str | None
+    #: What is wrong. It is the message when the error gives no other text.
+    problem: str
+    #: The design file, or `None`.
+    path: Path | None
 
     def __init__(
         self,
@@ -126,6 +154,9 @@ class DesignError(SpecError):
 class ProjectError(SpecError):
     """The project file is missing, unreadable or wrong, or it does not hold the design."""
 
+    #: The project file, or `None`.
+    path: Path | None
+
     def __init__(
         self, message: str, *, code: str, path: Path | None = None, points: Iterable[int] = ()
     ) -> None:
@@ -135,6 +166,11 @@ class ProjectError(SpecError):
 
 class FlowNotFoundError(SpecError):
     """The name of a flow is no flow. `suggestions` holds the close names."""
+
+    #: The name that no flow has.
+    name: str
+    #: The names of the flows that are close to `name`.
+    suggestions: tuple[str, ...]
 
     def __init__(
         self,
@@ -153,6 +189,11 @@ class FlowNotFoundError(SpecError):
 class ChainError(SpecError):
     """A chain of flows is wrong. `chain` is the text of the chain."""
 
+    #: The text of the chain.
+    chain: str
+    #: What is wrong with the chain. It is the message when the error gives no other text.
+    problem: str
+
     def __init__(
         self,
         message: str,
@@ -170,6 +211,9 @@ class ChainError(SpecError):
 class RunRootError(SpecError):
     """The directory named as the run root is not one that Xeda can take for its own."""
 
+    #: The directory named as the run root.
+    path: Path
+
     def __init__(self, message: str, *, code: str, path: Path, points: Iterable[int] = ()) -> None:
         super().__init__(message, code=code, points=points)
         self.path = path
@@ -177,6 +221,9 @@ class RunRootError(SpecError):
 
 class StalePlanError(XedaError):
     """A plan no longer matches the files it was made from. `difference` says what changed."""
+
+    #: What changed since the plan was made.
+    difference: str
 
     def __init__(self, message: str, *, code: str, difference: str) -> None:
         super().__init__(message, code=code)
@@ -186,6 +233,9 @@ class StalePlanError(XedaError):
 class RecordError(XedaError):
     """A record is missing, unreadable, of an unsupported schema, or not written."""
 
+    #: The record file.
+    path: Path
+
     def __init__(self, message: str, *, code: str, path: Path) -> None:
         super().__init__(message, code=code)
         self.path = path
@@ -193,6 +243,13 @@ class RecordError(XedaError):
 
 class RunReplacedError(XedaError):
     """A later run replaced the run that a record describes."""
+
+    #: The record file.
+    path: Path
+    #: The id of the run that the record described.
+    expected_run_id: str
+    #: The id of the run that is there now.
+    found_run_id: str
 
     def __init__(
         self,
@@ -212,6 +269,9 @@ class RunReplacedError(XedaError):
 class RemoteError(XedaError):
     """The remote host cannot be reached or set up. `host` names it."""
 
+    #: The remote host.
+    host: str
+
     def __init__(self, message: str, *, code: str, host: str) -> None:
         super().__init__(message, code=code)
         self.host = host
@@ -220,6 +280,9 @@ class RemoteError(XedaError):
 class RunFailedError(XedaError):
     """A launch did not pass. `result` holds the outcome of every node."""
 
+    #: The outcome of every node of the launch.
+    result: Result
+
     def __init__(self, message: str, *, code: str, result: Result) -> None:
         super().__init__(message, code=code)
         self.result = result
@@ -227,6 +290,9 @@ class RunFailedError(XedaError):
 
 class LeaseHeldError(XedaError):
     """The run directory or the storage at `path` is held by the calling thread."""
+
+    #: The run directory or storage that the calling thread holds.
+    path: Path
 
     def __init__(self, message: str, *, code: str, path: Path) -> None:
         super().__init__(message, code=code)

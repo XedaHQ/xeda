@@ -928,6 +928,7 @@ _PARAMETER_LIST = {
             "value": {"not": {"type": "null"}},  # `0` and `""` are values; null is none
         },
         "required": ["name", "value"],
+        "additionalProperties": False,  # the loader refuses any other key
     },
 }
 #: The input shapes that the validators of a field accept but the model schema does not describe.
@@ -1032,8 +1033,13 @@ def _add_targets(schema: dict[str, Any]) -> None:
         "is selected with `--target NAME`; without it, the design is used with no target. "
         "A target name cannot be the name of a flow.",
         "propertyNames": {"pattern": f"^{DESIGN_NAME.pattern}$"},
-        "additionalProperties": {"type": "object", "properties": properties},
+        # The loader refuses an unknown key of a target, as of the design.
+        "additionalProperties": {"type": "object", "properties": properties, CLOSED_KEY: True},
     }
+
+
+#: The key of an object of the design schema that the loader closes, though the schema does not.
+CLOSED_KEY = "x-xeda-closed"
 
 
 def _open_property_sets(node: Any) -> None:
@@ -1043,13 +1049,15 @@ def _open_property_sets(node: Any) -> None:
     not closed in that sense: it may use dotted-key shorthand (`language.vhdl.standard`,
     `fpga.part`) that `Design.load` expands before the model sees it. The closed set would
     reject files that load without error. The loader still rejects unknown keys once it has
-    expanded the file.
+    expanded the file. Each set that was closed keeps the mark `CLOSED_KEY`, so a reader of the
+    schema can tell it from a table that is open (`parameters`).
     """
     if isinstance(node, dict):
         if node.get("title") == "Source":
             return  # a source table is closed: no dotted-key shorthand applies inside it
         if node.get("additionalProperties") is False:
             node.pop("additionalProperties")
+            node[CLOSED_KEY] = True  # the loader still refuses a key that no property names
         for value in node.values():
             _open_property_sets(value)
     elif isinstance(node, list):

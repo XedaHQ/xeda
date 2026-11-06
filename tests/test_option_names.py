@@ -196,6 +196,23 @@ def test_each_command_reads_only_the_environment_variables_it_declares(command):
     assert ctx.auto_envvar_prefix is None
 
 
+def _contexts(command: click.Command, parent: click.Context | None = None, name: str = "xeda"):
+    """The context of each command and group, made as a run makes it: below its real parents."""
+    ctx = command.make_context(name, [], parent=parent, resilient_parsing=True)
+    yield ctx
+    if isinstance(command, click.Group):
+        for child_name, child in sorted(command.commands.items()):
+            yield from _contexts(child, ctx, child_name)
+
+
+def test_no_command_or_group_reads_an_automatic_environment_variable():
+    """(3) Every command and group, not only `run`, `dse` and `scrub`: `XEDA_FORCE=1` would
+    overwrite every installed skill, and `XEDA_JSON_FLAG=1` would change the output of every
+    query. click-extra derives a prefix from the command name when none is given."""
+    for ctx in _contexts(cli):
+        assert ctx.auto_envvar_prefix is None, ctx.command_path
+
+
 @pytest.mark.parametrize("command", [run, dse, scrub], ids=lambda c: c.name)
 def test_no_two_names_differ_only_by_a_trailing_s(command):
     """(4) `--run-dirs` beside `--xeda-run-dir`, `XEDA_RUN_DIRS` beside `XEDA_RUN_DIR`."""

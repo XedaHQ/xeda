@@ -1277,6 +1277,13 @@ def _parameters_as_mapping(value: Any) -> Any:
         # turn that into a validation error.
         if not isinstance(entry, Mapping):
             raise ValueError(f"{_PARAMETERS_FORM_ERROR}, got a list entry {entry!r}")
+        unknown = [str(key) for key in entry if key not in ("name", "value")]
+        if unknown:
+            names = ", ".join(f"`{key}`" for key in unknown)
+            raise ValueError(
+                f"unknown key {names} in an entry of the list form of parameters: "
+                "an entry holds `name` and `value`"
+            )
         entry_name = entry.get("name")
         entry_value = entry.get("value")
         if entry_name and entry_value is not None:
@@ -1308,6 +1315,13 @@ def _normalize_parameters(value: Any) -> Any:
     value = dict(value)
     for key, parameter in list(value.items()):
         if isinstance(parameter, Mapping) and ("file" in parameter or "path" in parameter):
+            unknown = [str(k) for k in parameter if k not in ("file", "path")]
+            if unknown:
+                names = ", ".join(f"`{k}`" for k in unknown)
+                raise ValueError(
+                    f"parameter {key!r}: unknown key {names} (a parameter written as a file has "
+                    "`file` or `path`)"
+                )
             try:
                 value[key] = str(FileResource(dict(parameter)))
             except IsADirectoryError as e:

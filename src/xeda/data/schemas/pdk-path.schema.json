@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "corner": {
+      "type": "string"
+    },
+    "directory": {
+      "type": "string"
+    },
+    "files": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "type": "object"
+    },
+    "library": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "platform": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "upstream_files": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "corner",
+    "directory",
+    "files",
+    "library",
+    "platform",
+    "provider",
+    "root",
+    "upstream_files",
+    "version"
+  ],
+  "title": "xeda pdk path --json",
+  "type": "object"
+}

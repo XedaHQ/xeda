@@ -61,7 +61,6 @@ __all__ = [
     "HELP_FORMATTER_SETTINGS",
     "XEDA_HELP_THEME",
     "ConsoleLogo",
-    "DeclaredEnvvarsCommand",
     "FlowChoice",
     "OptionEatAll",
     "XedaCommand",
@@ -237,9 +236,33 @@ def unit_after_space_hint(message: str, args: Sequence[str]) -> Optional[str]:
     return None
 
 
+def _declared_envvars_only(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return the keyword arguments of a command or group with the automatic prefix of
+    environment variables turned off, so that its options read only the variables that they
+    declare (`envvar=`).
+
+    With an `auto_envvar_prefix`, every option has a hidden second name. A leftover
+    `export XEDA_CLEAN=1` would then empty every run directory on every run, and
+    `XEDA_FORCE=1` would overwrite every installed skill, with nothing on the command line to turn
+    it off. click-extra also registers the automatic names on the options themselves (to show them
+    in the help), and derives a prefix from the command name when none is given, so both the
+    settings of the command and its context drop the prefix.
+    """
+    return {
+        **kwargs,
+        "context_settings": {**(kwargs.get("context_settings") or {}), "auto_envvar_prefix": None},
+    }
+
+
 class XedaCommand(ColorizedCommand):
-    """The command class of the Xeda commands. It suggests only options that its help lists, and
-    explains a unit that a user wrote after a space."""
+    """The command class of the Xeda commands. Its options read only the environment variables
+    that they declare. It suggests only options that its help lists, and explains a unit that a
+    user wrote after a space."""
+
+    context_class = _DeclaredEnvvarsContext
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **_declared_envvars_only(kwargs))
 
     def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
         command_line = list(args)  # the parser consumes `args`
@@ -254,29 +277,15 @@ class XedaCommand(ColorizedCommand):
             raise click.UsageError(f"{error.message}. {hint}", ctx=error.ctx) from error
 
 
-class DeclaredEnvvarsCommand(XedaCommand):
-    """A command whose options read only the environment variables that they declare (`envvar=`).
-
-    With the `auto_envvar_prefix` of the group, every option has a hidden second name. A leftover
-    `export XEDA_CLEAN=1` would then empty every run directory on every run, with nothing on the
-    command line to turn it off. click-extra also registers the automatic names on the options
-    themselves (to show them in the help), so both the settings of the command and its context
-    drop the prefix.
-    """
+class XedaHelpGroup(ColorizedGroup):
+    """The command group that shows the Xeda help screens and reports errors in the requested
+    output format. Its options, like those of its commands, read only the environment variables
+    that they declare."""
 
     context_class = _DeclaredEnvvarsContext
 
     def __init__(self, *args, **kwargs) -> None:
-        kwargs["context_settings"] = {
-            **(kwargs.get("context_settings") or {}),
-            "auto_envvar_prefix": None,
-        }
-        super().__init__(*args, **kwargs)
-
-
-class XedaHelpGroup(ColorizedGroup):
-    """The command group that shows the Xeda help screens and reports errors in the requested
-    output format."""
+        super().__init__(*args, **_declared_envvars_only(kwargs))
 
     command_class = XedaCommand
 

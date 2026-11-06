@@ -3,12 +3,35 @@
   "properties": {
     "dependencies": {
       "items": {
-        "additionalProperties": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "properties": {
+          "commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "design_file": {
+            "type": "string"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
+        "required": [
+          "commit",
+          "design_file",
+          "reference",
+          "repository"
+        ],
         "type": "object"
       },
       "type": "array"

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "already_installed": {
+      "type": "boolean"
+    },
+    "commands": {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "directory": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "receipt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "root": {
+      "type": "string"
+    },
+    "success": {
+      "const": true
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "already_installed",
+    "commands",
+    "directory",
+    "platform",
+    "provider",
+    "receipt",
+    "root",
+    "success",
+    "version"
+  ],
+  "title": "xeda pdk install --json",
+  "type": "object"
+}

@@ -3088,7 +3088,28 @@
     "xeda.errors": {
       "names": {
         "ChainError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            },
+            {
+              "annotation": "str",
+              "name": "chain"
+            },
+            {
+              "annotation": "str",
+              "name": "problem"
+            }
+          ],
           "bases": [
             "xeda.errors.SpecError"
           ],
@@ -3128,7 +3149,32 @@
           "special_methods": []
         },
         "DesignError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            },
+            {
+              "annotation": "str | None",
+              "name": "field"
+            },
+            {
+              "annotation": "str",
+              "name": "problem"
+            },
+            {
+              "annotation": "pathlib.Path | None",
+              "name": "path"
+            }
+          ],
           "bases": [
             "xeda.errors.SpecError"
           ],
@@ -3175,7 +3221,28 @@
           "special_methods": []
         },
         "FlowNotFoundError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            },
+            {
+              "annotation": "str",
+              "name": "name"
+            },
+            {
+              "annotation": "tuple[str, ...]",
+              "name": "suggestions"
+            }
+          ],
           "bases": [
             "xeda.errors.SpecError"
           ],
@@ -3215,7 +3282,20 @@
           "special_methods": []
         },
         "LeaseHeldError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "pathlib.Path",
+              "name": "path"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3243,7 +3323,24 @@
           "special_methods": []
         },
         "ProjectError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            },
+            {
+              "annotation": "pathlib.Path | None",
+              "name": "path"
+            }
+          ],
           "bases": [
             "xeda.errors.SpecError"
           ],
@@ -3278,7 +3375,20 @@
           "special_methods": []
         },
         "RecordError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "pathlib.Path",
+              "name": "path"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3306,7 +3416,20 @@
           "special_methods": []
         },
         "RemoteError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "str",
+              "name": "host"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3334,7 +3457,20 @@
           "special_methods": []
         },
         "RunFailedError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "xeda.Result",
+              "name": "result"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3362,7 +3498,28 @@
           "special_methods": []
         },
         "RunReplacedError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "pathlib.Path",
+              "name": "path"
+            },
+            {
+              "annotation": "str",
+              "name": "expected_run_id"
+            },
+            {
+              "annotation": "str",
+              "name": "found_run_id"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3400,7 +3557,24 @@
           "special_methods": []
         },
         "RunRootError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            },
+            {
+              "annotation": "pathlib.Path",
+              "name": "path"
+            }
+          ],
           "bases": [
             "xeda.errors.SpecError"
           ],
@@ -3434,7 +3608,44 @@
           "special_methods": []
         },
         "SettingsError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            },
+            {
+              "annotation": "str | None",
+              "name": "node"
+            },
+            {
+              "annotation": "str | None",
+              "name": "setting"
+            },
+            {
+              "annotation": "str",
+              "name": "problem"
+            },
+            {
+              "annotation": "tuple[str, ...]",
+              "name": "suggestions"
+            },
+            {
+              "annotation": "str | None",
+              "name": "origin"
+            },
+            {
+              "annotation": "tuple[xeda.errors.SettingsError, ...]",
+              "name": "errors"
+            }
+          ],
           "bases": [
             "xeda.errors.SpecError"
           ],
@@ -3499,7 +3710,20 @@
           "special_methods": []
         },
         "SpecError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "tuple[int, ...]",
+              "name": "points"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3528,7 +3752,20 @@
           "special_methods": []
         },
         "StalePlanError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            },
+            {
+              "annotation": "str",
+              "name": "difference"
+            }
+          ],
           "bases": [
             "xeda.errors.XedaError"
           ],
@@ -3556,7 +3793,16 @@
           "special_methods": []
         },
         "XedaError": {
-          "attributes": [],
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            }
+          ],
           "bases": [
             "Exception"
           ],
