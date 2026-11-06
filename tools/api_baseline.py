@@ -749,6 +749,54 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     results["properties"]["outcome"] = {"type": "string", "enum": list(OUTCOMES)}
     error = simple.of(ErrorInfo)
     outcome = simple.of(Outcome)
+    # `node_configuration` fills a plain `dict`; a part and `language` are there when the flow reads
+    # them, and `sources` only when it reads the sources. The object is open: a release may add keys.
+    source = _object(
+        {"path": _STRING, "type": _STRING, "dependency": _INTEGER, "generator": _STRING},
+        optional=("dependency", "generator"),
+    )
+    parameters = {"top": _nullable(_STRING), "parameters": _OBJECT, "defines": _OBJECT}
+    rtl = _object(
+        {
+            **parameters,
+            "clocks": _array(_object({"port": _STRING, "name": _STRING})),
+            "attributes": _OBJECT,
+            "sources": _array(source),
+        },
+        optional=("sources",),
+    )
+    tb = _object(
+        {
+            **parameters,
+            "top": _array(_STRING),
+            "uut": _nullable(_STRING),
+            "cocotb": _nullable(_OBJECT),
+            "sources": _array(source),
+        },
+        optional=("sources",),
+    )
+    configuration = _object(
+        {
+            "rtl": rtl,
+            "tb": tb,
+            "language": _OBJECT,
+            "converted_from": _STRING,
+            "transforms": _array(_STRING),
+            "produces": _array(_STRING),
+        },
+        optional=("rtl", "tb", "language", "converted_from", "transforms", "produces"),
+    )
+    # `DependencyRecord.as_mapping` always writes these four keys.
+    dependency = _object(
+        {
+            "repository": _nullable(_STRING),
+            "reference": _nullable(_STRING),
+            "commit": _nullable(_STRING),
+            "design_file": _STRING,
+        }
+    )
+    results["properties"]["configuration"] = configuration
+    results["properties"]["dependencies"] = _array(dependency)
     # The record of a node, and `best` of an exploration, are a `results.json`.
     node = _Types({RunRecord: "results"}).cls(NodeResult)
     defs = {"results": results}
@@ -781,7 +829,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "spec": spec,
             "roots": _array(_STRING),
             "options": simple.of(LaunchOptions),
-            "dependencies": simple.of(typing.get_type_hints(RunRecord)["dependencies"]),
+            "dependencies": _array(dependency),
             "nodes": _array(simple.of(PlanNode)),
         }
     )
@@ -931,6 +979,97 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             ),
         }
     )
+    # `pdk_cli` fills plain `dict`s; `pdk path` adds `platform` to the fields of `Located`.
+    from xeda._internal.platforms.model import Located
+    from xeda._internal.remote.environment import RemotePlatform
+
+    pdk_list = _array(
+        _object(
+            {
+                "platform": _STRING,
+                "provider": _STRING,
+                "default": _BOOLEAN,
+                "version": _STRING,
+                "installed": _BOOLEAN,
+                "directory": _STRING,
+                "problem": _STRING,
+                "other_versions": _array(
+                    _object({"version": _STRING, "directory": _STRING, "installed": _BOOLEAN})
+                ),
+            },
+            # `problem`: the files name another version. `other_versions`: a Git provider only.
+            optional=("problem", "other_versions"),
+        )
+    )
+    pdk_path = _object(
+        {
+            "platform": _STRING,
+            **{k: simple.of(v) for k, v in _class_fields(Located).items()},
+        }
+    )
+    pdk_install = _object(
+        {
+            "success": {"const": True},
+            "platform": _STRING,
+            "provider": _STRING,
+            "version": _STRING,
+            "root": _STRING,
+            "directory": _STRING,
+            "already_installed": _BOOLEAN,
+            "receipt": _nullable(_STRING),
+            "commands": _array(_array(_STRING)),
+        }
+    )
+    # `describe_host`, `_clean_host` and `cancel_launch` fill plain `dict`s. A removed entry has
+    # a `kind` and a `path`; a kept entry also has the `reason`.
+    removed = _object({"kind": _STRING, "path": _STRING})
+    kept = _object({"kind": _STRING, "path": _STRING, "reason": _STRING})
+    remote_check = _object(
+        {
+            "success": {"const": True},
+            "host": _STRING,
+            "platform": simple.cls(RemotePlatform),
+            "xeda": _STRING,
+            "python": _object(
+                {"version": _STRING, "implementation": _STRING, "executable": _STRING}
+            ),
+            "environment": _object(
+                {
+                    "key": _STRING,
+                    "code": _STRING,
+                    "prefix": _STRING,
+                    "lock_file": _STRING,
+                    "lock": _array(_STRING),
+                }
+            ),
+            "disk": _object({"path": _STRING, "free": _INTEGER, "total": _INTEGER}),
+            "kill_user_processes": {"type": "string", "enum": ["yes", "no", "unknown"]},
+            "executables": _object(
+                {
+                    "found": {"type": "object", "additionalProperties": _STRING},
+                    "missing": _array(_STRING),
+                }
+            ),
+            "docker": _object({"found": _BOOLEAN, "path": _nullable(_STRING)}),
+            "warnings": _array(_STRING),
+        }
+    )
+    remote_clean = _object(
+        {
+            "success": {"const": True},
+            "host": _STRING,
+            "removed": _array(removed),
+            "kept": _array(kept),
+        }
+    )
+    remote_cancel = _object(
+        {
+            "success": {"const": True},
+            "host": _STRING,
+            "launch": _STRING,
+            "survivors": {"type": "integer", "const": 0},
+        }
+    )
     listing_of_flow = {"schema_version": _INTEGER, "flow": _STRING}
     # `failure_document` fills a plain `dict`; the error has the keys of the error of a run.
     failure = _object({"success": {"const": False}, "error": error})
@@ -965,6 +1104,12 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         "list-boards": _listing("xeda list-boards --json", "boards", board),
         "list-platforms": _listing("xeda list-platforms --json", "platforms", platform),
         "list-optimizers": _listing("xeda list-optimizers --json", "optimizers", optimizer),
+        "pdk-list": _document("xeda pdk list --json", pdk_list),
+        "pdk-path": _document("xeda pdk path --json", pdk_path),
+        "pdk-install": _document("xeda pdk install --json", pdk_install),
+        "remote-check": _document("xeda remote check --json", remote_check),
+        "remote-clean": _document("xeda remote clean --json", remote_clean),
+        "remote-cancel": _document("xeda remote cancel --json", remote_cancel),
         "failure": _document("a failed query, pdk or remote command", failure),
         "scrub": _document("xeda scrub --json", scrub),
         "dse": _document("xeda dse --json", dse, defs),

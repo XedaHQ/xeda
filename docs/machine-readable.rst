@@ -346,7 +346,9 @@ The schema of the record is the file ``xeda/data/schemas/results.schema.json`` (
     ``parameters`` and the ``defines``, the ``clocks`` and ``attributes`` (``rtl``) or the ``uut``
     and ``cocotb`` (``tb``), and ``language`` for ``rtl``. A flow that reads the sources of the
     design also has ``sources`` for each part, a list of ``{path, type}`` with paths relative to the
-    design root (``../`` outside it). A flow that reads a design that a converter made has no
+    design root (``../`` outside it). A source of a Git dependency also has ``dependency`` (the
+    index of the dependency), and a generated source has ``generator`` (the digest of the recipe of
+    its generator). A flow that reads a design that a converter made has no
     ``sources``. It has ``converted_from`` (the name of the converter), and the sorted
     ``transforms`` and ``produces`` types of the conversion. The configuration is part of the
     identity of the run.
@@ -483,6 +485,20 @@ guessing its shape:
      - ``xeda/data/schemas/scrub.schema.json``
    * - ``xeda dse --json``
      - ``xeda/data/schemas/dse.schema.json``
+   * - ``xeda pdk list --json``
+     - ``xeda/data/schemas/pdk-list.schema.json``
+   * - ``xeda pdk path <platform> --json``
+     - ``xeda/data/schemas/pdk-path.schema.json``
+   * - ``xeda pdk install <platform> --json``
+     - ``xeda/data/schemas/pdk-install.schema.json``
+   * - ``xeda remote check <host> --json``
+     - ``xeda/data/schemas/remote-check.schema.json``
+   * - ``xeda remote clean <host> --json``
+     - ``xeda/data/schemas/remote-clean.schema.json``
+   * - ``xeda remote cancel <host> --json``
+     - ``xeda/data/schemas/remote-cancel.schema.json``
+   * - ``xeda remote attach <host> --json``, after it found a launch
+     - ``xeda/data/schemas/run.schema.json``
    * - a failure of a query, PDK or remote command
      - ``xeda/data/schemas/failure.schema.json``
    * - a design file (``xeda design-schema``)

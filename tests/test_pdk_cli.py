@@ -24,6 +24,7 @@ from xeda._internal.cli import cli
 from xeda._internal.introspect import provider_status
 from xeda._internal.platforms import Residue, load_residue, locate
 from xeda._internal.platforms.providers import PROVIDERS
+from .test_schema_baseline import _validate
 from .tool_utils import HANG_GUARD
 from xeda._internal.package_paths import impl_module
 
@@ -373,7 +374,7 @@ def test_pdk_path_takes_a_version_that_is_installed(home, store):
 def test_a_missing_pdk_fails_with_the_four_line_message_on_stderr(home, tmp_path):
     root = tmp_path / "empty"
     proc = run_xeda("pdk", "path", "nangate45", "--root", str(root), home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 1
     assert proc.stdout == ""
     lines = proc.stderr.splitlines()
     assert len(lines) == 4, proc.stderr
@@ -388,7 +389,7 @@ def test_a_missing_pdk_fails_with_the_same_message_in_the_json_error(home, tmp_p
     root = tmp_path / "empty"
     text = run_xeda("pdk", "path", "nangate45", "--root", str(root), home=home)
     proc = run_xeda("pdk", "path", "nangate45", "--root", str(root), "--json", home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 1
     error = document(proc)
     assert error["success"] is False
     assert error["error"]["code"] == "pdk_not_installed"
@@ -397,13 +398,13 @@ def test_a_missing_pdk_fails_with_the_same_message_in_the_json_error(home, tmp_p
 
 def test_a_missing_pdk_in_the_default_store_fails_the_same_way(home):
     proc = run_xeda("pdk", "path", "nangate45", "--json", home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 1
     assert document(proc)["error"]["code"] == "pdk_not_installed"
 
 
 def test_an_unknown_platform_fails_naming_the_bundled_ones(home, store):
     proc = run_xeda("pdk", "path", "nangate", "--root", str(store), "--json", home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 2
     error = document(proc)
     assert error["success"] is False
     assert "nangate" in error["error"]["message"]
@@ -412,7 +413,7 @@ def test_an_unknown_platform_fails_naming_the_bundled_ones(home, store):
 
 def test_an_unknown_platform_fails_in_text_mode_too(home, store):
     proc = run_xeda("pdk", "path", "nangate", "--root", str(store), home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 2
     assert "the bundled platforms are: nangate45, sky130hd" in proc.stderr
 
 
@@ -428,7 +429,7 @@ def test_a_provider_corner_or_version_the_platform_cannot_take_fails_naming_it(
     home, store, extra, needle
 ):
     proc = run_xeda("pdk", "path", "nangate45", "--root", str(store), *extra, "--json", home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 2
     error = document(proc)
     assert error["success"] is False
     assert needle in error["error"]["message"]
@@ -436,7 +437,7 @@ def test_a_provider_corner_or_version_the_platform_cannot_take_fails_naming_it(
 
 def test_an_unknown_provider_is_refused_by_the_option(home, store):
     proc = run_xeda("pdk", "path", "nangate45", "--provider", "ftp", "--json", home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 2
     error = document(proc)
     assert error["success"] is False
     assert "orfs" in error["error"]["message"] and "ciel" in error["error"]["message"]
@@ -557,11 +558,11 @@ def test_pdk_path_refuses_files_whose_marker_names_another_version(home, tmp_pat
     arguments = ["pdk", "path", "--platform-file", str(user), "--root", str(root)]
     arguments += ["--version", PIN]
     text = run_xeda(*arguments, home=home)
-    assert text.returncode != 0
+    assert text.returncode == 1
     assert text.stdout == ""
     assert PIN in text.stderr and OTHER_COMMIT in text.stderr
     proc = run_xeda(*arguments, "--json", home=home)
-    assert proc.returncode != 0
+    assert proc.returncode == 1
     error = document(proc)
     assert error["success"] is False
     assert error["error"]["code"] == "pdk_version_mismatch"
@@ -1987,3 +1988,74 @@ def test_a_file_check_that_fails_in_the_store_is_an_install_failure(
     else:
         assert "Permission denied" in flat and str(root) in flat
     assert snapshot(root, elsewhere) == before
+
+
+# ---------------------------------------------------------------------------------------------
+# The documents validate against the shipped schemas
+# ---------------------------------------------------------------------------------------------
+
+
+def test_pdk_list_validates_with_and_without_the_optional_keys(home, store, tmp_path):
+    rows = document(run_xeda("pdk", "list", "--root", str(store), "--json", home=home))
+    _validate(rows, "pdk-list")
+    assert any(row["installed"] for row in rows)  # a store that holds the pin
+    assert any("other_versions" in row for row in rows)  # a Git provider
+    assert any("other_versions" not in row for row in rows)  # another provider
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    rows = document(run_xeda("pdk", "list", "--root", str(empty), "--json", home=home))
+    _validate(rows, "pdk-list")
+    assert not any(row["installed"] for row in rows)
+
+
+def test_pdk_list_validates_with_a_problem_and_other_versions(home, tmp_path):
+    root = tmp_path / "store"
+    install_sky130(root)
+    (sky130_directory(root) / "SOURCES").write_text(f"open_pdks {OTHER_COMMIT}\n")
+    touch_all(nangate_directory(root, OTHER_COMMIT), load_residue("nangate45"))
+    rows = document(run_xeda("pdk", "list", "--root", str(root), "--json", home=home))
+    _validate(rows, "pdk-list")
+    assert any("problem" in row for row in rows)
+    assert any(row.get("other_versions") for row in rows)
+
+
+def test_pdk_path_validates_with_and_without_a_library(home, store, tmp_path):
+    _validate(
+        document(run_xeda("pdk", "path", "nangate45", "--root", str(store), "--json", home=home)),
+        "pdk-path",
+    )
+    root = tmp_path / "ciel"
+    install_sky130(root)
+    proc = run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home)
+    assert proc.returncode == 0, proc.stderr
+    _validate(document(proc), "pdk-path")
+
+
+def test_pdk_install_of_an_installed_store_validates(home, store):
+    proc = run_xeda("pdk", "install", "nangate45", "--root", str(store), "--json", home=home)
+    assert proc.returncode == 0, proc.stderr
+    result = document(proc)
+    _validate(result, "pdk-install")
+    assert result["already_installed"] is True
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["path", "nangate45"], ["install", "nangate45", "--provider", "directory"]],
+    ids=lambda command: command[0],
+)
+def test_a_failed_pdk_command_validates_as_a_failure(home, tmp_path, command):
+    proc = run_xeda("pdk", *command, "--root", str(tmp_path / "none"), "--json", home=home)
+    assert proc.returncode == (1 if command[0] == "path" else 2)
+    _validate(document(proc), "failure")
+
+
+def test_a_declined_install_exits_with_status_1_and_installs_nothing(tmp_path):
+    root = tmp_path / "store"
+
+    answer = CliRunner().invoke(cli, ["pdk", "install", NANGATE, "--root", str(root)], input="n\n")
+
+    assert answer.exit_code == 1, answer.output
+    assert "Nothing is installed." in answer.output
+    assert not root.exists()

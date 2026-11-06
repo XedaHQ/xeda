@@ -118,8 +118,22 @@ PRODUCERS = {
 }
 
 
+#: The documents that another test validates: the record of a run (below), the PDK documents
+#: (`test_pdk_cli.py`) and the remote documents (`test_remote_commands.py`,
+#: `test_remote_keep_running.py`).
+VALIDATED_ELSEWHERE = {
+    "results",
+    "pdk-list",
+    "pdk-path",
+    "pdk-install",
+    "remote-check",
+    "remote-clean",
+    "remote-cancel",
+}
+
+
 def test_every_document_has_a_producer() -> None:
-    assert sorted(PRODUCERS) == sorted(set(_schemas()) - {"results"})
+    assert sorted(PRODUCERS) == sorted(set(_schemas()) - VALIDATED_ELSEWHERE)
 
 
 @pytest.mark.parametrize("name", sorted(PRODUCERS))

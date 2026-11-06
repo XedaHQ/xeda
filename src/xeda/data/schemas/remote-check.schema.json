@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "disk": {
+      "properties": {
+        "free": {
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "free",
+        "path",
+        "total"
+      ],
+      "type": "object"
+    },
+    "docker": {
+      "properties": {
+        "found": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "found",
+        "path"
+      ],
+      "type": "object"
+    },
+    "environment": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "lock": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "lock_file": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "key",
+        "lock",
+        "lock_file",
+        "prefix"
+      ],
+      "type": "object"
+    },
+    "executables": {
+      "properties": {
+        "found": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "found",
+        "missing"
+      ],
+      "type": "object"
+    },
+    "host": {
+      "type": "string"
+    },
+    "kill_user_processes": {
+      "enum": [
+        "yes",
+        "no",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "platform": {
+      "properties": {
+        "libc": {
+          "type": "string"
+        },
+        "libc_version": {
+          "type": "string"
+        },
+        "machine": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "libc",
+        "libc_version",
+        "machine",
+        "system"
+      ],
+      "type": "object"
+    },
+    "python": {
+      "properties": {
+        "executable": {
+          "type": "string"
+        },
+        "implementation": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "executable",
+        "implementation",
+        "version"
+      ],
+      "type": "object"
+    },
+    "success": {
+      "const": true
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "xeda": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "disk",
+    "docker",
+    "environment",
+    "executables",
+    "host",
+    "kill_user_processes",
+    "platform",
+    "python",
+    "success",
+    "warnings",
+    "xeda"
+  ],
+  "title": "xeda remote check --json",
+  "type": "object"
+}

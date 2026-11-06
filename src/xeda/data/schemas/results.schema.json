@@ -8,16 +8,189 @@
       "type": "object"
     },
     "configuration": {
+      "properties": {
+        "converted_from": {
+          "type": "string"
+        },
+        "language": {
+          "type": "object"
+        },
+        "produces": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rtl": {
+          "properties": {
+            "attributes": {
+              "type": "object"
+            },
+            "clocks": {
+              "items": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "port": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "port"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "defines": {
+              "type": "object"
+            },
+            "parameters": {
+              "type": "object"
+            },
+            "sources": {
+              "items": {
+                "properties": {
+                  "dependency": {
+                    "type": "integer"
+                  },
+                  "generator": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "top": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "attributes",
+            "clocks",
+            "defines",
+            "parameters",
+            "top"
+          ],
+          "type": "object"
+        },
+        "tb": {
+          "properties": {
+            "cocotb": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "defines": {
+              "type": "object"
+            },
+            "parameters": {
+              "type": "object"
+            },
+            "sources": {
+              "items": {
+                "properties": {
+                  "dependency": {
+                    "type": "integer"
+                  },
+                  "generator": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "top": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "uut": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "cocotb",
+            "defines",
+            "parameters",
+            "top",
+            "uut"
+          ],
+          "type": "object"
+        },
+        "transforms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
       "type": "object"
     },
     "dependencies": {
       "items": {
-        "additionalProperties": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "properties": {
+          "commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "design_file": {
+            "type": "string"
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
+        "required": [
+          "commit",
+          "design_file",
+          "reference",
+          "repository"
+        ],
         "type": "object"
       },
       "type": "array"

@@ -33,6 +33,7 @@ from xeda._internal.remote.frames import CANCEL
 from xeda._internal.remote.errors import RemoteError
 from xeda._internal.remote.ssh import SshSession
 
+from .test_schema_baseline import _validate
 from .remote_fixtures import (
     RemoteHost,
     fake_remote,
@@ -731,6 +732,7 @@ def test_attach_replays_the_log_waits_and_fetches(
     result = attached.get(timeout=TIMEOUT)
     assert result.error is None and result.success, result.document
     assert result.document["launch_id"] == directory.name
+    _validate(result.document, "run")  # `remote attach --json` prints this document
     assert _states(result.document)["nextpnr"] == "ran"
     assert (mirror / "nextpnr" / "config.txt").is_file()
     written = json.loads((mirror / "nextpnr" / "results.json").read_text())
@@ -899,6 +901,7 @@ def test_cancel_stops_the_launch_and_its_descendants(tmp_path, remote_host, monk
         "launch": directory.name,
         "survivors": 0,
     }
+    _validate(document, "remote-cancel")
     _assert_gone(tool)
     _assert_gone(launch.pid)
     assert _launch_state(directory)["state"] == "canceled"

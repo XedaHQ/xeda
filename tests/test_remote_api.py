@@ -26,6 +26,7 @@ from xeda._internal.remote_value import Remote
 from xeda._internal.spec import Spec
 from xeda._internal.workspace import Workspace
 
+from .test_schema_baseline import _validate
 from .remote_fixtures import fake_remote, fake_ssh, host_profile_of, remote_host
 from .test_git_dependencies import git_log, remote
 from .test_remote_client import TIMEOUT, _design
@@ -462,6 +463,7 @@ def test_attach_through_the_cli(tmp_path, remote_host, monkeypatch, cleanup, wat
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
     assert document["outcome"] == "passed" and document["launch_id"] == passed.launch_id
+    _validate(document, "run")
 
     # A launch that failed.
     remote_host.configure(
@@ -473,6 +475,7 @@ def test_attach_through_the_cli(tmp_path, remote_host, monkeypatch, cleanup, wat
     assert result.exit_code == 1, result.output
     document = json.loads(result.stdout)
     assert document["outcome"] == "failed" and document["error"]["node"] == "nextpnr"
+    _validate(document, "run")
 
     # A launch that still runs when the connection of the attach drops.
     remote_host.configure(env={"XEDA_FAKE_FPGA_MODE": ""})

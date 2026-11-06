@@ -192,7 +192,7 @@ def test_group_level_json_is_itself_a_usage_error():
     """`--json` belongs to the subcommands, so the group rejecting it is correct -- and the
     rejection is still reported as JSON."""
     proc = run_xeda("--json", "--help")
-    assert proc.returncode != 0
+    assert proc.returncode == 2
     assert json_stdout(proc)["error"]["code"] == "usage_error"
 
 
@@ -231,7 +231,7 @@ def test_a_failed_pdk_command_reports_json_and_fails(command, code, tmp_path):
         command = [str(broken) if word == "MERGE_FAILS" else word for word in command]
     proc = run_xeda(*command, "--json", home=tmp_path)
     document = json_stdout(proc)
-    assert proc.returncode != 0
+    assert proc.returncode == (2 if code == "usage_error" else 1)
     assert document["success"] is False
     assert document["error"]["code"] == code
     assert set(document["error"]) == {"code", "message", "node", "exit_status", "log"}

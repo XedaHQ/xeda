@@ -20,6 +20,7 @@ from click.testing import CliRunner, Result
 from xeda._internal.cli import cli
 from xeda._internal.introspect import flow_executables
 
+from .test_schema_baseline import _validate
 from .remote_fixtures import FakeRemote, fake_remote, fake_ssh, remote_host
 from xeda._internal.package_paths import impl_module
 
@@ -77,6 +78,7 @@ def test_check_reports_the_host_and_the_environment_as_json(remote_host):
     assert document["disk"]["free"] > 0 and document["disk"]["total"] >= document["disk"]["free"]
     assert document["kill_user_processes"] in ("yes", "no", "unknown")
     assert isinstance(document["warnings"], list)
+    _validate(document, "remote-check")
 
 
 def test_check_looks_for_the_executables_of_the_flows_and_is_not_an_error_for_a_missing_one(
@@ -87,6 +89,7 @@ def test_check_looks_for_the_executables_of_the_flows_and_is_not_an_error_for_a_
     result = _invoke("check", "somewhere", "--json")
 
     assert result.exit_code == 0, _text(result)
+    _validate(_document(result), "remote-check")  # found and missing entries, a found Docker
     executables = _document(result)["executables"]
     found, missing = set(executables["found"]), set(executables["missing"])
     assert found | missing == set(flow_executables()) and not found & missing
@@ -144,6 +147,7 @@ def test_check_of_a_host_that_is_not_linux_fails_with_a_document(remote_host):
     document = _document(result)
     assert result.exit_code == 1 and document["success"] is False
     assert document["error"]["code"] == "remote_setup_failed"
+    _validate(document, "failure")
     assert "Linux" in document["error"]["message"]
 
 
@@ -306,6 +310,7 @@ def test_clean_with_json_does_not_ask(remote_host):
 
     assert result.exit_code == 0, _text(result)
     assert [Path(item["path"]).name for item in _document(result)["removed"]] == ["old"]
+    _validate(_document(result), "remote-clean")
     assert not old.exists()
 
 
@@ -320,6 +325,17 @@ def test_clean_with_nothing_to_remove_asks_nothing_and_removes_nothing(remote_ho
     assert "Remove them?" not in _text(result)
     (listing,) = _clean_calls(remote)
     assert "--list" in " ".join(listing)
+
+
+def test_clean_with_nothing_to_remove_has_empty_lists_in_json(remote_host):
+    _workspace(remote_host.remote, "recent", 1)
+
+    result = _invoke("clean", "somewhere", "--json")
+
+    assert result.exit_code == 0, _text(result)
+    document = _document(result)
+    assert document["removed"] == []
+    _validate(document, "remote-clean")
 
 
 def test_clean_of_a_host_that_is_not_linux_fails_with_a_document(remote_host):
@@ -405,6 +421,7 @@ def test_clean_keeps_a_workspace_with_a_running_launch(remote_host):
     removed = {Path(item["path"]).name for item in document["removed"]}
     reasons = {Path(item["path"]).name: item["reason"] for item in document["kept"]}
     assert "idle" in removed and "running" not in removed
+    _validate(document, "remote-clean")  # removed and kept entries
     assert reasons["running"] == "a launch runs"
     assert running.exists() and not idle.exists()
 
@@ -505,6 +522,18 @@ def test_an_agent_that_misses_its_deadline_is_a_timeout(remote_host, monkeypatch
     assert _document(result)["error"]["code"] == "timeout"
 
 
+def test_a_cancel_that_stopped_the_launch_exits_with_status_0(remote_host, monkeypatch):
+    stopped = {"success": True, "host": "somewhere", "launch": "abc123", "survivors": 0}
+    monkeypatch.setattr("xeda._internal.remote.attach.cancel_launch", lambda *a, **k: stopped)
+
+    result = _invoke("cancel", "somewhere", "--json")
+
+    assert result.exit_code == 0, _text(result)
+    assert _document(result) == stopped
+    _validate(_document(result), "remote-cancel")
+    assert _invoke("cancel", "somewhere").exit_code == 0
+
+
 def test_a_cancel_with_survivors_is_a_failure_envelope(remote_host, monkeypatch):
     survived = {"success": False, "host": "somewhere", "launch": "abc123", "survivors": 2}
     monkeypatch.setattr("xeda._internal.remote.attach.cancel_launch", lambda *a, **k: survived)
@@ -514,6 +543,7 @@ def test_a_cancel_with_survivors_is_a_failure_envelope(remote_host, monkeypatch)
     document = _document(result)
     assert result.exit_code == 1
     assert set(document) == {"success", "error"} and document["success"] is False
+    _validate(document, "failure")
     assert document["error"]["code"] == "remote_failed"
     for part in ("somewhere", "abc123", "2"):
         assert part in document["error"]["message"]
