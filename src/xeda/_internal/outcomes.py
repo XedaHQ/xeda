@@ -176,6 +176,17 @@ def aggregate(
     raise ValueError(f"a root ended with an outcome that decides nothing: {causes!r}")
 
 
+def _cause_text(error: ErrorInfo) -> str:
+    """`node [code]: message`, with `launch` for an error that belongs to no node."""
+    return f"{error.node or 'launch'} [{error.code}]: {error.message}"
+
+
+def _indented(text: str, width: int) -> str:
+    """`text` with `width` spaces before its first line and `width + 2` before the others."""
+    first, *rest = text.split("\n")
+    return "\n".join([" " * width + first, *(" " * (width + 2) + line for line in rest)])
+
+
 @dataclass(frozen=True, kw_only=True)
 class Result:
     """What one launch did: the verdict, and an outcome for every planned node.
@@ -217,13 +228,46 @@ class Result:
         return self.outcome is Outcome.PASSED
 
     def require_passed(self) -> Result:
-        """Return the result if the launch passed. Raise `RunFailedError` if it did not."""
+        """Return the result if the launch passed. Raise `RunFailedError` if it did not.
+
+        The text of the error names the node that caused the failure, its error code and its
+        message."""
         if not self.passed:
-            cause = f": {self.error.message}" if self.error is not None else ""
+            cause = f": {_cause_text(self.error)}" if self.error is not None else ""
             raise RunFailedError(
-                f"the launch ended {self.outcome}{cause}", code="run_failed", result=self
+                f"launch ended {self.outcome}{cause}", code="run_failed", result=self
             )
         return self
+
+    def __str__(self) -> str:
+        """The verdict, its cause, and one entry for each node in plan order.
+
+        An error that repeats the cause, and the `producer_failed` error of a blocked node, are
+        left out. The text is for people: its layout can change. Building it reads and writes
+        nothing."""
+        lines = [f"Result: {self.outcome}"]
+        if self.error is not None:
+            lines.append(_indented(f"cause: {_cause_text(self.error)}", 2))
+        for node in self.nodes.values():
+            head = f"{node.name}: {node.outcome} ({node.disposition})"
+            if node.blocked_by is not None:
+                head += f"; blocked by {node.blocked_by}"
+            lines.append(_indented(head, 2))
+            if node.record is not None:
+                lines.append(_indented(f"record: {node.run_dir / 'results.json'}", 4))
+            error = node.error
+            if error is None:
+                continue
+            name = node.record.artifacts.get(error.log) if node.record and error.log else None
+            if name is not None:
+                lines.append(_indented(f"log: {node.run_dir / name}", 4))
+            if error != self.error and error.code != "producer_failed":
+                lines.append(_indented(f"error [{error.code}]: {error.message}", 4))
+        return "\n".join(lines)
+
+    def _repr_pretty_(self, printer: Any, cycle: bool) -> None:
+        """Show `str(self)` in IPython and Jupyter."""
+        printer.text("Result(...)" if cycle else str(self))
 
     def to_dict(self) -> dict[str, Any]:
         """Return the document that `xeda run --json` prints (schema 1).

@@ -11,6 +11,7 @@ import dataclasses
 import json
 import os
 import pickle
+import types
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -1173,3 +1174,108 @@ def test_the_design_file_of_a_document_is_absolute(tmp_path, monkeypatch):
         ]
         is None
     )
+
+
+def _missing_tool_chain(tmp_path, *, record=None):
+    message = "Executable 'yosys' was not found."
+    failed = dataclasses.replace(
+        _node("yosys_fpga", "failed", code="executable_not_found", record=record),
+        run_dir=tmp_path / "yosys_fpga",
+    )
+    failed = dataclasses.replace(
+        failed,
+        error=ErrorInfo(
+            code="executable_not_found",
+            message=message,
+            node="yosys_fpga",
+            exit_status=None,
+            log=None,
+        ),
+        disposition="ran",  # type: ignore[arg-type]
+    )
+    blocked = dataclasses.replace(
+        _node("nextpnr", "blocked", blocked_by="yosys_fpga", code="producer_failed"),
+        error=ErrorInfo(
+            code="producer_failed", message=message, node="nextpnr", exit_status=None, log=None
+        ),
+    )
+    return Result(
+        launch_id="id",
+        spec=Spec("nextpnr", _design(tmp_path)),
+        roots=["nextpnr"],
+        outcome="failed",
+        error=failed.error,
+        nodes=_nodes(failed, blocked),
+    )  # type: ignore[arg-type]
+
+
+def test_missing_tool_chain_text(tmp_path):
+    record = types.SimpleNamespace(artifacts={})
+    result = _missing_tool_chain(tmp_path, record=record)
+    assert str(result) == (
+        "Result: failed\n"
+        "  cause: yosys_fpga [executable_not_found]: Executable 'yosys' was not found.\n"
+        "  yosys_fpga: failed (ran)\n"
+        f"    record: {tmp_path / 'yosys_fpga' / 'results.json'}\n"
+        "  nextpnr: blocked (not_run); blocked by yosys_fpga"
+    )
+    assert repr(result).startswith("Result(")
+
+
+def test_a_node_error_prints_once_and_continuation_lines_are_indented(tmp_path):
+    result = _missing_tool_chain(tmp_path)
+    error = dataclasses.replace(result.error, message="line one\nline two")  # type: ignore[type-var]
+    text = str(dataclasses.replace(result, error=error))
+    assert "  cause: yosys_fpga [executable_not_found]: line one\n    line two\n" in text
+    assert "error [executable_not_found]: Executable" in text  # differs from the cause now
+    assert "producer_failed" not in text
+
+
+def test_pretty_matches_str_without_io(tmp_path, monkeypatch):
+    result = _missing_tool_chain(tmp_path)
+    texts: list[str] = []
+    printer = types.SimpleNamespace(text=texts.append)
+    with monkeypatch.context() as m:
+        m.setattr("builtins.open", lambda *a, **k: pytest.fail("I/O"))
+        result._repr_pretty_(printer, False)
+        result._repr_pretty_(printer, True)
+    assert texts == [str(result), "Result(...)"]
+
+
+def test_require_passed_names_cause(tmp_path):
+    result = _missing_tool_chain(tmp_path)
+    with pytest.raises(RunFailedError) as caught:
+        result.require_passed()
+    assert str(caught.value) == (
+        "launch ended failed: yosys_fpga [executable_not_found]: Executable 'yosys' was not found."
+    )
+    assert caught.value.code == "run_failed" and caught.value.result is result
+    launch = dataclasses.replace(result, error=LAUNCH_ERROR)
+    with pytest.raises(RunFailedError, match=r"^launch ended failed: launch \[delivery_failed\]"):
+        launch.require_passed()
+    with pytest.raises(RunFailedError) as bare:
+        dataclasses.replace(result, error=None).require_passed()
+    assert str(bare.value) == "launch ended failed"
+
+
+def test_listing_prints_every_problem(tmp_path):
+    from xeda._internal.records import RecordProblem, RunListing
+
+    problems = tuple(
+        RecordProblem(
+            path=tmp_path / n / "results.json", code="missing_record", message=f"{n} gone"
+        )
+        for n in "ab"
+    )
+    listing = RunListing(records=(), problems=problems)
+    assert str(listing) == (
+        "RunListing: 0 records, 2 problems\n"
+        f"  {tmp_path / 'a' / 'results.json'} [missing_record]: a gone\n"
+        f"  {tmp_path / 'b' / 'results.json'} [missing_record]: b gone"
+    )
+    assert str(RunListing(records=(), problems=())) == "RunListing: 0 records, 0 problems"
+    texts: list[str] = []
+    printer = types.SimpleNamespace(text=texts.append)
+    listing._repr_pretty_(printer, True)
+    listing._repr_pretty_(printer, False)
+    assert texts == ["RunListing(...)", str(listing)]

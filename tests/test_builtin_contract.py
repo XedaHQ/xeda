@@ -1003,3 +1003,41 @@ def test_the_snapshot_records_the_binding_of_each_input() -> None:
     keys = {"producer", "output", "same_producer_as", "paired", "via", "equivalence"}
     assert all(keys <= set(i) for f in flows.values() for i in f["inputs"].values())
     assert any(i["producer"] for f in flows.values() for i in f["inputs"].values())
+
+
+def _files(user: list[str], project: list[str], place: str = "beside the project file") -> dict:
+    return {
+        "cli": {},
+        "private_files": [
+            ["config.yaml", "$XDG_CONFIG_HOME/xeda", user],
+            ["<stem>.local.yaml", place, project],
+        ],
+    }
+
+
+def test_a_private_file_key_may_be_added_but_not_removed_or_moved() -> None:
+    old = _files(["env"], ["env", "flows"])
+    new = _files(["env", "path"], ["env", "flows"])
+    assert tool.classify(old, new, kind="behavior") == (
+        ["private_files.config.yaml.path: new key"],
+        [],
+    )
+    assert tool.classify(new, old, kind="behavior") == (
+        [],
+        ["private_files.config.yaml.path: key removed"],
+    )
+    moved = _files(["env"], ["flows", "path"])  # `env` leaves one file, `path` joins the other
+    additive, breaking = tool.classify(new, moved, kind="behavior")
+    assert breaking == [
+        "private_files.<stem>.local.yaml.env: key removed",
+        "private_files.config.yaml.path: key removed",
+    ]
+    assert additive == ["private_files.<stem>.local.yaml.path: new key"]
+
+
+def test_a_private_file_that_changes_its_place_breaks() -> None:
+    old, new = _files(["env"], ["env"]), _files(["env"], ["env"], place="in the home directory")
+    assert tool.classify(old, new, kind="behavior") == (
+        [],
+        ["private_files.<stem>.local.yaml: place changed"],
+    )
