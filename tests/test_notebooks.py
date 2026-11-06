@@ -6,6 +6,7 @@ examples through the `XEDA_EXAMPLES` variable. A notebook writes only under its 
 """
 
 import ast
+import csv
 import re
 import subprocess
 import sys
@@ -35,6 +36,7 @@ NOTEBOOK_PROBES: dict[str, tuple] = {
     "03-sweep": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "04-plan": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "05-generated": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
+    "06-qor-history": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
 }
 
 # The probe of each flow that a notebook may launch, and of the cocotb testbenches.
@@ -312,6 +314,29 @@ def test_the_generated_notebook_compares_variants_by_their_exact_bytes(execution
     assert (out / "delivered" / "counter.v").read_bytes() == expected[16]
     for run in (nb, again):
         assert cell_output(run, "delivered-bytes").splitlines() == ["True", "[('generator', True)]"]
+
+
+def test_the_history_notebook_reads_past_runs(executions):
+    work, nb, again = executions("06-qor-history")
+    with (work / "notebook-output" / "history.csv").open(newline="") as file:
+        rows = list(csv.DictReader(file))
+    assert [(r["clocks.main_clock.period"], r["seed"]) for r in rows] == [
+        ("12 ns", "1"),
+        ("10 ns", "1"),
+        ("8 ns", "1"),
+        ("10 ns", "2"),
+    ]
+    assert all(
+        r["outcome"] == "passed" and float(r["fmax"]) > 0 and int(r["lut"]) > 0 for r in rows
+    )
+    for run in (nb, again):
+        assert cell_output(run, "empty-history").startswith("no runs yet")
+        assert "nosuch.metric" in cell_output(run, "missing-metric")
+        assert cell_output(run, "csv-rows") == "4"
+    # The fourth run changes only the seed of nextpnr, so it reuses the yosys_fpga run of the
+    # second. (The second execution is not checked for reuse: the harness gives each execution
+    # its own IPYTHONDIR, and an inherited variable is evidence of a run, so it runs again.)
+    assert cell_output(nb, "runs").splitlines()[3] == "10 ns 2 passed reused ran"
 
 
 PLAN_OUTPUTS = {
