@@ -200,13 +200,14 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      # These files need nothing but pytest and its parallel runner. (jsonschema and the cocotb
-      # of the examples are for tests that this job does not run.)
+      # These files need pytest, its parallel runner, and jsonschema (the pdk and remote tests
+      # validate their JSON documents). The cocotb of the examples is for tests that this job does
+      # not run.
       - name: Install dependencies
         run: |
           python -VV
           python -m pip install --upgrade pip
-          python -m pip install --editable . pytest pytest-xdist
+          python -m pip install --editable . pytest pytest-xdist jsonschema
       - name: Run the operating-system-sensitive tests
         run: >-
           python -m pytest -n logical
