@@ -449,6 +449,10 @@ assume a draft. The schema describes the forms that the loader accepts. For exam
 every ``flows.<flow>`` is an open table. Take the schema of those settings from
 ``xeda list-settings <flow> --json`` (``json_schema``).
 
+The schema leaves the objects of a design file open, because a file may use dotted keys such as
+``language.vhdl.standard``. The loader still refuses a key that no field names. An object with
+``"x-xeda-closed": true`` is such an object: the loader refuses its unknown keys.
+
 .. _document-schemas:
 
 The schema of each document

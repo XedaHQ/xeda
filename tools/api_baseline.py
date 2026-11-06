@@ -1654,7 +1654,11 @@ _SCHEMA_MEANING = (
 #: The `x-xeda-*` keys that are not judged: `tier` and `input-only` only sort a listing, and the
 #: built-in contract judges the mark `experimental` on the entry of the setting.
 _SCHEMA_LISTING = ("x-xeda-tier", "x-xeda-input-only", "x-xeda-experimental")
-_SCHEMA_KNOWN = _SCHEMA_JUDGED | _SCHEMA_METADATA | {"$ref", *_SCHEMA_MEANING, *_SCHEMA_LISTING}
+#: Judged as `additionalProperties: false` (see `_closed_extra`): the design file closes the object.
+_SCHEMA_CLOSED = "x-xeda-closed"
+_SCHEMA_KNOWN = (
+    _SCHEMA_JUDGED | _SCHEMA_METADATA | {"$ref", _SCHEMA_CLOSED, *_SCHEMA_MEANING, *_SCHEMA_LISTING}
+)
 #: The keywords whose value is a schema, a list of schemas or a table of schemas.
 _SUBSCHEMA = ("items", "additionalProperties", "propertyNames", "not")
 _SUBSCHEMAS = ("anyOf", "oneOf", "prefixItems")
@@ -1689,6 +1693,12 @@ def _openness(extra: Any) -> int:
     return 0 if extra is False else 1 if isinstance(extra, dict) and extra else 2
 
 
+def _extra_keys(node: dict[str, Any]) -> Any:
+    """The `additionalProperties` of an object: `false` for an object that the loader closes."""
+    extra = node.get("additionalProperties")
+    return False if extra is None and node.get(_SCHEMA_CLOSED) else extra
+
+
 def _tightness(node: dict[str, Any], group: dict[str, bool]) -> tuple[float, bool]:
     """How tight a bound is: a larger result is tighter. No bound is the loosest."""
     sign = -1 if next(iter(group)).startswith("max") else 1
@@ -1696,14 +1706,12 @@ def _tightness(node: dict[str, Any], group: dict[str, bool]) -> tuple[float, boo
     return max(found, default=(float("-inf"), False))
 
 
-def _schema_visitor(
-    add: list[str], brk: list[str], unknown_keys_rejected: bool = False
-) -> Callable[..., None]:
+def _schema_visitor(add: list[str], brk: list[str]) -> Callable[..., None]:
     """The visitor `visit(path, before, after, roots, reader, seen)` of two schemas that records
     the differences in `add` and `brk`. `roots` are the documents that a `$ref` resolves against;
-    `reader` is true for an input, which Xeda reads. An input schema that says nothing about other
-    keys (`additionalProperties` absent) is open, unless `unknown_keys_rejected`: the loader of the
-    design file refuses a key that no property names."""
+    `reader` is true for an input, which Xeda reads. An object that says nothing about other keys
+    (`additionalProperties` absent) is open, unless it has the mark `x-xeda-closed`: the loader of
+    the design file refuses a key that no property names, and `design_schema` records that."""
 
     def judge(path: str, message: str, widened: bool, reader: bool) -> None:
         """Input accepts more or output promises more: additive. The reverse breaks."""
@@ -1795,7 +1803,8 @@ def _schema_visitor(
         old_enum, new_enum = _enum_values(before), _enum_values(after)
         if old_enum != new_enum:
             grew = new_enum is None or (old_enum is not None and old_enum < new_enum)
-            # A document holds closed sets (an outcome, a disposition): a new member breaks a reader.
+            # A document holds closed sets (an outcome, a disposition): a new member breaks a
+            # reader.
             (add if grew and reader else brk).append(
                 f"{path}: enum {'widened' if grew else 'narrowed'}"
             )
@@ -1813,9 +1822,10 @@ def _schema_visitor(
         path: str, left: list[Any], right: list[Any], roots: tuple[Any, Any], reader: bool,
         seen: frozenset[tuple[str, str]], exclusive: bool,
     ) -> None:  # fmt: skip
-        """Pair each old alternative with the new one of the same JSON types (else one that holds
-        more or less) and compare the pairs. In a `oneOf`, a new alternative that overlaps another
-        can make a value match twice: a change that adds there breaks."""
+        """Pair identical alternatives first, then each old one with the new one of the same JSON
+        types (else one that holds more or less), and compare the pairs. In a `oneOf`, branches
+        that overlap, before or after, make a value match twice and so invalid: a change that
+        adds there breaks."""
 
         def kinds(branches: list[Any], root: Any) -> list[frozenset[str] | None]:
             return [
@@ -1828,11 +1838,29 @@ def _schema_visitor(
         mark = len(add)
         old_kinds, new_kinds = kinds(left, roots[0]), kinds(right, roots[1])
         used: set[int] = set()
-        for branch, kind in zip(left, old_kinds):
-            match = next((i for i, k in enumerate(new_kinds) if k == kind and i not in used), None)
+        text = [json.dumps(b, sort_keys=True) for b in (*left, *right)]
+        same = {}  # identical alternatives pair first, whatever their order
+        for i, old_text in enumerate(text[: len(left)]):
+            match = next(
+                (
+                    j
+                    for j, new_text in enumerate(text[len(left) :])
+                    if new_text == old_text and j not in used
+                ),
+                None,
+            )
+            if match is not None:
+                used.add(match)
+                same[i] = match
+        for i, (branch, kind) in enumerate(zip(left, old_kinds)):
+            match = same.get(i)
+            if match is not None:
+                visit(path, branch, right[match], roots, reader, seen)
+                continue
+            match = next((j for j, k in enumerate(new_kinds) if k == kind and j not in used), None)
             if match is None:
                 match = next(
-                    (i for i, k in enumerate(new_kinds) if _covers(k, kind) or _covers(kind, k)),
+                    (j for j, k in enumerate(new_kinds) if _covers(k, kind) or _covers(kind, k)),
                     None,
                 )
             if match is None:
@@ -1844,9 +1872,11 @@ def _schema_visitor(
             if index not in used:
                 judge(path, f"alternative {name(kind)} added", True, reader)
         overlap = any(
-            a is None or b is None or a & b for a, b in itertools.combinations(new_kinds, 2)
+            a is None or b is None or a & b
+            for kinds_ in (old_kinds, new_kinds)
+            for a, b in itertools.combinations(kinds_, 2)
         )
-        if exclusive and overlap:
+        if exclusive and overlap:  # a value may have matched two branches before or after
             brk.extend(add[mark:])
             del add[mark:]
 
@@ -1857,12 +1887,7 @@ def _schema_visitor(
         old_props, new_props = before.get("properties", {}), after.get("properties", {})
         old_patterns = before.get("patternProperties", {})
         new_patterns = after.get("patternProperties", {})
-        old_extra, new_extra = before.get("additionalProperties"), after.get("additionalProperties")
-
-        def openness(extra: Any) -> int:
-            """What an input does with a key that no property names: 2 takes it, 1 checks it,
-            0 refuses it."""
-            return 0 if extra is None and unknown_keys_rejected else _openness(extra)
+        old_extra, new_extra = _extra_keys(before), _extra_keys(after)
 
         def everything(node: Any) -> bool:
             node = _resolve(node, roots[1]) if isinstance(node, dict) else node
@@ -1881,7 +1906,7 @@ def _schema_visitor(
                 shared = bool(old_patterns) or any(_may_match(name, key) for key in old_props)
             else:
                 shared = any(_may_match(pattern, name) for pattern in old_patterns)
-            fallback = openness(old_extra)
+            fallback = _openness(old_extra)
             if everything(schema) or (fallback == 0 and not shared):
                 add.append(f"{place}: {what}")
             elif fallback == 1 and not shared:
@@ -1895,7 +1920,7 @@ def _schema_visitor(
             """A removed property or pattern of an input hands its keys to a pattern or to
             `additionalProperties`: it accepts more if that takes them, and less if it refuses."""
             what = "pattern property" if is_pattern else "property"
-            fallback = openness(new_extra)
+            fallback = _openness(new_extra)
             if fallback == 2 or (not is_pattern and any(_may_match(p, name) for p in new_patterns)):
                 add.append(f"{place}: {what} removed")
             elif fallback == 1:
@@ -1983,7 +2008,7 @@ def _classify_schema(
     for name, schema in [*old.items(), *new.items()]:
         _check_keywords(name, schema)
 
-    visit = _schema_visitor(add, brk, unknown_keys_rejected=True)
+    visit = _schema_visitor(add, brk)
     for name in sorted(old.keys() & new.keys()):
         both = (old[name], new[name])
         visit(name, both[0], both[1], both, name in INPUT_DOCUMENTS, frozenset())

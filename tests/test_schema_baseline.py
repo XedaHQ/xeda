@@ -326,6 +326,7 @@ def _source_entry(types: list[str], keys: tuple[str, ...] = ("file", "path", "ty
         "type": "object",
         "oneOf": [{"required": ["file"]}, {"required": ["path"]}],
         "properties": properties,
+        "additionalProperties": False,  # like a source table of a design
     }
 
 
@@ -414,9 +415,9 @@ RULES = {
         "adds", "breaks",
     ),
     "pattern property removed": (
-        OBJ | {"patternProperties": {"^a": STRING}}, OBJ, "breaks", "breaks",
+        OBJ | {"patternProperties": {"^a": STRING}}, OBJ, "adds", "breaks",
     ),
-    "pattern property added": (OBJ, OBJ | {"patternProperties": {"^a": STRING}}, "adds", "adds"),
+    "pattern property added": (OBJ, OBJ | {"patternProperties": {"^a": STRING}}, "breaks", "adds"),
     "pattern property type": (
         OBJ | {"patternProperties": {"^a": STRING}},
         OBJ | {"patternProperties": {"^a": NUM}},
@@ -508,6 +509,16 @@ PROBES = {
     "oneOf gains a disjoint branch": (
         {"oneOf": [NUM, STRING]}, {"oneOf": [NUM, STRING, NULL]}, "adds", "breaks",
     ),
+    "oneOf drops the overlapping branch": (
+        {"oneOf": [NUM, INT]}, {"oneOf": [INT]}, "breaks", "breaks",
+    ),
+    "oneOf of equal branches in another order": (
+        {"oneOf": [NUM, INT]}, {"oneOf": [INT, NUM]}, "same", "same",
+    ),
+    "anyOf of equal branches in another order": (
+        {"anyOf": [INT | {"minimum": 0}, INT | {"maximum": -1}]},
+        {"anyOf": [INT | {"maximum": -1}, INT | {"minimum": 0}]}, "same", "same",
+    ),
     "oneOf loses a branch": ({"oneOf": [NUM, STRING]}, {"oneOf": [NUM]}, "breaks", "adds"),
     "nullable integer to number": (
         {"anyOf": [INT, NULL]}, {"anyOf": [NUM, NULL]}, "adds", "breaks",
@@ -583,11 +594,23 @@ PROBES = {
         CLOSED | {"properties": {"ab": STRING}, "patternProperties": {"^a": STRING}},
         CLOSED | {"patternProperties": {"^a": STRING}}, "adds", "breaks",
     ),
-    # the design file refuses a key that no property names, so a new key narrows nothing
-    "property on an object of the design file": (OBJ, _object(properties={"a": STRING}), "adds", "adds"),
-    "property removed from an object of the design file": (
-        _object(properties={"a": STRING}), OBJ, "breaks", "breaks",
+    # an object that the loader closes (`x-xeda-closed`) refuses a key that no property names; an
+    # object without the mark is open, whatever document it is in
+    "property on a closed object of the design file": (
+        _object(**{"x-xeda-closed": True}),
+        _object(**{"x-xeda-closed": True}, properties={"a": STRING}), "adds", "adds",
     ),
+    "property removed from a closed object of the design file": (
+        _object(**{"x-xeda-closed": True}, properties={"a": STRING}),
+        _object(**{"x-xeda-closed": True}), "breaks", "breaks",
+    ),
+    "property on an open object of the design file": (
+        OBJ, _object(properties={"a": STRING}), "breaks", "adds",
+    ),
+    "property removed from an open object of the design file": (
+        _object(properties={"a": STRING}), OBJ, "adds", "breaks",
+    ),
+    "open object marked closed": (OBJ, _object(**{"x-xeda-closed": True}), "breaks", "adds"),
     # `true`, `false` and an absent schema
     "false to true": (False, True, "adds", "breaks"),
     "true to false": (True, False, "breaks", "adds"),
@@ -690,3 +713,30 @@ def test_a_property_that_the_design_file_names_is_unchanged_by_an_unrelated_new_
     new["design"]["$defs"]["Rtl"]["properties"]["seed"] = {"type": "integer"}
     additive, breaking = _classify(old, new)
     assert additive and not breaking
+
+
+def test_the_objects_of_the_design_schema_that_the_loader_closes_carry_the_mark() -> None:
+    """The mark follows the models (`extra = forbid`), and a form without a model is closed by its
+    own `additionalProperties`. The parameter entry is such a form."""
+    design = _schemas()["design"]
+    assert design["x-xeda-closed"] is True
+    assert design["$defs"]["Rtl"]["x-xeda-closed"] is True
+    entry = design["$defs"]["Rtl"]["properties"]["parameters"]["anyOf"][1]["items"]
+    assert entry["additionalProperties"] is False
+    assert "x-xeda-closed" not in entry
+
+
+def test_a_new_key_of_a_parameter_entry_is_additive_and_an_unmarked_object_is_not_closed() -> None:
+    old = _schemas()
+    new = copy.deepcopy(old)
+    entry = new["design"]["$defs"]["Rtl"]["properties"]["parameters"]["anyOf"][1]["items"]
+    entry["properties"]["note"] = {"type": "string"}
+    additive, breaking = _classify(old, new)
+    assert additive and not breaking
+    assert "items.note: new property" in additive[0]
+    # the entry as it was before it was closed: a new typed key narrows what it took
+    del entry["additionalProperties"]
+    old["design"]["$defs"]["Rtl"]["properties"]["parameters"]["anyOf"][1]["items"].pop(
+        "additionalProperties"
+    )
+    assert _classify(old, new)[1]

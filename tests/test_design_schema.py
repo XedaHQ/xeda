@@ -407,6 +407,25 @@ def test_the_schema_accepts_a_parameter_list_entry_with_a_falsy_value(value, tmp
     assert Design(root=tmp_path, **data).rtl.parameters == {"W": value}
 
 
+@pytest.mark.parametrize("part", ["rtl", "tb"])
+def test_a_parameter_list_entry_with_another_key_is_refused(part, tmp_path):
+    """An entry holds `name` and `value`; any other key would be dropped without a word."""
+    data = {"name": "d", "rtl": {"sources": [], "top": "t"}}
+    data[part] = {"sources": [], "top": "t", "parameters": [{"name": "W", "value": 1, "x": 1}]}
+    assert not validator().is_valid(data)
+    with pytest.raises(Exception, match=r"unknown key.*`x`.*`name` and `value`"):
+        Design(root=tmp_path, **data)
+
+
+@pytest.mark.parametrize("key", ["file", "path"])
+def test_a_parameter_table_that_names_a_file_with_another_key_is_refused(key, tmp_path):
+    (tmp_path / "p.txt").write_text("x")
+    parameters = {"W": {key: "p.txt", "x": 1}}
+    data = {"name": "d", "rtl": {"sources": [], "top": "t", "parameters": parameters}}
+    with pytest.raises(Exception, match=r"parameter 'W'.*unknown key.*`x`.*`file` or `path`"):
+        Design(root=tmp_path, **data)
+
+
 # ------------------------------------------------- a list field that takes one item in its place
 
 
