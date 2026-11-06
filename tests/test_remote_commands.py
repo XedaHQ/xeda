@@ -327,7 +327,7 @@ def test_clean_with_nothing_to_remove_asks_nothing_and_removes_nothing(remote_ho
     assert "--list" in " ".join(listing)
 
 
-def test_clean_with_nothing_to_remove_has_empty_lists_in_json(remote_host):
+def test_clean_with_nothing_to_remove_has_an_empty_removed_list_in_json(remote_host):
     _workspace(remote_host.remote, "recent", 1)
 
     result = _invoke("clean", "somewhere", "--json")

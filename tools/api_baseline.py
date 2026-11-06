@@ -1298,7 +1298,7 @@ def _without_leaf(default: Any, path: list[str]) -> Any:
 
 
 def _classify_default(path: str, old: Any, new: Any, add: list[str], brk: list[str]) -> None:
-    """A changed default breaks. A table loses no key; a new key is an addition."""
+    """A changed default breaks. A table must keep each of its keys; a new key is an addition."""
     if isinstance(old, dict) and isinstance(new, dict):
         brk.extend(f"{path}.{k}: default removed" for k in sorted(old.keys() - new.keys()))
         add.extend(f"{path}.{k}: default added" for k in sorted(new.keys() - old.keys()))

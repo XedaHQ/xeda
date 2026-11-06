@@ -167,9 +167,9 @@ class ProjectError(SpecError):
 class FlowNotFoundError(SpecError):
     """The name of a flow is no flow. `suggestions` holds the close names."""
 
-    #: The name that is no flow.
+    #: The name that no flow has.
     name: str
-    #: The close names of flows.
+    #: The names of the flows that are close to `name`.
     suggestions: tuple[str, ...]
 
     def __init__(

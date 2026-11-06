@@ -237,8 +237,9 @@ def unit_after_space_hint(message: str, args: Sequence[str]) -> Optional[str]:
 
 
 def _declared_envvars_only(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """The settings of a command or group whose options read only the environment variables
-    that they declare (`envvar=`).
+    """Return the keyword arguments of a command or group with the automatic prefix of
+    environment variables turned off, so that its options read only the variables that they
+    declare (`envvar=`).
 
     With an `auto_envvar_prefix`, every option has a hidden second name. A leftover
     `export XEDA_CLEAN=1` would then empty every run directory on every run, and
