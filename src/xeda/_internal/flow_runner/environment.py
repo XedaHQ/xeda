@@ -182,10 +182,12 @@ def admitted(
     With `inherit_env`, it is the environment of the caller. Without, it is the essential
     variables and the locators of the flow, taken from the caller. The private `env` comes over
     it in both modes. The directories of the snapshot (`prefix`) go in front of `PATH`; without a
-    `PATH`, they go in front of `os.defpath`."""
+    `PATH`, they go in front of `os.defpath`. An empty `PATH` adds nothing after them."""
     view = {**_admitted_inherited(snapshot, settings, flow_class), **snapshot.private}
     if snapshot.prefix:
-        view["PATH"] = os.pathsep.join([*snapshot.prefix, view.get("PATH", os.defpath)])
+        # An empty part would add the current directory to PATH: leave it out.
+        parts = [*snapshot.prefix, view.get("PATH", os.defpath)]
+        view["PATH"] = os.pathsep.join(part for part in parts if part)
     return FrozenDict(view)
 
 

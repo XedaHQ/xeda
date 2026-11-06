@@ -67,18 +67,35 @@ def _fail(error: Exception, fmt: str) -> NoReturn:
     sys.exit(1)
 
 
-def _private_settings(config: Optional[Path], no_config: bool) -> LocalSettings:
+def _private_settings(config: Optional[Path], no_config: bool, fmt: str) -> LocalSettings:
     """Read the private settings as `xeda run` does: the user file (`--config`, or none with
-    `--no-config`) and the project-local file beside the project file of the current directory."""
+    `--no-config`) and the project-local file beside the project file of the current directory.
+    A file that is wrong is a refusal of the request, as it is for `xeda run`: one failure
+    document with the code of the error, or its message alone, and exit status 2."""
+    from xeda.errors import XedaError
+
+    from .flow_runner.error_codes import INTERNAL_ERROR, plain_message, public_error
     from .local_settings import local_settings
     from .project import Project
     from .types import UNSET
     from .xedaproject import resolve_project_file
 
     refuse_both_config_options(config, no_config)
-    path = resolve_project_file(None)
-    project = None if path is None else Project.load(path)
-    return local_settings(project, config=None if no_config else config or UNSET)
+    try:
+        path = resolve_project_file(None)
+        project = None if path is None else Project.load(path)
+        return local_settings(project, config=None if no_config else config or UNSET)
+    except Exception as error:
+        public = public_error(error)
+        if public.code == INTERNAL_ERROR or not isinstance(public, XedaError):
+            raise  # a bug keeps its traceback
+        from .cli_utils import emit_structured, failure_document
+
+        if fmt == "table":
+            click.echo(plain_message(error), err=True)
+        else:
+            emit_structured(failure_document(public.code, plain_message(error)), fmt)
+        sys.exit(2)
 
 
 def _store(root: Optional[Path], local: LocalSettings) -> Path:
@@ -206,7 +223,7 @@ def tools_list(
     from .tool_store import TOOL
 
     fmt = resolve_format(output_format, json_flag)
-    local = _private_settings(config, no_config)
+    local = _private_settings(config, no_config, fmt)
     store = _store(root, local)
     setting = local.tools.get(TOOL)
     rows = store_rows(store, setting)
@@ -272,7 +289,7 @@ def tools_path(
 
     fmt = resolve_format(output_format, json_flag)
     _check_version(version, allow_latest=False)
-    local = _private_settings(config, no_config)
+    local = _private_settings(config, no_config, fmt)
     store = _store(root, local)
     setting = local.tools.get(TOOL)
     try:
@@ -365,7 +382,7 @@ def tools_install(
     if fmt != "table":
         machine_readable_mode()  # stdout belongs to the document; tool output goes to stderr
     _check_version(version, allow_latest=True)
-    local = _private_settings(config, no_config)
+    local = _private_settings(config, no_config, fmt)
     # The install resolves the root, so the plan shows the paths that the install writes.
     store = _store(root, local).resolve()
     wanted = version or pinned_version()

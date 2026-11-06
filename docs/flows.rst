@@ -443,6 +443,12 @@ needs to find its daemon (``DOCKER_HOST``, ``DOCKER_CONTEXT``, ``DOCKER_CONFIG``
 ``DISPLAY``. Last, ``PWD`` is set to the working directory of the tool in the container. No
 variable of the caller enters a container.
 
+The ``PATH`` that a process gets has an order of its own. In front of the ``PATH`` of the caller
+(or of your private ``env``) Xeda puts the ``path`` directories of your private settings files, and
+then the ``bin`` directory of the newest installed OSS CAD Suite. A flow setting
+``env: {PATH: ...}`` replaces the whole value, directories in front included, and a container gets
+none of them. See :doc:`tools`.
+
 Neither mode is hermetic. A tool can read a file, a home directory or a program that Xeda does not
 track. ``inherit_env: false`` only reduces what the tool receives.
 

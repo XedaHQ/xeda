@@ -1111,8 +1111,8 @@ The tool store (``tools``)
     incomplete.
 
 ``tool_checksum_failed``
-    GitHub lists no SHA-256 digest for the archive, or the archive does not have it. Nothing is
-    installed.
+    The SHA-256 of the download differs from the digest that GitHub publishes for the archive, or
+    the release publishes no digest. Nothing is installed.
 
 ``tool_archive_invalid``
     The archive is not a safe suite: it has a name or a link that leaves the suite, a special file,

@@ -3532,11 +3532,14 @@ class FlowLauncher:
             local_settings.path if local_settings is not None else (),
             dict(local_settings.tools) if local_settings is not None else {},
         )
-        # The directories of PATH are a fact of the request: refuse a wrong `path` or `tools`, and
-        # an installation that the private settings select and the store lacks, at planning.
+        # The directories of PATH are a fact of the request: refuse a wrong `path` or `tools` at
+        # planning. The tool store belongs to the machine that runs the tools: look for an
+        # installation that the settings select only when the launch runs here. A remote client
+        # (it gives a host layer) leaves the store to the host.
         if local_settings is not None:
             check_launch_settings(local_settings)
-        request.environment()
+        if host_layer is None:
+            request.environment()
         return request
 
 

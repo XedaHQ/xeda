@@ -7,6 +7,7 @@ the tests build under `tmp_path`: a top directory `oss-cad-suite/` with `bin/yos
 
 from __future__ import annotations
 
+import datetime
 import fcntl
 import hashlib
 import io
@@ -36,7 +37,10 @@ from .test_schema_baseline import _validate
 
 pytestmark = pytest.mark.python_compat
 
-PIN = tool_store.pinned_version()
+#: The shipped pin, which one test reads (`test_the_shipped_pin_is_a_date_and_ci_reads_it`). The
+#: others run with this fixed pin, so that a bump of the shipped file changes none of them.
+SHIPPED_PIN = tool_store.pinned_version
+PIN = "2026-10-08"
 OLD, NEW = "2026-09-15", "2026-10-20"
 PLATFORM = "linux-x64"
 
@@ -145,6 +149,11 @@ class FakeGitHub:
             if url == f"{tool_store.DOWNLOADS}/{date}/{tool_store.asset_name(date, self.platform)}":
                 return Response(data)
         raise OSError(f"HTTP Error 404: {url}")
+
+
+@pytest.fixture(autouse=True)
+def _fixed_pin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tool_store, "pinned_version", lambda: PIN)
 
 
 @pytest.fixture
@@ -401,6 +410,60 @@ def test_archive_escape_and_internal_links(github, root, tmp_path, name):
     assert not (tmp_path / "escape").exists() and not (root.parent / "escape").exists()
     assert not (root / "oss-cad-suite").exists()
     assert [p.name for p in root.iterdir()] == [".lock"]
+
+
+def test_chained_links_that_leave_the_suite_are_refused(github, root, tmp_path):
+    """Each link stays inside the suite when it is read by its text, and the chain does not."""
+    github.add(
+        PIN,
+        [
+            *GOOD,
+            link_("oss-cad-suite/lib/up", ".."),
+            link_("oss-cad-suite/escape", "lib/up/lib/up/lib/up/../../../../../../outside"),
+        ],
+    )
+    with pytest.raises(ToolInstallError) as raised:
+        install(plan_install(root, PIN))
+    assert raised.value.code == "tool_archive_invalid"
+    assert "escape" in str(raised.value) and "outside the suite" in str(raised.value)
+    assert [p.name for p in root.iterdir()] == [".lock"]
+
+
+def test_a_dangling_link_must_stay_inside_the_suite_too(github, root):
+    github.add(PIN, [*GOOD, link_("oss-cad-suite/missing", "nothing/here")])
+    assert install(plan_install(root, PIN)).installation.version == PIN
+    github.add(
+        NEW,
+        [*GOOD, link_("oss-cad-suite/lib/up", ".."), link_("oss-cad-suite/x", "lib/up/../../y")],
+    )
+    with pytest.raises(ToolInstallError) as raised:
+        install(plan_install(root, NEW))
+    assert raised.value.code == "tool_archive_invalid"
+
+
+@pytest.mark.parametrize("level", ["tool", "version"])
+def test_a_link_that_appears_during_the_download_is_refused_before_anything_is_made(
+    github, root, tmp_path, monkeypatch, level
+):
+    github.add(PIN)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    real = tool_store._download
+
+    def download_then_link(plan, target):
+        real(plan, target)
+        tool = root / "oss-cad-suite"
+        if level == "tool":
+            tool.symlink_to(elsewhere)
+        else:
+            tool.mkdir()
+            (tool / PIN).symlink_to(elsewhere)
+
+    monkeypatch.setattr(tool_store, "_download", download_then_link)
+    with pytest.raises(ToolInstallError) as raised:
+        install(plan_install(root, PIN))
+    assert raised.value.code == "tool_install_failed" and "symbolic link" in str(raised.value)
+    assert list(elsewhere.iterdir()) == []
 
 
 def test_an_archive_without_yosys_is_not_a_suite(github, root):
@@ -678,6 +741,33 @@ def test_the_private_tools_setting_changes_what_path_and_list_show(github, root,
     assert selected == [] and path.exit_code == 1
 
 
+@pytest.mark.parametrize(
+    "command", [["list"], ["path", "oss-cad-suite"], ["install", "oss-cad-suite"]]
+)
+def test_wrong_private_settings_are_a_refusal_with_their_own_code(github, root, tmp_path, command):
+    """As for `xeda run`: one failure document with the code of the error, or the message alone,
+    and exit status 2. Never `internal_error` and never a traceback."""
+    config = tmp_path / "config.yaml"
+    config.write_text(yaml.safe_dump({"tools": {"oss-cad-suite": "maybe"}}))
+    arguments = [*command, "--root", str(root), "--config", str(config)]
+    result = run_tools(*arguments, "--json")
+    assert result.exit_code == 2, result.output
+    error = failure(result)
+    assert error["code"] == "invalid_local_settings"
+    assert "maybe" in error["message"] and str(config) in error["message"]
+    assert "Traceback" not in result.output
+    text = run_tools(*arguments)
+    assert text.exit_code == 2 and "maybe" in text.output and "Traceback" not in text.output
+    assert not text.stdout.strip() or "maybe" not in text.stdout
+    # A missing --config file and a missing `path:` directory are refusals too.
+    missing = run_tools(*command, "--root", str(root), "--config", str(tmp_path / "none"), "--json")
+    assert missing.exit_code == 2 and failure(missing)["code"] == "invalid_local_settings"
+    config.write_text(yaml.safe_dump({"path": ["no-such-directory"]}))
+    result = run_tools(*arguments, "--json")
+    assert result.exit_code == 2 and failure(result)["code"] == "invalid_local_settings"
+    assert "path[0]" in failure(result)["message"]
+
+
 def test_the_text_install_shows_the_plan_and_asks(github, root):
     github.add(PIN)
     declined = run_tools("install", "oss-cad-suite", "--root", str(root), input="n\n")
@@ -734,18 +824,20 @@ def test_an_unsupported_machine_gives_a_failure_document(github, root, monkeypat
 # ------------------------------------------------------------------------------ the pin and CI
 
 
-def test_pin_matches_ci():
+def test_the_shipped_pin_is_a_date_and_ci_reads_it():
     """CI installs the suite that the package pins: the workflow reads `tools.json`, and holds no
     date of its own."""
     root = Path(__file__).resolve().parent.parent
     pin_file = root / "src" / "xeda" / "data" / "tools.json"
-    assert json.loads(pin_file.read_text()) == {"oss-cad-suite": PIN}
-    assert tool_store.DATE.fullmatch(PIN)
+    shipped = SHIPPED_PIN()
+    assert json.loads(pin_file.read_text()) == {"oss-cad-suite": shipped}
+    assert tool_store.DATE.fullmatch(shipped)
+    datetime.date.fromisoformat(shipped)
     workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "src/xeda/data/tools.json" in workflow
     step = workflow.split("YosysHQ/setup-oss-cad-suite")[1].split("- uses:")[0]
-    assert "steps." in step and "outputs" in step and PIN not in step
-    assert PIN not in workflow
+    assert "steps." in step and "outputs" in step and shipped not in step
+    assert shipped not in workflow
 
 
 def test_the_pin_is_in_the_package_data():

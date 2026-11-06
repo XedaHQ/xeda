@@ -18,8 +18,8 @@ can install it for you:
     xeda tools install oss-cad-suite
 
 The command shows what it downloads and where it installs it, and it asks you to confirm. Add
-``--yes`` to skip the question. The download is about 500 MB to 1 GB, and the installed suite is
-about 2 GB to 3 GB. Xeda checks the archive against the SHA-256 digest that GitHub lists for it
+``--yes`` to skip the question. The download is about 500 MiB, and the installed suite needs about
+2 GiB of disk space. Xeda checks the archive against the SHA-256 digest that GitHub lists for it
 before it reads one file of the archive. If the check fails, nothing is installed.
 
 By default, the command installs the build that this version of Xeda pins. CI tests Xeda against
@@ -157,5 +157,7 @@ The suite changes only ``PATH``. Xeda does not run the ``environment`` script of
 it sets no Python, library or ``VIRTUAL_ENV`` variable. Your Python environment and the Python of
 Xeda stay as they are.
 
-With ``--remote``, the host uses its own tool store and its own settings. Install the suite on the
-host with ``xeda tools install`` there.
+With ``--remote``, the run uses the newest suite that is installed in the tool store of the host.
+The host reads no private settings file, as for ``env``: your ``path`` and ``tools`` keys do not
+reach it, and your own tool store does not matter. Install the suite on the host with
+``xeda tools install`` there.

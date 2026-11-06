@@ -512,8 +512,8 @@ def install(plan: InstallPlan, progress: Callable[[str], None] | None = None) ->
                         "tool_archive_invalid",
                     )
                 # The store can change while the archive downloads: look again before the move.
-                plan.location.parent.mkdir(parents=True, exist_ok=True)
                 _refuse_links(plan, staging, plan.location)
+                _make_parents(plan)
                 payload.rename(plan.location)
             finally:
                 _remove_tree(staging)
@@ -527,6 +527,18 @@ def install(plan: InstallPlan, progress: Callable[[str], None] | None = None) ->
             "tool_install_failed",
         )
     return InstallResult(installation, False)
+
+
+def _make_parents(plan: InstallPlan) -> None:
+    """Create the directories above the installation one level at a time from the root, and
+    refuse a symbolic link on the way, before anything is created below it."""
+    for directory in reversed(
+        plan.location.parents[: len(plan.location.relative_to(plan.root).parts)]
+    ):
+        if directory == plan.root:
+            continue
+        _refuse_links(plan, directory)
+        directory.mkdir(exist_ok=True)
 
 
 def _download(plan: InstallPlan, target: Path) -> None:
@@ -672,6 +684,24 @@ def _extract(archive: Path, payload: Path) -> None:
         raise ToolInstallError(
             f"cannot read the archive {archive.name}: {error}", "tool_archive_invalid"
         ) from None
+    _check_links_resolve_inside(archive, payload)
     # The directories were writable while they filled. Set their modes, the deepest first.
     for directory in sorted(made, key=lambda p: len(p.parts), reverse=True):
         os.chmod(directory, made[directory])
+
+
+def _check_links_resolve_inside(archive: Path, payload: Path) -> None:
+    """Raise unless every symbolic link of the extracted suite ends inside it. The check follows
+    the links as the operating system does, so a chain of links that each look harmless (`up`
+    to `..`, then a long path through `up`) is found. A link that points nowhere must end
+    inside the suite too."""
+    suite = os.path.realpath(payload / TOOL)
+    for directory, names, files in os.walk(payload / TOOL):
+        for name in (*names, *files):
+            path = os.path.join(directory, name)
+            if not os.path.islink(path):
+                continue
+            ends = os.path.realpath(path)
+            if ends != suite and not ends.startswith(suite + os.sep):
+                shown = os.path.relpath(path, payload)
+                raise _invalid(archive, shown, f"links to {os.readlink(path)!r}, outside the suite")

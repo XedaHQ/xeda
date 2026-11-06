@@ -235,6 +235,9 @@ def test_path_override_and_container_boundary():
     # Without any PATH, the default path follows.
     bare = EnvironmentSnapshot({}, {}, prefix=("/p",))
     assert admitted(bare, plain, flow)["PATH"] == f"/p{os.pathsep}{os.defpath}"
+    # An empty PATH adds no empty entry, which would mean the current directory.
+    empty = EnvironmentSnapshot({"PATH": ""}, {}, prefix=("/p",))
+    assert admitted(empty, plain, flow)["PATH"] == "/p"
     # No prefix, no change.
     assert admitted(snapshot(), plain, flow)["PATH"] == "/usr/bin"
     assert "PATH" not in admitted(EnvironmentSnapshot({}, {}), plain, flow)
@@ -325,7 +328,7 @@ def test_nothing_installed_adds_nothing(tmp_path, store):
 @needs_platform
 def test_auto_selects_the_newest_installed_suite(tmp_path, store):
     old = put_suite(store, "2026-09-15")
-    pin = put_suite(store, tool_store.pinned_version())
+    pin = put_suite(store, "2026-10-08")
     newest = put_suite(store, "2026-12-01")
     assert len({old, pin, newest}) == 3
     ran = _launch(tmp_path, _probe_flow())
