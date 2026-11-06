@@ -227,9 +227,10 @@ and without a rejection says ``reported_failure``. A flow that rejected its resu
 ``outcome`` ``rejected``, and its error code is ``rejected`` too. Only a ``passed`` and a
 ``rejected`` run are reused.
 
-A consumer of a producer that did not pass does not run. It is blocked, and it writes nothing: its
-run directory keeps its last ``results.json`` and trace. ``--clean`` empties the run directory of
-a flow only when the flow is about to run, so it does not remove them either. The error of the
+A consumer of a producer that did not pass does not run. It is blocked, and it writes nothing. It
+makes no run directory. If it ran before, its run directory keeps its last ``results.json`` and
+trace. ``--clean`` empties the run directory of a flow only when the flow is about to run, so it
+does not remove them either. The error of the
 launch quotes the producer, its code and its message.
 
 A file that an older Xeda wrote has no ``schema_version``. Xeda treats such a directory as a run

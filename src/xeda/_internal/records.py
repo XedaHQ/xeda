@@ -439,7 +439,10 @@ class RunListing:
     def __str__(self) -> str:
         """`RunListing: N records, M problems`, then one line for each problem. The text is for
         people: its layout can change. Building it reads and writes nothing."""
-        lines = [f"RunListing: {len(self.records)} records, {len(self.problems)} problems"]
+        n, m = len(self.records), len(self.problems)
+        lines = [
+            f"RunListing: {n} record{'' if n == 1 else 's'}, {m} problem{'' if m == 1 else 's'}"
+        ]
         lines.extend(f"  {p.path} [{p.code}]: {p.message}" for p in self.problems)
         return "\n".join(lines)
 

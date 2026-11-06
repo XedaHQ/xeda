@@ -448,9 +448,9 @@ A run root is a folder that Xeda owns. The same ``Workspace`` reads it without r
 
 ``ws.records()`` does not raise for a damaged record. It puts the problem in ``listing.problems``
 and reads the others. ``print(listing)`` shows the number of records and one line for each problem.
-A node that was blocked writes nothing in its run directory, so a listing that you filter to a
-blocked flow reports ``missing_record`` for it. Read the listing without that filter to find the
-node that failed. ``ws.load_record`` raises ``RecordError`` with the same codes. The records of failed
+A node that a failed producer blocks makes no run directory, so a listing that you filter to that
+flow has no record and no problem. Read the listing without the filter to find the node that
+failed. ``ws.load_record`` raises ``RecordError`` with the same codes. The records of failed
 and rejected runs are in the listing.
 
 ``ws.scrub(design_name="sqrt")`` removes the run directories of a design, after the ``confirm``

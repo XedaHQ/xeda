@@ -1723,7 +1723,6 @@ class FlowLauncher:
             # Nothing to reuse: the directory is made under an exclusive lock.
             raise launch_locks.NeedsExclusive([node.name])
         with ExitStack() as read_leases:
-            run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
             # The deliveries are checked again before `--clean`, before the `init()` of this
             # flow and before any producer is launched, so before any tool of the plan runs.
@@ -1858,6 +1857,8 @@ class FlowLauncher:
                     self.collector.producers_done(node)
                     # So may the callback of the start of this node.
                     self._stop_if_canceled("this node ran")
+                    # The node runs, so it has a run directory. A blocked node makes none.
+                    run_directory.path.mkdir(parents=True, exist_ok=True)
                     if policy.clean:
                         # Only now: a flow that a failed producer blocks does not run, so it
                         # keeps what its run directory holds, its record included.
@@ -1917,6 +1918,7 @@ class FlowLauncher:
                         raise launch_locks.NeedsExclusive([node.name]) from e
                     # The flow could not start: a problem with what its producers hand over, or
                     # with the flow itself. Its directory no longer vouches for a run.
+                    run_directory.path.mkdir(parents=True, exist_ok=True)
                     remove_trace(run_path)
                     run_directory.remove(results_json)
                     launch_run.record_identity(flow, run_path)

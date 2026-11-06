@@ -18,11 +18,19 @@ from typing import Any, ClassVar
 import pytest
 
 import xeda._internal.deliver
-from xeda import Design
+from xeda import Design, Workspace
 from xeda._internal.dataclass import Field, deliverable
 from xeda._internal.design import SourceType
 from xeda.errors import RecordError, RunFailedError
-from xeda._internal.flow import Flow, FlowSettingsError, In, MetricSpec, Out, registered_flows
+from xeda._internal.flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsError,
+    In,
+    MetricSpec,
+    Out,
+    registered_flows,
+)
 from xeda._internal.deliver import DeliveryError
 from xeda._internal.flow_runner import DefaultRunner, launch_identity, launch_report
 from xeda._internal.flow_runner import default_runner as default_runner_module
@@ -1279,3 +1287,67 @@ def test_listing_prints_every_problem(tmp_path):
     listing._repr_pretty_(printer, True)
     listing._repr_pretty_(printer, False)
     assert texts == ["RunListing(...)", str(listing)]
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_fresh_blocked_consumer_makes_no_run_directory(tmp_path):
+    result = _launch(
+        _runner(tmp_path), TNeedsMayFail, _design(tmp_path), {MAY_FAIL: {"fail": True}}
+    )
+    consumer = result.nodes[TNeedsMayFail.name]
+    assert consumer.outcome == "blocked" and not consumer.run_dir.exists()
+    assert result.nodes[MAY_FAIL].run_dir.is_dir()
+    listing = Workspace(tmp_path / "run").records(flow=TNeedsMayFail.name)
+    assert (len(listing), listing.problems) == (0, ())
+
+
+@pytest.mark.usefixtures("flows")
+def test_an_interrupted_producer_leaves_no_consumer_directory(tmp_path, monkeypatch):
+    def interrupted(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(TMayFail, "run", interrupted)
+    runner, design = _runner(tmp_path), _design(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        _launch(runner, TNeedsMayFail, design)
+    assert not (tmp_path / "run" / "d" / TNeedsMayFail.name).exists()
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_consumer_whose_init_fails_still_gets_a_failed_record(tmp_path, monkeypatch):
+    def broken(self):
+        raise FlowFatalError("init is broken")
+
+    monkeypatch.setattr(TNeedsMayFail, "init", broken)
+    result = _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path))
+    consumer = result.nodes[TNeedsMayFail.name]
+    assert consumer.outcome == "failed" and consumer.record is not None
+    assert (consumer.run_dir / "results.json").is_file()
+
+
+def test_a_listing_counts_in_the_singular_and_the_plural(tmp_path):
+    from xeda._internal.records import RecordProblem, RunListing
+
+    problem = RecordProblem(path=tmp_path / "results.json", code="missing_record", message="gone")
+    assert str(RunListing(records=(), problems=(problem,))).splitlines()[0] == (
+        "RunListing: 0 records, 1 problem"
+    )
+    record = types.SimpleNamespace()
+    assert str(RunListing(records=(record,), problems=())) == "RunListing: 1 record, 0 problems"  # type: ignore[arg-type]
+
+
+def test_the_log_line_names_only_a_file_that_the_record_reports(tmp_path):
+    reported = _missing_tool_chain(
+        tmp_path, record=types.SimpleNamespace(artifacts={"log": "logs/y.log"})
+    )
+    node = reported.nodes["yosys_fpga"]
+    with_log = dataclasses.replace(
+        reported,
+        nodes=_nodes(
+            dataclasses.replace(node, error=dataclasses.replace(node.error, log="log")),  # type: ignore[type-var]
+            reported.nodes["nextpnr"],
+        ),
+    )
+    assert f"    log: {tmp_path / 'yosys_fpga' / 'logs' / 'y.log'}\n" in str(with_log) + "\n"
+    without = _missing_tool_chain(tmp_path, record=types.SimpleNamespace(artifacts={}))
+    assert "log:" not in str(without)
