@@ -39,7 +39,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     from .agent_skill import SKILL_NAME, default_skill_dir, generate_flows_reference, install_skill
     from .cli_utils import (
         HELP_FORMATTER_SETTINGS,
-        DeclaredEnvvarsCommand,
+        XedaCommand,
         XedaHelpGroup as _XedaHelpGroup,
         emit_structured,
         experimental_text,
@@ -110,7 +110,6 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
             dispatch_shell_completion(self, ctx_args, prog_name, complete_var)
 
     CONTEXT_SETTINGS: Dict[str, Any] = dict(
-        auto_envvar_prefix="XEDA",
         help_option_names=["--help", "-h"],
         max_content_width=console.width,
         formatter_settings=HELP_FORMATTER_SETTINGS,
@@ -118,10 +117,9 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     RUN_STYLE: Dict[str, Any] = {"excluded_keywords": HelpKeywords(cli_names={"run"})}
 else:
     from .cli_completion import CompletionGroup as XedaHelpGroup
-    from .cli_completion import CompletionCommand as DeclaredEnvvarsCommand
+    from .cli_completion import CompletionCommand as XedaCommand
 
     CONTEXT_SETTINGS = dict(
-        auto_envvar_prefix="XEDA",
         help_option_names=["--help", "-h"],
         max_content_width=120,
     )
@@ -511,7 +509,7 @@ def pdk():
     """
 
 
-add_pdk_commands(pdk, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
+add_pdk_commands(pdk, XedaCommand, CONTEXT_SETTINGS)
 
 
 @cli.group(
@@ -530,7 +528,7 @@ def remote_group():
     """
 
 
-add_remote_commands(remote_group, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
+add_remote_commands(remote_group, XedaCommand, CONTEXT_SETTINGS)
 
 
 @cli.command(
@@ -941,7 +939,7 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
 @cli.command(
     # Naming the class is also what lets the `command()` overloads of cloup accept the
     # `excluded_keywords` keyword below.
-    cls=DeclaredEnvvarsCommand,
+    cls=XedaCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Run a flow.",
     help=RUN_HELP,
@@ -1438,7 +1436,7 @@ def run(
 
 
 @cli.command(
-    cls=DeclaredEnvvarsCommand,
+    cls=XedaCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Run a design-space exploration in parallel.",
     help="Run multiple instances of a flow in parallel to find the optimum value of one or more settings for a given objective function.",
@@ -1792,7 +1790,7 @@ def dse(
 
 
 @cli.command(
-    cls=DeclaredEnvvarsCommand,
+    cls=XedaCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Remove the run directories of a flow for a design.",
 )
