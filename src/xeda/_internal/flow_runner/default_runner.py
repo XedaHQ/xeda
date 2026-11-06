@@ -34,7 +34,7 @@ from typing import (
 
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
-from ..local_settings import LocalSettings
+from ..local_settings import LocalSettings, check_launch_settings
 from ..plan import Plan as PublicPlan
 from ..plan import PlanDelivery, dependency_entries, delivery_key, planned_destination, plan_of
 from ..spec import Spec
@@ -118,7 +118,7 @@ from .chains import ChainElement, FlowRequest, parse_request
 from .layer_paths import anchored_sections
 from .code_digest import CodeDigests
 from .configuration import configuration_hash, design_configuration_hash
-from .environment import EnvironmentSnapshot
+from .environment import EnvironmentSnapshot, snapshot_with_tools
 from .error_codes import INTERNAL_ERROR, error_info, plain_message, public_error
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -308,6 +308,13 @@ class _Request:
     declared: Design
     #: The private `env` of the local settings that the request was given (`LocalSettings.env`).
     private_env: Mapping[str, str] = field(default_factory=dict)
+    #: Their `path` and `tools` (`LocalSettings.path`, `LocalSettings.tools`).
+    private_path: tuple[Path, ...] = ()
+    private_tools: Mapping[str, str] = field(default_factory=dict)
+
+    def environment(self) -> EnvironmentSnapshot:
+        """The environment of a launch of this request, read now."""
+        return snapshot_with_tools(self.private_env, self.private_path, self.private_tools)
 
 
 @dataclass(frozen=True)
@@ -951,8 +958,8 @@ class FlowLauncher:
             self._prune_due = self._expected_plan is None
             self._pruned = False
             request = self._request_context
-            self._environment = self._pinned_environment or EnvironmentSnapshot.take(
-                request.private_env if request is not None else {}
+            self._environment = self._pinned_environment or (
+                request.environment() if request is not None else snapshot_with_tools({})
             )
         while True:
             if top_level:
@@ -3006,7 +3013,7 @@ class FlowLauncher:
             clean=self._run_dir_policy().clean,
             debug=self.debug or self.settings.debug,
             run_path=self.run_path_of,
-            environment=EnvironmentSnapshot.take(request.private_env),
+            environment=request.environment(),
         )
         return PlannedLaunch(request, plan, states, self._planned_deliveries(request.design, plan))
 
@@ -3501,7 +3508,7 @@ class FlowLauncher:
                 path.resolve() for path in launch_files if path is not None and path.is_file()
             )
         )
-        return _Request(
+        request = _Request(
             flow_class,
             design,
             deepcopy(final_flow_settings),
@@ -3522,7 +3529,15 @@ class FlowLauncher:
             binding_layers,
             design,
             dict(local_settings.env) if local_settings is not None else {},
+            local_settings.path if local_settings is not None else (),
+            dict(local_settings.tools) if local_settings is not None else {},
         )
+        # The directories of PATH are a fact of the request: refuse a wrong `path` or `tools`, and
+        # an installation that the private settings select and the store lacks, at planning.
+        if local_settings is not None:
+            check_launch_settings(local_settings)
+        request.environment()
+        return request
 
 
 class FlowRunner(FlowLauncher):

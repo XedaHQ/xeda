@@ -36,7 +36,7 @@ from xeda.errors import RecordError, SpecError, StalePlanError
 from .events import Event
 from .flow import registered_flows
 from .flow_runner import launch_run
-from .flow_runner.environment import EnvironmentSnapshot
+from .flow_runner.environment import EnvironmentSnapshot, snapshot_with_tools
 from .flow_runner.launch_identity import RunDirPolicy
 from .flow_runner.launch_node import NodeLaunch, PointDelivery, execute_node
 from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
@@ -1205,8 +1205,12 @@ def run_sweep(
 
     See `Workspace.sweep`."""
     given = list(specs)
-    private = workspace.local_settings.env if workspace.local_settings is not None else {}
-    snapshot = EnvironmentSnapshot.take(private)
+    local = workspace.local_settings
+    snapshot = (
+        snapshot_with_tools(local.env, local.path, local.tools)
+        if local is not None
+        else snapshot_with_tools({})
+    )
     plans: list[Plan] = []
     try:
         # Planning waits for the lock of a Git dependency and runs `git`: it observes the token.

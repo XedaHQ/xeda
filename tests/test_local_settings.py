@@ -90,7 +90,7 @@ def test_the_tables_of_a_local_settings_cannot_change():
 
 
 def test_the_private_keys_are_these():
-    assert LOCAL_SETTINGS_KEYS == ("flows", "env", "run_root")
+    assert LOCAL_SETTINGS_KEYS == ("flows", "env", "run_root", "path", "tools")
 
 
 # ------------------------------------------------------------------------------ the files
@@ -665,11 +665,17 @@ def test_the_unset_default_of_config_is_the_user_file(tmp_path, private_home):
 
 
 def test_only_the_command_line_and_local_settings_look_for_the_private_files():
-    """The library is handed settings and a host profile. Four modules name a private file or
-    ask where the profile file is: `local_settings`, the command line, and the `xeda remote`
-    commands, which are command line too."""
+    """The library is handed settings and a host profile. Five modules name a private file or
+    ask where the profile file is: `local_settings`, the command line (`cli_types` holds the help
+    text of `--config`), and the `xeda remote` commands, which are command line too."""
     source = IMPL_DIR
-    allowed = {"local_settings.py", "cli.py", "remote/commands.py", "remote/profile.py"}
+    allowed = {
+        "local_settings.py",
+        "cli.py",
+        "cli_types.py",
+        "remote/commands.py",
+        "remote/profile.py",
+    }
     found = {
         str(path.relative_to(source))
         for path in source.rglob("*.py")

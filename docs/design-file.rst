@@ -1353,6 +1353,10 @@ is an error: a private file never declares a design.
     env:
       XILINXD_LICENSE_FILE: 2100@license.example.org
     run_root: /scratch/xeda_run
+    path:
+      - ~/tools/quartus/bin
+    tools:
+      oss-cad-suite: off
 
 ``flows``
   The settings by flow name, as in a project file. An entry for a flow that is not in the run is
@@ -1363,6 +1367,23 @@ is an error: a private file never declares a design.
 ``run_root``
   Where the runs go, relative to the directory of the file. The project-local file wins over the
   user file.
+``path``
+  A list of directories that go in front of ``PATH`` for the programs of every run. A relative entry
+  is relative to the directory of the file. A leading ``~`` or ``~/`` is your home directory. Xeda
+  expands no variable, no glob and no ``~user``. Each entry must be an existing directory. The
+  entries of the project-local file come before those of the user file, and a directory that
+  appears twice counts once. The directories change whether a node is up to date, and never its
+  identity.
+``tools``
+  The OSS CAD Suite of the tool store (``xeda tools install``). Without this key, a run puts the
+  newest installed suite on ``PATH``. ``oss-cad-suite: off`` adds none. ``oss-cad-suite: <date>``,
+  such as ``2026-10-08``, selects that build. A build that is not installed is the error
+  ``tool_not_installed``, before any tool starts. The project-local value wins over the user
+  value.
+
+The ``PATH`` of a node is these directories, then the ``bin`` of the suite, then the ``PATH`` of
+the caller. A flow setting ``env: {PATH: ...}`` replaces all of it, and a Docker container gets
+none of it. :doc:`tools` explains how to install the tools and how Xeda finds them.
 
 The run root of a command is, from the highest source to the lowest: ``--run-root``,
 ``XEDA_RUN_ROOT``, the ``run_root`` of the project-local file, that of the user file, that of the
@@ -1380,4 +1401,5 @@ the files as the command line does, and ``run()`` and ``plan()`` take the result
 ``local_settings``. The library reads no private file by itself.
 
 With ``--remote``, Xeda merges the layers on your machine and sends the result. The host reads none
-of your private files.
+of your private files. The ``path`` and ``tools`` keys do not travel: the host uses its own tool
+store and its own ``PATH``.
