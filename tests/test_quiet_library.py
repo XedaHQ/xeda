@@ -396,6 +396,7 @@ def test_the_library_prints_no_table_and_calls_no_print_outside_the_command_line
         "cli.py",
         "cli_utils.py",
         "pdk_cli.py",
+        "tools_cli.py",
         "cli_completion.py",
         "flows/openroad/data/def2stream.py",  # a script that a flow gives to a tool
         "remote/commands.py",

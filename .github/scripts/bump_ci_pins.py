@@ -4,8 +4,9 @@
 CI pins seven tools. A pin is one line of a workflow file (two lines for bsc and for the image).
 bsc is pinned twice, in two files, and one release moves both pins:
 
-* the OSS CAD Suite, by the date of its build: the `version` of the
-  `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml`;
+* the OSS CAD Suite, by the date of its build: the `oss-cad-suite` entry of
+  `src/xeda/data/tools.json`. The package installs that build with `xeda tools install`, and the
+  `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml` reads the same file;
 * NVC, by its release number: the `version` of the `nickg/setup-nvc` step in
   `.github/workflows/ci.yml`;
 * the Bluespec Compiler (bsc), by its release and the SHA-256 of its tarball: `BSC_VERSION` and
@@ -55,6 +56,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 CI = Path(".github/workflows/ci.yml")
+TOOLS = Path("src/xeda/data/tools.json")
 OPENXC7 = Path(".github/workflows/openxc7.yml")
 ORFS = Path(".github/workflows/openroad.yml")
 WORKFLOW = "bump-ci-pins.yml"
@@ -124,7 +126,7 @@ class Pin:
 
 
 PINS = (
-    Pin("oss_cad", "OSS CAD Suite", CI, "`version` of the setup-oss-cad-suite step"),
+    Pin("oss_cad", "OSS CAD Suite", TOOLS, "`oss-cad-suite` entry"),
     Pin("nvc", "NVC", CI, "`version` of the setup-nvc step"),
     Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`", "ubuntu-24.04"),
     Pin("xezim", "xezim", CI, "`XEZIM_VERSION`"),
@@ -177,11 +179,10 @@ def _replace(text: str, match: re.Match[str], new: str) -> str:
     return text[: match.start("value")] + new + text[match.end("value") :]
 
 
-_OSS_CAD_STEP = re.compile(r"^\s*(?:-\s+)?uses:\s*YosysHQ/setup-oss-cad-suite@\S+\s*$")
 _OSS_CAD_VERSION = re.compile(
-    rf'^\s+version:\s*"(?P<value>{OSS_CAD_TAG.pattern})"[ \t\r]*$', re.MULTILINE
+    rf'^\s*"oss-cad-suite"\s*:\s*"(?P<value>{OSS_CAD_TAG.pattern})"\s*,?[ \t\r]*$', re.MULTILINE
 )
-_OSS_CAD_EXAMPLE = 'version: "2026-09-15"'
+_OSS_CAD_EXAMPLE = '"oss-cad-suite": "2026-09-15"'
 
 
 def _action_step(text: str, uses: re.Pattern[str], action: str) -> tuple[int, int]:
@@ -202,21 +203,13 @@ def _action_step(text: str, uses: re.Pattern[str], action: str) -> tuple[int, in
     return offset, offset + sum(len(line) for line in lines[first:end])
 
 
-def _oss_cad_step(text: str) -> tuple[int, int]:
-    return _action_step(text, _OSS_CAD_STEP, "setup-oss-cad-suite")
-
-
 def read_oss_cad(text: str) -> str:
-    start, end = _oss_cad_step(text)
-    match = _single(text[start:end], _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE)
-    return match.group("value")
+    return _single(text, _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE).group("value")
 
 
 def write_oss_cad(text: str, version: str) -> str:
-    start, end = _oss_cad_step(text)
-    step = text[start:end]
-    match = _single(step, _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE)
-    return text[:start] + _replace(step, match, version) + text[end:]
+    match = _single(text, _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE)
+    return _replace(text, match, version)
 
 
 _NVC_STEP = re.compile(r"^\s*(?:-\s+)?uses:\s*nickg/setup-nvc@\S+\s*$")

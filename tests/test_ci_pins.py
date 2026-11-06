@@ -67,10 +67,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           version: "1999-01-01"
-      - uses: YosysHQ/setup-oss-cad-suite@v4
-        with:
-          version: "2026-09-15"
-          github-token: ${{{{ secrets.GITHUB_TOKEN }}}}
       - uses: nickg/setup-nvc@v1
         with:
           version: "{OLD_NVC}"
@@ -89,6 +85,12 @@ jobs:
         uses: actions/setup-python@v6
         with:
           version: "3.11"
+"""
+
+TOOLS_TEXT = """\
+{
+  "oss-cad-suite": "2026-09-15"
+}
 """
 
 OPENXC7_TEXT = f"""\
@@ -311,6 +313,7 @@ def test_the_workflow_files_of_the_repository_hold_pins_the_script_reads(pin_):
     text = path.read_text(encoding="utf-8")
     if pin_.kind == "oss_cad":
         assert pins.OSS_CAD_TAG.fullmatch(pins.read_oss_cad(text))
+        assert json.loads(text) == {"oss-cad-suite": pins.read_oss_cad(text)}
     elif pin_.kind == "nvc":
         # a number, never `latest`: the step installs what it names, and nothing else
         assert pins.NVC_NUMBER.fullmatch(pins.read_nvc(text))
@@ -355,7 +358,7 @@ def test_both_bsc_pins_of_the_repository_name_the_same_release():
 
 
 def test_each_pin_is_read():
-    assert pins.read_oss_cad(CI_TEXT) == "2026-09-15"
+    assert pins.read_oss_cad(TOOLS_TEXT) == "2026-09-15"
     assert pins.read_nvc(CI_TEXT) == OLD_NVC
     assert pins.read_bsc(CI_TEXT) == ("2026.07.1", OLD_SHA256)
     assert pins.read_xezim(CI_TEXT) == OLD_XEZIM
@@ -365,16 +368,13 @@ def test_each_pin_is_read():
     assert pins.read_bsc(ORFS_TEXT) == ("2026.07.1", OLD_UBUNTU_22_SHA256)
 
 
-def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
-    """The `version` of another action, before the step or after it, is not the pin."""
-    assert pins.read_oss_cad(CI_TEXT) == "2026-09-15"
-    own_version = '          version: "2026-09-15"\n'
-    later_step = (
-        '      - uses: some/other-action@v1\n        with:\n          version: "2030-01-01"\n'
-    )
-    with pytest.raises(pins.PinError, match="version"):
-        pins.read_oss_cad(CI_TEXT.replace(own_version, "") + later_step)
-    assert pins.read_oss_cad(CI_TEXT + later_step) == "2026-09-15"
+def test_the_oss_cad_pin_is_the_entry_of_the_suite_and_no_other():
+    """The date of another entry is not the pin."""
+    other = '{\n  "other": "2030-01-01",\n  "oss-cad-suite": "2026-09-15"\n}\n'
+    assert pins.read_oss_cad(other) == "2026-09-15"
+    assert pins.write_oss_cad(other, "2026-10-07").count("2030-01-01") == 1
+    with pytest.raises(pins.PinError, match="OSS CAD Suite"):
+        pins.read_oss_cad('{\n  "other": "2026-09-15"\n}\n')
 
 
 def test_the_nvc_pin_is_the_version_of_its_own_step_and_no_other():
@@ -411,13 +411,14 @@ def test_the_nvc_pin_is_the_version_of_its_own_step_and_no_other():
             id="no nvc version",
         ),
         pytest.param(CI_TEXT + CI_TEXT, "nvc", "step", id="nvc step twice"),
-        pytest.param(CI_TEXT.replace("setup-oss-cad-suite", "setup-oss"), "oss", "step", id="step"),
+        pytest.param(TOOLS_TEXT.replace("oss-cad-suite", "oss"), "oss", "OSS CAD", id="name"),
         pytest.param(
-            CI_TEXT.replace('"2026-09-15"', "2026-09-15"), "oss", "version", id="no quotes"
+            TOOLS_TEXT.replace('"2026-09-15"', "2026-09-15"), "oss", "OSS CAD", id="no quotes"
         ),
         pytest.param(
-            CI_TEXT.replace('"2026-09-15"', '"latest"'), "oss", "version", id="not a date"
+            TOOLS_TEXT.replace('"2026-09-15"', '"latest"'), "oss", "OSS CAD", id="not a date"
         ),
+        pytest.param(TOOLS_TEXT + TOOLS_TEXT, "oss", "OSS CAD", id="twice"),
         pytest.param(
             CI_TEXT.replace('"2026.07.1"', "'2026.07.1'"), "bsc", "BSC_VERSION", id="single quote"
         ),
@@ -496,9 +497,9 @@ def test_the_nvc_pin_is_the_version_of_its_own_step_and_no_other():
         pytest.param(CI_TEXT.replace(f'"{OLD_XEZIM}"', '"0.11"'), "xezim", "XEZIM", id="xezim two"),
         pytest.param(CI_TEXT + CI_TEXT, "xezim", "XEZIM", id="xezim twice"),
         pytest.param(
-            CI_TEXT.replace('"2026-09-15"', '"2026-09-15"'.translate(ARABIC_INDIC)),
+            TOOLS_TEXT.replace('"2026-09-15"', '"2026-09-15"'.translate(ARABIC_INDIC)),
             "oss",
-            "version",
+            "OSS CAD",
             id="other digits",
         ),
     ],
@@ -521,7 +522,10 @@ def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
 
 
 def test_replacing_a_pin_changes_that_line_and_no_other():
-    assert pins.write_oss_cad(CI_TEXT, "2026-10-07").replace("2026-10-07", "2026-09-15") == CI_TEXT
+    assert (
+        pins.write_oss_cad(TOOLS_TEXT, "2026-10-07").replace("2026-10-07", "2026-09-15")
+        == TOOLS_TEXT
+    )
     rewritten = pins.write_nvc(CI_TEXT, NEW_NVC)
     assert pins.read_nvc(rewritten) == NEW_NVC
     assert rewritten.replace(NEW_NVC, OLD_NVC) == CI_TEXT
@@ -842,7 +846,7 @@ def test_no_usable_uv_release_is_an_error(answer):
 def test_nothing_is_updated_when_upstream_is_where_the_pins_are():
     upstream = current_upstream()
     for kind, text in (
-        ("oss_cad", CI_TEXT),
+        ("oss_cad", TOOLS_TEXT),
         ("nvc", CI_TEXT),
         ("bsc", CI_TEXT),
         ("xezim", CI_TEXT),
@@ -858,20 +862,20 @@ def test_a_pin_never_moves_back():
     upstream = Upstream(
         [oss_cad("2026-09-01")], [bsc("2026.01"), bsc("2026.07")], OLD_COMMIT, sha256="x"
     )
-    for kind, text in (("oss_cad", CI_TEXT), ("bsc", CI_TEXT)):
+    for kind, text in (("oss_cad", TOOLS_TEXT), ("bsc", CI_TEXT)):
         assert pins.find_update(pin(kind), text, upstream.fetch, upstream.digest) is None
     assert upstream.downloads == []  # an older release is not even downloaded
 
 
 def test_a_newer_oss_cad_build_is_an_update_with_its_links():
     upstream = newer_upstream()
-    update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
+    update = pins.find_update(pin("oss_cad"), TOOLS_TEXT, upstream.fetch, upstream.digest)
     assert (update.old, update.new) == ("2026-09-15", "2026-10-07")
     assert dict(update.links) == {
         "release": "https://github.com/YosysHQ/oss-cad-suite-build/releases/tag/2026-10-07",
         "compare": "https://github.com/YosysHQ/oss-cad-suite-build/compare/2026-09-15...2026-10-07",
     }
-    assert pins.apply_update(CI_TEXT, update) == pins.write_oss_cad(CI_TEXT, "2026-10-07")
+    assert pins.apply_update(TOOLS_TEXT, update) == pins.write_oss_cad(TOOLS_TEXT, "2026-10-07")
 
 
 def test_a_newer_nvc_is_an_update_with_its_links():
@@ -1291,9 +1295,16 @@ def write_checkout(
     ci: str | None = CI_TEXT,
     openxc7: str | None = OPENXC7_TEXT,
     orfs: str | None = ORFS_TEXT,
+    tools: str | None = TOOLS_TEXT,
 ):
     (root / ".github" / "workflows").mkdir(parents=True)
-    for path, text in ((pins.CI, ci), (pins.OPENXC7, openxc7), (pins.ORFS, orfs)):
+    (root / pins.TOOLS).parent.mkdir(parents=True)
+    for path, text in (
+        (pins.CI, ci),
+        (pins.OPENXC7, openxc7),
+        (pins.ORFS, orfs),
+        (pins.TOOLS, tools),
+    ):
         if text is not None:
             (root / path).write_text(text, encoding="utf-8")
 
@@ -1332,10 +1343,9 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
     upstream = newer_upstream()
     pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=False, log=lambda line: None)
     after = contents(tmp_path)
+    assert after[str(pins.TOOLS)] == pins.write_oss_cad(TOOLS_TEXT, "2026-10-07")
     assert after[str(pins.CI)] == pins.write_bsc(
-        pins.write_xezim(
-            pins.write_nvc(pins.write_oss_cad(CI_TEXT, "2026-10-07"), NEW_NVC), NEW_XEZIM
-        ),
+        pins.write_xezim(pins.write_nvc(CI_TEXT, NEW_NVC), NEW_XEZIM),
         "2026.10",
         NEW_SHA256,
     )
@@ -1386,7 +1396,16 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
         pins.find_update(p, text, upstream.fetch, upstream.digest)
         for p, text in zip(
             pins.PINS,
-            (CI_TEXT, CI_TEXT, CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT, ORFS_TEXT),
+            (
+                TOOLS_TEXT,
+                CI_TEXT,
+                CI_TEXT,
+                CI_TEXT,
+                OPENXC7_TEXT,
+                ORFS_TEXT,
+                ORFS_TEXT,
+                ORFS_TEXT,
+            ),
         )
     ]
     title, body = pins.pull_request_text(updates)
@@ -1426,7 +1445,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
 
 def test_the_text_lists_the_pins_that_stayed_and_why():
     upstream = newer_upstream(bsc_releases=[bsc("2026.10", {"digest": None}), bsc("2026.07.1")])
-    update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
+    update = pins.find_update(pin("oss_cad"), TOOLS_TEXT, upstream.fetch, upstream.digest)
     note = "Bluespec Compiler (bsc): 2026.10 has no published digest; pin it by hand"
     _, body = pins.pull_request_text([update], [note])
     assert f"\n- {note}\n" in body
@@ -1444,7 +1463,7 @@ def test_the_text_names_only_the_tools_that_changed():
         nvc_releases=[nvc_release(OLD_NVC)],
         xezim_releases=[xezim_release(OLD_XEZIM)],
     )
-    update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
+    update = pins.find_update(pin("oss_cad"), TOOLS_TEXT, upstream.fetch, upstream.digest)
     _, body = pins.pull_request_text([update])
     assert "OSS CAD Suite" in body
     assert "bsc" not in body and "installer" not in body and "SHA-256" not in body
@@ -1504,7 +1523,7 @@ def test_the_command_writes_the_files_and_the_texts(command, tmp_path_factory, m
     body, message = out / "body.md", out / "message.txt"
     argv = ["--root", str(command), "--body-file", str(body), "--message-file", str(message)]
     assert pins.main(argv) == 0
-    assert pins.read_oss_cad((command / pins.CI).read_text()) == "2026-10-07"
+    assert pins.read_oss_cad((command / pins.TOOLS).read_text()) == "2026-10-07"
     assert body.read_text().startswith("This pull request updates tool versions that CI pins.")
     assert message.read_text().startswith(pins.TITLE)
     assert output.read_text() == "changed=true\n"

@@ -46,3 +46,9 @@ def schemas_dir() -> Path:
     """Return the directory of the JSON Schemas that the package ships. The schemas are public
     files: they stay under `xeda/data/schemas`, wherever the implementation is."""
     return package_root() / "data" / "schemas"
+
+
+def tools_pin_file() -> Path:
+    """Return the file that pins the tools of the tool store (`tool_store.pinned_version`). CI reads
+    the same file, so the pin is public and stays under `xeda/data`."""
+    return package_root() / "data" / "tools.json"

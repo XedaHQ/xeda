@@ -24,6 +24,10 @@ Check the installation::
 
     xeda --version
 
+Xeda drives EDA tools and does not contain them. To get the open-source tools in one step, run
+``xeda tools install oss-cad-suite``. :doc:`tools` explains this, and how to use the tools that you
+installed another way.
+
 Supported platforms
 ===================
 
@@ -173,6 +177,8 @@ The command line describes itself:
     xeda list-platforms                 # bundled ASIC platforms (PDKs) and whether they are installed
     xeda pdk list                       # the PDK files of each platform, by provider and version
     xeda pdk install <platform>         # download the PDK files that a platform pins
+    xeda tools list                     # the tools that Xeda installed for you (the OSS CAD Suite)
+    xeda tools install oss-cad-suite    # download the OSS CAD Suite into the tool store
     xeda design-schema                  # JSON Schema of a design file
 
 Add ``--json`` to any of them for machine-readable output. See :doc:`machine-readable`.

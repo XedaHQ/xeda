@@ -45,12 +45,17 @@ jobs:
           submodules: true
           fetch-depth: 0
       # One coherent distribution supplies GHDL, Yosys and the Yosys GHDL plugin. Pin the
-      # release so a nightly tool change cannot alter a Python dependency PR underneath us.
+      # release so a nightly tool change cannot alter a Python dependency PR underneath us. The
+      # pin is the one that `xeda tools install` fetches by default (src/xeda/data/tools.json).
       # Authenticating the read-only release lookup avoids the shared-runner API rate limit.
+      - name: Read the OSS CAD Suite pin
+        id: oss-cad-pin
+        if: matrix.python-version == '3.11' || matrix.python-version == env.FULL_PYTHON
+        run: echo "version=$(jq -r '."oss-cad-suite"' src/xeda/data/tools.json)" >> "$GITHUB_OUTPUT"
       - uses: YosysHQ/setup-oss-cad-suite@v4
         if: matrix.python-version == '3.11' || matrix.python-version == env.FULL_PYTHON
         with:
-          version: "2026-10-08"
+          version: ${{ steps.oss-cad-pin.outputs.version }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: nickg/setup-nvc@v1
         if: matrix.python-version == env.FULL_PYTHON
@@ -247,6 +252,7 @@ jobs:
           tests/test_locator_settings.py
           tests/test_pdk_providers.py
           tests/test_pdk_cli.py
+          tests/test_tool_store.py
           tests/test_lambdapdk_provider.py
           tests/test_openroad_run_directory.py
           tests/test_fake_openroad.py

@@ -293,6 +293,7 @@ COMMAND_LINE_MODULES = {
     "cli.py",
     "cli_utils.py",
     "pdk_cli.py",
+    "tools_cli.py",
     "remote/commands.py",
 }
 

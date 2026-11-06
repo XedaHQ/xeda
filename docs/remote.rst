@@ -64,7 +64,9 @@ On the host:
   ``env`` table of its profile (see `Host profiles`_).
 * The EDA tools of the flows. Either they are on the ``PATH`` of the login shell, or the ``setup``
   lines of the host profile make them available (``module load vivado``, or a ``settings64.sh``
-  file). A flow that runs a tool in Docker needs Docker on the host.
+  file). A flow that runs a tool in Docker needs Docker on the host. The host has its own tool
+  store too: run ``xeda tools install oss-cad-suite`` there to get the open-source tools (see
+  :doc:`tools`). The host never reads the ``path`` and ``tools`` keys of your private settings.
 
 Python is not a requirement of the host. Xeda installs the Python version that runs Xeda on your
 machine, with ``uv``. A host profile can name a Python of the host instead.

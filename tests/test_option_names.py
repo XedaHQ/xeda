@@ -221,3 +221,11 @@ def test_no_two_names_differ_only_by_a_trailing_s(command):
     names |= set().union(*(_envvars(p) for p in options))
     for a, b in itertools.permutations(names, 2):
         assert a + "s" != b and a + "S" != b, (a, b)
+
+
+@pytest.mark.parametrize("name", ["list", "path", "install"])
+def test_the_tools_commands_read_only_the_store_root_variable(name):
+    """`XEDA_TOOLS_ROOT` is the one variable of `xeda tools`; no `XEDA_<OPTION>` variable exists."""
+    command = cli.commands["tools"].commands[name]  # type: ignore[attr-defined]
+    read = set().union(*(_envvars(p) for p in _options(command, hidden=True)))
+    assert read == {"XEDA_TOOLS_ROOT"}
