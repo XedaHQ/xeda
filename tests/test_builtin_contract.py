@@ -340,6 +340,13 @@ def test_a_new_cli_command_is_additive() -> None:
     assert additive and not breaking
 
 
+def test_a_project_file_key_may_be_added_but_not_removed() -> None:
+    old = {"cli": {}, "project_keys": ["designs", "flows"]}
+    new = {"cli": {}, "project_keys": ["designs", "flows", "run_root"]}
+    assert tool.classify(old, new, kind="behavior") == (["project.run_root: new key"], [])
+    assert tool.classify(new, old, kind="behavior") == ([], ["project.run_root: key removed"])
+
+
 def test_a_new_required_setting_is_breaking() -> None:
     old = {
         "flows": {"a": {"settings": {}, "outputs": {}, "metrics": {}, "artifacts": []}},

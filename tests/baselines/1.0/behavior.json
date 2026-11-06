@@ -2208,6 +2208,12 @@
       ]
     ]
   ],
+  "project_keys": [
+    "default_target",
+    "designs",
+    "flows",
+    "run_root"
+  ],
   "run_directory_hash_length": 16,
   "session_variables": [
     "COLUMNS",

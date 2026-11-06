@@ -534,6 +534,7 @@ def behavior_snapshot() -> dict[str, Any]:
     from xeda._internal.flow_runner.chains import OUTPUT_NAME
     from xeda._internal.generation import SESSION_VARIABLES
     from xeda._internal.local_settings import LOCAL_FILES
+    from xeda._internal.project import PROJECT_KEYS
     from xeda._internal.run_dir import DIR_NAME_HASH_LEN
 
     commands: dict[str, Any] = {}
@@ -602,6 +603,7 @@ def behavior_snapshot() -> dict[str, Any]:
         "private_files": [[name, place, list(keys)] for name, place, keys in LOCAL_FILES],
         "session_variables": sorted(SESSION_VARIABLES),
         "run_directory_hash_length": DIR_NAME_HASH_LEN,
+        "project_keys": sorted(PROJECT_KEYS),
         "cli": commands,
     }
 
@@ -1476,8 +1478,11 @@ def _classify_behavior(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
     for key in old.keys() | new.keys():
-        if key != "cli" and old.get(key) != new.get(key):
+        if key not in ("cli", "project_keys") and old.get(key) != new.get(key):
             brk.append(f"{key}: changed from {old.get(key)} to {new.get(key)}")
+    # A project file is input: a new key is additive, a removed one breaks.
+    keys = [set(snapshot.get("project_keys", ())) for snapshot in (old, new)]
+    _diff_names("project", "key", keys[0], keys[1], add, brk)
     a, b = old["cli"], new["cli"]
     _diff_names("cli", "command", a.keys(), b.keys(), add, brk)
     for command in a.keys() & b.keys():
