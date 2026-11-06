@@ -3163,7 +3163,7 @@
       "error",
       "success"
     ],
-    "title": "a failed query, pdk or remote command",
+    "title": "a failed query, pdk, tools or remote command",
     "type": "object"
   },
   "list-boards": {
@@ -5621,6 +5621,284 @@
       "target"
     ],
     "title": "xeda scrub --json",
+    "type": "object"
+  },
+  "tool-receipt": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "asset_id": {
+        "type": "integer"
+      },
+      "installed_at": {
+        "type": "string"
+      },
+      "platform": {
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1
+      },
+      "sha256": {
+        "type": "string"
+      },
+      "tool": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "asset_id",
+      "installed_at",
+      "platform",
+      "schema_version",
+      "sha256",
+      "tool",
+      "url",
+      "version"
+    ],
+    "title": "receipt.json of an installation in the tool store",
+    "type": "object"
+  },
+  "tools-install": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "already_installed": {
+        "type": "boolean"
+      },
+      "bin": {
+        "type": "string"
+      },
+      "directory": {
+        "type": "string"
+      },
+      "platform": {
+        "type": "string"
+      },
+      "receipt": {
+        "properties": {
+          "asset_id": {
+            "type": "integer"
+          },
+          "installed_at": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "installed_at",
+          "platform",
+          "schema_version",
+          "sha256",
+          "tool",
+          "url",
+          "version"
+        ],
+        "type": "object"
+      },
+      "root": {
+        "type": "string"
+      },
+      "success": {
+        "const": true
+      },
+      "tool": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "already_installed",
+      "bin",
+      "directory",
+      "platform",
+      "receipt",
+      "root",
+      "success",
+      "tool",
+      "version"
+    ],
+    "title": "xeda tools install --json",
+    "type": "object"
+  },
+  "tools-list": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "items": {
+      "properties": {
+        "bin": {
+          "type": "string"
+        },
+        "directory": {
+          "type": "string"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "receipt": {
+          "properties": {
+            "asset_id": {
+              "type": "integer"
+            },
+            "installed_at": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "schema_version": {
+              "const": 1
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "asset_id",
+            "installed_at",
+            "platform",
+            "schema_version",
+            "sha256",
+            "tool",
+            "url",
+            "version"
+          ],
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bin",
+        "directory",
+        "installed",
+        "platform",
+        "receipt",
+        "selected",
+        "tool",
+        "version"
+      ],
+      "type": "object"
+    },
+    "title": "xeda tools list --json",
+    "type": "array"
+  },
+  "tools-path": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "bin": {
+        "type": "string"
+      },
+      "directory": {
+        "type": "string"
+      },
+      "platform": {
+        "type": "string"
+      },
+      "receipt": {
+        "properties": {
+          "asset_id": {
+            "type": "integer"
+          },
+          "installed_at": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "installed_at",
+          "platform",
+          "schema_version",
+          "sha256",
+          "tool",
+          "url",
+          "version"
+        ],
+        "type": "object"
+      },
+      "root": {
+        "type": "string"
+      },
+      "tool": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "bin",
+      "directory",
+      "platform",
+      "receipt",
+      "root",
+      "tool",
+      "version"
+    ],
+    "title": "xeda tools path --json",
     "type": "object"
   }
 }

@@ -81,6 +81,7 @@
       "plan_options",
       "run_root_mismatch",
       "shared_destination",
+      "tool_not_installed",
       "unsupported_with_remote"
     ],
     "StalePlanError": [
@@ -123,6 +124,15 @@
       "pdk_install_failed",
       "pdk_not_installed",
       "pdk_version_mismatch"
+    ],
+    "tools": [
+      "tool_archive_invalid",
+      "tool_checksum_failed",
+      "tool_download_failed",
+      "tool_install_busy",
+      "tool_install_failed",
+      "tool_not_installed",
+      "tool_platform_unsupported"
     ]
   },
   "flows": {

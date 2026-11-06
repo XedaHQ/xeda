@@ -663,6 +663,16 @@
               "name": "run_root"
             },
             {
+              "annotation": "tuple[pathlib.Path, ...]",
+              "default": "()",
+              "name": "path"
+            },
+            {
+              "annotation": "Mapping[str, str]",
+              "default": "<factory>",
+              "name": "tools"
+            },
+            {
               "annotation": "Mapping[str, Mapping[str, Any]]",
               "default": "<factory>",
               "name": "host_profiles"
@@ -709,6 +719,18 @@
                 "default": "None",
                 "kind": "keyword_only",
                 "name": "run_root"
+              },
+              {
+                "annotation": "tuple[pathlib.Path, ...]",
+                "default": "()",
+                "kind": "keyword_only",
+                "name": "path"
+              },
+              {
+                "annotation": "Mapping[str, str]",
+                "default": "<factory>",
+                "kind": "keyword_only",
+                "name": "tools"
               },
               {
                 "annotation": "Mapping[str, Mapping[str, Any]]",

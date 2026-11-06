@@ -2302,6 +2302,393 @@
     "xeda skill reference": {
       "arguments": [],
       "options": {}
+    },
+    "xeda tools": {
+      "arguments": [],
+      "options": {}
+    },
+    "xeda tools help": {
+      "arguments": [
+        {
+          "default": null,
+          "name": "command_path",
+          "nargs": -1,
+          "required": false,
+          "type": "text"
+        }
+      ],
+      "options": {
+        "search": {
+          "default": null,
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--search"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "text"
+        }
+      }
+    },
+    "xeda tools install": {
+      "arguments": [
+        {
+          "case_sensitive": true,
+          "choices": [
+            "oss-cad-suite"
+          ],
+          "default": null,
+          "name": "tool",
+          "nargs": 1,
+          "required": true,
+          "type": "choice"
+        }
+      ],
+      "options": {
+        "config": {
+          "default": null,
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--config"
+          ],
+          "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": false,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
+          "required": false,
+          "secondary_names": [],
+          "type": "file"
+        },
+        "json_flag": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--json"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        },
+        "no_config": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--no-config"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        },
+        "output_format": {
+          "case_sensitive": true,
+          "choices": [
+            "table",
+            "json",
+            "jsonl",
+            "yaml"
+          ],
+          "default": "table",
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--format"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "choice"
+        },
+        "root": {
+          "default": null,
+          "environment": [
+            "XEDA_TOOLS_ROOT"
+          ],
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--root"
+          ],
+          "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
+          "required": false,
+          "secondary_names": [],
+          "type": "directory"
+        },
+        "version": {
+          "default": null,
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--version"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "text"
+        },
+        "yes": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--yes"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        }
+      }
+    },
+    "xeda tools list": {
+      "arguments": [],
+      "options": {
+        "config": {
+          "default": null,
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--config"
+          ],
+          "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": false,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
+          "required": false,
+          "secondary_names": [],
+          "type": "file"
+        },
+        "json_flag": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--json"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        },
+        "no_config": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--no-config"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        },
+        "output_format": {
+          "case_sensitive": true,
+          "choices": [
+            "table",
+            "json",
+            "jsonl",
+            "yaml"
+          ],
+          "default": "table",
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--format"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "choice"
+        },
+        "root": {
+          "default": null,
+          "environment": [
+            "XEDA_TOOLS_ROOT"
+          ],
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--root"
+          ],
+          "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
+          "required": false,
+          "secondary_names": [],
+          "type": "directory"
+        }
+      }
+    },
+    "xeda tools path": {
+      "arguments": [
+        {
+          "case_sensitive": true,
+          "choices": [
+            "oss-cad-suite"
+          ],
+          "default": null,
+          "name": "tool",
+          "nargs": 1,
+          "required": true,
+          "type": "choice"
+        }
+      ],
+      "options": {
+        "config": {
+          "default": null,
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--config"
+          ],
+          "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": false,
+            "exists": false,
+            "file_okay": true,
+            "readable": true,
+            "resolve_path": true,
+            "writable": false
+          },
+          "required": false,
+          "secondary_names": [],
+          "type": "file"
+        },
+        "json_flag": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--json"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        },
+        "no_config": {
+          "default": false,
+          "flag": true,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--no-config"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "boolean"
+        },
+        "output_format": {
+          "case_sensitive": true,
+          "choices": [
+            "table",
+            "json",
+            "jsonl",
+            "yaml"
+          ],
+          "default": "table",
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--format"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "choice"
+        },
+        "root": {
+          "default": null,
+          "environment": [
+            "XEDA_TOOLS_ROOT"
+          ],
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--root"
+          ],
+          "nargs": 1,
+          "path": {
+            "allow_dash": false,
+            "dir_okay": true,
+            "exists": false,
+            "file_okay": false,
+            "readable": true,
+            "resolve_path": false,
+            "writable": false
+          },
+          "required": false,
+          "secondary_names": [],
+          "type": "directory"
+        },
+        "version": {
+          "default": null,
+          "flag": false,
+          "hidden": false,
+          "multiple": false,
+          "names": [
+            "--version"
+          ],
+          "nargs": 1,
+          "required": false,
+          "secondary_names": [],
+          "type": "text"
+        }
+      }
     }
   },
   "grammars": {
@@ -2317,7 +2704,9 @@
       [
         "flows",
         "env",
-        "run_root"
+        "run_root",
+        "path",
+        "tools"
       ]
     ],
     [
@@ -2326,7 +2715,9 @@
       [
         "flows",
         "env",
-        "run_root"
+        "run_root",
+        "path",
+        "tools"
       ]
     ]
   ],
