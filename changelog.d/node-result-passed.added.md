@@ -1,1 +1,0 @@
-- `NodeResult.passed` is true when the node passed, as `Result.passed` and `RunRecord.passed` are.

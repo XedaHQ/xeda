@@ -1,1 +1,0 @@
-- The result, plan, record and event classes of the Python API now take keyword arguments only.

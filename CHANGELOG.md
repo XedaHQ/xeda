@@ -7,6 +7,64 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
 -->
 
 
+## [v1.0.0rc2] - 2026-11-06
+
+### Fixed
+- A cocotb run that leaves no results now names the Python module that the testbench could not
+  import, when the simulation log shows it.
+- The `dsp` metric of `diamond_synth` now counts every DSP primitive in the map report:
+  multipliers, ALUs and pre-adders. It counted only `MULT18X18D` and `MULT9X9D`.
+- No command reads an automatic `XEDA_<OPTION>` environment variable any more. Only the documented
+  variables, such as `XEDA_RUN_ROOT` and `XEDA_LOG_LEVEL`, set an option.
+- A design file now refuses an unknown key in a `parameters` list entry, or in a parameter written
+  as a file. Before, Xeda dropped the key without a word.
+
+### Added
+- A built-in flow or setting can be marked `experimental`, and it may then change or be removed in
+  any release. `xeda list-flows` and `xeda list-settings` show the mark; `xezim`, `vcs`, `dc` and
+  `openroad_place`'s `global_placement.timing_driven.repair_timing` carry it.
+- `NodeResult.passed` is true when the node passed, as `Result.passed` and `RunRecord.passed` are.
+- `xeda pdk` and `xeda remote` JSON documents have schemas in `xeda/data/schemas/`. The `results`
+  schema now lists the keys of `configuration` and of each entry of `dependencies`.
+- The documentation now lists the supported platforms and shows which built-in flows CI or the
+  maintainer verifies against the real tool. The package declares Linux and macOS.
+
+### Changed
+- `xeda dse` explores any flow that has a `clocks` setting and an `fmax` metric, and refuses
+  every other flow with a usage error (exit status 2). `nextpnr` and `quartus` get default
+  variation tables, and a flow without a table searches over the frequency only.
+- `max_failed_rounds` now stops an exploration after exactly that many failed rounds, and
+  `max_luts: 0` allows no LUT. `--optimizer` takes only a built-in optimizer name.
+- The settings of `xeda dse` have clearer names, and durations and frequencies need a unit
+  (`max_runtime: 12 h`, `--initial-frequency-low "100 MHz"`); an old name says what to use.
+- `NodeResult.elapsed` and `RunRecord.runtime` are now text with a unit in seconds, such as
+  `"1.25 s"`, in Python and in JSON.
+- `ErrorInfo.as_json_value()` and `ErrorInfo.from_json()` are now `ErrorInfo.to_dict()` and
+  `ErrorInfo.from_dict()`.
+- The JSON failure document of the query, `pdk` and `remote` commands now has an `error` with the
+  keys `code`, `message`, `node`, `exit_status` and `log`, like a run. Read `error.code`, not
+  `error.type`: the Python class name is gone, and `pdk` adds four codes (`pdk_not_installed`,
+  `pdk_version_mismatch`, `pdk_install_busy`, `pdk_install_failed`).
+- The result, plan, record and event classes of the Python API now take keyword arguments only.
+- `--log-level` and `XEDA_LOG_LEVEL` take a level name (`debug`, `info`, `warning`, `error` or
+  `critical`) on `xeda run` and `xeda dse`. A number is refused.
+- The OpenROAD area metrics (`area`, `core_area` and `die_area`) now have the unit `um^2`
+  instead of no unit.
+- `RunRecord.design` is now `design_name`, `started` and `finished` are `started_at` and
+  `finished_at`, and `Event.time` is `occurred_at`. In JSON, `results.json`, the `spec` of the run
+  and plan documents, and the `dse` and `scrub` documents use `design_name` for the design name.
+  Run the flow again to write the new `results.json`.
+- The first parameter of `Workspace.run` and `xeda.run` is now named `request`. `xeda.load` and
+  `Workspace.load` are now `load_record`.
+- `ScrubResult` now holds tuples of paths, and its `reasons` is a read-only mapping. The
+  `xeda scrub --json` document does not change.
+
+### Removed
+- Remove the loader hooks, hash and fingerprint helpers of `Design`, `Rtl` and `Source`, and
+  `Project.referenced_name`, from the public API. `Source` takes only a path and a type, and
+  `Plan` takes no private fields in its constructor.
+
+
 ## [v1.0.0rc1] - 2026-11-03
 
 ### Fixed
