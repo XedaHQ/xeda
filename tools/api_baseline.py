@@ -1575,11 +1575,28 @@ def _classify_behavior(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
     for key in old.keys() | new.keys():
-        if key not in ("cli", "project_keys") and old.get(key) != new.get(key):
+        if key not in ("cli", "project_keys", "private_files") and old.get(key) != new.get(key):
             brk.append(f"{key}: changed from {old.get(key)} to {new.get(key)}")
     # A project file is input: a new key is additive, a removed one breaks.
     keys = [set(snapshot.get("project_keys", ())) for snapshot in (old, new)]
     _diff_names("project", "key", keys[0], keys[1], add, brk)
+    # A private settings file is input too: a new key is additive; a removed key, a key that
+    # moves to another file, or a file that changes its place breaks.
+    files = [
+        {n: (place, set(keys)) for n, place, keys in s.get("private_files", ())} for s in (old, new)
+    ]
+    for name in sorted(files[0].keys() & files[1].keys()):
+        if files[0][name][0] != files[1][name][0]:
+            brk.append(f"private_files.{name}: place changed")
+    pairs = [{(n, k) for n, (_, keys) in f.items() for k in keys} for f in files]
+    _diff_names(
+        "private_files",
+        "key",
+        {f"{n}.{k}" for n, k in pairs[0]},
+        {f"{n}.{k}" for n, k in pairs[1]},
+        add,
+        brk,
+    )
     a, b = old["cli"], new["cli"]
     _diff_names("cli", "command", a.keys(), b.keys(), add, brk)
     for command in a.keys() & b.keys():

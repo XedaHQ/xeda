@@ -103,8 +103,22 @@ time is an aware UTC ``datetime`` (``RunRecord.started_at``, ``RunRecord.finishe
 record: it was blocked, skipped or detached, or Xeda could not store the record. To test for it,
 use ``result.nodes[name].record is not None``.
 
-In a test, use ``result.require_passed()``. It returns the result when the launch passed. Otherwise
-it raises ``RunFailedError``, and ``error.result`` holds the result.
+``print(result)`` shows the outcome, the cause and one entry for each node. For a missing tool in a
+two-node chain, it prints the text below. A bare ``result`` in Jupyter shows the same text. The
+layout is for people to read and it can change: read the fields of the ``Result`` in code.
+
+.. code-block:: text
+
+    Result: failed
+      cause: yosys_fpga [executable_not_found]: Executable 'yosys' was not found.
+      yosys_fpga: failed (ran)
+        record: /runs/fifo/yosys_fpga/results.json
+      nextpnr: blocked (not_run); blocked by yosys_fpga
+
+In a test or a notebook, use ``result.require_passed()``. It returns the result when the launch
+passed. Otherwise it raises ``RunFailedError``, and ``error.result`` holds the result. The text of
+the error names the node that caused the failure, its error code and its message:
+``launch ended failed: yosys_fpga [executable_not_found]: Executable 'yosys' was not found.``
 
 .. code-block:: python
 
@@ -433,7 +447,10 @@ A run root is a folder that Xeda owns. The same ``Workspace`` reads it without r
     same = ws.load_record(listing.records[0].run_dir)           # the record of one run directory
 
 ``ws.records()`` does not raise for a damaged record. It puts the problem in ``listing.problems``
-and reads the others. ``ws.load_record`` raises ``RecordError`` with the same codes. The records of failed
+and reads the others. ``print(listing)`` shows the number of records and one line for each problem.
+A node that a failed producer blocks makes no run directory, so a listing that you filter to that
+flow has no record and no problem. Read the listing without the filter to find the node that
+failed. ``ws.load_record`` raises ``RecordError`` with the same codes. The records of failed
 and rejected runs are in the listing.
 
 ``ws.scrub(design_name="sqrt")`` removes the run directories of a design, after the ``confirm``

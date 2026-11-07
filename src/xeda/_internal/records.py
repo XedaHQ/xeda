@@ -436,6 +436,20 @@ class RunListing:
     def __len__(self) -> int:
         return len(self.records)
 
+    def __str__(self) -> str:
+        """`RunListing: N records, M problems`, then one line for each problem. The text is for
+        people: its layout can change. Building it reads and writes nothing."""
+        n, m = len(self.records), len(self.problems)
+        lines = [
+            f"RunListing: {n} record{'' if n == 1 else 's'}, {m} problem{'' if m == 1 else 's'}"
+        ]
+        lines.extend(f"  {p.path} [{p.code}]: {p.message}" for p in self.problems)
+        return "\n".join(lines)
+
+    def _repr_pretty_(self, printer: Any, cycle: bool) -> None:
+        """Show `str(self)` in IPython and Jupyter."""
+        printer.text("RunListing(...)" if cycle else str(self))
+
 
 # --- Metrics -----------------------------------------------------------------------------------
 

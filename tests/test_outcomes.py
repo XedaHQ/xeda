@@ -11,17 +11,26 @@ import dataclasses
 import json
 import os
 import pickle
+import types
 from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
 
 import xeda._internal.deliver
-from xeda import Design
+from xeda import Design, Workspace
 from xeda._internal.dataclass import Field, deliverable
 from xeda._internal.design import SourceType
 from xeda.errors import RecordError, RunFailedError
-from xeda._internal.flow import Flow, FlowSettingsError, In, MetricSpec, Out, registered_flows
+from xeda._internal.flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsError,
+    In,
+    MetricSpec,
+    Out,
+    registered_flows,
+)
 from xeda._internal.deliver import DeliveryError
 from xeda._internal.flow_runner import DefaultRunner, launch_identity, launch_report
 from xeda._internal.flow_runner import default_runner as default_runner_module
@@ -1173,3 +1182,172 @@ def test_the_design_file_of_a_document_is_absolute(tmp_path, monkeypatch):
         ]
         is None
     )
+
+
+def _missing_tool_chain(tmp_path, *, record=None):
+    message = "Executable 'yosys' was not found."
+    failed = dataclasses.replace(
+        _node("yosys_fpga", "failed", code="executable_not_found", record=record),
+        run_dir=tmp_path / "yosys_fpga",
+    )
+    failed = dataclasses.replace(
+        failed,
+        error=ErrorInfo(
+            code="executable_not_found",
+            message=message,
+            node="yosys_fpga",
+            exit_status=None,
+            log=None,
+        ),
+        disposition="ran",  # type: ignore[arg-type]
+    )
+    blocked = dataclasses.replace(
+        _node("nextpnr", "blocked", blocked_by="yosys_fpga", code="producer_failed"),
+        error=ErrorInfo(
+            code="producer_failed", message=message, node="nextpnr", exit_status=None, log=None
+        ),
+    )
+    return Result(
+        launch_id="id",
+        spec=Spec("nextpnr", _design(tmp_path)),
+        roots=["nextpnr"],
+        outcome="failed",
+        error=failed.error,
+        nodes=_nodes(failed, blocked),
+    )  # type: ignore[arg-type]
+
+
+def test_missing_tool_chain_text(tmp_path):
+    record = types.SimpleNamespace(artifacts={})
+    result = _missing_tool_chain(tmp_path, record=record)
+    assert str(result) == (
+        "Result: failed\n"
+        "  cause: yosys_fpga [executable_not_found]: Executable 'yosys' was not found.\n"
+        "  yosys_fpga: failed (ran)\n"
+        f"    record: {tmp_path / 'yosys_fpga' / 'results.json'}\n"
+        "  nextpnr: blocked (not_run); blocked by yosys_fpga"
+    )
+    assert repr(result).startswith("Result(")
+
+
+def test_a_node_error_prints_once_and_continuation_lines_are_indented(tmp_path):
+    result = _missing_tool_chain(tmp_path)
+    error = dataclasses.replace(result.error, message="line one\nline two")  # type: ignore[type-var]
+    text = str(dataclasses.replace(result, error=error))
+    assert "  cause: yosys_fpga [executable_not_found]: line one\n    line two\n" in text
+    assert "error [executable_not_found]: Executable" in text  # differs from the cause now
+    assert "producer_failed" not in text
+
+
+def test_pretty_matches_str_without_io(tmp_path, monkeypatch):
+    result = _missing_tool_chain(tmp_path)
+    texts: list[str] = []
+    printer = types.SimpleNamespace(text=texts.append)
+    with monkeypatch.context() as m:
+        m.setattr("builtins.open", lambda *a, **k: pytest.fail("I/O"))
+        result._repr_pretty_(printer, False)
+        result._repr_pretty_(printer, True)
+    assert texts == [str(result), "Result(...)"]
+
+
+def test_require_passed_names_cause(tmp_path):
+    result = _missing_tool_chain(tmp_path)
+    with pytest.raises(RunFailedError) as caught:
+        result.require_passed()
+    assert str(caught.value) == (
+        "launch ended failed: yosys_fpga [executable_not_found]: Executable 'yosys' was not found."
+    )
+    assert caught.value.code == "run_failed" and caught.value.result is result
+    launch = dataclasses.replace(result, error=LAUNCH_ERROR)
+    with pytest.raises(RunFailedError, match=r"^launch ended failed: launch \[delivery_failed\]"):
+        launch.require_passed()
+    with pytest.raises(RunFailedError) as bare:
+        dataclasses.replace(result, error=None).require_passed()
+    assert str(bare.value) == "launch ended failed"
+
+
+def test_listing_prints_every_problem(tmp_path):
+    from xeda._internal.records import RecordProblem, RunListing
+
+    problems = tuple(
+        RecordProblem(
+            path=tmp_path / n / "results.json", code="missing_record", message=f"{n} gone"
+        )
+        for n in "ab"
+    )
+    listing = RunListing(records=(), problems=problems)
+    assert str(listing) == (
+        "RunListing: 0 records, 2 problems\n"
+        f"  {tmp_path / 'a' / 'results.json'} [missing_record]: a gone\n"
+        f"  {tmp_path / 'b' / 'results.json'} [missing_record]: b gone"
+    )
+    assert str(RunListing(records=(), problems=())) == "RunListing: 0 records, 0 problems"
+    texts: list[str] = []
+    printer = types.SimpleNamespace(text=texts.append)
+    listing._repr_pretty_(printer, True)
+    listing._repr_pretty_(printer, False)
+    assert texts == ["RunListing(...)", str(listing)]
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_fresh_blocked_consumer_makes_no_run_directory(tmp_path):
+    result = _launch(
+        _runner(tmp_path), TNeedsMayFail, _design(tmp_path), {MAY_FAIL: {"fail": True}}
+    )
+    consumer = result.nodes[TNeedsMayFail.name]
+    assert consumer.outcome == "blocked" and not consumer.run_dir.exists()
+    assert result.nodes[MAY_FAIL].run_dir.is_dir()
+    listing = Workspace(tmp_path / "run").records(flow=TNeedsMayFail.name)
+    assert (len(listing), listing.problems) == (0, ())
+
+
+@pytest.mark.usefixtures("flows")
+def test_an_interrupted_producer_leaves_no_consumer_directory(tmp_path, monkeypatch):
+    def interrupted(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(TMayFail, "run", interrupted)
+    runner, design = _runner(tmp_path), _design(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        _launch(runner, TNeedsMayFail, design)
+    assert not (tmp_path / "run" / "d" / TNeedsMayFail.name).exists()
+
+
+@pytest.mark.usefixtures("flows")
+def test_a_consumer_whose_init_fails_still_gets_a_failed_record(tmp_path, monkeypatch):
+    def broken(self):
+        raise FlowFatalError("init is broken")
+
+    monkeypatch.setattr(TNeedsMayFail, "init", broken)
+    result = _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path))
+    consumer = result.nodes[TNeedsMayFail.name]
+    assert consumer.outcome == "failed" and consumer.record is not None
+    assert (consumer.run_dir / "results.json").is_file()
+
+
+def test_a_listing_counts_in_the_singular_and_the_plural(tmp_path):
+    from xeda._internal.records import RecordProblem, RunListing
+
+    problem = RecordProblem(path=tmp_path / "results.json", code="missing_record", message="gone")
+    assert str(RunListing(records=(), problems=(problem,))).splitlines()[0] == (
+        "RunListing: 0 records, 1 problem"
+    )
+    record = types.SimpleNamespace()
+    assert str(RunListing(records=(record,), problems=())) == "RunListing: 1 record, 0 problems"  # type: ignore[arg-type]
+
+
+def test_the_log_line_names_only_a_file_that_the_record_reports(tmp_path):
+    reported = _missing_tool_chain(
+        tmp_path, record=types.SimpleNamespace(artifacts={"log": "logs/y.log"})
+    )
+    node = reported.nodes["yosys_fpga"]
+    with_log = dataclasses.replace(
+        reported,
+        nodes=_nodes(
+            dataclasses.replace(node, error=dataclasses.replace(node.error, log="log")),  # type: ignore[type-var]
+            reported.nodes["nextpnr"],
+        ),
+    )
+    assert f"    log: {tmp_path / 'yosys_fpga' / 'logs' / 'y.log'}\n" in str(with_log) + "\n"
+    without = _missing_tool_chain(tmp_path, record=types.SimpleNamespace(artifacts={}))
+    assert "log:" not in str(without)

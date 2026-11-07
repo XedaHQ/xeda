@@ -107,7 +107,7 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   (`tests/test_outcomes.py`). Only a rejection (`Flow.reject` in
   `check_results()`; `parse_reports()` only reads, `tests/test_verdict_placement.py`) keeps
   the trace and is reported again unchanged; every other failed execution keeps none. A blocked
-  node (a producer did not pass) does not execute and writes nothing in its run directory, so
+  node (a producer did not pass) does not execute, creates no run directory and writes nothing in an existing one, so
   `--clean` empties that directory only after the producers passed (`tests/test_outcomes.py`).
 - A launch ends in a `Result` (`outcomes.py`): an outcome and a disposition for every planned node,
   and the aggregate verdict with its cause. Only `flow_runner/launch_result.py` builds it, from the

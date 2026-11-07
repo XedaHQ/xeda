@@ -786,8 +786,7 @@ def test_a_failing_converter_leaves_a_real_flow_built_on_the_planned_design_unto
     assert consumer.name == "yosys" and consumer.blocked_by == fake.name
     planned = [s.file for s in consumer.design.rtl.sources]
     assert [f.name for f in planned] == ["mkTop.v"] and not planned[0].exists()
-    assert not (consumer.run_path / "results.json").exists()  # blocked: it did not run
-    assert "mkTop.v" not in {f.name for f in consumer.run_path.iterdir()}
+    assert not consumer.run_path.exists()  # blocked: it did not run
 
 
 def test_a_missing_bsc_names_why_it_was_needed(tmp_path, monkeypatch) -> None:

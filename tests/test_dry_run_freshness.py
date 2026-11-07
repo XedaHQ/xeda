@@ -252,7 +252,9 @@ def producer_output_tampered(graph: Graph, options: Options) -> None:
 
 
 def file_added(graph: Graph, options: Options) -> None:
-    (graph.run_dir(graph.consumer) / "notes.txt").write_text("mine\n")
+    directory = graph.run_dir(graph.consumer)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "notes.txt").write_text("mine\n")
 
 
 def missing_trace(graph: Graph, options: Options) -> None:
