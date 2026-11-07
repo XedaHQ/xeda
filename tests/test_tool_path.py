@@ -179,6 +179,8 @@ def test_a_wrong_path_of_a_caller_is_refused_at_planning(tmp_path):
     [
         ({"oss-cad-suite": "on"}, "`off` or the date"),
         ({"oss-cad-suite": "2026-10"}, "`off` or the date"),
+        ({"oss-cad-suite": "2026-13-45"}, "YYYY-MM-DD"),
+        ({"oss-cad-suite": "2026-02-30"}, "YYYY-MM-DD"),
         ({"oss-cad-suite": 3}, "`off` or the date"),
         ({"oss-cad-suite": True}, "`off` or the date"),
         ({"yosys": "off"}, "no tool of the tool store"),

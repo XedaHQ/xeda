@@ -2432,14 +2432,14 @@
             "allow_dash": false,
             "dir_okay": true,
             "exists": false,
-            "file_okay": false,
+            "file_okay": true,
             "readable": true,
             "resolve_path": false,
             "writable": false
           },
           "required": false,
           "secondary_names": [],
-          "type": "directory"
+          "type": "path"
         },
         "version": {
           "default": null,
@@ -2556,14 +2556,14 @@
             "allow_dash": false,
             "dir_okay": true,
             "exists": false,
-            "file_okay": false,
+            "file_okay": true,
             "readable": true,
             "resolve_path": false,
             "writable": false
           },
           "required": false,
           "secondary_names": [],
-          "type": "directory"
+          "type": "path"
         }
       }
     },
@@ -2666,14 +2666,14 @@
             "allow_dash": false,
             "dir_okay": true,
             "exists": false,
-            "file_okay": false,
+            "file_okay": true,
             "readable": true,
             "resolve_path": false,
             "writable": false
           },
           "required": false,
           "secondary_names": [],
-          "type": "directory"
+          "type": "path"
         },
         "version": {
           "default": null,

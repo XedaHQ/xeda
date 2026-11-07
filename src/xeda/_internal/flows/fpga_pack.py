@@ -145,7 +145,7 @@ class FpgaPack(FpgaSynthFlow):
         if Nextpnr.io_family(self.settings) != "xilinx":
             return
         assert self.settings.fpga is not None
-        resolved = which(PACKERS["xilinx"][0])
+        resolved = which(PACKERS["xilinx"][0], path=self.process_environment().get("PATH"))
         if resolved is None:
             raise FlowFatalError("fpga-as is missing on PATH; install openXC7 1.0.")
         prjxray_db = self.settings.prjxray_db

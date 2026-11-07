@@ -141,8 +141,17 @@ def release(tag: Any, *assets: Any, **flags: bool) -> dict[str, Any]:
     }
 
 
-def oss_cad(date: str, **flags: bool) -> dict[str, Any]:
-    return release(date, f"oss-cad-suite-linux-x64-{date.replace('-', '')}.tgz", **flags)
+def oss_cad(date: str, without: str | None = None, **flags: bool) -> dict[str, Any]:
+    """A release with the four archives and their digests, less the digest of the `without`
+    platform, if any."""
+    assets = [
+        {"name": f"oss-cad-suite-{p}-{date.replace('-', '')}.tgz", "digest": "sha256:" + "ab" * 32}
+        for p in ("linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64")
+    ]
+    for asset in assets:
+        if without is not None and without in asset["name"]:
+            del asset["digest"]
+    return release(date, *assets, **flags)
 
 
 def bsc(
@@ -581,6 +590,16 @@ def test_the_newest_oss_cad_build_has_the_linux_archive_the_action_downloads():
         oss_cad("2026-10-08"),
     ]
     assert pins.newest_oss_cad(answer) == "2026-10-09"
+
+
+def test_the_newest_oss_cad_build_has_a_digest_for_every_archive():
+    answer = [oss_cad("2026-10-09"), oss_cad("2026-10-10", without="darwin-arm64")]
+    assert pins.newest_oss_cad(answer) == "2026-10-09"
+    bad = oss_cad("2026-10-11")
+    bad["assets"][0]["digest"] = "sha256:XYZ"
+    assert pins.newest_oss_cad([oss_cad("2026-10-08"), bad]) == "2026-10-08"
+    with pytest.raises(pins.PinError):
+        pins.newest_oss_cad([oss_cad("2026-10-10", without="linux-x64")])
 
 
 def test_a_tag_written_with_other_digits_is_no_release_tag():

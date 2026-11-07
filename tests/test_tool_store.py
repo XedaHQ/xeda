@@ -357,6 +357,25 @@ def test_a_network_failure_is_a_download_failure(github, root):
     assert raised.value.code == "tool_download_failed"
 
 
+def test_a_truncated_http_response_is_a_download_failure(github, root, monkeypatch):
+    import http.client
+
+    github.add(PIN)
+    plan = plan_install(root, PIN)
+
+    class Truncated(Response):
+        def read(self, size: int = -1) -> bytes:
+            raise http.client.IncompleteRead(b"ab", 10)
+
+    monkeypatch.setattr(tool_store, "open_url", lambda url: Truncated(b""))
+    with pytest.raises(ToolInstallError) as raised:
+        install(plan)
+    assert raised.value.code == "tool_download_failed"
+    with pytest.raises(ToolInstallError) as raised:
+        plan_install(root, PIN)
+    assert raised.value.code == "tool_download_failed"
+
+
 BAD_ARCHIVES = {
     "absolute name": [file_("/etc/passwd")],
     "parent directory": [dir_("oss-cad-suite"), file_("oss-cad-suite/../../escape")],
@@ -714,6 +733,50 @@ def test_the_root_comes_from_the_option_then_the_variable_then_the_private_env(
     assert root_of("--no-config") == by_variable
     assert root_of("--config", str(config)) == by_private
     assert root_of("--config", str(config), "--root", str(by_option)) == by_option.resolve()
+
+
+def test_only_the_selected_root_is_checked(github, tmp_path, monkeypatch):
+    github.add(PIN)
+    a_file = tmp_path / "a-file"
+    a_file.write_text("")
+    good = tmp_path / "good"
+    install_date(good)
+    config = tmp_path / "config.yaml"
+    config.write_text(yaml.safe_dump({"env": {"XEDA_TOOLS_ROOT": str(good)}}))
+    # The variable names a file, and the private env overrides it: the variable is not judged.
+    monkeypatch.setenv("XEDA_TOOLS_ROOT", str(a_file))
+    result = run_tools("path", "oss-cad-suite", "--json", "--config", str(config))
+    assert result.exit_code == 0, result.output
+    assert Path(json.loads(result.stdout)["root"]) == good
+    # A store that does not exist yet is a store: a first install creates it, through the
+    # variable and through the option.
+    monkeypatch.setenv("XEDA_TOOLS_ROOT", str(tmp_path / "new" / "one"))
+    result = run_tools("install", "oss-cad-suite", "--json", "--no-config")
+    assert result.exit_code == 0, result.output
+    assert Path(json.loads(result.stdout)["root"]) == tmp_path / "new" / "one"
+    result = run_tools(
+        "install", "oss-cad-suite", "--json", "--no-config", "--root", str(tmp_path / "x")
+    )
+    assert result.exit_code == 0, result.output
+    assert Path(json.loads(result.stdout)["root"]) == (tmp_path / "x").resolve()
+
+
+def test_no_config_does_no_project_discovery(github, root, monkeypatch):
+    import xeda._internal.xedaproject as xedaproject
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("project discovery ran")
+
+    monkeypatch.setattr(xedaproject, "resolve_project_file", refuse)
+    result = run_tools("list", "--root", str(root), "--no-config", "--json")
+    assert result.exit_code == 0, result.output
+
+
+def test_the_install_hint_names_a_store_that_is_not_the_default(github, tmp_path):
+    spaced = tmp_path / "my store"
+    result = run_tools("path", "oss-cad-suite", "--root", str(spaced), "--no-config", "--json")
+    assert result.exit_code == 1
+    assert f"xeda tools install oss-cad-suite --root '{spaced}'" in failure(result)["message"]
 
 
 def test_the_private_tools_setting_changes_what_path_and_list_show(github, root, tmp_path):

@@ -26,6 +26,7 @@ from __future__ import annotations
 import datetime
 import gzip
 import hashlib
+import http.client
 import json
 import os
 import platform as platform_module
@@ -309,7 +310,7 @@ def _get_json(url: str) -> Any:
     try:
         with open_url(url) as response:
             return json.loads(response.read())
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, http.client.HTTPException) as error:
         raise ToolInstallError(
             f"cannot read the release information at {url}: {error}", "tool_download_failed"
         ) from None
@@ -554,7 +555,7 @@ def _download(plan: InstallPlan, target: Path) -> None:
                 digest.update(chunk)
                 size += len(chunk)
                 out.write(chunk)
-    except OSError as error:
+    except (OSError, http.client.HTTPException) as error:
         raise ToolInstallError(
             f"cannot download {asset.url}: {error}", "tool_download_failed"
         ) from None

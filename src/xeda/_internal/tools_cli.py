@@ -40,7 +40,7 @@ def _root_option(func):
     return click.option(
         "--root",
         "root",
-        type=click.Path(file_okay=False, path_type=Path),
+        type=click.Path(path_type=Path),
         envvar=ROOT_VARIABLE,
         show_envvar=True,
         default=None,
@@ -82,7 +82,8 @@ def _private_settings(config: Optional[Path], no_config: bool, fmt: str) -> Loca
 
     refuse_both_config_options(config, no_config)
     try:
-        path = resolve_project_file(None)
+        # `--no-config` reads no private file, so the project is no business of the command.
+        path = None if no_config else resolve_project_file(None)
         project = None if path is None else Project.load(path)
         return local_settings(project, config=None if no_config else config or UNSET)
     except Exception as error:
@@ -116,6 +117,19 @@ def _store(root: Optional[Path], local: LocalSettings) -> Path:
         return default_root({**os.environ, **local.env})
     except SettingsError as error:
         raise click.BadParameter(str(error), param_hint=ROOT_VARIABLE) from None
+
+
+def _install_command(store: Path) -> str:
+    """Return the command that installs the suite into `store`: with `--root` unless `store` is
+    the default store."""
+    import os
+    import shlex
+
+    from .tool_store import TOOL, default_root
+
+    command = f"xeda tools install {TOOL}"
+    default = default_root({k: v for k, v in os.environ.items() if k != ROOT_VARIABLE})
+    return command if store == default else f"{command} --root {shlex.quote(str(store))}"
 
 
 def _check_version(version: Optional[str], allow_latest: bool) -> None:
@@ -254,7 +268,8 @@ def tools_list(
     if setting == "off":
         console.print(f"{TOOL} is off in the private settings: no run uses a suite.")
     if not any(row["installed"] for row in rows):
-        console.print(f"Install the suite with [bold]xeda tools install {TOOL}[/].")
+        command = escape(_install_command(store))
+        console.print(f"Install the suite with [bold]{command}[/].")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -305,7 +320,7 @@ def tools_path(
             if chosen is None:
                 raise ToolNotInstalled(
                     f"{TOOL} is not installed in {store}. Install it with: "
-                    f"xeda tools install {TOOL}"
+                    f"{_install_command(store)}"
                 )
     except ToolNotInstalled as error:
         _fail(error, fmt)

@@ -343,17 +343,39 @@ def _asset_names(release: dict[str, Any]) -> set[str]:
     return {a["name"] for a in assets if isinstance(a, dict) and isinstance(a.get("name"), str)}
 
 
+#: The platforms of the archives that `xeda tools install` downloads.
+OSS_CAD_PLATFORMS = ("linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64")
+_SHA256_DIGEST = re.compile("sha256:[0-9a-f]{64}")
+
+
+def _has_checkable_archives(release: dict[str, Any], tag: str) -> bool:
+    """Whether the release lists an archive with a SHA-256 digest for every platform: the installer
+    refuses an archive that it cannot check."""
+    assets = release.get("assets")
+    digests = {
+        a["name"]: a.get("digest")
+        for a in (assets if isinstance(assets, list) else [])
+        if isinstance(a, dict) and isinstance(a.get("name"), str)
+    }
+    return all(
+        isinstance(digest := digests.get(f"oss-cad-suite-{p}-{tag.replace('-', '')}.tgz"), str)
+        and _SHA256_DIGEST.fullmatch(digest)
+        for p in OSS_CAD_PLATFORMS
+    )
+
+
 def newest_oss_cad(answer: Any) -> str:
-    """The date of the newest build that has the Linux archive `setup-oss-cad-suite` downloads."""
+    """The date of the newest build that has the archives of every platform, each with a SHA-256
+    digest: `setup-oss-cad-suite` downloads the Linux one, and `xeda tools install` any of them."""
     tags = [
         tag
         for release in _releases(answer, "OSS CAD Suite")
         if isinstance(tag := release.get("tag_name"), str)
         and OSS_CAD_TAG.fullmatch(tag)
-        and f"oss-cad-suite-linux-x64-{tag.replace('-', '')}.tgz" in _asset_names(release)
+        and _has_checkable_archives(release, tag)
     ]
     if not tags:
-        raise PinError("OSS CAD Suite: no release has a Linux x64 archive")
+        raise PinError("OSS CAD Suite: no release has a checked archive for every platform")
     return max(tags)  # dates in this format sort as text
 
 

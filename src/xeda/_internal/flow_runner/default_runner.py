@@ -1208,7 +1208,7 @@ class FlowLauncher:
         rebuild_all = self.settings.rebuild_all or self.settings.clean
         run_root = self.run_root
         assert self._environment is not None
-        environ = dict(self._environment.inherited)
+        environ = self._environment.generator_environment()
         if self._node_locks is None:
             # A node of a sweep locks itself and the producers that it reads, as leases.
             scope = None if self._node_run is None else {plan.requested, *self._node_run.completed}
@@ -2833,7 +2833,7 @@ class FlowLauncher:
                         settled = launch_generation.settle(
                             design,
                             run_root=self.run_root,
-                            environ=dict(environment.inherited),
+                            environ=environment.generator_environment(),
                             rebuild_all=self.settings.rebuild_all or self.settings.clean,
                             state=state,
                             stack=stack,

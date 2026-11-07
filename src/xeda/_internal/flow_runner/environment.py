@@ -128,6 +128,16 @@ class EnvironmentSnapshot:
         object.__setattr__(self, "private", FrozenDict(self.private))
         object.__setattr__(self, "prefix", tuple(self.prefix))
 
+    def generator_environment(self) -> dict[str, str]:
+        """Return the environment of a generator: the caller's, with the `PATH` that a node gets
+        when its flow sets no `env` (the private `PATH` and the directories in front). It is
+        evidence of freshness and never part of a key."""
+        view = dict(self.inherited)
+        if self.prefix or "PATH" in self.private:
+            parts = [*self.prefix, self.private.get("PATH", view.get("PATH", os.defpath))]
+            view["PATH"] = os.pathsep.join(part for part in parts if part)
+        return view
+
     @classmethod
     def take(cls, private_env: Mapping[str, str]) -> EnvironmentSnapshot:
         """Read the environment of this process now, with the private `env` of the launch."""

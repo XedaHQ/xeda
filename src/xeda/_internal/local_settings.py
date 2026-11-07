@@ -19,6 +19,7 @@ and a caller hands the result to the launcher.
 
 from __future__ import annotations
 
+import datetime
 import difflib
 import os
 from collections.abc import Mapping
@@ -307,12 +308,22 @@ def tool_selection_problem(name: object, value: object) -> str | None:
     """Return what is wrong with the selection `value` of the tool `name`, or `None`."""
     if name not in TOOLS:
         return f"`{name}` is no tool of the tool store ({', '.join(TOOLS)})"
-    if value != "off" and not (isinstance(value, str) and DATE.fullmatch(value)):
+    if value != "off" and not (isinstance(value, str) and _is_date(value)):
         return (
-            f"`{name}` is `off` or the date of an installed build such as 2026-10-08, "
-            f"not {value!r:.60}"
+            f"`{name}` is `off` or the date of an installed build in the form YYYY-MM-DD, "
+            f"such as 2026-10-08, not {value!r:.60}"
         )
     return None
+
+
+def _is_date(text: str) -> bool:
+    if not DATE.fullmatch(text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
 
 
 def _tools(kind: str, file: Path, given: Any) -> Mapping[str, str]:
