@@ -65,12 +65,37 @@
             "type": "array"
           },
           "executable_check": {
-            "additionalProperties": {
-              "type": [
-                "string",
-                "null"
-              ]
+            "properties": {
+              "executable": {
+                "type": "string"
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "found",
+                  "missing",
+                  "unknown"
+                ],
+                "type": "string"
+              }
             },
+            "required": [
+              "executable",
+              "path",
+              "reason",
+              "state"
+            ],
             "type": [
               "object",
               "null"

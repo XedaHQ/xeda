@@ -862,6 +862,17 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     plan_node = simple.of(PlanNode)
     # A plan document of an earlier build lacks `executable_check`: a reader accepts that.
     plan_node["required"] = [k for k in plan_node["required"] if k != "executable_check"]
+    # `plan_freshness.executable_check` fills a plain mapping.
+    plan_node["properties"]["executable_check"] = _nullable(
+        _object(
+            {
+                "executable": _STRING,
+                "state": {"type": "string", "enum": ["found", "missing", "unknown"]},
+                "path": _nullable(_STRING),
+                "reason": _nullable(_STRING),
+            }
+        )
+    )
     dry_run = _object(
         {
             "schema_version": _INTEGER,
