@@ -94,7 +94,7 @@ def _flow(tmp_path, monkeypatch, prefix, part=A100T, *, pins=PINS, sdc=None, **s
     if sdc is not None:
         (root / "timing.sdc").write_text(sdc)
         flow.inputs.sdc = [root / "timing.sdc"]
-    monkeypatch.setattr(nextpnr_module, "which", lambda name: str(prefix / "bin" / name))
+    monkeypatch.setattr(nextpnr_module, "which", lambda name, path=None: str(prefix / "bin" / name))
     tool = _Tool(flow)
     monkeypatch.setattr(NextpnrTool, "run", lambda self, *args, env=None: tool(self, *args))
     flow.prepare_inputs()
