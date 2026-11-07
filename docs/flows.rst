@@ -844,7 +844,12 @@ Planning without running
 ``xeda run nextpnr blinky.yaml --dry-run`` prints the immutable plan that the launcher would
 execute: the producers first, the directories, the identity of each node, the source or producer of
 each declared input, the optional outputs that are switched on for consumers and the deliveries. Add ``--json`` for a document
-(see :doc:`machine-readable`). A dry run starts no tool and changes no run root, marker, lock or
+(see :doc:`machine-readable`). A line under each node, such as ``tool: yosys -> /usr/bin/yosys``,
+says whether the main program of the flow is on the ``PATH`` that the node would get: the
+``path`` directories, the selected tool suite and the ``env`` of the flow count. The line is
+``tool: yosys missing`` when the program is not there, and ``tool: yosys unknown (container not
+inspected)`` for a flow in Docker. The check starts no process and never refuses a plan. With
+``--remote``, the host does the check. A dry run starts no tool and changes no run root, marker, lock or
 delivery, except that it fetches the Git dependencies of the design (see
 :ref:`git-dependencies`). Planning fails for invalid settings, for a device or family that a flow
 does not support, for shared-setting conflicts, and for any configuration that the settings of a

@@ -248,6 +248,13 @@ Git dependency of the design, into the run root. ``plan.nodes`` maps each node n
 record), ``stale`` (it would run; ``reason`` says why), ``unknown`` (it depends on a producer that
 would run) or ``blocked`` (a producer is rejected or blocked).
 
+``PlanNode.executable_check`` is information only. It says whether the main program of the flow is
+on the ``PATH`` that the node would get. It is a mapping with the keys ``executable``, ``state``
+(``found``, ``missing`` or ``unknown``), ``path`` (the absolute path, for ``found`` only) and
+``reason`` (for ``unknown`` only; a flow in Docker is ``unknown`` with the reason ``container not
+inspected``). It is ``None`` when the flow has no main program or its settings are refused. The
+check never changes ``state``, is part of no identity, and does not make a plan stale.
+
 The state is an observation, and execution checks it again. ``plan.to_dict()`` is the document that
 ``xeda run --dry-run --json`` prints. Give a plan to ``ws.run(plan)`` to run exactly this plan.
 Launch options (``rebuild_all=True``, ``clean=True``, ``outputs_to=...``) belong to the plan: make

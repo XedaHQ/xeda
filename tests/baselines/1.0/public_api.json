@@ -1324,6 +1324,11 @@
             {
               "annotation": "tuple[xeda.PlanDelivery, ...]",
               "name": "deliveries"
+            },
+            {
+              "annotation": "Mapping[str, str | None] | None",
+              "default": "None",
+              "name": "executable_check"
             }
           ],
           "bases": [],
@@ -1393,6 +1398,12 @@
                 "annotation": "tuple[xeda.PlanDelivery, ...]",
                 "kind": "keyword_only",
                 "name": "deliveries"
+              },
+              {
+                "annotation": "Mapping[str, str | None] | None",
+                "default": "None",
+                "kind": "keyword_only",
+                "name": "executable_check"
               }
             ]
           },

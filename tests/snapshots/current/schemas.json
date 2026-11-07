@@ -2221,6 +2221,18 @@
               },
               "type": "array"
             },
+            "executable_check": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
             "flow": {
               "type": "string"
             },

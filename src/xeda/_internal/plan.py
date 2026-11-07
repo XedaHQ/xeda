@@ -86,7 +86,12 @@ class PlanNode:
     why, and it is empty for `fresh`. `identity` is opaque text: compare it for equality only.
     `settings` are the effective settings of the node. `name` identifies the node in the plan, and
     `flow` is the canonical name of its flow. `outputs_enabled` names the outputs that a consumer
-    switches on."""
+    switches on. `executable_check` is information only: it says whether the main program of the
+    flow is on the `PATH` that the node would get. It is a mapping with the keys `executable`,
+    `state` (`found`, `missing` or `unknown`), `path` (the absolute path, for `found` only) and
+    `reason` (for `unknown` only). It is `None` when the flow has no main program, when its
+    settings are refused, or in a plan document that lacks it. It changes no `state` and no
+    identity, and a plan is not stale because it changed."""
 
     name: str
     flow: str
@@ -101,9 +106,10 @@ class PlanNode:
     input_types: Mapping[str, tuple[str, ...]] = field(repr=False)
     output_types: Mapping[str, tuple[str, ...]] = field(repr=False)
     deliveries: tuple[PlanDelivery, ...] = field(repr=False)
+    executable_check: Mapping[str, str | None] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        for name in ("settings", "input_types", "output_types"):
+        for name in ("settings", "input_types", "output_types", "executable_check"):
             object.__setattr__(self, name, freeze(getattr(self, name)))
         for name in ("inputs", "outputs_enabled", "deliveries"):
             object.__setattr__(self, name, tuple(getattr(self, name)))
@@ -195,6 +201,7 @@ def node_document(node: PlanNode) -> dict[str, Any]:
             {"key": item.key, "destination": str(item.destination), "replaces": item.replaces}
             for item in node.deliveries
         ],
+        "executable_check": thaw(node.executable_check),
     }
 
 
@@ -283,7 +290,10 @@ def _types_of(node: Any, *, output: bool) -> dict[str, tuple[str, ...]]:
 
 
 def plan_node(
-    node: ResolvedNode, freshness: NodeFreshness, deliveries: Sequence[PlanDelivery]
+    node: ResolvedNode,
+    freshness: NodeFreshness,
+    deliveries: Sequence[PlanDelivery],
+    executable_check: Mapping[str, str | None] | None = None,
 ) -> PlanNode:
     """Return the public `PlanNode` of a node that the launcher resolved."""
     from .utils import plain_json
@@ -302,6 +312,7 @@ def plan_node(
         input_types=_types_of(node, output=False),
         output_types=_types_of(node, output=True),
         deliveries=tuple(deliveries),
+        executable_check=executable_check,
     )
 
 
@@ -314,6 +325,7 @@ def plan_of(
     options: LaunchOptions,
     workspace: WorkspaceOptions | None,
     dependencies: Sequence[Mapping[str, str | None]] = (),
+    executable_checks: Mapping[str, Mapping[str, str | None] | None] | None = None,
 ) -> Plan:
     """Return the public `Plan` of the plan that the launcher resolved.
 
@@ -321,9 +333,13 @@ def plan_of(
     node would deliver, both by node name. The plan keeps `workspace` in a private field, which
     `to_dict` leaves out: running the plan compares it. The plan keeps `dependencies` (see
     `dependency_entries`) in a private field. `to_dict` writes them, and running the plan compares
-    the commits of the Git dependencies."""
+    the commits of the Git dependencies. `executable_checks` holds the `executable_check` of each
+    node by name (`plan_freshness.executable_checks`)."""
+    checks = executable_checks or {}
     nodes = {
-        node.name: plan_node(node, states[node.name], deliveries.get(node.name, ()))
+        node.name: plan_node(
+            node, states[node.name], deliveries.get(node.name, ()), checks.get(node.name)
+        )
         for node in internal.nodes
     }
     plan = Plan(spec=spec, roots=(internal.nodes[-1].name,), options=options.as_dict(), nodes=nodes)
@@ -364,6 +380,7 @@ def _node_of(document: Any) -> PlanNode:
             )
             for item in document["deliveries"]
         ),
+        executable_check=document.get("executable_check"),
     )
 
 

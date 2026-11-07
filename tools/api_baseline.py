@@ -859,6 +859,9 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "nodes": _array(node),
         }
     )
+    plan_node = simple.of(PlanNode)
+    # A plan document of an earlier build lacks `executable_check`: a reader accepts that.
+    plan_node["required"] = [k for k in plan_node["required"] if k != "executable_check"]
     dry_run = _object(
         {
             "schema_version": _INTEGER,
@@ -866,7 +869,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "roots": _array(_STRING),
             "options": simple.of(LaunchOptions),
             "dependencies": _array(dependency),
-            "nodes": _array(simple.of(PlanNode)),
+            "nodes": _array(plan_node),
         }
     )
     scrub_lists = {k: simple.of(v) for k, v in _class_fields(ScrubResult).items()}
