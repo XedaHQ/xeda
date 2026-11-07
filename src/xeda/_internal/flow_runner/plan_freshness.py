@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
@@ -501,6 +502,79 @@ def judge_node(
         assert freshness.error is not None
         return NodeFreshness("rejected", freshness.error["message"])
     return NodeFreshness("fresh")
+
+
+def executable_check(
+    plan: Plan,
+    node: PlanNode,
+    design: Design,
+    *,
+    run_root: Path,
+    runner_cwd: Path,
+    run_path: Callable[..., Path],
+    debug: bool,
+    environment: EnvironmentSnapshot,
+) -> dict[str, str | None] | None:
+    """Return the `executable_check` of a node (`xeda.PlanNode`): whether the main program of its
+    flow is on the `PATH` that the node would get. It informs only and refuses nothing.
+
+    The flow is the bare flow of the launch, built from the settings of the node. This starts no
+    process, runs no `init()` and probes no version. The lookup uses the `PATH` of the node
+    (`Flow.process_environment`): the snapshot with the private paths and the suite, then the
+    `env` of the flow. A flow in Docker is `unknown`: Xeda inspects no container. Return None for
+    a flow with no main program, and for settings that a launch refuses (the state of the node
+    says so)."""
+    flow_class = node.flow_class
+    try:
+        view = planned_design_of(plan, node, design, run_path)
+        settings = launch_input.input_settings(
+            flow_class, node.settings, view, runner_cwd, debug=debug
+        )
+        flow = _bare_flow(node, settings, view, run_root, runner_cwd, "", environment)
+        executable = flow.main_executable()
+    except (FlowSettingsError, FlowSettingsException, FlowFatalError):
+        return None
+    if not executable:
+        return None
+
+    def check(state: str, path: str | None = None, reason: str | None = None):
+        return {"executable": executable, "state": state, "path": path, "reason": reason}
+
+    if flow.settings.docker:
+        return check("unknown", reason="container not inspected")
+    if os.sep in executable and not os.path.isabs(executable):
+        return check("unknown", reason="relative path")
+    search = flow.process_environment().get("PATH", os.defpath)
+    found = shutil.which(executable, path=search)
+    if found is None:
+        return check("missing")
+    return check("found", path=str(Path(found).resolve()))
+
+
+def executable_checks(
+    plan: Plan,
+    design: Design,
+    *,
+    run_root: Path,
+    runner_cwd: Path,
+    run_path: Callable[..., Path],
+    debug: bool = False,
+    environment: EnvironmentSnapshot,
+) -> dict[str, dict[str, str | None] | None]:
+    """Return `executable_check` of each node of `plan` by node name."""
+    return {
+        node.name: executable_check(
+            plan,
+            node,
+            design,
+            run_root=run_root,
+            runner_cwd=runner_cwd,
+            run_path=run_path,
+            debug=debug,
+            environment=environment,
+        )
+        for node in plan.nodes
+    }
 
 
 def judge_plan(

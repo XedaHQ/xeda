@@ -521,6 +521,14 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
         node["run_dir"] = node["run_dir"].replace(str(tmp_path), "/path/to")
         node["identity"] = "..."
         node["settings"] = {"...": "..."}  # the effective settings of a flow fill pages
+        check = node["executable_check"]  # what the machine has is no part of the example
+        assert set(check) == {"executable", "state", "path", "reason"}
+        node["executable_check"] = {
+            **check,
+            "state": "found",
+            "path": f"/usr/bin/{check['executable']}",
+            "reason": None,
+        }
     assert actual == expected
     assert not (tmp_path / "xeda_run").exists()
 

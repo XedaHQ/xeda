@@ -147,6 +147,7 @@ from .plan_freshness import (
     EVERY_FLOW_RUNS_CLEAN,
     EVERY_FLOW_RUNS_REBUILD_ALL,
     NodeFreshness,
+    executable_checks,
     judge_plan,
 )
 from .scrub import ScrubConfirmation, ScrubDone, scrub_runs
@@ -344,6 +345,8 @@ class PlannedLaunch:
     plan: Plan
     states: dict[str, NodeFreshness]
     deliveries: dict[str, tuple[PlanDelivery, ...]]
+    #: The `executable_check` of each node by name (`plan_freshness.executable_checks`).
+    executable_checks: dict[str, dict[str, str | None] | None] = field(default_factory=dict)
 
 
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
@@ -1098,7 +1101,7 @@ class FlowLauncher:
         assert expected is not None
         saved = (self._read_inputs, self._predicted_copies)
         try:
-            planned = self._planned(request, plan)
+            planned = self._planned(request, plan, check_executables=False)
             fresh = plan_of(
                 planned.plan,
                 planned.states,
@@ -3002,20 +3005,35 @@ class FlowLauncher:
         self.settings.post_cleanup = options.post_cleanup
         self.settings.post_cleanup_purge = options.post_cleanup_purge
 
-    def _planned(self, request: _Request, plan: Plan) -> PlannedLaunch:
-        """Judge each node of `plan`, and list the deliveries that a launch of it would make."""
+    def _planned(
+        self, request: _Request, plan: Plan, *, check_executables: bool = True
+    ) -> PlannedLaunch:
+        """Judge each node of `plan`, and list the deliveries that a launch of it would make.
+
+        The nodes are also checked for their main program (`executable_check`) unless
+        `check_executables` is false. All of it is judged by one snapshot of the environment."""
+        environment = request.environment()
+        judging: dict[str, Any] = dict(
+            run_root=self._run_root,
+            runner_cwd=Path.cwd(),
+            debug=self.debug or self.settings.debug,
+            run_path=self.run_path_of,
+            environment=environment,
+        )
         states = judge_plan(
             plan,
             request.design,
-            run_root=self._run_root,
-            runner_cwd=Path.cwd(),
             rebuild_all=self.settings.rebuild_all,
             clean=self._run_dir_policy().clean,
-            debug=self.debug or self.settings.debug,
-            run_path=self.run_path_of,
-            environment=request.environment(),
+            **judging,
         )
-        return PlannedLaunch(request, plan, states, self._planned_deliveries(request.design, plan))
+        return PlannedLaunch(
+            request,
+            plan,
+            states,
+            self._planned_deliveries(request.design, plan),
+            executable_checks(plan, request.design, **judging) if check_executables else {},
+        )
 
     def _planned_deliveries(
         self, design: Design, plan: Plan

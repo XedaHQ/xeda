@@ -1308,7 +1308,9 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
          "settings": {"...": "..."},
          "inputs": [], "outputs_enabled": [],
          "input_types": {}, "output_types": {"netlist": ["JsonNetlist"], "netlist_edif": []},
-         "deliveries": []},
+         "deliveries": [],
+         "executable_check": {"executable": "yosys", "state": "found",
+                              "path": "/usr/bin/yosys", "reason": null}},
         {"name": "nextpnr", "flow": "nextpnr",
          "run_dir": "/path/to/xeda_run/blinky/nextpnr", "identity": "...",
          "state": "stale", "reason": "no completed previous run", "action": false,
@@ -1323,7 +1325,9 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
          "outputs_enabled": [],
          "input_types": {"netlist": ["JsonNetlist"], "constraints": ["Pcf"], "sdc": ["Sdc"]},
          "output_types": {"config": ["IceAsc"]},
-         "deliveries": []}
+         "deliveries": [],
+         "executable_check": {"executable": "nextpnr-ice40", "state": "found",
+                              "path": "/usr/bin/nextpnr-ice40", "reason": null}}
       ]
     }
 
@@ -1367,6 +1371,12 @@ Python, ``Plan.nodes`` is a mapping by node name in the same order. Each node ha
   ``key`` (the deliverable setting, ``outputs_to`` or ``generator``), a ``destination`` and
   ``replaces``, which is true when a file is there that is not an unchanged earlier delivery of
   Xeda.
+- ``executable_check`` (optional; a reader accepts a document without it): ``null``, or an object
+  with ``executable``, ``state`` (``found``, ``missing`` or ``unknown``), ``path`` (the absolute
+  path, for ``found`` only, else ``null``) and ``reason`` (for ``unknown`` only, else ``null``: ``container not inspected`` or
+  ``relative path``). It
+  says whether the main program of the flow is on the ``PATH`` of the node. It informs only: it
+  changes no ``state`` and no ``identity``.
 
 Each input has these keys:
 

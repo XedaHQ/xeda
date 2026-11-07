@@ -369,6 +369,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                             local_settings=None,
                         ),
                         dependencies=dependency_entries(planned.request.design),
+                        executable_checks=planned.executable_checks,
                     ).to_dict(),
                     None,
                 )

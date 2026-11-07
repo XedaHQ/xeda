@@ -225,6 +225,7 @@ class Workspace:
             options=options,
             workspace=self._options(),
             dependencies=dependency_entries(planned.request.design),
+            executable_checks=planned.executable_checks,
         )
 
     def _runner(self, runner_class: Any) -> Any:
