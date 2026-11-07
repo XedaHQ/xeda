@@ -901,11 +901,21 @@ def _print_scrub_result(result: ScrubResult) -> None:
         _say_scrub(summary + ".")
 
 
+def _executable_check_text(check: Mapping[str, Any]) -> str:
+    """Say what the plan found of the main program of a node: `yosys -> /path/yosys`, `yosys
+    missing` or `yosys unknown (container not inspected)`."""
+    name, state = check["executable"], check["state"]
+    if state == "found":
+        return f"{name} -> {check['path']}"
+    return f"{name} {state}" + (f" ({check['reason']})" if state == "unknown" else "")
+
+
 def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None:
     """Print each planned node of the plan `document` (`Plan.to_dict()`): its directory, what a
     launch would do with it (`fresh`, or a state and its reason: `stale: <reason>`, `unknown:
     <reason>`, `rejected: <message>` or `blocked: <reason>`), its input origins, the outputs that a
-    consumer switches on and its deliveries."""
+    consumer switches on and its deliveries. A line `tool: <program> ...` says whether the main
+    program is on the `PATH` of the node (`PlanNode.executable_check`)."""
     spec = document["spec"]
     target = f", target {spec['target']}" if spec.get("target") else ""
     where = f" on {host}" if host else ""
@@ -916,6 +926,8 @@ def _print_plan(document: Mapping[str, Any], *, host: str | None = None) -> None
         if node["action"]:
             # Static class metadata: why the flow can only end a chain.
             click.echo(f"      always runs: {get_flow_class(node['flow']).action_reason}")
+        if node.get("executable_check"):
+            click.echo(f"      tool: {_executable_check_text(node['executable_check'])}")
         for item in node["inputs"]:
             if item["origin"] == "producer":
                 made = f"{item['producer']}.{item['output']}"

@@ -64,6 +64,43 @@
             },
             "type": "array"
           },
+          "executable_check": {
+            "properties": {
+              "executable": {
+                "type": "string"
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "found",
+                  "missing",
+                  "unknown"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "executable",
+              "path",
+              "reason",
+              "state"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "flow": {
             "type": "string"
           },

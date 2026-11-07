@@ -145,6 +145,7 @@ def test_plan_to_dict_is_the_dry_run_document(tmp_path):
         "input_types",
         "output_types",
         "deliveries",
+        "executable_check",
     }
     assert set(node["inputs"][0]) == {"name", "origin", "producer", "output", "sources", "reason"}
     assert json.loads(json.dumps(document)) == document
