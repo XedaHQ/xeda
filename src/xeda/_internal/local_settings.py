@@ -8,6 +8,10 @@ and the project-local file beside a project file (`xedaproject.local.yaml` besid
   of this user. The project-local file overrides the checked-in files of one checkout.
 - `env`: environment variables, as text.
 - `run_root`: the directory of the run directories. A relative path is relative to the file.
+- `path`: directories that go in front of `PATH` for the tools of every run. A relative entry is
+  relative to the file.
+- `tools`: the OSS CAD Suite of the tool store, as `{oss-cad-suite: off}` or
+  `{oss-cad-suite: <date>}`. Without it, the newest installed suite is on `PATH`.
 
 The library never looks for these files. `local_settings()` reads them, as the command line does,
 and a caller hands the result to the launcher.
@@ -15,6 +19,7 @@ and a caller hands the result to the launcher.
 
 from __future__ import annotations
 
+import datetime
 import difflib
 import os
 from collections.abc import Mapping
@@ -29,6 +34,7 @@ from .frozen import freeze
 from .project import Project
 from .remote.errors import RemoteConfigError
 from .remote.profile import config_directory, read_host_profiles, remotes_file
+from .tool_store import DATE, TOOLS
 from .types import UNSET, PathLike, Unset
 from .utils import ConflictingKeys, expand_hierarchy, flows_table_problems
 from .yaml_loader import load_yaml, yaml_error_position
@@ -36,7 +42,7 @@ from .yaml_loader import load_yaml, yaml_error_position
 __all__ = ["LOCAL_SETTINGS_KEYS", "LocalSettings", "local_settings"]
 
 #: The keys of a private settings file.
-LOCAL_SETTINGS_KEYS = ("flows", "env", "run_root")
+LOCAL_SETTINGS_KEYS = ("flows", "env", "run_root", "path", "tools")
 
 USER_FILE_NAME = "config.yaml"
 LOCAL_FILE_SUFFIX = ".local.yaml"
@@ -66,6 +72,12 @@ class LocalSettings:
     #: project-local `run_root`, else the user `run_root`, else the `run_root` that the project
     #: file gives, else `None`. It is an absolute path.
     run_root: Path | None = None
+    #: The directories that go in front of `PATH`: the entries of the project-local file, then
+    #: those of the user file, each in the order of its file, without repeats. Each is absolute.
+    path: tuple[Path, ...] = ()
+    #: The selection of a tool of the tool store, by tool name: `off`, or the date of an installed
+    #: suite. The project-local value wins over the user value for a tool in both.
+    tools: Mapping[str, str] = field(default_factory=dict)
     #: The host profiles, by the text of `--remote`.
     host_profiles: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     #: The files that were read, for the origin of a value and for messages.
@@ -76,8 +88,9 @@ class LocalSettings:
     project_file: Path | None = None
 
     def __post_init__(self) -> None:
-        for name in ("user", "local", "env", "host_profiles"):
+        for name in ("user", "local", "env", "tools", "host_profiles"):
             object.__setattr__(self, name, freeze(getattr(self, name)))
+        object.__setattr__(self, "path", tuple(self.path))
         if self.run_root is not None:
             object.__setattr__(self, "run_root", Path(self.run_root))
 
@@ -90,6 +103,8 @@ class _File:
     flows: Mapping[str, Any]
     env: Mapping[str, str]
     run_root: Path | None
+    directories: tuple[Path, ...] = ()
+    tools: Mapping[str, str] = field(default_factory=dict)
 
 
 def local_settings(
@@ -138,6 +153,15 @@ def local_settings(
         local=local.flows if local is not None else {},
         env={**(user.env if user is not None else {}), **(local.env if local is not None else {})},
         run_root=run_root,
+        path=tuple(
+            dict.fromkeys(
+                (
+                    *(local.directories if local is not None else ()),
+                    *(user.directories if user is not None else ()),
+                )
+            )
+        ),
+        tools={**(user.tools if user is not None else {}), **(local.tools if local else {})},
         host_profiles=profiles,
         user_file=user.path if user is not None else None,
         local_file=local.path if local is not None else None,
@@ -185,6 +209,8 @@ def _read(path: Path, kind: str) -> _File | None:
         flows or {},
         _env(kind, path, data.get("env")),
         _run_root(kind, path, data.get("run_root")),
+        _path(kind, path, data.get("path")),
+        _tools(kind, path, data.get("tools")),
     )
 
 
@@ -230,3 +256,104 @@ def _run_root(kind: str, path: Path, given: Any) -> Path | None:
     if not isinstance(given, str) or not given:
         raise _invalid(kind, path, f"`run_root` is a path, not {given!r:.60}")
     return Path(os.path.normpath(path.parent / given))
+
+
+def _path_problem(entry: object) -> str | None:
+    """Return what is wrong with the directory `entry` of `path`, or `None`. `entry` is an
+    expanded entry of a file or an absolute path of a caller; the check is the same for both."""
+    if not isinstance(entry, (str, os.PathLike)) or not os.fspath(entry):
+        return f"it must be a directory name, not {entry!r:.60}"
+    text = str(os.fspath(entry))
+    if "\0" in text:
+        return "it holds a NUL character"
+    if os.pathsep in text:
+        return f"it holds {os.pathsep!r}, which separates the directories of PATH"
+    if not os.path.isdir(text):
+        return f"{text} is not an existing directory"
+    return None
+
+
+def _expand_home(entry: Any) -> Any:
+    """Return `entry` with a leading `~` or `~/` replaced by the home directory. Another text,
+    `~user` included, stays as it is."""
+    if isinstance(entry, str) and (entry == "~" or entry.startswith("~/")):
+        return os.path.expanduser(entry)
+    return entry
+
+
+def _path(kind: str, file: Path, given: Any) -> tuple[Path, ...]:
+    """Return the directories of the `path` list of the file `file`, absolute and normalized,
+    without repeats. A relative entry is relative to the file. A variable, a glob and `~user` are
+    not expanded."""
+    if given is None:
+        return ()
+    if not isinstance(given, list):
+        raise _invalid(kind, file, f"`path` is a list of directories, not {given!r:.60}")
+    found: list[Path] = []
+    for index, entry in enumerate(given):
+        text = _expand_home(entry)
+        if isinstance(text, str) and text.startswith("~"):
+            raise _invalid(
+                kind, file, f"`path[{index}]` is {entry!r}: only `~` and `~/` are expanded"
+            )
+        resolved = os.path.abspath(file.parent / text) if isinstance(text, str) and text else text
+        problem = _path_problem(resolved)
+        if problem is not None:
+            raise _invalid(kind, file, f"`path[{index}]` {problem}")
+        found.append(Path(resolved))
+    return tuple(dict.fromkeys(found))
+
+
+def tool_selection_problem(name: object, value: object) -> str | None:
+    """Return what is wrong with the selection `value` of the tool `name`, or `None`."""
+    if name not in TOOLS:
+        return f"`{name}` is no tool of the tool store ({', '.join(TOOLS)})"
+    if value != "off" and not (isinstance(value, str) and _is_date(value)):
+        return (
+            f"`{name}` is `off` or the date of an installed build in the form YYYY-MM-DD, "
+            f"such as 2026-10-08, not {value!r:.60}"
+        )
+    return None
+
+
+def _is_date(text: str) -> bool:
+    if not DATE.fullmatch(text):
+        return False
+    try:
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _tools(kind: str, file: Path, given: Any) -> Mapping[str, str]:
+    if given is None:
+        return {}
+    if not isinstance(given, dict):
+        raise _invalid(
+            kind, file, f"`tools` is a mapping of tool names to selections, not {given!r:.60}"
+        )
+    for name, value in given.items():
+        problem = tool_selection_problem(name, value)
+        if problem is not None:
+            raise _invalid(kind, file, f"`tools`: {problem}")
+    return dict(given)
+
+
+def check_launch_settings(settings: LocalSettings) -> None:
+    """Raise `ProjectError` (`invalid_local_settings`) if `path` or `tools` of `settings` is wrong.
+    A file is checked when it is read; this check is for the value that a caller builds, and it
+    runs again at planning, since a directory can go away after the file was read."""
+    for index, entry in enumerate(settings.path):
+        problem = None if os.path.isabs(entry) else f"{entry} is not an absolute path"
+        problem = problem or _path_problem(entry)
+        if problem is not None:
+            raise ProjectError(
+                f"Invalid LocalSettings.path[{index}]: {problem}", code="invalid_local_settings"
+            )
+    for name, value in settings.tools.items():
+        problem = tool_selection_problem(name, value)
+        if problem is not None:
+            raise ProjectError(
+                f"Invalid LocalSettings.tools: {problem}", code="invalid_local_settings"
+            )

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bin": {
+      "type": "string"
+    },
+    "directory": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "receipt": {
+      "properties": {
+        "asset_id": {
+          "type": "integer"
+        },
+        "installed_at": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "installed_at",
+        "platform",
+        "schema_version",
+        "sha256",
+        "tool",
+        "url",
+        "version"
+      ],
+      "type": "object"
+    },
+    "root": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bin",
+    "directory",
+    "platform",
+    "receipt",
+    "root",
+    "tool",
+    "version"
+  ],
+  "title": "xeda tools path --json",
+  "type": "object"
+}

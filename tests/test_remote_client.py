@@ -376,6 +376,21 @@ def test_outputs_to_is_checked_before_a_connection(tmp_path, remote_host):
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
+def test_the_client_leaves_the_tool_store_to_the_host(tmp_path, remote_host):
+    """A `tools:` date that this machine lacks does not refuse a remote run: the host reads no
+    private file and uses its own store."""
+    from xeda._internal.local_settings import LocalSettings
+
+    design = _design(tmp_path)
+    local = LocalSettings(tools={"oss-cad-suite": "2026-01-01"})
+    document = _succeeded(_request(tmp_path, design, local_settings=local))
+    assert document["outcome"] == "passed"
+    # The settings themselves are still checked on the client.
+    broken = LocalSettings(tools={"oss-cad-suite": "maybe"})
+    outcome = _request(tmp_path, design, local_settings=broken)
+    assert outcome.document["error"]["code"] == "invalid_local_settings"
+
+
 def test_a_failed_run_delivers_nothing(tmp_path, remote_host):
     design = _design(tmp_path, freq="400 MHz")
     out = tmp_path / "out"

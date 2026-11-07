@@ -45,6 +45,6 @@
     "error",
     "success"
   ],
-  "title": "a failed query, pdk or remote command",
+  "title": "a failed query, pdk, tools or remote command",
   "type": "object"
 }

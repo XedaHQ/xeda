@@ -528,7 +528,7 @@ def judge_plan(
     inspection = launch_generation.inspect_generation(
         design,
         run_root if run_root.is_dir() else None,
-        environ=dict(environment.inherited),
+        environ=environment.generator_environment(),
         rebuild_all=rebuild_all or clean,
     )
     reading = launch_generation.execution_design(design, inspection.generation)

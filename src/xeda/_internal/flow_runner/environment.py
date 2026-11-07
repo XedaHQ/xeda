@@ -16,6 +16,11 @@ The view of a node (`admitted`) is the environment that Xeda reads for the node 
 processes inherit. A process gets `node_environment`: the view, then the `env` setting, then the
 variables that the flow sets itself. A container gets `container_environment`.
 
+A launch also puts directories in front of `PATH`: the `path` of the private settings, then the
+`bin` of the installed OSS CAD Suite (`tool_store`). They are part of the view of a node, as the
+snapshot holds them, and no container gets them. A flow's `env` that sets `PATH` replaces the whole
+`PATH`.
+
 `environment_evidence` is the digest of what a node inherits, with the sorted names of the
 variables in it. A trace holds both, so a changed value makes the node stale, and no value is
 stored.
@@ -23,8 +28,9 @@ stored.
 
 from __future__ import annotations
 
+import dataclasses
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, Final
@@ -44,6 +50,7 @@ __all__ = [
     "container_environment",
     "environment_evidence",
     "node_environment",
+    "snapshot_with_tools",
 ]
 
 #: The variables of a shell session, a terminal or a login, and those of the Xeda command line.
@@ -110,15 +117,51 @@ class EnvironmentSnapshot:
 
     inherited: Mapping[str, str]
     private: Mapping[str, str]
+    #: The directories that go in front of `PATH`, as text: the private `path`, then the `bin` of
+    #: the suite. They are no part of any identity.
+    prefix: tuple[str, ...] = ()
+    #: The SHA-256 of the archive of the suite whose `bin` is in `prefix`, or `None`.
+    suite: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "inherited", FrozenDict(self.inherited))
         object.__setattr__(self, "private", FrozenDict(self.private))
+        object.__setattr__(self, "prefix", tuple(self.prefix))
+
+    def generator_environment(self) -> dict[str, str]:
+        """Return the environment of a generator: the caller's, with the `PATH` that a node gets
+        when its flow sets no `env` (the private `PATH` and the directories in front). It is
+        evidence of freshness and never part of a key."""
+        view = dict(self.inherited)
+        if self.prefix or "PATH" in self.private:
+            parts = [*self.prefix, self.private.get("PATH", view.get("PATH", os.defpath))]
+            view["PATH"] = os.pathsep.join(part for part in parts if part)
+        return view
 
     @classmethod
     def take(cls, private_env: Mapping[str, str]) -> EnvironmentSnapshot:
         """Read the environment of this process now, with the private `env` of the launch."""
         return cls(dict(os.environ), dict(private_env))
+
+
+def snapshot_with_tools(
+    private_env: Mapping[str, str],
+    path: Sequence[os.PathLike[str] | str] = (),
+    tools: Mapping[str, str] | None = None,
+) -> EnvironmentSnapshot:
+    """Read the environment of this process now (`EnvironmentSnapshot.take`) and add the
+    directories of `PATH` that the private settings give: `path`, then the `bin` of the suite that
+    `tools` selects, or the newest installed one when `tools` selects none. The root of the tool
+    store is in the environment of the launch (`XEDA_TOOLS_ROOT`, the private `env` first).
+    Raise `ToolNotInstalled` for a date that is not installed."""
+    from .. import tool_store
+
+    taken = EnvironmentSnapshot.take(private_env)
+    suite = tool_store.launch_selection({**taken.inherited, **taken.private}, tools or {})
+    prefix = (*map(str, path), *((str(suite.bin),) if suite is not None else ()))
+    return dataclasses.replace(
+        taken, prefix=prefix, suite=suite.sha256 if suite is not None else None
+    )
 
 
 def _matches(name: str, patterns: tuple[str, ...]) -> bool:
@@ -148,8 +191,14 @@ def admitted(
 
     With `inherit_env`, it is the environment of the caller. Without, it is the essential
     variables and the locators of the flow, taken from the caller. The private `env` comes over
-    it in both modes."""
-    return FrozenDict({**_admitted_inherited(snapshot, settings, flow_class), **snapshot.private})
+    it in both modes. The directories of the snapshot (`prefix`) go in front of `PATH`; without a
+    `PATH`, they go in front of `os.defpath`. An empty `PATH` adds nothing after them."""
+    view = {**_admitted_inherited(snapshot, settings, flow_class), **snapshot.private}
+    if snapshot.prefix:
+        # An empty part would add the current directory to PATH: leave it out.
+        parts = [*snapshot.prefix, view.get("PATH", os.defpath)]
+        view["PATH"] = os.pathsep.join(part for part in parts if part)
+    return FrozenDict(view)
 
 
 def node_environment(
@@ -189,5 +238,11 @@ def environment_evidence(
         if name not in SESSION_VARIABLES
     }
     private = dict(snapshot.private)
-    digest = semantic_hash({"inherited": inherited, "private": private})
-    return digest, sorted({*inherited, *private})
+    sections: dict[str, object] = {"inherited": inherited, "private": private}
+    names = {*inherited, *private}
+    if snapshot.prefix:
+        # Only a launch with directories in front of PATH has this section, so the traces of
+        # the others stay as they were.
+        sections["tools"] = {"prefix": list(snapshot.prefix), "suite": snapshot.suite}
+        names.add("PATH")
+    return semantic_hash(sections), sorted(names)

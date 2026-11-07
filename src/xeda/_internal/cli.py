@@ -25,7 +25,10 @@ from .cli_types import (
     output_format_option,
 )
 from .flow_catalog import flow_names
+from .cli_types import config_options as _config_options
+from .cli_types import refuse_both_config_options as _refuse_both_config_options
 from .pdk_cli import add_pdk_commands
+from .tools_cli import add_tools_commands
 from .remote.commands import add_remote_commands
 from .types import UNSET, Question, Unset
 
@@ -513,6 +516,25 @@ add_pdk_commands(pdk, XedaCommand, CONTEXT_SETTINGS)
 
 
 @cli.group(
+    "tools",
+    context_settings=CONTEXT_SETTINGS,
+    cls=XedaHelpGroup,
+    short_help="Install and find the tools that Xeda keeps for you.",
+)
+def tools_group():
+    """The tool store: tools that Xeda installs for you.
+
+    The store holds the OSS CAD Suite (`oss-cad-suite`: Yosys, nextpnr, GHDL, Verilator and
+    more). A run puts the newest installed suite on PATH by itself. `list` and `path` show what
+    the store holds and where. They start no process, use no network and write nothing.
+    `install` downloads a build into the store.
+    """
+
+
+add_tools_commands(tools_group, XedaCommand, CONTEXT_SETTINGS)
+
+
+@cli.group(
     "remote",
     context_settings=CONTEXT_SETTINGS,
     cls=XedaHelpGroup,
@@ -719,33 +741,6 @@ def _selected_project(xedaproject: Any, design: Any) -> Project | None:
     if design is not None and not Path(design).exists():
         raise DesignFileParseError(design, "no such file", missing=True)
     return project
-
-
-def _config_options(func):
-    """Add `--config` and `--no-config`, which select the private settings files."""
-    func = click.option(
-        "--no-config",
-        "no_config",
-        is_flag=True,
-        default=False,
-        help="Read neither the user config file nor the project-local file. The host profiles "
-        "of `remotes.yaml` are still read.",
-    )(func)
-    return click.option(
-        "--config",
-        "config",
-        type=click.Path(dir_okay=False, resolve_path=True, path_type=Path),
-        default=None,
-        help="Read this file in place of the user config file, "
-        "$XDG_CONFIG_HOME/xeda/config.yaml (~/.config/xeda/config.yaml). The file must exist.",
-    )(func)
-
-
-def _refuse_both_config_options(config: Path | None, no_config: bool) -> None:
-    if config is not None and no_config:
-        raise click.UsageError(
-            "`--config` and `--no-config` exclude each other.", ctx=click.get_current_context()
-        )
 
 
 def _cli_local_settings(

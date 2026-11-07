@@ -25,6 +25,7 @@ shorthand for ``--format json``:
     xeda list-boards --json
     xeda list-platforms --json
     xeda pdk list --json
+    xeda tools list --json
     xeda list-optimizers --json
 
 ``xeda pdk path <platform>`` prints the directory of a platform in the PDK store. With ``--json``, it
@@ -45,6 +46,26 @@ of ``ciel`` in the store, so a ``ciel`` store counts as installed for this comma
 receipt exists. The install refuses a symbolic link inside the store, in ``<root>/xeda``, and fails
 with ``"success": false`` before it writes. The root itself may be a link. The install writes only
 real directories inside the store, so that it never writes or deletes outside it.
+
+``xeda tools list`` lists the builds of the OSS CAD Suite in the tool store for this machine, and the
+build that Xeda pins when the store lacks it. Each row has ``tool``, ``version`` (the date of the
+build), ``platform``, ``installed``, ``selected`` (the build that a run would use), ``directory``,
+``bin`` and ``receipt`` (the receipt of the installation, or ``null`` for a build that is not
+installed). ``xeda tools path oss-cad-suite`` prints the directory of the suite that a run would use,
+or of the build that ``--version DATE`` names. With ``--json`` it gives ``tool``, ``version``,
+``platform``, ``root``, ``directory``, ``bin`` and ``receipt``. Both commands read the private
+settings (``tools`` and ``env``, see :ref:`private-files`) and the store only: they start no process
+and use no network. ``--root`` and ``XEDA_TOOLS_ROOT`` name the store.
+
+``xeda tools install oss-cad-suite`` is the only ``tools`` command that uses the network and writes
+the tool store. Every machine-readable format installs without asking, as ``--yes`` does. Stdout
+carries one document: the fields of ``tools path`` and ``"success": true`` and
+``"already_installed"``, or ``{"success": false, "error": ...}`` (see :ref:`failure-envelope`). The
+download is checked against the SHA-256 digest that GitHub lists, before one file is extracted. A
+failed install leaves the store as it was. The exit status is 0 for success, 1 for a failure or a
+declined question, and 2 for a mistake in the command (an unknown tool, a version that is neither a
+date nor ``latest``, a relative ``XEDA_TOOLS_ROOT``). The receipt, ``receipt.json`` beside the suite,
+is a document too.
 
 Executional commands do work and print the logs of the tools. They take a plain ``--json`` flag. It
 moves tool output, log messages and result tables to stderr, so that stdout carries only the JSON
@@ -495,6 +516,14 @@ guessing its shape:
      - ``xeda/data/schemas/pdk-path.schema.json``
    * - ``xeda pdk install <platform> --json``
      - ``xeda/data/schemas/pdk-install.schema.json``
+   * - ``xeda tools list --json``
+     - ``xeda/data/schemas/tools-list.schema.json``
+   * - ``xeda tools path oss-cad-suite --json``
+     - ``xeda/data/schemas/tools-path.schema.json``
+   * - ``xeda tools install oss-cad-suite --json``
+     - ``xeda/data/schemas/tools-install.schema.json``
+   * - ``receipt.json`` of an installation in the tool store
+     - ``xeda/data/schemas/tool-receipt.schema.json``
    * - ``xeda remote check <host> --json``
      - ``xeda/data/schemas/remote-check.schema.json``
    * - ``xeda remote clean <host> --json``
@@ -981,6 +1010,9 @@ command line gives ``delivery_refused`` and ``unsupported_with_remote`` too.
 ``unsupported_with_remote``
     The request has a flow or an option that cannot run with ``--remote``: a flow that programs a
     device on this machine, or an option that removes run directories on the host.
+``tool_not_installed``
+    The private settings select a build of the OSS CAD Suite (``tools:``) that the tool store does
+    not hold.
 
 A stale plan (``StalePlanError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1061,12 +1093,40 @@ The PDK store (``pdk``)
     The download, checkout, verification or installation of the PDK files failed, or the store was
     not safe to write.
 
+The tool store (``tools``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``tool_not_installed``
+    ``xeda tools path`` found no installed suite, or not the build that ``--version`` names. The
+    message says how to install it.
+
+``tool_platform_unsupported``
+    This machine has no build of the tool, or the release has no archive for it.
+
+``tool_install_busy``
+    Another installation holds the lock of the tool store. Try again later.
+
+``tool_download_failed``
+    The release information or the archive could not be read from GitHub, or the download was
+    incomplete.
+
+``tool_checksum_failed``
+    The SHA-256 of the download differs from the digest that GitHub publishes for the archive, or
+    the release publishes no digest. Nothing is installed.
+
+``tool_archive_invalid``
+    The archive is not a safe suite: it has a name or a link that leaves the suite, a special file,
+    a name twice, too many entries or bytes, or no ``yosys``.
+
+``tool_install_failed``
+    The installation did not finish, or the store was not safe to write.
+
 .. _failure-envelope:
 
-The failure of a query, PDK or remote command
----------------------------------------------
+The failure of a query, PDK, tools or remote command
+----------------------------------------------------
 
-A failed ``list-*``, ``design-schema``, ``skill``, ``pdk`` or ``xeda remote`` command (except
+A failed ``list-*``, ``design-schema``, ``skill``, ``pdk``, ``tools`` or ``xeda remote`` command (except
 ``remote attach`` after it found a launch) prints one document on stdout with ``--json`` (or another
 machine-readable format)::
 

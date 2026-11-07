@@ -66,7 +66,10 @@ REAL_SIMULATORS = {
 }
 
 #: commands that no test can run here, by xeda subcommand, with the reason
-NOT_RUN = {"dse": "a search runs the flow many times; the flows shown need Vivado"}
+NOT_RUN = {
+    "dse": "a search runs the flow many times; the flows shown need Vivado",
+    "tools install": "it downloads the OSS CAD Suite from GitHub",
+}
 
 
 def _commands(path: Path) -> list[tuple[str, str]]:
@@ -208,8 +211,9 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
     ran_for_real = True
     if words[0] == "skill":
         monkeypatch.chdir(tmp_path)  # `skill install` writes into the working directory
-    if words[0] in NOT_RUN:
-        pytest.skip(NOT_RUN[words[0]])
+    skip = NOT_RUN.get(words[0]) or NOT_RUN.get(" ".join(words[:2]))
+    if skip:
+        pytest.skip(skip)
     if words[0] == "run":
         flow = words[1]
         words += ["--run-root", str(tmp_path / "xeda_run")]

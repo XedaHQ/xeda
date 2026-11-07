@@ -119,13 +119,17 @@ PRODUCERS = {
 
 
 #: The documents that another test validates: the record of a run (below), the PDK documents
-#: (`test_pdk_cli.py`) and the remote documents (`test_remote_commands.py`,
-#: `test_remote_keep_running.py`).
+#: (`test_pdk_cli.py`), the tool store documents (`test_tool_store.py`) and the remote documents
+#: (`test_remote_commands.py`, `test_remote_keep_running.py`).
 VALIDATED_ELSEWHERE = {
     "results",
     "pdk-list",
     "pdk-path",
     "pdk-install",
+    "tools-list",
+    "tools-path",
+    "tools-install",
+    "tool-receipt",
     "remote-check",
     "remote-clean",
     "remote-cancel",

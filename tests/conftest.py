@@ -208,6 +208,20 @@ def _empty_user_config_home(
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _empty_tools_root(
+    tmp_path_factory, _importing_the_tests_leaves_the_environment_alone
+) -> Iterator[Path]:
+    """An empty directory that stands for the tool store (`XEDA_TOOLS_ROOT`): it holds no suite.
+    A launch puts the newest installed suite on `PATH`, so the suite of the person who runs the
+    tests must not change a result, in this process or in a subprocess. One per worker; nothing
+    writes into it. A test of the store sets `XEDA_TOOLS_ROOT` itself."""
+    root = tmp_path_factory.mktemp("empty_tools_root")
+    with pytest.MonkeyPatch.context() as session:
+        session.setenv("XEDA_TOOLS_ROOT", str(root))
+        yield root
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _launches_see_one_environment(
     _importing_the_tests_leaves_the_environment_alone,
 ) -> Iterator[None]:

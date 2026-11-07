@@ -19,6 +19,7 @@ generated variants.
 
    about
    quickstart
+   tools
    tutorial/index
    design-file
    flows

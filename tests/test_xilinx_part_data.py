@@ -254,13 +254,30 @@ def test_a_part_without_data_fails_before_any_tool_runs_and_the_failure_is_recor
 
 
 def test_a_missing_packer_fails_before_any_tool_runs(tmp_path, toolchain, monkeypatch):
-    monkeypatch.setattr(impl_module("flows.fpga_pack.which"), lambda name: None)
+    monkeypatch.setattr(impl_module("flows.fpga_pack.which"), lambda name, path=None: None)
     design = _design(tmp_path, A100T)
     with pytest.raises(FlowFatalError, match="fpga-as is missing on PATH"):
         _runner(tmp_path).run(
             "fpga_pack", design, flow_settings=node_settings("fpga_pack", {"fpga": {"part": A100T}})
         )
     assert _tools(tmp_path) == []
+
+
+def test_the_packer_is_found_on_a_private_path_directory(tmp_path, toolchain, monkeypatch):
+    """The packer is looked up on the PATH that a tool of the flow gets, not that of the caller."""
+    from xeda._internal.local_settings import LocalSettings
+
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    design = _design(tmp_path, A100T, flows={"fpga_pack": {"prjxray_db": "db"}})
+    database = _other_database(tmp_path, toolchain)
+    shutil.rmtree(database / "artix7" / A100T)
+    with pytest.raises(FlowFatalError, match=f"no part data for {A100T}"):
+        _runner(tmp_path).run(
+            "fpga_pack",
+            design,
+            flow_settings=node_settings("fpga_pack", {"fpga": {"part": A100T}}),
+            local_settings=LocalSettings(path=[toolchain / "bin"]),
+        )
 
 
 # --------------------------------------------------------- the installed database is not an input

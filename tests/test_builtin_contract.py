@@ -212,8 +212,12 @@ def test_the_private_files_have_their_names_places_and_keys() -> None:
     from xeda._internal.local_settings import LOCAL_FILES
 
     assert LOCAL_FILES == (
-        ("config.yaml", "$XDG_CONFIG_HOME/xeda", ("flows", "env", "run_root")),
-        ("<stem>.local.yaml", "beside the project file", ("flows", "env", "run_root")),
+        ("config.yaml", "$XDG_CONFIG_HOME/xeda", ("flows", "env", "run_root", "path", "tools")),
+        (
+            "<stem>.local.yaml",
+            "beside the project file",
+            ("flows", "env", "run_root", "path", "tools"),
+        ),
     )
 
 

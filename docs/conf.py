@@ -90,6 +90,8 @@ nitpick_ignore_regex = [
     ("py:class", r"(pathlib|datetime|os|collections\.abc)\..*"),
     ("py:class", r"(Path|datetime)"),
     ("py:class", r"pandas\.DataFrame"),
+    # Sphinx splits `tuple[Path, ...]` at the comma (`LocalSettings.path`).
+    ("py:class", r"tuple\[~pathlib\.Path"),
 ]
 
 

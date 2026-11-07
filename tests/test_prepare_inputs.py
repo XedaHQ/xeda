@@ -206,7 +206,10 @@ def test_nextpnr_prepares_chipdb_without_losing_typed_pin_inputs(tmp_path, gener
     flow.inputs.constraints = [pins]
     flow.inputs.sdc = []
     monkeypatch.setattr(
-        nextpnr_module, "which", lambda name: str(generation[0] / "bin" / name), raising=False
+        nextpnr_module,
+        "which",
+        lambda name, path=None: str(generation[0] / "bin" / name),
+        raising=False,
     )
     flow.prepare_inputs()
     assert flow._pin_inputs == [pins]
@@ -240,7 +243,10 @@ def test_nextpnr_accepts_validated_explicit_chipdb_without_generation(
     )
     flow.inputs.constraints = [pins]
     monkeypatch.setattr(
-        nextpnr_module, "which", lambda name: str(generation[0] / "bin" / name), raising=False
+        nextpnr_module,
+        "which",
+        lambda name, path=None: str(generation[0] / "bin" / name),
+        raising=False,
     )
     flow.prepare_inputs()
     assert flow._chipdb == chipdb and chipdb in flow.implicit_inputs
@@ -508,7 +514,9 @@ def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypa
     from xeda._internal.run_dir import RunDirectory
 
     formed, located_with = [], []
-    monkeypatch.setattr(module, "which", lambda name: "/opt/openxc7/bin/nextpnr-himbaechel")
+    monkeypatch.setattr(
+        module, "which", lambda name, path=None: "/opt/openxc7/bin/nextpnr-himbaechel"
+    )
     monkeypatch.setattr(
         module, "find_xilinx_layout", lambda *a, **k: type("L", (), {"chipdb": None})()
     )

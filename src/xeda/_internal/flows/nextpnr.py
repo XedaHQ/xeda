@@ -812,7 +812,7 @@ class Nextpnr(FpgaSynthFlow):
     def _xilinx_layout_and_selection(self) -> tuple[XilinxLayout, XilinxSelection]:
         assert isinstance(self.settings, self.Settings)
         assert self.settings.fpga is not None
-        executable = which("nextpnr-himbaechel")
+        executable = which("nextpnr-himbaechel", path=self.process_environment().get("PATH"))
         if executable is None:
             raise FlowFatalError("nextpnr-himbaechel is missing on PATH; install openXC7 1.0.")
         layout = find_xilinx_layout(

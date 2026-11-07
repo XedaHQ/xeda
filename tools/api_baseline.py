@@ -1056,6 +1056,47 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "commands": _array(_array(_STRING)),
         }
     )
+    # `tools_cli` fills plain `dict`s; `tools path` and `tools install` give the same fields of an
+    # installation, and the receipt is the `receipt.json` of the installation.
+    tool_receipt = _object(
+        {
+            "schema_version": {"const": 1},
+            "tool": _STRING,
+            "version": _STRING,
+            "platform": _STRING,
+            "url": _STRING,
+            "asset_id": _INTEGER,
+            "sha256": _STRING,
+            "installed_at": _STRING,
+        }
+    )
+    tools_installation = {
+        "tool": _STRING,
+        "version": _STRING,
+        "platform": _STRING,
+        "root": _STRING,
+        "directory": _STRING,
+        "bin": _STRING,
+        "receipt": tool_receipt,
+    }
+    tools_list = _array(
+        _object(
+            {
+                "tool": _STRING,
+                "version": _STRING,
+                "platform": _STRING,
+                "installed": _BOOLEAN,
+                "selected": _BOOLEAN,
+                "directory": _STRING,
+                "bin": _STRING,
+                "receipt": _nullable(tool_receipt),
+            }
+        )
+    )
+    tools_path = _object(tools_installation)
+    tools_install = _object(
+        {"success": {"const": True}, **tools_installation, "already_installed": _BOOLEAN}
+    )
     # `describe_host`, `_clean_host` and `cancel_launch` fill plain `dict`s. A removed entry has
     # a `kind` and a `path`; a kept entry also has the `reason`.
     removed = _object({"kind": _STRING, "path": _STRING})
@@ -1143,10 +1184,16 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         "pdk-list": _document("xeda pdk list --json", pdk_list),
         "pdk-path": _document("xeda pdk path --json", pdk_path),
         "pdk-install": _document("xeda pdk install --json", pdk_install),
+        "tools-list": _document("xeda tools list --json", tools_list),
+        "tools-path": _document("xeda tools path --json", tools_path),
+        "tools-install": _document("xeda tools install --json", tools_install),
+        "tool-receipt": _document(
+            "receipt.json of an installation in the tool store", tool_receipt
+        ),
         "remote-check": _document("xeda remote check --json", remote_check),
         "remote-clean": _document("xeda remote clean --json", remote_clean),
         "remote-cancel": _document("xeda remote cancel --json", remote_cancel),
-        "failure": _document("a failed query, pdk or remote command", failure),
+        "failure": _document("a failed query, pdk, tools or remote command", failure),
         "scrub": _document("xeda scrub --json", scrub),
         "dse": _document("xeda dse --json", dse, defs),
         "design": design_schema(),

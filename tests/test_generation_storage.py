@@ -549,6 +549,25 @@ def test_a_change_of_the_inherited_environment_regenerates_in_the_same_storage(
     assert world.runs == 3
 
 
+def test_a_generator_is_found_and_run_with_the_private_path_directories(tmp_path):
+    from xeda._internal.local_settings import LocalSettings
+    from xeda._internal.flow_runner.launch_result import launch_result
+
+    program = tmp_path / "tools" / "mygen"
+    program.parent.mkdir()
+    program.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    program.chmod(0o755)
+    flow = reader_flow()
+    world = World(tmp_path, generator={"executable": "mygen"})
+    runner, design = world.runner(), world.load()
+    local = LocalSettings(path=[program.parent])
+    result = launch_result(
+        runner, Spec(flow.name, design), lambda: runner.run(flow, design, local_settings=local)
+    )
+    assert result.outcome is Outcome.PASSED, result.error
+    assert world.runs == 1
+
+
 def test_a_variable_of_a_session_is_no_evidence(tmp_path, monkeypatch):
     flow = reader_flow()
     world = World(tmp_path)

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Collection, Iterable
 import re
+from pathlib import Path
 from typing import Any, Optional, Sequence, Tuple, Union
 
 import click
@@ -266,3 +267,30 @@ class ChainChoice(FlowChoice):
             CompletionItem(candidate)
             for candidate in complete_request(incomplete, all_flow_classes())
         ]
+
+
+def config_options(func):
+    """Add `--config` and `--no-config`, which select the private settings files."""
+    func = click.option(
+        "--no-config",
+        "no_config",
+        is_flag=True,
+        default=False,
+        help="Read neither the user config file nor the project-local file. The host profiles "
+        "of `remotes.yaml` are still read.",
+    )(func)
+    return click.option(
+        "--config",
+        "config",
+        type=click.Path(dir_okay=False, resolve_path=True, path_type=Path),
+        default=None,
+        help="Read this file in place of the user config file, "
+        "$XDG_CONFIG_HOME/xeda/config.yaml (~/.config/xeda/config.yaml). The file must exist.",
+    )(func)
+
+
+def refuse_both_config_options(config: Path | None, no_config: bool) -> None:
+    if config is not None and no_config:
+        raise click.UsageError(
+            "`--config` and `--no-config` exclude each other.", ctx=click.get_current_context()
+        )

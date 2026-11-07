@@ -189,6 +189,7 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
             "plan_options",
             "missing_dependency",
             "unsupported_with_remote",
+            "tool_not_installed",
         ]
     ),
     "StalePlanError": frozenset(["stale_plan"]),
@@ -221,6 +222,17 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
     "cli": frozenset(["usage_error"]),
     "pdk": frozenset(
         ["pdk_not_installed", "pdk_version_mismatch", "pdk_install_busy", "pdk_install_failed"]
+    ),
+    "tools": frozenset(
+        [
+            "tool_not_installed",
+            "tool_platform_unsupported",
+            "tool_install_busy",
+            "tool_download_failed",
+            "tool_checksum_failed",
+            "tool_archive_invalid",
+            "tool_install_failed",
+        ]
     ),
     "launch": frozenset(
         [

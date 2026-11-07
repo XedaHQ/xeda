@@ -21,6 +21,8 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
 | Which PDK files of a platform are installed, and where | `xeda pdk list --json`, `xeda pdk path <platform> --json` (fails with the install command when they are missing) |
 | Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s <flow>.pdk_provider=lambdapdk` then selects) |
+| Which tools Xeda installed for the user (the OSS CAD Suite), and where | `xeda tools list --json`, `xeda tools path oss-cad-suite --json` (fails with `tool_not_installed` and the install command when no suite is installed) |
+| Install the OSS CAD Suite (downloads and writes the tool store; propose it to the user first) | `xeda tools install oss-cad-suite --json` (installs without asking, after it checks the SHA-256 of the download; reports `already_installed`; `--version DATE\|latest`) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s <flow>.KEY=VALUE --json` |
 | Search for the highest clock frequency | `xeda dse <flow> <design> --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz" --json` |
@@ -146,13 +148,23 @@ Layers, lowest to highest: flow defaults, user file `flows`, (`--remote`: host p
 project `flows.<flow>`, design `flows.<flow>`, selected target's `flows.<flow>`, project-local file
 `flows`, `-s`, API. The user file is `$XDG_CONFIG_HOME/xeda/config.yaml` (`~/.config/xeda/`); the
 project-local file is `xedaproject.local.yaml` beside the project file. Both are private (keep
-the second out of Git), have the keys `flows`, `env` and `run_root`, and are read by `xeda run` and
-`xeda dse` only. A `designs` key or any unknown key is `invalid_local_settings`; a flow name that is no flow is `flow_not_found`. `--config FILE` (must exist)
+the second out of Git), have the keys `flows`, `env`, `run_root`, `path` and `tools`, and are read by `xeda run` and
+`xeda dse` only (`xeda tools list|path|install` read them too). A `designs` key or any unknown key is `invalid_local_settings`; a flow name that is no flow is `flow_not_found`. `--config FILE` (must exist)
 replaces the user file; `--no-config` reads neither file. A design file given as `DESIGN` gets the
 user file and no layer from the project or the project-local file, and its run root follows the
 same order. Run root, highest first: `--run-root`, `XEDA_RUN_ROOT`,
 project-local `run_root`, user `run_root`, project `run_root`, `./xeda_run`. They merge key by key, so `-s vivado_synth.clock.freq=100MHz` refines a
 nested section. Write a flow's settings under its own `flows.<flow>` only.
+
+Programs are found on a `PATH` that Xeda builds for each node: the `path` directories of the private
+files (project-local entries first; `~` and `~/` expand, a relative entry is relative to the file,
+each must exist), then the `bin` of the newest OSS CAD Suite in the tool store
+(`xeda tools install oss-cad-suite`), then the caller's `PATH` (the private `env.PATH`
+replaces it). `tools: {oss-cad-suite: off}` adds no suite, and `tools: {oss-cad-suite: 2026-10-08}`
+selects that build (not installed: `tool_not_installed`, no launch). A flow's `env: {PATH: ...}`
+replaces all of it, and a container gets none of it. The store root is `XEDA_TOOLS_ROOT` (an
+absolute path; `env.XEDA_TOOLS_ROOT` of a private file too). A fix for `executable_not_found`:
+install the suite, or add the directory to `path`.
 
 ```bash
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s vivado_synth.clock.period=4.5ns vivado_synth.synth.strategy=Flow_PerfOptimized_high
@@ -584,18 +596,19 @@ before the launch started exits 1 with the code `canceled`. Branch on
 `references/troubleshooting.md` has the messages and fixes. `scrub` has its own document with
 `outcome` (`passed`, `failed`, or `null` for a usage error, which exits 2) and the same `error`. `dse` has its own document with `outcome`, `error`, `best` (a `results.json` object, or `null`), `best_run_dir` (its run directory, or `null`) and `points`
 (one `{outcome, error, run_dir}` for each point that it tried); without a run that passed, the outcome is `failed` with the code `no_successful_run`. `pdk`, `remote check` and `list-*` keep
-their own documents: on failure they have `success: false` and an `error` with the same five keys (`code`, `message`, `node`, `exit_status`, `log`; the last three are `null`). `pdk` adds `pdk_not_installed`, `pdk_version_mismatch`, `pdk_install_busy` and `pdk_install_failed`.
+their own documents: on failure they have `success: false` and an `error` with the same five keys (`code`, `message`, `node`, `exit_status`, `log`; the last three are `null`). `pdk` adds `pdk_not_installed`, `pdk_version_mismatch`, `pdk_install_busy` and `pdk_install_failed`. `tools` adds `tool_not_installed`, `tool_platform_unsupported`, `tool_install_busy`, `tool_download_failed`, `tool_checksum_failed`, `tool_archive_invalid` and `tool_install_failed`.
 
 | `error.code` | Do |
 | --- | --- |
 | `unknown_setting`, `invalid_value`, `invalid_quantity`, `boolean_text`, `list_text`, `required_setting`, `conflicting_keys`, `unscoped_setting`, `unknown_node` (`error.suggestions` holds the address to write), `removed_setting`, `removed_alias`, `unsupported_setting`, `shared_setting_conflict` (no launch; `error.node` is the flow) | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
 | `invalid_local_settings` (a private file `config.yaml` or `*.local.yaml` is invalid) | The message names the file and the key. Fix the file, or pass `--no-config`. |
+| `tool_not_installed` (`tools:` selects a build of the OSS CAD Suite that the tool store lacks; exit 2, no launch) | Install it with `xeda tools install oss-cad-suite --version <date>`, or select another date or `off`. |
 | `invalid_design`, `design_file_not_found`, `unknown_target`, `target_required` (the project's `default_target` is no target of the design: pass `--target` or `--no-target`), `unknown_design`, `design_name_required`, `use_design_name` (a design file that the project lists: use `--design-name`), `several_project_files`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `several_roots_unsupported`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
-| `timeout`, `executable_not_found` | Raise the limit. Install the tool, or add `-s <flow>.docker=true`. |
+| `timeout`, `executable_not_found` | Raise the limit. Install the tool (`xeda tools install oss-cad-suite` for the open-source tools; or add its directory to `path` in a private file), or add `-s <flow>.docker=true`. |
 | `reported_failure` | The tool exited 0 and its reports or checks say it failed, or the flow raised its own error. |
 | `missing_generated` | A source of `rtl.sources` that the generator should write matches no file in its output. A plain entry must be a file the generator wrote below the design root in this generation (a tool that skips an up-to-date output needs `make -B`); a `$XEDA_GENERATED/<name>` entry must be written into the storage. Or list only the generated entries in `generated_sources` (empty, every entry is the generator's). |
 | `generator_failed` (`error.node` is null, every node `skipped`) | The generator failed or could not be judged. The message names it and its exit status; its output is in the log. |

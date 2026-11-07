@@ -536,7 +536,9 @@ command line reads two private files, the user file and the project-local file. 
 them only when it calls ``xeda.local_settings(project)``, and passes the result to the workspace:
 ``Workspace(local_settings=xeda.local_settings(project))``. The run root that results is the one
 that the command line would use. A script that wants none of this calls nothing. The files and the
-order of the layers are in :doc:`flows`.
+order of the layers are in :doc:`flows`. ``LocalSettings`` also has ``path``, the directories that
+go in front of ``PATH``, and ``tools``, the selection of the OSS CAD Suite (``off`` or a date);
+``xeda.local_settings()`` reads both from the files (see :doc:`tools`).
 
 If a design comes from ``project.design(...)``, the workspace has no ``run_root``, and the project
 run root is not ``xeda_run``, the call raises ``SpecError`` with the code ``run_root_mismatch``.

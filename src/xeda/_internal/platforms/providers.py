@@ -29,6 +29,8 @@ import shlex
 import shutil
 import stat
 import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,6 +61,8 @@ __all__ = [
     "PdkNotInstalled",
     "PdkVersionMismatch",
     "default_root",
+    "link_on_the_way",
+    "locked_store",
     "install",
     "installed",
     "install_plan",
@@ -717,7 +721,7 @@ def _run(command: list[str], env: Optional[dict[str, str]], plan: InstallPlan) -
         ) from None
 
 
-def _link_on_the_way(root: Path, path: Path) -> Optional[Path]:
+def link_on_the_way(root: Path, path: Path) -> Optional[Path]:
     """Return the first symbolic link on the way from `root` down to `path`, or `None`. `root`
     itself is not looked at: the install resolves it first. The walk uses `lstat`, so it never
     follows a link, and it ends at the first name that does not exist."""
@@ -738,7 +742,7 @@ def _refuse_links(plan: "InstallPlan", *paths: Path) -> None:
     to one of `paths`. The install writes only real directories inside the store, so that it
     never writes or deletes outside it."""
     for path in paths:
-        link = _link_on_the_way(plan.root, path)
+        link = link_on_the_way(plan.root, path)
         if link is not None:
             raise PdkInstallFailed(
                 f"cannot install platform '{plan.platform}': {link} is a symbolic link "
@@ -761,7 +765,7 @@ def _written_paths(plan: "InstallPlan") -> list[Path]:
 def _remove_tree(root: Path, path: Path) -> None:
     """Remove a directory that an install made, unless a link is on the way to it. A failure is
     only logged: it must not hide the error that made the install remove it."""
-    link = _link_on_the_way(root, path)
+    link = link_on_the_way(root, path)
     if link is not None:
         log.warning("not removing %s: %s is a symbolic link; check it", path, link)
         return
@@ -787,7 +791,7 @@ def _remove_empty(root: Path, directories: list[Path]) -> None:
     """Remove directories that an install made and that are still empty, the deepest first.
     Stop at a link on the way to one."""
     for directory in reversed(directories):
-        if _link_on_the_way(root, directory) is not None:
+        if link_on_the_way(root, directory) is not None:
             break
         try:
             directory.rmdir()
@@ -806,7 +810,7 @@ def _read_receipt(path: Path) -> Optional[bytes]:
 def _restore_receipt(root: Path, path: Path, earlier: Optional[bytes]) -> None:
     """Put the receipt back as it was before this attempt: the bytes of the earlier receipt, or
     no file if there was none. Do nothing if a link is on the way to it."""
-    link = _link_on_the_way(root, path)
+    link = link_on_the_way(root, path)
     if link is not None:
         log.warning("not restoring %s: %s is a symbolic link; check it", path, link)
         return
@@ -996,21 +1000,34 @@ def install(
         raise PdkInstallFailed(f"cannot install platform '{plan.platform}': {error}") from None
 
 
-def _install_under_lock(
-    residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
-) -> InstallResult:
-    lock_path = plan.root / "xeda" / ".lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    _refuse_links(plan, lock_path)
-    # `O_NOFOLLOW` (not on Windows) makes the open fail on a link that appeared since the check.
+@contextmanager
+def locked_store(lock_path: Path, busy: Callable[[], Exception]) -> Iterator[None]:
+    """Hold the exclusive lock of a store for the body, on the lock file `lock_path`, which this
+    function creates in an existing directory. If another process holds the lock, raise the
+    exception that `busy()` returns, without waiting. The way to `lock_path` must be free of links
+    (`link_on_the_way`): `O_NOFOLLOW` makes the open fail on a link that appeared since the
+    check."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     with os.fdopen(os.open(lock_path, flags, 0o666), "a") as lock:
         if sys.platform != "win32":
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise PdkInstallBusy(
-                    f"another install holds {lock_path}. Wait until it ends, "
-                    "and run the command again."
-                ) from None
+                raise busy() from None
+        yield
+
+
+def _install_under_lock(
+    residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
+) -> InstallResult:
+    lock_path = plan.root / "xeda" / ".lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    _refuse_links(plan, lock_path)
+
+    def busy() -> PdkInstallBusy:
+        return PdkInstallBusy(
+            f"another install holds {lock_path}. Wait until it ends, and run the command again."
+        )
+
+    with locked_store(lock_path, busy):
         return _install_locked(residue, plan, provider, version)

@@ -2097,6 +2097,18 @@ REVIEWED_PY_DELETIONS = {
         1,
         "the delivery record's temporary file, beside the run directory",
     ),
+    ("tool_store.py", "payload.rename(plan.location)"): (
+        1,
+        "the install command writes the tool store, outside a run: the complete, checked staging "
+        "directory of its own, moved to its name in the store under the store's install lock; the "
+        "name is free, as the install checked under the lock, and no link is on the way",
+    ),
+    ("tool_store.py", "shutil.rmtree(path)"): (
+        1,
+        "the install command writes the tool store, outside a run: the staging directory that "
+        "this install made, removed after the move, a failure or an interrupt (`rmtree` follows "
+        "no link)",
+    ),
     ("platforms/providers.py", "source.rename(plan.directory)"): (
         1,
         "the install command writes the PDK store, outside a run: the platform directory of its "
@@ -2752,6 +2764,19 @@ REVIEWED_WRITES = [
         "agent_skill.py",
         'shutil.copyfile(source / "SKILL.md", target / "SKILL.md")',
         f"`xeda skill install`: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "tool_store.py",
+        "payload.rename(plan.location)",
+        "the install command writes the tool store, outside a run: a rename of its own complete "
+        "staging directory to a name that the install checked to be free",
+    ),
+    (
+        "tool_store.py",
+        "os.symlink(member.linkname, path)",
+        "the install command writes the tool store, outside a run: a link of the archive whose "
+        "target stays inside the suite, made in the staging directory of this install, where no "
+        "name of the archive has a link on the way (`make_parents`) and no name exists twice",
     ),
     (
         "platforms/providers.py",
