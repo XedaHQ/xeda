@@ -848,7 +848,8 @@ each declared input, the optional outputs that are switched on for consumers and
 says whether the main program of the flow is on the ``PATH`` that the node would get: the
 ``path`` directories, the selected tool suite and the ``env`` of the flow count. The line is
 ``tool: yosys missing`` when the program is not there, and ``tool: yosys unknown (container not
-inspected)`` for a flow in Docker. The check starts no process and never refuses a plan. With
+inspected)`` for a flow in Docker, or ``tool: ./x unknown (relative path)`` for a main program given as a
+relative path. The check starts no process and never refuses a plan. With
 ``--remote``, the host does the check. A dry run starts no tool and changes no run root, marker, lock or
 delivery, except that it fetches the Git dependencies of the design (see
 :ref:`git-dependencies`). Planning fails for invalid settings, for a device or family that a flow

@@ -1373,7 +1373,8 @@ Python, ``Plan.nodes`` is a mapping by node name in the same order. Each node ha
   Xeda.
 - ``executable_check`` (optional; a reader accepts a document without it): ``null``, or an object
   with ``executable``, ``state`` (``found``, ``missing`` or ``unknown``), ``path`` (the absolute
-  path, for ``found`` only, else ``null``) and ``reason`` (for ``unknown`` only, else ``null``). It
+  path, for ``found`` only, else ``null``) and ``reason`` (for ``unknown`` only, else ``null``: ``container not inspected`` or
+  ``relative path``). It
   says whether the main program of the flow is on the ``PATH`` of the node. It informs only: it
   changes no ``state`` and no ``identity``.
 
