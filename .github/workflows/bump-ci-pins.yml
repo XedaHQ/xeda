@@ -1,6 +1,6 @@
 name: Bump CI tool pins
 
-# CI pins the tools that it installs: the OSS CAD Suite (src/xeda/data/tools.json, which ci.yml
+# CI pins the tools that it installs: the OSS CAD Suite (src/xeda/_internal/data/tools.json, which ci.yml
 # reads), NVC (the `version` of the setup-nvc step)
 # and the Bluespec Compiler (bsc) in ci.yml, the openXC7 toolchain installer in openxc7.yml, and
 # the OpenROAD-flow-scripts Docker image, bsc
@@ -111,7 +111,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --create "$BRANCH"
-          git add .github/workflows src/xeda/data/tools.json
+          git add .github/workflows src/xeda/_internal/data/tools.json
           git commit --quiet --file "$RUNNER_TEMP/commit-message.txt"
           # The token goes to the one git command that pushes, through its environment. It is in
           # no file of the runner and not on a command line. The encoded form is masked in the log.

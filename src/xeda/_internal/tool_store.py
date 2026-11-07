@@ -9,7 +9,7 @@ store is:
 `<date>` is the date of the build (`2026-10-08`) and `<platform>` is `linux-x64`, `linux-arm64`,
 `darwin-x64` or `darwin-arm64`. The root is `--root`, else `XEDA_TOOLS_ROOT`, else the data
 directory of the user. The package pins the date that `install` fetches by default
-(`xeda/data/tools.json`); CI installs the same build.
+(`xeda/_internal/data/tools.json`); CI installs the same build.
 
 Finding an installation only reads: `installed` and `select` start no process, use no network and
 write nothing. An installation counts only if its receipt is valid, agrees with its path and the

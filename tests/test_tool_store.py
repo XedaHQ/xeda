@@ -33,6 +33,7 @@ from xeda._internal.tool_store import (
     plan_install,
     select,
 )
+from .source_layout import IMPL_DIR, IMPL_PREFIX
 from .test_schema_baseline import _validate
 
 pytestmark = pytest.mark.python_compat
@@ -828,13 +829,13 @@ def test_the_shipped_pin_is_a_date_and_ci_reads_it():
     """CI installs the suite that the package pins: the workflow reads `tools.json`, and holds no
     date of its own."""
     root = Path(__file__).resolve().parent.parent
-    pin_file = root / "src" / "xeda" / "data" / "tools.json"
+    pin_file = IMPL_DIR / "data" / "tools.json"
     shipped = SHIPPED_PIN()
     assert json.loads(pin_file.read_text()) == {"oss-cad-suite": shipped}
     assert tool_store.DATE.fullmatch(shipped)
     datetime.date.fromisoformat(shipped)
     workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "src/xeda/data/tools.json" in workflow
+    assert f"src/{IMPL_PREFIX}/data/tools.json" in workflow
     step = workflow.split("YosysHQ/setup-oss-cad-suite")[1].split("- uses:")[0]
     assert "steps." in step and "outputs" in step and shipped not in step
     assert shipped not in workflow

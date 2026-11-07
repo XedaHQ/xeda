@@ -162,12 +162,14 @@ namespaces = false
 "xeda._internal.flows.yosys" = ["templates/*.h", "templates/*.cpp", "data/asic/*"]
 "xeda._internal.data" = [
     "*.toml",
+    # The pin of the tool store, which CI also reads.
+    "tools.json",
     "boards/**/*.xdc",
     "boards/**/*.lpf",
     "boards/*/*.md",
 ]
-# The JSON Schemas and the tool pins are public files: they stay at `xeda/data/`.
-"xeda.data" = ["schemas/*.json", "tools.json"]
+# The JSON Schemas are public files: they stay at `xeda/data/`.
+"xeda.data" = ["schemas/*.json"]
 # The agent skill's prose lives here; `references/` is not a package, so it is named explicitly.
 "xeda._internal.data.agent" = [
     "SKILL.md",

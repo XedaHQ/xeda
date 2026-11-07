@@ -50,5 +50,5 @@ def schemas_dir() -> Path:
 
 def tools_pin_file() -> Path:
     """Return the file that pins the tools of the tool store (`tool_store.pinned_version`). CI reads
-    the same file, so the pin is public and stays under `xeda/data`."""
-    return package_root() / "data" / "tools.json"
+    the same file in the checkout."""
+    return impl_root() / "data" / "tools.json"

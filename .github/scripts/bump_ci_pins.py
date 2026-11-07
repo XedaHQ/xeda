@@ -5,7 +5,7 @@ CI pins seven tools. A pin is one line of a workflow file (two lines for bsc and
 bsc is pinned twice, in two files, and one release moves both pins:
 
 * the OSS CAD Suite, by the date of its build: the `oss-cad-suite` entry of
-  `src/xeda/data/tools.json`. The package installs that build with `xeda tools install`, and the
+  `src/xeda/_internal/data/tools.json`. The package installs that build with `xeda tools install`, and the
   `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml` reads the same file;
 * NVC, by its release number: the `version` of the `nickg/setup-nvc` step in
   `.github/workflows/ci.yml`;
@@ -56,7 +56,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 CI = Path(".github/workflows/ci.yml")
-TOOLS = Path("src/xeda/data/tools.json")
+TOOLS = Path("src/xeda/_internal/data/tools.json")
 OPENXC7 = Path(".github/workflows/openxc7.yml")
 ORFS = Path(".github/workflows/openroad.yml")
 WORKFLOW = "bump-ci-pins.yml"
