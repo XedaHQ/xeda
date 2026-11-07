@@ -78,12 +78,12 @@ def _private_settings(config: Optional[Path], no_config: bool, fmt: str) -> Loca
     from .local_settings import local_settings
     from .project import Project
     from .types import UNSET
-    from .xedaproject import resolve_project_file
+    from . import xedaproject
 
     refuse_both_config_options(config, no_config)
     try:
         # `--no-config` reads no private file, so the project is no business of the command.
-        path = None if no_config else resolve_project_file(None)
+        path = None if no_config else xedaproject.resolve_project_file(None)
         project = None if path is None else Project.load(path)
         return local_settings(project, config=None if no_config else config or UNSET)
     except Exception as error:
