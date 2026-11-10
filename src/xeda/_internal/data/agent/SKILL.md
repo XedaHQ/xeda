@@ -449,11 +449,12 @@ node again, and the stale reason names a variable, never a value. Shell, termina
 host agent's, and the private `env` of the local files is not sent; the `env` of the host profile
 in `remotes.yaml` applies.
 
-A run needs no activation script. The `PATH` of each node holds the `path` directories and
-the suite of the tool store (see Settings) in front of the caller's `PATH`, so `which` in your
-shell does not tell what a node finds: a program that `which` misses can still run. Ask the
-plan instead: `executable_check` in `xeda run <flow> <design> --dry-run --json`, or
-`xeda tools list --json` for the installed suites.
+A run needs no activation script. Unless the flow's `env` sets `PATH`, the `PATH` of a node on
+the host holds the `path` directories and the suite of the tool store (see Settings) in front
+of the caller's `PATH`, so `which` in your shell does not tell what a node finds: a program that
+`which` misses can still run. Ask the plan instead: `executable_check` in
+`xeda run <flow> <design> --dry-run --json` (`unknown` for a node in Docker, which gets none of
+these directories), or `xeda tools list --json` for the installed suites.
 
 ## Deliverables
 
