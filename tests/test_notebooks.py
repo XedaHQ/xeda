@@ -33,7 +33,11 @@ NOTEBOOK_PROBES: dict[str, tuple] = {
         tool_utils.require_nextpnr_ecp5,
     ),
     "02-simulation": (tool_utils.require_verilator,),
-    "03-sweep": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
+    "03-sweep": (
+        tool_utils.require_yosys,
+        tool_utils.require_yosys_ghdl_plugin,
+        tool_utils.require_nextpnr_ecp5,
+    ),
     "04-plan": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "05-generated": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "06-qor-history": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
@@ -264,13 +268,14 @@ def test_the_harness_rejects_an_unknown_tag(tmp_path):
 def test_the_sweep_notebook(executions):
     # The second run reuses the runs of the first, so only the first run has `shared` nodes.
     work, nb, again = executions("03-sweep")
-    assert cell_output(again, "sweep-counts") == "{'passed': 6, 'failed': 1}"
-    assert cell_output(nb, "colliding-run-dirs") == "colliding_run_dirs\n(0, 1, 2, 3, 4, 5, 6)"
-    assert cell_output(nb, "sweep-counts") == "{'passed': 6, 'failed': 1}"
-    # Three depths: the two seeds of a depth share one synthesis. The 2 ns point has its own.
-    assert cell_output(nb, "shared-producer") == "{'ran': 4, 'shared': 3}"
+    assert cell_output(again, "sweep-counts") == "{'passed': 8, 'failed': 1}"
+    points = "(0, 1, 2, 3, 4, 5, 6, 7, 8)"
+    assert cell_output(nb, "colliding-run-dirs") == f"colliding_run_dirs\n{points}"
+    assert cell_output(nb, "sweep-counts") == "{'passed': 8, 'failed': 1}"
+    # Four widths: the two seeds of a width share one synthesis. The 288-bit point has its own.
+    assert cell_output(nb, "shared-producer") == "{'ran': 5, 'shared': 4}"
     reason = cell_output(nb, "failed-point").splitlines()
-    assert reason[0] == "6 failed reported_failure"
+    assert reason[0] == "8 failed reported_failure"
     assert reason[1].startswith("nextpnr: timing constraints are not met")
     assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
     assert cell_output(nb, "empty-history").startswith("no runs yet")
@@ -278,10 +283,10 @@ def test_the_sweep_notebook(executions):
         "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, "
     )
     work = work / "notebook-output"
-    rows = (work / "fifo-sweep.csv").read_text().splitlines()
-    assert len(rows) == 1 + 7
+    rows = (work / "trivium-sweep.csv").read_text().splitlines()
+    assert len(rows) == 1 + 9
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
-    assert len(list((work / "xeda_run" / "fifo").glob("nextpnr_*/results.json"))) == 7
+    assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 9
 
 
 def _generated_by(design_dir: Path, width: int, tmp_path: Path) -> bytes:
