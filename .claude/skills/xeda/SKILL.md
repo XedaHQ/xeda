@@ -23,7 +23,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there; `--provider lambdapdk` installs `sky130hd` from lambdapdk, which `-s <flow>.pdk_provider=lambdapdk` then selects) |
 | Which tools Xeda installed for the user (the OSS CAD Suite), and where | `xeda tools list --json`, `xeda tools path oss-cad-suite --json` (fails with `tool_not_installed` and the install command when no suite is installed) |
 | Install the OSS CAD Suite (downloads and writes the tool store; propose it to the user first) | `xeda tools install oss-cad-suite --json` (installs without asking, after it checks the SHA-256 of the download; reports `already_installed`; `--version DATE\|latest`) |
-| What a run would do | `xeda run <flow> <design> --dry-run --json` |
+| What a run would do, and whether each node finds its main program | `xeda run <flow> <design> --dry-run --json` (`executable_check` of each node: `found` with its `path`, `missing` or `unknown`; `null` or absent for a flow with no main program or with settings that a launch refuses) |
 | Run | `xeda run <flow> <design> -s <flow>.KEY=VALUE --json` |
 | Search for the highest clock frequency | `xeda dse <flow> <design> --initial-frequency-low "100 MHz" --initial-frequency-high "300 MHz" --json` |
 | Remove a flow's old run directories | `xeda scrub <flow> <design> [--target NAME] --json` |
@@ -448,6 +448,15 @@ node again, and the stale reason names a variable, never a value. Shell, termina
 `results.json` lists the names in `inherited_variables`. With `--remote`, the environment is the
 host agent's, and the private `env` of the local files is not sent; the `env` of the host profile
 in `remotes.yaml` applies.
+
+A run needs no activation script. Unless the flow's `env` sets `PATH`, the `PATH` of a node on
+the host holds the `path` directories and the suite of the tool store (see Settings) in front
+of the caller's `PATH` (or of the private `env.PATH`), so `which` in your shell does not tell
+what a node finds: a program that `which` misses can still run. Ask the plan instead:
+`executable_check` in `xeda run <flow> <design> --dry-run --json` says whether a node finds its
+main program (only that program, not helpers or plugins; `unknown` for a node in Docker, which
+gets none of these directories). `xeda tools list --json` lists the pinned suite too: check
+`installed` and `selected`.
 
 ## Deliverables
 

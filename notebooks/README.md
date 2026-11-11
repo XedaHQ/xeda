@@ -8,7 +8,8 @@ Each numbered notebook shows one part of the Python API. The test suite runs the
 - `01-quickstart.ipynb`: load a design, simulate, synthesize, read the results and the files of a
   run, and run again to reuse them.
 - `02-simulation.ipynb`: the ways a simulation can end: pass, reject, fail, time limit and cancel.
-- `03-sweep.ipynb`: vary a design parameter and a setting in one call, and read past runs.
+- `03-sweep.ipynb`: vary a design parameter and a setting in one call, plot the Pareto front of
+  LUTs and throughput, and read past runs.
 - `04-plan.ipynb`: see what a launch will do, inspect a node, run the plan, and get a stale plan
   and settings errors.
 - `05-generated.ipynb`: compare variants of a design that a generator writes.
