@@ -264,14 +264,15 @@ def test_the_harness_rejects_an_unknown_tag(tmp_path):
 def test_the_sweep_notebook(executions):
     # The second run reuses the runs of the first, so only the first run has `shared` nodes.
     work, nb, again = executions("03-sweep")
-    assert cell_output(again, "sweep-counts") == "{'passed': 8, 'failed': 1}"
-    points = "(0, 1, 2, 3, 4, 5, 6, 7, 8)"
+    assert cell_output(again, "sweep-counts") == "{'passed': 12, 'failed': 1}"
+    points = str(tuple(range(13)))
     assert cell_output(nb, "colliding-run-dirs") == f"colliding_run_dirs\n{points}"
-    assert cell_output(nb, "sweep-counts") == "{'passed': 8, 'failed': 1}"
-    # Four widths: the two seeds of a width share one synthesis. The 288-bit point has its own.
-    assert cell_output(nb, "shared-producer") == "{'ran': 5, 'shared': 4}"
+    assert cell_output(nb, "sweep-counts") == "{'passed': 12, 'failed': 1}"
+    # Three widths and two scripts: the two seeds of each pair share one synthesis. The 288-bit
+    # point has its own.
+    assert cell_output(nb, "shared-producer") == "{'ran': 7, 'shared': 6}"
     reason = cell_output(nb, "failed-point").splitlines()
-    assert reason[0] == "8 failed reported_failure"
+    assert reason[0] == "12 failed reported_failure"
     assert reason[1].startswith("nextpnr: timing constraints are not met")
     assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
     assert cell_output(nb, "empty-history").startswith("no runs yet")
@@ -279,10 +280,19 @@ def test_the_sweep_notebook(executions):
         "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, "
     )
     work = work / "notebook-output"
-    rows = (work / "trivium-sweep.csv").read_text().splitlines()
-    assert len(rows) == 1 + 9
+    with open(work / "trivium-sweep.csv", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 13
+    # The point of the plot: at 192 bits, `default` needs about a third of the LUTs of `flow3`
+    # (1639 and 5334 with the OSS CAD Suite of 2026-11-10). Half leaves room for tool changes.
+    luts = {
+        script: [float(r["lut"]) for r in rows if r["bits"] == "192" and r["script"] == script]
+        for script in ("flow3", "default")
+    }
+    assert len(luts["flow3"]) == len(luts["default"]) == 2, luts
+    assert max(luts["default"]) < min(luts["flow3"]) / 2, luts
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
-    assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 9
+    assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 13
 
 
 def _generated_by(design_dir: Path, width: int, tmp_path: Path) -> bytes:
