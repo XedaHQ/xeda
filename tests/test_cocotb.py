@@ -1,4 +1,5 @@
 import inspect
+import os
 import re
 import sys
 from pathlib import Path
@@ -7,7 +8,7 @@ from typing import Any, Callable, Dict, List, Tuple
 import pytest
 
 from xeda import Design
-from xeda._internal.cocotb import Cocotb
+from xeda._internal.cocotb import Cocotb, cocotb_config
 from xeda._internal.cocotb import TestResults as CocotbTestResults  # alias: pytest collects `Test*`
 from xeda._internal.flow import SimFlow
 from xeda._internal.flow_runner import DefaultRunner
@@ -445,3 +446,22 @@ def test_cocotb_1_selects_tests_by_name(tmp_path, monkeypatch, version):
 def test_cocotb_runs_every_test_without_testcase(tmp_path, monkeypatch, version):
     env = _testcase_env(tmp_path, monkeypatch, version, [])
     assert not {"TESTCASE", "COCOTB_TESTCASE", "COCOTB_TEST_FILTER"} & set(env)
+
+
+def test_a_cocotb_of_your_environment_comes_before_the_one_of_the_suite(tmp_path):
+    """The cocotb of the suite runs in the Python of the suite, which lacks the packages of a
+    testbench: a `cocotb-config` in another directory of `PATH` comes first."""
+    suite, own = tmp_path / "suite", tmp_path / "own"
+    for directory in (suite, own):
+        directory.mkdir()
+        (directory / "cocotb-config").write_text("#!/bin/sh\n")
+        (directory / "cocotb-config").chmod(0o755)
+    path = os.pathsep.join([str(suite), str(own)])
+    assert cocotb_config(path, str(suite)) == str(own / "cocotb-config")
+    assert (
+        cocotb_config(path, None) == "cocotb-config"
+    )  # no suite: PATH decides, as for any program
+    assert cocotb_config(str(suite), str(suite)) == "cocotb-config"  # only the suite has one
+    # a relative directory would be resolved from where the probe runs, not from here
+    relative = os.pathsep.join([str(suite), os.path.relpath(own)])
+    assert cocotb_config(relative, str(suite)) == "cocotb-config"

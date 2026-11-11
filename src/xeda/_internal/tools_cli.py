@@ -46,7 +46,7 @@ def _root_option(func):
         default=None,
         show_default=False,
         help="The tool store. The default is the data directory of the user: "
-        "$XDG_DATA_HOME/xeda/tools on Linux, ~/Library/Application Support/xeda/tools on macOS.",
+        "$XDG_DATA_HOME/xeda/tools (~/.local/share/xeda/tools), on Linux and macOS.",
     )(func)
 
 

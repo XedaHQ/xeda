@@ -128,6 +128,11 @@ class EnvironmentSnapshot:
         object.__setattr__(self, "private", FrozenDict(self.private))
         object.__setattr__(self, "prefix", tuple(self.prefix))
 
+    @property
+    def suite_bin(self) -> str | None:
+        """The `bin` of the suite, the last directory of `prefix`, or `None` without a suite."""
+        return self.prefix[-1] if self.suite is not None else None
+
     def generator_environment(self) -> dict[str, str]:
         """Return the environment of a generator: the caller's, with the `PATH` that a node gets
         when its flow sets no `env` (the private `PATH` and the directories in front). It is

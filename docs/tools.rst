@@ -34,10 +34,10 @@ the same build. Use ``--version`` to install another build, by its date or as ``
 uses the network.
 
 The suite goes into the *tool store*. By default the store is in the data directory of your
-account: ``$XDG_DATA_HOME/xeda/tools`` (``~/.local/share/xeda/tools``) on Linux, and
-``~/Library/Application Support/xeda/tools`` on macOS. Name another store with ``--root`` or with
-the environment variable ``XEDA_TOOLS_ROOT``, which must be an absolute path. The store can hold
-several builds, side by side.
+account: ``$XDG_DATA_HOME/xeda/tools`` (``~/.local/share/xeda/tools``), on Linux and on macOS.
+Name another store with ``--root`` or with the environment variable ``XEDA_TOOLS_ROOT``, which must
+be an absolute path. Choose a path without a space: the ``verilator`` of the suite does not start
+from one. The store can hold several builds, side by side.
 
 Xeda supports Linux (x86-64 and arm64) and macOS (Intel and Apple silicon). On Windows, use WSL.
 
@@ -118,6 +118,10 @@ for each node of a run. The directories of that ``PATH`` come in this order:
 The first directory that has the program wins. So a program in ``path`` beats the suite, and the
 suite beats your shell. If you install nothing in the tool store, Xeda adds nothing, and the
 programs come from your shell as before.
+
+``cocotb-config`` is the one exception. For a cocotb testbench, a ``cocotb-config`` in any other
+directory of that ``PATH`` comes before the one of the suite. The cocotb of the suite runs in the
+Python of the suite, which does not have the Python packages of your testbench.
 
 A flow setting ``env: {PATH: ...}`` replaces the whole ``PATH``, directories in front included. A
 flow that runs in Docker gets none of these directories: the programs are the ones in the image.

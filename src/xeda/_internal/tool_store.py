@@ -142,9 +142,9 @@ def platform_tag() -> str | None:
 def default_root(environ: Mapping[str, str]) -> Path:
     """Return the root of the store for a process with the environment `environ`:
     `XEDA_TOOLS_ROOT` (an absolute path), else `$XDG_DATA_HOME/xeda/tools` (`~/.local/share`
-    when the variable is empty or relative) on Linux, else
-    `~/Library/Application Support/xeda/tools` on macOS. Raise `SettingsError`
-    (`invalid_value`) for a relative `XEDA_TOOLS_ROOT`."""
+    when the variable is empty or relative), on macOS too: `~/Library/Application Support` has a
+    space, and the `verilator` of the suite does not start from a path with a space. Raise
+    `SettingsError` (`invalid_value`) for a relative `XEDA_TOOLS_ROOT`."""
     given = environ.get(ROOT_VARIABLE)
     if given:
         if not os.path.isabs(given):
@@ -154,8 +154,6 @@ def default_root(environ: Mapping[str, str]) -> Path:
                 setting=ROOT_VARIABLE,
             )
         return Path(os.path.normpath(given))
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "xeda" / "tools"
     data = environ.get("XDG_DATA_HOME", "")
     base = Path(data) if data and os.path.isabs(data) else Path.home() / ".local" / "share"
     return base / "xeda" / "tools"
