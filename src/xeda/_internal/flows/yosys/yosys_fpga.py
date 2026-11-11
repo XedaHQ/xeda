@@ -523,6 +523,81 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 return not self.synth_pass_only
             return self.flatten
 
+        def pass_flag_conflicts(self) -> List[Tuple[str, str]]:
+            """Return each setting that the synthesis pass of the device has no flag for, in
+            every yosys release, with the reason.
+
+            The method is pure, so planning reports these. `synth_command` refuses them too, and
+            it also refuses the settings that only some releases reject. The result is empty
+            when no device, or a device without synthesis, is given: other checks name that.
+            """
+            if self.fpga is None:
+                return []
+            try:
+                target = self.synthesis_target()
+            except FlowSettingsException:
+                return []
+            name = "synth_lattice" if target == "nexus" else f"synth_{target}"
+            conflicts: List[Tuple[str, str]] = []
+            if self.noabc and target != "ice40":
+                conflicts.append(("noabc", f"noabc is for iCE40 only; {name} has no -noabc."))
+            if self.retime and self.noabc:
+                conflicts.append(("retime", "retime retimes with ABC, which noabc turns off."))
+            elif self.retime and self.abc9 and target != "gowin":
+                # Before 0.69 the pass rejects -retime while ABC9 is on; 0.69 removed -retime.
+                conflicts.append(
+                    (
+                        "retime",
+                        f"{name} retimes with classic ABC only: retime=true needs abc9=false and "
+                        "yosys 0.68 or older (yosys 0.69 removed -retime).",
+                    )
+                )
+            if self.abc_dff and self.noabc:
+                conflicts.append(("abc_dff", "abc_dff needs ABC/ABC9, which noabc turns off."))
+            if self.abc_dff and target == "gowin":
+                conflicts.append(("abc_dff", "synth_gowin has no -dff option for abc_dff."))
+            if self.abc_dff and target == "ecp5":
+                # Any flip-flop, in yosys 0.70: `abc9 -dff` returns TRELLIS_FF boxes unconnected.
+                conflicts.append(
+                    (
+                        "abc_dff",
+                        "synth_ecp5 -dff leaves the M and CE pins of the flip-flops undriven, so "
+                        "the netlist fails `check -assert`; abc_dff is refused for ECP5.",
+                    )
+                )
+            if self.nolutram and target == "ice40":
+                conflicts.append(
+                    ("nolutram", "synth_ice40 has no -nolutram: iCE40 has no LUT RAM.")
+                )
+            if self.nowidelut and target == "ice40":
+                conflicts.append(("nowidelut", "synth_ice40 has no -nowidelut."))
+            if self.widemux and target != "xilinx":
+                conflicts.append(
+                    ("widemux", f"widemux is for Xilinx only; {name} has no -widemux.")
+                )
+            elif self.widemux:
+                flags = self._xilinx_family()
+                family = flags[flags.index("-family") + 1] if "-family" in flags else None
+                if family in XILINX_LUT4_FAMILIES:
+                    conflicts.append(
+                        (
+                            "widemux",
+                            f"synth_xilinx has no widemux for the LUT4-based family {family}.",
+                        )
+                    )
+            ice40_only = [
+                k for k in ("ice40_device", "ice40_dsp", "ice40_spram") if getattr(self, k)
+            ]
+            if ice40_only and target != "ice40":
+                conflicts.append(
+                    (
+                        ice40_only[0],
+                        f"ice40_device, ice40_dsp and ice40_spram are for iCE40 only; {name} takes "
+                        "none of them.",
+                    )
+                )
+            return conflicts
+
         def synth_command(self, release: YosysRelease) -> List[str]:
             """Return the device synthesis command for yosys `release`, with its flags.
 
@@ -542,11 +617,12 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 command = [f"synth_{target}"]
             name = command[0]
             version = ".".join(map(str, release))
+            conflicts = self.pass_flag_conflicts()
+            if conflicts:
+                raise FlowSettingsException(conflicts[0][1])
 
             mode = _abc9_mode(target, release)
             if self.noabc:
-                if target != "ice40":
-                    raise FlowSettingsException(f"noabc is for iCE40 only; {name} has no -noabc.")
                 # Before 0.69 `synth_ice40` rejects -noabc while ABC9 is on, as it is by default.
                 command += ["-noabc9", "-noabc"] if mode == "default" else ["-noabc"]
             elif self.abc9 and mode == "opt-in":
@@ -569,20 +645,10 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         f"yosys {version} removed `{name} -retime`; retime=true needs yosys 0.68 "
                         "or older."
                     )
-                if self.noabc:
-                    raise FlowSettingsException("retime retimes with ABC, which noabc turns off.")
-                # Only synth_gowin retimes with a separate classic ABC run; the other passes
-                # reject -retime while ABC9 is on.
-                if self.abc9 and target != "gowin":
-                    raise FlowSettingsException(
-                        f"{name} retimes with classic ABC only, so retime=true needs abc9=false."
-                    )
+                # Only synth_gowin retimes with a separate classic ABC run; the other passes reject
+                # -retime while ABC9 is on (`pass_flag_conflicts`).
                 command.append("-retime")
             if self.abc_dff:
-                if self.noabc:
-                    raise FlowSettingsException("abc_dff needs ABC/ABC9, which noabc turns off.")
-                if target == "gowin":
-                    raise FlowSettingsException("synth_gowin has no -dff option for abc_dff.")
                 command.append("-dff")
             # `synth_xilinx` keeps the hierarchy unless told to flatten; the others flatten it
             # unless told not to. An unset `flatten` leaves the choice to the pass, except that
@@ -596,36 +662,16 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             if self.nobram:
                 command.append("-nobram")
             if self.nolutram:
-                if target == "ice40":
-                    raise FlowSettingsException(
-                        "synth_ice40 has no -nolutram: iCE40 has no LUT RAM."
-                    )
                 command.append("-nolutram")
             # iCE40 maps DSPs only with `ice40_dsp`, so `nodsp` needs no flag there.
             if self.nodsp and target != "ice40":
                 command.append("-nodsp")
             if self.nowidelut:
-                if target == "ice40":
-                    raise FlowSettingsException("synth_ice40 has no -nowidelut.")
                 command.append("-nowidelut")
             if self.widemux:
-                if target != "xilinx":
-                    raise FlowSettingsException(
-                        f"widemux is for Xilinx only; {name} has no -widemux."
-                    )
-                family = command[command.index("-family") + 1] if "-family" in command else None
-                if family in XILINX_LUT4_FAMILIES:
-                    raise FlowSettingsException(
-                        f"synth_xilinx has no widemux for the LUT4-based family {family}."
-                    )
                 command += ["-widemux", str(self.widemux)]
             if target == "ice40":
                 command += self._ice40_flags()
-            elif self.ice40_device or self.ice40_dsp or self.ice40_spram:
-                raise FlowSettingsException(
-                    f"ice40_device, ice40_dsp and ice40_spram are for iCE40 only; {name} takes "
-                    "none of them."
-                )
             if self.out_of_context:
                 command += OUT_OF_CONTEXT_FLAGS[name]
             return command + list(self.synth_flags)
@@ -1004,8 +1050,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
         The refused settings are: a step that `synth_pass_only` does not run; a result of a later
         stage when the run stops after the RTL (`stop_after_conflicts`); a flag in `synth_flags`
-        that repeats or contradicts `out_of_context`; and an EDIF file name for a synthesis that
-        writes no EDIF netlist. The method is class-level and pure, so the
+        that repeats or contradicts `out_of_context`; a setting that the synthesis pass of the
+        device refuses in every release, or maps to a broken netlist (`pass_flag_conflicts`); and
+        an EDIF file name for a synthesis that writes no EDIF netlist. The method is class-level and pure, so the
         refusal comes at planning time, also under `xeda run --dry-run`. `run()` checks the
         pass-only conflicts again after `init()` has merged the attributes of the design, which
         this method cannot see.
@@ -1016,6 +1063,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             settings.synth_pass_only_conflicts()
             + stop_after_conflicts(settings)
             + settings.out_of_context_conflicts()
+            + settings.pass_flag_conflicts()
         )
         # judged by value, as every setting is: a file name other than the default asks for one
         if settings.netlist_edif != cls.Settings.model_fields["netlist_edif"].get_default():
