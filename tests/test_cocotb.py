@@ -465,3 +465,7 @@ def test_a_cocotb_of_your_environment_comes_before_the_one_of_the_suite(tmp_path
     # a relative directory would be resolved from where the probe runs, not from here
     relative = os.pathsep.join([str(suite), os.path.relpath(own)])
     assert cocotb_config(relative, str(suite)) == "cocotb-config"
+    # a link to the suite's bin is the suite too
+    (tmp_path / "link").symlink_to(suite)
+    linked = os.pathsep.join([str(suite), str(tmp_path / "link"), str(own)])
+    assert cocotb_config(linked, str(suite)) == str(own / "cocotb-config")

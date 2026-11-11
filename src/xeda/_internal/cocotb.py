@@ -316,11 +316,15 @@ def cocotb_config(path: str, suite_bin: Optional[str]) -> str:
     directory comes first: the cocotb of the suite runs in the Python of the suite, which has
     none of the packages of a testbench (and on macOS cannot load its libpython). Else, and when
     no other directory has one, return the name, which `PATH` resolves as for any program. A
-    relative directory counts for neither: the probes of `cocotb-config` run elsewhere."""
+    relative directory counts for neither: the probes of `cocotb-config` run elsewhere. Another
+    spelling of `suite_bin` (a link to it) is the suite too."""
     entries = [entry for entry in path.split(os.pathsep) if entry]
     if suite_bin is None or suite_bin not in entries:
         return "cocotb-config"
-    others = os.pathsep.join(e for e in entries if e != suite_bin and os.path.isabs(e))
+    suite = os.path.realpath(suite_bin)
+    others = os.pathsep.join(
+        e for e in entries if os.path.isabs(e) and os.path.realpath(e) != suite
+    )
     return shutil.which("cocotb-config", path=others) or "cocotb-config"
 
 

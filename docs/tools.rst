@@ -119,8 +119,8 @@ The first directory that has the program wins. So a program in ``path`` beats th
 suite beats your shell. If you install nothing in the tool store, Xeda adds nothing, and the
 programs come from your shell as before.
 
-``cocotb-config`` is the one exception. For a cocotb testbench, a ``cocotb-config`` in any other
-directory of that ``PATH`` comes before the one of the suite. The cocotb of the suite runs in the
+``cocotb-config`` is the one exception. For a cocotb testbench, the first ``cocotb-config`` in
+another absolute directory of that ``PATH`` comes before the one of the suite. The cocotb of the suite runs in the
 Python of the suite, which does not have the Python packages of your testbench.
 
 A flow setting ``env: {PATH: ...}`` replaces the whole ``PATH``, directories in front included. A
