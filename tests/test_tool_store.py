@@ -211,10 +211,9 @@ def test_the_default_root(monkeypatch, tmp_path):
         tmp_path / "x" / "xeda" / "tools"
     )
     assert tool_store.default_root({"XEDA_TOOLS_ROOT": str(tmp_path / "r")}) == tmp_path / "r"
+    # The same on macOS: ~/Library/Application Support has a space, which verilator cannot take.
     monkeypatch.setattr("sys.platform", "darwin")
-    assert tool_store.default_root({"XDG_DATA_HOME": str(tmp_path / "x")}) == (
-        home / "Library" / "Application Support" / "xeda" / "tools"
-    )
+    assert tool_store.default_root({}) == default
     with pytest.raises(Exception, match="absolute") as raised:
         tool_store.default_root({"XEDA_TOOLS_ROOT": "relative"})
     assert raised.value.code == "invalid_value"  # type: ignore[attr-defined]

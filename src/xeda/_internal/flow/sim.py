@@ -10,7 +10,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
-from ..cocotb import Cocotb, CocotbSettings, cocotb_variable_problem
+from ..cocotb import Cocotb, CocotbSettings, cocotb_config, cocotb_variable_problem
 from ..dataclass import (
     COMPRESSED_FORMATS,
     Field,
@@ -593,6 +593,14 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 Cocotb(
                     **self.settings.cocotb.model_dump(),
                     sim_name=self.cocotb_sim_name or "",
+                    executable=(
+                        "cocotb-config"
+                        if self.settings.docker
+                        else cocotb_config(
+                            self.process_environment().get("PATH", os.defpath),
+                            self.environment.suite_bin,
+                        )
+                    ),
                     # pydantic-mypy does not see `Tool`'s fields through the
                     # `Cocotb(CocotbSettings, Tool)` diamond; `dockerized` is a real field.
                     dockerized=self.settings.docker,  # type: ignore[call-arg]

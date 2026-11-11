@@ -160,7 +160,9 @@ Programs are found on a `PATH` that Xeda builds for each node: the `path` direct
 files (project-local entries first; `~` and `~/` expand, a relative entry is relative to the file,
 each must exist), then the `bin` of the newest OSS CAD Suite in the tool store
 (`xeda tools install oss-cad-suite`), then the caller's `PATH` (the private `env.PATH`
-replaces it). `tools: {oss-cad-suite: off}` adds no suite, and `tools: {oss-cad-suite: 2026-10-08}`
+replaces it); only for `cocotb-config` of a cocotb testbench, the first one in another absolute
+directory comes before the suite's (whose Python lacks the testbench's packages). `tools: {oss-cad-suite: off}` adds
+no suite, and `tools: {oss-cad-suite: 2026-10-08}`
 selects that build (not installed: `tool_not_installed`, no launch). A flow's `env: {PATH: ...}`
 replaces all of it, and a container gets none of it. The store root is `XEDA_TOOLS_ROOT` (an
 absolute path; `env.XEDA_TOOLS_ROOT` of a private file too). A fix for `executable_not_found`:

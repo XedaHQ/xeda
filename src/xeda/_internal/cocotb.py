@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -307,6 +308,24 @@ def cocotb_verdict(
         )
         return False
     return True
+
+
+def cocotb_config(path: str, suite_bin: Optional[str]) -> str:
+    """Return the `cocotb-config` of a run on the host, whose `PATH` is `path`. When `suite_bin`,
+    the `bin` of the suite of the tool store, is on it, the first `cocotb-config` in another
+    directory comes first: the cocotb of the suite runs in the Python of the suite, which has
+    none of the packages of a testbench (and on macOS cannot load its libpython). Else, and when
+    no other directory has one, return the name, which `PATH` resolves as for any program. A
+    relative directory counts for neither: the probes of `cocotb-config` run elsewhere. Another
+    spelling of `suite_bin` (a link to it) is the suite too."""
+    entries = [entry for entry in path.split(os.pathsep) if entry]
+    if suite_bin is None or suite_bin not in entries:
+        return "cocotb-config"
+    suite = os.path.realpath(suite_bin)
+    others = os.pathsep.join(
+        e for e in entries if os.path.isabs(e) and os.path.realpath(e) != suite
+    )
+    return shutil.which("cocotb-config", path=others) or "cocotb-config"
 
 
 class Cocotb(CocotbSettings, Tool):
