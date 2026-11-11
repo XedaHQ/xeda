@@ -133,3 +133,5 @@ module fifo_tb;
 `endif
 
 endmodule
+
+`default_nettype wire

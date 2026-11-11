@@ -28,6 +28,11 @@ module trivium #(
   localparam int COUNT = SETUP_CYCLES > WORDS ? SETUP_CYCLES : WORDS;
   localparam int COUNTER_BITS = COUNT > 1 ? $clog2(COUNT) : 1;
 
+  if (G_SETUP_ROUNDS * TRIVIUM_SIZE % G_OUT_BITS != 0 ||
+      G_KEY_IV_BITS % G_IN_BITS != 0) begin : g_check
+    $error("G_OUT_BITS must divide G_SETUP_ROUNDS * 288, and G_IN_BITS must divide G_KEY_IV_BITS");
+  end
+
   typedef enum logic [1:0] {
     S_INIT_K,
     S_INIT_IV,
@@ -119,3 +124,5 @@ module trivium #(
   end
 
 endmodule
+
+`default_nettype wire
