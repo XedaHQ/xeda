@@ -189,7 +189,7 @@ def expected(target: str, name: str, release: YosysRelease, toggle: Dict[str, An
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_planning_refuses_what_every_release_refuses_and_accepts_what_every_release_accepts(target):
+def test_planning_refuses_exactly_what_every_release_refuses(target):
     """A refusal that needs only the settings comes at planning (`check_settings_supported`),
     not when the run starts. Only a setting that some releases take waits for the run, which
     knows the release."""
@@ -206,8 +206,8 @@ def test_planning_refuses_what_every_release_refuses_and_accepts_what_every_rele
             with pytest.raises(FlowSettingsException):
                 YosysFpga.check_settings_supported(settings)
                 pytest.fail(f"{case}: every release refuses it, and planning accepts it")
-        elif not refusing:
-            YosysFpga.check_settings_supported(settings)  # no release refuses it
+        else:
+            YosysFpga.check_settings_supported(settings)  # a release takes it: the run decides
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -698,4 +698,5 @@ def test_synth_ecp5_dff_still_leaves_flip_flop_pins_undriven(tmp_path):
     script = f"read_verilog {source}; synth_ecp5 -dff -top top; check -assert"
     result = subprocess.run(["yosys", "-q", "-p", script], capture_output=True, text=True)
     output = result.stdout + result.stderr
-    assert result.returncode != 0 and "has no driver" in output, output
+    assert result.returncode != 0, output
+    assert re.search(r"TRELLIS_FF\w*_(M|CE) is used but has no driver", output), output

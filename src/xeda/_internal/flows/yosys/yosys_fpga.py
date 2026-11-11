@@ -340,7 +340,11 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             description="Disable wide LUT implementations that use hard MUX resources. Leave "
             "false to use the normal mapping choices of the family's synthesis pass.",
         )
-        abc_dff: bool = Field(False, description="Run abc and abc9 with `-dff`.")
+        abc_dff: bool = Field(
+            False,
+            description="Run abc and abc9 with `-dff`. Gowin has no such option, and ECP5 refuses "
+            "it: there, yosys leaves pins of the flip-flops undriven.",
+        )
         widemux: int = Field(
             0,
             description="Infer hard multiplexer resources for muxes with at least this many "
@@ -529,29 +533,35 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
             The method is pure, so planning reports these. `synth_command` refuses them too, and
             it also refuses the settings that only some releases reject. The result is empty
-            when no device, or a device without synthesis, is given: other checks name that.
+            when no device is given: another check names that.
             """
             if self.fpga is None:
                 return []
             try:
                 target = self.synthesis_target()
-            except FlowSettingsException:
-                return []
+            except FlowSettingsException as error:
+                return [("fpga", str(error))]
             name = "synth_lattice" if target == "nexus" else f"synth_{target}"
             conflicts: List[Tuple[str, str]] = []
             # The family flags refuse a device that the pass cannot name, and an iCE40 option that
-            # the device lacks: the settings alone decide these too.
+            # the device lacks: the settings alone decide these too. Past the device, each refusal
+            # of _ice40_flags is about ice40_dsp or ice40_spram.
             family_flags = {
                 "xilinx": self._xilinx_family,
                 "gowin": self._gowin_family,
                 "nexus": self._nexus_family,
                 "ice40": self._ice40_flags,
             }.get(target)
+            flags: object = None
             if family_flags is not None:
+                key = "fpga"
                 try:
-                    family_flags()
+                    if target == "ice40":
+                        self._ice40_device()
+                        key = "ice40_dsp" if self.ice40_dsp else "ice40_spram"
+                    flags = family_flags()
                 except FlowSettingsException as error:
-                    conflicts.append(("fpga", str(error)))
+                    conflicts.append((key, str(error)))
             if self.noabc and target != "ice40":
                 conflicts.append(("noabc", f"noabc is for iCE40 only; {name} has no -noabc."))
             if self.retime and self.noabc:
@@ -570,7 +580,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             if self.abc_dff and target == "gowin":
                 conflicts.append(("abc_dff", "synth_gowin has no -dff option for abc_dff."))
             if self.abc_dff and target == "ecp5":
-                # Any flip-flop, in yosys 0.70: `abc9 -dff` returns TRELLIS_FF boxes unconnected.
+                # Any flip-flop, yosys 0.63 to 0.70: `abc9 -dff` returns the TRELLIS_FF boxes
+                # unconnected.
                 conflicts.append(
                     (
                         "abc_dff",
@@ -588,8 +599,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 conflicts.append(
                     ("widemux", f"widemux is for Xilinx only; {name} has no -widemux.")
                 )
-            elif self.widemux:
-                flags = self._xilinx_family()
+            elif self.widemux and isinstance(flags, list):
                 family = flags[flags.index("-family") + 1] if "-family" in flags else None
                 if family in XILINX_LUT4_FAMILIES:
                     conflicts.append(
@@ -1063,12 +1073,12 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
         The refused settings are: a step that `synth_pass_only` does not run; a result of a later
         stage when the run stops after the RTL (`stop_after_conflicts`); a flag in `synth_flags`
-        that repeats or contradicts `out_of_context`; a setting that the synthesis pass of the
-        device refuses in every release, or maps to a broken netlist (`pass_flag_conflicts`); and
-        an EDIF file name for a synthesis that writes no EDIF netlist. The method is class-level and pure, so the
-        refusal comes at planning time, also under `xeda run --dry-run`. `run()` checks the
-        pass-only conflicts again after `init()` has merged the attributes of the design, which
-        this method cannot see.
+        that repeats or contradicts `out_of_context`; a device without yosys synthesis, and a
+        setting that the synthesis pass of the device refuses in every release or maps to a broken
+        netlist (`pass_flag_conflicts`); and an EDIF file name for a synthesis that writes no EDIF
+        netlist. The method is class-level and pure, so the refusal comes at planning time, also
+        under `xeda run --dry-run`. `run()` checks the pass-only conflicts again after `init()` has
+        merged the attributes of the design, which this method cannot see.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)

@@ -214,6 +214,16 @@ CASES: dict[str, Case] = {
         "widemux is for Xilinx only",
         {"fpga": {"part": "LFE5U-25F-6BG256C"}, "widemux": 5},
     ),
+    "yosys-fpga-device-without-synthesis": Case(
+        YosysFpga,
+        "yosys has no FPGA synthesis for fpga.family='cyclone10'",
+        {"fpga": {"vendor": "intel", "family": "cyclone10"}},
+    ),
+    "yosys-fpga-ice40-dsp-on-hx": Case(
+        YosysFpga,
+        r"need an UltraPlus .*: ice40_dsp",
+        {"fpga": {"part": "iCE40HX1K-TQ144"}, "ice40_dsp": True},
+    ),
     "yosys-fpga-abc-dff-on-ecp5": Case(
         YosysFpga,
         "abc_dff is refused for ECP5",
