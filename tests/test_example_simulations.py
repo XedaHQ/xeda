@@ -38,6 +38,7 @@ SIMULATED: dict[tuple[str, str | None], tuple[str, ...]] = {
     ("vhdl/Trivium/trivium-dc.xeda.yaml", None): VHDL,
     ("sv/fifo/fifo.xeda.yaml", None): ("verilator",),
     ("sv/fifo/fifo_cocotb.xeda.yaml", None): ("verilator",),
+    ("sv/trivium/trivium.yaml", None): ("verilator",),
     ("mixed_language/blink/blinky.xeda.yaml", None): ("yosys_sim",),
     ("mixed_language/blink/xedaproject.yaml", "blink"): ("yosys_sim",),
 }

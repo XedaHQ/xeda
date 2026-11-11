@@ -33,11 +33,7 @@ NOTEBOOK_PROBES: dict[str, tuple] = {
         tool_utils.require_nextpnr_ecp5,
     ),
     "02-simulation": (tool_utils.require_verilator,),
-    "03-sweep": (
-        tool_utils.require_yosys,
-        tool_utils.require_yosys_ghdl_plugin,
-        tool_utils.require_nextpnr_ecp5,
-    ),
+    "03-sweep": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "04-plan": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "05-generated": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),
     "06-qor-history": (tool_utils.require_yosys, tool_utils.require_nextpnr_ecp5),

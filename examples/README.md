@@ -49,6 +49,7 @@ Other VHDL examples:
 xeda run verilator examples/sv/fifo/fifo.xeda.yaml         # SystemVerilog testbench
 xeda run verilator examples/sv/fifo/fifo_cocotb.xeda.yaml  # the same FIFO with a cocotb testbench
 xeda run yosys_fpga examples/sv/fifo/fifo.xeda.yaml        # FPGA synthesis for a Xilinx 7-series part
+xeda run verilator examples/sv/trivium/trivium.yaml        # checked by the testbench of vhdl/Trivium
 xeda run yosys_sim examples/mixed_language/blink/blinky.xeda.yaml   # SystemVerilog design, C++ testbench, CXXRTL
 ```
 
