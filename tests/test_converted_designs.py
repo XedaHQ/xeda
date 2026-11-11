@@ -30,7 +30,7 @@ from xeda._internal.flow import (
     FlowSettingsError,
     FlowSettingsException,
 )
-from xeda._internal.flow_runner import DefaultRunner, launch_producers, plan_freshness
+from xeda._internal.flow_runner import DefaultRunner, launch_producers, plan_freshness, trace
 from xeda._internal.flow_runner import default_runner as default_runner_module
 from xeda._internal.flow_runner.chains import parse_request
 from xeda._internal.flow_runner.plan_freshness import NodeFreshness
@@ -809,6 +809,11 @@ def test_the_converter_of_a_design_is_launched_as_a_producer(tmp_path, monkeypat
     """The converter is launched for a consumer that has no flow yet (`consumer=`), and it is a
     producer in every way that matters: it refreshes no trace, delivers nothing to `--outputs-to`,
     and leaves a token for the hand-over."""
+    # The launches stay inside the racy window of the records that the first one takes, as on a
+    # fast machine. Once such a record has settled, the check of a node held shared wants to
+    # refresh its trace, and the launch starts again with the node exclusive: on a slow machine,
+    # that launched the converter twice.
+    monkeypatch.setattr(trace, "wall_clock_ns", lambda: 0)
     events = Events()
     classes = consumer_flows(events)
     refreshes: dict[str, bool] = {}
