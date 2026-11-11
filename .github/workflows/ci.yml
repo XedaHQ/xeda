@@ -195,7 +195,8 @@ jobs:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
     runs-on: macos-26
-    timeout-minutes: 15
+    # The tests take 10 to 14 minutes on a hosted runner, more when the runners are busy.
+    timeout-minutes: 25
     steps:
       # Full history: xeda's version is derived from the git tags.
       - uses: actions/checkout@v7
