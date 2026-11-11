@@ -539,6 +539,19 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 return []
             name = "synth_lattice" if target == "nexus" else f"synth_{target}"
             conflicts: List[Tuple[str, str]] = []
+            # The family flags refuse a device that the pass cannot name, and an iCE40 option that
+            # the device lacks: the settings alone decide these too.
+            family_flags = {
+                "xilinx": self._xilinx_family,
+                "gowin": self._gowin_family,
+                "nexus": self._nexus_family,
+                "ice40": self._ice40_flags,
+            }.get(target)
+            if family_flags is not None:
+                try:
+                    family_flags()
+                except FlowSettingsException as error:
+                    conflicts.append(("fpga", str(error)))
             if self.noabc and target != "ice40":
                 conflicts.append(("noabc", f"noabc is for iCE40 only; {name} has no -noabc."))
             if self.retime and self.noabc:
