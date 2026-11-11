@@ -6,6 +6,14 @@ from cocolight.utils import bytes_to_words
 from cocotb import test
 from cocotb.handle import HierarchyObject
 
+
+def keystream_words(data: bytes, bits: int, count: int) -> list[int]:
+    """The first `count` words of `bits` bits in the big-endian keystream `data`. A word may be
+    narrower than a byte, which `bytes_to_words` does not allow."""
+    value, total = int.from_bytes(data, "big"), 8 * len(data)
+    return [(value >> (total - (i + 1) * bits)) & ((1 << bits) - 1) for i in range(count)]
+
+
 # We create this TB object in every test so that all the required functions can be accessed
 # from within this class.
 
@@ -122,11 +130,10 @@ async def test_trivium(dut: HierarchyObject):
         # print(f"key_bytes={key_bytes.hex()}")
         # print(f"iv_bytes={iv_bytes.hex()}")
         # print(f"key words={[w.hex() for w in bytes_to_words(key_bytes, IN_BITS)]}")
-        golden_bytes = c_model.trivium_api(
-            key_bytes, iv_bytes, random.randrange(1, max_exp_words) * OUT_BITS // 8
-        )
+        num_words = random.randrange(1, max_exp_words)
+        golden_bytes = c_model.trivium_api(key_bytes, iv_bytes, (num_words * OUT_BITS + 7) // 8)
         # print(f"golden_bytes={golden_bytes}")
-        golden_words = bytes_to_words(golden_bytes, OUT_BITS)
+        golden_words = keystream_words(golden_bytes, OUT_BITS, num_words)
 
         await tb.rekey()
         await tb.din.enqueue_seq(bytes_to_words(key_bytes + iv_bytes, IN_BITS))

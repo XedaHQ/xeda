@@ -78,7 +78,8 @@ architecture RTL of trivium is
 begin
 
     assert SETUP_CYCLES * G_OUT_BITS = (G_SETUP_ROUNDS * TRIVIUM_SIZE) and G_IN_BITS <= 80
-    report "G_OUT_BITS must divide G_SETUP_ROUNDS * 288 and G_IN_BITS must be <= 80"
+        and G_KEY_IV_BITS mod G_IN_BITS = 0
+    report "G_OUT_BITS must divide G_SETUP_ROUNDS * 288, and G_IN_BITS must divide G_KEY_IV_BITS"
     severity failure;
 
     process(all)
