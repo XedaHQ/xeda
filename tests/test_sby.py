@@ -1712,7 +1712,9 @@ def test_real_a_parameter_that_the_top_does_not_have_fails_and_is_named(tmp_path
         assert flow.outcome == "passed", _document(flow).get("error")
         # The run directory is shared, so read the model now.
         models.append((*_interface(flow), flow.results["formal.assertions"]))
-    assert models == [(["top"], {"clk": 1, "a": 4}, 1), (["top"], {"clk": 1, "a": 3}, 1)]
+    # Yosys may drop an assertion that is constant true, so compare the counts of the two runs.
+    assert [m[:2] for m in models] == [(["top"], {"clk": 1, "a": 4}), (["top"], {"clk": 1, "a": 3})]
+    assert models[0][2] == models[1][2] >= 1
     for name, parameters, unknown in [
         ("nested", {"OK": 0}, ["OK"]),
         ("several", {"W": 3, "Ok": 0, "NOPE": 1}, ["Ok", "NOPE"]),

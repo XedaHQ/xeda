@@ -164,7 +164,7 @@ COMPOSED_WITH_KNOBS = [
             "balance;drf,-l,-z;drw,-l,-z;balance;fraig_store;balance;drw,-l;drf,-l;balance;"
             "drw,-l;drw,-l,-z;balance;drf,-l,-z;drw,-l,-z;balance;fraig_store;balance;drw,-l;"
             "drf,-l;balance;drw,-l;drw,-l,-z;balance;drf,-l,-z;drw,-l,-z;balance;fraig_store;"
-            "fraig_restore;&get,-n;&nf,-R,1000;&put;mfs3,-aemvz,-I,4,-O,2;retime;&get,-n;&st;"
+            "fraig_restore;&get,-n;&nf,-R,1000;&put;mfsmap,-aemvz,-I,4,-O,2;retime;&get,-n;&st;"
             "&dch;&nf;&put;stime,-p;print_stats,-m"
         ),
     ),
@@ -182,7 +182,7 @@ COMPOSED_WITH_KNOBS = [
             "balance;drf,-l,-z;drw,-l,-z;balance;fraig_store;balance;drw,-l;drf,-l;balance;"
             "drw,-l;drw,-l,-z;balance;drf,-l,-z;drw,-l,-z;balance;fraig_store;balance;drw,-l;"
             "drf,-l;balance;drw,-l;drw,-l,-z;balance;drf,-l,-z;drw,-l,-z;balance;fraig_store;"
-            "fraig_restore;map,-p,-B,0.2,-A,0.9,-M,0;mfs3,-emvz,-I,4,-O,2;retime;&get,-n;&st;"
+            "fraig_restore;map,-p,-B,0.2,-A,0.9,-M,0;mfsmap,-demvz,-I,4,-O,2;retime;&get,-n;&st;"
             "&dch;&nf;&put;buffer,-N,4;upsize;dnsize;stime,-p;print_stats,-m"
         ),
     ),
@@ -192,7 +192,7 @@ COMPOSED_WITH_KNOBS = [
         (
             "+fx;mfs;strash;refactor;balance;drw,-l;refactor;balance;drw,-l;drw,-l,-z;balance;"
             "refactor,-z;drw,-l,-z;balance;retime,-M,6;scleanup;map,-p,-B,0.2,-A,0.9,-M,0;"
-            "mfs3,-emvz,-I,4,-O,2;retime;&get,-n;&st;&dch;&nf;&put;stime,-p;print_stats,-m"
+            "mfsmap,-demvz,-I,4,-O,2;retime;&get,-n;&st;&dch;&nf;&put;stime,-p;print_stats,-m"
         ),
     ),
     (
@@ -551,7 +551,7 @@ def test_mfs3_is_accepted_with_every_composed_strategy_and_reaches_the_script(
     settings = Yosys.Settings(platform="nangate45", abc={"strategy": strategy, "mfs3": True})
     Yosys.check_settings_supported(settings)
     commands = _run(tmp_path, monkeypatch, script_format, abc={"strategy": strategy, "mfs3": True})
-    assert ";mfs3," in _abc_script(commands)
+    assert ";mfsmap," in _abc_script(commands)
 
 
 def test_the_description_of_mfs3_warns_and_states_what_was_measured():
@@ -762,24 +762,32 @@ def test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
     (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
     log = (results.parent / "yosys.log").read_text()
-    if "ABC: ** cmd error: unknown command 'mfs3'" in log:
-        message = "the ABC bundled with this yosys does not provide the mfs3 command"
+    # Yosys writes the error of ABC to `yosys.log` or to its stderr (`logs/yosys.log`).
+    stderr = results.parent / "logs" / "yosys.log"
+    errors = log + (stderr.read_text() if stderr.is_file() else "")
+    if "unknown command 'mfsmap'" in errors:
+        message = "the ABC bundled with this yosys does not provide the mfsmap command"
         if REQUIRE_TOOLS:
             pytest.fail(f"{message}; XEDA_TESTS_REQUIRE_TOOLS is set")
         pytest.skip(message)
     assert json.loads(results.read_text())["outcome"] == "passed", results.read_text()
-    assert "ABC: + mfs3 -aemvz -I 4 -O 2" in log
+    assert "ABC: + mfsmap -aemvz -I 4 -O 2" in log
 
 
+@pytest.mark.parametrize("log_name", ["yosys.log", "logs/yosys.log"])
 @pytest.mark.parametrize(
     ("require_tools", "outcome"), [(False, pytest.skip.Exception), (True, pytest.fail.Exception)]
 )
-def test_yosys_mfs3_missing_obeys_require_tools(tmp_path, monkeypatch, require_tools, outcome):
-    """An unsupported ABC command is optional locally and a failure in strict tool CI."""
+def test_yosys_mfs3_missing_obeys_require_tools(
+    tmp_path, monkeypatch, require_tools, outcome, log_name
+):
+    """An unsupported ABC command is optional locally and a failure in strict tool CI, whether
+    yosys writes the error of ABC to its own log or to its stderr."""
     run_dir = tmp_path / "xeda_run" / "run" / "yosys"
-    run_dir.mkdir(parents=True)
+    (run_dir / "logs").mkdir(parents=True)
     (run_dir / "results.json").write_text('{"outcome": "failed"}')
-    (run_dir / "yosys.log").write_text("ABC: ** cmd error: unknown command 'mfs3'\n")
+    (run_dir / "yosys.log").write_text("")
+    (run_dir / log_name).write_text("** cmd error: unknown command 'mfsmap'\n")
 
     class FakeRunner:
         def __init__(self, *_args):
@@ -798,7 +806,7 @@ def test_yosys_mfs3_missing_obeys_require_tools(tmp_path, monkeypatch, require_t
     )
     monkeypatch.setattr("tests.test_yosys_asic_abc.REQUIRE_TOOLS", require_tools)
 
-    with pytest.raises(BaseException, match="mfs3") as exc_info:
+    with pytest.raises(BaseException, match="mfsmap") as exc_info:
         test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(tmp_path, "ys")
     assert isinstance(exc_info.value, outcome)
 
