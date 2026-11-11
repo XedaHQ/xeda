@@ -274,6 +274,9 @@ def test_the_sweep_notebook(executions):
     reason = cell_output(nb, "failed-point").splitlines()
     assert reason[0] == "12 failed reported_failure"
     assert reason[1].startswith("nextpnr: timing constraints are not met")
+    # The history table finds the script of each record through the run of its synthesis.
+    words = cell_output(nb, "history").split()
+    assert (words.count("flow3"), words.count("default"), words.count("None")) == (7, 6, 0)
     assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
     assert cell_output(nb, "empty-history").startswith("no runs yet")
     assert cell_output(nb, "missing-metric").startswith(
