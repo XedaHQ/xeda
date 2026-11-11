@@ -754,7 +754,9 @@ class AbcGroup(SettingsGroup):
         "does not include that commit. "
         "An ABC built without assertions can write a netlist that is not equivalent to the "
         "design instead. Where `mfs3` finished, it changed the area by at most 0.2%. Add a "
-        "SAT-based remapping (`mfs3`) after the mapping.",
+        "SAT-based remapping after the mapping: `mfsmap` of ABC, with `-a` for an area strategy "
+        "and `-d` for a delay strategy. Commit f4fd1b4f2 of berkeley-abc/abc (2026-10-28) renamed "
+        "`mfs3` to `mfsmap`, so an older ABC refuses this step.",
         json_schema_extra=tier("expert"),
     )
     area_mapper: Literal["amap", "nf"] = Field(

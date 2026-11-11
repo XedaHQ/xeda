@@ -26,7 +26,8 @@ class Composition:
     * `sizing`: end it with `upsize` and `dnsize` only. `buffering` already sizes.
     * `max_fanout`, `max_slew`: the `-N` (fanout) and `-S` (slew, in picoseconds) limits of
       `buffer`. A limit left unset keeps the value of ABC.
-    * `mfs3`: add the `mfs3` step after the mapping.
+    * `mfs3`: add the `mfsmap` step of ABC (named `mfs3` before 2026-10-28) after the mapping,
+      with `-a` (area) for an area strategy and `-d` (delay) for a delay strategy.
     * `area_mapper`: map for area with `amap` or with `&nf`.
     * `legacy_refactor`, `legacy_rewrite`: use `refactor` and `rewrite` instead of `drf -l` and
       `drw -l`.
@@ -93,7 +94,7 @@ def composed_abc_script(strategy: str, options: Composition) -> str:
     elif strategy == "delay_3":
         steps += [*choice2, map_delay]
     if options.mfs3:
-        steps.append("mfs3 -aemvz -I 4 -O 2" if area else "mfs3 -emvz -I 4 -O 2")
+        steps.append("mfsmap -aemvz -I 4 -O 2" if area else "mfsmap -demvz -I 4 -O 2")
     steps += ["retime", "&get -n", "&st", "&dch", "&nf", "&put"]
     if options.buffering:
         buffer = "buffer"
