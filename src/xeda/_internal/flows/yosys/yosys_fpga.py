@@ -342,8 +342,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         )
         abc_dff: bool = Field(
             False,
-            description="Run abc and abc9 with `-dff`. Gowin has no such option, and ECP5 refuses "
-            "it: there, yosys leaves pins of the flip-flops undriven.",
+            description="Run abc and abc9 with `-dff`. Gowin has no such option. ECP5 takes it "
+            "only with abc9=false (yosys 0.68 or older): with ABC9, yosys leaves pins of the "
+            "flip-flops undriven.",
         )
         widemux: int = Field(
             0,
@@ -579,14 +580,15 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 conflicts.append(("abc_dff", "abc_dff needs ABC/ABC9, which noabc turns off."))
             if self.abc_dff and target == "gowin":
                 conflicts.append(("abc_dff", "synth_gowin has no -dff option for abc_dff."))
-            if self.abc_dff and target == "ecp5":
+            if self.abc_dff and self.abc9 and target == "ecp5":
                 # Any flip-flop, yosys 0.63 to 0.70: `abc9 -dff` returns the TRELLIS_FF boxes
-                # unconnected.
+                # unconnected. Classic `abc -dff` maps them well.
                 conflicts.append(
                     (
                         "abc_dff",
-                        "synth_ecp5 -dff leaves the M and CE pins of the flip-flops undriven, so "
-                        "the netlist fails `check -assert`; abc_dff is refused for ECP5.",
+                        "synth_ecp5 -dff with ABC9 leaves the M and CE pins of the flip-flops "
+                        "undriven, so the netlist fails `check -assert`; abc_dff on ECP5 needs "
+                        "abc9=false and yosys 0.68 or older.",
                     )
                 )
             if self.nolutram and target == "ice40":

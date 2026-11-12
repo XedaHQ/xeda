@@ -116,6 +116,7 @@ TOGGLES: List[Dict[str, Any]] = [
     {"retime": True},
     {"retime": True, "abc9": False},
     {"abc_dff": True},
+    {"abc_dff": True, "abc9": False},
     {"nobram": True},
     {"nolutram": True},
     {"nodsp": True},
@@ -132,7 +133,8 @@ TOGGLES: List[Dict[str, Any]] = [
 
 REJECT = object()
 
-#: A pass option that yosys has but that gives a broken netlist, so Xeda refuses its setting.
+#: A pass option that yosys has but that gives a broken netlist with ABC9, so Xeda refuses its
+#: setting unless `abc9=false`.
 #: `test_synth_ecp5_dff_still_leaves_flip_flop_pins_undriven` tells when yosys fixes it.
 BROKEN = {("synth_ecp5", "abc_dff"): "-dff leaves the M and CE pins of TRELLIS_FF undriven"}
 
@@ -157,13 +159,15 @@ def expected(target: str, name: str, release: YosysRelease, toggle: Dict[str, An
     """What `toggle` must become, from the oracle: an option, None (nothing), or REJECT."""
     options = pass_options(name, release)
     key, value = next(iter(toggle.items()))
-    if (name, key) in BROKEN:
+    abc9_off = toggle.get("abc9") is False  # ABC9 is on unless `abc9=false`
+    if (name, key) in BROKEN and not abc9_off:
+        return REJECT
+    if key == "abc_dff" and abc9_off and expected(target, name, release, {"abc9": False}) is REJECT:
         return REJECT
     if key == "retime":
         if "-retime" not in options:
             return REJECT
-        # ABC9 is on unless `abc9=false`, and every pass but Gowin's rejects -retime with it.
-        abc9_off = toggle.get("abc9") is False
+        # Every pass but Gowin's rejects -retime with ABC9.
         return "-retime" if abc9_off or name not in ABC9_CONFLICTS else REJECT
     if key == "abc9":  # classic ABC: drop an opt-in `-abc9`, or turn the default off
         return "-noabc9" if "-noabc9" in options else None if "-abc9" in options else REJECT
@@ -689,9 +693,9 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
 
 
 def test_synth_ecp5_dff_still_leaves_flip_flop_pins_undriven(tmp_path):
-    """`pass_flag_conflicts` refuses `abc_dff` for ECP5, because `synth_ecp5 -dff` leaves the M and
-    CE pins of the flip-flops undriven. When this test fails, yosys has fixed it: delete that
-    refusal and its row in `BROKEN`."""
+    """`pass_flag_conflicts` refuses `abc_dff` with ABC9 for ECP5, because `synth_ecp5 -dff` leaves
+    the M and CE pins of the flip-flops undriven. When this test fails, yosys has fixed it: delete
+    that refusal and its row in `BROKEN`."""
     require_yosys()
     source = tmp_path / "top.v"
     source.write_text(COUNTER)

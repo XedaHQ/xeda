@@ -226,7 +226,7 @@ CASES: dict[str, Case] = {
     ),
     "yosys-fpga-abc-dff-on-ecp5": Case(
         YosysFpga,
-        "abc_dff is refused for ECP5",
+        "abc_dff on ECP5 needs abc9=false",
         {"fpga": {"part": "LFE5U-25F-6BG256C"}, "abc_dff": True},
     ),
     "yosys-fpga-out-of-context-repeats-a-flag": Case(
