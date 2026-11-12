@@ -116,6 +116,7 @@ TOGGLES: List[Dict[str, Any]] = [
     {"retime": True},
     {"retime": True, "abc9": False},
     {"abc_dff": True},
+    {"abc_dff": True, "abc9": False},
     {"nobram": True},
     {"nolutram": True},
     {"nodsp": True},
@@ -131,6 +132,11 @@ TOGGLES: List[Dict[str, Any]] = [
 ]
 
 REJECT = object()
+
+#: A pass option that yosys has but that gives a broken netlist with ABC9, so Xeda refuses its
+#: setting unless `abc9=false`.
+#: `test_synth_ecp5_dff_still_leaves_flip_flop_pins_undriven` tells when yosys fixes it.
+BROKEN = {("synth_ecp5", "abc_dff"): "-dff leaves the M and CE pins of TRELLIS_FF undriven"}
 
 
 def pass_options(name: str, release: YosysRelease) -> FrozenSet[str]:
@@ -153,11 +159,15 @@ def expected(target: str, name: str, release: YosysRelease, toggle: Dict[str, An
     """What `toggle` must become, from the oracle: an option, None (nothing), or REJECT."""
     options = pass_options(name, release)
     key, value = next(iter(toggle.items()))
+    abc9_off = toggle.get("abc9") is False  # ABC9 is on unless `abc9=false`
+    if (name, key) in BROKEN and not abc9_off:
+        return REJECT
+    if key == "abc_dff" and abc9_off and expected(target, name, release, {"abc9": False}) is REJECT:
+        return REJECT
     if key == "retime":
         if "-retime" not in options:
             return REJECT
-        # ABC9 is on unless `abc9=false`, and every pass but Gowin's rejects -retime with it.
-        abc9_off = toggle.get("abc9") is False
+        # Every pass but Gowin's rejects -retime with ABC9.
         return "-retime" if abc9_off or name not in ABC9_CONFLICTS else REJECT
     if key == "abc9":  # classic ABC: drop an opt-in `-abc9`, or turn the default off
         return "-noabc9" if "-noabc9" in options else None if "-abc9" in options else REJECT
@@ -180,6 +190,28 @@ def expected(target: str, name: str, release: YosysRelease, toggle: Dict[str, An
         )
     option = OPTION_OF[key]
     return option if option in options else REJECT
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_planning_refuses_exactly_what_every_release_refuses(target):
+    """A refusal that needs only the settings comes at planning (`check_settings_supported`),
+    not when the run starts. Only a setting that some releases take waits for the run, which
+    knows the release."""
+    for toggle in TOGGLES:
+        settings = YosysFpga.Settings(fpga=TARGETS[target], **toggle)
+        refusing = []
+        for release in RELEASES:
+            try:
+                settings.synth_command(release)
+            except FlowSettingsException:
+                refusing.append(release)
+        case = f"{target} {toggle}"
+        if len(refusing) == len(RELEASES):
+            with pytest.raises(FlowSettingsException):
+                YosysFpga.check_settings_supported(settings)
+                pytest.fail(f"{case}: every release refuses it, and planning accepts it")
+        else:
+            YosysFpga.check_settings_supported(settings)  # a release takes it: the run decides
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -658,3 +690,17 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
     assert set(re.findall(r"^module\s+(\S+?)\s*\(", verilog, re.MULTILINE)) == modules
     graphs = re.findall(r'^digraph "([^"]+)"', (run / "rtl.dot").read_text(), re.MULTILINE)
     assert set(graphs) == modules
+
+
+def test_synth_ecp5_dff_still_leaves_flip_flop_pins_undriven(tmp_path):
+    """`pass_flag_conflicts` refuses `abc_dff` with ABC9 for ECP5, because `synth_ecp5 -dff` leaves
+    the M and CE pins of the flip-flops undriven. When this test fails, yosys has fixed it: delete
+    that refusal and its row in `BROKEN`."""
+    require_yosys()
+    source = tmp_path / "top.v"
+    source.write_text(COUNTER)
+    script = f"read_verilog {source}; synth_ecp5 -dff -top top; check -assert"
+    result = subprocess.run(["yosys", "-q", "-p", script], capture_output=True, text=True)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert re.search(r"TRELLIS_FF\w*_(M|CE) is used but has no driver", output), output

@@ -14774,7 +14774,7 @@
           "false",
           "true"
         ],
-        "help": "Run abc and abc9 with `-dff`."
+        "help": "Run abc and abc9 with `-dff`. Gowin has no such option. ECP5 takes it only with abc9=false (yosys 0.68 or older): with ABC9, yosys leaves pins of the flip-flops undriven."
       },
       "abc_flags": {
         "children": false,
