@@ -3,7 +3,7 @@ import posixpath
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import ClassVar, Dict, List, Literal, NamedTuple, Optional, Tuple
+from typing import Annotated, ClassVar, Dict, List, Literal, NamedTuple, Optional, Tuple
 
 from ...dataclass import Field, deliverable, field_validator, model_validator
 from ...design import SourceType
@@ -20,7 +20,7 @@ from ...flow import (
     describe_artifacts,
 )
 from ...flows.ghdl import GhdlSynth
-from ...units import count
+from ...units import Bounds, Time, count
 from ...utils import ToolException, replacing_file
 from .common import (
     MINIMUM_YOSYS,
@@ -256,8 +256,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         synth_pass_only: bool = Field(
             False,
             description="Omit the preparation and cleanup that Xeda adds around the "
-            "`synth_<family>` pass, which does its own elaboration and mapping. Pass flags and "
-            "explicit ABC9 script choices apply in either mode. The flow reads the sources as a "
+            "`synth_<family>` pass, which does its own elaboration and mapping. Pass flags, "
+            "explicit ABC9 script choices and `abc9_delay_target` apply in either mode. The flow "
+            "reads the sources as a "
             "bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, "
             "`systemverilog: default` (the built-in reader of yosys) and no "
             "`read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and "
@@ -265,7 +266,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "Yosys does the same by file suffix, unless the design gives a `type` that "
             "contradicts the suffix. To compare with a native yosys invocation, also match "
             "source paths and order. When false, Xeda elaborates and optimizes around the pass "
-            "and gives ABC9 a delay derived from the clock. Every flag of the pass itself "
+            "and selects the ABC9 script `flow3` unless `abc9_script` or `flow3` chooses "
+            "another. Every flag of the pass itself "
             "(`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either "
             "mode. A setting that would add a step before or after the pass, or make it read "
             "differently from `yosys <files>`, is refused. The mode does not remove the formal "
@@ -312,6 +314,14 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in "
             "synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined "
             "with the `flow3` setting.",
+        )
+        abc9_delay_target: Optional[Annotated[Time, Bounds(gt="0 ns")]] = Field(
+            None,
+            description="Delay target of ABC9 (`abc9.D`) in either synthesis mode, a time such "
+            "as `2.5 ns`. ABC9 then uses the paths that are faster than the target to save "
+            "area. Its delay is that of its LUT model, without routing, so a target as long "
+            "as the clock period costs fmax. Unset: no target, and ABC9 maps for the shortest "
+            "delay of its model. Has no effect when ABC9 mapping is disabled.",
         )
         retime: bool = Field(
             False,
@@ -757,9 +767,10 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
             The method runs where the script is written, as `synth_command` does, because the
             result depends on several settings: ABC9 must be mapping at all, an explicit script
-            applies in either mode, and only the full recipe supplies an implicit flow3 and a
-            delay derived from the clock. The script itself comes from the constpad of yosys.
-            Xeda does not copy it.
+            and an explicit delay target apply in either mode, and only the full recipe supplies
+            an implicit flow3. The script itself comes from the constpad of yosys. Xeda does not
+            copy it. The clock gives no delay target: ABC9's delay is that of its LUT model, with
+            no routing, so a target taken from the period only made ABC9 trade fmax for area.
             """
             if not self.abc9 or self.noabc:
                 return []
@@ -771,9 +782,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 script = "flow3"
             if script is not None:
                 commands.append(f"scratchpad -copy abc9.script.{script} abc9.script")
-            clock = self.main_clock
-            if not self.synth_pass_only and clock:
-                commands.append(f"scratchpad -set abc9.D {clock.period.to('ps') / 1.5}")
+            if self.abc9_delay_target is not None:
+                commands.append(f"scratchpad -set abc9.D {self.abc9_delay_target.to('ps'):g}")
             return commands
 
         def synth_pass_only_conflicts(self) -> List[Tuple[str, str]]:
@@ -789,7 +799,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
             A flag of the pass is never a conflict: `synth_command` renders those into the
             command line of the pass, and they mean the same in either recipe. A constrained clock
-            is no conflict either: the mode does not pass it on to ABC9. A reader flag is a
+            is no conflict either: no recipe passes it on to ABC9. A reader flag is a
             conflict. The reference reads a Verilog source with `read_verilog` and no flag of its
             own, so `read_verilog_flags` must be empty. The value decides, whether or not the user
             wrote it, because `settings.json` writes every field and a reload would otherwise

@@ -2,9 +2,8 @@
 
 from xeda import Design
 from xeda._internal.flow import FPGA
-from xeda._internal.flows import Nextpnr, YosysFpga
+from xeda._internal.flows import Nextpnr
 from xeda._internal.flows.nextpnr import NextpnrTool
-from xeda._internal.flows.yosys.common import NEWEST_CHECKED_YOSYS
 
 from .test_nextpnr import write_nextpnr_config
 
@@ -44,35 +43,3 @@ def test_nextpnr_uses_first_unnamed_clock_as_frequency_target(tmp_path, monkeypa
     flow.run()
 
     assert "--freq=200.0" in args
-
-
-def test_yosys_abc9_hint_uses_first_unnamed_clock(tmp_path):
-    """The abc9 delay hint must not disappear solely because a design has auxiliary clocks."""
-    design = _design(tmp_path)
-    settings = YosysFpga.Settings(
-        fpga=FPGA(family="ecp5"),
-        clocks={
-            "clk_a": {"port": "clk_a", "period": "5 ns"},
-            "clk_b": {"port": "clk_b", "period": "10 ns"},
-        },
-    )
-    flow = YosysFpga(settings, design, tmp_path)
-    flow.add_template_helpers()
-    flow.artifacts.update(
-        utilization_report="utilization.json",
-        timing_report="timing.rpt",
-        netlist_json=None,
-        netlist_verilog=None,
-    )
-    rendered = flow.jinja_env.get_template("yosys_fpga_synth.ys").render(
-        settings=settings,
-        design=design,
-        artifacts=flow.artifacts,
-        ghdl_args=[],
-        parameters={},
-        defines=[],
-        abc_constr_file=None,
-        synth_command=settings.synth_command(NEWEST_CHECKED_YOSYS),
-    )
-
-    assert "abc9.D 3333.3333333333335" in rendered

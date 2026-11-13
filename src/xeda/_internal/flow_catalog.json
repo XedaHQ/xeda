@@ -14933,7 +14933,7 @@
           "false",
           "true"
         ],
-        "help": "Omit the preparation and cleanup that Xeda adds around the `synth_<family>` pass, which does its own elaboration and mapping. Pass flags and explicit ABC9 script choices apply in either mode. The flow reads the sources as a bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, `systemverilog: default` (the built-in reader of yosys) and no `read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. Yosys does the same by file suffix, unless the design gives a `type` that contradicts the suffix. To compare with a native yosys invocation, also match source paths and order. When false, Xeda elaborates and optimizes around the pass and gives ABC9 a delay derived from the clock. Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either mode. A setting that would add a step before or after the pass, or make it read differently from `yosys <files>`, is refused. The mode does not remove the formal cells and the `$print` cells (made by `assert` and `$display`) that Xeda removes before synthesis otherwise, so the netlists keep them."
+        "help": "Omit the preparation and cleanup that Xeda adds around the `synth_<family>` pass, which does its own elaboration and mapping. Pass flags, explicit ABC9 script choices and `abc9_delay_target` apply in either mode. The flow reads the sources as a bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, `systemverilog: default` (the built-in reader of yosys) and no `read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. Yosys does the same by file suffix, unless the design gives a `type` that contradicts the suffix. To compare with a native yosys invocation, also match source paths and order. When false, Xeda elaborates and optimizes around the pass and selects the ABC9 script `flow3` unless `abc9_script` or `flow3` chooses another. Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either mode. A setting that would add a step before or after the pass, or make it read differently from `yosys <files>`, is refused. The mode does not remove the formal cells and the `$print` cells (made by `assert` and `$display`) that Xeda removes before synthesis otherwise, so the netlists keep them."
       },
       "abc9": {
         "children": false,
@@ -14966,6 +14966,11 @@
           "flow3mfs"
         ],
         "help": "Select one of yosys's included ABC9 scripts in either synthesis mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined with the `flow3` setting."
+      },
+      "abc9_delay_target": {
+        "children": false,
+        "assignable": true,
+        "help": "Delay target of ABC9 (`abc9.D`) in either synthesis mode, a time such as `2.5 ns`. ABC9 then uses the paths that are faster than the target to save area. Its delay is that of its LUT model, without routing, so a target as long as the clock period costs fmax. Unset: no target, and ABC9 maps for the shortest delay of its model. Has no effect when ABC9 mapping is disabled."
       },
       "retime": {
         "children": false,

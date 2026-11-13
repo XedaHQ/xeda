@@ -33349,6 +33349,23 @@
           "type": "boolean",
           "unit": null
         },
+        "abc9_delay_target": {
+          "default": null,
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string",
+                "x-xeda-quantity": "time",
+                "x-xeda-unit": "ns"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "time",
+          "unit": "ns"
+        },
         "abc9_script": {
           "default": null,
           "schema": {

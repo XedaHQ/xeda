@@ -1,7 +1,7 @@
 """`synth_pass_only` omits Xeda's stages around the synthesis pass.
 
-xeda's default `yosys_fpga` recipe elaborates and optimizes around `synth_<target>` and tells
-ABC9 the clock period. ABC9's mapping can depend on those stages. With reader settings and pass
+xeda's default `yosys_fpga` recipe elaborates and optimizes around `synth_<target>` and selects
+the ABC9 script `flow3`. ABC9's mapping can depend on those stages. With reader settings and pass
 choices matched, `synth_pass_only` allows comparison with the native pass to isolate their effect.
 
 These launches run the process fakes of `tests/fake_tools` (`use_fake_fpga_tools`), so the
@@ -390,13 +390,13 @@ def test_synth_pass_only_reads_no_primitive_library_but_still_says_which_the_pas
 
 
 @BY_FORMAT
-def test_synth_pass_only_leaves_abc9_the_script_and_the_delay_the_pass_gives_it(
+def test_synth_pass_only_leaves_abc9_the_script_the_pass_gives_it(
     tmp_path, toolchain, script_format
 ):
-    """No `scratchpad`: not `flow3`, and not the clock period as ABC9's target delay.
+    """No `scratchpad` in pass-only mode, and no delay target from the clock in either mode.
 
     A constrained clock is a timing constraint, not a request for a scratchpad tweak, so it is
-    not an error -- pass-only mode simply does not supply the implicit ABC9 delay.
+    not an error. The full recipe adds `flow3` and nothing else.
     """
     run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True)
     # on the commands, not on the script's text: a source path may spell any word at all
@@ -404,7 +404,7 @@ def test_synth_pass_only_leaves_abc9_the_script_and_the_delay_the_pass_gives_it(
     default = _launch(tmp_path, PARTS["xilinx"], netlist_json="other.json")
     text = (default / f"yosys_fpga_synth.{script_format}").read_text()
     assert "scratchpad -copy abc9.script.flow3 abc9.script" in text
-    assert "scratchpad -set abc9.D " in text
+    assert "abc9.D" not in text
 
 
 def test_abc9_scratchpad_is_the_one_place_the_tweaks_are_decided():
@@ -414,12 +414,16 @@ def test_abc9_scratchpad_is_the_one_place_the_tweaks_are_decided():
         return YosysFpga.Settings(fpga=PARTS["xilinx"], clocks={"main_clock": {"period": "5 ns"}}, **kw)  # type: ignore[arg-type]
 
     flow3 = "scratchpad -copy abc9.script.flow3 abc9.script"
-    delay = "scratchpad -set abc9.D 3333.3333333333335"
-    assert settings().abc9_scratchpad() == [flow3, delay]
-    assert settings(flow3=True).abc9_scratchpad() == [flow3, delay]
-    assert settings(flow3=False).abc9_scratchpad() == [delay]
+    delay = "scratchpad -set abc9.D 2500"
+    # the 5 ns clock gives ABC9 no delay target: only `abc9_delay_target` does, in either mode
+    assert settings().abc9_scratchpad() == [flow3]
+    assert settings(flow3=True).abc9_scratchpad() == [flow3]
+    assert settings(flow3=False).abc9_scratchpad() == []
     assert settings(abc9=False).abc9_scratchpad() == []
     assert settings(synth_pass_only=True).abc9_scratchpad() == []
+    assert settings(abc9_delay_target="2.5 ns").abc9_scratchpad() == [flow3, delay]
+    assert settings(abc9_delay_target="2.5 ns", synth_pass_only=True).abc9_scratchpad() == [delay]
+    assert settings(abc9_delay_target="2.5 ns", abc9=False).abc9_scratchpad() == []
     # unset is xeda's own recipe using flow3 -- the behavior `flow3 = True` had
     assert YosysFpga.Settings.model_fields["flow3"].get_default() is None
     no_clock = YosysFpga.Settings(fpga=PARTS["xilinx"])  # type: ignore[arg-type]
@@ -1072,7 +1076,7 @@ def test_an_explicit_abc9_script_is_honored_in_either_recipe(
     )
     text = (path / f"yosys_fpga_synth.{script_format}").read_text()
     assert f"scratchpad -copy abc9.script.{script} abc9.script" in text
-    assert ("scratchpad -set abc9.D" in text) is (not mode)
+    assert "abc9.D" not in text
 
 
 def test_abc9_script_and_legacy_flow3_are_not_two_competing_choices():

@@ -249,19 +249,20 @@ def test_no_document_names_a_python_module():
 
 # ---------------------------------------------------------------------------------------------
 # Identities: a node's identity and run directory do not depend on where the implementation is.
-# The values were recorded before the implementation moved into its own package.
+# The values were recorded before the implementation moved into its own package. A new setting
+# of a flow changes the identity of its nodes and of the nodes that read them: record them again.
 # ---------------------------------------------------------------------------------------------
 
 PART = "LFE5U-25F-6BG381C"
 #: The identity of every node of five fixed specs, by `<spec>:<node>`.
 IDENTITIES = {
-    "source:yosys_fpga": "fca39880001b5272f4a17893854c0793835d2f6dd5453bc08950e6960175e61b",
-    "source:nextpnr": "5745f1b444e5420483a5412e8ecad4d0f2bfcddc61aaa9b4ee5a21e6256c8f17",
+    "source:yosys_fpga": "49adb5ee9f809ea0d1ef303f8866052254464414a6c2799756033fd0271b0c6f",
+    "source:nextpnr": "9114085b84a7a4b3754337fa57e8603a15012dd6a2ffa5f39d89ac8ea161d487",
     "converter:bsc": "5b17d483dc05c2cf0a072a3256405bff74d145d61b5ae0127b847b6a00187cc3",
-    "converter:yosys_fpga": "a467251dd1e13b5acd235c89d3c18f1303cc8f2bf4460aad76cb35165b191378",
+    "converter:yosys_fpga": "e23cec8df0c725132f8d5c2dbda2af8704f14709dda5fc559346584bfc878251",
     "netlist:nextpnr": "434e88e76aea5be1543890a2135d3a4e3ad464ad9f7930de5e534a29ccf79dc9",
-    "generator:yosys_fpga": "1598c0ad7a0dd891cc2349995055c1ed7cc1c7c26552beeb5b9d2aec4f50e4b4",
-    "dependency:yosys_fpga": "3c17144e3165dd42e980fc815e61c33fdbdc4a39b109450424d7c88df6204c60",
+    "generator:yosys_fpga": "65943beb89e03fa198e4e403e046d55504b10c2a3721353cd7588986dcdccd8d",
+    "dependency:yosys_fpga": "2b1302be4f97960a6d22bf8cb9eb789d8d883580a3f3c4bf909d980c397c14a2",
 }
 #: A run of the `netlist` spec, as the code before the move left it: its trace and results.
 OLD_RUN = ROOT / "tests" / "resources" / "pre_move_run"

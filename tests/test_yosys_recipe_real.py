@@ -225,7 +225,8 @@ def test_a_library_the_pass_reads_is_not_read_again_when_verilog_lib_spells_it_a
 def test_the_default_recipe_writes_a_different_netlist_on_the_same_design(tmp_path):
     """The teeth: without this, a `synth_pass_only` that changed nothing would still pass.
 
-    The full recipe elaborates, cleans and tells ABC9 the clock period, so its result can differ.
+    The full recipe elaborates, cleans and selects the ABC9 script `flow3`, so its result can
+    differ.
     This comparison checks that the modes differ; it makes no claim about their area or timing.
     """
     mode = _launch(tmp_path, "pass-only", synth_pass_only=True)
