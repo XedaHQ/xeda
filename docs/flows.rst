@@ -1581,7 +1581,7 @@ command of ABC). The Yosys log shows it, for example ``ABC: + &if -W 300 -D 2500
 required time only when the mapped logic can meet it. If the required time is lower than the least
 delay that ABC9 can reach, ABC9 maps for that least delay, as it does with no required time, and the
 netlist does not change. ABC then prints ``ABC: Warning: Cannot meet the target required times
-(4000.00). Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends
+(2500.00). Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends
 the slack on area. The mapping can change, and it can get smaller. It can also keep its LUT count
 and change only the mix of LUT sizes. So the netlist changes with the target only when the target is
 slow for the design. A design with little logic to trade can map to the same netlist at every
