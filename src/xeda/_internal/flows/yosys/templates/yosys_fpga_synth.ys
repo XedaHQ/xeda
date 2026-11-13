@@ -40,8 +40,8 @@ opt -undriven -purge -keepdc -noff
 opt_clean -purge
 {% endif -%}
 
-{#- One method computes the ABC9 choices. Pass-only may render an explicit script, but it omits
-    the inferred flow3 and the delay derived from the clock. #}
+{#- One method computes the ABC9 choices. Pass-only may render an explicit script and delay
+    target, but it omits the inferred flow3. #}
 {% for command in settings.abc9_scratchpad() -%}
 {{command}}
 {% endfor -%}

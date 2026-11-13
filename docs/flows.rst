@@ -1558,10 +1558,10 @@ their defaults too. On the command line, the empty list is ``-s yosys_fpga.read_
 value). The text ``[]`` is refused, as it is for every list setting.
 
 The default ABC9 behavior depends on the mode. In the full recipe of Xeda, an unset ABC9 script
-selects ``flow3``, and a constrained clock supplies a clock-derived ABC9 delay (described below).
-In pass-only mode, an unset script leaves the choice to the Yosys synthesis pass, and Xeda adds no
-clock-derived delay. ``abc9_script`` can choose one of the scripts that Yosys includes, in either
-mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
+selects ``flow3``. In pass-only mode, an unset script leaves the choice to the Yosys synthesis pass.
+Neither mode gives ABC9 a delay target unless ``abc9_delay_target`` sets one (described below), and
+the clock never sets it. ``abc9_script`` can choose one of the scripts that Yosys includes, in
+either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
 ``flow3mfs``. The script names come from the installed Yosys build. The ``flow3`` setting is
 also accepted: ``true`` selects ``flow3``, and ``false`` leaves the script to Yosys. Do not set
 both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 mapping is enabled.
@@ -1575,17 +1575,24 @@ both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 
     xeda run fpga_pack blinky.yaml -s yosys_fpga.synth_pass_only=true \
       yosys_fpga.read_verilog_flags= yosys_fpga.systemverilog=default
 
-The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
-as the required time of the LUT mapping (the ``-D`` option of the ``&if`` command of ABC). The Yosys
-log shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a required time
-only when the mapped logic can meet it. If the required time is lower than the least delay that
-ABC9 can reach, ABC9 maps for that least delay, as it does with no required time, and the netlist
-does not change. ABC then prints ``ABC: Warning: Cannot meet the target required times (4000.00).
-Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends the slack
-on area. The mapping can change, and it can get smaller. It can also keep its LUT count and change
-only the mix of LUT sizes. So the netlist changes with ``clock.period`` only when the clock is slow
-for the design. A design with little logic to trade can map to the same netlist at every period. A
-netlist that does not change with the clock period is therefore expected.
+``abc9_delay_target`` is a time, such as ``2.5 ns``, and it applies in either mode. Yosys gives it
+to ABC9 in picoseconds as the required time of the LUT mapping (the ``-D`` option of the ``&if``
+command of ABC). The Yosys log shows it, for example ``ABC: + &if -W 300 -D 2500``. ABC9 can use a
+required time only when the mapped logic can meet it. If the required time is lower than the least
+delay that ABC9 can reach, ABC9 maps for that least delay, as it does with no required time, and the
+netlist does not change. ABC then prints ``ABC: Warning: Cannot meet the target required times
+(4000.00). Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends
+the slack on area. The mapping can change, and it can get smaller. It can also keep its LUT count
+and change only the mix of LUT sizes. So the netlist changes with the target only when the target is
+slow for the design. A design with little logic to trade can map to the same netlist at every
+target.
+
+The delay of ABC9 is that of its LUT model, without routing. It is much shorter than the clock
+period that the routed design meets, so a target taken from the period is slow for almost every
+design. On ECP5, a target of two thirds of the period made ABC9 spend that slack on area, and it
+cost about 13 percent fmax in the geometric mean of seven designs. Xeda therefore does not take
+the target from the clock. Set ``abc9_delay_target`` only to trade fmax for area on purpose, and
+compare the routed results.
 
 Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
 them, match the Yosys version and the FPGA family, the source paths and their order, the
@@ -2004,8 +2011,8 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     xeda run yosys_fpga+vivado_impl blinky.yaml -s vivado_impl.bitstream=$PWD/blinky.bit # and a bitstream
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
-``fpga`` and ``clocks`` are shared along the edge, so one section gives them to both flows, and one
-clock period drives the ABC9 delay of Yosys and the constraint of Vivado. Xeda writes the bitstream
+``fpga`` and ``clocks`` are shared along the edge, so one section gives them to both flows, and the
+clock period is the constraint of Vivado. Xeda writes the bitstream
 when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
 ``openfpgaloader``. A bitstream needs every port to be constrained. Without ``bitstream``, Vivado
 stops after routing, and the flow reports timing and utilization only. The results are those of
