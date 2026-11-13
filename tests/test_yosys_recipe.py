@@ -1,7 +1,7 @@
 """`synth_pass_only` omits Xeda's stages around the synthesis pass.
 
-xeda's default `yosys_fpga` recipe elaborates and optimizes around `synth_<target>` and tells
-ABC9 the clock period. ABC9's mapping can depend on those stages. With reader settings and pass
+xeda's default `yosys_fpga` recipe elaborates and optimizes around `synth_<target>` and selects
+the ABC9 script `flow3`. ABC9's mapping can depend on those stages. With reader settings and pass
 choices matched, `synth_pass_only` allows comparison with the native pass to isolate their effect.
 
 These launches run the process fakes of `tests/fake_tools` (`use_fake_fpga_tools`), so the
