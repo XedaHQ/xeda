@@ -264,19 +264,19 @@ def test_the_harness_rejects_an_unknown_tag(tmp_path):
 def test_the_sweep_notebook(executions):
     # The second run reuses the runs of the first, so only the first run has `shared` nodes.
     work, nb, again = executions("03-sweep")
-    assert cell_output(again, "sweep-counts") == "{'passed': 12, 'failed': 1}"
-    points = str(tuple(range(13)))
+    assert cell_output(again, "sweep-counts") == "{'passed': 18, 'failed': 1}"
+    points = str(tuple(range(19)))
     assert cell_output(nb, "colliding-run-dirs") == f"colliding_run_dirs\n{points}"
-    assert cell_output(nb, "sweep-counts") == "{'passed': 12, 'failed': 1}"
-    # Three widths and two scripts: the two seeds of each pair share one synthesis. The 288-bit
-    # point has its own.
-    assert cell_output(nb, "shared-producer") == "{'ran': 7, 'shared': 6}"
+    assert cell_output(nb, "sweep-counts") == "{'passed': 18, 'failed': 1}"
+    # Three widths and two settings: the three seeds of each pair share one synthesis. The
+    # 288-bit point has its own.
+    assert cell_output(nb, "shared-producer") == "{'ran': 7, 'shared': 12}"
     reason = cell_output(nb, "failed-point").splitlines()
-    assert reason[0] == "12 failed reported_failure"
+    assert reason[0] == "18 failed reported_failure"
     assert reason[1].startswith("nextpnr: timing constraints are not met")
-    # The history table finds the script of each record through the run of its synthesis.
+    # The history table finds `nowidelut` of each record through the run of its synthesis.
     words = cell_output(nb, "history").split()
-    assert (words.count("flow3"), words.count("default"), words.count("None")) == (7, 6, 0)
+    assert (words.count("True"), words.count("False"), words.count("None")) == (9, 10, 0)
     assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
     assert cell_output(nb, "empty-history").startswith("no runs yet")
     assert cell_output(nb, "missing-metric").startswith(
@@ -285,17 +285,26 @@ def test_the_sweep_notebook(executions):
     work = work / "notebook-output"
     with open(work / "trivium-sweep.csv", newline="") as f:
         rows = list(csv.DictReader(f))
-    assert len(rows) == 13
-    # The point of the plot: at 192 bits, `default` needs about a third of the LUTs of `flow3`
-    # (1639 and 5334 with the OSS CAD Suite of 2026-11-10). Half leaves room for tool changes.
-    luts = {
-        script: [float(r["lut"]) for r in rows if r["bits"] == "192" and r["script"] == script]
-        for script in ("flow3", "default")
-    }
-    assert len(luts["flow3"]) == len(luts["default"]) == 2, luts
-    assert max(luts["default"]) < min(luts["flow3"]) / 2, luts
+    assert len(rows) == 19
+
+    # What the text says of the plot. With the OSS CAD Suite of 2026-11-11: at 192 bits, 1900
+    # against 5654 LUTs, and seeds of 124.9-134.8 against 114.8-118.2 MHz; at 128 bits, 1219
+    # against 1613 LUTs; at 64 bits, 702 against 766. The bounds leave room for tool changes.
+    def lut(bits: str, nowidelut: str) -> float:
+        (value,) = {
+            float(r["lut"]) for r in rows if (r["bits"], r["nowidelut"]) == (bits, nowidelut)
+        }
+        return value
+
+    def fmax(bits: str, nowidelut: str) -> list[float]:
+        return [float(r["fmax"]) for r in rows if (r["bits"], r["nowidelut"]) == (bits, nowidelut)]
+
+    assert lut("192", "True") < lut("192", "False") / 2
+    assert min(fmax("192", "True")) > max(fmax("192", "False"))
+    assert lut("128", "True") < lut("128", "False") * 0.85
+    assert lut("64", "False") * 0.9 < lut("64", "True") < lut("64", "False")
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
-    assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 13
+    assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 19
 
 
 def _generated_by(design_dir: Path, width: int, tmp_path: Path) -> bytes:
