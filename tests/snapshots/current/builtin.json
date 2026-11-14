@@ -82,6 +82,7 @@
       "run_root_mismatch",
       "shared_destination",
       "tool_not_installed",
+      "unguarded_main",
       "unsupported_with_remote"
     ],
     "StalePlanError": [

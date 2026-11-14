@@ -231,6 +231,37 @@ def test_a_notebook_like_main_runs_spawned_workers(tmp_path, design):
     ) == ["passed", "passed"]
 
 
+def test_a_script_without_a_main_guard_gives_each_point_the_cause(tmp_path, design):
+    # Each worker imports the script again: its sweep is refused there, and the worker ends.
+    report = (
+        "    print(json.dumps([[str(p.result.outcome), p.result.error.code, p.result.error.message]"
+        " for p in result]))\n"
+    )
+    script = tmp_path / "unguarded_script.py"
+    script.write_text(
+        _SCRIPT.replace(
+            "    print(json.dumps([str(point.result.outcome) for point in result]))\n", report
+        )
+        + "\nmain()\n"
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    done = subprocess.run(
+        [sys.executable, str(script), str(tmp_path)],
+        cwd=elsewhere,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    points = json.loads(done.stdout.splitlines()[-1])
+    assert [outcome for outcome, _, _ in points] == ["failed", "failed"]
+    assert {code for _, code, _ in points} == {"reported_failure"}
+    for _, _, message in points:
+        assert 'under `if __name__ == "__main__":`' in message
+        assert "standard error of the worker" in message
+    assert "Put the code that launches under" in done.stderr, "the worker says why it ended"
+
+
 def test_events_of_workers_reach_the_callback_in_the_calling_thread(tmp_path, design):
     events: list[Event] = []
     threads: set[int] = set()
@@ -275,6 +306,24 @@ def test_workers_use_the_parent_snapshot(tmp_path, design, monkeypatch):
     assert seen == {"OLD"}
 
 
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_path_variable_expands_from_the_snapshot_of_the_sweep(
+    tmp_path, design, monkeypatch, workers
+):
+    monkeypatch.setenv("XEDA_TEST_SUB", "reports_a")
+    changed: list[str] = []
+
+    def on_event(event: Event) -> None:
+        # After the plan, before the nodes execute: a worker that starts now inherits this value.
+        if event.kind == "launch_started" and not changed:
+            changed.append(event.launch_id)
+            monkeypatch.setenv("XEDA_TEST_SUB", "reports_b")
+
+    specs = [_spec(design, seed, **{"yosys_fpga.reports_dir": "$XEDA_TEST_SUB"}) for seed in (1, 2)]
+    result = _workspace(tmp_path).sweep(specs, max_workers=workers, on_event=on_event)
+    assert changed and dict(result.counts()) == {Outcome.PASSED: 2}
+
+
 def _plain_design(tmp_path: Path) -> Design:
     root = tmp_path / "d"
     root.mkdir()
@@ -294,6 +343,69 @@ def test_a_flow_of_an_importable_module_runs_in_a_worker(tmp_path):
     assert dict(result.counts()) == {Outcome.PASSED: 2}
     reads = [point.result.nodes["t_taker"].record.metric("read") for point in result]
     assert reads == ["one\n", "two\n"]
+
+
+_FACTORY = layout_script(
+    "from xeda._internal.dataclass import Field\n"
+    "from xeda.flow import Flow\n"
+    "def make():\n"
+    "    class RuntimeToy(Flow):\n"
+    '        """A class that a function makes: no worker finds it in its module."""\n'
+    "        results_description = {}\n"
+    "        class Settings(Flow.Settings):\n"
+    '            n: int = Field(0, description="Tells the points apart.")\n'
+    "        def run(self): pass\n"
+    "    return RuntimeToy\n"
+)
+
+
+def test_a_flow_that_its_module_makes_at_run_time_is_refused_before_anything_runs(
+    tmp_path, monkeypatch
+):
+    _module_flow(tmp_path, monkeypatch, "factory_of_flows", _FACTORY)
+    sys.modules["factory_of_flows"].make()
+    design = _plain_design(tmp_path)
+    specs = [Spec("runtime_toy", design, settings={"runtime_toy.n": n}) for n in (1, 2)]
+    workspace = Workspace(tmp_path / "run", hashed_run_dirs=True)
+    with pytest.raises(SpecError) as refused:
+        workspace.sweep(specs, max_workers=2)
+    assert refused.value.code == "flow_not_importable" and list(refused.value.points) == [0, 1]
+    assert str(refused.value) == (
+        "the flow `runtime_toy` is not at `make.<locals>.RuntimeToy` in `factory_of_flows`, so a "
+        "worker process that imports the module does not make it. Define the class at the top "
+        "level of the module, or sweep with max_workers=1."
+    )
+    assert not list(workspace.run_root.rglob("results.json"))
+    assert dict(workspace.sweep(specs, max_workers=1).counts()) == {Outcome.PASSED: 2}
+
+
+def test_a_worker_that_does_not_make_the_flow_fails_its_node_with_its_code(tmp_path, monkeypatch):
+    # The module of a flow, as the parent plans it, holds the class. A worker imports the same
+    # module and registers no flow.
+    _module_flow(
+        tmp_path,
+        monkeypatch,
+        "flow_of_the_parent",
+        layout_script(
+            "import multiprocessing\n"
+            "from xeda.flow import Flow\n"
+            "if multiprocessing.parent_process() is None:\n"
+            "    class ParentOnlyFlow(Flow):\n"
+            '        """A flow that only the parent makes."""\n'
+            "        results_description = {}\n"
+            "        def run(self): pass\n"
+        ),
+    )
+    spec = Spec("parent_only_flow", _plain_design(tmp_path))
+    (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
+    node = point.result.nodes["parent_only_flow"]
+    assert point.result.outcome is Outcome.FAILED and node.error is not None
+    assert node.error.code == "flow_not_importable"
+    assert node.error.message == (
+        "a worker process does not rebuild the flow `parent_only_flow` as the sweep planned it, "
+        "`ParentOnlyFlow` in `flow_of_the_parent`. It has no such flow."
+    )
+    assert not list((tmp_path / "run").rglob("results.json")), "no tool started"
 
 
 def test_a_flow_defined_in_main_is_refused_before_anything_runs(tmp_path):

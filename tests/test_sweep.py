@@ -27,7 +27,7 @@ from xeda.errors import (
 from xeda._internal import code_epoch
 from xeda._internal.events import Event
 from xeda._internal.flow_runner import run_lock
-from xeda._internal.flow_runner.trace import previous_trace
+from xeda._internal.flow_runner.trace import previous_trace, write_trace
 from xeda._internal.flow_runner.environment import EnvironmentSnapshot
 from xeda._internal.flow_runner.launch_options import LaunchOptions
 from xeda._internal.outcomes import Disposition, Outcome, Result
@@ -228,6 +228,43 @@ def test_a_replaced_producer_is_read_as_found_never_run_again(
         assert outcome.result.error is not None
         assert outcome.result.error.code == "producer_failed"
         assert outcome.result.outcome is Outcome.BLOCKED and outcome.run_id is None
+
+
+@pytest.mark.parametrize("trace", ["xeda", "flow", "none"])
+def test_a_producer_replaced_by_a_run_of_other_code_blocks_its_consumer(
+    tmp_path, design, monkeypatch, trace
+):
+    workspace = _workspace(tmp_path)
+    spec = _spec(design, 1)
+    done = _completed(workspace.run(spec))
+    lock = done.run_dir.parent / (done.run_dir.name + ".lock")
+    taken: list[str] = []
+
+    def after_the_lease(path: Path) -> None:
+        # Another launch ran the producer with other code, and passed, while the sweep waited.
+        if path == lock and not taken:
+            taken.append(_replace_record(done.run_dir, workspace))
+            old = previous_trace(done.run_dir, "yosys_fpga")
+            assert old is not None
+            if trace == "none":
+                (done.run_dir / "trace.json").unlink()
+            else:
+                update = {"xeda_code" if trace == "xeda" else "flow_code": "0" * 32}
+                write_trace(done.run_dir, old.model_copy(update=update))
+
+    monkeypatch.setattr(run_lock, "acquired_hook", after_the_lease)
+    outcome = run_node(
+        _task(workspace, spec, "nextpnr", [done], rebuild=True),
+        canceled=lambda: False,
+        emit=lambda event: None,
+    )
+    assert taken and _calls(workspace)["yosys"] == 1, "the producer did not run again"
+    assert outcome.result.outcome is Outcome.BLOCKED and outcome.run_id is None
+    assert outcome.result.error is not None and outcome.result.error.code == "producer_failed"
+    assert "run_replaced" in outcome.result.error.message
+    expected = "no valid trace" if trace == "none" else "other code than the sweep planned with"
+    assert expected in outcome.result.error.message
+    assert _calls(workspace)["nextpnr-ecp5"] == 1, "the consumer did not run again"
 
 
 def test_a_failed_shared_producer_is_shared_and_blocks_every_point(tmp_path, design, monkeypatch):
