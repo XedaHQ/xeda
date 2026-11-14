@@ -1686,7 +1686,7 @@ def dse(
 
     try:
         code_epoch.verify()
-    except StaleRuntimeError as e:
+    except (SpecError, StaleRuntimeError) as e:
         not_ended(e)
 
     # Resolving the optimizer inside Dse() raises an AttributeError that names nothing useful,

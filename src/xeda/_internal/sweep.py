@@ -613,7 +613,7 @@ class _Sweep:
         self.cancel = cancel
         self.on_event = on_event
         self.snapshot = snapshot
-        #: Whether a worker returned an outcome: a pool that broke before it did never ran a node.
+        #: Whether a worker returned an outcome: a pool that broke before it did returned none.
         self._worker_returned = False
         self.points = [_Point(index, plan) for index, plan in enumerate(plans)]
         self.units: dict[tuple[Any, ...], _Unit] = {}
@@ -926,9 +926,9 @@ class _Sweep:
             return ErrorInfo(
                 code=REPORTED_FAILURE,
                 message=(
-                    "the worker processes ended before any of them ran a node. A likely cause is "
-                    "a script that launches at module level: each worker imports the script "
-                    'again, so put the code that launches under `if __name__ == "__main__":`. '
+                    "the worker processes ended before any of them returned a result. A likely "
+                    "cause is a script that launches at module level: each worker imports the "
+                    'script again, so put the code that launches under `if __name__ == "__main__":`. '
                     "The standard error of the worker has the details."
                 ),
                 node=info.node,

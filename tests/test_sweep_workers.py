@@ -322,6 +322,9 @@ def test_a_path_variable_expands_from_the_snapshot_of_the_sweep(
     specs = [_spec(design, seed, **{"yosys_fpga.reports_dir": "$XEDA_TEST_SUB"}) for seed in (1, 2)]
     result = _workspace(tmp_path).sweep(specs, max_workers=workers, on_event=on_event)
     assert changed and dict(result.counts()) == {Outcome.PASSED: 2}
+    for point in result.points:
+        run_dir = point.result.nodes["yosys_fpga"].run_dir
+        assert (run_dir / "reports_a").is_dir() and not (run_dir / "reports_b").exists(), run_dir
 
 
 def _plain_design(tmp_path: Path) -> Design:
