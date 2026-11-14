@@ -1,5 +1,8 @@
 """Xeda's public package API."""
 
+# First of all: record the files of the package that this process imports (`code_epoch`).
+from ._internal import code_epoch as _code_epoch  # noqa: F401
+
 import logging
 from importlib import import_module
 from typing import TYPE_CHECKING, Any

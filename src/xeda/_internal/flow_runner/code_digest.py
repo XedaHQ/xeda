@@ -8,16 +8,13 @@ A trace holds both digests. A change to either one makes a run stale (`trace.che
 - `flow_code_digest` covers the code of a flow that is not part of Xeda (a plugin flow). It
   holds every Flow class of the MRO of the flow class that Xeda does not define.
 
-A digest is a function of the content of files on disk, and of nothing else: not of the modules
-that a process has imported, and not of where the files lie. A name in a digest is relative to
-the root of its code, so a moved tree has the same digest.
-
-A call lists the files and checks each of them, so an edit counts at once, also in a process that
-lives long (a notebook), and so does an added or a removed file. A check is by the metadata of a
-file, as the trace checks its inputs: the process keeps a record of each code file, and reads the
-file again only when the record cannot vouch for it (`_content_digest`). A relaunch of unchanged
-code then reads no file. A launch computes each digest once and keeps it for its length
-(`CodeDigests`).
+A digest is of the code that this process imported (`code_epoch`): of the content of its files
+when the process recorded them, and of nothing else, not of where the files lie. A name in a
+digest is relative to the root of its code, so a moved tree has the same digest. Each call checks
+the files on disk first, by their metadata, and raises `StaleRuntimeError` when one is not what the
+process imported: the process runs other code than the files say, so no trace may name either.
+Only a new process runs the new code. A launch computes each digest once (`CodeDigests`), and
+checks the files again before it writes a trace or accepts a reuse.
 
 The root of the code of a Flow class that is not part of Xeda is:
 
@@ -41,76 +38,24 @@ it every time and computes no digest for it.
 
 from __future__ import annotations
 
-import ast
-import time
-from collections.abc import Iterable
-from functools import lru_cache
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Type
 
-from ..digest import FileRecord, content_pairs, digest_pairs, package_files, record_file
-from ..flow import Flow, FlowFatalError
-from ..flow.source_file import class_label, find_source_file
-from ..package_paths import package_root
-
-#: The directory of the installed xeda package.
-XEDA_PACKAGE = package_root().resolve()
-
-
-#: The most files whose records the process keeps. It holds the code of a few trees; a process
-#: that meets more, like a test suite, starts the store afresh.
-RECORD_LIMIT = 50_000
-
-
-@lru_cache(maxsize=None)
-def _records() -> dict[Path, tuple[FileRecord, int]]:
-    """Return the store of the records of the code files that this process has read.
-
-    Each entry is the record of a file and the time (`time.time_ns()`) at which it was taken. The
-    store only saves reading. It never decides what a digest is: `_content_digest` checks the
-    metadata of a file at each use."""
-    return {}
-
-
-def _content_digest(path: Path) -> str:
-    """Return the content digest of the code file `path`, reading it only if it may have changed.
-
-    This is the rule of the trace (`digest.record_file`): the stored record is used when the
-    size, the modification time, the inode change time and the inode of the file are the same,
-    and the file had last changed well before the record was taken (outside the racy window,
-    `FileRecord.trusted`). Otherwise the file is read and a new record is stored. Every call
-    checks the file, so an edit counts at once, and a same-size edit with the old time put back
-    changes the inode change time.
-
-    The time of a record is the clock of this machine. The trace uses the clock of the file system
-    of the run directory, which needs a marker file written there, and a launch writes nothing in
-    a code tree. So a code tree on a network file system whose clock is more than the racy window
-    behind this machine's is not covered against two edits of one file, of the same size, within
-    one timestamp tick."""
-    records = _records()
-    taken_ns = time.time_ns()
-    held = records.get(path)
-    record = record_file(
-        path,
-        None if held is None else held[0],
-        None if held is None else held[1],
-    )
-    if held is None or record is not held[0]:
-        if len(records) >= RECORD_LIMIT:
-            records.clear()
-        records[path] = (record, taken_ns)
-    return record.sha
+from .. import code_epoch
+from ..code_epoch import XEDA_PACKAGE, digest_pairs, root_files
+from ..flow import Flow, FlowFatalError, registered_flows
+from ..flow.source_file import class_label, find_source_file, without_source_file
+from xeda.errors import StaleRuntimeError
 
 
 def xeda_code_digest() -> str:
-    """Return a digest of every file of the installed xeda package.
+    """Return a digest of every file of the xeda package that this process imported.
 
-    That covers code, templates and bundled data. It lists the files and checks each of them on
-    every call (`_content_digest`)."""
-    entries = [
-        (file.relative_to(XEDA_PACKAGE).as_posix(), file) for file in package_files(XEDA_PACKAGE)
-    ]
-    return digest_pairs(content_pairs(entries, _content_digest))
+    That covers code, templates and bundled data. It checks the files first
+    (`code_epoch.verify`): a file that changed since the process imported it raises
+    `StaleRuntimeError`."""
+    return code_epoch.xeda_digest()
 
 
 def _source_file(cls: type) -> Path:
@@ -142,142 +87,102 @@ def plugin_classes(flow_class: Type[Flow]) -> list[type]:
     ]
 
 
-def _package_root(module_file: Path) -> Path | None:
-    """Return the top-level package directory of `module_file`, or None if it is in none."""
-    directory = module_file.parent
-    if not (directory / "__init__.py").is_file():
-        return None
-    while (directory.parent / "__init__.py").is_file():
-        directory = directory.parent
-    return directory
-
-
-def _imported_modules(source: Path) -> set[str]:
-    """Return the dotted names of the modules that the `import` statements of `source` name.
-
-    `import a.b` names `a.b`, and `from a.b import c` names `a.b` and `a.b.c` (`c` can be a module
-    or a name in `a.b`). A relative import of one dot (`from . import helper`, `from .helper import
-    x`) names the module in the directory of `source`: it occurs in a namespace package, a
-    directory without an `__init__.py`. Other relative imports name none. A module that does not
-    parse names none."""
-    try:
-        tree = ast.parse(source.read_bytes())
-    except (OSError, SyntaxError, ValueError):
-        return set()
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level <= 1 and (node.level or node.module):
-            if node.module:
-                names.add(node.module)
-            for alias in node.names:
-                names.add(f"{node.module}.{alias.name}" if node.module else alias.name)
-    return names
-
-
-def _local_module(root: Path, dotted: str) -> list[tuple[str, Path]]:
-    """Return the `(name, file)` pairs of the module `dotted` in the directory `root`.
-
-    A module is a file `a/b.py` or a package `a/b` (with an `__init__.py`), found under `root`
-    through the directories of its name. A directory without an `__init__.py` on the way is a
-    namespace package: it leads on, and only the module found counts, never the directory. Nothing
-    is returned for a module that is not under `root`."""
-    path, parts = root, dotted.split(".")
-    for index, part in enumerate(parts):
-        if (path / part / "__init__.py").is_file():
-            # the whole package, as the rest of the name is inside it
-            return _tree("/".join(parts[: index + 1]), path / part)
-        if (path / f"{part}.py").is_file():
-            return [("/".join(parts[: index + 1]) + ".py", path / f"{part}.py")]
-        if not (path / part).is_dir():
-            return []
-        path = path / part
-    return []
-
-
-def _tree(name: str, directory: Path) -> list[tuple[str, Path]]:
-    """Return the `(name, file)` pairs of `package_files(directory)`, named under `name`.
-
-    The names do not depend on where the directory is, also when it is a link to another place."""
-    top = directory.resolve()
-    return [(f"{name}/{file.relative_to(top).as_posix()}", file) for file in package_files(top)]
-
-
-def _module_files(module_file: Path) -> list[tuple[str, Path]]:
-    """Return the `(name, file)` pairs of a module outside a package: it, what it imports from
-    its directory (and so on, for each module found), and its `templates` directory."""
-    root = module_file.parent
-    files = {module_file.name: module_file}
-    pending = [module_file]
-    while pending:
-        for name in sorted(_imported_modules(pending.pop())):
-            for found_name, file in _local_module(root, name):
-                if found_name not in files:
-                    files[found_name] = file
-                    if file.suffix == ".py":
-                        pending.append(file)
-    if (root / "templates").is_dir():
-        files.update(_tree("templates", root / "templates"))
-    return sorted(files.items())
-
-
 def _named_files(cls: type) -> Iterable[tuple[str, Path]]:
     """Return the `(name, file)` pairs of the code of `cls`, a class outside Xeda.
 
     A name is relative to the root of the code, and for a package it starts with the name of the
     package."""
-    module_file = _source_file(cls)
-    package = _package_root(module_file)
-    if package is not None:
-        return _tree(package.name, package)
-    return _module_files(module_file)
+    return root_files(_source_file(cls))
 
 
-def _code_root(cls: type) -> Path:
-    """Return the root of the code of `cls`: its top-level package, or its module file."""
-    module_file = _source_file(cls)
-    return _package_root(module_file) or module_file
-
-
-#: What was read of the code of a flow: the `(name, content digest)` pairs of each code root.
-Snapshots = dict[Path, list[tuple[str, str]]]
-
-
-def flow_code_digest(flow_class: Type[Flow], snapshots: Snapshots | None = None) -> str:
-    """Return a digest of the code of `flow_class` outside Xeda.
+def flow_code_digest(flow_class: Type[Flow]) -> str:
+    """Return a digest of the code of `flow_class` outside Xeda, as this process imported it.
 
     The code of a class is found as the module docstring says. The digest is "" when the xeda
     package defines all the Flow classes of the MRO: `xeda_code_digest` covers that case. It
     raises `FlowFatalError` for a class that has no source file on disk (`Flow.always_runs` runs
-    such a flow every time, so a launch never asks for its digest).
-
-    `snapshots` holds what was read of each code root before, and gets what this reads. Two
-    classes of one tree then see the same files."""
-    snapshots = {} if snapshots is None else snapshots
-    pairs: list[tuple[str, str]] = []
-    roots: set[Path] = set()
-    for cls in plugin_classes(flow_class):
-        root = _code_root(cls)
-        if root not in snapshots:
-            snapshots[root] = content_pairs(_named_files(cls), _content_digest)
-        if root not in roots:  # classes of one tree count the tree once
-            roots.add(root)
-            pairs += snapshots[root]
+    such a flow every time, so a launch never asks for its digest), and `StaleRuntimeError` when a
+    file of its code changed since the process recorded it (`code_epoch.plugin_root`)."""
+    pairs = [pair for root in code_roots(flow_class) for pair in root.verified_pairs()]
     return digest_pairs(pairs) if pairs else ""
+
+
+def code_roots(flow_class: Type[Flow]) -> list[code_epoch.CodeRoot]:
+    """Return the records of the code roots of the classes of `flow_class` outside Xeda, each
+    once: classes of one tree count the tree once."""
+    roots: list[code_epoch.CodeRoot] = []
+    for cls in plugin_classes(flow_class):
+        root = code_epoch.plugin_root(_source_file(cls))
+        if root not in roots:
+            roots.append(root)
+    return roots
+
+
+def check_code(flow_class: Type[Flow]) -> None:
+    """Raise `StaleRuntimeError` if the code of Xeda or of `flow_class` on disk is not the code
+    that this process imported.
+
+    A launch calls this after it built a trace and before it writes it, and before it accepts a
+    reuse: the digests that it computed at its start are those of the imported code, so they
+    vouch for nothing that changed since."""
+    xeda_code_digest()
+    flow_code_digest(flow_class)
+
+
+def code_fingerprint(flow_classes: Iterable[Type[Flow]]) -> dict[str, str]:
+    """Return the digests of the code that this process imported: Xeda's (`xeda`) and that of
+    each of `flow_classes` (by its flow name), after a check.
+
+    Every name in the digests is relative to the root of its code, so two processes that
+    imported the same code at other places have the same fingerprint. A flow with a class that has
+    no source file on disk has no entry: no other process can import it, and it always runs."""
+    return {
+        "xeda": xeda_code_digest(),
+        **{
+            flow_class.name: flow_code_digest(flow_class)
+            for flow_class in flow_classes
+            if without_source_file(c for c in flow_class.__mro__ if issubclass(c, Flow)) is None
+        },
+    }
+
+
+def check_fingerprint(expected: Mapping[str, str], whose: str, advice: str) -> None:
+    """Raise `StaleRuntimeError` if the code that this process imported is not the code whose
+    `code_fingerprint` is `expected`.
+
+    `whose` names the code of `expected` in the message ("The sweep planned with"), and `advice`
+    says what to do. A flow of `expected` that this process has not registered differs, and so
+    does Xeda when `expected` has no digest of it."""
+    from .. import flows  # noqa: F401 - registers the flows of Xeda
+
+    changed = []
+    for name in ["xeda", *sorted(set(expected) - {"xeda"})]:
+        digest = expected.get(name)
+        if name == "xeda":
+            current: str | None = xeda_code_digest()
+        else:
+            found = registered_flows.get(name)
+            current = None if found is None else flow_code_digest(found[1])
+        if current != digest:
+            changed.append("Xeda" if name == "xeda" else f"the flow `{name}`")
+    if changed:
+        raise StaleRuntimeError(
+            f"{whose} other code than this process imported: the code of {', '.join(changed)} "
+            f"differs. {advice}",
+            code="stale_runtime",
+        )
 
 
 class CodeDigests:
     """The code digests of one launch.
 
-    A launch needs the same digests for each of its flows. This reads each code root once, at its
-    first use, and keeps what it read for the launch: all the flows of a tree get one snapshot of
-    it, also when the tree changes during the launch. A new launch makes a new object, so an edit
-    between two launches always counts."""
+    A launch needs the same digests for each of its flows. This computes each one once, at its
+    first use, and keeps it for the launch. The digests are those of the imported code, so they do
+    not change during the launch: a change of a file raises `StaleRuntimeError` instead."""
 
     def __init__(self) -> None:
         self._xeda: str | None = None
-        self._snapshots: Snapshots = {}
+        self._flows: dict[Type[Flow], str] = {}
 
     def xeda(self) -> str:
         """Return `xeda_code_digest()`, computed once."""
@@ -286,5 +191,7 @@ class CodeDigests:
         return self._xeda
 
     def flow(self, flow_class: Type[Flow]) -> str:
-        """Return `flow_code_digest(flow_class)` over the snapshots of the launch."""
-        return flow_code_digest(flow_class, self._snapshots)
+        """Return `flow_code_digest(flow_class)`, computed once."""
+        if flow_class not in self._flows:
+            self._flows[flow_class] = flow_code_digest(flow_class)
+        return self._flows[flow_class]

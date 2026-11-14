@@ -70,8 +70,8 @@ CONTRACT_XEDA = {
 ALSO_EXPORTED = {"Question"}
 CONTRACT_ERRORS = {
     "XedaError", "SpecError", "SettingsError", "DesignError", "ProjectError", "FlowNotFoundError",
-    "ChainError", "RunRootError", "StalePlanError", "RecordError", "RunReplacedError",
-    "RemoteError", "RunFailedError", "LeaseHeldError",
+    "ChainError", "RunRootError", "StalePlanError", "StaleRuntimeError", "RecordError",
+    "RunReplacedError", "RemoteError", "RunFailedError", "LeaseHeldError",
 }  # fmt: skip
 CONTRACT_INTROSPECT = {
     "flows_info", "flow_info", "settings_info", "results_info", "design_schema", "boards_info",

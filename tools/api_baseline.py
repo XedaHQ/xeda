@@ -880,6 +880,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "roots": _array(_STRING),
             "options": simple.of(LaunchOptions),
             "dependencies": _array(dependency),
+            "code": {"type": "object", "additionalProperties": _STRING},
             "nodes": _array(plan_node),
         }
     )

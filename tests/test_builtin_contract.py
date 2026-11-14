@@ -301,6 +301,7 @@ def test_all_literal_codes_are_in_the_inventory() -> None:
                 "internal_error",
                 "missing_generated",
                 "flow_not_importable",
+                "stale_runtime",
             },
         ),
         pytest.param(

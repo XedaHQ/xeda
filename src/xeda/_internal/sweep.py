@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from .cancel import CancelToken, never_canceled, observing
 from .design import Design
-from xeda.errors import RecordError, SpecError, StalePlanError
+from xeda.errors import RecordError, SpecError, StalePlanError, StaleRuntimeError
 from .events import Event
 from .flow import registered_flows
 from .flow_runner import launch_run
@@ -254,6 +254,9 @@ class NodeTask:
     snapshot: EnvironmentSnapshot
     completed: tuple[CompletedNode, ...]
     rebuild: bool
+    #: The `code_fingerprint` of the code that planned the sweep (`Plan._code`). The launch compares
+    #: it with the code of its process before it plans.
+    code: Mapping[str, str]
     #: The generation that the sweep settled for the point (`launch_generation.fingerprints`),
     #: which the launch verifies under its leases. Empty: nothing to verify.
     generation: tuple[tuple[str, str], ...] = ()
@@ -296,6 +299,7 @@ def launch_node_result(
             local_settings=options.local_settings,
             options=task.launch,
             rebuild=task.rebuild,
+            code=task.code,
             generation=task.generation,
             environment=task.snapshot,
             canceled=canceled,
@@ -691,14 +695,20 @@ class _Sweep:
             unit = self.units[self.keys[point.index][name]]
             assert unit.run_id is not None, f"{name} passed with no run"
             completed[name] = CompletedNode(name, result.run_dir, unit.run_id, result.outcome)
-        done = deliver_point(
-            self.specs[point.index],
-            completed,
-            point.generation,
-            self.workspace._options(),
-            self.snapshot,
-            self.canceled,
-        )
+        try:
+            done = deliver_point(
+                self.specs[point.index],
+                completed,
+                point.generation,
+                self.workspace._options(),
+                self.snapshot,
+                self.canceled,
+            )
+        except StaleRuntimeError as stale:
+            # The code changed on disk while the sweep ran: the point delivers nothing.
+            from .flow_runner.error_codes import error_info
+
+            return error_info(stale, node=None)
         for name in nodes:
             nodes[name] = replace(nodes[name], deliveries=done.deliveries.get(name, ()))
         return done.error
@@ -750,6 +760,7 @@ class _Sweep:
             snapshot=self.snapshot,
             completed=tuple(completed),
             rebuild=self.rebuild,
+            code=self.points[unit.point].plan._code,
             generation=self.points[unit.point].generation,
             modules=_flow_modules(self.points[unit.point].plan) if self.max_workers > 1 else (),
         )
@@ -927,6 +938,13 @@ class _Sweep:
             )
         except Canceled:
             return  # the token says so, and no node starts
+        except StaleRuntimeError as stale:
+            # The code changed on disk after the sweep planned: no point runs, each says why.
+            from .flow_runner.error_codes import error_info
+
+            for point in self.points:
+                point.launch_error = error_info(stale, node=None)
+            return
         for point, (error, generation) in zip(self.points, errors):
             point.generation = generation
             if error is not None:

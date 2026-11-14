@@ -35,6 +35,7 @@ from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 from pydantic_core import ErrorDetails, InitErrorDetails
 
+from .. import code_epoch
 from ..dataclass import (
     DELIVERABLE_ROLE,
     WORKING,
@@ -95,7 +96,7 @@ from ..utils import (
 )
 
 from .derived import DesignConversion
-from .source_file import without_source_file
+from .source_file import find_source_file, without_source_file
 from .metrics import (
     ArtifactSpec,
     MetricSpec,
@@ -1404,6 +1405,10 @@ class Flow(metaclass=ABCMeta):
                 f"{cls.__qualname__} defines `design_conversion` and must declare exactly one "
                 "design output (`Out(DESIGN, ...)`) for the design it derives"
             )
+        source, _ = find_source_file(cls)
+        if source is not None and not source.is_relative_to(code_epoch.XEDA_PACKAGE):
+            # The code of a plugin flow counts as this process imported it: record it now.
+            code_epoch.plugin_root(source)
         cls_name = cls.__name__
         mod_name = cls.__module__
         log.debug("registering flow %s from %s", cls_name, mod_name)

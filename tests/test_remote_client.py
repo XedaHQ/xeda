@@ -366,6 +366,26 @@ def test_a_deliverable_location_is_refused_before_a_connection(tmp_path, remote_
     assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
 
 
+def test_a_snapshot_of_other_code_than_the_imported_code_is_refused_before_a_connection(
+    tmp_path, remote_host, monkeypatch
+):
+    """The host runs the code of the snapshot, so it must be the code that planned here."""
+    import shutil
+
+    from xeda._internal.remote.environment import code_snapshot
+
+    from .source_layout import SRC_XEDA
+
+    other = tmp_path / "other" / "xeda"
+    shutil.copytree(SRC_XEDA, other, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    (other / "__init__.py").write_text((other / "__init__.py").read_text() + "# changed\n")
+    monkeypatch.setattr(client, "code_snapshot", lambda: code_snapshot(other))
+    outcome = _request(tmp_path, _design(tmp_path))
+    assert outcome.document["error"]["code"] == "stale_runtime"
+    assert "not the code of Xeda that this process imported" in outcome.document["error"]["message"]
+    assert not any("-M" in call for call in remote_host.remote.calls("ssh"))
+
+
 def test_outputs_to_is_checked_before_a_connection(tmp_path, remote_host):
     design = _design(tmp_path)
     run_root = tmp_path / "local" / "xeda_run"
@@ -581,6 +601,7 @@ def test_dry_run_through_the_command_line(tmp_path, remote_host):
         "roots",
         "options",
         "dependencies",
+        "code",
         "nodes",
     }
 

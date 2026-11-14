@@ -348,7 +348,9 @@ A flow is stale, and runs again, in any of these cases:
 - Its settings changed (the reason names which ones), or a path that a setting names now points
   elsewhere, from another start directory or for another design tree.
 - Xeda changed: its version, or any file of the installed package (code, templates, bundled data).
-  An editable install keeps one version string across edits.
+  An editable install keeps one version string across edits. A process sees this change only when
+  it starts: a process that imported the earlier code refuses to launch (see
+  `Code that changes on disk`_).
 - The code of a flow defined outside Xeda changed (see `The code of a flow outside Xeda`_).
 - A program the flow started changed (the path, size or mtime of an executable, or the ID of a
   container image), or was replaced while the run was going on.
@@ -654,16 +656,10 @@ testbench reads is the common case: declare it as a source of the design.
 The code of a flow outside Xeda
 -------------------------------
 
-A flow that a plugin or your own code defines is stale when its code changed. Xeda lists the files
-and checks each one at every launch, also in a process that lives long, such as a notebook, so an
-edit, an added file and a removed file count at once. The check is by the metadata of a file, as for
-the inputs of a run: Xeda reads a file again only when its size, times or inode changed, or when it
-changed just before the last check. It judges "just before" by the clock of this machine. A code
-tree on a network file system whose clock is several seconds behind this machine's can miss two
-same-size edits of one file made within one timestamp tick of that file system. A digest names
-each file relative to the root of the code, so moving the code to another place does not make the
-run stale. The runs of such a flow that an older Xeda made are stale once, because the digest is
-made in a new way. The root of the code is:
+A flow that a plugin or your own code defines is stale when its code changed since its last run. A
+digest of its files, taken when the process imported them, is part of the trace (see `Code that
+changes on disk`_). A digest names each file relative to the root of the code, so moving the code
+to another place does not make the run stale. The root of the code is:
 
 - For a flow defined in a package, the top-level package: the directory with the ``__init__.py``
   files from the module of the flow up. Every file in it counts: helper modules, templates and
@@ -681,6 +677,71 @@ A flow class that has no source file on disk cannot be checked this way. An exam
 defined in a notebook cell or in the interactive interpreter. Such a flow always runs (see `Flows
 that always run`_), and Xeda computes no code digest for it. To reuse its runs, define the class in
 a ``.py`` file.
+
+.. _code-epoch:
+
+Code that changes on disk
+-------------------------
+
+A Python process runs the code that it imported, also after the files change on disk. A notebook
+kernel that imported Xeda an hour ago runs the Xeda of an hour ago. So the code that a trace names
+is the code that the process imported, and not the code on disk:
+
+- When ``xeda`` is imported, the process records every file of the package (the size, the times and
+  the inode of each file, and the content of a file that changed just before). The code of a flow
+  outside Xeda is recorded when its first flow class is created.
+- Every entry that plans or launches (``Workspace.plan``, ``Workspace.run``, ``Workspace.sweep``,
+  the launcher, ``xeda run``, ``xeda dse``, both ends of ``--remote``) first checks that the files
+  on disk are still those: the files of Xeda and the code of every flow that is registered. A file that was edited, added or removed refuses the request with
+  ``StaleRuntimeError`` (code ``stale_runtime``). The request plans nothing, runs nothing and
+  writes nothing. ``xeda run --json`` reports it with ``outcome: null`` and exit status 2.
+- A launch checks again before it writes a trace, before it accepts an earlier run, and before it
+  writes the record of a generation. A change found while a node runs fails the node with
+  ``stale_runtime`` (exit status 1). The node may have run some of the new code, so it keeps no
+  trace, and the next launch runs it again.
+- The record of a generation names the code of Xeda that wrote it. A record of other code is not
+  trusted, and the generator runs again.
+- A plan keeps the digests of the code that made it: Xeda's, and that of each flow outside Xeda
+  (the ``code`` of its document; a pickle keeps them too). ``Workspace.run(plan)`` in a process
+  that imported other code refuses the plan with ``stale_runtime`` before the launch starts. Plan
+  again in that process.
+- A sweep with ``max_workers`` above 1 keeps the digests of the code that planned it. A worker
+  process imports the code that is on disk when the worker starts, so before it plans a node, it
+  compares its code with the code of the sweep. A difference fails the node with
+  ``stale_runtime``, and the sweep still returns its result. The node plans nothing and writes
+  nothing. Restart the process that sweeps and sweep again.
+- With ``--remote``, the host runs the code that the client sends. The files of that code and
+  their content must be the files of Xeda that the client imported, by the same rule: bytecode and
+  hidden files are left out, and a symbolic link is sent as the file or directory that it leads
+  to. The client checks this when it reads the code and before it sends a launch. The host
+  compares the digests of its own code with those of the client before it plans. A difference
+  refuses the launch with ``stale_runtime``.
+
+There is no way to turn the check off. Restart the Python process (in Jupyter, restart the kernel):
+the new process records the new code and runs it.
+
+The check is by the metadata of a file, as for the inputs of a run: Xeda reads a file only when its
+size, times or inode changed, or when it changed just before the last check. It judges "just before"
+by the clock of this machine. A code tree on a network file system whose clock is several seconds
+behind this machine's can miss two same-size edits of one file made within one timestamp tick of
+that file system. A file whose size, times or inode changed before the first check refuses even
+when its content is the same (a ``touch``, or a switch to another branch and back): the process
+did not read the content that it imported.
+
+These are the limits of the check:
+
+- A change in memory: a monkeypatch, ``importlib.reload`` of a module of Xeda or of a flow, or
+  ``%autoreload``. A reload does not record the code again: the process stays stale until it ends.
+- The installed Python dependencies of Xeda, such as pydantic. An upgrade of one in an environment
+  that a process uses goes unnoticed. Restart the process after an upgrade.
+- Files inside the installation of a tool (see `What is not tracked`_).
+- A module of a flow outside Xeda that changed between its import and the creation of the first flow
+  class of its code root. A module that the code imports with ``importlib.import_module`` is not
+  part of the root (see `The code of a flow outside Xeda`_).
+- Bytecode that Python trusts for a source file that was edited and kept its size and its
+  modification time in seconds.
+- A file that was changed and then changed back between two checks.
+- The commands that a generator starts.
 
 What is not tracked
 ---------------------

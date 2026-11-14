@@ -23,6 +23,7 @@ import psutil
 from attrs import define
 from pydantic import ValidationError
 
+from ... import code_epoch
 from ...cancel import CancelToken
 from ...dataclass import Field, SettingText, NoReplacement, XedaBaseModel, validation_errors
 from ...units import Bounds, Time, Unit, count
@@ -544,6 +545,7 @@ class Dse(FlowLauncher):
 
         Return what the exploration did, even when no run passed. An exception of the optimizer
         ends the exploration with that exception, and `result` holds what it did until then."""
+        code_epoch.verify()
         self.result = None
         result = super().run(*args, **kwargs)
         assert isinstance(result, DseResult)
@@ -590,6 +592,7 @@ class Dse(FlowLauncher):
     ) -> Any:
         """Resolve the request, as a launcher does, and keep the private settings that it gets:
         the sweeps of the exploration plan every point with them."""
+        code_epoch.verify()
         self._local_settings = local_settings
         return super().resolve_run(
             flow,
@@ -622,6 +625,7 @@ class Dse(FlowLauncher):
         """Explore variations of the flow settings and return the best run.
 
         The exploration holds no lock while its workers run: a thread that holds one is refused."""
+        code_epoch.verify()
         refuse_if_held()
         assert isinstance(self.settings, self.Settings)
         _refuse_flow(self.optimizer, flow_class)
