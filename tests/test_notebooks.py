@@ -303,29 +303,38 @@ def test_the_sweep_notebook(executions):
 
     assert lut("192", "True") < lut("192", "False") / 2
     assert min(fmax("192", "True")) > max(fmax("192", "False"))
-    assert lut("128", "True") < lut("128", "False") * 0.85
+    assert lut("128", "False") * 0.65 < lut("128", "True") < lut("128", "False") * 0.85
     assert lut("64", "False") * 0.9 < lut("64", "True") < lut("64", "False")
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
     assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 19
-    # The markers of the front are the medians that no other median dominates, and its last step
-    # runs on to the widest configuration that passed. A front that ended at its last marker left
-    # the default 192-bit point to the right of the line, where it seemed to beat the front.
+    # At 64 and 128 bits, the seeds of the two settings overlap in `fmax`.
+    for bits in ("64", "128"):
+        assert min(fmax(bits, "False")) < max(fmax(bits, "True"))
+        assert min(fmax(bits, "True")) < max(fmax(bits, "False"))
+    # The plot against the runs of the CSV, never against what the plot itself draws. Each run
+    # that passed is an implementation, so the front is the runs that no other run dominates, and
+    # no run lies above it. A front of the median of the seeds left better seeds above the line.
+    runs = sorted(
+        (float(r["lut"]), round(int(r["bits"]) * float(r["fmax"]) / 1000, 9))
+        for r in rows
+        if r["outcome"] == "passed"
+    )
+    expected = sorted(
+        {p for p in runs if not any(q[0] <= p[0] and q[1] >= p[1] and q != p for q in runs)}
+    )
     traces = {trace["name"]: trace for trace in _plotly_figure(nb, "pareto-plot")["data"]}
     front = traces.pop("Pareto front")
-    steps = list(zip(_plotly_array(front["x"]), _plotly_array(front["y"])))
-    points = [
-        point
+    assert front["line"]["shape"] == "hv"
+    steps = [(x, round(y, 9)) for x, y in zip(_plotly_array(front["x"]), _plotly_array(front["y"]))]
+    drawn = sorted(
+        (x, round(y, 9))
         for trace in traces.values()
-        for point in zip(_plotly_array(trace["x"]), _plotly_array(trace["y"]))
-    ]
-    nondominated = sorted(
-        (x, y)
-        for x, y in points
-        if not any(qx <= x and qy >= y and (qx, qy) != (x, y) for qx, qy in points)
+        for x, y in zip(_plotly_array(trace["x"]), _plotly_array(trace["y"]))
     )
-    widest = max(x for x, _ in points)
-    assert len(points) == 6, points
-    assert steps == nondominated + [(widest, nondominated[-1][1])], (steps, points)
+    assert drawn == runs, (drawn, runs)
+    assert steps == expected + [(runs[-1][0], expected[-1][1])], (steps, expected)
+    for x, y in drawn:
+        assert y <= max(sy for sx, sy in expected if sx <= x), (x, y, expected)
 
 
 def _plotly_figure(nb: nbformat.NotebookNode, tag: str) -> dict:
