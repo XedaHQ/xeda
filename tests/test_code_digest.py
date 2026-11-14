@@ -658,6 +658,20 @@ def _classes_without_a_file(monkeypatch) -> dict[str, type[Flow]]:
     namespace: dict = {"__name__": "module_nobody_imported", "RAN": RAN}
     exec(compile(source.format(name="OrphanToy"), "<string>", "exec"), namespace)
     classes["orphan"] = namespace["OrphanToy"]
+    # A class that `type()` makes: the metaclass of `Flow` gives it the module `abc`, whose file
+    # does not define it.
+    made = type(
+        "MadeToy",
+        (Flow,),
+        {
+            "__doc__": "A flow that `type()` makes.",
+            "results_description": {},
+            "design_source_types": frozenset(),
+            "run": lambda self: RAN.append(self.name),
+        },
+    )
+    assert made.__module__ == "abc"
+    classes["made"] = made
     return classes
 
 
@@ -680,6 +694,8 @@ def test_a_flow_class_without_a_source_file_always_runs_and_has_no_digest(
             assert reason is not None and label in reason, kind
             assert "no source file on disk" in reason, kind
             assert "cannot tell whether its code changed" in reason, kind
+            with pytest.raises(KeyError):  # no code root was recorded for it
+                code_epoch.bound_root(flow_class)
             with pytest.raises(FlowFatalError, match="no code digest"):
                 flow_code_digest(flow_class)
             for launch in (1, 2):

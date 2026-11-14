@@ -673,9 +673,10 @@ to another place does not make the run stale. The root of the code is:
   code imports it, and the other files of the directory do not. A module that the code imports
   with ``importlib.import_module`` is not found: put the code in a package.
 
-A flow class that has no source file on disk cannot be checked this way. An example is a class
-defined in a notebook cell or in the interactive interpreter. Such a flow always runs (see `Flows
-that always run`_), and Xeda computes no code digest for it. To reuse its runs, define the class in
+A flow class that has no source file on disk cannot be checked this way. Examples are a class
+defined in a notebook cell or in the interactive interpreter, and a class that ``type()`` makes,
+as no file holds its definition. Such a flow always runs (see `Flows that always run`_), and Xeda
+computes no code digest for it. To reuse its runs, define the class with a ``class`` statement in
 a ``.py`` file.
 
 .. _code-epoch:
