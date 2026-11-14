@@ -791,6 +791,23 @@ def test_a_root_replaced_by_a_failed_run_before_the_delivery_fails_the_point(tmp
     assert point.result.error.node is None and not destination.exists()
 
 
+def test_a_root_replaced_by_a_run_of_the_same_code_before_the_delivery_is_delivered(
+    tmp_path, design
+):
+    """Another launch of the same code made the run again: the delivery reads it."""
+    destination = tmp_path / "out" / "top.v"
+    workspace = _workspace(tmp_path)
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and event.node == "nextpnr":
+            _replace_record(workspace.plan(_spec(design, 1)).nodes["nextpnr"].run_dir, workspace)
+
+    result = workspace.sweep([_edif_spec(design, 1, destination)], on_event=on_event)
+    (point,) = result
+    assert point.result.outcome is Outcome.PASSED, point.result.error
+    assert destination.exists()
+
+
 def test_a_cancel_while_the_sweep_plans_gives_canceled_points(
     tmp_path, remote, git_log  # noqa: F811
 ):
