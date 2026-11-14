@@ -313,6 +313,14 @@ def test_the_sweep_notebook(executions):
         assert min(fmax(bits, "False")) < max(fmax(bits, "True"))
         assert min(fmax(bits, "True")) < max(fmax(bits, "False"))
     _check_front(rows, _plotly_figure(nb, "pareto-plot"))
+    # The cell prints every run on the front, also runs that tie.
+    passed = [r for r in rows if r["outcome"] == "passed"]
+    throughputs = [(float(r["lut"]), int(r["bits"]) * float(r["fmax"]) / 1000) for r in passed]
+    on_front = [
+        p for p in throughputs
+        if not any(q[0] <= p[0] and q[1] >= p[1] and q != p for q in throughputs)
+    ]  # fmt: skip
+    assert len(cell_output(nb, "pareto-plot").splitlines()) == 1 + len(on_front)
 
 
 def _check_front(rows: list[dict], figure: dict) -> None:
@@ -333,7 +341,8 @@ def _check_front(rows: list[dict], figure: dict) -> None:
     )
     traces = {trace["name"]: trace for trace in figure["data"]}
     front = traces.pop("Pareto front")
-    assert front["line"]["shape"] == "hv"
+    assert front["mode"] == "lines" and front["line"]["shape"] == "hv", front
+    assert all(trace["mode"] == "markers" for trace in traces.values()), traces
     steps = [(x, round(y, 9)) for x, y in zip(_plotly_array(front["x"]), _plotly_array(front["y"]))]
     markers, tops = [], []
     for trace in traces.values():
@@ -359,9 +368,15 @@ def _sweep_rows(*runs: tuple[int, float, int]) -> list[dict]:
 def _figure(markers: list[tuple[float, float]], front: list[tuple[float, float]]) -> dict:
     return {
         "data": [
-            {"name": "runs", "x": [x for x, _ in markers], "y": [y for _, y in markers]},
+            {
+                "name": "runs",
+                "mode": "markers",
+                "x": [x for x, _ in markers],
+                "y": [y for _, y in markers],
+            },
             {
                 "name": "Pareto front",
+                "mode": "lines",
                 "x": [x for x, _ in front],
                 "y": [y for _, y in front],
                 "line": {"shape": "hv"},
@@ -393,6 +408,12 @@ def test_the_front_check_takes_every_run_and_rejects_a_front_of_medians():
     # A line above every run.
     with pytest.raises(AssertionError):
         _check_front(rows, _figure(runs, [(700, 30.0), (2400, 30.0)]))
+    # The right points, drawn the wrong way: the runs as a line, or the front as markers.
+    for name, mode in (("runs", "lines"), ("Pareto front", "markers")):
+        figure = _figure(runs, best + [(2400, 23.04)])
+        next(trace for trace in figure["data"] if trace["name"] == name)["mode"] = mode
+        with pytest.raises(AssertionError):
+            _check_front(rows, figure)
 
 
 def _plotly_figure(nb: nbformat.NotebookNode, tag: str) -> dict:
