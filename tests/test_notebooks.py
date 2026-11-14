@@ -245,7 +245,7 @@ def test_the_harness_runs_a_notebook_in_its_directory(tmp_path):
     assert cell_output(nb, "cwd") == str(work.resolve())
     assert (work / "x").read_text() == "1"
     assert cell_output(nb, "examples") == "somewhere"
-    assert [p.name for p in tmp_path.iterdir()] == ["nb.ipynb", "work"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["nb.ipynb", "work"]
 
 
 def test_the_harness_reports_a_failed_cell(tmp_path):
