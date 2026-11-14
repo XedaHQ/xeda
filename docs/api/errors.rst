@@ -34,6 +34,9 @@ record, a lease or a remote host failed. The codes are in :doc:`../machine-reada
 .. autoexception:: xeda.errors.StalePlanError
    :members:
 
+.. autoexception:: xeda.errors.StaleRuntimeError
+   :members:
+
 .. autoexception:: xeda.errors.RecordError
    :members:
 

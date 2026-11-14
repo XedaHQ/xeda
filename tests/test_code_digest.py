@@ -1,8 +1,10 @@
-"""The code digests of a launch: they read the files when the launch asks, name them relative to
-the root of the code, and cover what a flow imports.
+"""The code digests of a launch: they are of the code that the process imported, name the files
+relative to the root of the code, and cover what a flow imports. A file of that code that changes
+on disk after the import makes the process refuse (`stale_runtime`).
 
 A plugin flow is a package or a module written under `tmp_path`, imported for the test and
-removed from the process after it.
+removed from the process after it. A test that changes a file of it after the import shows that
+the file counts by the refusal. A new process runs the new code (`test_code_epoch.py`).
 """
 
 import importlib
@@ -16,12 +18,16 @@ from types import ModuleType
 import pytest
 
 from xeda import Design
+from xeda.errors import StaleRuntimeError
+from xeda._internal import code_epoch
 from xeda._internal.flow import Flow, FlowFatalError
 from xeda._internal.flow_runner import DefaultRunner, code_digest
 from xeda._internal.package_paths import impl_root, package_root
 from xeda._internal.flow_runner.code_digest import (
     CodeDigests,
     _named_files,
+    check_code,
+    code_fingerprint,
     flow_code_digest,
     xeda_code_digest,
 )
@@ -72,6 +78,15 @@ LOOSE_FLOW_MODULE = layout_script("""
 """)
 
 
+SUBCLASS_MODULE = """
+    from .flows import PackagedToy
+
+
+    class SecondToy(PackagedToy):
+        '''A flow of the same package.'''
+    """
+
+
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dedent(text).lstrip("\n"))
@@ -102,6 +117,7 @@ def plugin(tmp_path, monkeypatch):
     _write(root / package / "helper.py", 'TEXT = "one\\n"\n')
     _write(root / package / "templates" / "message.txt", "message one\n")
     _write(root / package / "flows.py", FLOW_MODULE.format(cls="PackagedToy"))
+    _write(root / package / "more.py", SUBCLASS_MODULE)
     monkeypatch.syspath_prepend(str(root))
     importlib.invalidate_caches()
     with preserved_flow_registry():
@@ -150,13 +166,24 @@ def _launch(tmp_path, plugin, design) -> Flow:
     return flow
 
 
+def _refused(tmp_path, plugin, design, changed: str) -> None:
+    """Assert that a launch refuses with `stale_runtime`, naming `changed`, and that it leaves the
+    trace and the output of the last run as they were."""
+    trace = next((tmp_path / "xeda_run").rglob("trace.json"))
+    before = trace.read_bytes(), (trace.parent / "out.txt").read_bytes()
+    with pytest.raises(StaleRuntimeError, match=f"changed on disk after .*{changed}") as raised:
+        _launch(tmp_path, plugin, design)
+    assert raised.value.code == "stale_runtime"
+    assert (trace.read_bytes(), (trace.parent / "out.txt").read_bytes()) == before
+
+
 # The digests of Xeda's own code
 
 
 def test_the_xeda_code_digest_covers_helpers_templates_and_data():
     """An editable install keeps its version string across edits: a helper flows use (template
     filters in utils.py, cocotb.py, tool.py) or bundled board data must count as xeda's code."""
-    from xeda._internal.digest import package_files
+    from xeda._internal.code_epoch import package_files
 
     files = {
         p.relative_to(code_digest.XEDA_PACKAGE).as_posix()
@@ -177,22 +204,30 @@ def test_a_flow_of_xeda_s_own_has_no_separate_code_digest():
     assert flow_code_digest(YosysFpga) == ""
 
 
-def test_the_xeda_code_digest_reads_the_files_each_time_and_not_where_they_are(
-    tmp_path, monkeypatch
-):
-    """A copy of the package at another place has the same digest, and an edit of a template in
-    it changes the digest of the next call, in the same process."""
+def _package_record(package: Path) -> code_epoch.CodeRoot:
+    """Return a record of a copy of the xeda package, by the rule of the record of the process."""
+    return code_epoch.CodeRoot(
+        "The copy",
+        lambda: [
+            (file.relative_to(package).as_posix(), file)
+            for file in code_epoch.package_files(package)
+        ],
+    )
+
+
+def test_the_xeda_code_digest_is_of_the_files_and_not_where_they_are(tmp_path):
+    """A copy of the package at another place has the digest of the package, also once it moved.
+    An edit of a template in it refuses the next check."""
     copy = tmp_path / "elsewhere" / "xeda"
     shutil.copytree(
         code_digest.XEDA_PACKAGE, copy, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
     )
-    monkeypatch.setattr(code_digest, "XEDA_PACKAGE", copy)
-    before = xeda_code_digest()
+    assert code_epoch.digest_pairs(_package_record(copy).verified_pairs()) == xeda_code_digest()
     moved = tmp_path / "moved" / "xeda"
     moved.parent.mkdir()
     copy.rename(moved)
-    monkeypatch.setattr(code_digest, "XEDA_PACKAGE", moved)
-    assert xeda_code_digest() == before
+    record = _package_record(moved)
+    assert code_epoch.digest_pairs(record.verified_pairs()) == xeda_code_digest()
     template = (
         moved
         / impl_root().relative_to(package_root())
@@ -202,33 +237,43 @@ def test_the_xeda_code_digest_reads_the_files_each_time_and_not_where_they_are(
         / "yosys_synth.ys"
     )
     template.write_text(template.read_text() + "# edited\n")
-    assert xeda_code_digest() != before
+    with pytest.raises(StaleRuntimeError, match="yosys_synth.ys"):
+        record.verified_pairs()
 
 
 # The digest of a plugin flow in a package
 
 
-def test_an_edit_of_a_template_makes_the_next_launch_stale_in_the_same_process(
-    tmp_path, plugin, design
-):
+def test_an_edit_of_a_template_after_the_import_refuses_the_next_launch(tmp_path, plugin, design):
     _launch(tmp_path, plugin, design)
     assert _launch(tmp_path, plugin, design).reused
     (plugin.directory / "templates" / "message.txt").write_text("message two\n")
-    flow = _launch(tmp_path, plugin, design)
-    assert not flow.reused
-    assert flow.stale_reason == f"the {flow.name} flow's code changed"
-    assert (flow.run_path / "out.txt").read_text() == "one\nmessage two\n"
+    _refused(tmp_path, plugin, design, "templates/message.txt")
 
 
-def test_an_edit_of_a_helper_module_makes_the_next_launch_stale_in_the_same_process(
+def test_an_edit_of_a_helper_module_after_the_import_refuses_the_next_launch(
     tmp_path, plugin, design
 ):
-    """The helper is a module of the package that the module of the flow imports."""
+    """The helper is a module of the package that the module of the flow imports. The process
+    runs the helper that it imported, so no launch may name the new one."""
     _launch(tmp_path, plugin, design)
     _write(plugin.directory / "helper.py", 'TEXT = "two\\n"\n')
-    flow = _launch(tmp_path, plugin, design)
-    assert not flow.reused
-    assert flow.stale_reason == f"the {flow.name} flow's code changed"
+    _refused(tmp_path, plugin, design, "helper.py")
+
+
+def test_a_new_import_of_the_flow_keeps_the_record_of_its_code(plugin):
+    """The record of a code root is taken once: an import of the modules again creates new
+    classes of the same root, and the root is still the one that the process imported first."""
+    digest = flow_code_digest(plugin.flow_class)
+    _write(plugin.directory / "helper.py", 'TEXT = "two\\n"\n')
+    _forget_modules(plugin.package)
+    importlib.invalidate_caches()
+    again = importlib.import_module(f"{plugin.package}.flows").PackagedToy
+    assert again is not plugin.flow_class
+    with pytest.raises(StaleRuntimeError, match="helper.py"):
+        flow_code_digest(again)
+    _write(plugin.directory / "helper.py", 'TEXT = "one\\n"\n')
+    assert flow_code_digest(again) == digest  # the content that the process imported
 
 
 def _import_copy(monkeypatch, plugin, names, copy_root: Path) -> type[Flow]:
@@ -253,10 +298,11 @@ def test_a_moved_package_has_the_same_flow_code_digest(tmp_path, monkeypatch, pl
 
 
 def test_the_flow_code_digest_covers_the_whole_package_and_names_files_relative_to_it(plugin):
-    before = flow_code_digest(plugin.flow_class)
+    flow_code_digest(plugin.flow_class)
     (plugin.directory / "data" / "table.csv").parent.mkdir()
     (plugin.directory / "data" / "table.csv").write_text("a,b\n")
-    assert flow_code_digest(plugin.flow_class) != before
+    with pytest.raises(StaleRuntimeError, match=f"{plugin.package}/data/table.csv"):
+        flow_code_digest(plugin.flow_class)
 
 
 def test_the_flow_code_digest_ignores_compiled_files_and_files_outside_the_package(
@@ -281,9 +327,10 @@ def test_the_files_of_a_run_root_in_the_package_do_not_count(plugin):
 
 def test_a_directory_named_like_a_run_root_without_its_marker_counts(plugin):
     """Only a directory that holds the marker of a run root is left out, never one by its name."""
-    before = flow_code_digest(plugin.flow_class)
+    flow_code_digest(plugin.flow_class)
     _write(plugin.directory / "xeda_run" / "table.csv", "a,b\n")
-    assert flow_code_digest(plugin.flow_class) != before
+    with pytest.raises(StaleRuntimeError, match="xeda_run/table.csv"):
+        flow_code_digest(plugin.flow_class)
 
 
 # The digest of a plugin flow in a module outside a package
@@ -300,9 +347,9 @@ def test_a_flow_in_a_module_covers_what_the_module_imports(loose_plugin):
     ):
         original = path.read_text()
         path.write_text(text)
-        changed = flow_code_digest(loose_plugin.flow_class)
-        assert changed != digest, path
-        path.write_text(original)
+        with pytest.raises(StaleRuntimeError):
+            flow_code_digest(loose_plugin.flow_class)
+        path.write_text(original)  # the content that the process imported: no refusal
         assert flow_code_digest(loose_plugin.flow_class) == digest
 
 
@@ -327,7 +374,8 @@ def test_a_flow_in_a_namespace_package_covers_the_modules_it_imports_relatively(
             (root / namespace / "other.py").write_text("OTHER = 2\n")
             assert flow_code_digest(flow_class) == digest
             (root / namespace / "helper.py").write_text('TEXT = "two"\n')
-            assert flow_code_digest(flow_class) != digest
+            with pytest.raises(StaleRuntimeError, match="helper.py"):
+                flow_code_digest(flow_class)
         finally:
             _forget_modules(namespace)
 
@@ -356,7 +404,8 @@ def test_a_dotted_import_through_a_directory_without_an_init_file_is_followed(
             (root / namespace / "unused.py").write_text("UNUSED = 2\n")
             assert flow_code_digest(flow_class) == digest
             (root / namespace / "codec.py").write_text('TEXT = "two"\n')
-            assert flow_code_digest(flow_class) != digest
+            with pytest.raises(StaleRuntimeError, match="codec.py"):
+                flow_code_digest(flow_class)
         finally:
             _forget_modules(module)
             _forget_modules(namespace)
@@ -392,14 +441,12 @@ def test_a_helper_and_a_template_directory_that_are_links_keep_the_digest(tmp_pa
     assert flow_code_digest(loose_plugin.flow_class) == digest
 
 
-def test_an_edit_of_a_helper_of_a_module_makes_the_next_launch_stale(
-    tmp_path, loose_plugin, design
-):
+def test_an_edit_of_a_helper_of_a_module_refuses_the_next_launch(tmp_path, loose_plugin, design):
     _launch(tmp_path, loose_plugin, design)
     assert _launch(tmp_path, loose_plugin, design).reused
     helper = loose_plugin.root / f"{loose_plugin.helper}.py"
     helper.write_text(helper.read_text() + "# edited\n")
-    assert not _launch(tmp_path, loose_plugin, design).reused
+    _refused(tmp_path, loose_plugin, design, f"{loose_plugin.helper}.py")
 
 
 # A class without a source file on disk
@@ -504,27 +551,22 @@ def test_a_launch_reads_the_xeda_package_once(monkeypatch):
 
 
 def _count_reads(monkeypatch) -> list[Path]:
-    """Return the list that gets each file the digests read from now on."""
-    from xeda._internal import digest
-
+    """Return the list that gets each code file that a check reads from now on."""
     read: list[Path] = []
-    real = digest.content_digest
+    real = code_epoch.content_digest
     monkeypatch.setattr(
-        digest, "content_digest", lambda path: read.append(Path(path)) or real(path)
+        code_epoch, "content_digest", lambda path: read.append(Path(path)) or real(path)
     )
     return read
 
 
-def test_a_settled_relaunch_reads_no_code_file_and_an_edit_reads_only_that_file(
-    plugin, monkeypatch
-):
-    """Each launch checks every code file by its metadata, as the trace checks its inputs."""
+def test_a_settled_check_reads_no_code_file_and_an_edit_is_refused(plugin, monkeypatch):
+    """Each launch checks every code file by its metadata, as the trace checks its inputs. A file
+    read again with the content that the process imported is no change."""
     import os
     import time
 
-    from xeda._internal import digest
-
-    monkeypatch.setattr(digest, "RACY_NS", 300_000_000)  # 0.3 s rather than 2 s, not to wait
+    monkeypatch.setattr(code_epoch, "RACY_NS", 300_000_000)  # 0.3 s rather than 2 s, not to wait
     time.sleep(0.5)
     cls = plugin.flow_class
     first = (flow_code_digest(cls), xeda_code_digest())
@@ -532,52 +574,56 @@ def test_a_settled_relaunch_reads_no_code_file_and_an_edit_reads_only_that_file(
     assert (flow_code_digest(cls), xeda_code_digest()) == first
     assert read == [], "a settled file was read again"
     helper = plugin.directory / "helper.py"
-    _write(helper, 'TEXT = "two\\n"\n')
-    assert flow_code_digest(cls) != first[0]
+    os.utime(helper)  # new metadata, the same content
+    assert flow_code_digest(cls) == first[0]
     assert read == [helper.resolve()]
     # An edit of the same size, with the old modification time put back, changes the inode change
-    # time, and the next launch notices it.
+    # time, and the next check notices it.
     time.sleep(0.5)
     flow_code_digest(cls)
     stat = helper.stat()
-    settled = flow_code_digest(cls)
     helper.write_text('TEXT = "six\\n"\n')
     os.utime(helper, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    assert flow_code_digest(cls) != settled
+    with pytest.raises(StaleRuntimeError, match="helper.py"):
+        flow_code_digest(cls)
 
 
-def test_all_the_flows_of_a_tree_get_one_snapshot_of_it_in_a_launch(plugin):
-    """Two flow classes of one package see the same files, also when the tree changes between
-    their first lookups. The next launch reads the tree again."""
-    _write(plugin.directory / "more.py", FLOW_MODULE.format(cls="SecondToy"))
+def test_the_flows_of_a_tree_share_one_record_and_the_check_reads_it_again(plugin):
+    """Two flow classes of one package have one record of it. A launch keeps the digests that it
+    computed (`CodeDigests`), and its check before a trace (`check_code`) reads the files again."""
     second = importlib.import_module(f"{plugin.package}.more").SecondToy
     assert second is not plugin.flow_class
     digests = CodeDigests()
     first = digests.flow(plugin.flow_class)
+    assert flow_code_digest(second) == first
     _write(plugin.directory / "helper.py", 'TEXT = "changed"\n')
-    assert digests.flow(second) == first
     assert digests.flow(plugin.flow_class) == first
-    assert CodeDigests().flow(second) != first
+    with pytest.raises(StaleRuntimeError):
+        CodeDigests().flow(second)
+    with pytest.raises(StaleRuntimeError):
+        check_code(plugin.flow_class)
 
 
 def test_a_class_in_the_tree_of_its_base_adds_nothing_to_the_flow_code_digest(plugin):
     """The tree of a package counts once, whatever number of the classes of the MRO are in it."""
-    _write(
-        plugin.directory / "more.py",
-        """
-        from .flows import PackagedToy
-
-
-        class SecondToy(PackagedToy):
-            '''A flow of the same package.'''
-        """,
-    )
     second = importlib.import_module(f"{plugin.package}.more").SecondToy
     assert flow_code_digest(second) != ""
     # the files of the package are the same; `more.py` is one of them
     names = [name for name, _ in _named_files(plugin.flow_class)]
     assert f"{plugin.package}/more.py" in names
     assert flow_code_digest(second) == flow_code_digest(plugin.flow_class)
+
+
+def test_the_code_fingerprint_names_no_place(tmp_path, monkeypatch, plugin):
+    """The fingerprint holds the digest of Xeda and of each flow, so the same code imported at
+    another place has the same one."""
+    fingerprint = code_fingerprint([plugin.flow_class])
+    assert fingerprint == {
+        "xeda": xeda_code_digest(),
+        plugin.flow_class.name: flow_code_digest(plugin.flow_class),
+    }
+    moved = _import_copy(monkeypatch, plugin, [plugin.package], tmp_path / "elsewhere" / "code")
+    assert code_fingerprint([moved]) == fingerprint
 
 
 def test_two_code_roots_with_the_same_file_count_twice(tmp_path, monkeypatch):

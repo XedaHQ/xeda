@@ -30,6 +30,7 @@ from .cli_types import refuse_both_config_options as _refuse_both_config_options
 from .pdk_cli import add_pdk_commands
 from .tools_cli import add_tools_commands
 from .remote.commands import add_remote_commands
+from . import code_epoch
 from .types import UNSET, Question, Unset
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
@@ -89,7 +90,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         platforms_info,
         results_info,
     )
-    from xeda.errors import RemoteError, SpecError
+    from xeda.errors import RemoteError, SpecError, StaleRuntimeError
     from .run_dir import RunDirectoryError
     from .outcomes import Outcome, run_document, spec_document
     from .plan import spec_document as spec_of
@@ -1310,7 +1311,7 @@ def run(
             info = dataclasses.replace(info, message=_option_names(info.message, ctx.command))
             text = _option_names(text, ctx.command)
         log.critical("%s", text)
-        refused = isinstance(public, (SpecError, RemoteError))
+        refused = isinstance(public, (SpecError, RemoteError, StaleRuntimeError))
         if json_flag:
             emit_structured(
                 run_document(
@@ -1337,6 +1338,7 @@ def run(
     # The command line finds the project file (`--xedaproject`, else the one in the current
     # directory). The library discovers nothing.
     try:
+        code_epoch.verify()
         project = _selected_project(xedaproject, design_file)
         local = _cli_local_settings(project, design_file, config, no_config)
     except Exception as e:
@@ -1674,13 +1676,18 @@ def dse(
         log.critical("%s", _error_message(error))
         # Once the exploration started, every exception ends it: an optimizer may raise any error.
         started = dse is not None and dse.result is not None
-        refused = isinstance(public, (SpecError, RemoteError)) and not started
+        refused = isinstance(public, (SpecError, RemoteError, StaleRuntimeError)) and not started
         report(None if refused else Outcome.FAILED, info, None if dse is None else dse.result)
         # A refusal is a user error, even when it comes as a raw pydantic error.
         bug = info.code == INTERNAL_ERROR or not isinstance(error, XedaException)
         if not json_flag and not refused and bug:
             raise error
         sys.exit(2 if refused else 1)
+
+    try:
+        code_epoch.verify()
+    except StaleRuntimeError as e:
+        not_ended(e)
 
     # Resolving the optimizer inside Dse() raises an AttributeError that names nothing useful,
     # so check it here, where the available names are known.

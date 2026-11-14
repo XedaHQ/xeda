@@ -14,6 +14,7 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
+from . import code_epoch
 from .cancel import CancelToken
 from .deliver import overwrite_question
 from xeda.errors import RecordError, RunRootError, SpecError, StalePlanError
@@ -186,6 +187,7 @@ class Workspace:
         Raises a `SpecError` for a request that a launch refuses before anything runs (a setting,
         a design, a chain, a delivery or a run root), `run_root_mismatch` for a design of a
         project that names another run root than this workspace's default one."""
+        code_epoch.verify()
         from .flow_runner import DefaultRunner
         from .flow_runner.error_codes import public_error
 
@@ -280,6 +282,7 @@ class Workspace:
 
         A thread that holds a lock of Xeda (inside `on_event` or `confirm`) cannot start a launch:
         it raises `LeaseHeldError` before it plans."""
+        code_epoch.verify()
         from .flow_runner import DefaultRunner
         from .flow_runner.error_codes import public_error
         from .flow_runner.run_lock import refuse_if_held
@@ -408,6 +411,7 @@ class Workspace:
         raises stops the sweep and propagates. With workers, a stop also stops the tools that
         run, and the sweep returns when every worker has released its locks. A thread that holds a lock of Xeda cannot start a
         sweep (`LeaseHeldError`)."""
+        code_epoch.verify()
         from .flow_runner.error_codes import public_error
         from .flow_runner.run_lock import refuse_if_held
         from .proc_utils import TOOL_OUTPUT

@@ -10,9 +10,10 @@ variants of a design keep their own generated files side by side.
 The decision to run is made on content. The record holds the digest of every generated source
 that the last generation left, and the digest of the environment that the generator inherited. The
 generator runs again when the storage has no record of this key, when a recorded file is gone or
-changed, or when the inherited environment is another. A modification time decides nothing: a
-`touch`, a `cp -p` or a branch round-trip costs a hash and gives no wrong answer, and an edit
-given back its old modification time is caught.
+changed, when the inherited environment is another, or when the code of Xeda that wrote the record
+is not the code of this process. A modification time decides nothing: a `touch`, a `cp -p` or a
+branch round-trip costs a hash and gives no wrong answer, and an edit given back its old
+modification time is caught.
 
 A generator is an external tool, and Xeda assumes nothing about its language. What it reads is
 what the recipe names in `sources`; a directory counts as every file in it, outside the design
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from . import code_epoch
 from .design import STORAGE_PREFIX, TREE_DIRECTORY, storage_name
 from .digest import content_digest, record_file
 from .listing import VCS_METADATA, directory_files
@@ -56,8 +58,9 @@ RECORD_NAME = "generation.yaml"
 #: Format 2: a generator sees `PWD` set to the directory it runs in. Format 3: a generator starts
 #: in the design root (or its `cwd`), no longer in the storage. Format 4: a generated entry in the
 #: design tree is copied into `.xeda-tree/` of the storage. A storage that an earlier format
-#: describes is generated once more.
-RECORD_FORMAT = 4
+#: describes is generated once more. Format 5: the record holds the digest of Xeda's code
+#: (`code_epoch.xeda_digest`), which ran the generation.
+RECORD_FORMAT = 5
 
 #: The number of hexadecimal digits of a key.
 KEY_LENGTH = 16
@@ -330,6 +333,8 @@ def judge(
         return "the record of its last generation is of another format", {}
     if data.get("key") != key:
         return "the record of its last generation is of another configuration", {}
+    if data.get("xeda_code") != code_epoch.xeda_digest():
+        return "Xeda's code changed since its last generation", {}
     evidence = data.get("environment")
     now = environment_evidence(generator, environ)
     if (
@@ -372,12 +377,16 @@ def write_record(
     environ: Mapping[str, str],
     matches: Mapping[str, tuple[str, ...]],
 ) -> None:
-    """Write the record of a generation that has just ended, into its storage."""
+    """Write the record of a generation that has just ended, into its storage.
+
+    The record names the code of Xeda that this process imported. It checks that code first
+    (`code_epoch.xeda_digest`), so no record names other code than the code that generated."""
     from .utils import replacing_file
 
     record = {
         "format": RECORD_FORMAT,
         "key": key,
+        "xeda_code": code_epoch.xeda_digest(),
         "generator": type(generator).__name__,
         "environment": environment_evidence(generator, environ),
         "outputs": _digests_of(storage, matches),

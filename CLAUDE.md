@@ -240,10 +240,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 ### Writes, caching and isolation
 
 - Runs are make-like; hashes are semantic and location-free; writes are judged by file identity.
-- Code digests (`flow_runner/code_digest.py`) list and check every file at each launch, by the
-  trace's record rule (`digest.record_file`), with names relative to the code root
-  (`tests/test_code_digest.py`); a flow class without a source file
-  always runs, through `Flow.always_runs`, and gets no digest.
+- Code digests (`flow_runner/code_digest.py`) name the code the process imported: `code_epoch.py`
+  records it at `import xeda` and at a plugin root's first Flow class, with names relative to the
+  code root. Every launching entry starts with `code_epoch.verify()`, and a trace, a reuse and a
+  generation record check again, by the racy rule, so a process whose code changed on disk refuses
+  with `stale_runtime`, with no opt-out (`tests/test_code_epoch.py`, `tests/test_code_digest.py`);
+  a flow class without a source file always runs, through `Flow.always_runs`, and gets no digest.
 - Add no `os.chdir` and start every process with `cwd=`; the reviewed exceptions are listed in
   `tests/test_working_directory_reads.py`.
 - Every write in a run directory goes through `RunDirectory` (`run_dir.py`):

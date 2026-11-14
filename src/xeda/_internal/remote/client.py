@@ -50,6 +50,7 @@ from typing import Any, BinaryIO, Deque, Dict, List, Optional, Tuple, cast
 
 from pydantic import ValidationError
 
+from .. import code_epoch
 from ..deliver import (
     Conflict,
     Delivered,
@@ -1707,6 +1708,7 @@ def _run(
 ) -> Result | Dict[str, Any]:
     """Run the request, or only plan it (`dry_run`). A run returns its `Result`, and a dry run the
     document of the plan, with the paths of this side."""
+    code_epoch.verify()
     if _is_windows():
         raise RemoteError(
             "--remote does not work on native Windows. Use WSL, or run xeda on a Linux or macOS "

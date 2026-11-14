@@ -832,6 +832,9 @@ the cause.
 ``flow_not_importable``
     A worker process of a sweep could not import the module of a flow. The message names the
     module.
+``stale_runtime``
+    The code of Xeda or of a plugin flow changed on disk while the node ran, after the process
+    imported it. The node keeps no trace. Restart the Python process (see :ref:`code-epoch`).
 
 Errors of a launch (``launch``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1019,6 +1022,14 @@ A stale plan (``StalePlanError``)
 
 ``stale_plan``
     The files that a plan was made from changed. ``difference`` says what changed. Plan again.
+
+Code that changed on disk (``StaleRuntimeError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``stale_runtime``
+    The code of Xeda or of a plugin flow changed on disk after this process imported it, so the
+    process runs the old code. It plans and launches nothing. Restart the Python process (in
+    Jupyter, restart the kernel).
 
 A record that Python cannot read (``RecordError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

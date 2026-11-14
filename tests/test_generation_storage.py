@@ -26,6 +26,7 @@ from xeda._internal.flow_runner import run_lock
 from xeda._internal.frozen import thaw
 from xeda._internal.flow_runner.launch_generation import generation_key
 from xeda._internal.flow_runner.run_lock import lock_file
+from xeda._internal.flow_runner.code_digest import xeda_code_digest
 from xeda._internal.generation import RECORD_FORMAT, RECORD_NAME
 from xeda._internal.outcomes import Outcome
 from xeda._internal.spec import Spec
@@ -1025,6 +1026,29 @@ def test_an_old_record_makes_the_generator_run_again_in_the_same_storage(tmp_pat
     assert yaml.safe_load(record.read_text())["format"] == RECORD_FORMAT
     assert world.launch(flow).outcome is Outcome.PASSED
     assert world.runs == 2, "the new record is trusted"
+
+
+def test_a_record_of_other_xeda_code_makes_the_generator_run_again(tmp_path):
+    """The record names the code of Xeda that generated. A record that names other code, or none,
+    is not trusted: the generator runs again in the same storage."""
+    flow = reader_flow()
+    world = World(tmp_path)
+    assert world.launch(flow).outcome is Outcome.PASSED
+    (storage,) = world.storages()
+    record = storage / RECORD_NAME
+    data = yaml.safe_load(record.read_text())
+    assert data["xeda_code"] == xeda_code_digest()
+    for runs, change in ((2, "other"), (3, "none")):
+        if change == "other":
+            data["xeda_code"] = "0" * 32
+        else:
+            del data["xeda_code"]
+        record.write_text(yaml.safe_dump(data))
+        assert world.launch(flow).outcome is Outcome.PASSED
+        assert world.runs == runs, change
+        data = yaml.safe_load(record.read_text())
+        assert data["xeda_code"] == xeda_code_digest()
+    assert world.storages() == [storage], "the same storage"
 
 
 def test_a_recipe_env_may_not_set_pwd(tmp_path):

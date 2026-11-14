@@ -28,6 +28,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .. import code_epoch
 from ..dataclass import XedaBaseModel
 from ..package_paths import impl_module
 from ..utils import replacing_file
@@ -306,7 +307,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..flow_runner.chains import parse_request
     from ..flow_runner.error_codes import public_error, request_error_info
     from ..flow_runner.launch_result import failed_result, launch_result
-    from xeda.errors import SpecError
+    from xeda.errors import SpecError, StaleRuntimeError
     from ..flow_runner.launch_options import LaunchOptions, WorkspaceOptions
     from ..introspect import design_info
     from ..plan import dependency_entries, plan_of
@@ -323,6 +324,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     parsed: Any = None
     try:
         setup_logger(request.log_level, request.detailed_logs)
+        code_epoch.verify()
         parsed = parse_request(request.chain)
         inputs_dir = Path(request.inputs_dir)
         design = inputs_dir / request.design_file
@@ -408,7 +410,9 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                 log=None,
             )
         log.critical("%s", error.message)
-        refused = isinstance(e, Exception) and isinstance(public_error(e), SpecError)
+        refused = isinstance(e, Exception) and isinstance(
+            public_error(e), (SpecError, StaleRuntimeError)
+        )
         if launcher is not None and loaded is not None and plan is not None and not refused:
             # Every planned node keeps what the launch did with it: a node that passed stays
             # passed, the node that was running is canceled by an interrupt, and any other
