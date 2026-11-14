@@ -310,6 +310,9 @@ class Workspace:
                     "Pass them to `plan`.",
                     code="plan_options",
                 )
+            from .flow_runner.code_digest import check_fingerprint
+
+            check_fingerprint(request._code, "The plan was made by", "Plan again in this process.")
             difference = workspace_difference(request._workspace, self._options())
             if difference is not None:
                 raise StalePlanError(

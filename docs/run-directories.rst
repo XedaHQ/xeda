@@ -701,6 +701,21 @@ is the code that the process imported, and not the code on disk:
   trace, and the next launch runs it again.
 - The record of a generation names the code of Xeda that wrote it. A record of other code is not
   trusted, and the generator runs again.
+- A plan keeps the digests of the code that made it: Xeda's, and that of each flow outside Xeda
+  (the ``code`` of its document; a pickle keeps them too). ``Workspace.run(plan)`` in a process
+  that imported other code refuses the plan with ``stale_runtime`` before the launch starts. Plan
+  again in that process.
+- A sweep with ``max_workers`` above 1 keeps the digests of the code that planned it. A worker
+  process imports the code that is on disk when the worker starts, so before it plans a node, it
+  compares its code with the code of the sweep. A difference fails the node with
+  ``stale_runtime``, and the sweep still returns its result. The node plans nothing and writes
+  nothing. Restart the process that sweeps and sweep again.
+- With ``--remote``, the host runs the code that the client sends. The files of that code and
+  their content must be the files of Xeda that the client imported, by the same rule: bytecode and
+  hidden files are left out, and a symbolic link is sent as the file or directory that it leads
+  to. The client checks this when it reads the code and before it sends a launch. The host
+  compares the digests of its own code with those of the client before it plans. A difference
+  refuses the launch with ``stale_runtime``.
 
 There is no way to turn the check off. Restart the Python process (in Jupyter, restart the kernel):
 the new process records the new code and runs it.

@@ -968,7 +968,15 @@ def _plan_with_a_local_dependency(tmp_path: Path):
 def test_the_plan_document_lists_the_dependencies_of_a_record(tmp_path):
     design, plan = _plan_with_a_local_dependency(tmp_path)
     document = plan.to_dict()
-    assert list(document) == ["schema_version", "spec", "roots", "options", "dependencies", "nodes"]
+    assert list(document) == [
+        "schema_version",
+        "spec",
+        "roots",
+        "options",
+        "dependencies",
+        "code",
+        "nodes",
+    ]
     assert document["dependencies"] == [
         {"repository": None, "reference": None, "commit": None, "design_file": "lib.yaml"}
     ]

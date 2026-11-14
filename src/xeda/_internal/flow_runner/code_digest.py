@@ -38,14 +38,15 @@ it every time and computes no digest for it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Type
 
 from .. import code_epoch
 from ..code_epoch import XEDA_PACKAGE, digest_pairs, root_files
-from ..flow import Flow, FlowFatalError
-from ..flow.source_file import class_label, find_source_file
+from ..flow import Flow, FlowFatalError, registered_flows
+from ..flow.source_file import class_label, find_source_file, without_source_file
+from xeda.errors import StaleRuntimeError
 
 
 def xeda_code_digest() -> str:
@@ -128,11 +129,43 @@ def code_fingerprint(flow_classes: Iterable[Type[Flow]]) -> dict[str, str]:
     each of `flow_classes` (by its flow name), after a check.
 
     Every name in the digests is relative to the root of its code, so two processes that
-    imported the same code at other places have the same fingerprint."""
+    imported the same code at other places have the same fingerprint. A flow with a class that has
+    no source file on disk has no entry: no other process can import it, and it always runs."""
     return {
         "xeda": xeda_code_digest(),
-        **{flow_class.name: flow_code_digest(flow_class) for flow_class in flow_classes},
+        **{
+            flow_class.name: flow_code_digest(flow_class)
+            for flow_class in flow_classes
+            if without_source_file(c for c in flow_class.__mro__ if issubclass(c, Flow)) is None
+        },
     }
+
+
+def check_fingerprint(expected: Mapping[str, str], whose: str, advice: str) -> None:
+    """Raise `StaleRuntimeError` if the code that this process imported is not the code whose
+    `code_fingerprint` is `expected`.
+
+    `whose` names the code of `expected` in the message ("The sweep planned with"), and `advice`
+    says what to do. A flow of `expected` that this process has not registered differs, and so
+    does Xeda when `expected` has no digest of it."""
+    from .. import flows  # noqa: F401 - registers the flows of Xeda
+
+    changed = []
+    for name in ["xeda", *sorted(set(expected) - {"xeda"})]:
+        digest = expected.get(name)
+        if name == "xeda":
+            current: str | None = xeda_code_digest()
+        else:
+            found = registered_flows.get(name)
+            current = None if found is None else flow_code_digest(found[1])
+        if current != digest:
+            changed.append("Xeda" if name == "xeda" else f"the flow `{name}`")
+    if changed:
+        raise StaleRuntimeError(
+            f"{whose} other code than this process imported: the code of {', '.join(changed)} "
+            f"differs. {advice}",
+            code="stale_runtime",
+        )
 
 
 class CodeDigests:

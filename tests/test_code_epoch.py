@@ -252,6 +252,67 @@ MID_LAUNCH = PRELUDE + layout_script("""
     tell(launch("barrier_toy", work / "xeda_run"))
 """)
 
+#: A sweep in worker processes: the test changes the code of the flow after the sweep planned and
+#: before any worker starts, while the sweep tells its first event.
+SWEEP = PRELUDE + layout_script("""
+    run_root = work / "xeda_run"
+    told = []
+
+
+    def on_event(event):
+        if not told:
+            told.append(event)
+            tell({"planned": True})
+            sys.stdin.readline()
+
+
+    swept = Workspace(run_root).sweep(
+        [Spec("sentinel_toy", design)], max_workers=2, on_event=on_event
+    )
+    (point,) = swept.points
+    error = point.result.nodes["sentinel_toy"].error
+    tell({
+        "outcome": str(point.result.outcome),
+        "code": None if error is None else error.code,
+        "message": None if error is None else error.message,
+        "traces": [str(path) for path in run_root.rglob("trace.json")],
+    })
+""")
+
+#: A process that plans, and keeps the plan as a pickle and as a document.
+PLAN = PRELUDE + layout_script("""
+    import pickle
+
+    plan = Workspace(work / "xeda_run").plan(Spec("sentinel_toy", design))
+    (work / "plan.pickle").write_bytes(pickle.dumps(plan))
+    (work / "plan.json").write_text(json.dumps(plan.to_dict()))
+    tell({"planned": True})
+""")
+
+#: A new process that runs the plans of `PLAN`, and then one of its own.
+RUN_PLAN = PRELUDE + layout_script("""
+    import pickle
+    from xeda.plan import plan_from_dict
+
+    run_root = work / "xeda_run"
+    workspace = Workspace(run_root)
+    spec = Spec("sentinel_toy", design)
+    document = json.loads((work / "plan.json").read_text())
+    plans = {
+        "pickle": pickle.loads((work / "plan.pickle").read_bytes()),
+        "document": plan_from_dict(document, spec=spec, workspace=None),
+    }
+    refusals = {}
+    for name, plan in plans.items():
+        try:
+            refusals[name] = str(workspace.run(plan).outcome)
+        except StaleRuntimeError as error:
+            refusals[name] = [error.code, error.message]
+    traces = [str(path) for path in run_root.rglob("trace.json")]
+    own = workspace.run(workspace.plan(spec))
+    tell({"refusals": refusals, "traces": traces, "own": str(own.outcome)})
+""")
+
 
 class Copy:
     """A copy of the `xeda` package with a sentinel module, a plugin flow, and a design."""
@@ -374,6 +435,41 @@ def test_a_change_while_a_node_runs_fails_the_node_and_keeps_no_trace(tmp_path):
     (results,) = (tmp_path / "xeda_run").rglob("results.json")
     record = json.loads(results.read_text())
     assert (record["outcome"], record["error"]["code"]) == ("failed", "stale_runtime")
+
+
+@pytest.mark.parametrize("changed", [True, False], ids=["changed", "unchanged"])
+def test_a_change_after_a_sweep_planned_fails_its_worker_nodes_as_values(tmp_path, changed):
+    """A worker imports the code that is on disk when it starts. It compares that code with the
+    code that planned the sweep before it plans, and a difference fails its node."""
+    copy = Copy(tmp_path)
+    child = copy.start(SWEEP)
+    assert copy.read(child) == {"planned": True}  # no worker has started yet
+    if changed:
+        flow = copy.plugin / "sentinel_flow.py"
+        flow.write_text(flow.read_text() + "# B\n")
+    (done,) = copy.finish(child, "go")
+    if not changed:
+        assert (done["outcome"], done["code"]) == ("passed", None)
+        return
+    assert (done["outcome"], done["code"], done["traces"]) == ("failed", "stale_runtime", [])
+    assert "the flow `sentinel_toy` differs" in done["message"]
+    assert "Plan again" not in done["message"]
+
+
+@pytest.mark.parametrize("changed", [True, False], ids=["changed", "unchanged"])
+def test_a_plan_made_by_other_code_is_refused_before_its_launch_starts(tmp_path, changed):
+    copy = Copy(tmp_path)
+    assert copy.finish(copy.start(PLAN)) == [{"planned": True}]
+    if changed:
+        copy.version(B)
+    (done,) = copy.finish(copy.start(RUN_PLAN))
+    if changed:
+        for code, message in done["refusals"].values():
+            assert code == "stale_runtime" and "the code of Xeda differs" in message
+        assert done["traces"] == [], "a refused plan runs nothing"
+    else:
+        assert done["refusals"] == {"pickle": "passed", "document": "passed"}
+    assert done["own"] == "passed"
 
 
 # ---------------------------------------------------------------- the code of the error

@@ -16,7 +16,15 @@ import pytest
 from xeda import Design
 from xeda.introspect import results_info
 from xeda._internal.cancel import CancelToken
-from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
+from xeda.errors import (
+    LeaseHeldError,
+    RecordError,
+    RunReplacedError,
+    SpecError,
+    StalePlanError,
+    StaleRuntimeError,
+)
+from xeda._internal import code_epoch
 from xeda._internal.events import Event
 from xeda._internal.flow_runner import run_lock
 from xeda._internal.flow_runner.trace import previous_trace
@@ -124,15 +132,17 @@ def test_a_node_reused_from_an_earlier_launch_is_reused_in_every_point(tmp_path,
 
 
 def _task(workspace: Workspace, spec: Spec, node: str, completed, **fields) -> NodeTask:
+    plan = workspace.plan(spec)
     return NodeTask(
         spec=spec,
         node=node,
-        identity=workspace.plan(spec).nodes[node].identity,
+        identity=plan.nodes[node].identity,
         workspace=workspace._options(),
         launch=LaunchOptions(),
         snapshot=EnvironmentSnapshot.take({}),
         completed=tuple(completed),
         rebuild=fields.get("rebuild", False),
+        code=plan._code,
     )
 
 
@@ -579,6 +589,29 @@ def test_a_failed_delivery_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_pat
     assert point.result.error.code == "delivery_failed"
     assert {str(n.outcome) for n in point.result.nodes.values()} == {"passed"}
     assert destination.read_text() == "a file that is not Xeda's\n"
+
+
+def test_a_code_change_before_a_delivery_is_an_error_of_the_point(tmp_path, design, monkeypatch):
+    destination = tmp_path / "out" / "top.v"
+    destination.parent.mkdir()
+    finished: list[Event] = []
+
+    def verify() -> None:
+        if finished:
+            raise StaleRuntimeError("Xeda's code changed on disk", code="stale_runtime")
+
+    def on_event(event: Event) -> None:
+        # The code changes on disk after the last node passed, before the point delivers.
+        if event.kind == "node_finished" and event.node == "nextpnr":
+            finished.append(event)
+
+    monkeypatch.setattr(code_epoch, "verify", verify)
+    swept = _workspace(tmp_path).sweep([_edif_spec(design, 1, destination)], on_event=on_event)
+    (point,) = swept
+    assert point.result.outcome is Outcome.FAILED
+    assert point.result.error is not None and point.result.error.code == "stale_runtime"
+    assert {str(n.outcome) for n in point.result.nodes.values()} == {"passed"}
+    assert not destination.exists()
 
 
 def test_a_generator_failure_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_path):

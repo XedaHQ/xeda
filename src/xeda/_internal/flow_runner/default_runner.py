@@ -117,7 +117,7 @@ from . import (
 from .chains import ChainElement, FlowRequest, parse_request
 from .layer_paths import anchored_sections
 from .. import code_epoch
-from .code_digest import CodeDigests, check_code
+from .code_digest import CodeDigests, check_code, check_fingerprint
 from .configuration import configuration_hash, design_configuration_hash
 from .environment import EnvironmentSnapshot, snapshot_with_tools
 from .error_codes import INTERNAL_ERROR, error_info, plain_message, public_error
@@ -2760,19 +2760,29 @@ class FlowLauncher:
         local_settings: LocalSettings | None,
         options: LaunchOptions,
         rebuild: bool,
+        code: Mapping[str, str],
         environment: EnvironmentSnapshot,
         canceled: Callable[[], bool],
         on_event: Callable[[Event], None] | None = None,
     ) -> Result:
         """Launch the node `node` of the plan of `spec`, and nothing else: one step of a sweep.
 
-        The node must have the identity `identity` (`StalePlanError`, before any lock). The
+        The code of this process must be the code that planned the sweep, whose
+        `code_fingerprint` is `code` (`StaleRuntimeError`, before it plans): a worker process
+        imports the code that is on disk when it starts. The node must have the identity
+        `identity` (`StalePlanError`, before any lock). The
         producers of the node are the nodes of `completed` (`launch_node.NodeRun`): the launch
         reads their records under shared leases and never runs them. The launch delivers nothing:
         a point of the sweep delivers when it ends (`deliver_point`). `rebuild` runs the node even
         when it is up to date. The launch takes `environment` as its snapshot. The `Result` is
         that of a launch of the plan that ends at the node: the node is its only root."""
         code_epoch.verify()
+        check_fingerprint(
+            code,
+            "The sweep planned with",
+            "A file changed on disk after the sweep planned. Restart the Python process that "
+            "sweeps (in Jupyter, restart the kernel), and sweep again.",
+        )
         self._apply(replace(options, rebuild_all=options.rebuild_all or rebuild))
         self._pinned_environment = environment
         token = launch_node.PredicateToken(canceled)

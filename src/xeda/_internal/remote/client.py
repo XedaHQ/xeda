@@ -67,7 +67,8 @@ from ..plan import Plan, PlanDelivery, delivery_key, plan_from_dict, planned_des
 from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY
 from ..flow_runner.chains import parse_request
-from xeda.errors import RecordError, SettingsError, SpecError
+from ..flow_runner.code_digest import code_fingerprint
+from xeda.errors import RecordError, SettingsError, SpecError, StaleRuntimeError
 from xeda.errors import RemoteError as PublicRemoteError
 from ..events import Event
 from ..flow_runner.default_runner import PreparedRequest
@@ -94,7 +95,13 @@ from ..remote_value import Remote
 from ..spec import Spec
 from ..utils import Canceled, logs_are_detailed
 from .constants import HEARTBEAT, LAYOUT
-from .environment import CodeSnapshot, DependencySpec, code_snapshot, dependency_spec
+from .environment import (
+    CodeSnapshot,
+    DependencySpec,
+    check_snapshot,
+    code_snapshot,
+    dependency_spec,
+)
 from .errors import (
     RemoteCanceled,
     RemoteConfigError,
@@ -1605,6 +1612,8 @@ def _not_started(run: _Run, error: Exception) -> Exception:
 
     if isinstance(error, RemoteRefused):
         # The host refused the request as a local planning does.
+        if error.code == "stale_runtime":
+            return StaleRuntimeError(str(error), code=error.code)
         if error.node is not None:
             return SettingsError(str(error), code=error.code, node=error.node)
         return SpecError(str(error), code=error.code)
@@ -1733,6 +1742,8 @@ def _run(
     design = prepared.prepared.design
     plan = prepared.prepared.plan
     snapshot = code_snapshot()
+    # The host runs the code of the snapshot: it must be the code that planned here.
+    check_snapshot(snapshot)
     dependencies = dependency_spec(design.tb.python_packages)
     key = workspace_key(local_root, destination)
     launch_id = new_launch_id()
@@ -1780,6 +1791,7 @@ def _run(
                 log_level=log_level,
                 detailed_logs=detailed_logs,
                 expected={node.name: node.flowrun_hash for node in plan.nodes},
+                code=code_fingerprint({node.flow_class for node in plan.nodes}),
             )
             agent = _start_agent(session, provisioned, key)
             # A dry run has no launch to keep: it announces nothing and writes no record.

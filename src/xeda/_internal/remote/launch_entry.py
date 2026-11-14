@@ -76,6 +76,9 @@ class LaunchRequest(XedaBaseModel):
     detailed_logs: bool
     #: The `flowrun_hash` of every node of the local plan, by node name.
     expected: Dict[str, str]
+    #: The `code_fingerprint` of the code that made the local plan. The launch compares it with
+    #: the code of this process before it plans.
+    code: Dict[str, str]
 
 
 def check_identity(planned: Mapping[str, str], expected: Mapping[str, str]) -> None:
@@ -305,6 +308,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     from ..flow_runner.dependencies import using_pinned_commits
     from ..flow_runner import DefaultRunner
     from ..flow_runner.chains import parse_request
+    from ..flow_runner.code_digest import check_fingerprint
     from ..flow_runner.error_codes import public_error, request_error_info
     from ..flow_runner.launch_result import failed_result, launch_result
     from xeda.errors import SpecError, StaleRuntimeError
@@ -325,6 +329,11 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     try:
         setup_logger(request.log_level, request.detailed_logs)
         code_epoch.verify()
+        check_fingerprint(
+            request.code,
+            "The client planned with",
+            "The host must run the code that the client imported and sent.",
+        )
         parsed = parse_request(request.chain)
         inputs_dir = Path(request.inputs_dir)
         design = inputs_dir / request.design_file
