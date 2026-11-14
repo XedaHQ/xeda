@@ -19,6 +19,7 @@ from xeda._internal.remote.environment import (
     DependencySpec,
     PythonChoice,
     RemotePlatform,
+    check_snapshot,
     code_snapshot,
     dependency_key,
     dependency_spec,
@@ -27,7 +28,9 @@ from xeda._internal.remote.environment import (
     write_code_tar,
 )
 from xeda._internal.remote.errors import RemoteDependencyError, RemoteProvisionError
+from xeda._internal.code_epoch import package_files
 from xeda._internal.version import __version__
+from xeda.errors import StaleRuntimeError
 
 PLATFORM = RemotePlatform(system="Linux", machine="x86_64", libc="glibc", libc_version="2.35")
 PYTHON = PythonChoice(request="cpython-3.12", path=None)
@@ -60,17 +63,28 @@ def tar_bytes(snapshot: environment.CodeSnapshot) -> bytes:
     return out.getvalue()
 
 
-def test_snapshot_skips_bytecode_dotfiles_backups_and_links(tmp_path: Path) -> None:
-    snapshot = code_snapshot(make_package(tmp_path))
+def test_snapshot_has_the_files_of_the_code_that_a_process_imports(tmp_path: Path) -> None:
+    """The snapshot takes the files by the rule of `code_epoch`: no bytecode and no hidden file,
+    and a link as what it leads to."""
+    package = make_package(tmp_path)
+    snapshot = code_snapshot(package)
     names = [name for name, _ in snapshot.files]
-    assert names == [
-        "xeda/__init__.py",
-        "xeda/sub/__init__.py",
-        "xeda/sub/data.json",
-        "xeda/sub/run.sh",
-    ]
+    top = package.resolve()
+    assert names == [f"xeda/{path.relative_to(top).as_posix()}" for path in package_files(top)]
+    assert "xeda/link.py" in names and "xeda/linked_dir/data.json" in names
+    assert not any(".pyc" in name or "/." in name for name in names)
     assert all(path.is_file() for _, path in snapshot.files)
     assert snapshot.version == __version__
+
+
+def test_the_snapshot_sent_to_the_host_is_the_code_that_this_process_imported(
+    tmp_path: Path,
+) -> None:
+    check_snapshot(code_snapshot())
+    other = code_snapshot(make_package(tmp_path))
+    with pytest.raises(StaleRuntimeError) as refused:
+        check_snapshot(other)
+    assert refused.value.code == "stale_runtime"
 
 
 def test_snapshot_key_changes_with_content_not_with_mtime(tmp_path: Path) -> None:
@@ -133,7 +147,8 @@ def test_code_tar_has_the_package_and_a_dist_info(tmp_path: Path) -> None:
             assert (member.uname, member.gname) == ("", "")
             assert not member.name.startswith("/")
         modes = {m.name: m.mode for m in tar.getmembers()}
-    assert modes["xeda/sub/run.sh"] == 0o755
+    # `sub` is listed once, through the link `linked_dir` that comes first by name.
+    assert modes["xeda/linked_dir/run.sh"] == 0o755
     assert modes["xeda/__init__.py"] == 0o644
     assert modes[f"xeda-{__version__}.dist-info/METADATA"] == 0o644
 

@@ -82,10 +82,14 @@
       "run_root_mismatch",
       "shared_destination",
       "tool_not_installed",
+      "unguarded_main",
       "unsupported_with_remote"
     ],
     "StalePlanError": [
       "stale_plan"
+    ],
+    "StaleRuntimeError": [
+      "stale_runtime"
     ],
     "XedaError": [
       "internal_error"
@@ -116,6 +120,7 @@
       "producer_failed",
       "rejected",
       "reported_failure",
+      "stale_runtime",
       "storage_error",
       "timeout"
     ],

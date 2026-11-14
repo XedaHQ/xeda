@@ -41,6 +41,7 @@ from typing import Any, Protocol
 
 import yaml
 
+from .. import code_epoch
 from ..dataclass import ValidationError
 from ..deliver import GENERATOR, Delivery
 from ..design import (
@@ -390,6 +391,7 @@ def generate_unit(unit: Unit, *, run_root: Path, environ: Mapping[str, str]) -> 
     description = generator.describe(design.name, design.root)
     owner = RunDirectory(run_root, run_root)
     matches: dict[str, tuple[str, ...]] = {}
+    code_epoch.verify()
     try:
         if storage.exists():
             RunDirectory.claimed(storage, run_root).delete()

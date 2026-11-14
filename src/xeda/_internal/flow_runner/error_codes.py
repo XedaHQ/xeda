@@ -16,6 +16,7 @@ from typing import Any, Final
 from pydantic import ValidationError
 
 from xeda import errors
+from .. import code_epoch
 from ..dataclass import input_names, validation_errors
 from ..deliver import DeliveryError
 from ..flow import (
@@ -70,6 +71,10 @@ NO_SUCCESSFUL_RUN = "no_successful_run"
 #: The code of a node error: a worker process of a sweep could not import the module of a flow.
 FLOW_NOT_IMPORTABLE = "flow_not_importable"
 
+#: The code of a refusal, and of a node error: the code of Xeda or of a plugin flow changed on disk
+#: after the process imported it (`code_epoch`).
+STALE_RUNTIME = "stale_runtime"
+
 __all__ = [
     "CANCELED",
     "CLEANUP_FAILED",
@@ -87,6 +92,7 @@ __all__ = [
     "PRODUCER_FAILED",
     "REJECTED",
     "REPORTED_FAILURE",
+    "STALE_RUNTIME",
     "STORAGE_ERROR",
     "TIMEOUT",
     "error_info",
@@ -190,9 +196,11 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
             "missing_dependency",
             "unsupported_with_remote",
             "tool_not_installed",
+            "unguarded_main",
         ]
     ),
     "StalePlanError": frozenset(["stale_plan"]),
+    "StaleRuntimeError": frozenset(["stale_runtime"]),
     "RecordError": frozenset(
         ["missing_record", "corrupt_record", "unsupported_schema", "not_written", "several_files"]
     ),
@@ -217,6 +225,7 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
             "internal_error",
             "missing_generated",
             "flow_not_importable",
+            "stale_runtime",
         ]
     ),
     "cli": frozenset(["usage_error"]),
@@ -279,8 +288,14 @@ def error_info(
 
     The code follows the kind of failure, never the name of the class. `flow` is the flow that
     raised it, if there is one: the error then names the log to read (`failure_log`). `log` is the
-    artifact key of that log, when the caller knows it better."""
+    artifact key of that log, when the caller knows it better.
+
+    A failure while the code of Xeda on disk is no longer the code that the process imported is
+    `stale_runtime`, whatever raised: the old code may have failed on new files."""
     exit_status: int | None = None
+    drift = _drift(exc)
+    if drift is not None:
+        return ErrorInfo(code=STALE_RUNTIME, message=drift, node=node, exit_status=None, log=None)
     if isinstance(exc, Canceled):
         code = CANCELED
     elif isinstance(exc, ProcessTimeout):
@@ -316,6 +331,20 @@ def error_info(
         exit_status=exit_status,
         log=log if log is not None else failure_log(exc, flow),
     )
+
+
+def _drift(exc: BaseException) -> str | None:
+    """Return the message of `stale_runtime` for the failure `exc`, or None when the code of Xeda
+    on disk is still the code that the process imported."""
+    if isinstance(exc, errors.StaleRuntimeError):
+        return exc.message
+    if isinstance(exc, Canceled):
+        return None
+    try:
+        code_epoch.verify()
+    except errors.StaleRuntimeError as stale:
+        return f"{stale.message} The launch failed: {exc}"
+    return None
 
 
 def _finding_code(kind: str | None, refuses_support: bool) -> str:
@@ -452,6 +481,9 @@ def public_error(exc: BaseException) -> errors.XedaError:
         remote = _remote_error(exc)
         if remote is not None:
             return remote
+    drift = _drift(exc)
+    if drift is not None:
+        return errors.StaleRuntimeError(drift, code=STALE_RUNTIME)
     return errors.XedaError(str(exc), code=INTERNAL_ERROR)
 
 

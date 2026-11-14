@@ -162,7 +162,7 @@ jobs:
   #     processes generate one storage), test_git_dependencies (the lease and the fetch of a
   #     dependency storage), test_external_cache (six processes fill one cache)
   #   file-system clocks and file metadata: test_digest, test_trace_inputs, test_trace_soundness
-  #     (racy timestamps, inode change times)
+  #     (racy timestamps, inode change times), test_code_epoch (the code that a process imported)
   #   file copying (fcopyfile): test_utils, test_delivery
   #   directory descriptors, links and file metadata in a design tree that a generator writes
   #     into, and the named pipes and locks of two launches in one tree: test_tree_outputs,
@@ -235,6 +235,7 @@ jobs:
           tests/test_generator_staleness.py
           tests/test_external_cache.py
           tests/test_digest.py
+          tests/test_code_epoch.py
           tests/test_trace_inputs.py
           tests/test_trace_soundness.py
           tests/test_utils.py

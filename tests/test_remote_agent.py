@@ -30,6 +30,7 @@ import pytest
 
 import xeda
 from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.code_digest import code_fingerprint
 from xeda._internal.remote import agent as agent_module
 from xeda._internal.remote.constants import CANCEL_GRACE, LEASE
 from xeda._internal.remote.frames import (
@@ -287,6 +288,7 @@ def launch_message(
         log_level=20,
         detailed_logs=False,
         expected={node.name: node.flowrun_hash for node in plan.nodes},
+        code=code_fingerprint(()),
     ).model_copy(update=fields)
     return {"launch": request.model_dump(mode="json"), "id": launch_id, "setup": setup}
 
@@ -1681,6 +1683,7 @@ def bare_launch(tmp_path: Path, launch_id: str = "run-1", **fields: Any) -> dict
         log_level=20,
         detailed_logs=False,
         expected={},
+        code=code_fingerprint(()),
     ).model_copy(update=fields)
     return {"launch": request.model_dump(mode="json"), "id": launch_id, "setup": []}
 

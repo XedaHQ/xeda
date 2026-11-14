@@ -135,6 +135,9 @@ class Plan:
     _dependencies: tuple[Mapping[str, str | None], ...] = field(
         default=(), init=False, repr=False, compare=False
     )
+    #: The `code_fingerprint` of the code that made the plan, for the flows of its nodes. Running
+    #: the plan compares it with the code of the process that runs it.
+    _code: Mapping[str, str] = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roots", tuple(self.roots))
@@ -144,9 +147,11 @@ class Plan:
     def to_dict(self) -> dict[str, Any]:
         """Return the document that `xeda run --dry-run --json` prints (schema 1).
 
-        It has the keys `schema_version`, `spec`, `roots`, `options`, `dependencies` and `nodes`.
-        `dependencies` has the entries of `RunRecord.dependencies`. `nodes` is a list in execution
-        order, and each entry has one key for each field of `PlanNode`."""
+        It has the keys `schema_version`, `spec`, `roots`, `options`, `dependencies`, `code` and
+        `nodes`. `dependencies` has the entries of `RunRecord.dependencies`. `code` has the digest
+        of the code that made the plan: Xeda's (`xeda`) and that of each flow (by its name).
+        `nodes` is a list in execution order, and each entry has one key for each field of
+        `PlanNode`."""
         options = dict(self.options)
         if options["outputs_to"] is not None:
             options["outputs_to"] = str(options["outputs_to"])
@@ -156,20 +161,27 @@ class Plan:
             "roots": list(self.roots),
             "options": options,
             "dependencies": [thaw(entry) for entry in self._dependencies],
+            "code": dict(self._code),
             "nodes": [node_document(node) for node in self.nodes.values()],
         }
 
 
 def with_planning(
-    plan: Plan, *, workspace: WorkspaceOptions | None, dependencies: Iterable[Mapping[str, Any]]
+    plan: Plan,
+    *,
+    workspace: WorkspaceOptions | None,
+    dependencies: Iterable[Mapping[str, Any]],
+    code: Mapping[str, str],
 ) -> Plan:
-    """Return a copy of `plan` that keeps `workspace` and `dependencies` in its private fields.
+    """Return a copy of `plan` that keeps `workspace`, `dependencies` and `code` in its private
+    fields.
 
     They are no constructor parameters: only planning, and the reading of a plan document, set
     them."""
     result = replace(plan)
     object.__setattr__(result, "_workspace", workspace)
     object.__setattr__(result, "_dependencies", tuple(freeze(d) for d in dependencies))
+    object.__setattr__(result, "_code", FrozenDict(code))
     return result
 
 
@@ -334,7 +346,10 @@ def plan_of(
     `to_dict` leaves out: running the plan compares it. The plan keeps `dependencies` (see
     `dependency_entries`) in a private field. `to_dict` writes them, and running the plan compares
     the commits of the Git dependencies. `executable_checks` holds the `executable_check` of each
-    node by name (`plan_freshness.executable_checks`)."""
+    node by name (`plan_freshness.executable_checks`). The plan keeps the `code_fingerprint` of
+    this process for its flows."""
+    from .flow_runner.code_digest import code_fingerprint
+
     checks = executable_checks or {}
     nodes = {
         node.name: plan_node(
@@ -343,7 +358,8 @@ def plan_of(
         for node in internal.nodes
     }
     plan = Plan(spec=spec, roots=(internal.nodes[-1].name,), options=options.as_dict(), nodes=nodes)
-    return with_planning(plan, workspace=workspace, dependencies=dependencies)
+    code = code_fingerprint({node.flow_class for node in internal.nodes})
+    return with_planning(plan, workspace=workspace, dependencies=dependencies, code=code)
 
 
 #: The keys of an entry of `dependencies` in a plan document, as `DependencyRecord.as_mapping`.
@@ -403,13 +419,18 @@ def plan_from_dict(
         dependencies = tuple(
             {key: item[key] for key in _DEPENDENCY_KEYS} for item in document["dependencies"]
         )
+        code = document["code"]
+        if not isinstance(code, Mapping) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in code.items()
+        ):
+            raise TypeError("`code` is not a mapping of text to text")
         plan = Plan(
             spec=spec,
             roots=tuple(document["roots"]),
             options=options,
             nodes={node.name: node for node in nodes},
         )
-        return with_planning(plan, workspace=workspace, dependencies=dependencies)
+        return with_planning(plan, workspace=workspace, dependencies=dependencies, code=code)
     except (KeyError, TypeError) as error:
         raise ValueError(f"the plan document has a bad part: {error!r}") from None
 

@@ -16,10 +16,18 @@ import pytest
 from xeda import Design
 from xeda.introspect import results_info
 from xeda._internal.cancel import CancelToken
-from xeda.errors import LeaseHeldError, RecordError, RunReplacedError, SpecError, StalePlanError
+from xeda.errors import (
+    LeaseHeldError,
+    RecordError,
+    RunReplacedError,
+    SpecError,
+    StalePlanError,
+    StaleRuntimeError,
+)
+from xeda._internal import code_epoch
 from xeda._internal.events import Event
 from xeda._internal.flow_runner import run_lock
-from xeda._internal.flow_runner.trace import previous_trace
+from xeda._internal.flow_runner.trace import previous_trace, write_trace
 from xeda._internal.flow_runner.environment import EnvironmentSnapshot
 from xeda._internal.flow_runner.launch_options import LaunchOptions
 from xeda._internal.outcomes import Disposition, Outcome, Result
@@ -124,15 +132,17 @@ def test_a_node_reused_from_an_earlier_launch_is_reused_in_every_point(tmp_path,
 
 
 def _task(workspace: Workspace, spec: Spec, node: str, completed, **fields) -> NodeTask:
+    plan = workspace.plan(spec)
     return NodeTask(
         spec=spec,
         node=node,
-        identity=workspace.plan(spec).nodes[node].identity,
+        identity=plan.nodes[node].identity,
         workspace=workspace._options(),
         launch=LaunchOptions(),
         snapshot=EnvironmentSnapshot.take({}),
         completed=tuple(completed),
         rebuild=fields.get("rebuild", False),
+        code=plan._code,
     )
 
 
@@ -218,6 +228,43 @@ def test_a_replaced_producer_is_read_as_found_never_run_again(
         assert outcome.result.error is not None
         assert outcome.result.error.code == "producer_failed"
         assert outcome.result.outcome is Outcome.BLOCKED and outcome.run_id is None
+
+
+@pytest.mark.parametrize("trace", ["xeda", "flow", "none"])
+def test_a_producer_replaced_by_a_run_of_other_code_blocks_its_consumer(
+    tmp_path, design, monkeypatch, trace
+):
+    workspace = _workspace(tmp_path)
+    spec = _spec(design, 1)
+    done = _completed(workspace.run(spec))
+    lock = done.run_dir.parent / (done.run_dir.name + ".lock")
+    taken: list[str] = []
+
+    def after_the_lease(path: Path) -> None:
+        # Another launch ran the producer with other code, and passed, while the sweep waited.
+        if path == lock and not taken:
+            taken.append(_replace_record(done.run_dir, workspace))
+            old = previous_trace(done.run_dir, "yosys_fpga")
+            assert old is not None
+            if trace == "none":
+                (done.run_dir / "trace.json").unlink()
+            else:
+                update = {"xeda_code" if trace == "xeda" else "flow_code": "0" * 32}
+                write_trace(done.run_dir, old.model_copy(update=update))
+
+    monkeypatch.setattr(run_lock, "acquired_hook", after_the_lease)
+    outcome = run_node(
+        _task(workspace, spec, "nextpnr", [done], rebuild=True),
+        canceled=lambda: False,
+        emit=lambda event: None,
+    )
+    assert taken and _calls(workspace)["yosys"] == 1, "the producer did not run again"
+    assert outcome.result.outcome is Outcome.BLOCKED and outcome.run_id is None
+    assert outcome.result.error is not None and outcome.result.error.code == "producer_failed"
+    assert "run_replaced" in outcome.result.error.message
+    expected = "no valid trace" if trace == "none" else "other code than the sweep planned with"
+    assert expected in outcome.result.error.message
+    assert _calls(workspace)["nextpnr-ecp5"] == 1, "the consumer did not run again"
 
 
 def test_a_failed_shared_producer_is_shared_and_blocks_every_point(tmp_path, design, monkeypatch):
@@ -579,6 +626,29 @@ def test_a_failed_delivery_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_pat
     assert point.result.error.code == "delivery_failed"
     assert {str(n.outcome) for n in point.result.nodes.values()} == {"passed"}
     assert destination.read_text() == "a file that is not Xeda's\n"
+
+
+def test_a_code_change_before_a_delivery_is_an_error_of_the_point(tmp_path, design, monkeypatch):
+    destination = tmp_path / "out" / "top.v"
+    destination.parent.mkdir()
+    finished: list[Event] = []
+
+    def verify() -> None:
+        if finished:
+            raise StaleRuntimeError("Xeda's code changed on disk", code="stale_runtime")
+
+    def on_event(event: Event) -> None:
+        # The code changes on disk after the last node passed, before the point delivers.
+        if event.kind == "node_finished" and event.node == "nextpnr":
+            finished.append(event)
+
+    monkeypatch.setattr(code_epoch, "verify", verify)
+    swept = _workspace(tmp_path).sweep([_edif_spec(design, 1, destination)], on_event=on_event)
+    (point,) = swept
+    assert point.result.outcome is Outcome.FAILED
+    assert point.result.error is not None and point.result.error.code == "stale_runtime"
+    assert {str(n.outcome) for n in point.result.nodes.values()} == {"passed"}
+    assert not destination.exists()
 
 
 def test_a_generator_failure_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_path):
