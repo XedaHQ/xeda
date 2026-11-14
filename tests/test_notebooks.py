@@ -301,31 +301,119 @@ def test_the_sweep_notebook(executions):
     def fmax(bits: str, nowidelut: str) -> list[float]:
         return [float(r["fmax"]) for r in rows if (r["bits"], r["nowidelut"]) == (bits, nowidelut)]
 
-    assert lut("192", "True") < lut("192", "False") / 2
+    assert 2.5 < lut("192", "False") / lut("128", "False") < 4.5  # about 3.5 times
+    assert 0.25 < lut("192", "True") / lut("192", "False") < 0.45  # about a third
     assert min(fmax("192", "True")) > max(fmax("192", "False"))
-    assert lut("128", "True") < lut("128", "False") * 0.85
+    assert lut("128", "False") * 0.65 < lut("128", "True") < lut("128", "False") * 0.85
     assert lut("64", "False") * 0.9 < lut("64", "True") < lut("64", "False")
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
     assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 19
-    # The markers of the front are the medians that no other median dominates, and its last step
-    # runs on to the widest configuration that passed. A front that ended at its last marker left
-    # the default 192-bit point to the right of the line, where it seemed to beat the front.
-    traces = {trace["name"]: trace for trace in _plotly_figure(nb, "pareto-plot")["data"]}
-    front = traces.pop("Pareto front")
-    steps = list(zip(_plotly_array(front["x"]), _plotly_array(front["y"])))
-    points = [
-        point
-        for trace in traces.values()
-        for point in zip(_plotly_array(trace["x"]), _plotly_array(trace["y"]))
-    ]
-    nondominated = sorted(
-        (x, y)
-        for x, y in points
-        if not any(qx <= x and qy >= y and (qx, qy) != (x, y) for qx, qy in points)
+    # At 64 and 128 bits, the seeds of the two settings overlap in `fmax`.
+    for bits in ("64", "128"):
+        assert min(fmax(bits, "False")) < max(fmax(bits, "True"))
+        assert min(fmax(bits, "True")) < max(fmax(bits, "False"))
+    _check_front(rows, _plotly_figure(nb, "pareto-plot"))
+    # The cell prints every run on the front, also runs that tie.
+    passed = [r for r in rows if r["outcome"] == "passed"]
+    throughputs = [(float(r["lut"]), int(r["bits"]) * float(r["fmax"]) / 1000) for r in passed]
+    on_front = [
+        p for p in throughputs
+        if not any(q[0] <= p[0] and q[1] >= p[1] and q != p for q in throughputs)
+    ]  # fmt: skip
+    assert len(cell_output(nb, "pareto-plot").splitlines()) == 1 + len(on_front)
+
+
+def _check_front(rows: list[dict], figure: dict) -> None:
+    """Check the Pareto front of `figure` against the runs `rows` of the sweep (the rows of its
+    CSV), never against what the figure itself draws.
+
+    Each run that passed is an implementation, so the front is the runs that no other run
+    dominates, and no run lies above it. The figure draws every run as a marker, and the front
+    as a staircase (`hv`) through the nondominated runs, on to the largest LUT count. A bar of a
+    marker must not reach above the front either."""
+    runs = sorted(
+        (float(r["lut"]), round(int(r["bits"]) * float(r["fmax"]) / 1000, 9))
+        for r in rows
+        if r["outcome"] == "passed"
     )
-    widest = max(x for x, _ in points)
-    assert len(points) == 6, points
-    assert steps == nondominated + [(widest, nondominated[-1][1])], (steps, points)
+    expected = sorted(
+        {p for p in runs if not any(q[0] <= p[0] and q[1] >= p[1] and q != p for q in runs)}
+    )
+    traces = {trace["name"]: trace for trace in figure["data"]}
+    front = traces.pop("Pareto front")
+    assert front["mode"] == "lines" and front["line"]["shape"] == "hv", front
+    assert all(trace["mode"] == "markers" for trace in traces.values()), traces
+    steps = [(x, round(y, 9)) for x, y in zip(_plotly_array(front["x"]), _plotly_array(front["y"]))]
+    markers, tops = [], []
+    for trace in traces.values():
+        xs, ys = _plotly_array(trace["x"]), _plotly_array(trace["y"])
+        markers += [(x, round(y, 9)) for x, y in zip(xs, ys)]
+        if "error_y" in trace:
+            ups = _plotly_array(trace["error_y"].get("array", [0] * len(ys)))
+            tops += [(x, round(y + up, 9)) for x, y, up in zip(xs, ys, ups)]
+    assert sorted(markers) == runs, (markers, runs)
+    assert steps == expected + [(runs[-1][0], expected[-1][1])], (steps, expected)
+    for x, y in markers + tops:
+        assert y <= max(sy for sx, sy in expected if sx <= x), (x, y, expected)
+
+
+def _sweep_rows(*runs: tuple[int, float, int]) -> list[dict]:
+    """CSV rows of passed runs, each `(bits, fmax, lut)`."""
+    return [
+        {"bits": str(bits), "fmax": str(fmax), "lut": str(lut), "outcome": "passed"}
+        for bits, fmax, lut in runs
+    ]
+
+
+def _figure(markers: list[tuple[float, float]], front: list[tuple[float, float]]) -> dict:
+    return {
+        "data": [
+            {
+                "name": "runs",
+                "mode": "markers",
+                "x": [x for x, _ in markers],
+                "y": [y for _, y in markers],
+            },
+            {
+                "name": "Pareto front",
+                "mode": "lines",
+                "x": [x for x, _ in front],
+                "y": [y for _, y in front],
+                "line": {"shape": "hv"},
+            },
+        ]
+    }
+
+
+def test_the_front_check_takes_every_run_and_rejects_a_front_of_medians():
+    """The check of the plot of the sweep notebook passes for the front of the runs and fails
+    for the mistakes it guards against. Two seeds share a LUT count, two runs are equal, and the
+    widest run is dominated."""
+    rows = _sweep_rows(
+        (64, 200.0, 700), (64, 220.0, 700), (64, 220.0, 700), (128, 160.0, 1200),
+        (128, 150.0, 1600), (192, 120.0, 1900), (192, 109.375, 2400),
+    )  # fmt: skip
+    runs = [(int(r["lut"]), int(r["bits"]) * float(r["fmax"]) / 1000) for r in rows]
+    best = [(700, 14.08), (1200, 20.48), (1900, 23.04)]
+    _check_front(rows, _figure(runs, best + [(2400, 23.04)]))
+    # The median of the seeds at 700 LUTs: the better seed lies above the line.
+    with pytest.raises(AssertionError):
+        _check_front(rows, _figure(runs, [(700, 13.44)] + best[1:] + [(2400, 23.04)]))
+    # The front ends at its last run: the widest run seems to beat it.
+    with pytest.raises(AssertionError):
+        _check_front(rows, _figure(runs, best))
+    # The markers show medians, not the runs.
+    with pytest.raises(AssertionError):
+        _check_front(rows, _figure([(700, 13.44)] + runs[3:], best + [(2400, 23.04)]))
+    # A line above every run.
+    with pytest.raises(AssertionError):
+        _check_front(rows, _figure(runs, [(700, 30.0), (2400, 30.0)]))
+    # The right points, drawn the wrong way: the runs as a line, or the front as markers.
+    for name, mode in (("runs", "lines"), ("Pareto front", "markers")):
+        figure = _figure(runs, best + [(2400, 23.04)])
+        next(trace for trace in figure["data"] if trace["name"] == name)["mode"] = mode
+        with pytest.raises(AssertionError):
+            _check_front(rows, figure)
 
 
 def _plotly_figure(nb: nbformat.NotebookNode, tag: str) -> dict:
