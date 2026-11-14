@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -61,6 +61,9 @@ class NodeRun:
     #: What the sweep generated, as `launch_generation.fingerprints` named it: the launch verifies
     #: it under its shared leases of the storages.
     generation: tuple[tuple[str, str], ...] = ()
+    #: The `code_fingerprint` of the sweep. A producer that another launch replaced is read only
+    #: when its trace names this code (`adopt_completed`).
+    code: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -163,15 +166,18 @@ def adopt_completed(
     runner_cwd: Path,
     run_path_of: Callable[..., Path],
     environment: object,
+    code: Mapping[str, str],
 ) -> tuple[Flow, CompletedRun]:
     """Return a flow that holds the run that the directory of the producer `node` holds now.
 
     The caller holds the shared lease of the directory. The record is read as it is: the run that
     the sweep completed (`done.run_id`), or a later run of the same node that another launch made
     meanwhile. A run that passed is handed over to the consumer, and its `run_id` is the one the
-    consumer records. Any other record, or none, is a producer that did not pass: the flow
-    reports `success` false with the cause, and the consumer is blocked by it. The producer is
-    never run here."""
+    consumer records. A later run counts only when its trace names the code that planned the
+    sweep (`code`, a `code_fingerprint`): the sweep never mixes the results of two versions of
+    the code. Any other record, or none, is a producer that did not pass: the flow reports
+    `success` false with the cause, and the consumer is blocked by it. The producer is never run
+    here."""
     run_path = node.run_path
     view = planned_design_of(plan, node, design, run_path_of)
     flow = node.flow_class(
@@ -199,6 +205,20 @@ def adopt_completed(
                 code="missing_record",
                 message=f"{run_path / 'results.json'} holds the run of another configuration of "
                 f"{node.name}",
+                node=node.name,
+                exit_status=None,
+                log=None,
+            )
+        elif (
+            record.passed
+            and record.run_id != done.run_id
+            and (other := _other_code(node, run_path, code))
+        ):
+            cause = ErrorInfo(
+                code="run_replaced",
+                message=f"{run_path / 'results.json'} holds the run {record.run_id} of "
+                f"{node.name}, which another launch made after the sweep completed the run "
+                f"{done.run_id}, and {other}",
                 node=node.name,
                 exit_status=None,
                 log=None,
@@ -232,6 +252,31 @@ def adopt_completed(
         recorded.outputs_recorded_ns if recorded else None,
     )
     return flow, token
+
+
+def _other_code(node: PlanNode, run_path: Path, code: Mapping[str, str]) -> str | None:
+    """Return what is wrong with the code of the run that the directory `run_path` of the node
+    `node` holds, or None when the trace of that run names the code `code` of the sweep.
+
+    A run with no valid trace has no code to name."""
+    flow = node.flow_class.name
+    trace = previous_trace(run_path, node.name)
+    if trace is None:
+        return "it has no valid trace, so the code that made it is not known"
+    differs = [
+        what
+        for what, ran, planned in (
+            ("Xeda", trace.xeda_code, code.get("xeda")),
+            (f"the flow `{flow}`", trace.flow_code, code.get(flow)),
+        )
+        if ran != planned
+    ]
+    if not differs:
+        return None
+    return (
+        "it ran other code than the sweep planned with: the code of "
+        f"{' and '.join(differs)} differs"
+    )
 
 
 class NodeLaunch(Protocol):

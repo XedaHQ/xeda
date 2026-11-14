@@ -94,6 +94,7 @@ __all__ = [
     "logs_are_detailed",
     # etc
     "expand_env_vars",
+    "expanding_from",
     "parse_patterns",
     "parse_patterns_in_file",
     "semantic_hash",
@@ -1287,6 +1288,24 @@ def path_variables(context: Mapping[str, Any]) -> dict[str, Any]:
     return {name: context.get(key) for name, key in PATH_VARIABLES.items()}
 
 
+#: The environment that `expand_env_vars` reads in place of `os.environ`, while a launch plans and
+#: runs (`expanding_from`).
+_EXPANSION_ENVIRONMENT: ContextVar[Optional[Mapping[str, str]]] = ContextVar(
+    "xeda_expansion_environment", default=None
+)
+
+
+@contextmanager
+def expanding_from(environment: Mapping[str, str]) -> Iterator[None]:
+    """Make `expand_env_vars` read `environment`, the variables of the snapshot of a launch, for
+    the length of a `with` block. A change of `os.environ` in the block does not reach a path."""
+    token = _EXPANSION_ENVIRONMENT.set(environment)
+    try:
+        yield
+    finally:
+        _EXPANSION_ENVIRONMENT.reset(token)
+
+
 def expand_env_vars(
     path: Union[str, Path],
     overrides: Optional[Dict[str, Any]] = None,
@@ -1296,7 +1315,8 @@ def expand_env_vars(
 
     A variable whose value in `overrides` is None is not expanded. `escape`, when given, is
     applied to every substituted value: use `glob.escape` for a pattern, where a value is a
-    literal place and not more pattern.
+    literal place and not more pattern. The variables are those of `os.environ`, or those of the
+    launch that is running (`expanding_from`).
     """
     if not isinstance(path, str):
         path = str(path)
@@ -1307,8 +1327,11 @@ def expand_env_vars(
         overrides = {}
     # Never substitute a variable of `_ENV_BLACKLIST`, or one that starts with an underscore,
     # into a design path.
+    given = _EXPANSION_ENVIRONMENT.get()
     environ = {
-        k: v for k, v in os.environ.items() if not k.startswith("_") and k not in _ENV_BLACKLIST
+        k: v
+        for k, v in (os.environ if given is None else given).items()
+        if not k.startswith("_") and k not in _ENV_BLACKLIST
     }
     for k, v in overrides.items():
         if v is None:

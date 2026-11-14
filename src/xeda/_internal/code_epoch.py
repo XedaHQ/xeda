@@ -333,9 +333,25 @@ if "_XEDA" not in globals():
 
 
 def verify() -> None:
-    """Raise `StaleRuntimeError` if a file of the `xeda` package, or of the code of a flow that is
-    registered now, is not what this process imported. Every entry that plans or launches calls
-    this first, so a request of a stale process writes nothing."""
+    """Refuse the call of a launching entry that this process cannot honor. Every entry that plans
+    or launches calls this first.
+
+    Raise `SpecError` (`unguarded_main`) while this process is a spawned worker that imports the
+    main script of its parent: a launch there would run in every worker, or end the worker. Raise
+    `StaleRuntimeError` if a file of the `xeda` package, or of the code of a flow that is
+    registered now, is not what this process imported, so that a request of a stale process
+    writes nothing."""
+    from multiprocessing import current_process
+
+    if getattr(current_process(), "_inheriting", False):
+        from xeda.errors import SpecError
+
+        raise SpecError(
+            "A worker process imports the main script of its parent, and the script started a "
+            "launch while it did so. Put the code that launches under "
+            '`if __name__ == "__main__":`, so that only the parent runs it.',
+            code="unguarded_main",
+        )
     _XEDA.verified_pairs()
     # The files of Xeda are those that this process imported, so these imports load no new code.
     from .flow import Flow, registered_flows

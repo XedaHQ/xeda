@@ -830,8 +830,8 @@ the cause.
     it: the generator of the design or of one of its dependencies. The message names the entry of
     ``rtl.sources``.
 ``flow_not_importable``
-    A worker process of a sweep could not import the module of a flow. The message names the
-    module.
+    A worker process of a sweep could not import the module of a flow, or does not rebuild the
+    flow from the class that the sweep planned with. The message names the module and the class.
 ``stale_runtime``
     The code of Xeda or of a plugin flow changed on disk while the node ran, after the process
     imported it, or a worker process of a sweep imported other code than the code that planned
@@ -1017,6 +1017,10 @@ command line gives ``delivery_refused`` and ``unsupported_with_remote`` too.
 ``tool_not_installed``
     The private settings select a build of the OSS CAD Suite (``tools:``) that the tool store does
     not hold.
+``unguarded_main``
+    A worker process of a sweep imports the main script of its parent, and the script started a
+    launch while it did so. Put the code that launches under ``if __name__ == "__main__":``. The
+    worker ends, and each point of the sweep fails with ``reported_failure``.
 
 A stale plan (``StalePlanError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

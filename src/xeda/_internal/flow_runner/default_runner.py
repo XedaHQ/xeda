@@ -1291,6 +1291,7 @@ class FlowLauncher:
                 runner_cwd=runner_cwd,
                 run_path_of=self.run_path_of,
                 environment=self._environment,
+                code=self._node_run.code,
             )
             self._planned_completed[(id(plan), node.node_key)] = flow
             self._completed_runs[node.run_path.resolve()] = (flow, token)
@@ -2808,7 +2809,7 @@ class FlowLauncher:
                 return launch_result(
                     self, spec, self._stop_unplanned, cancel=token, on_event=on_event
                 )
-            self._node_run = launch_node.NodeRun(node, completed, generation=generation)
+            self._node_run = launch_node.NodeRun(node, completed, generation=generation, code=code)
             return launch_result(
                 self,
                 spec,

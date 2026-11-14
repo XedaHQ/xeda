@@ -312,17 +312,24 @@ no record in that point. ``to_pandas`` returns the same table as a ``DataFrame``
 
 With ``max_workers`` of 1, a sweep executes its nodes in the calling process. With more, it
 executes them in that many worker processes, and nodes that do not wait for each other run at
-once. The workers start with the ``spawn`` method on every platform. A script that calls
-``sweep`` this way guards its entry point with ``if __name__ == "__main__":``. A notebook needs no
-guard. Workers cannot start for code that Python reads from standard input (``python -``): run it
-from a file or a notebook. Only the specs and the options of the workspace cross to a worker. A
+once. The workers start with the ``spawn`` method on every platform. Each worker imports the
+main script again, so a script that calls ``sweep`` this way puts every call that launches, not
+only ``sweep``, under ``if __name__ == "__main__":``. A launch that the script starts at module
+level is refused in the worker with the code ``unguarded_main``. The worker ends, and each point of
+the sweep fails with an error that names this cause. The standard error of the worker has the
+details. A notebook needs no guard. Workers cannot start for code that Python reads from standard
+input (``python -``): run it from a file or a notebook. Only the specs and the options of the workspace cross to a worker. A
 flow that you register in code reaches a worker through its module: the worker imports the module
 of each flow that Xeda does not have built in, such as ``mylib.flows``, before it runs the node.
-A flow that a script or a notebook defines (its module is ``__main__``), or whose module a new
-process cannot find by its name, cannot be imported. The sweep then raises a ``SpecError`` with the
-code ``flow_not_importable`` before anything runs. Move the flow into a module that Python can
-import, or sweep with ``max_workers=1``. An import that still fails in a worker fails that node
-with the same code. The callback, the cancel token and the
+A flow that a script or a notebook defines (its module is ``__main__``), whose module a new
+process cannot find by its name, or whose class the module does not hold at the qualified name of
+the class (a function made it at run time), cannot be rebuilt. The sweep then raises a
+``SpecError`` with the code ``flow_not_importable`` before anything runs. Move the flow into a
+module that Python can import, and define its class at the top level of the module, or sweep with
+``max_workers=1``. An import that still fails in a worker, or a worker that does not rebuild the
+flow from the class that the sweep planned with, fails that node with the same code. A ``$VAR`` in
+a path setting expands from the environment that the sweep took at its start, in the calling
+process and in each worker. The callback, the cancel token and the
 confirmation stay in the calling process. A cancel, a timeout or an exception of the callback
 stops the tools that run, and the sweep returns when every worker has released its locks. If the
 calling process dies, the workers stop their tools and end.
@@ -710,6 +717,9 @@ is the code that the process imported, and not the code on disk:
   compares its code with the code of the sweep. A difference fails the node with
   ``stale_runtime``, and the sweep still returns its result. The node plans nothing and writes
   nothing. Restart the process that sweeps and sweep again.
+- A node of a sweep reads a producer that another launch ran again, after the sweep completed it,
+  only when the trace of that run names the code of the sweep. Otherwise the node is blocked, and
+  its error quotes ``run_replaced`` and the code that differs.
 - With ``--remote``, the host runs the code that the client sends. The files of that code and
   their content must be the files of Xeda that the client imported, by the same rule: bytecode and
   hidden files are left out, and a symbolic link is sent as the file or directory that it leads

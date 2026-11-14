@@ -196,6 +196,7 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
             "missing_dependency",
             "unsupported_with_remote",
             "tool_not_installed",
+            "unguarded_main",
         ]
     ),
     "StalePlanError": frozenset(["stale_plan"]),

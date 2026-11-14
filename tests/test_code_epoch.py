@@ -518,3 +518,25 @@ def test_a_failure_while_the_code_of_xeda_changed_is_stale_runtime(monkeypatch):
     info = error_info(RuntimeError("a bug"), node="n")
     assert info.code == "stale_runtime" and "a bug" in info.message
     assert public_error(RuntimeError("a bug")).code == "stale_runtime"
+
+
+# ------------------------------------------------- a worker that imports the main script
+
+
+def test_an_entry_refuses_while_a_worker_imports_the_main_script(monkeypatch, tmp_path):
+    """A spawned worker imports the main script of its parent. A launch in that import would run
+    in every worker, so each entry refuses it, and works again once the import is over."""
+    from multiprocessing import current_process
+
+    from xeda._internal import code_epoch
+    from xeda.errors import SpecError
+
+    plan = workspace.Workspace(tmp_path / "run").plan
+    monkeypatch.setattr(current_process(), "_inheriting", True, raising=False)
+    for entry, argument in ((code_epoch.verify, ()), (plan, (None,))):
+        with pytest.raises(SpecError) as refused:
+            entry(*argument)
+        assert refused.value.code == "unguarded_main"
+        assert 'under `if __name__ == "__main__":`' in refused.value.message
+    monkeypatch.setattr(current_process(), "_inheriting", False)
+    code_epoch.verify()
