@@ -293,3 +293,14 @@ def test_a_failed_command_says_why_when_it_is_told():
     told = NonZeroExitCode(["tool"], 2, "it could not place x", "and y")
     assert str(told) == "Command 'tool' exited with code 2! it could not place x and y"
     assert (told.command_args, told.exit_code) == ("tool", 2)
+
+
+def test_a_setting_flag_is_named_by_its_caller_not_by_its_source():
+    """The name of a flag is an argument. Xeda once took it from the caller's source on disk, so
+    an edit of that file after the import (a comment line) made the call fail at run time."""
+    assert utils.setting_flag(True, name="tmg_ripup") == ["--tmg-ripup"]
+    assert utils.setting_flag(7, name="seed") == ["--seed=7"]
+    assert utils.setting_flag("a", assign=False, name="json") == ["--json", "a"]
+    assert utils.setting_flag(None, name="seed") == []
+    with pytest.raises(TypeError):
+        utils.setting_flag(True)  # type: ignore[call-arg]
