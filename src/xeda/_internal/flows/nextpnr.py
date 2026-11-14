@@ -264,8 +264,8 @@ class EcpPLL(Tool):
         def s(f: float) -> str:
             return f"{f:0.03f}"
 
-        args = setting_flag(self.module)
-        args += setting_flag(self.file)
+        args = setting_flag(self.module, name="module")
+        args += setting_flag(self.file, name="file")
         args += ["--clkin_name", self.clkin.name]  # type: ignore # pylint: disable=no-member
         args += ["--clkin", s(self.clkin.mhz)]  # type: ignore # pylint: disable=no-member
         if not 1 <= len(self.clkouts) <= 4:
@@ -279,9 +279,9 @@ class EcpPLL(Tool):
                     args += [f"--phase{i}", s(clk.phase)]
                 else:
                     raise ValueError("First output clock cannot have a phase difference!")
-        args += setting_flag(self.highres)
-        args += setting_flag(self.standby)
-        args += setting_flag(self.internal_feedback)
+        args += setting_flag(self.highres, name="highres")
+        args += setting_flag(self.standby, name="standby")
+        args += setting_flag(self.internal_feedback, name="internal_feedback")
         self.run(*args, cwd=cwd)
 
 
@@ -1226,8 +1226,8 @@ class Nextpnr(FpgaSynthFlow):
             args += target_args
         args += setting_flag(frequency, name="freq")
         args += setting_flag(sdc_file, name="sdc")
-        args += setting_flag(self.design.rtl.top)
-        args += setting_flag(ss.seed)
+        args += setting_flag(self.design.rtl.top, name="top")
+        args += setting_flag(ss.seed, name="seed")
         # Settings of another architecture were rejected by `_target`.
         for name in FAMILY_SETTINGS:
             if name in XILINX_SETTINGS:
@@ -1239,17 +1239,17 @@ class Nextpnr(FpgaSynthFlow):
         args += setting_flag(ss.verbosity == "debug", name="debug")
         args += setting_flag(ss.verbosity == "verbose", name="verbose")
         args += setting_flag(ss.verbosity == "quiet", name="quiet")
-        args += setting_flag(ss.randomize_seed)
-        args += setting_flag(ss.timing_allow_fail)
-        args += setting_flag(ss.ignore_loops)
+        args += setting_flag(ss.randomize_seed, name="randomize_seed")
+        args += setting_flag(ss.timing_allow_fail, name="timing_allow_fail")
+        args += setting_flag(ss.ignore_loops, name="ignore_loops")
         outputs: Tuple[str, ...] = ("write", "sdf", "log", "report", "placed_svg", "routed_svg")
         for name in outputs if xilinx or not config else (config[0], *outputs):
             args += setting_flag(getattr(ss, name), name=name)
         if config:
             outputs = (config[0], *outputs)
         args += setting_flag(ss.nthreads, name="threads")
-        args += setting_flag(ss.detailed_timing_report)
-        args += setting_flag(ss.parallel_refine)
+        args += setting_flag(ss.detailed_timing_report, name="detailed_timing_report")
+        args += setting_flag(ss.parallel_refine, name="parallel_refine")
         for name in (
             "placer",
             "router",
@@ -1267,11 +1267,11 @@ class Nextpnr(FpgaSynthFlow):
             if value:
                 flag = "run" if name == "py_script" else name
                 args += setting_flag(self.normalize_path_to_design_root(value), name=flag)
-        args += setting_flag(ss.tmg_ripup)
-        args += setting_flag(ss.no_tmdriv)
-        args += setting_flag(ss.ignore_rel_clk)
-        args += setting_flag(ss.router2_alt_weights)
-        args += setting_flag(ss.placer_heap_no_ctrl_set)
+        args += setting_flag(ss.tmg_ripup, name="tmg_ripup")
+        args += setting_flag(ss.no_tmdriv, name="no_tmdriv")
+        args += setting_flag(ss.ignore_rel_clk, name="ignore_rel_clk")
+        args += setting_flag(ss.router2_alt_weights, name="router2_alt_weights")
+        args += setting_flag(ss.placer_heap_no_ctrl_set, name="placer_heap_no_ctrl_set")
         if ss.extra_args:
             args += ss.extra_args
         try:
