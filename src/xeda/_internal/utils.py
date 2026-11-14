@@ -39,7 +39,6 @@ from typing import (
 )
 from xml.etree import ElementTree
 
-from varname import argname  # type: ignore
 
 from .dataclass import AtomicName, BaseModel, SettingText, XedaBaseModel
 from .frozen import FrozenDict, thaw
@@ -940,18 +939,15 @@ def common_root(signals: List[List[_T]]) -> List[_T]:
     return longest if longest else []
 
 
-def setting_flag(variable: Any, assign=True, name=None) -> List[str]:
+def setting_flag(variable: Any, assign: bool = True, *, name: str) -> List[str]:
     """Return the command-line options for `variable`: one for each truthy item.
 
-    The options are named after `name` or, by default, after the argument that the caller passed.
-    A boolean item gives a bare flag and another item gives `--name=value`, or `--name` and
-    `value` when `assign` is false. None and empty text give an empty list.
+    The options are named after `name`. A boolean item gives a bare flag and another item gives
+    `--name=value`, or `--name` and `value` when `assign` is false. None and empty text give an
+    empty list.
     """
     if variable is None or (not variable and isinstance(variable, (str))):
         return []
-    if not name:
-        name = argname("variable")
-    assert isinstance(name, str)
     if not isinstance(variable, (list, tuple)):
         variable = [variable]
     flags = []
