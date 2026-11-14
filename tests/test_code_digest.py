@@ -32,6 +32,9 @@ from xeda._internal.flow_runner.code_digest import (
     xeda_code_digest,
 )
 
+from xeda._internal.spec import Spec
+from xeda._internal.workspace import Workspace
+
 from .flow_registry import preserved_flow_registry
 from .source_layout import layout_script
 
@@ -259,6 +262,28 @@ def test_an_edit_of_a_helper_module_after_the_import_refuses_the_next_launch(
     _launch(tmp_path, plugin, design)
     _write(plugin.directory / "helper.py", 'TEXT = "two\\n"\n')
     _refused(tmp_path, plugin, design, "helper.py")
+
+
+def test_a_package_that_loses_its_init_file_stays_stale_and_starts_no_new_record(plugin):
+    """A branch switch that removes the `__init__.py` of the package does not make the module of
+    the flow a code root of its own, which would record the changed helper as imported."""
+    flow_code_digest(plugin.flow_class)
+    (plugin.directory / "__init__.py").unlink()
+    _write(plugin.directory / "helper.py", 'TEXT = "two\\n"\n')
+    with pytest.raises(StaleRuntimeError):
+        flow_code_digest(plugin.flow_class)
+
+
+def test_a_changed_plugin_refuses_every_entry_before_the_request_writes(tmp_path, plugin, design):
+    """The entry checks the code of every registered flow, so `clean` empties nothing."""
+    out = _launch(tmp_path, plugin, design).run_path / "out.txt"
+    _write(plugin.directory / "helper.py", 'TEXT = "two\\n"\n')
+    workspace = Workspace(tmp_path / "xeda_run")
+    with pytest.raises(StaleRuntimeError, match="helper.py"):
+        workspace.run(Spec(plugin.flow_class.name, design), clean=True)
+    with pytest.raises(StaleRuntimeError, match="helper.py"):
+        Workspace(tmp_path / "other").plan(Spec("yosys_fpga", design))
+    assert out.read_text() == "one\nmessage one\n"
 
 
 def test_a_new_import_of_the_flow_keeps_the_record_of_its_code(plugin):
@@ -502,7 +527,8 @@ def test_a_flow_class_without_a_source_file_always_runs_and_has_no_digest(
         code_digest, "flow_code_digest", lambda cls, snapshots=None: asked.append(cls.name) or ""
     )
     with preserved_flow_registry():
-        for kind, flow_class in _classes_without_a_file(monkeypatch).items():
+        classes = _classes_without_a_file(monkeypatch)
+        for kind, flow_class in classes.items():
             label = f"{flow_class.__module__}.{flow_class.__qualname__}"
             reason = flow_class(
                 flow_class.Settings(), design, tmp_path / kind, runner_cwd=tmp_path
@@ -520,7 +546,7 @@ def test_a_flow_class_without_a_source_file_always_runs_and_has_no_digest(
                 assert RAN == [flow.name], (kind, launch)
                 assert flow.stale_reason == reason, (kind, launch)
                 assert not (flow.run_path / "trace.json").exists(), kind
-    assert asked == []
+    assert not {flow_class.name for flow_class in classes.values()} & set(asked)
 
 
 def test_a_dry_run_reports_a_flow_class_without_a_source_file_as_always_running(

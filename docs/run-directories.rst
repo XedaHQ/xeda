@@ -692,7 +692,7 @@ is the code that the process imported, and not the code on disk:
   outside Xeda is recorded when its first flow class is created.
 - Every entry that plans or launches (``Workspace.plan``, ``Workspace.run``, ``Workspace.sweep``,
   the launcher, ``xeda run``, ``xeda dse``, both ends of ``--remote``) first checks that the files
-  on disk are still those. A file that was edited, added or removed refuses the request with
+  on disk are still those: the files of Xeda and the code of every flow that is registered. A file that was edited, added or removed refuses the request with
   ``StaleRuntimeError`` (code ``stale_runtime``). The request plans nothing, runs nothing and
   writes nothing. ``xeda run --json`` reports it with ``outcome: null`` and exit status 2.
 - A launch checks again before it writes a trace, before it accepts an earlier run, and before it

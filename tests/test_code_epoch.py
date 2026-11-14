@@ -255,22 +255,40 @@ MID_LAUNCH = PRELUDE + layout_script("""
 #: A sweep in worker processes: the test changes the code of the flow after the sweep planned and
 #: before any worker starts, while the sweep tells its first event.
 SWEEP = PRELUDE + layout_script("""
+    from xeda._internal import sweep as sweep_module
+
     run_root = work / "xeda_run"
+    moment = sys.argv[4]  # where the sweep waits for the test: "started" or "generated"
     told = []
 
 
-    def on_event(event):
-        if not told:
-            told.append(event)
-            tell({"planned": True})
+    def wait(where):
+        if where == moment:
+            tell({"at": where})
             sys.stdin.readline()
 
 
+    def on_event(event):
+        if not told:  # the first event, before the sweep generates
+            told.append(event)
+            wait("started")
+
+
+    real_generate = sweep_module.generate_points
+
+
+    def generate_then_wait(*args, **kwargs):
+        errors = real_generate(*args, **kwargs)
+        wait("generated")  # after the last check of the parent, before any worker starts
+        return errors
+
+
+    sweep_module.generate_points = generate_then_wait
     swept = Workspace(run_root).sweep(
         [Spec("sentinel_toy", design)], max_workers=2, on_event=on_event
     )
     (point,) = swept.points
-    error = point.result.nodes["sentinel_toy"].error
+    error = point.result.nodes["sentinel_toy"].error or point.result.error
     tell({
         "outcome": str(point.result.outcome),
         "code": None if error is None else error.code,
@@ -437,13 +455,18 @@ def test_a_change_while_a_node_runs_fails_the_node_and_keeps_no_trace(tmp_path):
     assert (record["outcome"], record["error"]["code"]) == ("failed", "stale_runtime")
 
 
-@pytest.mark.parametrize("changed", [True, False], ids=["changed", "unchanged"])
-def test_a_change_after_a_sweep_planned_fails_its_worker_nodes_as_values(tmp_path, changed):
-    """A worker imports the code that is on disk when it starts. It compares that code with the
-    code that planned the sweep before it plans, and a difference fails its node."""
+@pytest.mark.parametrize(
+    "moment, changed",
+    [("started", True), ("generated", True), ("generated", False)],
+    ids=["changed before the sweep generates", "changed before a worker starts", "unchanged"],
+)
+def test_a_change_after_a_sweep_planned_fails_its_points_as_values(tmp_path, moment, changed):
+    """The sweep checks the code when it generates, and a worker compares the code that it
+    imports when it starts with the code that planned the sweep. Either way a change fails the
+    point, and the sweep still ends with its result."""
     copy = Copy(tmp_path)
-    child = copy.start(SWEEP)
-    assert copy.read(child) == {"planned": True}  # no worker has started yet
+    child = copy.start(SWEEP, moment)
+    assert copy.read(child) == {"at": moment}  # no worker has started yet
     if changed:
         flow = copy.plugin / "sentinel_flow.py"
         flow.write_text(flow.read_text() + "# B\n")
@@ -452,8 +475,9 @@ def test_a_change_after_a_sweep_planned_fails_its_worker_nodes_as_values(tmp_pat
         assert (done["outcome"], done["code"]) == ("passed", None)
         return
     assert (done["outcome"], done["code"], done["traces"]) == ("failed", "stale_runtime", [])
-    assert "the flow `sentinel_toy` differs" in done["message"]
     assert "Plan again" not in done["message"]
+    if moment == "generated":  # the worker found it
+        assert "the flow `sentinel_toy` differs" in done["message"]
 
 
 @pytest.mark.parametrize("changed", [True, False], ids=["changed", "unchanged"])

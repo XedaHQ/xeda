@@ -938,6 +938,13 @@ class _Sweep:
             )
         except Canceled:
             return  # the token says so, and no node starts
+        except StaleRuntimeError as stale:
+            # The code changed on disk after the sweep planned: no point runs, each says why.
+            from .flow_runner.error_codes import error_info
+
+            for point in self.points:
+                point.launch_error = error_info(stale, node=None)
+            return
         for point, (error, generation) in zip(self.points, errors):
             point.generation = generation
             if error is not None:

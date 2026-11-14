@@ -103,14 +103,19 @@ def flow_code_digest(flow_class: Type[Flow]) -> str:
     raises `FlowFatalError` for a class that has no source file on disk (`Flow.always_runs` runs
     such a flow every time, so a launch never asks for its digest), and `StaleRuntimeError` when a
     file of its code changed since the process recorded it (`code_epoch.plugin_root`)."""
-    pairs: list[tuple[str, str]] = []
+    pairs = [pair for root in code_roots(flow_class) for pair in root.verified_pairs()]
+    return digest_pairs(pairs) if pairs else ""
+
+
+def code_roots(flow_class: Type[Flow]) -> list[code_epoch.CodeRoot]:
+    """Return the records of the code roots of the classes of `flow_class` outside Xeda, each
+    once: classes of one tree count the tree once."""
     roots: list[code_epoch.CodeRoot] = []
     for cls in plugin_classes(flow_class):
         root = code_epoch.plugin_root(_source_file(cls))
-        if root not in roots:  # classes of one tree count the tree once
+        if root not in roots:
             roots.append(root)
-            pairs += root.verified_pairs()
-    return digest_pairs(pairs) if pairs else ""
+    return roots
 
 
 def check_code(flow_class: Type[Flow]) -> None:

@@ -326,12 +326,31 @@ if "_XEDA" not in globals():
     )
     #: The record of each plugin code root, by its top-level package or its module file.
     _ROOTS: dict[Path, CodeRoot] = {}
+    #: The root that each module file of a Flow class was first found in. A later change of the
+    #: package around it (an `__init__.py` added or removed) makes that root stale, and never
+    #: starts another record.
+    _ROOT_OF: dict[Path, CodeRoot] = {}
 
 
 def verify() -> None:
-    """Raise `StaleRuntimeError` if a file of the `xeda` package is not what this process
-    imported. Every entry that plans or launches calls this first."""
+    """Raise `StaleRuntimeError` if a file of the `xeda` package, or of the code of a flow that is
+    registered now, is not what this process imported. Every entry that plans or launches calls
+    this first, so a request of a stale process writes nothing."""
     _XEDA.verified_pairs()
+    # The files of Xeda are those that this process imported, so these imports load no new code.
+    from .flow import Flow, registered_flows
+    from .flow.source_file import without_source_file
+    from .flow_runner.code_digest import code_roots
+
+    roots: list[CodeRoot] = []
+    for _, flow_class in list(registered_flows.values()):
+        classes = [c for c in flow_class.__mro__ if isinstance(c, type) and issubclass(c, Flow)]
+        if all(c.__module__.partition(".")[0] == "xeda" for c in classes):
+            continue  # a flow of Xeda's own: its files are those checked above
+        if without_source_file(classes) is None:
+            roots += [root for root in code_roots(flow_class) if root not in roots]
+    for root in roots:  # many flows of one package share its root: check it once
+        root.verified_pairs()
 
 
 def xeda_digest() -> str:
@@ -345,11 +364,14 @@ def plugin_root(module_file: Path) -> CodeRoot:
 
     `Flow.__init_subclass__` calls this for the module of each Flow class outside Xeda, so a root
     is recorded as its first Flow class is created."""
-    top = package_directory(module_file) or module_file
     with _LOCK:
-        root = _ROOTS.get(top)
+        root = _ROOT_OF.get(module_file)
         if root is None:
-            root = _ROOTS[top] = CodeRoot(
-                f"The code of a flow in {top}", lambda: root_files(module_file)
-            )
+            top = package_directory(module_file) or module_file
+            root = _ROOTS.get(top)
+            if root is None:
+                root = _ROOTS[top] = CodeRoot(
+                    f"The code of a flow in {top}", lambda: root_files(module_file)
+                )
+            _ROOT_OF[module_file] = root
     return root
