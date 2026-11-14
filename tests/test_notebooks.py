@@ -5,7 +5,9 @@ examples through the `XEDA_EXAMPLES` variable. A notebook writes only under its 
 `notebook-output/`, and it is committed without outputs.
 """
 
+import array
 import ast
+import base64
 import csv
 import re
 import subprocess
@@ -243,7 +245,7 @@ def test_the_harness_runs_a_notebook_in_its_directory(tmp_path):
     assert cell_output(nb, "cwd") == str(work.resolve())
     assert (work / "x").read_text() == "1"
     assert cell_output(nb, "examples") == "somewhere"
-    assert [p.name for p in tmp_path.iterdir()] == ["nb.ipynb", "work"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["nb.ipynb", "work"]
 
 
 def test_the_harness_reports_a_failed_cell(tmp_path):
@@ -305,6 +307,51 @@ def test_the_sweep_notebook(executions):
     assert lut("64", "False") * 0.9 < lut("64", "True") < lut("64", "False")
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
     assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 19
+    # The markers of the front are the medians that no other median dominates, and its last step
+    # runs on to the widest configuration that passed. A front that ended at its last marker left
+    # the default 192-bit point to the right of the line, where it seemed to beat the front.
+    traces = {trace["name"]: trace for trace in _plotly_figure(nb, "pareto-plot")["data"]}
+    front = traces.pop("Pareto front")
+    steps = list(zip(_plotly_array(front["x"]), _plotly_array(front["y"])))
+    points = [
+        point
+        for trace in traces.values()
+        for point in zip(_plotly_array(trace["x"]), _plotly_array(trace["y"]))
+    ]
+    nondominated = sorted(
+        (x, y)
+        for x, y in points
+        if not any(qx <= x and qy >= y and (qx, qy) != (x, y) for qx, qy in points)
+    )
+    widest = max(x for x, _ in points)
+    assert len(points) == 6, points
+    assert steps == nondominated + [(widest, nondominated[-1][1])], (steps, points)
+
+
+def _plotly_figure(nb: nbformat.NotebookNode, tag: str) -> dict:
+    """The Plotly figure that the cell with the tag `tag` displayed."""
+    (cell,) = [c for c in nb.cells if tag in c.metadata.get("tags", ())]
+    (figure,) = [
+        output.data["application/vnd.plotly.v1+json"]
+        for output in cell.outputs
+        if "application/vnd.plotly.v1+json" in output.get("data", {})
+    ]
+    return figure
+
+
+#: The `array` type codes of the typed arrays of Plotly, by their `dtype`.
+_PLOTLY_TYPECODES = {
+    "i1": "b", "u1": "B", "i2": "h", "u2": "H", "i4": "i", "u4": "I", "i8": "q", "u8": "Q",
+    "f4": "f", "f8": "d",
+}  # fmt: skip
+
+
+def _plotly_array(value) -> list[float]:
+    """A list of numbers, or a typed array of Plotly (`{"dtype": "i4", "bdata": <base64>}`)."""
+    if isinstance(value, dict):
+        typecode = _PLOTLY_TYPECODES[value["dtype"]]
+        return [float(v) for v in array.array(typecode, base64.b64decode(value["bdata"]))]
+    return [float(v) for v in value]
 
 
 def _generated_by(design_dir: Path, width: int, tmp_path: Path) -> bytes:
