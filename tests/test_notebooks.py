@@ -307,9 +307,9 @@ def test_the_sweep_notebook(executions):
     assert lut("64", "False") * 0.9 < lut("64", "True") < lut("64", "False")
     # The sweep wrote one record of nextpnr for each point, in the run root of the notebook.
     assert len(list((work / "xeda_run" / "trivium").glob("nextpnr_*/results.json"))) == 19
-    # The plot draws the front over every configuration: its last step runs on to the widest one,
-    # and no median lies above it. A front that ended at its last point left the default 192-bit
-    # point to the right of the line, where it seemed to beat the front.
+    # The markers of the front are the medians that no other median dominates, and its last step
+    # runs on to the widest configuration that passed. A front that ended at its last marker left
+    # the default 192-bit point to the right of the line, where it seemed to beat the front.
     traces = {trace["name"]: trace for trace in _plotly_figure(nb, "pareto-plot")["data"]}
     front = traces.pop("Pareto front")
     steps = list(zip(_plotly_array(front["x"]), _plotly_array(front["y"])))
@@ -318,9 +318,14 @@ def test_the_sweep_notebook(executions):
         for trace in traces.values()
         for point in zip(_plotly_array(trace["x"]), _plotly_array(trace["y"]))
     ]
-    assert len(points) == 6 and steps[-1][0] == max(x for x, _ in points), (steps, points)
-    for x, y in points:
-        assert y <= max(sy for sx, sy in steps if sx <= x), (x, y, steps)
+    nondominated = sorted(
+        (x, y)
+        for x, y in points
+        if not any(qx <= x and qy >= y and (qx, qy) != (x, y) for qx, qy in points)
+    )
+    widest = max(x for x, _ in points)
+    assert len(points) == 6, points
+    assert steps == nondominated + [(widest, nondominated[-1][1])], (steps, points)
 
 
 def _plotly_figure(nb: nbformat.NotebookNode, tag: str) -> dict:
@@ -334,11 +339,18 @@ def _plotly_figure(nb: nbformat.NotebookNode, tag: str) -> dict:
     return figure
 
 
+#: The `array` type codes of the typed arrays of Plotly, by their `dtype`.
+_PLOTLY_TYPECODES = {
+    "i1": "b", "u1": "B", "i2": "h", "u2": "H", "i4": "i", "u4": "I", "i8": "q", "u8": "Q",
+    "f4": "f", "f8": "d",
+}  # fmt: skip
+
+
 def _plotly_array(value) -> list[float]:
-    """A list of numbers, or a typed array of Plotly (`{"dtype": "f8", "bdata": <base64>}`)."""
+    """A list of numbers, or a typed array of Plotly (`{"dtype": "i4", "bdata": <base64>}`)."""
     if isinstance(value, dict):
-        assert value["dtype"] == "f8", value
-        return list(array.array("d", base64.b64decode(value["bdata"])))
+        typecode = _PLOTLY_TYPECODES[value["dtype"]]
+        return [float(v) for v in array.array(typecode, base64.b64decode(value["bdata"]))]
     return [float(v) for v in value]
 
 
