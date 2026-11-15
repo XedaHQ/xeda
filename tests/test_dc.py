@@ -9,6 +9,8 @@ import pytest
 from xeda import Design
 from xeda._internal.flow import FlowSettingsError
 from xeda._internal.flows import Dc
+from xeda._internal.liberty_units import to_library_time
+from xeda._internal.units import Time
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -121,9 +123,9 @@ def _flow_with_reports(tmp_path: Path, unit: str, **reports: str) -> Dc:
 @pytest.mark.parametrize(
     "unit,period,delays",
     [
-        ("1 ns", "5.000", ("1.5", "0.25")),
-        ("1 ps", "5000.000", ("1500.0", "250.0")),
-        ("10 ps", "500.000", ("150.0", "25.0")),
+        ("1 ns", "5.0", ("1.5", "0.25")),
+        ("1 ps", "5000.0", ("1500.0", "250.0")),
+        ("10 ps", "500.0", ("150.0", "25.0")),
     ],
 )
 def test_the_generated_constraints_are_in_the_time_unit_of_the_library(
@@ -235,6 +237,30 @@ def test_a_clock_line_that_cannot_be_read_gives_no_fmax(tmp_path):
         assert key not in flow.results
 
 
+def test_a_library_time_keeps_its_digits():
+    assert to_library_time(Time("1.2345 ns"), Time("1 ns")) == 1.2345
+    assert to_library_time(Time("1.2345 ns"), Time("1 ps")) == 1234.5
+
+
+def test_a_clock_name_with_a_space_counts_as_a_clock(tmp_path):
+    max_report = """\
+  clock clk (rise edge)                    5.00       5.00
+  clock my clock (rise edge)               5.00       5.00
+  slack (MET)                              0.20
+"""
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
+    flow.parse_timing_reports()
+    for key in ("fmax", "clock_period", "clock_name"):
+        assert key not in flow.results
+
+
+def test_a_negative_design_wns_is_read(tmp_path):
+    qor = "Design WNS: -250.00  TNS: -1500.00  Number of Violating Paths: 3\n"
+    flow = _flow_with_reports(tmp_path, "1 ps", qor=qor)
+    flow.parse_reports()
+    assert (flow.results["_drc_wns"], flow.results["_drc_tns"]) == (-0.25, -1.5)
+
+
 def test_the_hold_slack_is_the_smallest_of_the_paths(tmp_path):
     min_report = """\
   slack (MET)                              0.30
@@ -268,6 +294,7 @@ Timing Path Group 'clk'
   Critical Path Length:       2500.00
   Critical Path Slack:         120.00
   Critical Path Clk Period:   5000.00
+  Critical Path Clk Skew:       30.00
   Total Negative Slack:          0.00
   No. of Violating Paths:        0
 """
@@ -278,6 +305,7 @@ Timing Path Group 'clk'
         "Critical Path Length": 2.5,
         "Critical Path Slack": 0.12,
         "Critical Path Clk Period": 5.0,
+        "Critical Path Clk Skew": 0.03,
         "Total Negative Slack": 0.0,
         "No. of Violating Paths": 0,
     }

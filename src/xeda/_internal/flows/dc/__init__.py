@@ -45,6 +45,7 @@ PATH_GROUP_TIMES = frozenset(
         "Critical Path Length",
         "Critical Path Slack",
         "Critical Path Clk Period",
+        "Critical Path Clk Skew",
         "Total Negative Slack",
         "Worst Hold Violation",
         "Total Hold Violation",
@@ -134,8 +135,8 @@ class Dc(AsicSynthFlow):
             "text",
         ),
         clock_period=MetricSpec(
-            "Capture edge of the one clock of the maximum delay report. With more than one "
-            "clock, there is no value.",
+            "Period of the one clock of the maximum delay report, read from the line of its "
+            "capture edge. With more than one clock, there is no value.",
             "number",
             "ns",
         ),
@@ -513,7 +514,7 @@ class Dc(AsicSynthFlow):
         )
         # Every clock edge line, also one that `clock_pattern` cannot read: a report with such a
         # line gives no clock and no fmax.
-        any_clock_line = re.compile(r"^\s*clock\s+(?P<clock_name>\S+)\s+\((?:rise|fall) edge\)")
+        any_clock_line = re.compile(r"^\s*clock\s+(?P<clock_name>.+?)\s+\((?:rise|fall) edge\)")
 
         def worst_slack(lines: List[str], kind: str) -> Optional[Tuple[float, str]]:
             """The smallest slack of the report and the status of its path."""
@@ -655,10 +656,10 @@ class Dc(AsicSynthFlow):
         )
         drc_re = re.compile(r"^\s*Design Rules\s*\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE)
         wns_re = re.compile(
-            r"^\s*Design\s+WNS:\s+(?P<wns>\d+\.\d+)\s+TNS:\s+(?P<tns>\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
+            r"^\s*Design\s+WNS:\s+(?P<wns>[-+]?\d+\.\d+)\s+TNS:\s+(?P<tns>[-+]?\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
         )
         hold_wns_re = re.compile(
-            r"^\s*Design\s+\(Hold\)\s+WNS:\s+(?P<wns>\d+\.\d+)\s+TNS:\s+(?P<tns>\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
+            r"^\s*Design\s+\(Hold\)\s+WNS:\s+(?P<wns>[-+]?\d+\.\d+)\s+TNS:\s+(?P<tns>[-+]?\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
         )
 
         qor_report = self.report_file(reportfile_path)  # only a report that this run wrote

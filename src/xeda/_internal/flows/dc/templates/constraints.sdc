@@ -1,6 +1,6 @@
 {% for clock_name, clock in settings.clocks.items() -%}
 {% if clock.port -%}
-create_clock -period {{"%.03f" % lib_time(clock.period)}} -name {{clock_name|tcl_word}} [get_ports {{clock.port|tcl_word}}]
+create_clock -period {{lib_time(clock.period)}} -name {{clock_name|tcl_word}} [get_ports {{clock.port|tcl_word}}]
 
 {% if settings.default_max_input_delay is not none -%}
 set max_input_delay {{lib_time(settings.default_max_input_delay)}}
