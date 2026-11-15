@@ -2636,8 +2636,8 @@ with a Verilog simulator through the ``-vsim`` link step of bsc: Verilator, Icar
 another simulator that bsc supports. Every accepted backend (listed below) requires an observed
 ``$finish`` or a confirmed requested limit, with no runtime event reaching ``fail_severity``
 (default ``error``). The argument of ``$finish(n)`` is a verbosity level and not an exit status. A
-requested Bluesim ``max_cycles`` passes only with the measured cycle count and the final simulated
-time. An early explicit finish remains valid. A silent exit 0 and a drained event queue fail.
+requested Bluesim ``max_cycles`` passes only with the measured cycle count. An early explicit
+finish remains valid. A silent exit 0 and a drained event queue fail.
 ``bsc_sim`` refuses a run directory whose path has whitespace, with every simulator, before
 anything is created and when planning, because the link step of bsc runs its tools through a shell
 without quoting. Use a run root without whitespace (``--run-root``).
@@ -2646,6 +2646,11 @@ without quoting. Use a run root without whitespace (``--run-root``).
 
     xeda run bsc examples/bluespec/gcd/gcd.yaml
     xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s bsc_sim.simulator=verilator
+
+Bluesim reports no ``sim.time``. Its kernel counts unitless ticks (10 ticks for each clock cycle
+of the default clock), and the ``1 us`` timescale that Xeda sets labels only the waveform. A time
+in microseconds would be a time that the model does not have. ``sim.evidence.cycles`` has the
+cycle count. The Verilog simulators that ``bsc_sim`` links report their own simulated time.
 
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
@@ -2792,7 +2797,7 @@ rewrite the reported time to the request. NVC uses a passive VHPI helper for the
 compiler is needed when that helper must be built. NVC has no ``exit_severity`` setting: use
 ``fail_severity``. Icarus Verilog (``iverilog``) uses a VPI monitor for the end of the run, and a C compiler builds
 it, except under cocotb. A Bluesim ``max_cycles`` passes only when the recorded cycle count
-equals the request and the record includes a measured final time and unit. CXXRTL links an exit
+equals the request. CXXRTL links an exit
 monitor and an RTL assertion hook into a C++ driver that the user owns. An observed driver exit 0
 is valid evidence even when the simulated time is unknown, but missing records or abnormal exits
 fail. CXXRTL rejects ``stop_time`` because the driver controls scheduling.
@@ -3077,8 +3082,8 @@ UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms. The fl
 * cocotb uses the stock VPI library of cocotb. As on every simulator, the results of cocotb decide
   such a run, so these lines do not affect it. ``vcd`` is refused with cocotb: use ``fst``.
 * ``code_coverage`` selects ``stmt``, ``branch`` and ``toggle``. The results are
-  ``coverage.statement``, ``coverage.branch`` and ``coverage.toggle``, and the artifact
-  ``coverage`` holds the details.
+  ``coverage.statement``, ``coverage.branch`` and ``coverage.toggle``. Each one is a ratio from 0
+  to 1. The artifact ``coverage`` holds the details.
 * ``xezim_flags`` passes other options. A flow-owned option there is refused at planning, and the
   message names the setting to use.
 

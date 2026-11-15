@@ -148,12 +148,9 @@ def test_a_requested_max_cycles_stop_counts():
     """The Bluesim adapter reports `max_cycles`; accepted only when it was asked for."""
     stub = _Stub()
     stub.settings.max_cycles = 100
-    assert (
-        judge_evidence(
-            stub, SimEvidence(ended_by="max_cycles", cycles=100, time=100, time_unit="1ns"), "error"
-        )
-        is True
-    )
+    assert judge_evidence(stub, SimEvidence(ended_by="max_cycles", cycles=100), "error") is True
+    assert stub.results.get("sim.time") is None
+    assert judge_evidence(stub, SimEvidence(ended_by="max_cycles", cycles=99), "error") is False
     assert judge_evidence(_Stub(), SimEvidence(ended_by="max_cycles", time=100), "error") is False
 
 
@@ -521,14 +518,12 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
     [
         ({"time": 100, "time_unit": "1ns"}, False),
         ({"cycles": 99, "time": 100, "time_unit": "1ns"}, False),
-        ({"cycles": 100, "time_unit": "1ns"}, False),
-        ({"cycles": 100, "time": 100}, False),
-        ({"cycles": 100, "time": 100, "time_unit": "bogus"}, False),
-        ({"cycles": 100, "time": -1, "time_unit": "1ns"}, False),
+        ({"cycles": 99}, False),
+        ({"cycles": 100}, True),
         ({"cycles": 100, "time": 100, "time_unit": "1ns"}, True),
     ],
 )
-def test_max_cycles_requires_measured_count_and_final_time(record, passes):
+def test_max_cycles_requires_the_measured_count(record, passes):
     flow = _Stub()
     flow.settings.max_cycles = 100
     assert judge_evidence(flow, SimEvidence(ended_by="max_cycles", **record), "error") is passes

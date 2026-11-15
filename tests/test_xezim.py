@@ -656,11 +656,35 @@ def test_coverage_gives_results_and_an_artifact(tmp_path: Path) -> None:
     )
     flow = _simulate(tmp_path, testbench, code_coverage=["stmt", "branch"])
     assert flow.succeeded
-    assert 0 < flow.results["coverage.statement"] <= 100
-    assert 0 < flow.results["coverage.branch"] <= 100
+    assert 0 < flow.results["coverage.statement"] <= 1
+    assert 0 < flow.results["coverage.branch"] <= 1
     assert "coverage.toggle" not in flow.results
     assert flow.artifacts["coverage"] == "xezim_cov.json"
     assert json.loads((flow.run_path / "xezim_cov.json").read_text())["code_coverage"]
+
+
+def test_coverage_is_a_ratio_from_zero_to_one(tmp_path: Path) -> None:
+    """xezim reports a percentage. Xeda reports a ratio, as for `utilization`."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    flow = Xezim(
+        Xezim.Settings.from_input({"code_coverage": ["stmt", "toggle"]}),
+        _design(tmp_path),
+        tmp_path,
+    )
+    (tmp_path / "xezim_cov.json").write_text(
+        json.dumps(
+            {
+                "code_coverage": {
+                    "kinds": ["statement", "toggle"],
+                    "statement": {"covered": 3, "total": 4, "percent": 75.0},
+                    "toggle": {"covered": 0, "total": 0, "percent": None},
+                }
+            }
+        )
+    )
+    assert flow.parse_reports()
+    assert flow.results["coverage.statement"] == 0.75
+    assert "coverage.toggle" not in flow.results
 
 
 @pytest.mark.real_tool

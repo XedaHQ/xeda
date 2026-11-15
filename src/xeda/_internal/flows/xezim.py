@@ -271,7 +271,7 @@ class Xezim(SimFlow):
         *COCOTB_METRICS,
         **{
             f"coverage.{kind}": MetricSpec(
-                f"Percentage of {name} that the simulation covered, within "
+                f"Fraction of {name} that the simulation covered, as a ratio from 0 to 1, within "
                 "`code_coverage_scope`. Present when `code_coverage` selects it and the scope "
                 "has something of this kind.",
                 "number",
@@ -501,7 +501,7 @@ class Xezim(SimFlow):
         return None
 
     def parse_reports(self) -> bool:
-        """Read the coverage percentages that the settings asked for."""
+        """Read the coverage ratios that the settings asked for."""
         assert isinstance(self.settings, self.Settings)
         if not self.settings.code_coverage:
             return True
@@ -513,7 +513,7 @@ class Xezim(SimFlow):
             for kind in coverage["kinds"]:
                 percent = coverage[kind]["percent"]
                 if percent is not None:  # None: the scope has nothing of this kind to cover
-                    self.results[f"coverage.{kind}"] = float(percent)
+                    self.results[f"coverage.{kind}"] = float(percent) / 100.0
         except (OSError, ValueError, KeyError, TypeError) as error:
             log.error("Cannot read coverage from %s: %s", report, error)
             return False

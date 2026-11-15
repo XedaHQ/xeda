@@ -274,7 +274,7 @@ def launch_case(
                 program += (
                     'Path(\'bluesim_events.jsonl\').write_text(\'{"kind":"finish","time":0}\\n\')\n'
                 )
-                program += 'Path(\'bluesim_end.json\').write_text(\'{"ended_by":"unknown","time":0,"time_unit":"1us","cycles":1,"events":[]}\')\n'
+                program += 'Path(\'bluesim_end.json\').write_text(\'{"ended_by":"unknown","cycles":1,"events":[]}\')\n'
             if positive and case.flow == "ghdl_sim":
                 program += "print('simulation finished @0ms', flush=True)\n"
             if positive and case.flow == "yosys_sim":
