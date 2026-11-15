@@ -151,9 +151,6 @@ READS_ONLY: Dict[Tuple[str, str], Dict[str, str]] = {
     ("VivadoImplementation", "parse_reports"): {
         "len(e.args) > 0": "picks the text of a debug message",
     },
-    ("VivadoImplementation", "parse_timing_report"): {
-        "clock_period <= 0": "rejects a clock period that cannot give a Fmax",
-    },
     ("Nextpnr", "_parse_fmax"): {
         "wns >= 0": "stores `timing_met`, a result; the verdict is in `check_results()`",
         "wns < 0": "logs the missed constraint with the numbers that explain it",

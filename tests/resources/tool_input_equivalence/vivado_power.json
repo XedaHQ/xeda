@@ -2001,7 +2001,8 @@
     "error": null,
     "metrics": {
      "bram": {
-      "ramb18": 1
+      "ramb18": 1,
+      "ramb36": 0
      },
      "bram_tile": 0.5,
      "clock_frequency": 450.045,
@@ -2009,7 +2010,11 @@
      "dsp": 8,
      "ff": 4063,
      "fmax": 459.5588235294117,
+     "fmax_by_clock": {
+      "clock": 459.5588235294117
+     },
      "hold_violations": 0,
+     "latch": 0,
      "lut": 4123,
      "lut_logic": 3667,
      "lut_mem": 456,
