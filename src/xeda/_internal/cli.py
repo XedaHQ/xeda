@@ -1431,6 +1431,7 @@ def run(
                 results_of(result.record),
                 title=f"Results of flow:{flow} design:{spec.design.name}",
                 skip_if_false={"artifacts", "reports"},
+                metric_info=result.record.metric_info,
             )
         if not result.passed:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
@@ -1734,6 +1735,18 @@ def dse(
         **opt_settings,  # optimizer_settings overrides other options
     }
 
+    def print_best(best: Any, title: str) -> None:
+        """Print the results of the best point with their units. Both tables show the same rows."""
+        if best.record is None:
+            print_results(best.results, title=title, subset=RESULTS_SHOWN)
+        else:
+            print_results(
+                results_of(best.record),
+                title=title,
+                subset=RESULTS_SHOWN,
+                metric_info=best.record.metric_info,
+            )
+
     token = CancelToken()
     try:
         project = _selected_project(xedaproject, design)
@@ -1746,9 +1759,7 @@ def dse(
         )
         dse.cancel = token
         # The tables go to stderr with --json (`machine_readable_mode`).
-        dse.best_so_far = lambda best: print_results(
-            best.results, title="Best so far", subset=RESULTS_SHOWN, skip_if_false=True
-        )
+        dse.best_so_far = lambda best: print_best(best, "Best so far")
         # The first Ctrl-C ends the exploration after the runs of its round stop.
         with _cancel_on_interrupt(token):
             result = dse.run(
@@ -1774,7 +1785,7 @@ def dse(
     except Exception as e:
         not_ended(e)
     if result.best is not None:
-        print_results(result.best.results, title="Best results", subset=RESULTS_SHOWN)
+        print_best(result.best, "Best results")
     error: ErrorInfo | None
     if result.canceled:
         error = ErrorInfo(

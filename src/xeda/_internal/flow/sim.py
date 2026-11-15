@@ -23,7 +23,7 @@ from ..dataclass import (
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..package_paths import impl_module
 from ..records import REPORTED_FAILURE, ErrorInfo
-from ..units import Bounds, Time, Unit
+from ..units import Bounds, Time, Unit, integer_with_unit
 from ..utils import SDF
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -99,16 +99,15 @@ def whole_femtoseconds(time: Time) -> int:
 def readable_time(time: int, unit: str | None) -> str:
     """Return a simulated time in the largest unit that holds it exactly.
 
-    An example is `80 ns`, not `80000000 1fs`. Return the time as given when the unit is missing
+    An example is `80 ns`, not `80000000 1fs`. The text follows `units.integer_with_unit`:
+    1500 `fs` is `1.5 ps`. Return the time as given when the unit is missing
     or not a time unit that Xeda knows."""
     try:
         femtoseconds = time_in_fs(time, unit or "")
     except ValueError:
         return f"{time} {unit}" if unit else str(time)
-    for name in ("s", "ms", "us", "ns", "ps"):
-        if femtoseconds and femtoseconds % _FS_PER_UNIT[name] == 0:
-            return f"{femtoseconds // _FS_PER_UNIT[name]} {name}"
-    return f"{femtoseconds} fs"
+    text, unit_text = integer_with_unit(femtoseconds, "fs")
+    return f"{text} {unit_text}"
 
 
 def record_failure(flow: Any, message: str) -> None:

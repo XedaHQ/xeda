@@ -12,6 +12,7 @@ import copy
 import itertools
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -290,6 +291,10 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     assert document["outcome"] == "passed" and document["error"] is None
     # The command line prints the tables of the best run, on stderr with --json.
     assert "Best so far" in proc.stderr and "Best results" in proc.stderr
+    # Both tables show the same rows, and `fmax` has its unit.
+    for title in ("Best so far", "Best results"):
+        table = proc.stderr.split(title)[1].split("╰")[0]
+        assert re.search(r"fmax\s+│\s+[\d,.]+\s+│ MHz", table), table
     assert (document["flow"], document["design_name"], document["optimizer"]) == (
         "vivado_synth",
         "sqrt",

@@ -3058,7 +3058,6 @@ UVM, SDF annotation, code coverage and the ``vcd`` and ``fst`` waveforms. The fl
   So a failed assertion, an ``illegal_bins`` hit, a timing violation and a failed UVM test fail at
   the default ``fail_severity``, although ``xezim`` exits with status 0 for all of them. A line
   that a testbench prints in one of these forms counts too. A plain ``Error:`` line does not.
-  ``sim.time`` is in the finest time precision of the design.
 * ``xezim`` reports a Verilog ``$stop`` as ``$finish``. A ``$stop`` passes on this flow, unlike on
   the other simulators. A testbench that reports a failure must use ``$error`` or ``$fatal``, or
   a UVM error or fatal report.

@@ -53,7 +53,8 @@ from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
 from .introspect import settings_class_info, type_str, unit_of
 from .outcomes import Result
-from .units import is_number_text, is_quantity_unit
+from .records import MetricInfo
+from .units import integer_with_unit, is_number_text, is_quantity_unit, number_text
 from .utils import json_encodable, with_json_keys
 
 __all__ = [
@@ -582,16 +583,42 @@ def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None
 # --- the tables of a run ----------------------------------------------------------------------
 
 
+def _metric_cells(value: Any, info: MetricInfo | None) -> tuple[str, str]:
+    """Return the value text and the unit text of a metric in the results table.
+
+    The descriptor type decides, never the Python type: an `integer` quantity is rescaled to the
+    largest exact unit (`integer_with_unit`), a `number` keeps its unit and shows six significant
+    digits (`number_text`). A key without a descriptor shows as it always did."""
+    if info is None:
+        if isinstance(value, float):
+            return f"{value:,.3f}", ""
+        if isinstance(value, int) and not isinstance(value, bool):
+            return f"{value:,}", ""
+        return str(value), ""
+    if _is_plain_number(value):
+        if info.type == "integer" and isinstance(value, int):
+            return integer_with_unit(value, info.unit)
+        if info.type == "number":
+            return number_text(value), info.unit or ""
+    return str(value), info.unit or ""
+
+
 def print_results(
     results: Dict[str, Any],
     title: Optional[str] = None,
     subset: Optional[Iterable[str]] = None,
     skip_if_false: Union[bool, Iterable[str], None] = None,
+    metric_info: Mapping[str, MetricInfo] | None = None,
 ) -> None:
-    """Print the selected results of a flow in a table."""
+    """Print the selected results of a flow in a table of name, value and unit.
+
+    `metric_info` describes the metrics of `results` by their keys (`RunRecord.metric_info`). A
+    metric shows with its unit. A key that it does not describe (`success`, `runtime`, ...) has no
+    unit."""
     # The table shows what `results.json` holds: keys as that file writes them, so a key it can
     # write (a tuple, a `Path`) cannot crash the table printed after the run.
     results = with_json_keys(dict(results))
+    metric_info = metric_info or {}
     console.print()
     table = Table(
         title=title,
@@ -600,8 +627,9 @@ def print_results(
         box=box.ROUNDED,
         show_lines=True,
     )
-    table.add_column(style="bold", min_width=8, no_wrap=True)
-    table.add_column(justify="right", min_width=8)
+    table.add_column(style="bold", min_width=8, no_wrap=True, overflow="fold")
+    table.add_column(justify="right", min_width=8, overflow="fold")
+    table.add_column(justify="left", no_wrap=True, overflow="fold")
     skip_fields = [
         "timestamp",
         "design",
@@ -614,38 +642,47 @@ def print_results(
         "artifacts",
         "outputs",
     ]
+
+    def add_row(name: str, value: str, unit: str = "", style: Style | None = None) -> None:
+        # `Text` is literal: a value is never read as markup.
+        table.add_row(Text(name), Text(value), Text(unit), style=style)
+
     for k, v in results.items():
         skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
         if skipable and not v:
             continue
         if v is not None and not str(k).startswith("_"):
             if k == "success":
-                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
+                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]", "")
                 continue
             if (subset and k not in subset) or k in skip_fields:
                 continue
             if k == "runtime" and isinstance(v, (float, int)):
-                table.add_row(
-                    "Run time",
-                    str(timedelta(seconds=round(v))),
-                    style=Style(dim=True),
-                )
+                add_row("Run time", str(timedelta(seconds=round(v))), style=Style(dim=True))
                 continue
+            info = metric_info.get(str(k))
             if isinstance(v, (dict,)):
-                table.add_row(f"{k}:", "", style=Style(bold=True))
+                add_row(f"{k}:", "", style=Style(bold=True))
+                unit = info.unit if info is not None and info.unit else ""
                 for xk, xv in v.items():
-                    if isinstance(xv, dict):
-                        xv = json.dumps(xv, indent=1, default=json_encodable)
+                    if info is not None and info.type == "numbers" and not isinstance(xv, dict):
+                        text = number_text(xv) if _is_plain_number(xv) else str(xv)
+                        add_row(f" {xk}", text, unit)
+                    elif info is not None and info.type == "counts" and _is_plain_number(xv):
+                        add_row(f" {xk}", f"{xv:,}" if isinstance(xv, int) else str(xv))
+                    elif isinstance(xv, dict):
+                        add_row(f" {xk}", json.dumps(xv, indent=1, default=json_encodable))
                     else:
-                        xv = str(xv)
-                    table.add_row(Text(f" {xk}"), str(xv))
+                        add_row(f" {xk}", str(xv))
                 continue
-            if isinstance(v, float):
-                v = f"{v:,.3f}"
-            elif isinstance(v, int):
-                v = f"{v:,}"
-            table.add_row(str(k), str(v))
+            text, unit = _metric_cells(v, info)
+            add_row(str(k), text, unit)
     console.print(table)
+
+
+def _is_plain_number(value: Any) -> bool:
+    """Return whether `value` is an `int` or a `float`, and no `bool`."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
@@ -700,6 +737,7 @@ def print_run_tables(result: Result, design_name: str) -> None:
             results,
             title=f"Results of flow:{node.flow} design:{design_name}",
             skip_if_false={"artifacts", "reports"},
+            metric_info=record.metric_info,
         )
 
 

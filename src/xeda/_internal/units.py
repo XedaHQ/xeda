@@ -1048,6 +1048,71 @@ def is_number_text(text: str) -> bool:
     return re.fullmatch(_NUMBER, text) is not None
 
 
+#: The units of a metric that a display may rescale, each ladder from its smallest unit up. Every
+#: step is a factor of 1000. Units outside a ladder (`min`, `h`, `degC`, `um^2`, ...) are shown as
+#: they are. The names are ASCII: a micro sign is read as `u` (`_MICRO_SIGNS`).
+DISPLAY_LADDERS: tuple[tuple[str, ...], ...] = (
+    ("fs", "ps", "ns", "us", "ms", "s"),
+    ("Hz", "kHz", "MHz", "GHz"),
+    ("nW", "uW", "mW", "W"),
+    ("nm", "um", "mm"),
+    ("fF", "pF", "nF"),
+    ("ohm", "kohm", "Mohm"),
+    ("mV", "V"),
+)
+_MICRO_SIGNS = str.maketrans({"\u00b5": "u", "\u03bc": "u"})
+_LADDER_OF_UNIT = {unit: ladder for ladder in DISPLAY_LADDERS for unit in ladder}
+
+
+def integer_with_unit(value: int, unit: str | None) -> tuple[str, str]:
+    """Return the text of an integer metric and the text of its unit, for a display.
+
+    On a ladder (`DISPLAY_LADDERS`), the unit is the largest one that keeps the value exact: 1500
+    `fs` is `("1.5", "ps")`. The arithmetic is on integers, so no digit is lost. The value has `,`
+    between groups of three digits in its whole part. Zero stays in `unit`. A unit that is on no
+    ladder, or no unit, leaves the value as it is."""
+    if unit is None:
+        return f"{value:,}", ""
+    name = unit.translate(_MICRO_SIGNS)
+    ladder = _LADDER_OF_UNIT.get(name)
+    if ladder is None:
+        return f"{value:,}", unit
+    if value == 0:
+        return "0", name
+    steps = 0
+    magnitude = abs(value)
+    first = ladder.index(name)
+    while first + steps + 1 < len(ladder) and magnitude >= 1000 ** (steps + 1):
+        steps += 1
+    whole, fraction = divmod(magnitude, 1000**steps)
+    text = f"{whole:,}"
+    if fraction:
+        text += "." + str(fraction).zfill(3 * steps).rstrip("0")
+    return ("-" if value < 0 else "") + text, ladder[first + steps]
+
+
+def number_text(value: float) -> str:
+    """Return the text of a `number` metric, for a display: six significant digits, no exponent
+    for a value from 1e-9 up to (not including) 1e12, and no trailing zeros.
+
+    The value keeps its unit, so 225.98870056497177 is `225.989` and 1234567.891 is `1,234,570`.
+    A value outside that range keeps the scientific form of `format(value, ".6g")`, and a value
+    that is not finite is shown as Python writes it."""
+    if not math.isfinite(value):
+        return str(value)
+    text = format(value, ".6g")
+    rounded = abs(float(text))
+    if rounded != 0 and not 1e-9 <= rounded < 1e12:
+        return text
+    fixed = format(Decimal(text), "f")
+    if "." in fixed:
+        fixed = fixed.rstrip("0").rstrip(".")
+    sign = "-" if fixed.startswith("-") else ""
+    whole, point, fraction = fixed.lstrip("-").partition(".")
+    result = f"{int(whole):,}{point}{fraction}"
+    return "0" if result == "0" else sign + result
+
+
 def measure_of(model: type[Any], field: str) -> Optional[str]:
     """Return what the plain number `field` of the pydantic `model` measures (one of `MEASURES`),
     or None when it has no marker."""
@@ -1061,6 +1126,7 @@ __all__ = [
     "Bounds",
     "CLOCK_UNITS",
     "Capacitance",
+    "DISPLAY_LADDERS",
     "Frequency",
     "Length",
     "MEASURES",
@@ -1086,11 +1152,13 @@ __all__ = [
     "data_size",
     "finalize_template_value",
     "freq_mhz_optional",
+    "integer_with_unit",
     "is_metric_unit",
     "is_number_text",
     "is_quantity_unit",
     "library_units",
     "measure_of",
+    "number_text",
     "percent",
     "ratio",
     "time_ns_optional",

@@ -287,6 +287,11 @@ as a cell area in the area unit of the Liberty files, has the unit ``null``, and
 says so. The keys that every flow reports (``runtime``, ...) are no metrics and are not listed. The
 table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
+The tables that ``xeda run`` and ``xeda dse`` print show each metric with its unit. A ``number``
+shows in its unit with six significant digits. An integer quantity such as ``sim.time`` (in
+femtoseconds) shows in the largest unit that keeps it exact: ``30 us``. ``results.json`` and
+``xeda list-results`` keep the stored unit.
+
 A temperature is in ``degC``. A temperature difference is in ``delta_degC``, and 5 ``delta_degC`` is
 5 K. A thermal resistance is in ``K/W``. An area in square micrometers is in ``um^2``. The simulated time ``sim.time`` is an integer number of
 femtoseconds. The counts of cells by type are one ``counts`` metric, ``cell_types``, with the name
