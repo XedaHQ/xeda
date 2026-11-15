@@ -3,12 +3,13 @@
 A metric path names one tuple: quantity, population, aggregation, analysis scope, sign, type and
 unit. The checks below read the `results_description` of every built-in flow. Two checks keep a
 reviewed table each: `REVIEWED_UNITLESS_NUMBERS` and `REVIEWED_SHARED_PATHS`. A new metric of
-either kind fails until a person adds a row with a reason.
+either kind fails until a person adds a row with a reason. A unitless `integer` is a count: its
+description says so, or `REVIEWED_UNITLESS_INTEGERS` has a row for it.
 """
 
 import re
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple, Type
+from typing import Dict, FrozenSet, List, Set, Tuple, Type
 
 import pytest
 
@@ -49,10 +50,6 @@ def _unitless_numbers() -> Set[str]:
         for path, flows in _described().items()
         if any(kind in ("number", "numbers") and unit is None for kind, unit in flows.values())
     }
-
-
-def _shared_paths() -> Set[str]:
-    return {path for path, families in _families().items() if len(families) >= 2}
 
 
 def test_one_path_has_one_type_and_one_unit_in_every_flow():
@@ -188,6 +185,75 @@ def test_every_number_without_a_unit_has_a_reviewed_reason():
     )
 
 
+#: A description that names a count.
+COUNT_DESCRIPTION = re.compile(r"^(the |total )*(number|count) of\b", re.IGNORECASE)
+
+#: Every unitless `integer` metric whose description does not start with "Number of" or "Count
+#: of", and why it is a count.
+REVIEWED_UNITLESS_INTEGERS: Dict[str, str] = {
+    "cells": "count of cell instances; the description says 'Total number of cells' (dc, yosys)",
+    "formal.assertions": "count of assertions, one for each instance",
+    "formal.assumptions": "count of assumptions, one for each instance",
+    "formal.covers": "count of cover statements, one for each instance",
+    "formal.depth": "count of steps; the description says 'The number of steps'",
+    "lut_use.logic": "count of LUTs, an estimate of the footprint",
+    "lut_use.ram": "count of LUTs, an estimate of the footprint",
+    "lut_use.srl": "count of LUTs, an estimate of the footprint",
+}
+
+
+def _integer_problems(
+    metrics: Dict[str, Dict[str, Tuple[str, str | None, str]]], reviewed: Dict[str, str]
+) -> List[str]:
+    """Return a problem for each unitless `integer` that is no count and has no reviewed row.
+
+    `metrics` maps path -> flow name -> (type, unit, description)."""
+    problems = []
+    unitless = set()
+    for path, flows in metrics.items():
+        for flow, (kind, unit, text) in flows.items():
+            if kind != "integer" or unit is not None:
+                continue
+            unitless.add(path)
+            if path not in reviewed and not COUNT_DESCRIPTION.match(text):
+                problems.append(f"{flow}: {path} is an `integer` without a unit and is no count")
+    problems.extend(
+        f"The row of {path!r} names no unitless `integer`"
+        for path in sorted(set(reviewed) - unitless)
+    )
+    return problems
+
+
+def _described_with_text() -> Dict[str, Dict[str, Tuple[str, str | None, str]]]:
+    found: Dict[str, Dict[str, Tuple[str, str | None, str]]] = defaultdict(dict)
+    for flow_class in BUILT_IN_FLOWS:
+        for path, spec in flow_class.results_description.items():
+            found[path][flow_class.name] = (spec.type, spec.unit, spec.description)
+    return found
+
+
+def test_every_integer_without_a_unit_is_a_count():
+    problems = _integer_problems(_described_with_text(), REVIEWED_UNITLESS_INTEGERS)
+    assert not problems, (
+        f"{problems}. A physical quantity needs a unit, also when it is an `integer`. Give the "
+        "metric a unit. If it is a count, start its description with 'Number of' or 'Count of'. "
+        "Otherwise add a row to REVIEWED_UNITLESS_INTEGERS that says why it has no unit. Remove "
+        "a row that names no unitless `integer`."
+    )
+
+
+def test_a_unitless_physical_integer_is_found():
+    def metrics(unit, text):
+        return {"delay": {"fake": ("integer", unit, text)}}
+
+    assert _integer_problems(metrics(None, "Propagation delay."), {})
+    assert not _integer_problems(metrics("ps", "Propagation delay."), {})
+    assert not _integer_problems(metrics(None, "Number of stages in the path."), {})
+    assert not _integer_problems(metrics(None, "Propagation delay."), {"delay": "a count"})
+    assert _integer_problems(metrics("ps", "Propagation delay."), {"delay": "a count"})
+    assert _integer_problems(metrics(None, "Number of stages."), {"gone": "a count"})
+
+
 #: Text of a row of a table of shared paths that several flows share one for one.
 _COCOTB = (
     "Summary of one cocotb regression. Verified: every simulator flow takes the path from the "
@@ -198,165 +264,275 @@ _SIM = (
     "`judge_evidence` rule of flow/sim.py."
 )
 
-#: Every path that two or more tool families report, with what it means. A row has the quantity,
-#: the population and the aggregation, and then the evidence or `unverified:` and the work that
-#: would verify it. A new share needs a row, and a row needs a share.
-REVIEWED_SHARED_PATHS: Dict[str, str] = {
-    "bram": (
-        "Block RAM primitives used in the implemented design. nextpnr counts the bels of the BRAM "
-        "bel types; Diamond reads the map report. unverified: run one design with block RAM "
-        "through Diamond and nextpnr and compare the counts"
+
+def _row(families: str, text: str) -> Tuple[FrozenSet[str], str]:
+    """Return a row of `REVIEWED_SHARED_PATHS`: the tool families that it covers, and its text."""
+    return frozenset(families.split()), text
+
+
+#: Every path that two or more tool families report, with the families that the row covers and
+#: what the path means. The text has the quantity, the population and the aggregation, and then the
+#: evidence or `unverified:` and the work that would verify it. A new share needs a row, a row needs
+#: a share, and a family that starts to report a shared path needs a review of the row.
+REVIEWED_SHARED_PATHS: Dict[str, Tuple[FrozenSet[str], str]] = {
+    "bram": _row(
+        "diamond nextpnr",
+        (
+            "Block RAM primitives used in the implemented design. nextpnr counts the bels of the BRAM "
+            "bel types; Diamond reads the map report. unverified: run one design with block RAM "
+            "through Diamond and nextpnr and compare the counts"
+        ),
     ),
-    "cells": (
-        "Cell instances over the whole hierarchy of the netlist. yosys counts the leaf cells of "
-        "`stat` (passes/cmds/stat.cc); Design Compiler prints 'Number of cells'. unverified: "
-        "run Design Compiler and check that its count covers the hierarchy the way yosys does"
+    "cells": _row(
+        "dc yosys",
+        (
+            "Cell instances over the whole hierarchy of the netlist. yosys counts the leaf cells of "
+            "`stat` (passes/cmds/stat.cc); Design Compiler prints 'Number of cells'. unverified: "
+            "run Design Compiler and check that its count covers the hierarchy the way yosys does"
+        ),
     ),
-    "clock_frequency": (
-        "Constrained clock frequency, as given to the tool. Vivado: the first clock of the Clock "
-        "Summary table. nextpnr and Diamond: the constraint of the reported clock. unverified "
-        "for Diamond: run it with two clocks and check which one it reports"
+    "clock_frequency": _row(
+        "diamond nextpnr vivado",
+        (
+            "Constrained clock frequency, as given to the tool. Vivado: the first clock of the Clock "
+            "Summary table. nextpnr and Diamond: the constraint of the reported clock. unverified "
+            "for Diamond: run it with two clocks and check which one it reports"
+        ),
     ),
-    "clock_period": (
-        "Constrained clock period in ns, as given to the tool; the capture edge of the one "
-        "clock for Design Compiler. Vivado: the first clock of the Clock Summary table. "
-        "unverified for Design Compiler and Diamond: run them with two clocks and check which "
-        "clock they report"
+    "clock_period": _row(
+        "dc diamond nextpnr vivado",
+        (
+            "Constrained clock period in ns, as given to the tool; the capture edge of the one "
+            "clock for Design Compiler. Vivado: the first clock of the Clock Summary table. "
+            "unverified for Design Compiler and Diamond: run them with two clocks and check which "
+            "clock they report"
+        ),
     ),
-    "clock_port": (
-        "Top-level port of the reported clock. nextpnr: the only clock domain, when certain. "
-        "unverified for Diamond: run it with two clocks and check which port it reports"
+    "clock_port": _row(
+        "diamond nextpnr",
+        (
+            "Top-level port of the reported clock. nextpnr: the only clock domain, when certain. "
+            "unverified for Diamond: run it with two clocks and check which port it reports"
+        ),
     ),
-    "cocotb.errors": _COCOTB,
-    "cocotb.failures": _COCOTB,
-    "cocotb.sim_time": _COCOTB,
-    "cocotb.skipped": _COCOTB,
-    "cocotb.tests": _COCOTB,
-    "cocotb.time": _COCOTB,
-    "dsp": (
-        "DSP blocks used in the implemented design. nextpnr counts DSP bels; Vivado reads the "
-        "utilization report; yosys_fpga sums the DSP primitives of the netlist. Diamond counts "
-        "multipliers, ALUs and pre-adders, so a multiply-accumulate counts twice. unverified: "
-        "run one multiply-accumulate design through each tool and compare the counts"
+    "cocotb.errors": _row("ghdl iverilog nvc verilator xezim", _COCOTB),
+    "cocotb.failures": _row("ghdl iverilog nvc verilator xezim", _COCOTB),
+    "cocotb.sim_time": _row("ghdl iverilog nvc verilator xezim", _COCOTB),
+    "cocotb.skipped": _row("ghdl iverilog nvc verilator xezim", _COCOTB),
+    "cocotb.tests": _row("ghdl iverilog nvc verilator xezim", _COCOTB),
+    "cocotb.time": _row("ghdl iverilog nvc verilator xezim", _COCOTB),
+    "dsp": _row(
+        "diamond nextpnr vivado yosys",
+        (
+            "DSP blocks used in the implemented design. nextpnr counts DSP bels; Vivado reads the "
+            "utilization report; yosys_fpga sums the DSP primitives of the netlist. Diamond counts "
+            "multipliers, ALUs and pre-adders, so a multiply-accumulate counts twice. unverified: "
+            "run one multiply-accumulate design through each tool and compare the counts"
+        ),
     ),
-    "ff": (
-        "Flip-flops used. nextpnr counts the flip-flop bels, Vivado reads the utilization "
-        "report, yosys_fpga sums the FF primitives of the netlist. ISE and Diamond read their "
-        "map or synthesis reports. unverified for ISE, Diamond and Quartus (dedicated logic "
-        "registers): run one design through each tool and compare the counts"
+    "ff": _row(
+        "diamond ise nextpnr quartus vivado yosys",
+        (
+            "Flip-flops used. nextpnr counts the flip-flop bels, Vivado reads the utilization "
+            "report, yosys_fpga sums the FF primitives of the netlist. ISE and Diamond read their "
+            "map or synthesis reports. unverified for ISE, Diamond and Quartus (dedicated logic "
+            "registers): run one design through each tool and compare the counts"
+        ),
     ),
-    "fmax": (
-        "Achievable frequency in MHz: the minimum over the clocks that the tool times. OpenROAD: "
-        "the minimum of its own timing__fmax__clock:* metrics (src/Metrics.tcl). Vivado: "
-        "1000 / (period - WNS) per clock. nextpnr: the lowest achieved frequency of its "
-        "constrained clock domains. ISE gives a synthesis estimate, and Design Compiler writes "
-        "it only for one clock. unverified for ISE, Design "
-        "Compiler and Quartus: run each tool and compare with 1000 / (period - wns)"
+    "fmax": _row(
+        "dc ise nextpnr openroad quartus vivado",
+        (
+            "Achievable frequency in MHz: the minimum over the clocks that the tool times. OpenROAD: "
+            "the minimum of its own timing__fmax__clock:* metrics (src/Metrics.tcl). Vivado: "
+            "1000 / (period - WNS) per clock. nextpnr: the lowest achieved frequency of its "
+            "constrained clock domains. ISE gives a synthesis estimate, and Design Compiler writes "
+            "it only for one clock. unverified for ISE, Design "
+            "Compiler and Quartus: run each tool and compare with 1000 / (period - wns)"
+        ),
     ),
-    "fmax_by_clock": (
-        "Achievable frequency of each clock in MHz: the minimum over the corners. OpenROAD: "
-        "timing__fmax__clock:* (src/Metrics.tcl). Vivado: from the Intra Clock Table. unverified "
-        "for Quartus: run a design with two clocks and two timing models, and check that each "
-        "key is the minimum over the models"
+    "fmax_by_clock": _row(
+        "openroad quartus vivado",
+        (
+            "Achievable frequency of each clock in MHz: the minimum over the corners. OpenROAD: "
+            "timing__fmax__clock:* (src/Metrics.tcl). Vivado: from the Intra Clock Table. unverified "
+            "for Quartus: run a design with two clocks and two timing models, and check that each "
+            "key is the minimum over the models"
+        ),
     ),
-    "hold_violations": (
-        "Failing hold endpoints, counted once each. OpenROAD: timing__drv__hold_violation_count "
-        "(src/Metrics.tcl). Vivado: the Design Timing Summary (vivado_synth.py). Both are one "
-        "analysis, with no corner merge"
+    "hold_violations": _row(
+        "openroad vivado",
+        (
+            "Failing hold endpoints, counted once each. OpenROAD: timing__drv__hold_violation_count "
+            "(src/Metrics.tcl). Vivado: the Design Timing Summary (vivado_synth.py). Both are one "
+            "analysis, with no corner merge"
+        ),
     ),
-    "latch": (
-        "Latches in the implemented design. Vivado reads 'Register as Latch' of the utilization "
-        "report; yosys_fpga counts the LDCE and LDPE primitives of the netlist. The two agree "
-        "for a design without latch inference outside these primitives. unverified: run one "
-        "design with a latch through both tools and compare"
+    "latch": _row(
+        "vivado yosys",
+        (
+            "Latches in the implemented design. Vivado reads 'Register as Latch' of the utilization "
+            "report; yosys_fpga counts the LDCE and LDPE primitives of the netlist. The two agree "
+            "for a design without latch inference outside these primitives. unverified: run one "
+            "design with a latch through both tools and compare"
+        ),
     ),
-    "library_area.cells": (
-        "Sum of the Liberty `area` of the cell instances; no unit, relative to the libraries. "
-        "yosys: passes/cmds/stat.cc, every cell with an area, others add 0. Design Compiler: "
-        "'Total cell area'. unverified: run Design Compiler and yosys on one netlist with one "
-        "library and compare"
+    "library_area.cells": _row(
+        "dc yosys",
+        (
+            "Sum of the Liberty `area` of the cell instances; no unit, relative to the libraries. "
+            "yosys: passes/cmds/stat.cc, every cell with an area, others add 0. Design Compiler: "
+            "'Total cell area'. unverified: run Design Compiler and yosys on one netlist with one "
+            "library and compare"
+        ),
     ),
-    "lut": (
-        "LUTs used. nextpnr and Vivado count tool cells; yosys_fpga is an estimate whose method "
-        "`lut_basis.method` names. Quartus counts combinational ALUTs. ISE and Diamond read "
-        "their reports. unverified for ISE, Diamond and Quartus: run one design through each "
-        "tool and compare"
+    "lut": _row(
+        "diamond ise nextpnr quartus vivado yosys",
+        (
+            "LUTs used. nextpnr and Vivado count tool cells; yosys_fpga is an estimate whose method "
+            "`lut_basis.method` names. Quartus counts combinational ALUTs. ISE and Diamond read "
+            "their reports. unverified for ISE, Diamond and Quartus: run one design through each "
+            "tool and compare"
+        ),
     ),
-    "lut_basis.method": (
-        "Label of the method behind the `lut` count of this flow, as text. The words differ by "
-        "design, because each flow counts its own way. Verified: both flows write it next to "
-        "`lut`"
+    "lut_basis.method": _row(
+        "nextpnr yosys",
+        (
+            "Label of the method behind the `lut` count of this flow, as text. The words differ by "
+            "design, because each flow counts its own way. Verified: both flows write it next to "
+            "`lut`"
+        ),
     ),
-    "lut_basis.stage": (
-        "Label of the stage that the `lut` count describes, as text. The words differ by design, "
-        "because each flow stops at its own stage. Verified: both flows write it next to `lut`"
+    "lut_basis.stage": _row(
+        "nextpnr yosys",
+        (
+            "Label of the stage that the `lut` count describes, as text. The words differ by design, "
+            "because each flow stops at its own stage. Verified: both flows write it next to `lut`"
+        ),
     ),
-    "platform": (
-        "The platform of the run: name, provider, version, corner and the source of each "
-        "value. It is a record of the one platform model, not a measurement. Verified: both "
-        "families write that model"
+    "platform": _row(
+        "openroad yosys",
+        (
+            "The platform of the run: name, provider, version, corner and the source of each "
+            "value. It is a record of the one platform model, not a measurement. Verified: both "
+            "families write that model"
+        ),
     ),
-    "setup_violations": (
-        "Failing setup endpoints, counted once each. OpenROAD: timing__drv__setup_violation_count "
-        "(src/Metrics.tcl). Vivado: the Design Timing Summary (vivado_synth.py). Both are "
-        "one analysis, with no corner merge"
+    "setup_violations": _row(
+        "openroad vivado",
+        (
+            "Failing setup endpoints, counted once each. OpenROAD: timing__drv__setup_violation_count "
+            "(src/Metrics.tcl). Vivado: the Design Timing Summary (vivado_synth.py). Both are "
+            "one analysis, with no corner merge"
+        ),
     ),
-    "sim.ended_by": _SIM,
-    "sim.errors": _SIM,
-    "sim.evidence": _SIM,
-    "sim.time": _SIM,
-    "sim.warnings": _SIM,
-    "slice": (
-        "Slices or logic elements occupied. Vivado reads the utilization report; nextpnr counts "
-        "slice bels. ISE and Diamond read their reports. The unit of occupancy differs by "
-        "family. unverified: run one design through each tool and compare"
+    "sim.ended_by": _row("bsc ghdl iverilog modelsim nvc vcs verilator vivado xezim yosys", _SIM),
+    "sim.errors": _row("bsc ghdl iverilog modelsim nvc vcs verilator vivado xezim yosys", _SIM),
+    "sim.evidence": _row("bsc ghdl iverilog modelsim nvc vcs verilator vivado xezim yosys", _SIM),
+    "sim.time": _row("bsc ghdl iverilog modelsim nvc vcs verilator vivado xezim yosys", _SIM),
+    "sim.warnings": _row("bsc ghdl iverilog modelsim nvc vcs verilator vivado xezim yosys", _SIM),
+    "slice": _row(
+        "diamond ise nextpnr vivado",
+        (
+            "Slices or logic elements occupied. Vivado reads the utilization report; nextpnr counts "
+            "slice bels. ISE and Diamond read their reports. The unit of occupancy differs by "
+            "family. unverified: run one design through each tool and compare"
+        ),
     ),
-    "ths": (
-        "Total negative hold slack in ns: the sum over the failing hold endpoints, at most 0. "
-        "OpenROAD: timing__hold__tns (src/Metrics.tcl). Vivado: the Design Timing Summary "
-        "(vivado_synth.py). Both are one analysis, with no corner merge"
+    "ths": _row(
+        "openroad vivado",
+        (
+            "Total negative hold slack in ns: the sum over the failing hold endpoints, at most 0. "
+            "OpenROAD: timing__hold__tns (src/Metrics.tcl). Vivado: the Design Timing Summary "
+            "(vivado_synth.py). Both are one analysis, with no corner merge"
+        ),
     ),
-    "tns": (
-        "Total negative setup slack in ns: the sum over the failing setup endpoints, at most 0. "
-        "OpenROAD: timing__setup__tns (src/Metrics.tcl). Vivado: the Design Timing Summary "
-        "(vivado_synth.py). Both are one analysis, with no corner merge"
+    "tns": _row(
+        "openroad vivado",
+        (
+            "Total negative setup slack in ns: the sum over the failing setup endpoints, at most 0. "
+            "OpenROAD: timing__setup__tns (src/Metrics.tcl). Vivado: the Design Timing Summary "
+            "(vivado_synth.py). Both are one analysis, with no corner merge"
+        ),
     ),
-    "whs": (
-        "Signed worst hold slack in ns: the minimum over the hold paths, the clocks and the "
-        "corners that the tool times. OpenROAD: timing__hold__ws. Vivado: the Design Timing "
-        "Summary. Design Compiler: the minimum delay report over the path groups. Quartus and "
-        "Diamond: the multicorner worst case. unverified for Design Compiler, Quartus and "
-        "Diamond: run each tool and compare with its own report"
+    "whs": _row(
+        "dc diamond openroad quartus vivado",
+        (
+            "Signed worst hold slack in ns: the minimum over the hold paths, the clocks and the "
+            "corners that the tool times. OpenROAD: timing__hold__ws. Vivado: the Design Timing "
+            "Summary. Design Compiler: the minimum delay report over the path groups. Quartus and "
+            "Diamond: the multicorner worst case. unverified for Design Compiler, Quartus and "
+            "Diamond: run each tool and compare with its own report"
+        ),
     ),
-    "wns": (
-        "Signed worst setup slack in ns: the minimum over the setup paths, the clocks and the "
-        "corners that the tool times. OpenROAD: timing__setup__ws, signed. Vivado: the Design "
-        "Timing Summary. nextpnr is the documented exception: it covers the paths inside each "
-        "constrained clock domain only (nextpnr.py). ISE gives a synthesis estimate. unverified "
-        "for Design Compiler, Quartus, Diamond and ISE: run each tool and compare with its own "
-        "report"
+    "wns": _row(
+        "dc diamond ise nextpnr openroad quartus vivado",
+        (
+            "Signed worst setup slack in ns: the minimum over the setup paths, the clocks and the "
+            "corners that the tool times. OpenROAD: timing__setup__ws, signed. Vivado: the Design "
+            "Timing Summary. nextpnr is the documented exception: it covers the paths inside each "
+            "constrained clock domain only (nextpnr.py). ISE gives a synthesis estimate. unverified "
+            "for Design Compiler, Quartus, Diamond and ISE: run each tool and compare with its own "
+            "report"
+        ),
     ),
 }
 
 
-def test_every_shared_path_has_a_reviewed_row():
-    shared = _shared_paths()
-    families = _families()
-    missing = {path: sorted(families[path]) for path in sorted(shared - set(REVIEWED_SHARED_PATHS))}
-    stale = sorted(set(REVIEWED_SHARED_PATHS) - shared)
-    assert not missing, (
-        f"These paths are reported by two or more tool families and have no row in "
-        f"REVIEWED_SHARED_PATHS: {missing}. A shared path must mean one quantity. Check the "
-        "quantity, the population and the aggregation in each tool. Then add a row with the "
-        "evidence, or with 'unverified:' and the work that would verify the share. If the tools "
-        "differ, give one of them another path."
-    )
-    assert not stale, (
-        f"These rows of REVIEWED_SHARED_PATHS name no path that two tool families report: "
-        f"{stale}. Remove them."
-    )
-    empty = sorted(path for path, text in REVIEWED_SHARED_PATHS.items() if not text.strip())
-    assert not empty, f"These rows have no text: {empty}."
+def _shared_path_problems(
+    families: Dict[str, Set[str]], reviewed: Dict[str, Tuple[FrozenSet[str], str]]
+) -> List[str]:
+    """Return a problem for each shared path whose reviewed row does not match its families."""
+    problems = []
+    for path in sorted(reviewed):
+        if path not in families or len(families[path]) < 2:
+            problems.append(
+                f"The row of {path!r} names no path that two tool families report. Remove it."
+            )
+            continue
+        covered, text = reviewed[path]
+        actual = families[path]
+        if not text.strip():
+            problems.append(f"The row of {path!r} has no text.")
+        for family in sorted(actual - covered):
+            problems.append(
+                f"The tool family {family!r} reports {path!r}, which its reviewed row does not "
+                f"cover (it covers {sorted(covered)}). Check that {family!r} means the same "
+                "quantity, population and aggregation as the row says. Then add the family to "
+                "the row and extend its text with the evidence or with 'unverified:'. If it "
+                f"means something else, give {family!r} another path."
+            )
+        for family in sorted(covered - actual):
+            problems.append(
+                f"The row of {path!r} covers {family!r}, which no longer reports it. Remove the "
+                "family from the row, and check the text."
+            )
+    for path in sorted(set(families) - set(reviewed)):
+        if len(families[path]) >= 2:
+            problems.append(
+                f"{path!r} is reported by {sorted(families[path])} and has no row in "
+                "REVIEWED_SHARED_PATHS. A shared path must mean one quantity. Check the quantity, "
+                "the population and the aggregation in each tool. Then add a row with the "
+                "families and the evidence, or with 'unverified:' and the work that would verify "
+                "the share. If the tools differ, give one of them another path."
+            )
+    return problems
+
+
+def test_every_shared_path_has_a_reviewed_row_that_covers_its_families():
+    problems = _shared_path_problems(_families(), REVIEWED_SHARED_PATHS)
+    assert not problems, "\n".join(problems)
+
+
+def test_a_new_family_on_a_shared_path_fails_the_check():
+    reviewed = {"cells": (frozenset({"dc", "yosys"}), "Cell instances.")}
+    assert not _shared_path_problems({"cells": {"dc", "yosys"}}, reviewed)
+    problems = _shared_path_problems({"cells": {"dc", "yosys", "nextpnr"}}, reviewed)
+    assert len(problems) == 1
+    assert "'nextpnr'" in problems[0] and "'cells'" in problems[0]
+    assert "another path" in problems[0]
+    assert _shared_path_problems({"cells": {"dc"}}, reviewed)  # no longer shared
+    assert _shared_path_problems({"cells": {"dc", "nextpnr"}}, reviewed)  # yosys left, nextpnr new
+    assert _shared_path_problems({"cells": {"dc", "yosys"}, "ff": {"dc", "ise"}}, reviewed)
 
 
 def test_the_tool_family_is_the_first_word_of_the_flow_name():

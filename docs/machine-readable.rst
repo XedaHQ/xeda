@@ -338,12 +338,28 @@ A test checks these rules for every built-in flow (``tests/test_metric_names.py`
 a reviewed table of the paths that two or more tools report. A row of that table says what the
 tools measure, and either gives the evidence or says what would verify the share.
 
-Results of ``v1.0.0rc1`` and ``v1.0.0rc2`` use the old names. This table lists each path that
-changed. The value is the same unless the new path column says otherwise. ``ths`` and
-``fmax_by_clock`` are new for OpenROAD and Vivado. For OpenROAD, ``wns`` was 0 when setup timing
-was met. It is now the signed worst slack, so it can be positive. In ``quartus``, a key of
-``fmax_by_clock`` was ``<clock>@<corner>``. It is now the clock name, and its value is the minimum
-over the corners.
+Results of ``v1.0.0rc1`` and ``v1.0.0rc2`` use the old names. The table below lists each path that
+changed. A value stays the same, except for the changes listed after this paragraph.
+``fmax_by_clock`` is new for OpenROAD and Vivado, and ``ths`` is new for Vivado. For OpenROAD,
+``ths`` is the renamed ``hold_tns``. In ``quartus``, a key of ``fmax_by_clock`` was
+``<clock>@<corner>``. It is now the clock name, and its value is the minimum over the corners.
+
+These values changed since ``v1.0.0rc2``, in the same release:
+
+* ``fmax`` is the minimum over all clocks (and, for Quartus, all slow timing models) in
+  ``quartus``, ``vivado`` and ``openroad``. Before, it came from one clock. ``dc`` writes ``fmax``
+  only when its timing report has one clock.
+* In ``openroad``, ``wns`` is the signed worst setup slack, so it can be positive. It was 0 when
+  setup timing was met.
+* In ``dc``, ``wns`` and ``whs`` are the worst slack over all path groups. The times of ``dc``
+  are in ns. Xeda reads them in the library time unit that ``library_time_unit`` sets (default
+  ``1 ns``) and converts them. Before, a library in ps gave values that were 1000 times off.
+* ``bsc_sim`` with Bluesim reports no ``sim.time``, because the Bluesim kernel counts ticks with
+  no unit.
+* The ``xezim`` metrics ``coverage.statement``, ``coverage.branch`` and ``coverage.toggle`` are
+  ratios from 0 to 1, not percentages.
+* A metric whose value is 0 is reported as 0. Before, ``vivado_synth``, ``yosys_fpga`` and
+  ``yosys`` left it out in some cases.
 
 .. list-table::
    :header-rows: 1
