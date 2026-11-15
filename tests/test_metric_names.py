@@ -324,10 +324,12 @@ REVIEWED_SHARED_PATHS: Dict[str, Tuple[FrozenSet[str], str]] = {
     "dsp": _row(
         "diamond nextpnr vivado yosys",
         (
-            "DSP blocks used in the implemented design. nextpnr counts DSP bels; Vivado reads the "
-            "utilization report; yosys_fpga sums the DSP primitives of the netlist. Diamond counts "
-            "multipliers, ALUs and pre-adders, so a multiply-accumulate counts twice. unverified: "
-            "run one multiply-accumulate design through each tool and compare the counts"
+            "DSP primitives of the device family. nextpnr counts the bels of the DSP primitives "
+            "(ECP5 MULT18X18D and ALU54B, Xilinx DSP48E1), yosys_fpga the DSP48 cells of the "
+            "netlist, Vivado the DSP sites of its utilization report, Diamond the multiplier, ALU "
+            "and pre-adder primitives of its map report. On ECP5 a multiply-accumulate is two "
+            "primitives in nextpnr and in Diamond. unverified for Diamond and Vivado: run one "
+            "multiply-accumulate design through each tool and compare the counts"
         ),
     ),
     "ff": _row(

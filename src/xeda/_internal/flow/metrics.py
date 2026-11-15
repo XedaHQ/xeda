@@ -195,7 +195,12 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
     "lut": MetricSpec("Number of LUTs used.", "integer"),
     "ff": MetricSpec("Number of flip-flops (registers) used.", "integer"),
     "slice": MetricSpec("Number of slices / logic elements occupied.", "integer"),
-    "dsp": MetricSpec("Number of DSP blocks used.", "integer"),
+    "dsp": MetricSpec(
+        "Number of DSP primitives used: the DSP cells of the device family, such as a Xilinx "
+        "`DSP48E1` or a Lattice ECP5 `MULT18X18D` or `ALU54B`. On ECP5 a multiply-accumulate uses "
+        "two. Compare the counts only within one device family.",
+        "integer",
+    ),
     "bram": MetricSpec("Number of block RAM primitives used.", "integer"),
     # ASIC area. `library_area.*` is a sum of Liberty `area` values: it is relative to the
     # libraries and has no unit here. `area.*` comes from the layout geometry and is in um^2.
