@@ -1465,6 +1465,11 @@ class BscSim(BscFlow, SimFlow):
         super().check_run_directory(settings, run_path)
         _check_link_paths([run_path, os.path.realpath(run_path)])
 
+    def ticks_have_no_unit(self) -> bool:
+        """Bluesim counts unitless kernel ticks; the Verilog simulators have a time unit."""
+        assert isinstance(self.settings, self.Settings)
+        return self.settings.simulator == "bluesim"
+
     def has_evidence_adapter(self) -> bool:
         """Return whether the simulator has an evidence adapter for the current run.
 

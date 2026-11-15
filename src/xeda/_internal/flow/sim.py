@@ -276,11 +276,16 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         and evidence.time is not None
         and evidence.time >= 0
     )
-    if cycles_reached and evidence.time_unit is not None:
-        try:  # a time unit must be a real one; without one, the time is a count of ticks
-            cycles_reached = time_in_fs(1, evidence.time_unit) > 0
-        except ValueError:
-            cycles_reached = False
+    if cycles_reached:
+        if evidence.time_unit is None:
+            # a time without a unit counts ticks only for a simulator whose ticks have no unit
+            ticks = getattr(flow, "ticks_have_no_unit", None)
+            cycles_reached = callable(ticks) and ticks() is True
+        else:
+            try:  # a time unit must be a real one
+                cycles_reached = time_in_fs(1, evidence.time_unit) > 0
+            except ValueError:
+                cycles_reached = False
     ok = {
         "finish": True,
         "stop_time": stop_reached,
@@ -618,6 +623,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 else None
             )
         return self._cocotb
+
+    def ticks_have_no_unit(self) -> bool:
+        """Return whether the simulator of this run counts time in ticks that have no unit.
+
+        Only then can an end record without a time unit confirm a `max_cycles` stop."""
+        return False
 
     def has_evidence_adapter(self) -> bool:
         """Return whether the simulator of this run can report how it ended.

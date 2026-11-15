@@ -149,6 +149,8 @@ def test_a_requested_max_cycles_stop_counts():
     stub = _Stub()
     stub.settings.max_cycles = 100
     ticks = SimEvidence(ended_by="max_cycles", cycles=100, time=990)
+    assert judge_evidence(stub, ticks, "error") is False  # its ticks have a unit
+    stub.ticks_have_no_unit = lambda: True
     assert judge_evidence(stub, ticks, "error") is True
     assert stub.results.get("sim.time") is None  # ticks without a unit are no simulated time
     assert (
@@ -526,7 +528,7 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
         ({"cycles": 100, "time_unit": "1ns"}, False),
         ({"cycles": 100, "time": 100, "time_unit": "bogus"}, False),
         ({"cycles": 100, "time": -1, "time_unit": "1ns"}, False),
-        ({"cycles": 100, "time": 100}, True),
+        ({"cycles": 100, "time": 100}, False),  # ticks count only for a unitless simulator
         ({"cycles": 100, "time": 100, "time_unit": "1ns"}, True),
     ],
 )

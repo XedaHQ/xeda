@@ -318,9 +318,9 @@ class Xezim(SimFlow):
         code_coverage: List[Literal["stmt", "branch", "toggle"]] = Field(
             [],
             description="Kinds of code coverage to collect (`--code-coverage`): `stmt`, `branch` "
-            "and `toggle`. The percentages are the results `coverage.statement`, "
-            "`coverage.branch` and `coverage.toggle`, and the artifact `coverage` holds the "
-            "details.",
+            "and `toggle`. The results `coverage.statement`, "
+            "`coverage.branch` and `coverage.toggle` are ratios from 0 to 1, and the artifact "
+            "`coverage` holds the details.",
         )
         code_coverage_scope: List[str] = Field(
             [],
