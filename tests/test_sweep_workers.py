@@ -5,13 +5,16 @@ The workers start with `spawn` on every platform. The tests run the same fake to
 (`XEDA_FAKE_FPGA_READY` names a directory), never for a time to pass.
 """
 
+import copy
 import json
 import os
+import pickle
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,13 +26,15 @@ from xeda._internal.events import Event
 from xeda._internal.flow import Flow
 from xeda._internal.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
 from xeda._internal.outcomes import Outcome
+from xeda._internal import sweep
 from xeda._internal.spec import Spec
+from xeda._internal.sweep import NodeTask, worker_main
 from xeda._internal.workspace import Workspace
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 from . import tool_utils
 from .test_proc_utils import _is_running, _kill, _wait_until
-from .test_sweep import ECP5, MARK, _calls, _dispositions, _seeds, _spec, _workspace
+from .test_sweep import ECP5, MARK, _calls, _dispositions, _seeds, _spec, _task, _workspace
 from .source_layout import layout_script
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
@@ -557,6 +562,113 @@ def test_a_module_that_leaves_the_worker_at_import_fails_its_node_not_the_sweep(
     node = point.result.nodes["module_leaving_flow"]
     assert point.result.outcome is Outcome.FAILED and node.error is not None
     assert node.error.code == "flow_not_importable"
+
+
+# ------------------------------------------------------- a task of a process with other code
+
+
+def _made_by_other_code(task: NodeTask, drop: tuple[str, ...], add: dict[str, Any]) -> NodeTask:
+    """Return `task` as a worker gets it from a process whose code gives a task no fields `drop`
+    and the fields `add`: unpickling sets the fields that the pickle holds, whatever the class in
+    the worker declares."""
+    other = copy.copy(task)
+    for name in drop:
+        del vars(other)[name]
+    vars(other).update(add)
+    return pickle.loads(pickle.dumps(other))
+
+
+@pytest.mark.parametrize(
+    "drop, add",
+    [
+        # Xeda from before a task named its code.
+        (("code",), {}),
+        # Xeda from before `flows`: a missing field must not read as its default here.
+        (("flows",), {"modules": ()}),
+        # A newer Xeda, whose task has one more field.
+        ((), {"later": 1}),
+        # Other code of Xeda, and a module that does not exist: the worker compares the code
+        # before it imports the module of any flow.
+        ((), {"code": {"xeda": "0" * 32}, "flows": (("no_flow", "no_such_module", "NoFlow"),)}),
+    ],
+    ids=["no-code", "old-field", "unknown-field", "other-digest"],
+)
+def test_a_worker_refuses_the_task_of_other_code_before_it_reads_it(tmp_path, design, drop, add):
+    workspace = _workspace(tmp_path)
+    task = _task(workspace, _spec(design, 1), "yosys_fpga", [])
+    outcome = worker_main(_made_by_other_code(task, drop, add))
+    error = outcome.result.error
+    assert outcome.result.outcome is Outcome.FAILED and error is not None
+    assert (outcome.node, error.node, error.code) == ("yosys_fpga", "yosys_fpga", "stale_runtime")
+    assert error.message == (
+        "The process that planned the sweep runs other Xeda code than the code on disk, which this "
+        "worker process imported: the files changed after that process imported them. Restart the "
+        "process that sweeps (in Jupyter, restart the kernel), and sweep again."
+    )
+    assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
+
+
+def test_a_worker_reports_a_task_that_names_no_node(tmp_path, design):
+    # The error reads no field that the task may lack. The process that sweeps fills in the name.
+    workspace = _workspace(tmp_path)
+    task = _task(workspace, _spec(design, 1), "yosys_fpga", [])
+    outcome = worker_main(_made_by_other_code(task, ("node", "code"), {}))
+    error = outcome.result.error
+    assert error is not None and error.code == "stale_runtime"
+    assert (outcome.node, error.node) == ("", None)
+
+
+def test_workers_refuse_the_tasks_of_a_process_that_runs_older_code(tmp_path, design, monkeypatch):
+    # The process that sweeps makes its tasks as a Xeda from before a task named its code: a
+    # notebook kernel that imported Xeda before an update. Each worker imports the code on disk.
+    make = sweep._Sweep._task
+
+    def old_task(self, unit):
+        task = make(self, unit)
+        del vars(task)["code"]
+        return task
+
+    monkeypatch.setattr(sweep._Sweep, "_task", old_task)
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design), max_workers=2)
+    for point in result:
+        error = point.result.error
+        assert point.result.outcome is Outcome.FAILED and error is not None
+        assert (error.code, error.node) == ("stale_runtime", "yosys_fpga")
+        assert error.message.startswith("The process that planned the sweep runs other Xeda code")
+        assert point.result.nodes["yosys_fpga"].name == "yosys_fpga"
+    assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
+
+
+def test_a_worker_that_ends_after_the_code_changed_on_disk_fails_its_node_with_stale_runtime(
+    tmp_path, monkeypatch
+):
+    # The worker imports the module of the flow, which changes on disk and ends the worker at
+    # once, as a task that the code on disk cannot unpickle ends it. The process that sweeps finds
+    # that its own code changed: the cause is `stale_runtime`, not a script without a main guard.
+    _module_flow(
+        tmp_path,
+        monkeypatch,
+        "module_that_changes",
+        layout_script(
+            "import multiprocessing, os, pathlib\n"
+            "from xeda.flow import Flow\n"
+            "if multiprocessing.parent_process() is not None:\n"
+            "    path = pathlib.Path(__file__)\n"
+            "    path.write_text(path.read_text() + '# changed\\n')\n"
+            "    os._exit(1)\n"
+            "class ChangingFlow(Flow):\n"
+            '    """A flow whose module changes on disk when a worker imports it."""\n'
+            "    results_description = {}\n"
+            "    def run(self): pass\n"
+        ),
+    )
+    spec = Spec("changing_flow", _plain_design(tmp_path))
+    (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
+    error = point.result.nodes["changing_flow"].error
+    assert point.result.outcome is Outcome.FAILED and error is not None
+    assert error.code == "stale_runtime"
+    assert "terminated abruptly" in error.message and "__main__" not in error.message
 
 
 def test_a_tool_that_a_worker_starts_does_not_ignore_ctrl_c(tmp_path):

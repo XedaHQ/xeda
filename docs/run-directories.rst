@@ -717,10 +717,17 @@ is the code that the process imported, and not the code on disk:
   that imported other code refuses the plan with ``stale_runtime`` before the launch starts. Plan
   again in that process.
 - A sweep with ``max_workers`` above 1 keeps the digests of the code that planned it. A worker
-  process imports the code that is on disk when the worker starts, so before it plans a node, it
-  compares its code with the code of the sweep. A difference fails the node with
-  ``stale_runtime``, and the sweep still returns its result. The node plans nothing and writes
-  nothing. Restart the process that sweeps and sweep again.
+  process imports the code that is on disk when the worker starts, and the process that sweeps
+  can run older or newer code. So the worker first checks that the task of a node has exactly the
+  fields that its own code gives a task, and that the task names the digest of the Xeda code of
+  the worker. It reads nothing else of the task before. Before it plans the node, it compares the
+  code of each flow too. A difference fails the node with ``stale_runtime``, and the sweep still
+  returns its result. The node plans nothing and writes nothing. Restart the process that sweeps
+  (in Jupyter, restart the kernel) and sweep again. The worker refuses the task also when that
+  process imported a Xeda from before these checks, such as a notebook kernel that ran while Xeda
+  was updated. A task that the worker cannot unpickle, because its code has no class of a name
+  that the task uses, ends the worker before the check. The process that sweeps then checks its
+  own files, and a change fails the node with ``stale_runtime`` too.
 - A node of a sweep reads a producer that another launch ran again, after the sweep completed it,
   only when the trace of that run names the Xeda code and the code of the producer's own flow
   that the sweep used. Otherwise the node fails (outcome ``failed``, not ``blocked``, because the

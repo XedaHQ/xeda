@@ -26,11 +26,12 @@ from multiprocessing.connection import Connection
 from multiprocessing.context import BaseContext
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import code_epoch
 from .cancel import CancelToken, never_canceled, observing
 from .design import Design
 from xeda.errors import RecordError, SpecError, StalePlanError, StaleRuntimeError
@@ -459,7 +460,11 @@ def worker_main(task: NodeTask) -> NodeOutcome:
     The node stops when the calling process asks, or when it is gone (`WorkerChannel`). Nothing
     leaves this function as an exception, not even `SystemExit` or `KeyboardInterrupt`: what the
     calling process could not unpickle would lose the result. A failure is plain data, an outcome
-    with an error code."""
+    with an error code.
+
+    The calling process can run older or newer code than this worker, which imports the code on
+    disk: the worker refuses the task of other code (`_other_code`). To refuse it, the worker must
+    get it, so this function and `_start_worker` keep their names and parameters."""
     _IDLE.clear()
     try:
         return _execute_in_worker(task)
@@ -467,66 +472,99 @@ def worker_main(task: NodeTask) -> NodeOutcome:
         _IDLE.set()
 
 
-def _execute_in_worker(task: NodeTask) -> NodeOutcome:
-    from .flow_runner.error_codes import FLOW_NOT_IMPORTABLE, REPORTED_FAILURE, error_info
+#: The names of the fields of a task, as the code of this process makes it.
+_TASK_FIELDS = frozenset(f.name for f in fields(NodeTask))
 
-    def not_importable(message: str) -> NodeOutcome:
+#: The error of a task that other code made (`_other_code`).
+_OTHER_CODE = (
+    "The process that planned the sweep runs other Xeda code than the code on disk, which this "
+    "worker process imported: the files changed after that process imported them. Restart the "
+    "process that sweeps (in Jupyter, restart the kernel), and sweep again."
+)
+
+
+def _task_state(task: object) -> dict[str, Any]:
+    """Return the fields that `task` holds, by name, without reading any of them as an attribute."""
+    state = getattr(task, "__dict__", None)
+    return state if isinstance(state, dict) else {}
+
+
+def _other_code(task: object) -> bool:
+    """Return whether the process that planned the sweep made `task` with other code than the
+    code of this worker.
+
+    A worker imports the code on disk when it starts. The calling process runs the code that it
+    imported, maybe long before: a notebook kernel that ran while Xeda was updated runs the old
+    code. Unpickling gives a task the fields that the code that made it had, whatever the class
+    here declares, and a missing field that has a default here would read as that default. So the
+    task must have the fields of the class here, and its `code` must name the digest of the Xeda
+    code of this process. This reads no field of the task before it knows that the fields are
+    those of the class here. The code of each flow is compared later, once the flows are
+    registered (`run_node`). Raises `StaleRuntimeError` when the code of this process changed on
+    disk."""
+    state = _task_state(task)
+    if type(task) is not NodeTask or state.keys() != _TASK_FIELDS:
+        return True
+    code = state["code"]
+    return not isinstance(code, Mapping) or code.get("xeda") != code_epoch.xeda_digest()
+
+
+def _execute_in_worker(task: NodeTask) -> NodeOutcome:
+    from .flow_runner.error_codes import (
+        FLOW_NOT_IMPORTABLE,
+        REPORTED_FAILURE,
+        STALE_RUNTIME,
+        error_info,
+    )
+
+    node = _task_state(task).get("node")
+    if not isinstance(node, str):
+        node = None
+
+    def failed(code: str, message: str) -> NodeOutcome:
         return _failed(
-            task,
-            ErrorInfo(
-                code=FLOW_NOT_IMPORTABLE,
-                message=message,
-                node=task.node,
-                exit_status=None,
-                log=None,
-            ),
+            node, ErrorInfo(code=code, message=message, node=node, exit_status=None, log=None)
         )
 
-    for name in sorted({module for _, module, _ in task.flows}):
-        try:
-            importlib.import_module(name)
-        except BaseException as error:  # noqa: BLE001 - a module may exit; a failure is a value
-            return not_importable(
-                f"a worker process cannot import `{name}`, the module of a flow: {error}"
-            )
-    for flow, module, qualname in task.flows:
-        found = registered_flows.get(flow)
-        if found is None or (found[0], found[1].__qualname__) != (module, qualname):
-            seen = "no such flow" if found is None else f"`{found[1].__qualname__}` in `{found[0]}`"
-            return not_importable(
-                f"a worker process does not rebuild the flow `{flow}` as the sweep planned it, "
-                f"`{qualname}` in `{module}`. It has {seen}."
-            )
     try:
+        if _other_code(task):
+            return failed(STALE_RUNTIME, _OTHER_CODE)
+        for name in sorted({module for _, module, _ in task.flows}):
+            try:
+                importlib.import_module(name)
+            except BaseException as error:  # noqa: BLE001 - a module may exit; a failure is a value
+                return failed(
+                    FLOW_NOT_IMPORTABLE,
+                    f"a worker process cannot import `{name}`, the module of a flow: {error}",
+                )
+        for flow, module, qualname in task.flows:
+            found = registered_flows.get(flow)
+            if found is None or (found[0], found[1].__qualname__) != (module, qualname):
+                seen = (
+                    "no such flow"
+                    if found is None
+                    else f"`{found[1].__qualname__}` in `{found[0]}`"
+                )
+                return failed(
+                    FLOW_NOT_IMPORTABLE,
+                    f"a worker process does not rebuild the flow `{flow}` as the sweep planned "
+                    f"it, `{qualname}` in `{module}`. It has {seen}.",
+                )
         return run_node(task, canceled=_stop_requested, emit=lambda event: None)
     except StalePlanError as error:
-        return _failed(
-            task,
-            ErrorInfo(
-                code=error.code or "stale_plan",
-                message=str(error),
-                node=task.node,
-                exit_status=None,
-                log=None,
-            ),
-        )
+        return failed(error.code or "stale_plan", str(error))
     except Exception as error:  # noqa: BLE001 - the failure of a node is a value
-        return _failed(task, error_info(error, node=task.node))
+        return _failed(node, error_info(error, node=node))
     except BaseException as error:  # a flow that exits, or a signal that stops this process
-        message = f"the node ended its worker process with {error!r}"
-        return _failed(
-            task,
-            ErrorInfo(
-                code=REPORTED_FAILURE, message=message, node=task.node, exit_status=None, log=None
-            ),
-        )
+        return failed(REPORTED_FAILURE, f"the node ended its worker process with {error!r}")
 
 
-def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
-    """Return the outcome of a node that failed in a worker. The calling process knows the flow and
-    the run directory of the node: it fills them in."""
+def _failed(node: str | None, error: ErrorInfo) -> NodeOutcome:
+    """Return the outcome of the node `node` that failed in a worker (`None`: the task names no
+    node). The calling process knows the name, the flow and the run directory of the node: it
+    fills them in."""
     result = NodeResult(
-        name=task.node,
+        name=node or "",
         outcome=Outcome.FAILED,
         disposition=Disposition.RAN,
         reason="",
@@ -538,7 +576,7 @@ def _failed(task: NodeTask, error: ErrorInfo) -> NodeOutcome:
         run_dir=Path(),
         flow="",
     )
-    return NodeOutcome(task.node, result, None)
+    return NodeOutcome(node or "", result, None)
 
 
 # ------------------------------------------------------------------------------------ the sweep
@@ -962,7 +1000,7 @@ class _Sweep:
             return
         self._worker_returned = True
         node = unit.node
-        result = replace(outcome.result, run_dir=node.run_dir, flow=node.flow)
+        result = replace(outcome.result, name=node.name, run_dir=node.run_dir, flow=node.flow)
         problem = result.error
         if problem is not None and problem.code == "stale_plan":
             raise StalePlanError(problem.message, code=problem.code, difference=problem.message)
