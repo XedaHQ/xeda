@@ -92,7 +92,7 @@ def test_bluesim_measured_cycles(tmp_path, count):
     evidence = flow.results["sim.evidence"]
     assert evidence["ended_by"] == "max_cycles"
     assert evidence["cycles"] == count
-    assert evidence["time"] is None
+    assert evidence["time"] == (count - 1) * 10  # kernel ticks, 10 per cycle
     assert evidence["time_unit"] is None
     assert "sim.time" not in flow.results
 
@@ -122,7 +122,7 @@ def test_bluesim_checkpoint_fails_closed(tmp_path, change):
     design = bsv_design(tmp_path / "design", "")
     run = tmp_path / "run"
     run.mkdir()
-    record = {"ended_by": "max_cycles", "cycles": 10, "events": []}
+    record = {"ended_by": "max_cycles", "time": 90, "time_unit": None, "cycles": 10, "events": []}
     if change == "missing_cycles":
         record.pop("cycles")
     if change == "contradictory":
@@ -143,17 +143,33 @@ def test_bluesim_checkpoint_fails_closed(tmp_path, change):
     assert not flow.check_results()
 
 
-def test_bluesim_record_with_the_cycle_count_passes_without_a_time(tmp_path):
+def test_bluesim_record_with_the_cycle_count_and_the_end_tick_passes(tmp_path):
     design = bsv_design(tmp_path / "design", "")
     run = tmp_path / "run"
     run.mkdir()
     flow = BscSim({"max_cycles": 10}, design, run)
     flow.start_run()
-    (run / "bluesim_end.json").write_text('{"ended_by": "max_cycles", "cycles": 10, "events": []}')
+    (run / "bluesim_end.json").write_text(
+        '{"ended_by": "max_cycles", "time": 90, "time_unit": null, "cycles": 10, "events": []}'
+    )
     (run / "bluesim_events.jsonl").write_text("")
     assert flow.check_results()
     assert "sim.time" not in flow.results
     assert flow.results["sim.evidence"]["cycles"] == 10
+    assert flow.results["sim.evidence"]["time"] == 90
+
+
+def test_a_bluesim_finish_at_another_tick_than_the_end_fails(tmp_path):
+    design = bsv_design(tmp_path / "design", "")
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = BscSim({}, design, run)
+    flow.start_run()
+    (run / "bluesim_end.json").write_text(
+        '{"ended_by": "unknown", "time": 30, "time_unit": null, "cycles": 3, "events": []}'
+    )
+    (run / "bluesim_events.jsonl").write_text('{"kind":"finish","time":20}\n')
+    assert not flow.check_results()
 
 
 def test_bluesim_plusargs_and_vcd_survive_owned_script(tmp_path):
