@@ -1294,6 +1294,7 @@ class FlowLauncher:
                 runner_cwd=runner_cwd,
                 run_path_of=self.run_path_of,
                 environment=self._environment,
+                code=self._node_run.code,
             )
             self._planned_completed[(id(plan), node.node_key)] = flow
             self._completed_runs[node.run_path.resolve()] = (flow, token)
@@ -2840,7 +2841,7 @@ class FlowLauncher:
                 return launch_result(
                     self, spec, self._stop_unplanned, cancel=token, on_event=on_event
                 )
-            self._node_run = launch_node.NodeRun(node, completed, generation=generation)
+            self._node_run = launch_node.NodeRun(node, completed, generation=generation, code=code)
             return launch_result(
                 self,
                 spec,
@@ -2944,11 +2945,15 @@ class FlowLauncher:
         *,
         completed: Mapping[str, Any],
         generation: tuple[tuple[str, str], ...],
+        code: Mapping[str, str],
         local_settings: LocalSettings | None,
         environment: EnvironmentSnapshot,
         canceled: Callable[[], bool],
     ) -> launch_node.PointDelivery:
         """Deliver the outputs of a point of a sweep, when its last node has passed.
+
+        `code` is the `code_fingerprint` of the sweep: a node that another launch made again is
+        read only when its trace names that code (`launch_node.adopt_completed`).
 
         `completed` holds every node of the plan of `spec`, as the sweep ran or reused it. The
         launch reads each node from its record under a shared lease, as a launch that finds them
@@ -2977,7 +2982,7 @@ class FlowLauncher:
                     )
                     self._refuse_planned(plan)
                     launch_node.check_completed(plan, completed)
-                    return self._deliver_planned(request, plan, completed, generation)
+                    return self._deliver_planned(request, plan, completed, generation, code)
             except Canceled:
                 return launch_node.PointDelivery({}, CANCELED_ERROR)
         finally:
@@ -2991,6 +2996,7 @@ class FlowLauncher:
         plan: Plan,
         completed: Mapping[str, Any],
         generation: tuple[tuple[str, str], ...],
+        code: Mapping[str, str],
     ) -> launch_node.PointDelivery:
         root = plan.node(plan.requested)
         design = self._merged(request.design)
@@ -3014,7 +3020,7 @@ class FlowLauncher:
         self.collector = LaunchCollector()
         self.collector.planned(plan)
         self._node_run = launch_node.NodeRun(
-            root.name, completed, delivering=True, generation=generation
+            root.name, completed, delivering=True, generation=generation, code=code
         )
         self._read_inputs.add(design_files(design))
         self._read_inputs.add_source_entries(design._source_entries())

@@ -338,14 +338,30 @@ if "_XEDA" not in globals():
 
 
 def verify(*requested: object) -> None:
-    """Raise `StaleRuntimeError` if a file of the `xeda` package, or of the code of a flow that is
-    registered now, is not what this process imported. Every entry that plans or launches calls
-    this first, so a request of a stale process writes nothing. `requested` are the flow classes
-    that the caller passes directly (a flow name is skipped): their code is checked too, also
-    when the registry holds another class of that name.
+    """Refuse the call of a launching entry that this process cannot honor. Every entry that plans
+    or launches calls this first.
+
+    Raise `SpecError` (`unguarded_main`) while this process is a spawned worker that imports the
+    main script of its parent: a launch there would run in every worker, or end the worker. Raise
+    `StaleRuntimeError` if a file of the `xeda` package, or of the code of a flow that is
+    registered now, is not what this process imported, so that a request of a stale process
+    writes nothing. `requested` are the flow classes that the caller passes directly (a flow
+    name is skipped): their code is checked too, also when the registry holds another class of
+    that name.
 
     The code of a flow is that of the roots bound to the classes of its MRO (`bind`), so a file
     that is gone or moved makes the process stale, and never the flow source-less."""
+    from multiprocessing import current_process
+
+    if getattr(current_process(), "_inheriting", False):
+        from xeda.errors import SpecError
+
+        raise SpecError(
+            "A worker process imports the main script of its parent, and the script started a "
+            "launch while it did so. Put the code that launches under "
+            '`if __name__ == "__main__":`, so that only the parent runs it.',
+            code="unguarded_main",
+        )
     _XEDA.verified_pairs()
     # The files of Xeda are those that this process imported, so this import loads no new code.
     from .flow_runner.code_digest import code_roots

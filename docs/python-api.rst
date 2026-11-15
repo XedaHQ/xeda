@@ -427,8 +427,10 @@ directory, and the sweep raises ``colliding_run_dirs`` before any point runs.
 * The columns come only from the spec: vary a design with ``with_updates``.
 * ``sweep.to_pandas(metrics=...)`` returns a pandas ``DataFrame``. Xeda does not install pandas:
   without it, the call raises ``SpecError`` with the code ``missing_dependency``.
-* ``max_workers`` above 1 starts worker processes with the ``spawn`` method. A script that does
-  this starts it under ``if __name__ == "__main__":``.
+* ``max_workers`` above 1 starts worker processes with the ``spawn`` method. Each worker imports
+  the main script again, so a script that does this puts every launch under
+  ``if __name__ == "__main__":``. A launch that the script starts at module level is refused in the
+  worker (``unguarded_main``), and the points of the sweep fail.
 * Use ``post_cleanup=True`` to keep only the records, artifacts and outputs of the nodes that the
   sweep ran.
 

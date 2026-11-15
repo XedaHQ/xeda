@@ -830,13 +830,17 @@ the cause.
     it: the generator of the design or of one of its dependencies. The message names the entry of
     ``rtl.sources``.
 ``flow_not_importable``
-    A worker process of a sweep could not import the module of a flow. The message names the
-    module.
+    A worker process of a sweep could not import the module of a flow, or does not rebuild the
+    flow from the class that the sweep planned with. The message names the module, and also the
+    class when the worker does not rebuild the flow from it.
 ``stale_runtime``
     The code of Xeda or of a plugin flow changed on disk after the process imported it: while
     the node ran, or before it started but after the check at the entry of the launch. Or a
-    worker process of a sweep imported other code than the code that planned the sweep. The node
-    keeps no trace. Restart the Python process (see :ref:`code-epoch`).
+    worker process of a sweep imported other code than the code of the process that planned the
+    sweep: the fields of the task of the node, or the digests of its code, differ from those of the
+    worker. The worker finds this also when that process runs a Xeda from before this check. The
+    node keeps no trace. Restart the Python process (for a sweep, the process that sweeps; see
+    :ref:`code-epoch`).
 
 Errors of a launch (``launch``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1018,6 +1022,12 @@ command line gives ``delivery_refused`` and ``unsupported_with_remote`` too.
 ``tool_not_installed``
     The private settings select a build of the OSS CAD Suite (``tools:``) that the tool store does
     not hold.
+``unguarded_main``
+    A call in a worker process of a sweep, while the worker imports the main script of its parent:
+    the script starts a launch at module level. Put the code that launches under
+    ``if __name__ == "__main__":``. The worker ends with this error on its standard error, and the
+    caller of the sweep in the parent gets ``reported_failure`` for each point, with a message that
+    names the missing guard.
 
 A stale plan (``StalePlanError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
