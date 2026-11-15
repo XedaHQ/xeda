@@ -1462,8 +1462,12 @@ so those files are flat too. ``flatten: false`` keeps the hierarchy. The Lattice
 passes flatten on their own, so for them an unset ``flatten`` adds nothing, and the RTL outputs
 keep the hierarchy. Under ``synth_pass_only``, an unset ``flatten`` is the choice of the pass for
 every family. A setting for which the selected pass has no option is an error and is not ignored.
-``nowidelut`` is off. Turning it on disables the wide LUT implementations that use hard MUX
-resources, and its effect on area and timing differs from design to design. iCE40 UltraPlus DSP
+``nowidelut`` disables the wide LUT implementations that use hard MUX resources. Left unset, it is
+on for ECP5 in the full recipe and off everywhere else. ABC9 counts a wide ECP5 LUT as one LUT, but
+it costs several LUT4s and hard MUXes. In a benchmark of 23 ECP5 designs, ``nowidelut`` saved 11%
+of the LUTs on average at the same average fmax, and single designs got faster or slower by up to
+17%. ``nowidelut: false`` leaves the mapping choices to the synthesis pass, as an unset
+``nowidelut`` does under ``synth_pass_only``. iCE40 UltraPlus DSP
 and SPRAM inference are available as the ``ice40_dsp`` and ``ice40_spram`` settings of
 ``yosys_fpga``.
 
@@ -1569,9 +1573,11 @@ selects ``flow3``. In pass-only mode, an unset script leaves the choice to the Y
 Neither mode gives ABC9 a delay target unless ``abc9_delay_target`` sets one (described below), and
 the clock never sets it. ``abc9_script`` can choose one of the scripts that Yosys includes, in
 either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
-``flow3mfs``. The script names come from the installed Yosys build. The ``flow3`` setting is
-also accepted: ``true`` selects ``flow3``, and ``false`` leaves the script to Yosys. Do not set
-both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 mapping is enabled.
+``flow3mfs``. The script names come from the installed Yosys build. The script selection matters
+only when ABC9 mapping is enabled. ``flow3`` maps several times and keeps the best result. In a
+benchmark of 65 designs on ECP5, iCE40 and Xilinx 7-series, it gave a clearly higher fmax than
+``default`` on 18 designs and a clearly lower one on none, for about 1.4 times the run time of
+Yosys. ``flow`` and ``flow2`` took longer and were not faster than ``flow3``.
 
 .. code-block:: bash
 

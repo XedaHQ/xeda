@@ -79,6 +79,7 @@ REFUSED = [
     ("yosys", "netlist_verilog_extmem", [], "`netlist_verilog_flags: [-extmem]`"),
     ("yosys_fpga", "nosynth", True, "`stop_after: rtl`, which stops after the RTL stage"),
     ("yosys_fpga", "netlist_verilog_extmem", [], "`netlist_verilog_flags: [-extmem]`"),
+    ("yosys_fpga", "flow3", True, "`abc9_script: flow3` in place of `flow3: true`"),
     ("ghdl_synth", "compiler_flags", ["-O"], "flows.ghdl_sim.compiler_flags"),
     ("ghdl_synth", "assembler_flags", ["-O"], "flows.ghdl_sim.assembler_flags"),
     ("ghdl_synth", "linker_flags", ["-L"], "flows.ghdl_sim.linker_flags"),
@@ -353,7 +354,7 @@ FORMER_FIELDS = {
         *("dff_library", "hilomap", "insbuf", "merge_libs_to", "netlist_verilog_extmem"),
         *("optimize", "other_maps", "retime", "script_format"),
     },
-    "yosys_fpga": {"netlist_verilog_extmem", "nosynth", "script_format"},
+    "yosys_fpga": {"flow3", "netlist_verilog_extmem", "nosynth", "script_format"},
     "yosys_sim": {
         *("abc_constr", "abc_dff", "abc_flags", "abc_script", "ltp"),
         *("netlist_attrs", "netlist_blackboxes", "netlist_dec", "netlist_expr", "netlist_graph"),

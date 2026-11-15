@@ -33678,21 +33678,6 @@
           "type": "boolean",
           "unit": null
         },
-        "flow3": {
-          "default": null,
-          "schema": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "type": "boolean",
-          "unit": null
-        },
         "fpga": {
           "default": null,
           "schema": {
@@ -34092,9 +34077,16 @@
           "unit": null
         },
         "nowidelut": {
-          "default": false,
+          "default": null,
           "schema": {
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "type": "boolean",
           "unit": null

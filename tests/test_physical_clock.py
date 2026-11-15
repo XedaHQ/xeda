@@ -319,7 +319,7 @@ IDENTITY_PINS = [
             "clocks.main_clock.name": "main_clock",
             "clocks.main_clock.freq": "125 MHz",
         },
-        "ff2f4bc0fa1459345727d76018412213b49cba40eaaa35a71e11124e41a36073",
+        "558498d275100bd281eb6397fa38bb49a7e4c61678f161dc0d674f7215e611d7",
         id="yosys_fpga",
     ),
     pytest.param(
