@@ -209,6 +209,32 @@ def test_two_clocks_give_the_worst_slack_and_no_period_or_fmax(tmp_path, caplog)
     assert "fast, slow" in caplog.text
 
 
+def test_a_clock_name_with_a_slash_counts_as_a_second_clock(tmp_path):
+    max_report = """\
+  clock fast (rise edge)                   4.00       4.00
+  slack (MET)                              0.20
+  clock pll/out (rise edge)               10.00      10.00
+  slack (VIOLATED)                        -1.00
+"""
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
+    assert not flow.parse_timing_reports()
+    assert flow.results["setup_wns"] == -1.0
+    for key in ("fmax", "clock_period", "clock_name"):
+        assert key not in flow.results
+
+
+def test_a_clock_line_that_cannot_be_read_gives_no_fmax(tmp_path):
+    max_report = """\
+  clock clk (rise edge)                    5.00       5.00
+  clock clk (rise edge)                    5.00
+  slack (MET)                              0.20
+"""
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
+    assert flow.parse_timing_reports()
+    for key in ("fmax", "clock_period", "clock_name"):
+        assert key not in flow.results
+
+
 def test_the_hold_slack_is_the_smallest_of_the_paths(tmp_path):
     min_report = """\
   slack (MET)                              0.30

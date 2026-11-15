@@ -509,8 +509,11 @@ class Dc(AsicSynthFlow):
             r"^\s*slack\s*\(\s*(?P<status>\w+)\s*\)\s+(?P<slack>[\+-]?\d+\.\d+)\s*$"
         )
         clock_pattern = re.compile(
-            r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
+            r"^\s*clock\s+(?P<clock_name>\S+)\s+\((?:rise|fall) edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
         )
+        # Every clock edge line, also one that `clock_pattern` cannot read: a report with such a
+        # line gives no clock and no fmax.
+        any_clock_line = re.compile(r"^\s*clock\s+(?P<clock_name>\S+)\s+\((?:rise|fall) edge\)")
 
         def worst_slack(lines: List[str], kind: str) -> Optional[Tuple[float, str]]:
             """The smallest slack of the report and the status of its path."""
@@ -539,16 +542,18 @@ class Dc(AsicSynthFlow):
                 self.results["setup_wns"], self.results["_setup_status"] = setup
             # the first clock line with a time is the capture edge: the launch edge is at 0
             edges = [m for m in map(clock_pattern.search, lines) if m]
-            clocks = {m.group("clock_name") for m in edges}
+            clock_lines = [m for m in map(any_clock_line.search, lines) if m]
+            clocks = {m.group("clock_name") for m in clock_lines}
             captures = [m for m in edges if float(m.group("clock_period"))]
-            if len(clocks) == 1 and captures:
+            if len(clocks) == 1 and len(edges) == len(clock_lines) and captures:
                 self.results["clock_name"] = captures[0].group("clock_name")
                 self.results["_clock_time"] = ns(captures[0].group("clock_time"))
                 self.results["clock_period"] = ns(captures[0].group("clock_period"))
-            elif len(clocks) > 1:
+            elif len(clocks) > 1 or len(edges) != len(clock_lines):
                 log.debug(
-                    "The maximum delay report has the clocks %s: no clock_name, clock_period "
-                    "or fmax. The setup slack is the worst of all of them.",
+                    "The maximum delay report has the clocks %s, or a clock line that Xeda cannot "
+                    "read: no clock_name, clock_period or fmax. The setup slack is the worst of "
+                    "all paths.",
                     ", ".join(sorted(clocks)),
                 )
         else:
