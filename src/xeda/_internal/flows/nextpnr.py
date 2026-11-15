@@ -383,7 +383,8 @@ class Nextpnr(FpgaSynthFlow):
             ),
             "cell_types": MetricSpec(
                 "Number of bels used of each type, by the bel name that nextpnr gives "
-                "(`TRELLIS_COMB`, `SLICE_LUTX`).",
+                "(`TRELLIS_COMB`, `SLICE_LUTX`). It lists only the types with a used bel: a type "
+                "that the table does not list has none used.",
                 "counts",
             ),
             "device": MetricSpec("Xilinx 7-series: the part placed and routed.", "text"),

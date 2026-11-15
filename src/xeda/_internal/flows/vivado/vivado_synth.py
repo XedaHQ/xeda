@@ -738,9 +738,9 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                     if util is not None:
                         # A block RAM tile count can end in .5: a RAMB18 uses half a tile.
                         kind = float if k == "bram_tile" else int
-                        r = try_convert(util, kind, default=util)
-                        if r:
-                            self.results[k] = r
+                        # A count of 0 is a result. A value that is no number stays text, and
+                        # the metric check refuses it.
+                        self.results[k] = try_convert(util, kind, default=util)
             self.results["_utilization"] = utilization
         failed |= not power_report_written(self)
         # Only this run's reports are artifacts. A previous run's files in the run directory are

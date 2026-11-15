@@ -1259,7 +1259,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             design_util = utilization.get("design")
             if design_util:
                 num_cells_by_type = design_util.get("num_cells_by_type")
-                if num_cells_by_type:
+                if num_cells_by_type is not None:
                     design_util = {
                         **{k: v for k, v in design_util.items() if k != "num_cells_by_type"},
                         **num_cells_by_type,
@@ -1267,10 +1267,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     self.results["_utilization"] = design_util
                     self.results["cell_types"] = dict(num_cells_by_type)
 
-                def add_util_sum_if_nonzero(group_name: str, names: List[str]):
-                    util = sum(int(design_util.get(t, 0)) for t in names)
-                    if util:
-                        self.results[group_name] = util
+                def add_util_sum(group_name: str, names: List[str]):
+                    # A design without such a primitive uses none: the count is 0.
+                    self.results[group_name] = sum(int(design_util.get(t, 0)) for t in names)
 
                 assert self.settings.fpga
                 if self.settings.fpga.vendor == "xilinx":
@@ -1288,7 +1287,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     self.results["lut_use.srl"] = srl_luts
                     self.results["lut_basis.stage"] = "mapped"
                     self.results["lut_basis.method"] = "primitive-footprint estimate"
-                    add_util_sum_if_nonzero(
+                    add_util_sum(
                         "ff",
                         [
                             "FDCE",  # D Flip-Flop with Clock Enable and Asynchronous Clear
@@ -1297,7 +1296,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                             "FDSE",  # D Flip-Flop with Clock Enable and Synchronous Set
                         ],
                     )
-                    add_util_sum_if_nonzero(
+                    add_util_sum(
                         "latch",
                         [
                             "LDCE",  # Transparent Data Latch with Asynchronous Clear and Gate Enable
@@ -1305,9 +1304,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         ],
                     )
 
-                    add_util_sum_if_nonzero("bram.ramb18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
-                    add_util_sum_if_nonzero("bram.ramb36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
-                    add_util_sum_if_nonzero("dsp", ["DSP48E1", "DSP48E2", "DSP48E"])
+                    add_util_sum("bram.ramb18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
+                    add_util_sum("bram.ramb36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
+                    add_util_sum("dsp", ["DSP48E1", "DSP48E2", "DSP48E"])
 
         return True
 
