@@ -72,6 +72,12 @@ def test_an_integer_shows_in_the_largest_unit_that_keeps_it_exact(value, unit, t
         (0.0, "0"),
         (-0.0, "0"),
         (123456789012.0, "123,457,000,000"),
+        (999999999999.6, "1,000,000,000,000"),
+        (1e12, "1e+12"),
+        (1234567, "1,234,570"),
+        (10**12, "1e+12"),
+        (10**400, "1e+400"),
+        (-(10**400), "-1e+400"),
     ],
 )
 def test_a_number_shows_six_significant_digits(value, text):
@@ -111,6 +117,9 @@ RESULTS = {
     "equivalent": True,
     "note": "[bold]x[/bold]",
     "slack": 2.0,
+    "clock_period": 10,
+    "unused": 0,
+    "failures": 0,
 }
 INFO = {
     "fmax": _info("fmax", "number", "MHz"),
@@ -120,6 +129,7 @@ INFO = {
     "cell_types": _info("cell_types", "counts"),
     "equivalent": _info("equivalent", "boolean"),
     "note": _info("note", "text"),
+    "clock_period": _info("clock_period", "number", "ns"),
 }
 
 
@@ -139,6 +149,8 @@ def test_the_table_has_a_unit_column(monkeypatch):
     assert ("note", "[bold]x[/bold]", "") in rows
     # A key without a descriptor shows as it always did.
     assert ("slack", "2.000", "") in rows
+    # An integer-valued `number` metric shows with its unit.
+    assert ("clock_period", "10", "ns") in rows
     assert ("Run time", "0:00:03", "") in rows
     assert rows[0][0] == "Status"
 
@@ -146,6 +158,16 @@ def test_the_table_has_a_unit_column(monkeypatch):
 def test_the_subset_and_the_skip_rule_still_select_rows(monkeypatch):
     rows = _table(monkeypatch, RESULTS, INFO, subset=["fmax", "lut"])
     assert [row[0] for row in rows] == ["Status", "fmax", "lut"]
+
+
+def test_the_skip_rule_hides_a_false_row_only_where_it_applies(monkeypatch):
+    shown = ["fmax", "unused", "failures"]
+    rows = _table(monkeypatch, RESULTS, INFO, subset=shown)
+    assert [row[0] for row in rows] == ["Status", "fmax", "unused", "failures"]
+    rows = _table(monkeypatch, RESULTS, INFO, subset=shown, skip_if_false={"unused"})
+    assert [row[0] for row in rows] == ["Status", "fmax", "failures"]
+    rows = _table(monkeypatch, RESULTS, INFO, subset=shown, skip_if_false=True)
+    assert [row[0] for row in rows] == ["Status", "fmax"]
 
 
 def test_a_long_value_is_not_cut(monkeypatch):

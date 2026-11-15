@@ -1096,15 +1096,20 @@ def number_text(value: float) -> str:
     for a value from 1e-9 up to (not including) 1e12, and no trailing zeros.
 
     The value keeps its unit, so 225.98870056497177 is `225.989` and 1234567.891 is `1,234,570`.
-    A value outside that range keeps the scientific form of `format(value, ".6g")`, and a value
-    that is not finite is shown as Python writes it."""
-    if not math.isfinite(value):
+    The range is that of the value itself, so 999999999999.6 is `1,000,000,000,000` and 1e12 is
+    `1e+12`. A value outside the range keeps the scientific form of `format(value, ".6g")`. A value
+    that is not finite is shown as Python writes it. An `int` of any size works."""
+    exact = Decimal(value)
+    if not exact.is_finite():
         return str(value)
-    text = format(value, ".6g")
-    rounded = abs(float(text))
-    if rounded != 0 and not 1e-9 <= rounded < 1e12:
-        return text
-    fixed = format(Decimal(text), "f")
+    if exact != 0 and not Decimal("1e-9") <= abs(exact) < Decimal("1e12"):
+        if isinstance(value, float):
+            return format(value, ".6g")
+        mantissa, _, exponent = format(exact, ".5e").partition("e")
+        if "." in mantissa:
+            mantissa = mantissa.rstrip("0").rstrip(".")
+        return f"{mantissa}e{int(exponent):+03d}"
+    fixed = format(Decimal(format(exact, ".6g")), "f")
     if "." in fixed:
         fixed = fixed.rstrip("0").rstrip(".")
     sign = "-" if fixed.startswith("-") else ""
