@@ -63,7 +63,7 @@ def test_cells_comes_from_the_report(parsed_flow: Yosys):
 
 def test_area_comes_from_the_report(parsed_flow: Yosys):
     expected = json.loads(STAT_REPORT.read_text())["design"]["area"]
-    assert parsed_flow.results.get("area") == pytest.approx(expected)
+    assert parsed_flow.results.get("library_area.cells") == pytest.approx(expected)
 
 
 def test_per_cell_type_counts_are_reported(parsed_flow: Yosys):

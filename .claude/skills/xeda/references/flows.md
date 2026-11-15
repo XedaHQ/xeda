@@ -323,7 +323,7 @@ Required settings: `target_libraries`
 
 28 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
-Reports: `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_macro_bbox`
+Reports: `setup_violating_paths`, `hold_violating_paths`, `library_area.cells`, `library_area.combinational`, `library_area.sequential`, `library_area.macros_blackboxes`, `library_area.with_nets`, `library_area.nets`, `fmax`, `clock_name`, `clock_period`, `wns`, `whs`, `area_core`, `aspect_ratio`, `utilization_ratio`, `electrical_violations`, `path_groups`, `ports`, `nets`, `cells`, `combinational_cells`, `sequential_cells`, `macros_blackboxes`
 
 Artifacts: `log`, `netlist`, `netlist_vhdl`, `checkpoint`, `sdf`, `sdc`
 
@@ -359,7 +359,7 @@ Group `arith_swap`: no common settings; 4 more: `xeda list-settings openroad_pla
 
 Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 23 more: `xeda list-settings openroad_place --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `utilization`, `power`, `area`, `hold_tns`, `platform`
+Reports: `wns`, `tns`, `whs`, `fmax`, `fmax_by_clock`, `utilization`, `power.cells.total`, `area.stdcells`, `ths`, `platform`
 
 Artifacts: `log`
 
@@ -397,7 +397,7 @@ Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 14 more: `xeda list-
 
 Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`; 7 more: `xeda list-settings yosys --tier expert --json`
 
-Reports: `area`, `cells`, `cell_types`, `platform`
+Reports: `library_area.cells`, `cells`, `cell_types`, `platform`
 
 Artifacts: `log`, `rtl_json`, `rtl_verilog`, `utilization_report`, `timing_report`, `netlist_json`
 
@@ -441,7 +441,7 @@ Group `ir_drop`: `ir_drop.nets`; 17 more: `xeda list-settings openroad --tier ex
 
 Group `gds`: no common settings; 10 more: `xeda list-settings openroad --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
+Reports: `wns`, `tns`, `whs`, `fmax`, `fmax_by_clock`, `setup_violations`, `hold_violations`, `utilization`, `power.cells.total`, `area.stdcells`, `area.core`, `area.die`, `power.cells.internal`, `power.cells.switching`, `power.cells.leakage`, `ths`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `stdcells`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
 
 Artifacts: `log`, `klayout_log`
 
@@ -475,7 +475,7 @@ Group `legalize`: no common settings; 3 more: `xeda list-settings openroad_cts -
 
 Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 20 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
+Reports: `wns`, `tns`, `whs`, `fmax`, `fmax_by_clock`, `utilization`, `power.cells.total`, `area.stdcells`, `ths`, `clock_skew_setup`, `clock_skew_hold`, `platform`
 
 Artifacts: `log`
 
@@ -501,7 +501,7 @@ Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabl
 
 Group `antenna`: `antenna.repair`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`
+Reports: `wns`, `tns`, `whs`, `fmax`, `fmax_by_clock`, `utilization`, `power.cells.total`, `area.stdcells`, `ths`, `clock_skew_setup`, `clock_skew_hold`, `wirelength`, `vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`
 
 Artifacts: `log`
 

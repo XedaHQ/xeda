@@ -3927,15 +3927,14 @@ def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
     # the record holds the described metrics, with the values of the run
     assert_metrics_recorded(flow)
     results = flow.results
-    assert results["worst_slack"] == pytest.approx(-0.1835)
     assert results["wns"] == pytest.approx(-0.1835)
     assert results["tns"] == pytest.approx(-7.7916)
     assert results["whs"] == pytest.approx(0.0846772)
-    assert results["hold_tns"] == 0
+    assert results["ths"] == 0
     assert results["fmax"] == pytest.approx(2306.81)
-    assert results["area"] == pytest.approx(657.02)
+    assert results["area.stdcells"] == pytest.approx(657.02)
     assert results["utilization"] == pytest.approx(0.753968)
-    assert results["power"] == pytest.approx(0.00388374)
+    assert results["power.cells.total"] == pytest.approx(0.00388374)
     assert results["platform"]["name"] == "tiny"
 
 
@@ -3995,16 +3994,15 @@ def test_the_results_are_described():
         "wns",
         "tns",
         "whs",
-        "worst_slack",
         "fmax",
         "utilization",
-        "power",
-        "area",
-        "hold_tns",
+        "power.cells.total",
+        "area.stdcells",
+        "ths",
         "platform",
     ):
         assert described[key].description, key
-    for key in ("utilization", "power"):
+    for key in ("utilization", "power.cells.total"):
         assert key in COMMON_METRICS
 
 

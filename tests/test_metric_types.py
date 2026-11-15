@@ -147,8 +147,9 @@ Number of sequential cells:               16
 Number of macros/black boxes:              0
 Combinational area:                  252.5
 Noncombinational area:               434.75
+Net Interconnect area:                12.5
 Total cell area:                     687.25
-Total area:                          687.25
+Total area:                          699.75
 """
 QOR = """\
 Timing Path Group 'clk'
@@ -198,7 +199,12 @@ def test_dc_writes_the_declared_types(tmp_path):
         (reports / name).write_text(text)
     assert flow.parse_reports()
     check(Dc, flow.results, 12)
-    assert isinstance(flow.results["area"], dict)
+    assert flow.results["library_area.nets"] == 12.5
+    assert flow.results["library_area.with_nets"] == 699.75
+    assert flow.results["electrical_violations"] == {
+        "Max Trans Violations": 2,
+    }
+    assert "area" not in flow.results and "drc" not in flow.results
 
 
 POWER_REPORT = """\

@@ -380,20 +380,34 @@ class Openroad(OpenroadStage):
         "wns",
         "tns",
         "whs",
-        "worst_slack",
         "fmax",
         "fmax_by_clock",
         "setup_violations",
         "hold_violations",
         "utilization",
-        "power",
-        area=MetricSpec(
-            "Area of the standard cells after the detailed route, without the filler cells, in "
-            "square micrometers.",
-            "number",
-            "um^2",
-        ),
-        hold_tns=MetricSpec(
+        "power.cells.total",
+        **{
+            "area.stdcells": MetricSpec(
+                "Area of the standard cells after the detailed route, without the filler cells, "
+                "in square micrometers.",
+                "number",
+                "um^2",
+            ),
+            "area.core": MetricSpec("Area of the core, in square micrometers.", "number", "um^2"),
+            "area.die": MetricSpec("Area of the die, in square micrometers.", "number", "um^2"),
+            "power.cells.internal": MetricSpec(
+                "Internal power of the cells, as OpenROAD estimates it.", "number", "W"
+            ),
+            "power.cells.switching": MetricSpec(
+                "Switching power of the nets that the cells drive, as OpenROAD estimates it.",
+                "number",
+                "W",
+            ),
+            "power.cells.leakage": MetricSpec(
+                "Leakage power of the cells, as OpenROAD estimates it.", "number", "W"
+            ),
+        },
+        ths=MetricSpec(
             "Total negative hold slack after the detailed route, from the final parasitics (see "
             "`parasitics`).",
             "number",
@@ -414,17 +428,6 @@ class Openroad(OpenroadStage):
         max_fanout_violations=MetricSpec(
             "Number of max fanout violations after the detailed route.", "integer"
         ),
-        core_area=MetricSpec("Area of the core, in square micrometers.", "number", "um^2"),
-        die_area=MetricSpec("Area of the die, in square micrometers.", "number", "um^2"),
-        power_internal=MetricSpec(
-            "Internal power of the cells, as OpenROAD estimates it.", "number", "W"
-        ),
-        power_switching=MetricSpec(
-            "Switching power of the nets, as OpenROAD estimates it.", "number", "W"
-        ),
-        power_leakage=MetricSpec(
-            "Leakage power of the cells, as OpenROAD estimates it.", "number", "W"
-        ),
         drc_errors=MetricSpec(
             "Number of design rule violations that the detailed route leaves.", "integer"
         ),
@@ -443,7 +446,7 @@ class Openroad(OpenroadStage):
         ),
         wirelength=MetricSpec("Total wire length of the detailed route.", "number", "um"),
         vias=MetricSpec("Number of vias of the detailed route.", "integer"),
-        instances=MetricSpec(
+        stdcells=MetricSpec(
             "Number of standard cell instances, without the filler cells.", "integer"
         ),
         fill_cells=MetricSpec("Number of filler cell instances.", "integer"),
@@ -1153,7 +1156,7 @@ class Openroad(OpenroadStage):
         if settings.fail_timing:
             slacks = [
                 f"worst {kind} slack {results[name]:g} ns"
-                for kind, name in (("setup", "worst_slack"), ("hold", "whs"))
+                for kind, name in (("setup", "wns"), ("hold", "whs"))
                 if name in results and results[name] < 0
             ]
             if slacks:

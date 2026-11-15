@@ -330,7 +330,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     )
 
     results_description = describe_results(
-        "area",
+        "library_area.cells",
         cells=MetricSpec("Total number of cells in the synthesized netlist.", "integer"),
         cell_types=MetricSpec(
             "Number of cells of each type in the synthesized netlist, by the cell name that the "
@@ -1043,6 +1043,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 self.results["cells"] = num_cells
             area = design_util.get("area")
             if area is not None:
-                self.results["area"] = area
+                self.results["library_area.cells"] = area
             self.results["_utilization"] = design_util
         return True

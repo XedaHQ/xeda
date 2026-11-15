@@ -1033,15 +1033,14 @@ def test_a_launch_reports_the_recorded_metrics_of_the_clock_tree(tmp_path, monke
     # the record holds the described metrics, with the values of the run
     assert_metrics_recorded(flow)
     results = flow.results
-    assert results["worst_slack"] == pytest.approx(-0.247236)
     assert results["wns"] == pytest.approx(-0.247236)
     assert results["tns"] == pytest.approx(-10.8545)
     assert results["whs"] == pytest.approx(0.0135501)
-    assert results["hold_tns"] == 0
+    assert results["ths"] == 0
     assert results["fmax"] == pytest.approx(2011.12)
-    assert results["area"] == pytest.approx(742.938)
+    assert results["area.stdcells"] == pytest.approx(742.938)
     assert results["utilization"] == pytest.approx(0.852564)
-    assert results["power"] == pytest.approx(0.00523808)
+    assert results["power.cells.total"] == pytest.approx(0.00523808)
     assert results["clock_skew_setup"] == pytest.approx(0.00116677)
     assert results["clock_skew_hold"] == pytest.approx(0.00116677)
     assert results["platform"]["name"] == "tiny"
@@ -1055,18 +1054,17 @@ def test_the_results_are_described():
         "wns",
         "tns",
         "whs",
-        "worst_slack",
         "fmax",
         "utilization",
-        "power",
-        "area",
-        "hold_tns",
+        "power.cells.total",
+        "area.stdcells",
+        "ths",
         "clock_skew_setup",
         "clock_skew_hold",
         "platform",
     ):
         assert described[key].description, key
-    for key in ("wns", "tns", "whs", "worst_slack", "fmax", "utilization", "power"):
+    for key in ("wns", "tns", "whs", "fmax", "utilization", "power.cells.total"):
         assert described[key] == COMMON_METRICS[key]
 
 

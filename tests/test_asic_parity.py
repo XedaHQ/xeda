@@ -889,6 +889,19 @@ def test_the_registered_flow_names_come_from_xeda() -> None:
     assert isinstance(names, frozenset)
 
 
+def nested(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Return the metrics with each dotted path (`area.stdcells`) as nested tables, as a record
+    holds them."""
+    table: dict[str, Any] = {}
+    for path, value in metrics.items():
+        *groups, leaf = path.split(".")
+        node = table
+        for group in groups:
+            node = node.setdefault(group, {})
+        node[leaf] = value
+    return table
+
+
 def run_document(metrics: dict[str, Any], *, runtime: float = 0.8, flow: str = "yosys") -> dict:
     """The `--json` document of a xeda run that passed: one node, with a record."""
     return {
@@ -905,7 +918,7 @@ def run_document(metrics: dict[str, Any], *, runtime: float = 0.8, flow: str = "
                     "schema_version": 1,
                     "identity": "f",
                     "runtime": f"{runtime} s",
-                    "metrics": metrics,
+                    "metrics": nested(metrics),
                 },
             }
         ],
@@ -913,7 +926,7 @@ def run_document(metrics: dict[str, Any], *, runtime: float = 0.8, flow: str = "
 
 
 def test_the_synthesis_results_of_xeda_become_a_row_part() -> None:
-    document = run_document({"area": 506.996, "cells": 357})
+    document = run_document({"library_area.cells": 506.996, "cells": 357})
     part = tool.read_xeda_results(document, "synthesis")
     assert part["yosys_area"] == 506.996 and part["yosys_cells"] == 357
     assert part["runtime_s"] == 0.8
@@ -921,22 +934,21 @@ def test_the_synthesis_results_of_xeda_become_a_row_part() -> None:
 
 
 #: The results of the last flow of a real run (nangate45 gcd, the chain from the sources), cut
-#: down to the keys that carry a number. `wns` is the worst slack clipped at zero.
+#: down to the keys that carry a number.
 OPENROAD_RESULTS: dict[str, Any] = {
-    "worst_slack": -0.15848,
     "wns": -0.15848,
     "tns": -7.03717,
     "whs": 0.0848803,
-    "hold_tns": 0.0,
+    "ths": 0.0,
     "fmax": 2448.1,
-    "area": 976.22,
+    "area.stdcells": 976.22,
     "utilization": 0.731367,
-    "power": 0.00652553,
+    "power.cells.total": 0.00652553,
     "drc_errors": 0,
     "antenna_violating_nets": 0,
     "setup_violations": 86,
-    "instances": 776,
-    "core_area": 1334.79,
+    "stdcells": 776,
+    "area.core": 1334.79,
 }
 
 
@@ -962,14 +974,14 @@ def test_the_openroad_results_of_xeda_become_the_orfs_metrics() -> None:
 
 
 def test_a_positive_slack_stays_positive_in_the_metrics() -> None:
-    """ORFS reports the worst slack as it is, and the `wns` of xeda stops at zero."""
-    results = {**OPENROAD_RESULTS, "worst_slack": 0.2, "wns": 0.0}
+    """ORFS and xeda report the worst slack as it is."""
+    results = {**OPENROAD_RESULTS, "wns": 0.2}
     part = tool.read_xeda_results(run_document(results, runtime=60.08), "both")
     assert part["metrics"]["finish__timing__setup__ws"] == 0.2
 
 
 def test_a_result_that_a_run_lacks_leaves_its_optional_metric_out() -> None:
-    results = {k: v for k, v in OPENROAD_RESULTS.items() if k not in ("fmax", "core_area")}
+    results = {k: v for k, v in OPENROAD_RESULTS.items() if k not in ("fmax", "area.core")}
     part = tool.read_xeda_results(run_document(results, runtime=60.08), "both")
     assert "finish__timing__fmax" not in part["metrics"]
     assert "finish__design__core__area" not in part["metrics"]
@@ -978,12 +990,12 @@ def test_a_result_that_a_run_lacks_leaves_its_optional_metric_out() -> None:
 @pytest.mark.parametrize(
     ("key", "metric"),
     [
-        ("worst_slack", "finish__timing__setup__ws"),
+        ("wns", "finish__timing__setup__ws"),
         ("tns", "finish__timing__setup__tns"),
         ("whs", "finish__timing__hold__ws"),
-        ("hold_tns", "finish__timing__hold__tns"),
-        ("area", "finish__design__instance__area__stdcell"),
-        ("power", "finish__power__total"),
+        ("ths", "finish__timing__hold__tns"),
+        ("area.stdcells", "finish__design__instance__area__stdcell"),
+        ("power.cells.total", "finish__power__total"),
         ("drc_errors", "detailedroute__route__drc_errors"),
         ("antenna_violating_nets", "detailedroute__antenna__violating__nets"),
     ],
@@ -1003,9 +1015,9 @@ def test_every_required_metric_has_a_result_of_xeda() -> None:
 
 def test_the_results_of_a_node_are_read_from_its_record() -> None:
     record = record_document(
-        metrics={"area": 506.9, "cells": 357},
+        metrics={"library_area": {"cells": 506.9}, "cells": 357},
         metric_info={
-            "area": {"description": "area", "type": "number", "unit": "um^2"},
+            "library_area.cells": {"description": "area", "type": "number", "unit": None},
             "cells": {"description": "cells", "type": "integer", "unit": None},
         },
         runtime="1.5 s",
@@ -1016,7 +1028,11 @@ def test_the_results_of_a_node_are_read_from_its_record() -> None:
             {"name": "openroad", "flow": "openroad", "run_dir": "/w/none", "record": None},
         ]
     }
-    assert tool.node_results(document, "yosys") == {"area": 506.9, "cells": 357, "runtime": 1.5}
+    assert tool.node_results(document, "yosys") == {
+        "library_area.cells": 506.9,
+        "cells": 357,
+        "runtime": 1.5,
+    }
     assert tool.node_results(document, "openroad") == {}, "no record"
     assert tool.node_results(document, "openroad_cts") == {}, "no such node"
     assert tool.node_results({}, "yosys") == {}

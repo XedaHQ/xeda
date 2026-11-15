@@ -84,14 +84,14 @@ def to_nanoseconds(value: float, time_unit: str, *, file: str | Path, key: str) 
 #: Result name, metric name (after the stage prefix) and the kind of the value.
 #: `time` is converted to ns; `hertz` to MHz; the others are read as they are.
 STAGE_TABLE: tuple[tuple[str, str, str], ...] = (
-    ("worst_slack", "timing__setup__ws", "time"),
+    ("wns", "timing__setup__ws", "time"),
     ("tns", "timing__setup__tns", "time"),
     ("whs", "timing__hold__ws", "time"),
-    ("hold_tns", "timing__hold__tns", "time"),
+    ("ths", "timing__hold__tns", "time"),
     ("fmax", "timing__fmax", "hertz"),
-    ("area", "design__instance__area__stdcell", "plain"),
+    ("area.stdcells", "design__instance__area__stdcell", "plain"),
     ("utilization", "design__instance__utilization", "plain"),
-    ("power", "power__total", "plain"),
+    ("power.cells.total", "power__total", "plain"),
     ("clock_skew_setup", "clock__skew__setup", "time"),
     ("clock_skew_hold", "clock__skew__hold", "time"),
 )
@@ -102,10 +102,10 @@ def stage_results(
 ) -> dict[str, Any]:
     """Return the results of one stage from its metrics, by result name.
 
-    `worst_slack` is the worst setup slack, and `wns` is `min(0, worst_slack)`, since OpenROAD
-    writes no WNS. `fmax` is in MHz and every time is in ns (`time_unit` is the unit of the
-    Liberty files, such as `1ns`). `area` is the area of the standard cells in um^2, and `power`
-    is in watts. A result whose metric is absent is left out. A metric that is present and not a
+    `wns` is the signed worst setup slack (`timing__setup__ws`) and `ths` is the total negative hold
+    slack. `fmax` is in MHz and every time is in ns (`time_unit` is the unit of the Liberty files,
+    such as `1ns`). `area.stdcells` is the area of the standard cells in um^2, and
+    `power.cells.total` is in watts. A result whose metric is absent is left out. A metric that is present and not a
     finite number raises `MetricsError`.
 
     OpenROAD writes `timing__fmax`, the highest frequency over the clocks, and the frequency of
@@ -124,8 +124,6 @@ def stage_results(
         elif kind == "hertz":
             value /= 1e6
         results[name] = value
-        if name == "worst_slack":
-            results["wns"] = min(0.0, value)
     clock_prefix = f"{stage}__timing__fmax__clock:"
     by_clock = {
         key.removeprefix(clock_prefix): number(metrics, key, file=file) / 1e6
@@ -149,12 +147,12 @@ FINISH_TABLE: tuple[tuple[str, str, Reader], ...] = (
     ("max_slew_violations", "timing__drv__max_slew", count),
     ("max_cap_violations", "timing__drv__max_cap", count),
     ("max_fanout_violations", "timing__drv__max_fanout", count),
-    ("core_area", "design__core__area", number),
-    ("die_area", "design__die__area", number),
-    ("power_internal", "power__internal__total", number),
-    ("power_switching", "power__switching__total", number),
-    ("power_leakage", "power__leakage__total", number),
-    ("instances", "design__instance__count__stdcell", count),
+    ("area.core", "design__core__area", number),
+    ("area.die", "design__die__area", number),
+    ("power.cells.internal", "power__internal__total", number),
+    ("power.cells.switching", "power__switching__total", number),
+    ("power.cells.leakage", "power__leakage__total", number),
+    ("stdcells", "design__instance__count__stdcell", count),
     ("fill_cells", "design__instance__count__class:fill_cell", count),
     ("tap_cells", "design__instance__count__class:tap_cell", count),
     ("warnings", "flow__warnings__count", count),
@@ -189,7 +187,7 @@ def final_results(
     `route` holds the metrics of the detailed route (`detailedroute__*`, from `route_file`) and
     `final` those of the final report (`finish__*`, from `final_file`). The times are in
     nanoseconds (`time_unit` is the unit of the Liberty files), `fmax` is in MHz, the areas are
-    in um^2, `power` is in watts, `wirelength` is in um, and the rest are counts and ratios.
+    in um^2, the powers are in watts, `wirelength` is in um, and the rest are counts and ratios.
 
     The four values that the verdicts read must be there and valid: the worst setup slack and
     hold slack, the design rule violations and the nets with an antenna violation. A missing or

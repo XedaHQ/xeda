@@ -626,19 +626,18 @@ def test_the_results_of_the_chain_are_the_recorded_metrics(tmp_path, monkeypatch
     _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
     assert flow is not None and flow.succeeded
     results = flow.results
-    assert results["worst_slack"] == pytest.approx(-0.244411)
     assert results["wns"] == pytest.approx(-0.244411)
     assert results["tns"] == pytest.approx(-10.9686)
     assert results["whs"] == pytest.approx(0.0159159)
     assert results["fmax"] == pytest.approx(2022.61)
-    assert results["area"] == pytest.approx(773.528)
+    assert results["area.stdcells"] == pytest.approx(773.528)
     assert results["utilization"] == pytest.approx(0.887668)
-    assert results["power"] == pytest.approx(0.00566387)
+    assert results["power.cells.total"] == pytest.approx(0.00566387)
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
-    assert results["instances"] == 576 and results["fill_cells"] == 186
+    assert results["stdcells"] == 576 and results["fill_cells"] == 186
     assert results["parasitics"] == "estimate" and results["platform"]["name"] == "tiny"
     persisted = json.loads((run_dir(tmp_path) / "results.json").read_text())
-    assert persisted["metrics"]["worst_slack"] == results["worst_slack"]
+    assert persisted["metrics"]["wns"] == results["wns"]
     assert persisted["outcome"] == "passed"
 
 

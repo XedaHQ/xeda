@@ -1675,11 +1675,10 @@ def test_the_results_are_the_recorded_values_of_the_real_run(tmp_path):
     assert ok
     results = flow.results
     expected = {
-        "worst_slack": -0.244411,
         "wns": -0.244411,
         "tns": -10.9686,
         "whs": 0.0159159,
-        "hold_tns": 0,
+        "ths": 0,
         "fmax": 2022.61,
         "setup_violations": 88,
         "hold_violations": 0,
@@ -1688,20 +1687,20 @@ def test_the_results_are_the_recorded_values_of_the_real_run(tmp_path):
         "max_fanout_violations": 0,
         "clock_skew_setup": 0.00138606,
         "clock_skew_hold": 0.00138606,
-        "area": 773.528,
+        "area.stdcells": 773.528,
         "utilization": 0.887668,
-        "core_area": 871.416,
-        "die_area": 1019.52,
-        "power": 0.00566387,
-        "power_internal": 0.00339365,
-        "power_switching": 0.00224974,
-        "power_leakage": 2.04825e-05,
+        "area.core": 871.416,
+        "area.die": 1019.52,
+        "power.cells.total": 0.00566387,
+        "power.cells.internal": 0.00339365,
+        "power.cells.switching": 0.00224974,
+        "power.cells.leakage": 2.04825e-05,
         "drc_errors": 0,
         "antenna_violating_nets": 0,
         "antenna_violating_pins": 0,
         "wirelength": 3599,
         "vias": 3073,
-        "instances": 576,
+        "stdcells": 576,
         "fill_cells": 186,
         "tap_cells": 42,
         "warnings": 0,
@@ -1716,8 +1715,8 @@ def test_the_area_is_the_area_of_the_standard_cells_and_not_the_duplicated_total
     """OpenROAD writes `finish__design__instance__area` twice, with the area of all the cells and
     then of the standard cells. The result is read from the key that is written once."""
     flow, _ = parsed(tmp_path)
-    assert flow.results["area"] == 773.528
-    assert flow.results["area"] != 871.416
+    assert flow.results["area.stdcells"] == 773.528
+    assert flow.results["area.stdcells"] != 871.416
 
 
 def test_the_counts_are_whole_numbers(tmp_path):
@@ -1727,7 +1726,7 @@ def test_the_counts_are_whole_numbers(tmp_path):
         "drc_errors",
         "antenna_violating_nets",
         "vias",
-        "instances",
+        "stdcells",
         "fill_cells",
         "tap_cells",
         "warnings",
@@ -1749,25 +1748,25 @@ def test_the_results_name_the_extraction_and_the_platform(tmp_path):
 def test_the_times_convert_from_the_liberty_unit_to_nanoseconds(tmp_path):
     flow, ok = parsed(tmp_path, model={"time_unit": "1ps"})
     assert ok
-    assert flow.results["worst_slack"] == pytest.approx(-0.244411e-3)
+    assert flow.results["wns"] == pytest.approx(-0.244411e-3)
     assert flow.results["whs"] == pytest.approx(0.0159159e-3)
     assert flow.results["tns"] == pytest.approx(-10.9686e-3)
     assert flow.results["clock_skew_setup"] == pytest.approx(0.00138606e-3)
     assert flow.results["fmax"] == pytest.approx(2022.61)  # a frequency has no Liberty unit
 
 
-def test_the_wns_is_zero_when_the_slack_is_positive(tmp_path):
+def test_the_wns_is_signed_when_the_slack_is_positive(tmp_path):
     flow, ok = parsed(tmp_path, final=metrics_text("final", **{SETUP: 0.3}))
-    assert ok and flow.results["worst_slack"] == 0.3 and flow.results["wns"] == 0
+    assert ok and flow.results["wns"] == 0.3
 
 
 def test_a_result_that_no_verdict_reads_and_that_is_absent_is_left_out(tmp_path):
     optional = {
         "finish__timing__fmax": "fmax",
         "finish__timing__fmax__clock:main_clock": "fmax_by_clock",
-        "finish__design__die__area": "die_area",
-        "finish__design__core__area": "core_area",
-        "finish__power__internal__total": "power_internal",
+        "finish__design__die__area": "area.die",
+        "finish__design__core__area": "area.core",
+        "finish__power__internal__total": "power.cells.internal",
         "finish__timing__drv__max_slew": "max_slew_violations",
         "finish__design__instance__count__class:tap_cell": "tap_cells",
         "finish__flow__warnings__count": "warnings",
@@ -1779,7 +1778,7 @@ def test_a_result_that_no_verdict_reads_and_that_is_absent_is_left_out(tmp_path)
     assert ok
     for result in optional.values():
         assert result not in flow.results, result
-    assert flow.results["worst_slack"] == -0.244411
+    assert flow.results["wns"] == -0.244411
 
 
 def test_the_diodes_of_a_route_that_skipped_the_repair_are_left_out(tmp_path):
@@ -1834,14 +1833,14 @@ def test_a_metrics_file_that_is_missing_is_a_parse_failure(tmp_path, caplog, whi
     flow, ok = parsed(tmp_path, **{which: None})
     assert not ok
     assert f"metrics_{which}.json" in caplog.text
-    assert "worst_slack" not in flow.results and "drc_errors" not in flow.results
+    assert "wns" not in flow.results and "drc_errors" not in flow.results
 
 
 @pytest.mark.parametrize("text", ["[1, 2]", "not json", "", "3"])
 @pytest.mark.parametrize("which", ["route", "final"])
 def test_a_metrics_file_that_is_no_json_object_is_a_parse_failure(tmp_path, which, text):
     flow, ok = parsed(tmp_path, **{which: text})
-    assert not ok and "worst_slack" not in flow.results
+    assert not ok and "wns" not in flow.results
 
 
 # ------------------------------------------------------------------------------ the verdict values
@@ -1897,7 +1896,7 @@ def test_each_verdict_value_is_read_from_the_file_of_the_process_that_writes_it(
     wrong_route = metrics_text("route", **{SETUP: -9.0, HOLD: -9.0})
     flow, ok = parsed(tmp_path, route=wrong_route, final=wrong_final)
     assert ok
-    assert flow.results["drc_errors"] == 0 and flow.results["worst_slack"] == -0.244411
+    assert flow.results["drc_errors"] == 0 and flow.results["wns"] == -0.244411
 
 
 # ------------------------------------------------------------------------------ the verdict
@@ -1917,7 +1916,7 @@ def test_a_negative_setup_slack_rejects_the_run_with_the_default_checks(tmp_path
     assert "timing" in flow.rejection and "-0.244411" in flow.rejection
     assert flow.results["error"]["code"] == "rejected"
     assert flow.rejection in flow.results["error"]["message"]
-    assert flow.results["worst_slack"] == -0.244411, "the numbers stay in the results"
+    assert flow.results["wns"] == -0.244411, "the numbers stay in the results"
 
 
 def test_a_negative_hold_slack_rejects_the_run(tmp_path):
@@ -1933,7 +1932,7 @@ def test_a_zero_slack_meets_timing(tmp_path):
 def test_a_timing_miss_does_not_reject_the_run_when_the_check_is_off(tmp_path):
     flow, ok = judge(tmp_path, {"fail_timing": False})
     assert ok is True and flow.rejection is None
-    assert flow.results["worst_slack"] == -0.244411 and flow.results["wns"] == -0.244411
+    assert flow.results["wns"] == -0.244411
 
 
 def test_design_rule_violations_reject_the_run(tmp_path):
@@ -1998,7 +1997,7 @@ def test_the_verdict_is_made_from_the_final_slack_and_not_from_a_message_of_the_
 def test_the_verdict_reads_the_numbers_that_parse_reports_stored(tmp_path):
     flow, ok = parsed(tmp_path, final=metrics_text("final", **{SETUP: 0.5, HOLD: 0.5}))
     assert ok
-    flow.results["worst_slack"] = -1.0  # what a check reads is the stored result
+    flow.results["wns"] = -1.0  # what a check reads is the stored result
     assert flow.check_results() is False and "-1" in flow.rejection
 
 

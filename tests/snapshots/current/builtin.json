@@ -2047,36 +2047,16 @@
         }
       },
       "metrics": {
-        "area": {
-          "type": "object",
-          "unit": null
-        },
-        "area_cell_total": {
-          "type": "number",
-          "unit": null
-        },
-        "area_combinational": {
-          "type": "number",
-          "unit": null
-        },
         "area_core": {
-          "type": "number",
-          "unit": null
-        },
-        "area_macro_bbox": {
-          "type": "number",
-          "unit": null
-        },
-        "area_noncombinational": {
-          "type": "number",
-          "unit": null
-        },
-        "area_total": {
           "type": "number",
           "unit": null
         },
         "aspect_ratio": {
           "type": "number",
+          "unit": null
+        },
+        "cells": {
+          "type": "integer",
           "unit": null
         },
         "clock_name": {
@@ -2087,7 +2067,11 @@
           "type": "number",
           "unit": "ns"
         },
-        "drc": {
+        "combinational_cells": {
+          "type": "integer",
+          "unit": null
+        },
+        "electrical_violations": {
           "type": "counts",
           "unit": null
         },
@@ -2095,39 +2079,39 @@
           "type": "number",
           "unit": "MHz"
         },
-        "hold_num_violating_paths": {
+        "hold_violating_paths": {
           "type": "integer",
           "unit": null
         },
-        "hold_wns": {
+        "library_area.cells": {
           "type": "number",
-          "unit": "ns"
+          "unit": null
         },
-        "num_cells": {
+        "library_area.combinational": {
+          "type": "number",
+          "unit": null
+        },
+        "library_area.macros_blackboxes": {
+          "type": "number",
+          "unit": null
+        },
+        "library_area.nets": {
+          "type": "number",
+          "unit": null
+        },
+        "library_area.sequential": {
+          "type": "number",
+          "unit": null
+        },
+        "library_area.with_nets": {
+          "type": "number",
+          "unit": null
+        },
+        "macros_blackboxes": {
           "type": "integer",
           "unit": null
         },
-        "num_cells_combinational": {
-          "type": "integer",
-          "unit": null
-        },
-        "num_cells_sequential": {
-          "type": "integer",
-          "unit": null
-        },
-        "num_macro_bbox": {
-          "type": "integer",
-          "unit": null
-        },
-        "num_nets": {
-          "type": "integer",
-          "unit": null
-        },
-        "num_ports": {
-          "type": "integer",
-          "unit": null
-        },
-        "num_violating_paths": {
+        "nets": {
           "type": "integer",
           "unit": null
         },
@@ -2135,13 +2119,29 @@
           "type": "object",
           "unit": null
         },
-        "setup_wns": {
-          "type": "number",
-          "unit": "ns"
+        "ports": {
+          "type": "integer",
+          "unit": null
+        },
+        "sequential_cells": {
+          "type": "integer",
+          "unit": null
+        },
+        "setup_violating_paths": {
+          "type": "integer",
+          "unit": null
         },
         "utilization_ratio": {
           "type": "number",
           "unit": null
+        },
+        "whs": {
+          "type": "number",
+          "unit": "ns"
+        },
+        "wns": {
+          "type": "number",
+          "unit": "ns"
         }
       },
       "outputs": {},
@@ -9984,7 +9984,15 @@
           "type": "integer",
           "unit": null
         },
-        "area": {
+        "area.core": {
+          "type": "number",
+          "unit": "um^2"
+        },
+        "area.die": {
+          "type": "number",
+          "unit": "um^2"
+        },
+        "area.stdcells": {
           "type": "number",
           "unit": "um^2"
         },
@@ -9995,14 +10003,6 @@
         "clock_skew_setup": {
           "type": "number",
           "unit": "ns"
-        },
-        "core_area": {
-          "type": "number",
-          "unit": "um^2"
-        },
-        "die_area": {
-          "type": "number",
-          "unit": "um^2"
         },
         "drc_errors": {
           "type": "integer",
@@ -10024,15 +10024,7 @@
           "type": "numbers",
           "unit": "MHz"
         },
-        "hold_tns": {
-          "type": "number",
-          "unit": "ns"
-        },
         "hold_violations": {
-          "type": "integer",
-          "unit": null
-        },
-        "instances": {
           "type": "integer",
           "unit": null
         },
@@ -10056,19 +10048,19 @@
           "type": "object",
           "unit": null
         },
-        "power": {
+        "power.cells.internal": {
           "type": "number",
           "unit": "W"
         },
-        "power_internal": {
+        "power.cells.leakage": {
           "type": "number",
           "unit": "W"
         },
-        "power_leakage": {
+        "power.cells.switching": {
           "type": "number",
           "unit": "W"
         },
-        "power_switching": {
+        "power.cells.total": {
           "type": "number",
           "unit": "W"
         },
@@ -10076,9 +10068,17 @@
           "type": "integer",
           "unit": null
         },
+        "stdcells": {
+          "type": "integer",
+          "unit": null
+        },
         "tap_cells": {
           "type": "integer",
           "unit": null
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -10105,10 +10105,6 @@
           "unit": "um"
         },
         "wns": {
-          "type": "number",
-          "unit": "ns"
-        },
-        "worst_slack": {
           "type": "number",
           "unit": "ns"
         }
@@ -12014,7 +12010,7 @@
         }
       },
       "metrics": {
-        "area": {
+        "area.stdcells": {
           "type": "number",
           "unit": "um^2"
         },
@@ -12034,17 +12030,17 @@
           "type": "numbers",
           "unit": "MHz"
         },
-        "hold_tns": {
-          "type": "number",
-          "unit": "ns"
-        },
         "platform": {
           "type": "object",
           "unit": null
         },
-        "power": {
+        "power.cells.total": {
           "type": "number",
           "unit": "W"
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -12059,10 +12055,6 @@
           "unit": "ns"
         },
         "wns": {
-          "type": "number",
-          "unit": "ns"
-        },
-        "worst_slack": {
           "type": "number",
           "unit": "ns"
         }
@@ -13667,7 +13659,7 @@
           "type": "integer",
           "unit": null
         },
-        "area": {
+        "area.stdcells": {
           "type": "number",
           "unit": "um^2"
         },
@@ -13687,25 +13679,17 @@
           "type": "numbers",
           "unit": "MHz"
         },
-        "global_route_vias": {
-          "type": "integer",
-          "unit": null
-        },
-        "global_route_wirelength": {
-          "type": "number",
-          "unit": "um"
-        },
-        "hold_tns": {
-          "type": "number",
-          "unit": "ns"
-        },
         "platform": {
           "type": "object",
           "unit": null
         },
-        "power": {
+        "power.cells.total": {
           "type": "number",
           "unit": "W"
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -13715,15 +13699,19 @@
           "type": "number",
           "unit": null
         },
+        "vias": {
+          "type": "integer",
+          "unit": null
+        },
         "whs": {
           "type": "number",
           "unit": "ns"
         },
-        "wns": {
+        "wirelength": {
           "type": "number",
-          "unit": "ns"
+          "unit": "um"
         },
-        "worst_slack": {
+        "wns": {
           "type": "number",
           "unit": "ns"
         }
@@ -16239,7 +16227,7 @@
         }
       },
       "metrics": {
-        "area": {
+        "area.stdcells": {
           "type": "number",
           "unit": "um^2"
         },
@@ -16251,17 +16239,17 @@
           "type": "numbers",
           "unit": "MHz"
         },
-        "hold_tns": {
-          "type": "number",
-          "unit": "ns"
-        },
         "platform": {
           "type": "object",
           "unit": null
         },
-        "power": {
+        "power.cells.total": {
           "type": "number",
           "unit": "W"
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -16276,10 +16264,6 @@
           "unit": "ns"
         },
         "wns": {
-          "type": "number",
-          "unit": "ns"
-        },
-        "worst_slack": {
           "type": "number",
           "unit": "ns"
         }
@@ -30475,16 +30459,16 @@
         }
       },
       "metrics": {
-        "area": {
-          "type": "number",
-          "unit": null
-        },
         "cell_types": {
           "type": "counts",
           "unit": null
         },
         "cells": {
           "type": "integer",
+          "unit": null
+        },
+        "library_area.cells": {
+          "type": "number",
           "unit": null
         },
         "platform": {
