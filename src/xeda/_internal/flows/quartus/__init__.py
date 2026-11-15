@@ -374,6 +374,7 @@ class Quartus(FpgaSynthFlow):
         # over the clocks.
         timing_reports_folder = self.run_file(reports["timing_dir"])
         fmax_by_clock: dict[str, float] = {}
+        incomplete: set[str] = set()
         for found in sorted(
             timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv")
         ):
@@ -393,18 +394,25 @@ class Quartus(FpgaSynthFlow):
                 flst = fmax.get(clock, {}).get("Fmax")
                 if not flst or len(flst) != 2 or flst[1] not in ("MHz", "GHz"):
                     log.warning(
-                        "The Fmax summary of the %s model has no usable Fmax for clock %s.",
+                        "The Fmax summary of the %s model has no usable Fmax for clock %s, so "
+                        "there is no fmax over all clocks.",
                         model,
                         clock,
                     )
+                    incomplete.add(clock)
                     continue
                 fmhz = float(flst[0])
                 if flst[1] == "GHz":
                     fmhz *= 1000.0
                 fmax_by_clock[clock] = min(fmhz, fmax_by_clock.get(clock, fmhz))
+        # A clock without a value in one of the models has an unknown worst value: it gets no
+        # entry, and the design gets no fmax, which would otherwise be too high.
+        for clock in incomplete:
+            fmax_by_clock.pop(clock, None)
         if fmax_by_clock:
             self.results["fmax_by_clock"] = fmax_by_clock
-            self.results["fmax"] = min(fmax_by_clock.values())
+            if not incomplete:
+                self.results["fmax"] = min(fmax_by_clock.values())
 
         return True
 

@@ -293,7 +293,15 @@ def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
     assert not [key for key in flow.results if "Fmax" in str(key)]
 
 
-def test_quartus_fmax_is_the_lowest_over_clocks_and_models(tmp_path):
+@pytest.mark.parametrize(
+    "rows_0c, by_clock, fmax",
+    [
+        ("slow,250 MHz\nfast,90 MHz\n", {"slow": 100.0, "fast": 80.0}, 80.0),
+        # No row for `fast` in one model: its worst value is unknown, so no design Fmax.
+        ("slow,250 MHz\n", {"slow": 100.0}, None),
+    ],
+)
+def test_quartus_fmax_is_the_lowest_over_clocks_and_models(tmp_path, rows_0c, by_clock, fmax):
     design = Design(
         name="top",
         root=tmp_path,
@@ -310,10 +318,10 @@ def test_quartus_fmax_is_the_lowest_over_clocks_and_models(tmp_path):
     reports = tmp_path / flow.settings.reports_dir
     timing = reports / "Timing_Analyzer"
     # The model that limits `slow` (85C) is not the one that limits `fast` (1100mV_85C), and the
-    # design Fmax comes from `fast`. The `0C` model has no row for `fast`.
+    # design Fmax comes from `fast`.
     rows = {
         "1200mV_85C": "slow,100 MHz\nfast,300 MHz\n",
-        "1200mV_0C": "slow,250 MHz\n",
+        "1200mV_0C": rows_0c,
         "1100mV_85C": "slow,0.4 GHz\nfast,80 MHz\n",
     }
     for model, body in rows.items():
@@ -337,8 +345,8 @@ def test_quartus_fmax_is_the_lowest_over_clocks_and_models(tmp_path):
         "Clock,Setup,Hold\nWorst-case Slack,1.5,0.25\n"
     )
     assert flow.parse_reports()
-    assert flow.results["fmax_by_clock"] == {"slow": 100.0, "fast": 80.0}
-    assert flow.results["fmax"] == 80.0
+    assert flow.results["fmax_by_clock"] == by_clock
+    assert flow.results.get("fmax") == fmax
 
 
 def test_openroad_final_writes_the_declared_types(tmp_path):
