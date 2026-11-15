@@ -279,12 +279,57 @@ def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
     )
     assert flow.parse_reports()
     check(Quartus, flow.results, 5)
-    assert flow.results["fmax"] == 200.0
-    assert sorted(flow.results["fmax_by_clock"].items()) == [
-        ("main_clock@1200mV:0C", 200.0),
-        ("main_clock@1200mV:85C", 150.5),
-    ]
+    assert flow.results["fmax"] == 150.5
+    assert flow.results["fmax_by_clock"] == {"main_clock": 150.5}
     assert not [key for key in flow.results if "Fmax" in str(key)]
+
+
+def test_quartus_fmax_is_the_lowest_over_clocks_and_models(tmp_path):
+    design = Design(
+        name="top",
+        root=tmp_path,
+        rtl={"sources": [], "top": "top", "clocks": ["slow", "fast"]},  # type: ignore[arg-type]
+    )
+    settings = Quartus.Settings.from_input(
+        {
+            "fpga": {"part": "10CL025YU256C8G"},
+            "clocks": {"slow": {"period": "10 ns"}, "fast": {"period": "5 ns"}},
+        }
+    )
+    flow = Quartus(settings, design, tmp_path)
+    flow.init()
+    reports = tmp_path / flow.settings.reports_dir
+    timing = reports / "Timing_Analyzer"
+    # The model that limits `slow` (85C) is not the one that limits `fast` (1100mV_85C), and the
+    # design Fmax comes from `fast`. The `0C` model has no row for `fast`.
+    rows = {
+        "1200mV_85C": "slow,100 MHz\nfast,300 MHz\n",
+        "1200mV_0C": "slow,250 MHz\n",
+        "1100mV_85C": "slow,0.4 GHz\nfast,80 MHz\n",
+    }
+    for model, body in rows.items():
+        directory = timing / f"Slow_{model}_Model"
+        directory.mkdir(parents=True)
+        text = "".join(
+            f'{name},"{value}","{value}"\n'
+            for name, value in (line.split(",") for line in body.splitlines())
+        )
+        (directory / f"Slow_{model}_Model_Fmax_Summary.csv").write_text(
+            "Clock Name,Fmax,Restricted Fmax\n" + text
+        )
+    (reports / "Fitter" / "Resource_Section").mkdir(parents=True)
+    (reports / "Flow_Summary.csv").write_text("Flow Status,Successful\n")
+    (
+        reports / "Fitter" / "Resource_Section" / "Fitter_Resource_Utilization_by_Entity.csv"
+    ).write_text(
+        "Compilation Hierarchy Node,LUT-Only LCs,LUT/Register LCs,Register-Only LCs\ntop,3,2,1\n"
+    )
+    (timing / "Multicorner_Timing_Analysis_Summary.csv").write_text(
+        "Clock,Setup,Hold\nWorst-case Slack,1.5,0.25\n"
+    )
+    assert flow.parse_reports()
+    assert flow.results["fmax_by_clock"] == {"slow": 100.0, "fast": 80.0}
+    assert flow.results["fmax"] == 80.0
 
 
 def test_openroad_final_writes_the_declared_types(tmp_path):

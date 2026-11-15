@@ -23746,6 +23746,10 @@
           "type": "number",
           "unit": "MHz"
         },
+        "fmax_by_clock": {
+          "type": "numbers",
+          "unit": "MHz"
+        },
         "hold_violations": {
           "type": "integer",
           "unit": null
@@ -24776,6 +24780,10 @@
         },
         "fmax": {
           "type": "number",
+          "unit": "MHz"
+        },
+        "fmax_by_clock": {
+          "type": "numbers",
           "unit": "MHz"
         },
         "hold_violations": {
@@ -28709,6 +28717,10 @@
         },
         "fmax": {
           "type": "number",
+          "unit": "MHz"
+        },
+        "fmax_by_clock": {
+          "type": "numbers",
           "unit": "MHz"
         },
         "hold_violations": {
