@@ -328,11 +328,15 @@ These are the canonical names:
 * ``cells``, ``stdcells``, ``macros_blackboxes``, ``nets`` and ``ports`` count the instances of a
   population over the whole hierarchy.
 * ``area.<population>`` is an area from the geometry of the layout. It is in um^2.
-* ``library_area.<population>`` is a sum of the Liberty ``area`` values. It has no unit and it
-  is relative to the libraries. Compare it only between runs that use the same libraries.
+* ``library_area.<population>`` is a sum of the Liberty ``area`` values of the cells of the
+  population. ``library_area.nets`` is the interconnect area that Design Compiler estimates from
+  its wire-load model, and ``library_area.with_nets`` adds it to the area of the cells. These
+  metrics have no unit and are relative to the libraries. Compare them only between runs that
+  use the same libraries.
 * ``utilization`` is (standard-cell area + macro area) / core area. It can be larger than 1.
 * ``power.cells.*`` is the power of the cell instances, and ``power.device.*`` is the power of a
-  whole FPGA device. Both are in W. ``thermal.*`` holds the temperatures and thermal resistances.
+  whole FPGA device. Every power value is in W. ``power.device.confidence`` is the confidence
+  level of the estimate, as text. ``thermal.*`` holds the temperatures and thermal resistances.
 
 A test checks these rules for every built-in flow (``tests/test_metric_names.py``). It also keeps
 a reviewed table of the paths that two or more tools report. A row of that table says what the
@@ -385,7 +389,8 @@ These values changed since ``v1.0.0rc2``, in the same release:
      - ``library_area.with_nets``
    * - ``dc``
      - ``area`` (object)
-     - removed: ``library_area.cells``, ``library_area.nets`` and ``library_area.with_nets`` hold its numbers
+     - removed: its numbers are in ``library_area.combinational``, ``library_area.sequential``,
+       ``library_area.macros_blackboxes``, ``library_area.nets`` and ``library_area.cells``
    * - ``dc``
      - ``setup_wns``
      - ``wns``

@@ -281,9 +281,11 @@ def test_the_sweep_notebook(executions):
     assert (words.count("True"), words.count("False"), words.count("None")) == (9, 10, 0)
     assert cell_output(nb, "replaced-run") == "run_replaced\nTrue\nTrue True"
     assert cell_output(nb, "empty-history").startswith("no runs yet")
-    assert cell_output(nb, "missing-metric").startswith(
-        "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: fmax, "
+    missing = cell_output(nb, "missing-metric")
+    assert missing.startswith(
+        "`nextpnr.fmx`: the flow `nextpnr` has no metric `fmx`. Its metrics are: "
     )
+    assert " fmax," in missing
     work = work / "notebook-output"
     with open(work / "trivium-sweep.csv", newline="") as f:
         rows = list(csv.DictReader(f))

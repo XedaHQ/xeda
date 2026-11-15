@@ -54,7 +54,7 @@ def _unitless_numbers() -> Set[str]:
 
 def test_one_path_has_one_type_and_one_unit_in_every_flow():
     conflicts = {
-        path: sorted({signature for signature in flows.values()})
+        path: sorted({signature for signature in flows.values()}, key=repr)
         for path, flows in _described().items()
         if len(set(flows.values())) > 1
     }
