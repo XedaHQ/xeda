@@ -1,4 +1,5 @@
 import logging
+import math
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -19,14 +20,28 @@ from ...flow import (
     ArtifactSpec,
     describe_artifacts,
 )
+from ...liberty_units import (
+    from_library_time,
+    liberty_time_unit,
+    liberty_time_unit_label,
+    to_library_time,
+)
 from ...tool import Tool
 from ...units import Time, Unit, count
-from ...utils import try_convert, try_convert_to_primitives
+from ...utils import try_convert_to_primitives
 
 log = logging.getLogger(__name__)
 
 #: The points of the flow a `hooks` script can be sourced at, in the order the flow reaches them.
 HOOK_STAGES = ("pre_elab", "post_elab", "post_link", "finalize")
+
+#: The line of `report_units` (`mapped.units.rpt`) that states the time unit of the main library:
+#: `Time_unit : 1e-09 Second`. The pattern is narrow on purpose. A report that has no such line
+#: gives no check.
+TIME_UNIT_LINE = re.compile(
+    r"^\s*Time_unit\s*:\s*(?P<seconds>[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)\s+Second\s*$",
+    re.MULTILINE,
+)
 
 
 def get_hier(dct, dotted_path, default=None):
@@ -108,7 +123,9 @@ class Dc(AsicSynthFlow):
             "Non-zero design-rule violation counts from the QoR report, by rule.", "counts"
         ),
         path_groups=MetricSpec(
-            "Per-timing-path-group QoR figures, keyed by path group name.", "object"
+            "Per-timing-path-group QoR figures, keyed by path group name. The times in them are in the "
+            "time unit of the library (`library_time_unit`).",
+            "object",
         ),
         num_ports=MetricSpec("Number of ports in the mapped design.", "integer"),
         num_nets=MetricSpec("Number of nets in the mapped design.", "integer"),
@@ -177,6 +194,17 @@ class Dc(AsicSynthFlow):
             description="Do not load the home and local `.synopsys` initialization files.",
         )
         sdc_files: List[Path] = Field([], description="List of user SDC constraint files.")
+        library_time_unit: Annotated[Time, Unit("ns")] = Field(
+            Time("1 ns"),
+            description="The time unit of the libraries in `target_libraries`: 1, 10 or 100 of "
+            "fs, ps, ns, us, ms or s, such as `1 ps`. Design Compiler reads the numbers of an "
+            "SDC file and writes the times of its reports in this unit. Xeda writes the clocks "
+            "and delays of the generated constraints in it, and converts the times that it reads "
+            "from the reports to ns. Your own SDC files (`sdc_files`) must use it too. A `.db` "
+            "library does not tell Xeda its unit, so set this for a library that is not in ns "
+            "(ASAP7 has `1 ps`). After the run, Xeda rejects the results if `report_units` "
+            "shows another unit.",
+        )
         optimization: Literal["area", "speed", "power", "none"] = Field(
             "area",
             description="Optimization goal for synthesis. On DC-NXT, `area` and `speed` also set "
@@ -306,7 +334,8 @@ class Dc(AsicSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a variable in `hdlin` or `compile` that has a setting of its own."""
+        """Refuse a variable in `hdlin` or `compile` that has a setting of its own, and a
+        `library_time_unit` that no Liberty library has."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         errors: List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = [
@@ -319,6 +348,10 @@ class Dc(AsicSynthFlow):
             for (table, key), setting in cls.Settings.variable_settings.items()
             if key in getattr(settings, table)
         ]
+        try:
+            liberty_time_unit(settings.library_time_unit)
+        except ValueError as error:
+            errors.append(("library_time_unit", str(error), None, "value_error"))
         if errors:
             raise FlowSettingsError(errors, cls.Settings)
 
@@ -359,7 +392,13 @@ class Dc(AsicSynthFlow):
         # Put the generated `constraints.sdc` before the user SDC files. To skip the generated
         # clock and I/O constraints, set no clock (`clock.period`, `clock.freq`, ...) in the
         # flow settings.
-        ss.sdc_files.insert(0, self.copy_from_template("constraints.sdc"))
+        ss.sdc_files.insert(
+            0,
+            self.copy_from_template(
+                "constraints.sdc",
+                lib_time=lambda time: to_library_time(time, ss.library_time_unit),
+            ),
+        )
         script_path = self.copy_from_template("dc_script.tcl")
         # `dc_script.tcl` writes these files in every run. It needs a top module and stops
         # without one.
@@ -415,6 +454,15 @@ class Dc(AsicSynthFlow):
         dc_shell.run(*cmd)
 
     def parse_timing_reports(self) -> bool:
+        """Read the setup and hold slack and the clock period from the timing reports. The
+        reports are in the time unit of the library (`library_time_unit`), and the results are in
+        ns."""
+        assert isinstance(self.settings, self.Settings)
+        unit = self.settings.library_time_unit
+
+        def ns(text: str) -> float:
+            return from_library_time(float(text), unit)
+
         failed = False
         slack_pattern = re.compile(
             r"^\s*slack\s*\(\s*(?P<status>\w+)\s*\)\s+(?P<slack>[\+-]?\d+\.\d+)\s*$"
@@ -431,17 +479,14 @@ class Dc(AsicSynthFlow):
                     if "clock_period" not in self.results:
                         matches = clock_pattern.search(line)
                         if matches:
-                            clock_period = try_convert(matches.group("clock_period"), float)
-                            if clock_period:
-                                clock_name = matches.group("clock_name")
-                                clock_time = try_convert(matches.group("clock_time"), float)
-                                self.results["clock_name"] = clock_name
-                                self.results["_clock_time"] = clock_time
-                                self.results["clock_period"] = clock_period
+                            if float(matches.group("clock_period")):
+                                self.results["clock_name"] = matches.group("clock_name")
+                                self.results["_clock_time"] = ns(matches.group("clock_time"))
+                                self.results["clock_period"] = ns(matches.group("clock_period"))
                                 continue
                     matches = slack_pattern.search(line)
                     if matches:
-                        wns = try_convert(matches.group("slack"), float)
+                        wns = ns(matches.group("slack"))
                         status = matches.group("status")
                         self.results["setup_wns"] = wns
                         self.results["_setup_status"] = status
@@ -466,7 +511,7 @@ class Dc(AsicSynthFlow):
                 for line in f.readlines():
                     matches = slack_pattern.search(line)
                     if matches:
-                        wns = float(matches.group("slack"))
+                        wns = ns(matches.group("slack"))
                         status = matches.group("status")
                         self.results["hold_wns"] = wns
                         self.results["_hold_status"] = status
@@ -492,8 +537,34 @@ class Dc(AsicSynthFlow):
 
         return not failed
 
+    def check_results(self) -> bool:
+        """Reject the run if `report_units` shows a time unit of the main library that is not
+        `library_time_unit`. Every number that Xeda wrote or read would be off by the ratio of the
+        two units. A report without a time unit line gives no check."""
+        ok = super().check_results()
+        assert isinstance(self.settings, self.Settings)
+        report = self.report_file(self.settings.reports_dir / "mapped.units.rpt", optional=True)
+        if report is None:
+            return ok
+        found = TIME_UNIT_LINE.search(report.read_text(errors="replace"))
+        if found is None:
+            return ok
+        reported = Time.of(float(found["seconds"]), "s")
+        wanted = self.settings.library_time_unit
+        if reported.to("s") > 0 and math.isclose(reported.to("s"), wanted.to("s"), rel_tol=1e-6):
+            return ok
+        self.reject(
+            f"the time unit of the main library is {liberty_time_unit_label(reported)} "
+            f"(`Time_unit : {found['seconds']} Second` in {report.name}), but `library_time_unit` "
+            f"is {liberty_time_unit_label(wanted)}: set `library_time_unit` to the time unit of "
+            "the libraries in `target_libraries`"
+        )
+        return False
+
     def parse_reports(self) -> bool:
+        assert isinstance(self.settings, self.Settings)
         reports_dir = self.settings.reports_dir
+        unit = self.settings.library_time_unit
         failed = not self.parse_timing_reports()
 
         self.parse_report_regex(
@@ -578,16 +649,24 @@ class Dc(AsicSynthFlow):
                         else:
                             match = wns_re.match(sec)
                             if match:
-                                self.results["_drc_wns"] = float(match.group("wns"))
-                                self.results["_drc_tns"] = float(match.group("tns"))
+                                self.results["_drc_wns"] = from_library_time(
+                                    float(match.group("wns")), unit
+                                )
+                                self.results["_drc_tns"] = from_library_time(
+                                    float(match.group("tns")), unit
+                                )
                                 self.results["num_violating_paths"] = int(match.group("nvp"))
                                 if self.results["num_violating_paths"] != 0:
                                     failed = True
                             else:
                                 match = hold_wns_re.match(sec)
                                 if match:
-                                    self.results["_drc_hold_wns"] = float(match.group("wns"))
-                                    self.results["_drc_hold_tns"] = float(match.group("tns"))
+                                    self.results["_drc_hold_wns"] = from_library_time(
+                                        float(match.group("wns")), unit
+                                    )
+                                    self.results["_drc_hold_tns"] = from_library_time(
+                                        float(match.group("tns")), unit
+                                    )
                                     self.results["hold_num_violating_paths"] = int(
                                         match.group("nvp")
                                     )

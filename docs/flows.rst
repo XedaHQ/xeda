@@ -57,6 +57,13 @@ Discovering flows and their settings
 ``asic_synthesis``
     Builds a design for a standard-cell process (``dc``). ``dc`` takes the libraries of the
     process in ``target_libraries``. The flow ``dc`` is experimental (see :doc:`stability`).
+    Design Compiler reads the numbers of an SDC file and writes the times of its reports in the
+    time unit of the main library, and a ``.db`` library does not tell Xeda this unit. Set
+    ``library_time_unit`` to it (``1 ps`` for ASAP7; the default is ``1 ns``). Xeda writes the clocks
+    and the delays of the generated constraints in this unit, and converts the times that it reads
+    from the reports to ns. Your own ``sdc_files`` must use this unit too. Xeda refuses a value that
+    no Liberty library has. After the run, Xeda reads ``report_units`` and rejects the results if
+    the time unit of the library is another one.
 
 ``synthesis``
     Synthesis that the base class does not tie to an FPGA or an ASIC (``yosys`` and

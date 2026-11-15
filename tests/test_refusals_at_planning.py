@@ -525,7 +525,7 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         1,
         "reads the time unit of the platform model, which a residue file can state in any form",
     ),
-    impl_module("flows.openroad.base:liberty_time_unit_seconds"): (
+    impl_module("liberty_units:liberty_time_unit_seconds"): (
         1,
         "reads the time unit that a file of `liberty` states, which is no time unit",
     ),

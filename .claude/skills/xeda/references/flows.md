@@ -321,7 +321,7 @@ Synthesize a design for an ASIC with Synopsys Design Compiler.
 
 Required settings: `target_libraries`
 
-27 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
+28 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
 Reports: `fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_macro_bbox`
 

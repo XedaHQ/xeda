@@ -2497,6 +2497,16 @@
           "type": "array[tuple[string, string] | tuple[null, string]]",
           "unit": null
         },
+        "library_time_unit": {
+          "default": "1 ns",
+          "schema": {
+            "type": "string",
+            "x-xeda-quantity": "time",
+            "x-xeda-unit": "ns"
+          },
+          "type": "time",
+          "unit": "ns"
+        },
         "log_file": {
           "default": "dc.log",
           "schema": {
