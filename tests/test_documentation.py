@@ -517,6 +517,7 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
     assert example, "the planning example needs a complete JSON document"
     expected = json.loads(textwrap.dedent(example.group()))
     actual["spec"]["design_file"] = actual["spec"]["design_file"].replace(str(tmp_path), "/path/to")
+    actual["code"]["xeda"] = "..."  # the digest of the code of Xeda changes with every edit
     for node in actual["nodes"]:
         node["run_dir"] = node["run_dir"].replace(str(tmp_path), "/path/to")
         node["identity"] = "..."

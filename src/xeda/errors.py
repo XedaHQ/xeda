@@ -29,6 +29,7 @@ __all__ = [
     "ChainError",
     "RunRootError",
     "StalePlanError",
+    "StaleRuntimeError",
     "RecordError",
     "RunReplacedError",
     "RemoteError",
@@ -228,6 +229,13 @@ class StalePlanError(XedaError):
     def __init__(self, message: str, *, code: str, difference: str) -> None:
         super().__init__(message, code=code)
         self.difference = difference
+
+
+class StaleRuntimeError(XedaError):
+    """The code of Xeda or of a plugin flow changed on disk after this process imported it.
+
+    The process runs the old code, so it refuses to plan or launch, and a launch that finds the
+    change while it runs records no trace. Only a new Python process runs the new code."""
 
 
 class RecordError(XedaError):

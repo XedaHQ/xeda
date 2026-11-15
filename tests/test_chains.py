@@ -997,7 +997,7 @@ def test_every_builtin_flow_name_fits_the_grammar():
     assert all(FLOW_NAME.fullmatch(name) and name not in RESERVED_FLOW_NAMES for name in names)
 
 
-@pytest.mark.parametrize("class_name", ["_Hidden", "Flows", "Design", "Settings"])
+@pytest.mark.parametrize("class_name", ["_Hidden", "Flows", "Design", "Settings", "Xeda"])
 def test_a_flow_name_outside_the_grammar_or_reserved_is_refused_at_registration(class_name):
     from xeda._internal.flow import registered_flows
 

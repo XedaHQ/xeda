@@ -569,13 +569,16 @@ def test_dependencies_are_compared_by_index(tmp_path, remote, toy):  # noqa: F81
     repository = entry["repository"]
     assert plan_difference(plan, plan) is None
     assert "was removed" in plan_difference(
-        plan, with_planning(plan, workspace=plan._workspace, dependencies=())
+        plan, with_planning(plan, workspace=plan._workspace, dependencies=(), code=plan._code)
     )
     assert "was added" in plan_difference(
-        with_planning(plan, workspace=plan._workspace, dependencies=()), plan
+        with_planning(plan, workspace=plan._workspace, dependencies=(), code=plan._code), plan
     )
     moved = with_planning(
-        plan, workspace=plan._workspace, dependencies=({**entry, "commit": "0" * 40},)
+        plan,
+        workspace=plan._workspace,
+        dependencies=({**entry, "commit": "0" * 40},),
+        code=plan._code,
     )
     assert plan_difference(plan, moved) == f"dependency {repository} now resolves to {'0' * 40}"
 
@@ -604,7 +607,10 @@ def test_a_plan_made_from_its_document_holds_its_dependencies(tmp_path, remote, 
     assert plan_from_dict(restored.to_dict(), spec=plan.spec, workspace=None).to_dict() == document
     (entry,) = restored._dependencies
     other = with_planning(
-        restored, workspace=restored._workspace, dependencies=({**entry, "commit": "0" * 40},)
+        restored,
+        workspace=restored._workspace,
+        dependencies=({**entry, "commit": "0" * 40},),
+        code=restored._code,
     )
     assert plan_difference(restored, other) == f"dependency {remote.url} now resolves to {'0' * 40}"
     assert workspace.run(restored).passed

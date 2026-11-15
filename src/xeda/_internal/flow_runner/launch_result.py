@@ -235,6 +235,10 @@ class LaunchCollector:
         elif end.error is not error:
             self.ended[node.name] = replace(end, error=error)
 
+    def failed_before_start(self, node: PlanNode, error: Exception) -> None:
+        """Note that `node` failed with `error` before it had a flow: its entry refused it."""
+        self.ended.setdefault(node.name, _Ended(None, error, "0 s"))
+
     def node_ended(self, node: PlanNode, flow: Flow, error: BaseException | None) -> None:
         """Note that the launch started `node` as `flow`, and how it ended: `error` is the
         exception that left the node, or `None`. The time of the node is that of its own

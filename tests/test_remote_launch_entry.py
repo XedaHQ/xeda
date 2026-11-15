@@ -17,6 +17,7 @@ from typing import Any, Optional
 import pytest
 
 from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.code_digest import code_fingerprint
 from xeda._internal.remote.launch_entry import LaunchRequest, RunDirectorySnapshot, check_identity
 from xeda._internal.remote.errors import RemoteIncompatible
 
@@ -95,6 +96,7 @@ def launch(
         log_level=20,
         detailed_logs=False,
         expected=expected_hashes(tmp_path, design) if expected is None else expected,
+        code=code_fingerprint(()),
     ).model_copy(update=fields)
     (launch_dir / "request.json").write_text(request.model_dump_json())
     process = run_entry(
@@ -179,6 +181,15 @@ def test_identity_mismatch_is_refused_before_anything_runs(tmp_path, fake_fpga):
     # nothing ran: every planned node is skipped
     assert result["written"] == {}
     assert {node["outcome"] for node in result["nodes"]} == {"skipped"}
+    assert not (tmp_path / "remote" / "xeda_run").exists()
+
+
+def test_a_request_from_other_code_is_refused_before_the_launch_plans(tmp_path, fake_fpga):
+    design = make_inputs(tmp_path)
+    process, result = launch(tmp_path, design, code={"xeda": "0" * 32})
+    assert process.returncode == 2
+    assert result["outcome"] is None and result["error"]["code"] == "stale_runtime"
+    assert "the code of Xeda differs" in result["error"]["message"]
     assert not (tmp_path / "remote" / "xeda_run").exists()
 
 
@@ -415,6 +426,7 @@ def launch_raising(tmp_path: Path, exception: str) -> tuple[subprocess.Completed
         log_level=20,
         detailed_logs=False,
         expected=expected_hashes(tmp_path, design),
+        code=code_fingerprint(()),
     )
     (launch_dir / "request.json").write_text(request.model_dump_json())
     process = run_entry(
@@ -508,6 +520,7 @@ def waiting_launch(tmp_path):
         log_level=20,
         detailed_logs=False,
         expected={},
+        code=code_fingerprint(()),
     )
     (launch_dir / "request.json").write_text(request.model_dump_json())
     return launch_dir

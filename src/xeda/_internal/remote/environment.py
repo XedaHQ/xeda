@@ -9,7 +9,6 @@ import hashlib
 import importlib.metadata
 import io
 import json
-import os
 import re
 import sys
 import sysconfig
@@ -19,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import BinaryIO, Optional, Sequence
 
+from .. import code_epoch
+from ..code_epoch import digest_pairs, package_files
 from ..package_paths import package_root
 from ..version import __version__
 from .constants import LAYOUT, UV_RELEASES, UV_VERSION
@@ -83,29 +84,23 @@ def _is_executable(path: Path) -> bool:
 
 
 def _package_files(package_dir: Path) -> list[tuple[str, Path]]:
-    """The files to send.
+    """The files to send: those of the package by the rule of the code that a process imports
+    (`code_epoch.package_files`), named `xeda/<path in the package>`.
 
-    Skipped: bytecode, backup files (`~`), symbolic links, and every file or directory whose name
-    starts with a dot.
+    So bytecode, hidden files and the files of a run root are left out, and a symbolic link is
+    sent as the file or the directory that it leads to.
     """
-    found: list[tuple[str, Path]] = []
-    for directory, subdirs, names in os.walk(package_dir):
-        subdirs[:] = sorted(d for d in subdirs if d != "__pycache__" and not d.startswith("."))
-        for name in sorted(names):
-            if name.startswith(".") or name.endswith((".pyc", ".pyo", "~")):
-                continue
-            path = Path(directory) / name
-            if path.is_symlink() or not path.is_file():
-                continue
-            relative = path.relative_to(package_dir).as_posix()
-            found.append((f"{DISTRIBUTION}/{relative}", path))
-    found.sort(key=lambda item: item[0])
-    return found
+    top = package_dir.resolve()
+    return [
+        (f"{DISTRIBUTION}/{path.relative_to(top).as_posix()}", path) for path in package_files(top)
+    ]
 
 
 @lru_cache(maxsize=1)
 def _installed_snapshot() -> CodeSnapshot:
-    return _snapshot_of(package_root())
+    snapshot = _snapshot_of(package_root())
+    check_snapshot(snapshot)
+    return snapshot
 
 
 def _snapshot_of(package_dir: Path) -> CodeSnapshot:
@@ -120,6 +115,29 @@ def _snapshot_of(package_dir: Path) -> CodeSnapshot:
         }
     )
     return CodeSnapshot(key=key, version=__version__, files=tuple(files), contents=contents)
+
+
+def check_snapshot(snapshot: CodeSnapshot) -> None:
+    """Raise `StaleRuntimeError` unless `snapshot` holds the code of the `xeda` package that this
+    process imported: the same files, each with the same content (`code_epoch`).
+
+    The host runs the code of the snapshot. A file that changed on disk after this process
+    imported it, also one that changed back, would let the host run other code than the code that
+    planned the launch here."""
+    # The digest of each file as `code_epoch.content_digest` takes it.
+    sent = [
+        (name.removeprefix(f"{DISTRIBUTION}/"), hashlib.sha3_256(data).hexdigest()[:32])
+        for name, data, _executable in snapshot.contents
+    ]
+    if digest_pairs(sent) != code_epoch.xeda_digest():
+        from xeda.errors import StaleRuntimeError
+
+        raise StaleRuntimeError(
+            "The code that would be sent to the host is not the code of Xeda that this process "
+            "imported: a file changed on disk after the import. Restart the Python process (in "
+            "Jupyter, restart the kernel).",
+            code="stale_runtime",
+        )
 
 
 def code_snapshot(package_dir: Optional[Path] = None) -> CodeSnapshot:

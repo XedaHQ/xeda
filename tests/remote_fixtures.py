@@ -23,7 +23,7 @@ from xeda._internal.design import Design
 from xeda._internal.outcomes import Outcome, Result
 from xeda._internal.project import Project
 from xeda._internal.records import RunRecord
-from xeda._internal.remote import client
+from xeda._internal.remote import client, provision
 from xeda._internal.remote.environment import CodeSnapshot
 from xeda._internal.remote.profile import HostProfile
 
@@ -279,36 +279,34 @@ class RemoteHost:
         define. Call it before the first run. The statements in `after` run next, to change a
         flow.
 
-        The launch entry in the code snapshot that the client sends gets a first statement that
-        imports the modules from this checkout when the module runs as the program. (A
-        `sitecustomize` module would import them before the interpreter is ready for the
-        extension modules.)"""
+        The code archive that the client sends gets a `sitecustomize` module beside the `xeda`
+        package, which imports the modules from this checkout in the launch entry only. The
+        files of Xeda stay those that the client imported, as the client checks
+        (`check_snapshot`), and the snapshot gets another key, so the host keeps the archive
+        apart from one without the module."""
         modules = modules or ("tests.io_flows",)
         checkout = Path(__file__).resolve().parent.parent
+        entry = ["-m", impl_module("remote.launch_entry")]
         hook = (
-            "if __name__ == '__main__':\n"
-            "    import sys\n"
+            "import sys\n"
+            f"if sys.orig_argv[1:3] == {entry!r}:\n"
             f"    sys.path.insert(0, {str(checkout)!r})\n"
             + "".join(f"    import {name}\n" for name in modules)
             + "".join(f"    {line}\n" for line in after.splitlines())
         ).encode()
-        entry = impl_module("remote.launch_entry").replace(".", "/") + ".py"
-        real = client.code_snapshot
+        real_snapshot, real_tar = client.code_snapshot, provision.write_code_tar
 
         def snapshot() -> CodeSnapshot:
-            original = real()
-            contents = tuple(
-                (name, hook + data if name == entry else data, executable)
-                for name, data, executable in original.contents
-            )
-            assert contents != original.contents, entry
-            return dataclasses.replace(
-                original,
-                key=hashlib.sha256((original.key + hook.decode()).encode()).hexdigest()[:24],
-                contents=contents,
-            )
+            original = real_snapshot()
+            key = hashlib.sha256((original.key + hook.decode()).encode()).hexdigest()[:24]
+            return dataclasses.replace(original, key=key)
+
+        def write_code_tar(snapshot: CodeSnapshot, out: Any) -> None:
+            contents = snapshot.contents + (("sitecustomize.py", hook, False),)
+            real_tar(dataclasses.replace(snapshot, contents=contents), out)
 
         self.remote.monkeypatch.setattr(client, "code_snapshot", snapshot)
+        self.remote.monkeypatch.setattr(provision, "write_code_tar", write_code_tar)
 
 
 @pytest.fixture

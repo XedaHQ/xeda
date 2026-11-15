@@ -53,6 +53,7 @@ def test_the_tree_is_the_public_contract():
         assert issubclass(getattr(errors, name), errors.SpecError)
     for name in (
         "StalePlanError",
+        "StaleRuntimeError",
         "RecordError",
         "RunReplacedError",
         "RemoteError",
@@ -71,6 +72,7 @@ def test_the_tree_is_the_public_contract():
         "ChainError",
         "RunRootError",
         "StalePlanError",
+        "StaleRuntimeError",
         "RecordError",
         "RunReplacedError",
         "RemoteError",

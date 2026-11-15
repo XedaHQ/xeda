@@ -85,7 +85,7 @@ from ..utils import (
 )
 from ..version import __version__
 from xeda.errors import FlowNotFoundError as PublicFlowNotFoundError
-from xeda.errors import ProjectError, StalePlanError
+from xeda.errors import ProjectError, StalePlanError, StaleRuntimeError
 from ..generation import GenerationError
 from ..outcomes import Result
 from ..package_paths import impl_module
@@ -116,10 +116,11 @@ from . import (
 )
 from .chains import ChainElement, FlowRequest, parse_request
 from .layer_paths import anchored_sections
-from .code_digest import CodeDigests
+from .. import code_epoch
+from .code_digest import CodeDigests, check_code, check_fingerprint
 from .configuration import configuration_hash, design_configuration_hash
 from .environment import EnvironmentSnapshot, snapshot_with_tools
-from .error_codes import INTERNAL_ERROR, error_info, plain_message, public_error
+from .error_codes import INTERNAL_ERROR, STALE_RUNTIME, error_info, plain_message, public_error
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_options import LaunchOptions
@@ -679,6 +680,9 @@ class FlowLauncher:
 
         A design that still has dependencies to merge gets them merged first, after the checks
         that the settings alone allow."""
+        code_epoch.verify(
+            flow_class, *(() if flow_request is None else _request_flows(flow_request))
+        )
         self._refuse_before_merging(
             flow_class, design, flow_settings, all_flows_settings, flow_request
         )
@@ -937,6 +941,7 @@ class FlowLauncher:
         failure, delivers nothing, not even the outputs of a producer that succeeded
         (`_finish_launch`).
         """
+        code_epoch.verify(flow_class)
         if self._launch_depth == 0:
             run_lock.refuse_if_held()
         if plan is None:
@@ -1126,7 +1131,8 @@ class FlowLauncher:
         graph, and judges the nodes and the deliveries, all as they are now. An error that this
         planning raises (a flow that is gone, settings or a design that no longer validate, a
         delivery that is refused) is a difference too, since the caller's plan was made without
-        it. A bug of Xeda is none, and it propagates."""
+        it. A bug of Xeda is none, and it propagates. Code that changed on disk is none either:
+        this process cannot plan again, so its `StaleRuntimeError` propagates."""
         expected = self._expected_plan
         if expected is None:
             return
@@ -1150,7 +1156,7 @@ class FlowLauncher:
                 self._refuse_planned(plan)
                 difference = self._difference_of(request, plan)
             except Exception as error:  # noqa: BLE001 - judged below
-                if public_error(error).code == INTERNAL_ERROR:
+                if public_error(error).code in (INTERNAL_ERROR, STALE_RUNTIME):
                     raise
                 difference, cause = f"planning is refused now: {plain_message(error)}", error
         if difference is not None:
@@ -1782,7 +1788,7 @@ class FlowLauncher:
                     plan,
                     all_flows_settings,
                     read_leases,
-                    launch_flow=self.launch_flow,
+                    launch_flow=self._launch_producer,
                     read_lease=self._producer_read_lease,
                     completed=self._planned_completed,
                     entered=self._entered,
@@ -1848,7 +1854,7 @@ class FlowLauncher:
                         plan,
                         all_flows_settings,
                         read_leases,
-                        launch_flow=self.launch_flow,
+                        launch_flow=self._launch_producer,
                         read_lease=self._producer_read_lease,
                         completed=self._planned_completed,
                         read_inputs=self._read_inputs,
@@ -1981,6 +1987,10 @@ class FlowLauncher:
                         # The trace wants a refresh, which reads the file-system clock in the run
                         # directory.
                         raise launch_locks.NeedsExclusive([node.name])
+                    if freshness.fresh:
+                        # The trace names the code of this process: it vouches for the results
+                        # only while the files on disk are still that code.
+                        check_code(type(flow))
                     if freshness.fresh and reuse_results(flow, self.run_root, freshness):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
@@ -2127,6 +2137,7 @@ class FlowLauncher:
                 report(
                     flow, derived, results_json, self.settings, record=True, run_root=self.run_root
                 )
+                trace = None
                 if (
                     expected is not None
                     and snapshot is not None
@@ -2149,6 +2160,32 @@ class FlowLauncher:
                         previous,
                         run_id=str(flow.run_id),
                     )
+                if flow.outcome in ("passed", "rejected"):
+                    # Every accepted run, one that always runs included: it may have run other
+                    # code than its files, and then nothing of it is delivered or traced.
+                    try:
+                        check_code(type(flow))
+                    except StaleRuntimeError as stale:
+                        flow.results.success = False
+                        flow.outcome = "failed"
+                        flow.results["error"] = error_info(
+                            stale, node=flow.name, flow=flow
+                        ).to_dict()
+                        try:
+                            report(
+                                flow,
+                                derived,
+                                results_json,
+                                self.settings,
+                                record=True,
+                                run_root=self.run_root,
+                            )
+                        except Exception as problem:  # noqa: BLE001 - the stale error comes first
+                            log.error(
+                                "The record of %s could not be written: %s", flow.name, problem
+                            )
+                        raise
+                if trace is not None:
                     write_trace(run_path, trace)
                 if flow.succeeded:
                     self._defer_delivery(flow, delivery, outputs_to)
@@ -2229,6 +2266,26 @@ class FlowLauncher:
             policy,
         )
 
+    def _launch_producer(
+        self,
+        flow_class: Union[str, Type[Flow]],
+        design: Design,
+        flow_settings: Union[Dict[str, Any], Flow.Settings, None],
+        **launch: Any,
+    ) -> Flow:
+        """Launch a producer of a node (`launch_producers`) through `launch_flow`.
+
+        The entry of the producer checks the code first. A change that it finds refuses the
+        producer before its run began: that is the end of the producer, which failed before it
+        had a flow, so the result names it and its consumer is blocked by it."""
+        try:
+            return self.launch_flow(flow_class, design, flow_settings, **launch)
+        except StaleRuntimeError as error:
+            plan, key = launch.get("plan"), launch.get("plan_node")
+            if plan is not None and key is not None:
+                self.collector.failed_before_start(plan.node(key), error)
+            raise
+
     @log_context.with_launch_context
     def run_flow(
         self,
@@ -2247,6 +2304,7 @@ class FlowLauncher:
         composed into `flow_settings` by `compose_flow_settings`), then `flow_settings`. A
         `Flow.Settings` instance is taken as final. `run()` and `plan()` also read a project
         file. A built design names none, so hand its sections in as `all_flows_settings`."""
+        code_epoch.verify(flow_class)
         if plan is None and depender is None:
             flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
             sections, section_bindings = split_bindings(
@@ -2396,6 +2454,7 @@ class FlowLauncher:
         `local_settings` are the private settings of the user and of the checkout, as
         `xeda.local_settings()` reads them: two layers of the settings (`settings_layers`). The
         launcher reads no private file."""
+        code_epoch.verify(flow)
         request, plan = self.resolve_run(
             flow,
             design,
@@ -2429,6 +2488,7 @@ class FlowLauncher:
 
         Return the request, which holds the loaded design, and its plan. `run_resolved` launches
         them."""
+        code_epoch.verify(flow)
         # Where requests are not taken (`Dse`), refuse before loading what needs no design.
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
@@ -2451,6 +2511,7 @@ class FlowLauncher:
     @log_context.with_launch_context
     def run_resolved(self, request: _Request, plan: Plan) -> Optional[Flow]:
         """Execute the request and plan that `resolve_run` returned."""
+        code_epoch.verify(request.flow_class)
         previous, self._request_context = self._request_context, request
         try:
             return self.run_flow(
@@ -2482,6 +2543,7 @@ class FlowLauncher:
         Fetch the Git dependencies of the design into the run root, and refuse what `run()`
         would refuse before anything runs: a run directory that a flow refuses, and
         `--outputs-to` for a programmer."""
+        code_epoch.verify(flow)
         return self._plan(
             flow,
             design,
@@ -2526,6 +2588,7 @@ class FlowLauncher:
         `before_fetch` is a check of the design as the caller gave it. It runs after the checks of
         the settings and before any dependency is read, so before a Git dependency is resolved or
         fetched. A remote request refuses here what needs no value of a dependency."""
+        code_epoch.verify(*(_request_flows(flow) if isinstance(flow, FlowRequest) else (flow,)))
         if not self.accepts_bindings:
             self._refuse_unaccepted_request(flow, flow_settings, [], xedaproject, design)
         request, plan = self._judged_request(
@@ -2575,6 +2638,7 @@ class FlowLauncher:
         only a process can) or `blocked`. This is read-only: nothing is created, locked,
         refreshed or started (`plan_freshness`). `--rebuild-all` and `--clean` make every node
         stale."""
+        code_epoch.verify(flow)
         planned = self.plan_launch(
             flow,
             design,
@@ -2609,6 +2673,7 @@ class FlowLauncher:
         node and the deliveries that each node would make. Besides what `plan()` refuses, it
         refuses a delivery that no answer could allow. Nothing is created, locked, refreshed or
         started."""
+        code_epoch.verify(flow)
         request, plan = self._plan(
             flow,
             design,
@@ -2631,6 +2696,7 @@ class FlowLauncher:
 
         The launcher takes `options` as the settings of this launch: it is the one entry that
         `Workspace.plan` calls."""
+        code_epoch.verify()
         self._apply(options)
         request, plan = self._judged_request(
             spec.flow,
@@ -2666,6 +2732,7 @@ class FlowLauncher:
 
         `cancel` stops the launch when it says so, and `on_event` gets the events of the launch
         (`launch_result`)."""
+        code_epoch.verify()
         self._apply(options)
         self._expected_plan = expected
         self._expected_local_settings = local_settings
@@ -2725,18 +2792,29 @@ class FlowLauncher:
         local_settings: LocalSettings | None,
         options: LaunchOptions,
         rebuild: bool,
+        code: Mapping[str, str],
         environment: EnvironmentSnapshot,
         canceled: Callable[[], bool],
         on_event: Callable[[Event], None] | None = None,
     ) -> Result:
         """Launch the node `node` of the plan of `spec`, and nothing else: one step of a sweep.
 
-        The node must have the identity `identity` (`StalePlanError`, before any lock). The
+        The code of this process must be the code that planned the sweep, whose
+        `code_fingerprint` is `code` (`StaleRuntimeError`, before it plans): a worker process
+        imports the code that is on disk when it starts. The node must have the identity
+        `identity` (`StalePlanError`, before any lock). The
         producers of the node are the nodes of `completed` (`launch_node.NodeRun`): the launch
         reads their records under shared leases and never runs them. The launch delivers nothing:
         a point of the sweep delivers when it ends (`deliver_point`). `rebuild` runs the node even
         when it is up to date. The launch takes `environment` as its snapshot. The `Result` is
         that of a launch of the plan that ends at the node: the node is its only root."""
+        code_epoch.verify()
+        check_fingerprint(
+            code,
+            "The sweep planned with",
+            "A file changed on disk after the sweep planned. Restart the Python process that "
+            "sweeps (in Jupyter, restart the kernel), and sweep again.",
+        )
         self._apply(replace(options, rebuild_all=options.rebuild_all or rebuild))
         self._pinned_environment = environment
         token = launch_node.PredicateToken(canceled)
@@ -2810,6 +2888,7 @@ class FlowLauncher:
         shared leases (`GenerationState.read_only`), and verify that it is the generation named
         by the fingerprints that this returns with each point. A point whose generator failed has
         its `GenerationError`, and a point without a generator `None`."""
+        code_epoch.verify()
         self._apply(options)
         self._environment = environment
         state = launch_generation.GenerationState()
@@ -2877,6 +2956,7 @@ class FlowLauncher:
         every node that passed, and the copies of generated sources. It runs no node. A refusal
         or a failure of the delivery is the error of the launch (`delivery_failed`), and the
         deliveries that were made stay."""
+        code_epoch.verify()
         self._apply(LaunchOptions())
         self._pinned_environment = environment
         self._environment = environment

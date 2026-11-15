@@ -28,6 +28,10 @@
     "post_cleanup_purge": false
   },
   "dependencies": [],
+  "code": {
+    "xeda": "00000000000000000000000000000000",
+    "vivado_synth": ""
+  },
   "nodes": [
     {
       "name": "vivado_synth",

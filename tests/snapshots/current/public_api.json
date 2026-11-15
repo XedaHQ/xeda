@@ -3825,6 +3825,38 @@
           "methods": {},
           "special_methods": []
         },
+        "StaleRuntimeError": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "code"
+            },
+            {
+              "annotation": "str",
+              "name": "message"
+            }
+          ],
+          "bases": [
+            "xeda.errors.XedaError"
+          ],
+          "constructor": {
+            "parameters": [
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "message"
+              },
+              {
+                "annotation": "str",
+                "kind": "keyword_only",
+                "name": "code"
+              }
+            ]
+          },
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
         "XedaError": {
           "attributes": [
             {

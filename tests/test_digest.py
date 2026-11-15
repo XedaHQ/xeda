@@ -88,7 +88,7 @@ def test_the_same_metadata_on_another_inode_is_hashed(tmp_path):
 
 
 def test_a_digest_of_pairs_ignores_their_order_and_counts_a_repeated_pair():
-    from xeda._internal.digest import digest_pairs
+    from xeda._internal.code_epoch import digest_pairs
 
     pairs = [("a.py", "1"), ("b.py", "2"), ("a.py", "1")]
     assert digest_pairs(pairs) == digest_pairs(reversed(pairs))

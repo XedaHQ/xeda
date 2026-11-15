@@ -832,6 +832,11 @@ the cause.
 ``flow_not_importable``
     A worker process of a sweep could not import the module of a flow. The message names the
     module.
+``stale_runtime``
+    The code of Xeda or of a plugin flow changed on disk after the process imported it: while
+    the node ran, or before it started but after the check at the entry of the launch. Or a
+    worker process of a sweep imported other code than the code that planned the sweep. The node
+    keeps no trace. Restart the Python process (see :ref:`code-epoch`).
 
 Errors of a launch (``launch``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1019,6 +1024,18 @@ A stale plan (``StalePlanError``)
 
 ``stale_plan``
     The files that a plan was made from changed. ``difference`` says what changed. Plan again.
+
+Code that changed on disk (``StaleRuntimeError``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``stale_runtime``
+    The code of Xeda or of a plugin flow changed on disk after this process imported it, so the
+    process runs the old code. This refusal comes before a launch: the request plans nothing,
+    runs nothing and writes nothing. ``xeda run --json`` reports it with ``"outcome": null`` and the
+    exit status 2. A change that a node finds while it runs is another case: that node is
+    ``failed`` with the error code ``stale_runtime``, its ``results.json`` is a failed record, it
+    keeps no trace, and the exit status is 1. Restart the Python process (in Jupyter, restart the
+    kernel).
 
 A record that Python cannot read (``RecordError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1279,7 +1296,7 @@ Planning a run
 
 ``xeda run <flow> <design> --dry-run --json`` prints the plan and runs nothing. Its document is not
 the run document: it has the keys ``schema_version`` (1), ``spec``, ``roots``, ``options``,
-``dependencies`` and ``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same
+``dependencies``, ``code`` and ``nodes``. In Python, ``Workspace.plan(spec).to_dict()`` returns the same
 document. The next
 command is for a design named ``blinky`` whose RTL top is ``blinky``:
 
@@ -1301,6 +1318,7 @@ command is for a design named ``blinky`` whose RTL top is ``blinky``:
         "overwrite_outputs": false, "post_cleanup": false, "post_cleanup_purge": false
       },
       "dependencies": [],
+      "code": {"xeda": "...", "yosys_fpga": "", "nextpnr": ""},
       "nodes": [
         {"name": "yosys_fpga", "flow": "yosys_fpga",
          "run_dir": "/path/to/xeda_run/blinky/yosys_fpga", "identity": "...",
@@ -1342,6 +1360,12 @@ by name, with the value that the plan was made with: ``rebuild_all``, ``clean``,
 ``dependencies`` in a run record: ``repository`` (with no user name and no password), ``reference``,
 ``commit`` and ``design_file``. A local dependency has only its ``design_file``. A plan that was
 made earlier is stale when a Git dependency now resolves to another commit.
+
+``code`` holds the digests of the code that made the plan, as opaque text: ``xeda`` for the code of
+Xeda, and one entry for each flow of the plan, by its name. The entry of a flow that Xeda defines is
+empty, since the digest of Xeda covers it. A flow class without a source file has no entry: it
+always runs. A process that imported other code refuses to run the
+plan (``stale_runtime``, see :ref:`code-epoch`).
 
 ``nodes`` is ordered with the producers before the consumers and the requested flow last. In
 Python, ``Plan.nodes`` is a mapping by node name in the same order. Each node has these keys:

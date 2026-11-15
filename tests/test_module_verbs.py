@@ -190,8 +190,8 @@ PUBLIC_NAMES = {
     ],
     "xeda.errors": [
         "XedaError", "SpecError", "SettingsError", "DesignError", "ProjectError",
-        "FlowNotFoundError", "ChainError", "RunRootError", "StalePlanError", "RecordError",
-        "RunReplacedError", "RemoteError", "RunFailedError", "LeaseHeldError",
+        "FlowNotFoundError", "ChainError", "RunRootError", "StalePlanError", "StaleRuntimeError",
+        "RecordError", "RunReplacedError", "RemoteError", "RunFailedError", "LeaseHeldError",
     ],
     "xeda.introspect": [
         "flows_info", "flow_info", "settings_info", "results_info", "design_schema",

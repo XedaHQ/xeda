@@ -27,10 +27,8 @@ be listed cannot be recorded (`PermissionError`), since what it holds is unknown
 (a FIFO, a socket, a device) is recorded by its metadata and `SPECIAL_DIGEST` plus its kind. It is
 never read, because reading it could block.
 
-A whole tree is digested by the names and content of its files (`content_pairs` and
-`digest_pairs` over `package_files`). This identifies the installed `xeda` package and the code of
-a plugin flow (`code_digest`), which keeps a record of each file in the process and reads a file
-again only when its record cannot vouch for it.
+The code that a process imported is recorded by the same rule (`code_epoch`), which keeps a
+record of each code file and reads a file again only when its record cannot vouch for it.
 """
 
 from __future__ import annotations
@@ -40,19 +38,12 @@ import hashlib
 import os
 import stat
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
+from .code_epoch import RACY_NS as RACY_NS, content_digest as content_digest, settled, trusted
 from .dataclass import XedaBaseModel
-from .listing import directory_files
-from .run_root import RUN_ROOT_MARKER, is_run_root
-
-#: The timestamp granularity that the racy check assumes. 2 s covers FAT and HFS+. On file systems
-#: with nanosecond timestamps it costs one extra hash of files written just before a record.
-RACY_NS = 2_000_000_000
-
-_CHUNK = 1 << 20
 
 #: The digest of a file that was written while the run that read it was going on: what the run
 #: read is unknown, so this record never matches the file (`FileRecord.unknown`).
@@ -76,15 +67,6 @@ SPECIAL_DIGEST = "special:"
 
 #: The name prefix of the marker that `filesystem_time_ns` creates and removes to read a clock.
 TIME_MARKER_PREFIX = ".xeda-time-"
-
-
-def content_digest(path: Path) -> str:
-    """Return the SHA3-256 of the file content, cut to 128 bits (`Source._content_hash`)."""
-    h = hashlib.sha3_256()
-    with open(path, "rb") as f:
-        while chunk := f.read(_CHUNK):
-            h.update(chunk)
-    return h.hexdigest()[:32]
 
 
 class FileRecord(XedaBaseModel):
@@ -115,7 +97,7 @@ class FileRecord(XedaBaseModel):
 
         A file recorded at `time_ns` can then be trusted by its metadata later.
         """
-        return max(self.mtime_ns, self.ctime_ns) + RACY_NS < time_ns
+        return settled(self.mtime_ns, self.ctime_ns, time_ns, RACY_NS)
 
     def trusted(self, st: os.stat_result, trusted_before_ns: int) -> bool:
         """Return whether a file with status `st` is the file this record was taken of, without
@@ -125,9 +107,8 @@ class FileRecord(XedaBaseModel):
         changed well before `trusted_before_ns`, the time the record was taken
         (`settled_before`).
         """
-        now = (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
         recorded = (self.size, self.mtime_ns, self.ctime_ns, self.inode)
-        return now == recorded and self.settled_before(trusted_before_ns)
+        return trusted(recorded, st, trusted_before_ns, RACY_NS)
 
     @property
     def unknown(self) -> bool:
@@ -258,46 +239,3 @@ def _record_link(
     if before_reading is not None:
         before_reading()
     return FileRecord.of(st, f"{link}:{content_digest(path)}")
-
-
-def package_files(directory: Path) -> List[Path]:
-    """Return the files that make up a Python package directory (`listing.directory_files`,
-    resolved).
-
-    These are all files under it except compiled bytecode (`__pycache__`, `.pyc`), hidden files,
-    which Python and editors create, and the files of a run root (`run_root.is_run_root`), which
-    a launch started in the directory writes.
-    """
-    top = directory.resolve()
-    listed = directory_files(top, skip=frozenset({"__pycache__"}), follow_links=True)
-    run_roots = tuple(
-        p.parent for p in listed if p.name == RUN_ROOT_MARKER and is_run_root(p.parent)
-    )
-    return sorted(
-        p
-        for p in listed
-        if p.is_file()
-        and p.suffix not in (".pyc", ".pyo")
-        and not any(part.startswith(".") for part in p.relative_to(top).parts)
-        and not any(p.is_relative_to(root) for root in run_roots)
-    )
-
-
-def content_pairs(
-    entries: Iterable[tuple[str, Path]], read: Callable[[Path], str] = content_digest
-) -> list[tuple[str, str]]:
-    """Return the `(name, content digest)` pairs of the `(name, file)` entries.
-
-    `read` gives the content digest of a file."""
-    return [(name, read(file)) for name, file in entries]
-
-
-def digest_pairs(pairs: Iterable[tuple[str, str]]) -> str:
-    """Return a digest of the `(name, content digest)` pairs, whatever their order.
-
-    A pair that occurs twice counts twice."""
-    h = hashlib.sha3_256()
-    for name, sha in sorted(pairs):
-        h.update(name.encode() + b"\0")
-        h.update(sha.encode())
-    return h.hexdigest()[:32]

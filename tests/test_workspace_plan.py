@@ -125,9 +125,18 @@ def test_plan_to_dict_is_the_dry_run_document(tmp_path):
     )
     plan = Workspace(tmp_path / "xeda_run").plan(spec)
     document = plan.to_dict()
-    assert set(document) == {"schema_version", "spec", "roots", "options", "dependencies", "nodes"}
+    assert set(document) == {
+        "schema_version",
+        "spec",
+        "roots",
+        "options",
+        "dependencies",
+        "code",
+        "nodes",
+    }
     assert list(document).index("dependencies") == list(document).index("options") + 1
     assert document["dependencies"] == []
+    assert set(document["code"]) == {"xeda", "yosys_fpga", "nextpnr"}
     assert document["schema_version"] == 1
     assert document["spec"]["design_file"] == str(root / "blink.yaml")
     node = document["nodes"][1]

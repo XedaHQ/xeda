@@ -35,6 +35,7 @@ from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
 from pydantic_core import ErrorDetails, InitErrorDetails
 
+from .. import code_epoch
 from ..dataclass import (
     DELIVERABLE_ROLE,
     WORKING,
@@ -95,7 +96,7 @@ from ..utils import (
 )
 
 from .derived import DesignConversion
-from .source_file import without_source_file
+from .source_file import find_source_file, without_source_file
 from .metrics import (
     ArtifactSpec,
     MetricSpec,
@@ -146,8 +147,9 @@ __all__ = [
 #: The form of a flow name. A name starts with a letter, so no name begins with an underscore.
 FLOW_NAME = re.compile(r"[a-z][a-z0-9_]*")
 
-#: Names that no flow may have: they start the keys of a table of settings or of a sweep.
-RESERVED_FLOW_NAMES = frozenset({"flows", "design", "settings"})
+#: Names that no flow may have: they start the keys of a table of settings or of a sweep, and
+#: `xeda` is the key of the package in a code fingerprint (`code_digest.code_fingerprint`).
+RESERVED_FLOW_NAMES = frozenset({"flows", "design", "settings", "xeda"})
 
 registered_flows: Dict[str, Tuple[str, Type[Flow]]] = {}
 
@@ -1404,6 +1406,11 @@ class Flow(metaclass=ABCMeta):
                 f"{cls.__qualname__} defines `design_conversion` and must declare exactly one "
                 "design output (`Out(DESIGN, ...)`) for the design it derives"
             )
+        source, _ = find_source_file(cls)
+        if source is not None:
+            # The code of a plugin flow counts as this process imported it: record it now, and
+            # bind the class to it.
+            code_epoch.bind(cls, source)
         cls_name = cls.__name__
         mod_name = cls.__module__
         log.debug("registering flow %s from %s", cls_name, mod_name)

@@ -968,7 +968,15 @@ def _plan_with_a_local_dependency(tmp_path: Path):
 def test_the_plan_document_lists_the_dependencies_of_a_record(tmp_path):
     design, plan = _plan_with_a_local_dependency(tmp_path)
     document = plan.to_dict()
-    assert list(document) == ["schema_version", "spec", "roots", "options", "dependencies", "nodes"]
+    assert list(document) == [
+        "schema_version",
+        "spec",
+        "roots",
+        "options",
+        "dependencies",
+        "code",
+        "nodes",
+    ]
     assert document["dependencies"] == [
         {"repository": None, "reference": None, "commit": None, "design_file": "lib.yaml"}
     ]
@@ -1001,6 +1009,24 @@ def test_a_plan_document_with_bad_dependencies_is_refused(tmp_path, change):
     change(document)
     with pytest.raises(ValueError, match="plan document"):
         plan_from_dict(document, spec=plan.spec, workspace=None)
+
+
+def test_a_plan_document_without_code_reads_and_is_refused_as_a_plan_of_other_code(tmp_path):
+    """The schema requires `code` in a document that Xeda writes. A document of older code has
+    none: it reads with an empty fingerprint, and running it refuses with `stale_runtime`."""
+    from xeda._internal.plan import plan_from_dict
+    from xeda._internal.workspace import Workspace
+    from xeda.errors import StaleRuntimeError
+
+    _design, plan = _plan_with_a_local_dependency(tmp_path)
+    document = plan.to_dict()
+    assert document["code"]["xeda"]
+    del document["code"]
+    older = plan_from_dict(document, spec=plan.spec, workspace=None)
+    assert dict(older._code) == {}
+    with pytest.raises(StaleRuntimeError, match="the code of Xeda differs") as raised:
+        Workspace(tmp_path / "plan_root").run(older)
+    assert raised.value.code == "stale_runtime"
 
 
 # --- Readers of documents from another version --------------------------------------------------

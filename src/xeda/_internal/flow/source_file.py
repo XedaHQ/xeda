@@ -1,7 +1,8 @@
 """Where the code of a Flow class lies.
 
 Xeda tells that the code of a flow changed by the files that define it (`code_digest`). A class
-defined in a notebook cell, in the interactive interpreter or by `exec` has no such file.
+defined in a notebook cell, in the interactive interpreter or by `exec` has no such file, and nor
+has a class that `type()` makes.
 """
 
 from __future__ import annotations
@@ -16,7 +17,9 @@ def find_source_file(cls: type) -> tuple[Path | None, str]:
 
     A class defined in a notebook cell has a file name that is no file (`<ipython-input-1-...>`),
     one defined in the interactive interpreter has a module without a file, and one defined with
-    `exec` can have a module that is not imported."""
+    `exec` can have a module that is not imported. A class that `type()` makes has no definition
+    in the file of its module, and that module can be another one: through the metaclass of
+    `Flow`, it is `abc`."""
     try:
         source = inspect.getsourcefile(cls)
     except (OSError, TypeError):
@@ -25,6 +28,10 @@ def find_source_file(cls: type) -> tuple[Path | None, str]:
         return None, f"Python knows no file for its module {cls.__module__}"
     if not Path(source).is_file():
         return None, f"{source} is not a file"
+    try:
+        inspect.findsource(cls)
+    except OSError as error:
+        return None, f"Python finds no definition of the class in {source}: {error}"
     return Path(source).resolve(), ""
 
 

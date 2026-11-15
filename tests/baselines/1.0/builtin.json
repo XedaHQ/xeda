@@ -87,6 +87,9 @@
     "StalePlanError": [
       "stale_plan"
     ],
+    "StaleRuntimeError": [
+      "stale_runtime"
+    ],
     "XedaError": [
       "internal_error"
     ],
@@ -116,6 +119,7 @@
       "producer_failed",
       "rejected",
       "reported_failure",
+      "stale_runtime",
       "storage_error",
       "timeout"
     ],

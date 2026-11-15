@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from xeda import errors
+from .code_epoch import RUN_ROOT_MARKER, is_run_root
 from .version import __version__
 
 log = logging.getLogger(__name__)
@@ -38,8 +39,6 @@ __all__ = [
     "is_run_root",
 ]
 
-#: The marker that makes a directory a run root; any regular file by this name does.
-RUN_ROOT_MARKER = ".xeda-run-root"
 RUN_ROOT_FORMAT = 1
 DEFAULT_RUN_ROOT = "xeda_run"
 GITIGNORE = "# A run root of Xeda: everything here is Xeda's own\n*\n"
@@ -56,12 +55,6 @@ class RunRootError(errors.RunRootError):
 
     def __init__(self, message: str, path: Path) -> None:
         super().__init__(message, code="invalid_run_root", path=path)
-
-
-def is_run_root(path: Path) -> bool:
-    """Return whether `path` holds the marker of a run root: a regular file with any content."""
-    marker = Path(path) / RUN_ROOT_MARKER
-    return marker.is_file() and not marker.is_symlink()
 
 
 def is_default_location(path: Path, start: Path) -> bool:
