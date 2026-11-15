@@ -596,9 +596,10 @@ def _metric_cells(value: Any, info: MetricInfo | None) -> tuple[str, str]:
             return f"{value:,}", ""
         return str(value), ""
     if _is_plain_number(value):
-        if info.type == "integer" and isinstance(value, int):
+        kind = info.type  # a metric type, not a `SourceType`
+        if kind == "integer" and isinstance(value, int):
             return integer_with_unit(value, info.unit)
-        if info.type == "number":
+        if kind == "number":
             return number_text(value), info.unit or ""
     return str(value), info.unit or ""
 
@@ -664,11 +665,12 @@ def print_results(
             if isinstance(v, (dict,)):
                 add_row(f"{k}:", "", style=Style(bold=True))
                 unit = info.unit if info is not None and info.unit else ""
+                kind = info.type if info is not None else None  # a metric type
                 for xk, xv in v.items():
-                    if info is not None and info.type == "numbers" and not isinstance(xv, dict):
+                    if kind == "numbers" and not isinstance(xv, dict):
                         text = number_text(xv) if _is_plain_number(xv) else str(xv)
                         add_row(f" {xk}", text, unit)
-                    elif info is not None and info.type == "counts" and _is_plain_number(xv):
+                    elif kind == "counts" and _is_plain_number(xv):
                         add_row(f" {xk}", f"{xv:,}" if isinstance(xv, int) else str(xv))
                     elif isinstance(xv, dict):
                         add_row(f" {xk}", json.dumps(xv, indent=1, default=json_encodable))
