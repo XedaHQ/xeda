@@ -1,5 +1,6 @@
 """Tests for the Synopsys Design Compiler (`dc`) flow."""
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -170,6 +171,60 @@ def test_a_library_in_ns_gives_the_numbers_of_the_report(tmp_path):
     assert flow.parse_reports()
     assert (flow.results["clock_period"], flow.results["setup_wns"]) == (5.0, 0.12)
     assert flow.results["fmax"] == pytest.approx(1000.0 / 4.88)
+
+
+def test_the_setup_slack_is_the_smallest_of_the_paths_of_one_clock(tmp_path):
+    max_report = """\
+  clock clk (rise edge)                    0.00       0.00
+  clock clk (rise edge)                    4.00       4.00
+  slack (MET)                              0.50
+  clock clk (rise edge)                    0.00       0.00
+  clock clk (rise edge)                    4.00       4.00
+  slack (VIOLATED)                        -0.25
+  clock clk (rise edge)                    0.00       0.00
+  clock clk (rise edge)                    4.00       4.00
+  slack (MET)                              1.00
+"""
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
+    assert not flow.parse_timing_reports()
+    assert flow.results["setup_wns"] == -0.25
+    assert flow.results["clock_name"] == "clk"
+    assert flow.results["clock_period"] == 4.0
+    assert flow.results["fmax"] == pytest.approx(1000.0 / 4.25)
+
+
+def test_two_clocks_give_the_worst_slack_and_no_period_or_fmax(tmp_path, caplog):
+    max_report = """\
+  clock fast (rise edge)                   4.00       4.00
+  slack (VIOLATED)                        -0.20
+  clock slow (rise edge)                  10.00      10.00
+  slack (VIOLATED)                        -1.00
+"""
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
+    with caplog.at_level(logging.DEBUG):
+        assert not flow.parse_timing_reports()
+    assert flow.results["setup_wns"] == -1.0
+    for key in ("fmax", "clock_period", "clock_name"):
+        assert key not in flow.results
+    assert "fast, slow" in caplog.text
+
+
+def test_the_hold_slack_is_the_smallest_of_the_paths(tmp_path):
+    min_report = """\
+  slack (MET)                              0.30
+  slack (MET)                              0.05
+  slack (MET)                              0.10
+"""
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_min=min_report)
+    assert flow.parse_timing_reports()
+    assert flow.results["hold_wns"] == 0.05
+
+
+def test_a_violated_hold_path_anywhere_fails_the_run(tmp_path):
+    min_report = "  slack (MET)   0.30\n  slack (VIOLATED)  -0.02\n"
+    flow = _flow_with_reports(tmp_path, "1 ns", timing_min=min_report)
+    assert not flow.parse_timing_reports()
+    assert flow.results["hold_wns"] == -0.02
 
 
 def test_the_design_rule_times_are_converted_from_the_unit_of_the_library(tmp_path):

@@ -112,11 +112,6 @@ class Dc(AsicSynthFlow):
     }
 
     results_description = describe_results(
-        "fmax",
-        "clock_name",
-        "clock_period",
-        "setup_wns",
-        "hold_wns",
         "num_violating_paths",
         "hold_num_violating_paths",
         "aspect_ratio",
@@ -127,6 +122,35 @@ class Dc(AsicSynthFlow):
         "area_cell_total",
         "area_total",
         "area_core",
+        fmax=MetricSpec(
+            "Maximum clock frequency, `1000 / (clock_period - setup_wns)`. The maximum delay "
+            "report must name one clock. With more than one clock, there is no `fmax`.",
+            "number",
+            "MHz",
+        ),
+        clock_name=MetricSpec(
+            "Name of the one clock of the maximum delay report. With more than one clock, there "
+            "is no value.",
+            "text",
+        ),
+        clock_period=MetricSpec(
+            "Capture edge of the one clock of the maximum delay report. With more than one "
+            "clock, there is no value.",
+            "number",
+            "ns",
+        ),
+        setup_wns=MetricSpec(
+            "Smallest slack over all paths of the maximum delay report: the worst path of each "
+            "path group, for all clocks. Negative means setup timing is not met.",
+            "number",
+            "ns",
+        ),
+        hold_wns=MetricSpec(
+            "Smallest slack over all paths of the minimum delay report: the worst path of each "
+            "path group, for all clocks. Negative means hold timing is not met.",
+            "number",
+            "ns",
+        ),
         area=MetricSpec(
             "Area breakdown from the QoR report, as a mapping of the report's own labels to "
             "values.",
@@ -469,7 +493,11 @@ class Dc(AsicSynthFlow):
     def parse_timing_reports(self) -> bool:
         """Read the setup and hold slack and the clock period from the timing reports. The
         reports are in the time unit of the library (`library_time_unit`), and the results are in
-        ns."""
+        ns.
+
+        A report lists the worst path of each path group. The worst slack is the smallest of
+        them. The clock period and `fmax` need one clock: with more than one clock in the maximum
+        delay report, they are not written."""
         assert isinstance(self.settings, self.Settings)
         unit = self.settings.library_time_unit
 
@@ -483,34 +511,46 @@ class Dc(AsicSynthFlow):
         clock_pattern = re.compile(
             r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
         )
+
+        def worst_slack(lines: List[str], kind: str) -> Optional[Tuple[float, str]]:
+            """The smallest slack of the report and the status of its path."""
+            nonlocal failed
+            worst: Optional[Tuple[float, str]] = None
+            for line in lines:
+                matches = slack_pattern.search(line)
+                if not matches:
+                    continue
+                slack = ns(matches.group("slack"))
+                status = matches.group("status")
+                if slack < 0 or status != "MET":
+                    log.error("%s time violation: slack = %s, status = %s", kind, slack, status)
+                    failed = True
+                if worst is None or slack < worst[0]:
+                    worst = (slack, status)
+            return worst
+
         max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
         # only a report that this run wrote
         max_report = self.report_file(max_report_path, optional=True)
         if max_report is not None:
-            with open(max_report) as f:
-                for line in f.readlines():
-                    if "clock_period" not in self.results:
-                        matches = clock_pattern.search(line)
-                        if matches:
-                            if float(matches.group("clock_period")):
-                                self.results["clock_name"] = matches.group("clock_name")
-                                self.results["_clock_time"] = ns(matches.group("clock_time"))
-                                self.results["clock_period"] = ns(matches.group("clock_period"))
-                                continue
-                    matches = slack_pattern.search(line)
-                    if matches:
-                        wns = ns(matches.group("slack"))
-                        status = matches.group("status")
-                        self.results["setup_wns"] = wns
-                        self.results["_setup_status"] = status
-                        if not isinstance(wns, float) or wns < 0 or status != "MET":
-                            log.error(
-                                "Setup time violation: WNS = %s, status = %s",
-                                wns,
-                                status,
-                            )
-                            failed = True
-                        break
+            lines = max_report.read_text(errors="replace").splitlines()
+            setup = worst_slack(lines, "Setup")
+            if setup is not None:
+                self.results["setup_wns"], self.results["_setup_status"] = setup
+            # the first clock line with a time is the capture edge: the launch edge is at 0
+            edges = [m for m in map(clock_pattern.search, lines) if m]
+            clocks = {m.group("clock_name") for m in edges}
+            captures = [m for m in edges if float(m.group("clock_period"))]
+            if len(clocks) == 1 and captures:
+                self.results["clock_name"] = captures[0].group("clock_name")
+                self.results["_clock_time"] = ns(captures[0].group("clock_time"))
+                self.results["clock_period"] = ns(captures[0].group("clock_period"))
+            elif len(clocks) > 1:
+                log.debug(
+                    "The maximum delay report has the clocks %s: no clock_name, clock_period "
+                    "or fmax. The setup slack is the worst of all of them.",
+                    ", ".join(sorted(clocks)),
+                )
         else:
             log.warning(
                 "Timing report %s was not found. Check the synthesis run for errors.",
@@ -520,22 +560,9 @@ class Dc(AsicSynthFlow):
         # only a report that this run wrote
         min_report = self.report_file(min_report_path, optional=True)
         if min_report is not None:
-            with open(min_report) as f:
-                for line in f.readlines():
-                    matches = slack_pattern.search(line)
-                    if matches:
-                        wns = ns(matches.group("slack"))
-                        status = matches.group("status")
-                        self.results["hold_wns"] = wns
-                        self.results["_hold_status"] = status
-                        if wns < 0 or status != "MET":
-                            log.error(
-                                "Hold time violation: WNS = %s, status = %s",
-                                wns,
-                                status,
-                            )
-                            failed = True
-                        break
+            hold = worst_slack(min_report.read_text(errors="replace").splitlines(), "Hold")
+            if hold is not None:
+                self.results["hold_wns"], self.results["_hold_status"] = hold
         else:
             log.warning(
                 "Timing report %s was not found. Check the synthesis run for errors.",
