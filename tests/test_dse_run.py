@@ -291,10 +291,11 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     assert document["outcome"] == "passed" and document["error"] is None
     # The command line prints the tables of the best run, on stderr with --json.
     assert "Best so far" in proc.stderr and "Best results" in proc.stderr
-    # Both tables show the same rows, and `fmax` has its unit.
+    # The last "Best so far" table and the "Best results" table show the same rows, and `fmax`
+    # has its unit. A later round can find a better point, so an earlier table may differ.
     tables = {}
     for title in ("Best so far", "Best results"):
-        table = proc.stderr.split(title)[1].split("╰")[0]
+        table = proc.stderr.split(title)[-1].split("╰")[0]
         assert re.search(r"fmax\s+│\s+[\d,.]+\s+│ MHz", table), table
         tables[title] = {
             match[1]: (match[2], match[3])
