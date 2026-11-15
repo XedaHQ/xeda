@@ -722,8 +722,11 @@ is the code that the process imported, and not the code on disk:
   ``stale_runtime``, and the sweep still returns its result. The node plans nothing and writes
   nothing. Restart the process that sweeps and sweep again.
 - A node of a sweep reads a producer that another launch ran again, after the sweep completed it,
-  only when the trace of that run names the code of the sweep. Otherwise the node is blocked, and
-  its error quotes ``run_replaced`` and the code that differs.
+  only when the trace of that run names the Xeda code and the code of the producer's own flow
+  that the sweep used. Otherwise the node fails (outcome ``failed``, not ``blocked``, because the
+  sweep still records the producer as passed), and its error quotes ``run_replaced`` and the code
+  that differs. The trace holds no digest of the flows upstream of the producer, so a change of
+  those flows in another checkout is not detected.
 - With ``--remote``, the host runs the code that the client sends. The files of that code and
   their content must be the files of Xeda that the client imported, by the same rule: bytecode and
   hidden files are left out, and a symbolic link is sent as the file or directory that it leads

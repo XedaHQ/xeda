@@ -174,8 +174,8 @@ def adopt_completed(
     the sweep completed (`done.run_id`), or a later run of the same node that another launch made
     meanwhile. A run that passed is handed over to the consumer, and its `run_id` is the one the
     consumer records. A later run counts only when its trace names the code that planned the
-    sweep (`code`, a `code_fingerprint`): the sweep never mixes the results of two versions of
-    the code. Any other record, or none, is a producer that did not pass: the flow reports
+    sweep (`code`, a `code_fingerprint`): Xeda and the flow of the producer. The trace holds no
+    digest of the flows upstream of the producer, so the check does not cover them. Any other record, or none, is a producer that did not pass: the flow reports
     `success` false with the cause, and the consumer is blocked by it. The producer is never run
     here."""
     run_path = node.run_path
