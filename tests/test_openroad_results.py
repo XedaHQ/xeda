@@ -157,6 +157,31 @@ def test_a_result_whose_metric_is_absent_is_left_out():
     assert results == {"power": 1.0}
 
 
+def test_fmax_is_the_lowest_frequency_over_the_clocks():
+    metrics = {
+        "s__timing__fmax": 500e6,  # OpenROAD writes the highest frequency
+        "s__timing__fmax__clock:fast": 500e6,
+        "s__timing__fmax__clock:slow": 120e6,
+        "t__timing__fmax__clock:other_stage": 1e6,
+    }
+    results = stage_results(metrics, "s", time_unit="1ns", file=Path("m.json"))
+    assert results["fmax_by_clock"] == {"fast": 500.0, "slow": 120.0}
+    assert results["fmax"] == 120.0
+
+
+def test_a_design_with_no_timed_clock_keeps_the_combinational_fmax():
+    results = stage_results({"s__timing__fmax": 250e6}, "s", time_unit="1ns", file=Path("m.json"))
+    assert results["fmax"] == 250.0
+    assert "fmax_by_clock" not in results
+
+
+def test_a_clock_frequency_that_is_invalid_is_an_error_naming_the_key():
+    with pytest.raises(MetricsError, match="s__timing__fmax__clock:clk"):
+        stage_results(
+            {"s__timing__fmax__clock:clk": math.nan}, "s", time_unit="1ns", file=Path("m.json")
+        )
+
+
 def test_a_result_whose_metric_is_invalid_is_an_error_naming_the_key():
     for bad in (None, "fast", True, math.nan):
         with pytest.raises(MetricsError, match="s__timing__fmax"):

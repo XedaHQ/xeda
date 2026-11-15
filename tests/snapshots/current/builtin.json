@@ -10009,6 +10009,10 @@
           "type": "number",
           "unit": "MHz"
         },
+        "fmax_by_clock": {
+          "type": "numbers",
+          "unit": "MHz"
+        },
         "hold_tns": {
           "type": "number",
           "unit": "ns"
@@ -12015,6 +12019,10 @@
           "type": "number",
           "unit": "MHz"
         },
+        "fmax_by_clock": {
+          "type": "numbers",
+          "unit": "MHz"
+        },
         "hold_tns": {
           "type": "number",
           "unit": "ns"
@@ -13662,6 +13670,10 @@
         },
         "fmax": {
           "type": "number",
+          "unit": "MHz"
+        },
+        "fmax_by_clock": {
+          "type": "numbers",
           "unit": "MHz"
         },
         "global_route_vias": {
@@ -16222,6 +16234,10 @@
         },
         "fmax": {
           "type": "number",
+          "unit": "MHz"
+        },
+        "fmax_by_clock": {
+          "type": "numbers",
           "unit": "MHz"
         },
         "hold_tns": {
