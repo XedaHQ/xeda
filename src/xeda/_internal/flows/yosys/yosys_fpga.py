@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, ClassVar, Dict, List, Literal, NamedTuple, Optional, Tuple
 
-from ...dataclass import Field, deliverable, field_validator, model_validator
+from ...dataclass import Field, deliverable, field_validator
 from ...design import SourceType
 from ...flow import (
     Flow,
@@ -236,6 +236,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "nosynth": "`stop_after: rtl`, which stops after the RTL stage and writes the RTL "
             "outputs but no netlist (set `netlist_json` and `netlist_verilog` to null with it)",
             "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
+            "flow3": "`abc9_script: flow3` in place of `flow3: true`, or `abc9_script: default` in "
+            "place of `flow3: false`",
         }
         netlist_src_attrs: bool = Field(
             True,
@@ -266,8 +268,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "Yosys does the same by file suffix, unless the design gives a `type` that "
             "contradicts the suffix. To compare with a native yosys invocation, also match "
             "source paths and order. When false, Xeda elaborates and optimizes around the pass "
-            "and selects the ABC9 script `flow3` unless `abc9_script` or `flow3` chooses "
-            "another. Every flag of the pass itself "
+            "and selects the ABC9 script `flow3` unless `abc9_script` chooses another, and "
+            "`nowidelut` for ECP5 unless it is set. Every flag of the pass itself "
             "(`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either "
             "mode. A setting that would add a step before or after the pass, or make it read "
             "differently from `yosys <files>`, is refused. The mode does not remove the formal "
@@ -298,22 +300,18 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "`-abc9` where ABC9 is opt-in). Yosys 0.69 and newer require ABC9. For iCE40, the "
             "separate `noabc` setting selects the built-in LUT mapping.",
         )
-        flow3: Optional[bool] = Field(
-            None,
-            description="Boolean ABC9 script choice: true selects `flow3`, false leaves the "
-            "script to the synthesis pass. Use `abc9_script` for another named script; do not "
-            "give both. Unset uses flow3 in Xeda's full recipe and leaves the pass's script "
-            "in `synth_pass_only`. Has no effect unless ABC9 maps LUTs.",
-        )
         abc9_script: Optional[
             Literal["default", "default.area", "default.fast", "flow", "flow2", "flow3", "flow3mfs"]
         ] = Field(
             None,
             description="Select one of yosys's included ABC9 scripts in either synthesis "
             "mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. "
-            "Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in "
-            "synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined "
-            "with the `flow3` setting.",
+            "Unset uses `flow3` in Xeda's full recipe and the synthesis pass's own script "
+            "(`default`) in `synth_pass_only`. `flow3` maps several times and keeps the best "
+            "result. In a benchmark of 65 designs on ECP5, iCE40 and Xilinx 7-series, it gave a "
+            "clearly higher fmax than `default` on 18 designs and a clearly lower one on none, "
+            "for about 1.4 times the run time of yosys. Has no effect when ABC9 mapping is "
+            "disabled.",
         )
         abc9_delay_target: Optional[Annotated[Time, Bounds(gt="0 ns")]] = Field(
             None,
@@ -345,10 +343,15 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "flags, and for Lattice it must not give `-iopad`. The pass for Xilinx stops with an "
             "error on a top module with tri-state buffers.",
         )
-        nowidelut: bool = Field(
-            False,
-            description="Disable wide LUT implementations that use hard MUX resources. Leave "
-            "false to use the normal mapping choices of the family's synthesis pass.",
+        nowidelut: Optional[bool] = Field(
+            None,
+            description="Disable wide LUT implementations that use hard MUX resources "
+            "(`-nowidelut`). `false` leaves the mapping choices to the synthesis pass. Unset: "
+            "`true` for ECP5 in Xeda's full recipe, and the pass's own choice otherwise. On ECP5, "
+            "a wide LUT costs several LUT4s and hard MUXes, but ABC9 counts it as one LUT. In a "
+            "benchmark of 23 ECP5 designs, `true` saved 11% of the LUTs on average at the same "
+            "average fmax; single designs got faster or slower by up to 17%. iCE40 has no wide "
+            "LUTs, and its pass refuses `true`.",
         )
         abc_dff: bool = Field(
             False,
@@ -538,6 +541,19 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 return not self.synth_pass_only
             return self.flatten
 
+        def effective_nowidelut(self) -> bool:
+            """Return whether the synthesis pass gets `-nowidelut`.
+
+            The result is `nowidelut` when that is set. Unset on ECP5, it is True in the full
+            recipe: there a wide LUT costs several LUT4s and hard MUXes, but ABC9 counts it as
+            one LUT, and the mapping without wide LUTs measured smaller at the same average
+            fmax. With `synth_pass_only`, and on every other family, unset is False, and the
+            pass keeps its own default.
+            """
+            if self.nowidelut is None:
+                return self.synthesis_target() == "ecp5" and not self.synth_pass_only
+            return self.nowidelut
+
         def pass_flag_conflicts(self) -> List[Tuple[str, str]]:
             """Return each setting that the synthesis pass of the device has no flag for, in
             every yosys release, with the reason.
@@ -701,7 +717,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             # iCE40 maps DSPs only with `ice40_dsp`, so `nodsp` needs no flag there.
             if self.nodsp and target != "ice40":
                 command.append("-nodsp")
-            if self.nowidelut:
+            if self.effective_nowidelut():
                 command.append("-nowidelut")
             if self.widemux:
                 command += ["-widemux", str(self.widemux)]
@@ -756,12 +772,6 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 conflicts.append(("synth_flags", why))
             return conflicts
 
-        @model_validator(mode="after")
-        def _one_abc9_script_choice(self):
-            if self.abc9_script is not None and self.flow3 is not None:
-                raise ValueError("use `abc9_script` or `flow3`, not both")
-            return self
-
         def abc9_scratchpad(self) -> List[str]:
             """Return the `scratchpad` commands that tune ABC9 before the synthesis pass runs.
 
@@ -776,9 +786,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 return []
             commands: List[str] = []
             script = self.abc9_script
-            if script is None and (
-                self.flow3 is True or (self.flow3 is None and not self.synth_pass_only)
-            ):
+            if script is None and not self.synth_pass_only:
                 script = "flow3"
             if script is not None:
                 commands.append(f"scratchpad -copy abc9.script.{script} abc9.script")

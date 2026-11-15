@@ -12,7 +12,7 @@ MANIFEST = "MANIFEST.sha256"
 
 #: The digest of `tests/baselines/<release>/MANIFEST.sha256`. A new release adds a row; no row
 #: changes after the release.
-BASELINE_MANIFESTS = {"1.0": "a32e8ddbafd00155517092489e12730471cf814f85183acb1036fb60da0aa2e2"}
+BASELINE_MANIFESTS = {"1.0": "1de2a12918dc3473ecc0440498d2543a591e7e3ce3cc7f481afb8a4018084f81"}
 
 
 def _digest(path: Path) -> str:

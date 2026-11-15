@@ -14933,7 +14933,7 @@
           "false",
           "true"
         ],
-        "help": "Omit the preparation and cleanup that Xeda adds around the `synth_<family>` pass, which does its own elaboration and mapping. Pass flags, explicit ABC9 script choices and `abc9_delay_target` apply in either mode. The flow reads the sources as a bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, `systemverilog: default` (the built-in reader of yosys) and no `read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. Yosys does the same by file suffix, unless the design gives a `type` that contradicts the suffix. To compare with a native yosys invocation, also match source paths and order. When false, Xeda elaborates and optimizes around the pass and selects the ABC9 script `flow3` unless `abc9_script` or `flow3` chooses another. Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either mode. A setting that would add a step before or after the pass, or make it read differently from `yosys <files>`, is refused. The mode does not remove the formal cells and the `$print` cells (made by `assert` and `$display`) that Xeda removes before synthesis otherwise, so the netlists keep them."
+        "help": "Omit the preparation and cleanup that Xeda adds around the `synth_<family>` pass, which does its own elaboration and mapping. Pass flags, explicit ABC9 script choices and `abc9_delay_target` apply in either mode. The flow reads the sources as a bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, `systemverilog: default` (the built-in reader of yosys) and no `read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. Yosys does the same by file suffix, unless the design gives a `type` that contradicts the suffix. To compare with a native yosys invocation, also match source paths and order. When false, Xeda elaborates and optimizes around the pass and selects the ABC9 script `flow3` unless `abc9_script` chooses another, and `nowidelut` for ECP5 unless it is set. Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either mode. A setting that would add a step before or after the pass, or make it read differently from `yosys <files>`, is refused. The mode does not remove the formal cells and the `$print` cells (made by `assert` and `$display`) that Xeda removes before synthesis otherwise, so the netlists keep them."
       },
       "abc9": {
         "children": false,
@@ -14943,15 +14943,6 @@
           "true"
         ],
         "help": "Map LUTs with ABC9. `false` maps with classic ABC (`-noabc9`, or no `-abc9` where ABC9 is opt-in). Yosys 0.69 and newer require ABC9. For iCE40, the separate `noabc` setting selects the built-in LUT mapping."
-      },
-      "flow3": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Boolean ABC9 script choice: true selects `flow3`, false leaves the script to the synthesis pass. Use `abc9_script` for another named script; do not give both. Unset uses flow3 in Xeda's full recipe and leaves the pass's script in `synth_pass_only`. Has no effect unless ABC9 maps LUTs."
       },
       "abc9_script": {
         "children": false,
@@ -14965,7 +14956,7 @@
           "flow3",
           "flow3mfs"
         ],
-        "help": "Select one of yosys's included ABC9 scripts in either synthesis mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined with the `flow3` setting."
+        "help": "Select one of yosys's included ABC9 scripts in either synthesis mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. Unset uses `flow3` in Xeda's full recipe and the synthesis pass's own script (`default`) in `synth_pass_only`. `flow3` maps several times and keeps the best result. In a benchmark of 65 designs on ECP5, iCE40 and Xilinx 7-series, it gave a clearly higher fmax than `default` on 18 designs and a clearly lower one on none, for about 1.4 times the run time of yosys. Has no effect when ABC9 mapping is disabled."
       },
       "abc9_delay_target": {
         "children": false,
@@ -15024,7 +15015,7 @@
           "false",
           "true"
         ],
-        "help": "Disable wide LUT implementations that use hard MUX resources. Leave false to use the normal mapping choices of the family's synthesis pass."
+        "help": "Disable wide LUT implementations that use hard MUX resources (`-nowidelut`). `false` leaves the mapping choices to the synthesis pass. Unset: `true` for ECP5 in Xeda's full recipe, and the pass's own choice otherwise. On ECP5, a wide LUT costs several LUT4s and hard MUXes, but ABC9 counts it as one LUT. In a benchmark of 23 ECP5 designs, `true` saved 11% of the LUTs on average at the same average fmax; single designs got faster or slower by up to 17%. iCE40 has no wide LUTs, and its pass refuses `true`."
       },
       "widemux": {
         "children": false,

@@ -248,7 +248,7 @@ def test_every_setting_becomes_an_option_of_that_release_or_is_rejected(target):
     [
         ("crosslink-nx", (0, 63), ["synth_lattice", "-family", "lifcl"]),
         ("certus-nx", (0, 69), ["synth_lattice", "-family", "lfd2nx"]),
-        ("ecp5", (0, 63), ["synth_ecp5"]),
+        ("ecp5", (0, 63), ["synth_ecp5", "-nowidelut"]),
         ("xilinx", (0, 68), ["synth_xilinx", "-family", "xc7", "-abc9", "-flatten"]),
         ("xilinx", (0, 69), ["synth_xilinx", "-family", "xc7", "-flatten"]),
         ("ice40-up", (0, 69), ["synth_ice40", "-device", "u"]),
@@ -624,6 +624,32 @@ def test_the_ice40_library_is_defined_for_the_device():
 def test_effective_flatten(target, pass_only, flatten, expected):
     settings = YosysFpga.Settings(fpga=TARGETS[target], synth_pass_only=pass_only, flatten=flatten)
     assert settings.effective_flatten() is expected
+
+
+@pytest.mark.parametrize(
+    "target,pass_only,nowidelut,expected",
+    [
+        # ECP5: an unset `nowidelut` is `True` in the full recipe (measured smaller at the same
+        # average fmax), and the pass's own choice under `synth_pass_only`
+        ("ecp5", False, None, True),
+        ("ecp5", True, None, False),
+        ("ecp5", False, False, False),
+        ("ecp5", True, True, True),
+        # the others: unset is the pass's own choice
+        ("xilinx", False, None, False),
+        ("xilinx", False, True, True),
+        ("crosslink-nx", False, None, False),
+        ("gw1n", False, None, False),
+        ("ice40-hx", False, None, False),
+    ],
+)
+def test_effective_nowidelut(target, pass_only, nowidelut, expected):
+    settings = YosysFpga.Settings(
+        fpga=TARGETS[target], synth_pass_only=pass_only, nowidelut=nowidelut
+    )
+    assert settings.effective_nowidelut() is expected
+    for release in RELEASES:
+        assert ("-nowidelut" in settings.synth_command(release)) is expected, release
 
 
 HIERARCHY = """\

@@ -417,15 +417,17 @@ def test_abc9_scratchpad_is_the_one_place_the_tweaks_are_decided():
     delay = "scratchpad -set abc9.D 2500"
     # the 5 ns clock gives ABC9 no delay target: only `abc9_delay_target` does, in either mode
     assert settings().abc9_scratchpad() == [flow3]
-    assert settings(flow3=True).abc9_scratchpad() == [flow3]
-    assert settings(flow3=False).abc9_scratchpad() == []
+    assert settings(abc9_script="flow3").abc9_scratchpad() == [flow3]
+    assert settings(abc9_script="default").abc9_scratchpad() == [
+        "scratchpad -copy abc9.script.default abc9.script"
+    ]
     assert settings(abc9=False).abc9_scratchpad() == []
     assert settings(synth_pass_only=True).abc9_scratchpad() == []
     assert settings(abc9_delay_target="2.5 ns").abc9_scratchpad() == [flow3, delay]
     assert settings(abc9_delay_target="2.5 ns", synth_pass_only=True).abc9_scratchpad() == [delay]
     assert settings(abc9_delay_target="2.5 ns", abc9=False).abc9_scratchpad() == []
-    # unset is xeda's own recipe using flow3 -- the behavior `flow3 = True` had
-    assert YosysFpga.Settings.model_fields["flow3"].get_default() is None
+    # unset is xeda's own recipe using flow3
+    assert YosysFpga.Settings.model_fields["abc9_script"].get_default() is None
     no_clock = YosysFpga.Settings(fpga=PARTS["xilinx"])  # type: ignore[arg-type]
     assert no_clock.abc9_scratchpad() == [flow3]
 
@@ -1051,9 +1053,13 @@ def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_rend
 
 
 @pytest.mark.parametrize("mapping", [{"abc9": False}, {"noabc": True}])
-def test_pass_only_accepts_flow3_when_abc9_mapping_is_disabled(mapping):
+def test_pass_only_accepts_a_script_when_abc9_mapping_is_disabled(mapping):
     settings = YosysFpga.Settings(
-        fpga=PARTS["ice40"], synth_pass_only=True, flow3=True, **PASS_ONLY_READER, **mapping
+        fpga=PARTS["ice40"],
+        synth_pass_only=True,
+        abc9_script="flow3",
+        **PASS_ONLY_READER,
+        **mapping,
     )
     YosysFpga.check_settings_supported(settings)
     assert settings.abc9_scratchpad() == []

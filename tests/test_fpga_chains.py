@@ -1188,7 +1188,6 @@ DEMO_PROJECT = {
     "flows": {
         "yosys_fpga": {
             "flatten": True,
-            "flow3": False,
             "check_assert": False,
             "read_verilog_flags": [],
             "systemverilog": "default",
