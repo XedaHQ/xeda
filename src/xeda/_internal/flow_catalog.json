@@ -1470,6 +1470,11 @@
         "assignable": true,
         "help": "List of user SDC constraint files."
       },
+      "library_time_unit": {
+        "children": false,
+        "assignable": true,
+        "help": "The time unit of the libraries in `target_libraries`: 1, 10 or 100 of fs, ps, ns, us, ms or s, such as `1 ps`. Design Compiler reads the numbers of an SDC file and writes the times of its reports in this unit. Xeda writes the clocks and delays of the generated constraints in it, and converts the times that it reads from the reports to ns. Your own SDC files (`sdc_files`) must use it too. A `.db` library does not tell Xeda its unit, so set this for a library that is not in ns (ASAP7 has `1 ps`). After the run, Xeda rejects the results if `report_units` shows another unit."
+      },
       "optimization": {
         "children": false,
         "assignable": true,

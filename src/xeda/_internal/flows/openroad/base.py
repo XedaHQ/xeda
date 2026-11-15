@@ -33,6 +33,7 @@ from ...flow import (
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import render_flags
+from ...liberty_units import liberty_time_unit_seconds
 from ...platforms.derive import liberty_mentions, read_liberty_summary
 from ...platforms.model import PlatformModel, WireRc
 from ...proc_utils import ProcessTimeout
@@ -127,26 +128,6 @@ def _quantity(value: Any, kind: type[Q]) -> Q:
             f"got {value!r}"
         )
     return value
-
-
-#: The time unit of a Liberty file as OpenSTA reads it: 1, 10 or 100 and a unit, without spaces.
-#: OpenSTA warns about another multiplier and keeps the unit alone, and it reads a unit with a
-#: space or a fraction as one second.
-_OPENSTA_TIME_UNIT = re.compile(r"(?P<scale>1|10|100)(?P<unit>fs|ps|ns|us|ms|s)", re.IGNORECASE)
-
-
-def liberty_time_unit_seconds(unit: str) -> float:
-    """Return the time unit of a Liberty file (`1ns`, `10ps`) in seconds, as OpenSTA reads it.
-
-    Raise `ValueError` for a spelling that OpenSTA reads as another unit, such as `1000ps`
-    (OpenSTA reads `1ps`), `1.0ns` or `1 ns` (OpenSTA reads one second)."""
-    found = _OPENSTA_TIME_UNIT.fullmatch(unit)
-    if found is None:
-        raise ValueError(
-            f"the time unit {unit!r} is no unit that OpenSTA reads: write 1, 10 or 100 and fs, "
-            "ps, ns, us, ms or s, without spaces (`1ns`, `10ps`)"
-        )
-    return int(found["scale"]) * Time.of(1, found["unit"].lower()).to("s")
 
 
 _CAPACITANCE_UNIT = re.compile(r"(?P<scale>[0-9.]+)(?P<unit>[a-z]*)", re.IGNORECASE)
