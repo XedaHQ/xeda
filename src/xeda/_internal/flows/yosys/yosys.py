@@ -1036,13 +1036,13 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         design_util = utilization.get("design")
         if design_util:
             num_cells_by_type = design_util.get("num_cells_by_type")
-            if num_cells_by_type:
+            if num_cells_by_type is not None:
                 self.results["cell_types"] = dict(num_cells_by_type)
             num_cells = design_util.get("num_cells")
             if num_cells is not None:
                 self.results["cells"] = num_cells
             area = design_util.get("area")
-            if area:
+            if area is not None:
                 self.results["area"] = area
             self.results["_utilization"] = design_util
         return True

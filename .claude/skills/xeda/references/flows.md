@@ -237,7 +237,7 @@ Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
-Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
+Reports: `fmax`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `clock_period`, `clock_frequency`, `fmax_by_clock`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
 Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_synth_timing_summary_rpt`, `post_synth_hierarchical_utilization_rpt`, `post_synth_power_optimization_rpt`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
@@ -251,7 +251,7 @@ Required settings: `fpga`
 
 22 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
-Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
+Reports: `fmax`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `clock_period`, `clock_frequency`, `fmax_by_clock`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
 Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
@@ -293,7 +293,7 @@ Required settings: `fpga`
 
 29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
-Reports: `fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
+Reports: `fmax`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `clock_period`, `clock_frequency`, `fmax_by_clock`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram.ramb36`, `bram.ramb18`, `bram_tile`
 
 Artifacts: `log`, `xdc_exported`, `synth_1_log`, `impl_1_log`, `synth_design_timing_summary_rpt`, `synth_design_timing_rpt`, `synth_design_utilization_xml`, `synth_design_hierarchical_utilization_xml`, `synth_design_critical_paths_csv`, `synth_design_critical_paths_by_delay_csv`, `place_design_timing_summary_rpt`, `place_design_timing_rpt`, `place_design_utilization_xml`, `place_design_hierarchical_utilization_xml`, `place_design_critical_paths_csv`, `place_design_critical_paths_by_delay_csv`, `phys_opt_design_timing_summary_rpt`, `phys_opt_design_timing_rpt`, `phys_opt_design_utilization_xml`, `phys_opt_design_hierarchical_utilization_xml`, `phys_opt_design_critical_paths_csv`, `phys_opt_design_critical_paths_by_delay_csv`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_critical_paths_csv`, `route_design_critical_paths_by_delay_csv`, `route_design_hierarchical_utilization_json`, `route_design_utilization_rpt`, `route_design_hierarchical_utilization_rpt`, `route_design_drc_rpt`, `route_design_route_status_rpt`, `route_design_datasheet_rpt`, `route_design_design_analysis_rpt`, `route_design_design_analysis_json`, `route_design_clock_utilization_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_qor_suggestions_rqs`, `route_design_power_xml`
 
@@ -359,7 +359,7 @@ Group `arith_swap`: no common settings; 4 more: `xeda list-settings openroad_pla
 
 Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 23 more: `xeda list-settings openroad_place --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `utilization`, `power`, `area`, `hold_tns`, `platform`
 
 Artifacts: `log`
 
@@ -441,7 +441,7 @@ Group `ir_drop`: `ir_drop.nets`; 17 more: `xeda list-settings openroad --tier ex
 
 Group `gds`: no common settings; 10 more: `xeda list-settings openroad --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `setup_violations`, `hold_violations`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `max_slew_violations`, `max_cap_violations`, `max_fanout_violations`, `core_area`, `die_area`, `power_internal`, `power_switching`, `power_leakage`, `drc_errors`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `wirelength`, `vias`, `instances`, `fill_cells`, `tap_cells`, `warnings`, `errors`, `parasitics`, `platform`
 
 Artifacts: `log`, `klayout_log`
 
@@ -475,7 +475,7 @@ Group `legalize`: no common settings; 3 more: `xeda list-settings openroad_cts -
 
 Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 20 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
 
 Artifacts: `log`
 
@@ -501,7 +501,7 @@ Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabl
 
 Group `antenna`: `antenna.repair`; 4 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `fmax`, `fmax_by_clock`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `global_route_wirelength`, `global_route_vias`, `antenna_violating_nets`, `antenna_violating_pins`, `antenna_diodes`, `platform`
 
 Artifacts: `log`
 

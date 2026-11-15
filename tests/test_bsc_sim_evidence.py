@@ -35,29 +35,28 @@ def launch_bsc(work, body, **settings):
 
 
 @pytest.mark.parametrize(
-    "body,ok,ending,time",
+    "body,ok,ending",
     [
-        ("rule done; $finish(0); endrule", True, "finish", 0),
+        ("rule done; $finish(0); endrule", True, "finish"),
         (
             "Reg#(UInt#(8)) n <- mkReg(0); rule tick; n <= n+1; if(n==2) $finish(0); endrule",
             True,
             "finish",
-            30,
         ),
-        ('rule done; $error("PROBE_error"); $finish(0); endrule', False, "finish", 0),
-        ('rule done; $warning("PROBE_warning"); $finish(0); endrule', True, "finish", 0),
-        ('rule done; $fatal(1,"PROBE_fatal"); endrule', False, None, None),
-        ('rule done; dynamicAssert(False,"PROBE_assert"); endrule', False, None, None),
-        ("rule done; $stop(0); endrule", False, "unknown", 0),
+        ('rule done; $error("PROBE_error"); $finish(0); endrule', False, "finish"),
+        ('rule done; $warning("PROBE_warning"); $finish(0); endrule', True, "finish"),
+        ('rule done; $fatal(1,"PROBE_fatal"); endrule', False, None),
+        ('rule done; dynamicAssert(False,"PROBE_assert"); endrule', False, None),
+        ("rule done; $stop(0); endrule", False, "unknown"),
     ],
 )
-def test_bluesim_native_tasks(tmp_path, body, ok, ending, time):
+def test_bluesim_native_tasks(tmp_path, body, ok, ending):
     require_bluesim_evidence()
     flow = launch_bsc(tmp_path, body, simulator="bluesim", check_assert=True)
     assert flow is not None and flow.succeeded is ok
     if ending:
         assert flow.results["sim.ended_by"] == ending
-        assert flow.results["sim.time"] == time * 10**9  # the model counts microseconds
+        assert "sim.time" not in flow.results  # the ticks of Bluesim are no physical time
     assert (flow.run_path / "sim.log").is_file()
 
 
@@ -93,8 +92,9 @@ def test_bluesim_measured_cycles(tmp_path, count):
     evidence = flow.results["sim.evidence"]
     assert evidence["ended_by"] == "max_cycles"
     assert evidence["cycles"] == count
-    assert evidence["time"] == (count - 1) * 10
-    assert evidence["time_unit"] == "1us"
+    assert evidence["time"] == (count - 1) * 10  # kernel ticks, 10 per cycle
+    assert evidence["time_unit"] is None
+    assert "sim.time" not in flow.results
 
 
 def test_bluesim_early_finish_is_not_cycle_limit(tmp_path):
@@ -122,7 +122,7 @@ def test_bluesim_checkpoint_fails_closed(tmp_path, change):
     design = bsv_design(tmp_path / "design", "")
     run = tmp_path / "run"
     run.mkdir()
-    record = {"ended_by": "max_cycles", "time": 90, "time_unit": "1us", "cycles": 10, "events": []}
+    record = {"ended_by": "max_cycles", "time": 90, "time_unit": None, "cycles": 10, "events": []}
     if change == "missing_cycles":
         record.pop("cycles")
     if change == "contradictory":
@@ -130,8 +130,8 @@ def test_bluesim_checkpoint_fails_closed(tmp_path, change):
     (run / "bluesim_end.json").write_text(json.dumps(record))
     (run / "bluesim_events.jsonl").write_text('{"kind":"finish","time":0}\n')
     flow = BscSim({"max_cycles": 10}, design, run)
+    flow.start_run()
     if change != "stale":
-        flow.start_run()
         (run / "bluesim_end.json").write_text(
             "bad" if change == "malformed" else json.dumps(record)
         )
@@ -140,6 +140,35 @@ def test_bluesim_checkpoint_fails_closed(tmp_path, change):
         else:
             (run / "bluesim_events.jsonl").write_text("")
     assert flow.has_evidence_adapter()
+    assert not flow.check_results()
+
+
+def test_bluesim_record_with_the_cycle_count_and_the_end_tick_passes(tmp_path):
+    design = bsv_design(tmp_path / "design", "")
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = BscSim({"max_cycles": 10}, design, run)
+    flow.start_run()
+    (run / "bluesim_end.json").write_text(
+        '{"ended_by": "max_cycles", "time": 90, "time_unit": null, "cycles": 10, "events": []}'
+    )
+    (run / "bluesim_events.jsonl").write_text("")
+    assert flow.check_results()
+    assert "sim.time" not in flow.results
+    assert flow.results["sim.evidence"]["cycles"] == 10
+    assert flow.results["sim.evidence"]["time"] == 90
+
+
+def test_a_bluesim_finish_at_another_tick_than_the_end_fails(tmp_path):
+    design = bsv_design(tmp_path / "design", "")
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = BscSim({}, design, run)
+    flow.start_run()
+    (run / "bluesim_end.json").write_text(
+        '{"ended_by": "unknown", "time": 30, "time_unit": null, "cycles": 3, "events": []}'
+    )
+    (run / "bluesim_events.jsonl").write_text('{"kind":"finish","time":20}\n')
     assert not flow.check_results()
 
 

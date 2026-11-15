@@ -6,6 +6,7 @@ oracle is `tests/metric_types.py`: an integer is an `int` and no `bool`, a numbe
 """
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,15 @@ import pytest
 from xeda import Design
 from xeda._internal.flow import FPGA, MetricSpec
 from xeda._internal.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
-from xeda._internal.flows import Dc, Nextpnr, Quartus, VivadoPower, Yosys, YosysFpga
+from xeda._internal.flows import (
+    Dc,
+    Nextpnr,
+    Quartus,
+    VivadoPower,
+    VivadoSynth,
+    Yosys,
+    YosysFpga,
+)
 from xeda._internal.flows.openroad import Openroad
 
 from .metric_types import (
@@ -95,7 +104,7 @@ def test_yosys_fpga_writes_the_declared_types(tmp_path):
     assert flow.parse_reports()
     check(YosysFpga, flow.results, 6, all_described=True)
     assert flow.results["latch"] == 1 and flow.results["dsp"] == 2
-    assert flow.results["bram.ramb36"] == 1 and "bram.ramb18" not in flow.results
+    assert flow.results["bram.ramb36"] == 1 and flow.results["bram.ramb18"] == 0
     assert flow.results["cell_types"] == cells
 
 
@@ -279,15 +288,161 @@ def test_quartus_reports_the_frequency_of_each_clock_as_one_table(tmp_path):
     )
     assert flow.parse_reports()
     check(Quartus, flow.results, 5)
-    assert flow.results["fmax"] == 200.0
-    assert sorted(flow.results["fmax_by_clock"].items()) == [
-        ("main_clock@1200mV:0C", 200.0),
-        ("main_clock@1200mV:85C", 150.5),
-    ]
+    assert flow.results["fmax"] == 150.5
+    assert flow.results["fmax_by_clock"] == {"main_clock": 150.5}
     assert not [key for key in flow.results if "Fmax" in str(key)]
+
+
+@pytest.mark.parametrize(
+    "rows_0c, by_clock, fmax",
+    [
+        ("slow,250 MHz\nfast,90 MHz\n", {"slow": 100.0, "fast": 80.0}, 80.0),
+        # No row for `fast` in one model: its worst value is unknown, so no design Fmax.
+        ("slow,250 MHz\n", {"slow": 100.0}, None),
+    ],
+)
+def test_quartus_fmax_is_the_lowest_over_clocks_and_models(tmp_path, rows_0c, by_clock, fmax):
+    design = Design(
+        name="top",
+        root=tmp_path,
+        rtl={"sources": [], "top": "top", "clocks": ["slow", "fast"]},  # type: ignore[arg-type]
+    )
+    settings = Quartus.Settings.from_input(
+        {
+            "fpga": {"part": "10CL025YU256C8G"},
+            "clocks": {"slow": {"period": "10 ns"}, "fast": {"period": "5 ns"}},
+        }
+    )
+    flow = Quartus(settings, design, tmp_path)
+    flow.init()
+    reports = tmp_path / flow.settings.reports_dir
+    timing = reports / "Timing_Analyzer"
+    # The model that limits `slow` (85C) is not the one that limits `fast` (1100mV_85C), and the
+    # design Fmax comes from `fast`.
+    rows = {
+        "1200mV_85C": "slow,100 MHz\nfast,300 MHz\n",
+        "1200mV_0C": rows_0c,
+        "1100mV_85C": "slow,0.4 GHz\nfast,80 MHz\n",
+    }
+    for model, body in rows.items():
+        directory = timing / f"Slow_{model}_Model"
+        directory.mkdir(parents=True)
+        text = "".join(
+            f'{name},"{value}","{value}"\n'
+            for name, value in (line.split(",") for line in body.splitlines())
+        )
+        (directory / f"Slow_{model}_Model_Fmax_Summary.csv").write_text(
+            "Clock Name,Fmax,Restricted Fmax\n" + text
+        )
+    (reports / "Fitter" / "Resource_Section").mkdir(parents=True)
+    (reports / "Flow_Summary.csv").write_text("Flow Status,Successful\n")
+    (
+        reports / "Fitter" / "Resource_Section" / "Fitter_Resource_Utilization_by_Entity.csv"
+    ).write_text(
+        "Compilation Hierarchy Node,LUT-Only LCs,LUT/Register LCs,Register-Only LCs\ntop,3,2,1\n"
+    )
+    (timing / "Multicorner_Timing_Analysis_Summary.csv").write_text(
+        "Clock,Setup,Hold\nWorst-case Slack,1.5,0.25\n"
+    )
+    assert flow.parse_reports()
+    assert flow.results["fmax_by_clock"] == by_clock
+    assert flow.results.get("fmax") == fmax
 
 
 def test_openroad_final_writes_the_declared_types(tmp_path):
     flow, ok = parsed_openroad_final(tmp_path)
     assert ok
     check(Openroad, flow.results, 25)
+
+
+def _yosys_fpga_with(tmp_path: Path, cells: dict) -> YosysFpga:
+    report = tmp_path / "utilization.json"
+    report.write_text(json.dumps({"design": {"num_cells_by_type": cells}, "modules": {}}))
+    design = Design.load(RESOURCES_DIR / "design0" / "design0.toml")
+    flow = YosysFpga(YosysFpga.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
+    flow.init()
+    flow.artifacts.utilization_report = report
+    assert flow.parse_reports()
+    return flow
+
+
+def test_yosys_fpga_writes_a_resource_that_the_netlist_does_not_use_as_zero(tmp_path):
+    flow = _yosys_fpga_with(tmp_path, {"LUT6": 5})
+    for key in ("ff", "latch", "bram.ramb18", "bram.ramb36", "dsp"):
+        assert flow.results[key] == 0, key
+    assert flow.results["lut"] == 5
+    check(YosysFpga, flow.results, 6, all_described=True)
+
+
+def test_yosys_fpga_writes_zero_resources_for_a_netlist_with_no_cell(tmp_path):
+    flow = _yosys_fpga_with(tmp_path, {})
+    assert flow.results["cell_types"] == {}
+    for key in ("lut", "ff", "latch", "bram.ramb18", "bram.ramb36", "dsp"):
+        assert flow.results[key] == 0, key
+
+
+def test_yosys_writes_zero_cells_and_zero_area_for_an_empty_design(parsed_flow):  # noqa: F811
+    report = Path(parsed_flow.artifacts.utilization_report)
+    report.write_text(
+        json.dumps({"design": {"num_cells": 0, "num_cells_by_type": {}, "area": 0.0}})
+    )
+    parsed_flow.results.clear()
+    assert parsed_flow.parse_reports()
+    assert parsed_flow.results["cells"] == 0
+    assert parsed_flow.results["area"] == 0.0
+    assert parsed_flow.results["cell_types"] == {}
+    check(Yosys, parsed_flow.results, 3)
+
+
+def _utilization_xml(rows: dict[str, dict[str, str]]) -> str:
+    """A Vivado utilization report with one section for each `{section: {row: used}}`."""
+
+    def row(label: str, used: str) -> str:
+        return (
+            f'<tablerow><tablecell contents="{label}"/><tablecell contents="{used}"/>'
+            '<tablecell contents="0"/></tablerow>\n'
+        )
+
+    header = (
+        '<tablerow><tableheader contents="Site Type"/><tableheader contents="Used"/>'
+        '<tableheader contents="Fixed"/></tablerow>\n'
+    )
+    sections = "".join(
+        f'<section title="{title}"><table>\n{header}'
+        + "".join(row(label, used) for label, used in body.items())
+        + "</table></section>\n"
+        for title, body in rows.items()
+    )
+    return f"<RptDoc>\n{sections}</RptDoc>\n"
+
+
+def test_vivado_synth_writes_a_resource_that_the_report_gives_as_zero(tmp_path):
+    design = Design.load(RESOURCES_DIR / "design0" / "design0.toml")
+    flow = VivadoSynth(VivadoSynth.Settings(fpga=FPGA(part="xc7a35tcpg236-1")), design, tmp_path)
+    flow.init()
+    reports = tmp_path / flow.settings.reports_dir / "route_design"
+    reports.mkdir(parents=True)
+    shutil.copy(
+        RESOURCES_DIR / "vivado_synth" / "hierarchical_utilization.xml",
+        reports / "hierarchical_utilization.xml",
+    )
+    (reports / "utilization.xml").write_text(
+        _utilization_xml(
+            {
+                "Slice Logic": {
+                    "Slice LUTs": "12",
+                    "LUT as Memory": "0",
+                    "Register as Flip Flop": "7",
+                    "Register as Latch": "0",
+                },
+                "Memory": {"Block RAM Tile": "0", "RAMB36/FIFO*": "0", "RAMB18": "0"},
+                "DSP": {"DSPs": "0"},
+            }
+        )
+    )
+    assert flow.parse_reports()
+    assert flow.results["lut"] == 12 and flow.results["ff"] == 7
+    for key in ("lut_mem", "latch", "bram.ramb36", "bram.ramb18", "dsp"):
+        assert flow.results[key] == 0 and isinstance(flow.results[key], int), key
+    assert flow.results["bram_tile"] == 0.0 and isinstance(flow.results["bram_tile"], float)
+    check(VivadoSynth, flow.results, 8)

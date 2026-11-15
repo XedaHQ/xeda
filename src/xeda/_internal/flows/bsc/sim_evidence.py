@@ -11,7 +11,10 @@ log = logging.getLogger(__name__)
 
 
 def bluesim_evidence(flow: Flow) -> SimEvidence | None:
-    """Merge the events of the task hooks with the time and rising-edge count of the script."""
+    """Merge the events of the task hooks with the end tick and the rising-edge count of the script.
+
+    Bluesim counts unitless ticks, so the times of the evidence are ticks and it has no time unit.
+    A `$finish` at another tick than the end of the run fails closed."""
     evidence = read_sim_evidence(flow, "bluesim_end.json", events_path="bluesim_events.jsonl")
     if evidence is None:
         return None

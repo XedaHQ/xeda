@@ -99,15 +99,21 @@ STAGE_TABLE: tuple[tuple[str, str, str], ...] = (
 
 def stage_results(
     metrics: Mapping[str, Any], stage: str, *, time_unit: str, file: str | Path
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Return the results of one stage from its metrics, by result name.
 
     `worst_slack` is the worst setup slack, and `wns` is `min(0, worst_slack)`, since OpenROAD
     writes no WNS. `fmax` is in MHz and every time is in ns (`time_unit` is the unit of the
     Liberty files, such as `1ns`). `area` is the area of the standard cells in um^2, and `power`
     is in watts. A result whose metric is absent is left out. A metric that is present and not a
-    finite number raises `MetricsError`."""
-    results: dict[str, float] = {}
+    finite number raises `MetricsError`.
+
+    OpenROAD writes `timing__fmax`, the highest frequency over the clocks, and the frequency of
+    each clock (`timing__fmax__clock:<name>`). A design meets timing only if every clock does, so
+    `fmax` is the lowest frequency over the clocks and `fmax_by_clock` has them all. Without a
+    clock frequency (a design with no timed clock), `fmax` is `timing__fmax`, which OpenROAD
+    derives from the combinational paths."""
+    results: dict[str, Any] = {}
     for name, metric, kind in STAGE_TABLE:
         key = f"{stage}__{metric}"
         if key not in metrics:
@@ -120,6 +126,15 @@ def stage_results(
         results[name] = value
         if name == "worst_slack":
             results["wns"] = min(0.0, value)
+    clock_prefix = f"{stage}__timing__fmax__clock:"
+    by_clock = {
+        key.removeprefix(clock_prefix): number(metrics, key, file=file) / 1e6
+        for key in metrics
+        if isinstance(key, str) and key.startswith(clock_prefix)
+    }
+    if by_clock:
+        results["fmax_by_clock"] = by_clock
+        results["fmax"] = min(by_clock.values())
     return results
 
 

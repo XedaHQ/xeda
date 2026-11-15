@@ -44,7 +44,11 @@ class SimEvent(XedaBaseModel):
     kind: Literal["finish", "stop", "error", "fatal", "warning"] = Field(
         description="What happened."
     )
-    time: int | None = Field(None, description="Simulated time, in the record's time unit.")
+    time: int | None = Field(
+        None,
+        description="Simulated time, in the record's time unit; a count of the simulator's own "
+        "ticks when the record has no time unit.",
+    )
     location: str | None = Field(None, description="Source file and line, when known.")
     message: str = Field("", description="The simulator's message.")
 
@@ -59,8 +63,14 @@ class SimEvidence(XedaBaseModel):
         "`max_cycles`, the testbench's own driver exiting (`exit`), an event queue that ran "
         "empty (`drained`), an error or a fatal error, or unknown."
     )
-    time: int | None = Field(None, description="Simulated time at the end, in `time_unit`.")
-    time_unit: str | None = Field(None, description="The unit of `time`, e.g. `1ps`.")
+    time: int | None = Field(
+        None,
+        description="Simulated time at the end, in `time_unit`; a count of the simulator's own "
+        "ticks when `time_unit` is null (Bluesim).",
+    )
+    time_unit: str | None = Field(
+        None, description="The unit of `time`, e.g. `1ps`; null when the ticks have no unit."
+    )
     cycles: int | None = Field(
         None, ge=0, description="Clock cycles actually reached, if observed."
     )
@@ -259,18 +269,22 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         tick = time_in_fs(1, evidence.time_unit)
         stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
     max_cycles = getattr(flow.settings, "max_cycles", None)
-    cycles_reached = False
-    if (
+    cycles_reached = (
         max_cycles is not None
         and evidence.cycles == max_cycles
         and evidence.time is not None
         and evidence.time >= 0
-        and evidence.time_unit is not None
-    ):
-        try:
-            cycles_reached = time_in_fs(1, evidence.time_unit) > 0
-        except ValueError:
-            pass
+    )
+    if cycles_reached:
+        if evidence.time_unit is None:
+            # a time without a unit counts ticks only for a simulator whose ticks have no unit
+            ticks = getattr(flow, "ticks_have_no_unit", None)
+            cycles_reached = callable(ticks) and ticks() is True
+        else:
+            try:  # a time unit must be a real one
+                cycles_reached = time_in_fs(1, evidence.time_unit) > 0
+            except ValueError:
+                cycles_reached = False
     ok = {
         "finish": True,
         "stop_time": stop_reached,
@@ -314,11 +328,11 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
                 cause = (
                     f"the stop at max_cycles {max_cycles} could not be confirmed: it observed "
                     f"{evidence.cycles} cycles, and a confirmed stop needs exactly {max_cycles} "
-                    "cycles and a measured final time"
+                    "cycles and a measured end time"
                 )
                 fix = (
                     f"check that the design reaches {max_cycles} cycles and that the simulator "
-                    f"reports its final time ({LOG_ADVICE})"
+                    f"reports its cycle count and end time ({LOG_ADVICE})"
                 )
         elif evidence.ended_by == "exit":
             cause = f"the testbench's driver exited with status {evidence.exit_code}"
@@ -608,6 +622,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 else None
             )
         return self._cocotb
+
+    def ticks_have_no_unit(self) -> bool:
+        """Return whether the simulator of this run counts time in ticks that have no unit.
+
+        Only then can an end record without a time unit confirm a `max_cycles` stop."""
+        return False
 
     def has_evidence_adapter(self) -> bool:
         """Return whether the simulator of this run can report how it ended.

@@ -651,39 +651,16 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             r"Clock Summary[\s\|\-]+^\s*Clock\s+Waveform\(\w+\)\s+Period\(\w+\)\s+Frequency\(\w+\)$[\-\s]+\s*(\w+)\s+(\{[\.\d\s]+\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
             required=False,
         )
-        wns = self.results.get("wns")
-        if wns is not None:
-            if not isinstance(wns, (float, int)):
-                log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))
-            else:
-                # See https://support.xilinx.com/s/article/57304?language=en_US
-                # Fmax is in MHz. It is "the maximum frequency a design can run on Hardware in a
-                # given implementation", Fmax = 1/(T-WNS), "with WNS positive or negative, where T
-                # is the target clock period."
-                if "clock_period" in self.results:
-                    clock_period = self.results["clock_period"]
-                    if isinstance(clock_period, (float, int)):
-                        if clock_period <= 0:
-                            log.critical(
-                                "Parsed value for `clock_period`: %s (%s) is not valid.",
-                                clock_period,
-                                type(clock_period),
-                            )
-                        elif clock_period < wns:
-                            log.critical(
-                                "Parsed value for `clock_period`: %s (%s) is less than WNS: %s",
-                                clock_period,
-                                type(clock_period),
-                                wns,
-                            )
-                        else:
-                            self.results["fmax"] = 1000.0 / (clock_period - wns)
-                    else:
-                        log.critical(
-                            "Parsed value for `clock_period`: %s (%s) is not a number.",
-                            clock_period,
-                            type(clock_period),
-                        )
+        # See https://support.xilinx.com/s/article/57304?language=en_US
+        # Fmax is in MHz. It is "the maximum frequency a design can run on Hardware in a given
+        # implementation", Fmax = 1/(T-WNS), "with WNS positive or negative, where T is the target
+        # clock period." Each clock has its own T and WNS. The design Fmax is the lowest one.
+        report = self.report_file(reports_dir / "timing_summary.rpt", optional=True)
+        if report is not None:
+            fmax_by_clock = fmax_of_each_clock(report.read_text(errors="replace"))
+            if fmax_by_clock:
+                self.results["fmax_by_clock"] = fmax_by_clock
+                self.results["fmax"] = min(fmax_by_clock.values())
 
         return not failed
 
@@ -761,9 +738,9 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                     if util is not None:
                         # A block RAM tile count can end in .5: a RAMB18 uses half a tile.
                         kind = float if k == "bram_tile" else int
-                        r = try_convert(util, kind, default=util)
-                        if r:
-                            self.results[k] = r
+                        # A count of 0 is a result. A value that is no number stays text, and
+                        # the metric check refuses it.
+                        self.results[k] = try_convert(util, kind, default=util)
             self.results["_utilization"] = utilization
         failed |= not power_report_written(self)
         # Only this run's reports are artifacts. A previous run's files in the run directory are
@@ -843,6 +820,47 @@ class _VivadoSynthOutputs(VivadoImplementation.Outputs):
     )
 
 
+def _report_section(text: str, title: str) -> str:
+    """Return the body of the section `title` of a Vivado report (the text after its `| title`
+    header, up to the next header), or an empty text if there is none."""
+    headers = list(re.finditer(r"^\| ([A-Za-z][^\n]*?)\s*$", text, re.MULTILINE))
+    for index, header in enumerate(headers):
+        if header.group(1) == title:
+            end = headers[index + 1].start() if index + 1 < len(headers) else len(text)
+            return text[header.end() : end]
+    return ""
+
+
+def fmax_of_each_clock(text: str) -> Dict[str, float]:
+    """Return the Fmax in MHz of each clock of a Vivado timing summary report.
+
+    The Fmax of a clock is 1000 / (period - WNS), with the period from the Clock Summary table and
+    the worst setup slack of the paths inside that clock from the Intra Clock Table. A clock that
+    is in only one of the two tables has no entry: it has no paths to time, or no period."""
+    periods: Dict[str, float] = {}
+    for line in _report_section(text, "Clock Summary").splitlines():
+        row = re.match(r"(\S+)\s+\{[^}]*\}\s+(\d+(?:\.\d+)?)\s+\d+(?:\.\d+)?\s*$", line)
+        if row:
+            periods[row.group(1)] = float(row.group(2))
+    result: Dict[str, float] = {}
+    for line in _report_section(text, "Intra Clock Table").splitlines():
+        row = re.match(r"(\S+)\s+(-?\d+(?:\.\d+)?)\s", line)
+        if not row or row.group(1) not in periods:
+            continue
+        period = periods[row.group(1)]
+        achievable = period - float(row.group(2))
+        if period > 0 and achievable > 0:
+            result[row.group(1)] = 1000.0 / achievable
+        else:
+            log.critical(
+                "Clock %s has period %s ns and WNS %s ns: no valid Fmax.",
+                row.group(1),
+                period,
+                row.group(2),
+            )
+    return result
+
+
 class VivadoSynth(VivadoImplementation):
     """Synthesize and implement an FPGA design with AMD-Xilinx Vivado, in project mode, in batch.
 
@@ -886,8 +904,6 @@ class VivadoSynth(VivadoImplementation):
 
     results_description = describe_results(
         "fmax",
-        "clock_period",
-        "clock_frequency",
         "wns",
         "whs",
         "tns",
@@ -897,6 +913,26 @@ class VivadoSynth(VivadoImplementation):
         "ff",
         "slice",
         "dsp",
+        clock_period=MetricSpec(
+            "Constrained clock period, as given to the tool. With several clocks, it is the "
+            "period of the first clock of the Clock Summary table of the timing report.",
+            "number",
+            "ns",
+        ),
+        clock_frequency=MetricSpec(
+            "Constrained clock frequency, as given to the tool. With several clocks, it is the "
+            "frequency of the first clock of the Clock Summary table of the timing report.",
+            "number",
+            "MHz",
+        ),
+        fmax_by_clock=MetricSpec(
+            "Maximum clock frequency of each clock, keyed by the clock name. It is 1000 / (period "
+            "- WNS), with the period from the Clock Summary table and the WNS from the Intra "
+            "Clock Table of the timing summary. A clock with no paths inside it has no entry. "
+            "`fmax` is the lowest value.",
+            "numbers",
+            "MHz",
+        ),
         status=MetricSpec(
             "Vivado's own status of the last run that the flow waited for. It is "
             '"route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`) when '

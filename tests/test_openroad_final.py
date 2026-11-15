@@ -1764,6 +1764,7 @@ def test_the_wns_is_zero_when_the_slack_is_positive(tmp_path):
 def test_a_result_that_no_verdict_reads_and_that_is_absent_is_left_out(tmp_path):
     optional = {
         "finish__timing__fmax": "fmax",
+        "finish__timing__fmax__clock:main_clock": "fmax_by_clock",
         "finish__design__die__area": "die_area",
         "finish__design__core__area": "core_area",
         "finish__power__internal__total": "power_internal",

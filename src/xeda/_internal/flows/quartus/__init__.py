@@ -98,8 +98,8 @@ class Quartus(FpgaSynthFlow):
         "wns",
         "whs",
         fmax_by_clock=MetricSpec(
-            "Maximum clock frequency of each constrained clock under each timing model, keyed by "
-            "the clock name and the model conditions (`clk@1100mV:85C`).",
+            "Maximum clock frequency of each constrained clock, keyed by the clock name. It is the "
+            "lowest value over the slow timing models.",
             "numbers",
             "MHz",
         ),
@@ -369,10 +369,15 @@ class Quartus(FpgaSynthFlow):
                 whs = try_convert_to_primitives(whs)
                 self.results["whs"] = whs
 
+        # A design meets timing only if every clock passes in every timing model. So the Fmax of a
+        # clock is its lowest value over the slow models, and the design Fmax is the lowest value
+        # over the clocks.
         timing_reports_folder = self.run_file(reports["timing_dir"])
-        max_fmax = 0.0
         fmax_by_clock: dict[str, float] = {}
-        for found in timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv"):
+        incomplete: set[str] = set()
+        for found in sorted(
+            timing_reports_folder.glob("Slow_*_Model/Slow_*_Model_Fmax_Summary.csv")
+        ):
             fmax_report = self.report_file(found, optional=True)
             if fmax_report is None:
                 continue
@@ -384,22 +389,30 @@ class Quartus(FpgaSynthFlow):
                 id_parser=lambda s: s.strip(),
                 interesting_fields={"Fmax"},
             )
-            conditions = fmax_report.parent.name.lstrip("Slow_").rstrip("_Model").split("_")
+            model = fmax_report.parent.name.removeprefix("Slow_").removesuffix("_Model")
             for clock in self.settings.clocks.keys():
                 flst = fmax.get(clock, {}).get("Fmax")
-                assert flst and len(flst) == 2
+                if not flst or len(flst) != 2 or flst[1] not in ("MHz", "GHz"):
+                    log.warning(
+                        "The Fmax summary of the %s model has no usable Fmax for clock %s, so "
+                        "there is no fmax over all clocks.",
+                        model,
+                        clock,
+                    )
+                    incomplete.add(clock)
+                    continue
                 fmhz = float(flst[0])
                 if flst[1] == "GHz":
                     fmhz *= 1000.0
-                else:
-                    assert flst[1] == "MHz"
-                if fmhz > max_fmax:
-                    max_fmax = fmhz
-                fmax_by_clock[f"{clock}@{':'.join(conditions)}"] = fmhz
+                fmax_by_clock[clock] = min(fmhz, fmax_by_clock.get(clock, fmhz))
+        # A clock without a value in one of the models has an unknown worst value: it gets no
+        # entry, and the design gets no fmax, which would otherwise be too high.
+        for clock in incomplete:
+            fmax_by_clock.pop(clock, None)
         if fmax_by_clock:
             self.results["fmax_by_clock"] = fmax_by_clock
-        if max_fmax:
-            self.results["fmax"] = max_fmax
+            if not incomplete:
+                self.results["fmax"] = min(fmax_by_clock.values())
 
         return True
 

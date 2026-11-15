@@ -143,6 +143,12 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "number",
         "MHz",
     ),
+    "fmax_by_clock": MetricSpec(
+        "Maximum achievable frequency of each clock, keyed by the clock name. `fmax` is the lowest "
+        "value, because a design meets timing only if every clock does.",
+        "numbers",
+        "MHz",
+    ),
     "clock_period": MetricSpec("Constrained clock period, as given to the tool.", "number", "ns"),
     "clock_frequency": MetricSpec(
         "Constrained clock frequency. This is the constraint that was given to the tool, not "
