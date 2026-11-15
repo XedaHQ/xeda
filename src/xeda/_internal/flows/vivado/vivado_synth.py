@@ -646,7 +646,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             r"TPWS Failing Endpoints\s+TPWS Total Endpoints\s*"
             r"\s*(?:\-+\s+)+"
             r"(?P<wns>\-?\d+(?:\.\d+)?)\s+(?P<tns>\-?\d+(?:\.\d+)?)\s+(?P<setup_violations>\d+)\s+(?P<_tns_total_endpoints>\d+)\s+"
-            r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<_ths>\-?\d+(?:\.\d+)?)\s+(?P<hold_violations>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
+            r"(?P<whs>\-?\d+(?:\.\d+)?)\s+(?P<ths>\-?\d+(?:\.\d+)?)\s+(?P<hold_violations>\d+)\s+(?P<_ths_total_endpoints>\d+)\s+",
             # the clock summary table
             r"Clock Summary[\s\|\-]+^\s*Clock\s+Waveform\(\w+\)\s+Period\(\w+\)\s+Frequency\(\w+\)$[\-\s]+\s*(\w+)\s+(\{[\.\d\s]+\})\s+(?P<clock_period>\d+(?:\.\d+)?)\s+(?P<clock_frequency>\d+(?:\.\d+)?)",
             required=False,
@@ -713,10 +713,10 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             ("latch", ["CLB Logic", "Register as Latch"]),
             ("bram_tile", ["Memory", "Block RAM Tile"]),
             ("bram_tile", ["BLOCKRAM", "Block RAM Tile"]),
-            ("bram.ramb36", ["Memory", "RAMB36/FIFO*"]),
-            ("bram.ramb36", ["BLOCKRAM", "RAMB36/FIFO*"]),
-            ("bram.ramb18", ["Memory", "RAMB18"]),
-            ("bram.ramb18", ["BLOCKRAM", "RAMB18"]),
+            ("bram_sites.ramb36_fifo", ["Memory", "RAMB36/FIFO*"]),
+            ("bram_sites.ramb36_fifo", ["BLOCKRAM", "RAMB36/FIFO*"]),
+            ("bram_sites.ramb18", ["Memory", "RAMB18"]),
+            ("bram_sites.ramb18", ["BLOCKRAM", "RAMB18"]),
             ("dsp", ["DSP", "DSPs"]),
             ("dsp", ["ARITHMETIC", "DSPs"]),
         ]
@@ -907,6 +907,7 @@ class VivadoSynth(VivadoImplementation):
         "wns",
         "whs",
         "tns",
+        "ths",
         "setup_violations",
         "hold_violations",
         "lut",
@@ -947,10 +948,15 @@ class VivadoSynth(VivadoImplementation):
         ),
         latch=MetricSpec("Number of latches inferred. Usually a design bug on FPGAs.", "integer"),
         **{
-            "bram.ramb36": MetricSpec(
-                "Number of RAMB36/FIFO36 block RAM primitives used.", "integer"
+            "bram_sites.ramb36_fifo": MetricSpec(
+                "Number of RAMB36/FIFO sites used: the row `RAMB36/FIFO*` of the utilization "
+                "report. It counts the sites that hold a RAMB36 or a FIFO36.",
+                "integer",
             ),
-            "bram.ramb18": MetricSpec("Number of RAMB18 block RAM primitives used.", "integer"),
+            "bram_sites.ramb18": MetricSpec(
+                "Number of RAMB18 sites used: the row `RAMB18` of the utilization report.",
+                "integer",
+            ),
         },
         bram_tile=MetricSpec(
             "Number of block RAM tiles used. A RAMB18 uses half a tile, so the number can end in "

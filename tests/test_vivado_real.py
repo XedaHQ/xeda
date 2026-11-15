@@ -356,7 +356,7 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
     flow = launch()
     assert flow.succeeded
     assert not any(key.startswith("sim.") for key in flow.results)
-    assert "power.total" in flow.results
+    assert "power.device.total" in flow.results
     assert not (flow.run_path / "xsim_runtime.log").exists()
     simulation = next(f for f in runner.launched if f.name == "vivado_postsynth_sim")
     assert simulation.results["sim.ended_by"] == "stop_time"
@@ -604,7 +604,11 @@ def test_vivado_impl_implements_block_ram_dsp_and_carry_chains_and_the_result_wo
         VivadoImpl, design, {**IMPL_SETTINGS, "bitstream": bitstream}
     )
     assert flow is not None and flow.succeeded
-    assert (flow.results["bram.ramb18"], flow.results["dsp"], flow.results["ff"]) == (1, 1, 36)
+    assert (flow.results["bram_sites.ramb18"], flow.results["dsp"], flow.results["ff"]) == (
+        1,
+        1,
+        36,
+    )
     assert (flow.run_path / bitstream).stat().st_size > 100_000
 
     sim = work_dir / "sim"

@@ -206,6 +206,7 @@ def test_fail_timing_governs_only_the_timing_violation_decision(
     assert (flow.rejection is not None) == fail_timing
     assert flow.results["wns"] == -0.123
     assert flow.results["whs"] == -0.045
+    assert flow.results["ths"] == -1.2
     assert flow.results["setup_violations"] == 3
     assert flow.results["hold_violations"] == 2
 

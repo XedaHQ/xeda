@@ -743,7 +743,7 @@ def test_timing_that_is_not_met_fails_the_flow_unless_it_is_allowed(
 def test_the_results_are_those_of_vivado_synth_but_for_the_projects_status() -> None:
     kept = {key: spec for key, spec in VivadoSynth.results_description.items() if key != "status"}
     assert VivadoImpl.results_description == kept
-    for key in ("fmax", "wns", "whs", "lut", "ff", "dsp", "bram.ramb36"):
+    for key in ("fmax", "wns", "whs", "ths", "lut", "ff", "dsp", "bram_sites.ramb36_fifo"):
         assert key in VivadoImpl.results_description
 
 

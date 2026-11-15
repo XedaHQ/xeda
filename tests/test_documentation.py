@@ -246,7 +246,7 @@ def test_a_metric_that_names_its_unit_carries_it(flow_class):
             assert (spec.type, spec.unit) == ("numbers", "MHz"), path
         if path in ("wns", "whs", "tns", "ths", "clock_period"):
             assert (spec.type, spec.unit) == ("number", "ns"), path
-        if path.startswith("power."):
+        if path.startswith("power.") and spec.type in ("number", "numbers"):
             assert spec.unit == "W", path
 
 

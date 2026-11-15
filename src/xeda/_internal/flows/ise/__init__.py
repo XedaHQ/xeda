@@ -13,6 +13,7 @@ from ...flow import (
     FlowFatalError,
     FlowSettingsException,
     FpgaSynthFlow,
+    MetricSpec,
     describe_results,
     ArtifactSpec,
     describe_artifacts,
@@ -120,12 +121,21 @@ class IseSynth(FpgaSynthFlow):
     )
 
     results_description = describe_results(
-        "minimum_period",
-        "fmax",
-        "wns",
         "lut",
         "ff",
         "slice",
+        fmax=MetricSpec(
+            "Maximum clock frequency that the XST synthesis report estimates, before placement "
+            "and routing. It is not an achieved result.",
+            "number",
+            "MHz",
+        ),
+        wns=MetricSpec(
+            "Slack that the XST synthesis report estimates for the constrained clock, before "
+            "placement and routing. Negative means the synthesis estimate misses the constraint.",
+            "number",
+            "ns",
+        ),
     )
 
     reads_sources = frozenset(
@@ -272,7 +282,7 @@ class IseSynth(FpgaSynthFlow):
         )
         fail |= not self.parse_report_regex(
             outputs["synthesis_report"],
-            r"Minimum period:\s+(?P<minimum_period>\-?\d+(?:\.\d+)?)ns\s+\(Maximum Frequency: (?P<fmax>\-?\d+(?:\.\d+)?)MHz\)",
+            r"Minimum period:\s+\-?\d+(?:\.\d+)?ns\s+\(Maximum Frequency: (?P<fmax>\-?\d+(?:\.\d+)?)MHz\)",
             r"Slack:\s+(?P<wns>\-?\d+(?:\.\d+)?)ns",
         )
         if "wns" in self.results:

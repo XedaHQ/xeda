@@ -102,7 +102,7 @@ ECP5_RESOURCES: Dict[str, Tuple[str, ...]] = {
 #: Canonical resource name -> the bel types that implement it, for Xilinx 7-series
 #: (nextpnr-himbaechel 1.0.0, uarch `xilinx`). `lut` is not in the table. `SLICE_LUTX` counts 5LUT
 #: and 6LUT positions, two for each physical LUT, so `lut` comes from the placement dump
-#: (`xilinx_lut_locations`). Block RAM counts primitives. `CARRY4` stays in `cell_types`.
+#: (`xilinx_lut_locations`). Block RAM counts primitives. `CARRY4` stays in `bel_types`.
 XILINX_RESOURCES: dict[str, tuple[str, ...]] = {
     "ff": ("SLICE_FFX",),
     "bram": ("RAMB18E1", "RAMB36E1"),
@@ -359,8 +359,6 @@ class Nextpnr(FpgaSynthFlow):
     )
 
     results_description = describe_results(
-        "fmax",
-        "wns",
         "clock_frequency",
         "clock_period",
         "clock_domains",
@@ -371,6 +369,22 @@ class Nextpnr(FpgaSynthFlow):
         "bram",
         "dsp",
         "io",
+        fmax=MetricSpec(
+            "Maximum clock frequency: the lowest achieved frequency of the constrained clock "
+            "domains in the nextpnr report, so every constrained domain meets its constraint at "
+            "this frequency.",
+            "number",
+            "MHz",
+        ),
+        wns=MetricSpec(
+            "Worst setup slack of the constrained clock domains. Xeda derives the slack of each "
+            "domain from the constrained and the achieved frequency in the nextpnr report: "
+            "1000 / constraint - 1000 / achieved. It is the minimum over the constrained "
+            "domains. The value covers paths inside each clock domain only, not paths between "
+            "domains. Negative means a domain misses its constraint.",
+            "number",
+            "ns",
+        ),
         **{
             "lut_basis.stage": MetricSpec(
                 "The stage that the canonical `lut` count describes.", "text"
@@ -381,7 +395,7 @@ class Nextpnr(FpgaSynthFlow):
             "clock_port": MetricSpec(
                 "Top-level port of the only reported clock domain, when that is certain.", "text"
             ),
-            "cell_types": MetricSpec(
+            "bel_types": MetricSpec(
                 "Number of bels used of each type, by the bel name that nextpnr gives "
                 "(`TRELLIS_COMB`, `SLICE_LUTX`). It lists only the types with a used bel: a type "
                 "that the table does not list has none used.",
@@ -1470,7 +1484,7 @@ class Nextpnr(FpgaSynthFlow):
     def _parse_utilization(self, utilization: Dict[str, Any]) -> None:
         """Record the usage of each bel type, and canonical resource names for a known family."""
         detail: Dict[str, Dict[str, Any]] = {}
-        cell_types: Dict[str, int] = {}
+        used_by_type: Dict[str, int] = {}
         for cell, counts in utilization.items():
             used = counts.get("used") or 0
             available = counts.get("available") or 0
@@ -1481,9 +1495,9 @@ class Nextpnr(FpgaSynthFlow):
             }
             if used:
                 # Raw bel-type counts are always correct, whatever the family is.
-                cell_types[cell] = used
-        if cell_types:
-            self.results["cell_types"] = cell_types
+                used_by_type[cell] = used
+        if used_by_type:
+            self.results["bel_types"] = used_by_type
         self.results["_utilization"] = detail
 
         assert isinstance(self.settings, self.Settings)

@@ -294,8 +294,8 @@ femtoseconds) shows in the largest unit that keeps it exact: ``30 us``. ``result
 
 A temperature is in ``degC``. A temperature difference is in ``delta_degC``, and 5 ``delta_degC`` is
 5 K. A thermal resistance is in ``K/W``. An area in square micrometers is in ``um^2``. The simulated time ``sim.time`` is an integer number of
-femtoseconds. The counts of cells by type are one ``counts`` metric, ``cell_types``, with the name
-of the cell as the key.
+femtoseconds. The counts of cells by type are one ``counts`` metric (``cell_types`` for Yosys,
+``bel_types`` for nextpnr), with the name of the cell or bel as the key.
 
 A metric names a quantity, not one way to measure it. ``lut`` is reported per toolchain and per
 stage. The open-source FPGA flows add ``lut_basis.stage`` (``mapped`` for ``yosys_fpga``, ``placed

@@ -65,8 +65,8 @@ def test_the_oracle_tells_each_type_from_the_others():
 
 def test_a_key_is_described_by_its_own_entry_only():
     declared = VivadoPower.results_description
-    assert descriptor_of("power.total", declared) is declared["power.total"]
-    assert descriptor_of("power.components.Clocks", declared) is None
+    assert descriptor_of("power.device.total", declared) is declared["power.device.total"]
+    assert descriptor_of("power.device.components.Clocks", declared) is None
     assert descriptor_of("Unknown", declared) is None
 
 
@@ -104,7 +104,7 @@ def test_yosys_fpga_writes_the_declared_types(tmp_path):
     assert flow.parse_reports()
     check(YosysFpga, flow.results, 6, all_described=True)
     assert flow.results["latch"] == 1 and flow.results["dsp"] == 2
-    assert flow.results["bram.ramb36"] == 1 and flow.results["bram.ramb18"] == 0
+    assert flow.results["bram_cells.ramb36"] == 1 and flow.results["bram_cells.ramb18"] == 0
     assert flow.results["cell_types"] == cells
 
 
@@ -130,7 +130,7 @@ def test_nextpnr_writes_the_declared_types(tmp_path):
     flow = make_flow(tmp_path, load_ecp5_report())
     assert flow.parse_reports()
     check(Nextpnr, flow.results, 8, all_described=True)
-    assert flow.results["cell_types"]["TRELLIS_COMB"] == flow.results["lut"]
+    assert flow.results["bel_types"]["TRELLIS_COMB"] == flow.results["lut"]
 
 
 TIMING_MAX = """\
@@ -230,11 +230,11 @@ def test_vivado_power_writes_the_declared_types(tmp_path):
     flow = VivadoPower.__new__(VivadoPower)
     results = flow.parse_power_report(report)
     check(VivadoPower, results, 7)
-    assert results["power.total"] == 0.5
-    assert results["power.components"] == {"Clocks": 0.2}
-    assert results["power.confidence"] == "High"
+    assert results["power.device.total"] == 0.5
+    assert results["power.device.components"] == {"Clocks": 0.2}
+    assert results["power.device.confidence"] == "High"
     # a bound is no number, so no value is written
-    assert "power.static" not in results
+    assert "power.device.static" not in results
 
 
 def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_path):
@@ -253,13 +253,13 @@ def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_pa
     flow = VivadoPower.__new__(VivadoPower)
     results = flow.parse_power_report(report)
     assert set(results) == {
-        "power.total",
-        "power.dynamic",
-        "power.effective_tja",
-        "power.junction_temperature",
-        "power.thermal_margin",
-        "power.confidence",
-        "power.components",
+        "power.device.total",
+        "power.device.dynamic",
+        "thermal.effective_tja",
+        "thermal.junction_temperature",
+        "thermal.margin",
+        "power.device.confidence",
+        "power.device.components",
     }
 
 

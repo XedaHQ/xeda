@@ -137,9 +137,10 @@ def metric_unit_known(unit: str) -> bool:
 COMMON_METRICS: Dict[str, MetricSpec] = {
     # timing
     "fmax": MetricSpec(
-        "Maximum achievable clock frequency, derived from the constrained period and the worst "
-        "negative slack. This is the achieved result, unlike `clock_frequency`. Each tool times "
-        "a design with its own model: compare `fmax` only between runs of the same tool.",
+        "Maximum achievable clock frequency: the minimum over the clocks and the corners that "
+        "the tool times. This is the achieved result, unlike `clock_frequency`. A flow "
+        "whose tool gives the value in another way says so in its own description. Each tool "
+        "times a design with its own model: compare `fmax` only between runs of the same tool.",
         "number",
         "MHz",
     ),
@@ -156,7 +157,6 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "number",
         "MHz",
     ),
-    "clock_name": MetricSpec("Name of the clock the reported timing refers to.", "text"),
     "clock_port": MetricSpec("Design port the reported clock is attached to.", "text"),
     "wns": MetricSpec(
         "Worst setup slack: the smallest slack over all setup paths. The value is signed. "
@@ -191,7 +191,6 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "counts them.",
         "integer",
     ),
-    "minimum_period": MetricSpec("Minimum achievable clock period.", "number", "ns"),
     # FPGA resources
     "lut": MetricSpec("Number of LUTs used.", "integer"),
     "ff": MetricSpec("Number of flip-flops (registers) used.", "integer"),
@@ -232,13 +231,6 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "libraries.",
         "number",
     ),
-    "design_area": MetricSpec(
-        "Area of the placed design, in `design_area_unit`. Compare areas only within one "
-        "platform.",
-        "number",
-    ),
-    "design_area_unit": MetricSpec("Unit the reported `design_area` is expressed in.", "text"),
-    "utilization_percent": MetricSpec("Core area utilization, in percent.", "number"),
     "utilization": MetricSpec(
         "(Standard-cell area + macro area) / core area, as a ratio. It can exceed 1.", "number"
     ),

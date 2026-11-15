@@ -18,13 +18,13 @@ NUMERIC_LABEL = re.compile(r"\((?:W|C|C/W)\)$")
 #: The labels of Vivado's power summary that this flow reports, each with its metric. Vivado
 #: always writes these. A label that is not here keeps its text as the key.
 SUMMARY_METRICS = {
-    "Total On-Chip Power (W)": "power.total",
-    "Dynamic (W)": "power.dynamic",
-    "Device Static (W)": "power.static",
-    "Effective TJA (C/W)": "power.effective_tja",
-    "Junction Temperature (C)": "power.junction_temperature",
-    "Thermal Margin (C)": "power.thermal_margin",
-    "Confidence Level": "power.confidence",
+    "Total On-Chip Power (W)": "power.device.total",
+    "Dynamic (W)": "power.device.dynamic",
+    "Device Static (W)": "power.device.static",
+    "Effective TJA (C/W)": "thermal.effective_tja",
+    "Junction Temperature (C)": "thermal.junction_temperature",
+    "Thermal Margin (C)": "thermal.margin",
+    "Confidence Level": "power.device.confidence",
 }
 
 
@@ -41,29 +41,29 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     """
 
     results_description = {
-        "power.total": MetricSpec("Total on-chip power.", "number", "W"),
-        "power.dynamic": MetricSpec(
+        "power.device.total": MetricSpec("Total on-chip power.", "number", "W"),
+        "power.device.dynamic": MetricSpec(
             "Dynamic (switching) power, driven by the SAIF activity.", "number", "W"
         ),
-        "power.static": MetricSpec("Static (leakage) power of the device.", "number", "W"),
-        "power.effective_tja": MetricSpec(
+        "power.device.static": MetricSpec("Static (leakage) power of the device.", "number", "W"),
+        "thermal.effective_tja": MetricSpec(
             "Effective junction-to-ambient thermal resistance, in kelvin per watt.",
             "number",
             "K/W",
         ),
-        "power.junction_temperature": MetricSpec(
+        "thermal.junction_temperature": MetricSpec(
             "Estimated junction temperature in degrees Celsius.", "number", "degC"
         ),
-        "power.thermal_margin": MetricSpec(
+        "thermal.margin": MetricSpec(
             "Margin between the estimated junction temperature and the limit. It is a "
             "temperature difference.",
             "number",
             "delta_degC",
         ),
-        "power.confidence": MetricSpec(
+        "power.device.confidence": MetricSpec(
             'Vivado\'s confidence in the estimate, e.g. "High".', "text"
         ),
-        "power.components": MetricSpec(
+        "power.device.components": MetricSpec(
             "On-chip power of each component that Vivado reports (Clocks, Slice Logic, Signals, "
             "Block RAM, DSP, I/O, ...), keyed by the component name. A value that Vivado prints "
             "as a bound, such as <0.001, is not reported.",
@@ -139,9 +139,9 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     def parse_power_report(self, report_xml) -> Dict[str, Any]:
         """Return the values of the report by metric.
 
-        The labels in `SUMMARY_METRICS` give the `power.*` metrics, and a summary row with any
-        other label gives none. The power of the components is the table `power.components`. A
-        label that names a unit (`Dynamic (W)`) gives a number. A value that is no number, such
+        The labels in `SUMMARY_METRICS` give the `power.device.*` and `thermal.*` metrics, and a
+        summary row with any other label gives none. The power of the components is the table
+        `power.device.components`. A label that names a unit (`Dynamic (W)`) gives a number. A value that is no number, such
         as the bound `<0.001`, is left out. The value of any other label is the text of the
         report."""
         tree = ElementTree.parse(report_xml)
@@ -179,7 +179,7 @@ class VivadoPower(Vivado, FpgaSynthFlow):
                 if parsed is not None:
                     components[contents[0]] = parsed
         if components:
-            results["power.components"] = components
+            results["power.device.components"] = components
         return results
 
     def parse_reports(self) -> bool:

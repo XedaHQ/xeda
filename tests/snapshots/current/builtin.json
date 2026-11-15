@@ -5605,10 +5605,6 @@
           "type": "integer",
           "unit": null
         },
-        "minimum_period": {
-          "type": "number",
-          "unit": "ns"
-        },
         "slice": {
           "type": "integer",
           "unit": null
@@ -7284,12 +7280,12 @@
         }
       },
       "metrics": {
-        "bram": {
-          "type": "integer",
+        "bel_types": {
+          "type": "counts",
           "unit": null
         },
-        "cell_types": {
-          "type": "counts",
+        "bram": {
+          "type": "integer",
           "unit": null
         },
         "clock_domains": {
@@ -23725,11 +23721,11 @@
         }
       },
       "metrics": {
-        "bram.ramb18": {
+        "bram_sites.ramb18": {
           "type": "integer",
           "unit": null
         },
-        "bram.ramb36": {
+        "bram_sites.ramb36_fifo": {
           "type": "integer",
           "unit": null
         },
@@ -23788,6 +23784,10 @@
         "slice": {
           "type": "integer",
           "unit": null
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -24761,11 +24761,11 @@
         }
       },
       "metrics": {
-        "bram.ramb18": {
+        "bram_sites.ramb18": {
           "type": "integer",
           "unit": null
         },
-        "bram.ramb36": {
+        "bram_sites.ramb36_fifo": {
           "type": "integer",
           "unit": null
         },
@@ -24824,6 +24824,10 @@
         "slice": {
           "type": "integer",
           "unit": null
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -26588,37 +26592,37 @@
         }
       },
       "metrics": {
-        "power.components": {
+        "power.device.components": {
           "type": "numbers",
           "unit": "W"
         },
-        "power.confidence": {
+        "power.device.confidence": {
           "type": "text",
           "unit": null
         },
-        "power.dynamic": {
+        "power.device.dynamic": {
           "type": "number",
           "unit": "W"
         },
-        "power.effective_tja": {
+        "power.device.static": {
+          "type": "number",
+          "unit": "W"
+        },
+        "power.device.total": {
+          "type": "number",
+          "unit": "W"
+        },
+        "thermal.effective_tja": {
           "type": "number",
           "unit": "K/W"
         },
-        "power.junction_temperature": {
+        "thermal.junction_temperature": {
           "type": "number",
           "unit": "degC"
         },
-        "power.static": {
-          "type": "number",
-          "unit": "W"
-        },
-        "power.thermal_margin": {
+        "thermal.margin": {
           "type": "number",
           "unit": "delta_degC"
-        },
-        "power.total": {
-          "type": "number",
-          "unit": "W"
         }
       },
       "outputs": {},
@@ -28698,11 +28702,11 @@
         }
       },
       "metrics": {
-        "bram.ramb18": {
+        "bram_sites.ramb18": {
           "type": "integer",
           "unit": null
         },
-        "bram.ramb36": {
+        "bram_sites.ramb36_fifo": {
           "type": "integer",
           "unit": null
         },
@@ -28765,6 +28769,10 @@
         "status": {
           "type": "text",
           "unit": null
+        },
+        "ths": {
+          "type": "number",
+          "unit": "ns"
         },
         "tns": {
           "type": "number",
@@ -33301,11 +33309,11 @@
         }
       },
       "metrics": {
-        "bram.ramb18": {
+        "bram_cells.ramb18": {
           "type": "integer",
           "unit": null
         },
-        "bram.ramb36": {
+        "bram_cells.ramb36": {
           "type": "integer",
           "unit": null
         },

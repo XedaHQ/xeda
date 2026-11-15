@@ -33,7 +33,7 @@
         "timing_met": true,
         "clock_frequency": 100.0,
         "clock_period": 10.0,
-        "cell_types": {
+        "bel_types": {
             "TRELLIS_COMB": 1,
             "TRELLIS_FF": 1
         },
@@ -75,7 +75,7 @@
             "type": "number",
             "unit": "ns"
         },
-        "cell_types": {
+        "bel_types": {
             "description": "Number of bels used of each type, by the bel name that nextpnr gives (`TRELLIS_COMB`, `SLICE_LUTX`).",
             "type": "counts",
             "unit": null
