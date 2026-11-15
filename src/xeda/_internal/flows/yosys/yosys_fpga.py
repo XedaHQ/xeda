@@ -206,10 +206,10 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             "latch": MetricSpec(
                 "Number of latch primitives (`LDCE`, `LDPE`) in the netlist.", "integer"
             ),
-            "bram.ramb18": MetricSpec(
+            "bram_cells.ramb18": MetricSpec(
                 "Number of `RAMB18` primitives (all variants) in the netlist.", "integer"
             ),
-            "bram.ramb36": MetricSpec(
+            "bram_cells.ramb36": MetricSpec(
                 "Number of `RAMB36` primitives (all variants) in the netlist.", "integer"
             ),
             "cell_types": MetricSpec(
@@ -1312,8 +1312,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         ],
                     )
 
-                    add_util_sum("bram.ramb18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
-                    add_util_sum("bram.ramb36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
+                    add_util_sum("bram_cells.ramb18", ["RAMB18", "RAMB18E1", "RAMB18E2"])
+                    add_util_sum("bram_cells.ramb36", ["RAMB36", "RAMB36E1", "RAMB36E2"])
                     add_util_sum("dsp", ["DSP48E1", "DSP48E2", "DSP48E"])
 
         return True

@@ -102,16 +102,16 @@ The results of the last xeda flow become the ORFS metric names of the table:
 
 | xeda result | ORFS metric |
 | --- | --- |
-| `worst_slack` | `finish__timing__setup__ws` |
+| `wns` | `finish__timing__setup__ws` |
 | `tns` | `finish__timing__setup__tns` |
 | `whs` | `finish__timing__hold__ws` |
-| `hold_tns` | `finish__timing__hold__tns` |
-| `area` | `finish__design__instance__area__stdcell` |
-| `power` | `finish__power__total` |
+| `ths` | `finish__timing__hold__tns` |
+| `area.stdcells` | `finish__design__instance__area__stdcell` |
+| `power.cells.total` | `finish__power__total` |
 | `drc_errors` | `detailedroute__route__drc_errors` |
 | `antenna_violating_nets` | `detailedroute__antenna__violating__nets` |
 
-The results `fmax` (MHz in xeda, Hz in ORFS), `setup_violations`, `instances` and `core_area` map
+The results `fmax` (MHz in xeda, Hz in ORFS), `setup_violations`, `stdcells` and `area.core` map
 to optional metrics. A required result that is missing stops the row with an error that names it.
 The area and the cell count of the `both` row come from the `yosys` flow of the chain.
 

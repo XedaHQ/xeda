@@ -283,8 +283,8 @@ its artifacts (see :ref:`artifact-keys`):
 ``counts`` (a table of text to integer), ``numbers`` (a table of text to number) and ``object`` (a
 JSON object that the description documents). ``unit`` is a unit text such as ``MHz``, ``ns`` or
 ``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
-as a cell area in the area unit of the Liberty files, has the unit ``null``, and its description
-says so. The keys that every flow reports (``runtime``, ...) are no metrics and are not listed. The
+as a ``library_area.*`` area in the area unit of the Liberty files, has the unit ``null``, and its
+description says so. The keys that every flow reports (``runtime``, ...) are no metrics and are not listed. The
 table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
 The tables that ``xeda run`` and ``xeda dse`` print show each metric with its unit. A ``number``
@@ -294,8 +294,8 @@ femtoseconds) shows in the largest unit that keeps it exact: ``30 us``. ``result
 
 A temperature is in ``degC``. A temperature difference is in ``delta_degC``, and 5 ``delta_degC`` is
 5 K. A thermal resistance is in ``K/W``. An area in square micrometers is in ``um^2``. The simulated time ``sim.time`` is an integer number of
-femtoseconds. The counts of cells by type are one ``counts`` metric, ``cell_types``, with the name
-of the cell as the key.
+femtoseconds. The counts of cells by type are one ``counts`` metric (``cell_types`` for Yosys,
+``bel_types`` for nextpnr), with the name of the cell or bel as the key.
 
 A metric names a quantity, not one way to measure it. ``lut`` is reported per toolchain and per
 stage. The open-source FPGA flows add ``lut_basis.stage`` (``mapped`` for ``yosys_fpga``, ``placed
@@ -303,6 +303,184 @@ and routed`` for ``nextpnr``) and ``lut_basis.method`` beside it. Counts from di
 or stages are not certified comparable, and this holds in particular for Vivado's utilization
 report. ``fmax`` works the same way. Each tool times a design with its own model, so compare
 ``fmax`` only between runs of the same tool (see :ref:`flow-results`).
+
+.. _metric-names:
+
+Metric names
+------------
+
+One metric name means one quantity in every flow. The name fixes the quantity, the population that
+it covers, how Xeda aggregates it, its sign, its type and its unit. Two flows use the same name
+only when all of these are equal. A flow that measures something else uses another name. The unit
+is in the descriptor, never in the name: there is no ``_ns``, ``_mhz`` or ``_percent`` suffix, and
+no ``num_`` prefix. A population word alone is its count (``cells``, ``stdcells``, ``nets``). The
+form ``<quantity>.<population>`` is a quantity over a population (``area.stdcells``,
+``power.cells.total``). The stage is the flow, so a name never says "after placement".
+
+These are the canonical names:
+
+* ``wns`` and ``whs`` are the signed worst setup and hold slack in ns. They are the minimum over
+  the paths, the clocks and the corners. ``tns`` and ``ths`` are the total negative slack in ns,
+  at most 0.
+* ``fmax`` and ``fmax_by_clock`` are in MHz. For each clock, the value is the minimum over the
+  corners. ``fmax`` is the minimum over the clocks.
+* ``setup_violations`` and ``hold_violations`` count the failing endpoints.
+* ``cells``, ``stdcells``, ``macros_blackboxes``, ``nets`` and ``ports`` count the instances of a
+  population over the whole hierarchy.
+* ``area.<population>`` is an area from the geometry of the layout. It is in um^2.
+* ``library_area.<population>`` is a sum of the Liberty ``area`` values of the cells of the
+  population. ``library_area.nets`` is the interconnect area that Design Compiler estimates from
+  its wire-load model, and ``library_area.with_nets`` adds it to the area of the cells. These
+  metrics have no unit and are relative to the libraries. Compare them only between runs that
+  use the same libraries.
+* ``utilization`` is (standard-cell area + macro area) / core area. It can be larger than 1.
+* ``power.cells.*`` is the power of the cell instances, and ``power.device.*`` is the power of a
+  whole FPGA device. Every power value is in W. ``power.device.confidence`` is the confidence
+  level of the estimate, as text. ``thermal.*`` holds the temperatures and thermal resistances.
+
+A test checks these rules for every built-in flow (``tests/test_metric_names.py``). It also keeps
+a reviewed table of the paths that two or more tools report. A row of that table says what the
+tools measure, and either gives the evidence or says what would verify the share.
+
+Results of ``v1.0.0rc1`` and ``v1.0.0rc2`` use the old names. The table below lists each path that
+changed. A value stays the same, except for the changes listed after this paragraph.
+``fmax_by_clock`` is new for OpenROAD and Vivado, and ``ths`` is new for Vivado. For OpenROAD,
+``ths`` is the renamed ``hold_tns``. In ``quartus``, a key of ``fmax_by_clock`` was
+``<clock>@<corner>``. It is now the clock name, and its value is the minimum over the corners.
+
+These values changed since ``v1.0.0rc2``, in the same release:
+
+* ``fmax`` is the minimum over all clocks (and, for Quartus, all slow timing models) in
+  ``quartus``, ``vivado`` and ``openroad``. Before, it came from one clock. ``dc`` writes ``fmax``
+  only when its timing report has one clock.
+* In ``openroad``, ``wns`` is the signed worst setup slack, so it can be positive. It was 0 when
+  setup timing was met.
+* In ``dc``, ``wns`` and ``whs`` are the worst slack over all path groups. The times of ``dc``
+  are in ns. Xeda reads them in the library time unit that ``library_time_unit`` sets (default
+  ``1 ns``) and converts them. Before, a library in ps gave values that were 1000 times off.
+* ``bsc_sim`` with Bluesim reports no ``sim.time``, because the Bluesim kernel counts ticks with
+  no unit.
+* The ``xezim`` metrics ``coverage.statement``, ``coverage.branch`` and ``coverage.toggle`` are
+  ratios from 0 to 1, not percentages.
+* A metric whose value is 0 is reported as 0. Before, ``vivado_synth``, ``yosys_fpga`` and
+  ``yosys`` left it out in some cases.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 30 46
+
+   * - Flows
+     - Old path
+     - New path or reason for removal
+   * - ``dc``
+     - ``area_cell_total``
+     - ``library_area.cells``
+   * - ``dc``
+     - ``area_combinational``
+     - ``library_area.combinational``
+   * - ``dc``
+     - ``area_noncombinational``
+     - ``library_area.sequential``
+   * - ``dc``
+     - ``area_macro_bbox``
+     - ``library_area.macros_blackboxes``
+   * - ``dc``
+     - ``area_total``
+     - ``library_area.with_nets``
+   * - ``dc``
+     - ``area`` (object)
+     - removed: its numbers are in ``library_area.combinational``, ``library_area.sequential``,
+       ``library_area.macros_blackboxes``, ``library_area.nets`` and ``library_area.cells``
+   * - ``dc``
+     - ``setup_wns``
+     - ``wns``
+   * - ``dc``
+     - ``hold_wns``
+     - ``whs``
+   * - ``dc``
+     - ``num_violating_paths``
+     - ``setup_violating_paths``
+   * - ``dc``
+     - ``hold_num_violating_paths``
+     - ``hold_violating_paths``
+   * - ``dc``
+     - ``drc``
+     - ``electrical_violations``, without the total number of nets
+   * - ``dc``
+     - ``num_cells``
+     - ``cells``
+   * - ``dc``
+     - ``num_cells_combinational``
+     - ``combinational_cells``
+   * - ``dc``
+     - ``num_cells_sequential``
+     - ``sequential_cells``
+   * - ``dc``
+     - ``num_macro_bbox``
+     - ``macros_blackboxes``
+   * - ``dc``
+     - ``num_nets``
+     - ``nets``
+   * - ``dc``
+     - ``num_ports``
+     - ``ports``
+   * - ``openroad``, ``openroad_place``, ``openroad_cts``, ``openroad_grt``
+     - ``area``
+     - ``area.stdcells``
+   * - ``openroad``
+     - ``core_area``
+     - ``area.core``
+   * - ``openroad``
+     - ``die_area``
+     - ``area.die``
+   * - ``openroad``
+     - ``instances``
+     - ``stdcells``
+   * - ``openroad``, ``openroad_place``, ``openroad_cts``, ``openroad_grt``
+     - ``power``
+     - ``power.cells.total``
+   * - ``openroad``
+     - ``power_internal``, ``power_switching``, ``power_leakage``
+     - ``power.cells.internal``, ``power.cells.switching``, ``power.cells.leakage``
+   * - ``openroad``, ``openroad_place``, ``openroad_cts``, ``openroad_grt``
+     - ``hold_tns``
+     - ``ths``
+   * - ``openroad``, ``openroad_place``, ``openroad_cts``, ``openroad_grt``
+     - ``worst_slack``
+     - removed: ``wns`` is now the signed worst setup slack
+   * - ``openroad_grt``
+     - ``global_route_wirelength``
+     - ``wirelength``
+   * - ``openroad_grt``
+     - ``global_route_vias``
+     - ``vias``
+   * - ``yosys``
+     - ``area``
+     - ``library_area.cells``
+   * - ``nextpnr``
+     - ``cell_types``
+     - ``bel_types``
+   * - ``vivado_synth``, ``vivado_impl``, ``vivado_alt_synth``
+     - ``bram.ramb18``
+     - ``bram_sites.ramb18``
+   * - ``vivado_synth``, ``vivado_impl``, ``vivado_alt_synth``
+     - ``bram.ramb36``
+     - ``bram_sites.ramb36_fifo``
+   * - ``yosys_fpga``
+     - ``bram.ramb18``
+     - ``bram_cells.ramb18``
+   * - ``yosys_fpga``
+     - ``bram.ramb36``
+     - ``bram_cells.ramb36``
+   * - ``vivado_power``
+     - ``power.total``, ``power.dynamic``, ``power.static``, ``power.components``, ``power.confidence``
+     - ``power.device.total``, ``power.device.dynamic``, ``power.device.static``, ``power.device.components``, ``power.device.confidence``
+   * - ``vivado_power``
+     - ``power.junction_temperature``, ``power.effective_tja``, ``power.thermal_margin``
+     - ``thermal.junction_temperature``, ``thermal.effective_tja``, ``thermal.margin``
+   * - ``ise_synth``
+     - ``minimum_period``
+     - removed: it was ``1000 / fmax``
 
 .. _artifact-keys:
 

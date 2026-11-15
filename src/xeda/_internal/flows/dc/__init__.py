@@ -35,9 +35,6 @@ log = logging.getLogger(__name__)
 #: The points of the flow a `hooks` script can be sourced at, in the order the flow reaches them.
 HOOK_STAGES = ("pre_elab", "post_elab", "post_link", "finalize")
 
-#: The line of `report_units` (`mapped.units.rpt`) that states the time unit of the main library:
-#: `Time_unit : 1e-09 Second`. The pattern is narrow on purpose. A report that has no such line
-#: gives no check.
 #: The figures of a timing path group in the QoR report that are times, in the time unit of the
 #: library. Xeda converts them to ns; the other figures are counts.
 PATH_GROUP_TIMES = frozenset(
@@ -52,6 +49,19 @@ PATH_GROUP_TIMES = frozenset(
     }
 )
 
+#: The groups of the area report patterns (`parse_reports`) and the metric of each.
+LIBRARY_AREA_GROUPS = {
+    "_library_area_combinational": "library_area.combinational",
+    "_library_area_sequential": "library_area.sequential",
+    "_library_area_macros_blackboxes": "library_area.macros_blackboxes",
+    "_library_area_cells": "library_area.cells",
+    "_library_area_with_nets": "library_area.with_nets",
+    "_library_area_nets": "library_area.nets",
+}
+
+#: The line of `report_units` (`mapped.units.rpt`) that states the time unit of the main library:
+#: `Time_unit : 1e-09 Second`. The pattern is narrow on purpose. A report that has no such line
+#: gives no check.
 TIME_UNIT_LINE = re.compile(
     r"^\s*Time_unit\s*:\s*(?P<seconds>[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)\s+Second\s*$",
     re.MULTILINE,
@@ -113,18 +123,16 @@ class Dc(AsicSynthFlow):
     }
 
     results_description = describe_results(
-        "num_violating_paths",
-        "hold_num_violating_paths",
-        "aspect_ratio",
-        "utilization_ratio",
-        "area_combinational",
-        "area_noncombinational",
-        "area_macro_bbox",
-        "area_cell_total",
-        "area_total",
-        "area_core",
+        "setup_violating_paths",
+        "hold_violating_paths",
+        "library_area.cells",
+        "library_area.combinational",
+        "library_area.sequential",
+        "library_area.macros_blackboxes",
+        "library_area.with_nets",
+        "library_area.nets",
         fmax=MetricSpec(
-            "Maximum clock frequency, `1000 / (clock_period - setup_wns)`. The maximum delay "
+            "Maximum clock frequency, `1000 / (clock_period - wns)`. The maximum delay "
             "report must name one clock. With more than one clock, there is no `fmax`.",
             "number",
             "MHz",
@@ -140,42 +148,47 @@ class Dc(AsicSynthFlow):
             "number",
             "ns",
         ),
-        setup_wns=MetricSpec(
+        wns=MetricSpec(
             "Smallest slack over all paths of the maximum delay report: the worst path of each "
             "path group, for all clocks. Negative means setup timing is not met.",
             "number",
             "ns",
         ),
-        hold_wns=MetricSpec(
+        whs=MetricSpec(
             "Smallest slack over all paths of the minimum delay report: the worst path of each "
             "path group, for all clocks. Negative means hold timing is not met.",
             "number",
             "ns",
         ),
-        area=MetricSpec(
-            "Area breakdown from the QoR report, as a mapping of the report's own labels to "
-            "values.",
-            "object",
+        area_core=MetricSpec(
+            "Area of the core region, as Design Compiler prints it. Its unit is not verified.",
+            "number",
         ),
-        drc=MetricSpec(
-            "Non-zero design-rule violation counts from the QoR report, by rule.", "counts"
+        aspect_ratio=MetricSpec(
+            "Core height divided by core width, as Design Compiler prints it.", "number"
+        ),
+        utilization_ratio=MetricSpec(
+            "Core area utilization, as Design Compiler prints it.", "number"
+        ),
+        electrical_violations=MetricSpec(
+            "Non-zero design-rule violation counts from the QoR report, by rule. The table has no "
+            "row for the total number of nets.",
+            "counts",
         ),
         path_groups=MetricSpec(
             "Per-timing-path-group QoR figures, keyed by path group name. The times in them "
             "(`PATH_GROUP_TIMES`) are in ns.",
             "object",
         ),
-        num_ports=MetricSpec("Number of ports in the mapped design.", "integer"),
-        num_nets=MetricSpec("Number of nets in the mapped design.", "integer"),
-        num_cells=MetricSpec("Total number of cells in the mapped design.", "integer"),
-        num_cells_combinational=MetricSpec(
+        ports=MetricSpec("Number of ports in the mapped design.", "integer"),
+        nets=MetricSpec("Number of nets in the mapped design.", "integer"),
+        cells=MetricSpec("Total number of cells in the mapped design.", "integer"),
+        combinational_cells=MetricSpec(
             "Number of combinational cells in the mapped design.", "integer"
         ),
-        num_cells_sequential=MetricSpec(
-            "Number of sequential cells in the mapped design.", "integer"
-        ),
-        num_macro_bbox=MetricSpec(
-            "Number of macros / black boxes in the mapped design.", "integer"
+        sequential_cells=MetricSpec("Number of sequential cells in the mapped design.", "integer"),
+        macros_blackboxes=MetricSpec(
+            "Number of macros and black boxes in the mapped design.", "integer"
         ),
     )
 
@@ -540,7 +553,7 @@ class Dc(AsicSynthFlow):
             lines = max_report.read_text(errors="replace").splitlines()
             setup = worst_slack(lines, "Setup")
             if setup is not None:
-                self.results["setup_wns"], self.results["_setup_status"] = setup
+                self.results["wns"], self.results["_setup_status"] = setup
             # the first clock line with a time is the capture edge: the launch edge is at 0
             edges = [m for m in map(clock_pattern.search, lines) if m]
             clock_lines = [m for m in map(any_clock_line.search, lines) if m]
@@ -568,16 +581,16 @@ class Dc(AsicSynthFlow):
         if min_report is not None:
             hold = worst_slack(min_report.read_text(errors="replace").splitlines(), "Hold")
             if hold is not None:
-                self.results["hold_wns"], self.results["_hold_status"] = hold
+                self.results["whs"], self.results["_hold_status"] = hold
         else:
             log.warning(
                 "Timing report %s was not found. Check the synthesis run for errors.",
                 min_report_path,
             )
-        if "clock_period" in self.results and "setup_wns" in self.results:
+        if "clock_period" in self.results and "wns" in self.results:
             clock_period = self.results["clock_period"]
             assert isinstance(clock_period, float)
-            wns = self.results["setup_wns"]
+            wns = self.results["wns"]
             if isinstance(wns, float) and (clock_period - wns) > 0:
                 self.results["fmax"] = 1000.0 / (clock_period - wns)
 
@@ -615,27 +628,33 @@ class Dc(AsicSynthFlow):
 
         self.parse_report_regex(
             reports_dir / "mapped.area.rpt",
-            r"Number of ports:\s*(?P<num_ports>\d+)",
-            r"Number of nets:\s*(?P<num_nets>\d+)",
-            r"Number of cells:\s*(?P<num_cells>\d+)",
-            r"Number of combinational cells:\s*(?P<num_cells_combinational>\d+)",
-            r"Number of sequential cells:\s*(?P<num_cells_sequential>\d+)",
-            r"Number of macros/black boxes:\s*(?P<num_macro_bbox>\d+)",
+            r"Number of ports:\s*(?P<ports>\d+)",
+            r"Number of nets:\s*(?P<nets>\d+)",
+            r"Number of cells:\s*(?P<cells>\d+)",
+            r"Number of combinational cells:\s*(?P<combinational_cells>\d+)",
+            r"Number of sequential cells:\s*(?P<sequential_cells>\d+)",
+            r"Number of macros/black boxes:\s*(?P<macros_blackboxes>\d+)",
             r"Number of buf/inv:\s*(?P<_num_buf_inv>\d+)",
             r"Number of references:\s*(?P<_num_refs>\d+)",
-            r"Combinational area:\s*(?P<area_combinational>\d+(?:\.\d+)?)",
+            r"Combinational area:\s*(?P<_library_area_combinational>\d+(?:\.\d+)?)",
             r"Buf/Inv area:\s*(?P<_area_buf_inv>\d+(?:\.\d+)?)",
-            r"Noncombinational area:\s*(?P<area_noncombinational>\d+(?:\.\d+)?)",
-            r"Macro/Black Box area:\s*(?P<area_macro_bbox>\d+(?:\.\d+)?)",
-            r"Net Interconnect area:\s*(?P<_area_interconnect>\S+.*$)",
-            r"Total cell area:\s*(?P<area_cell_total>\d+(?:\.\d+)?)",
-            r"Total area:\s*(?P<area_total>\d+(?:\.\d+)?)",
+            r"Noncombinational area:\s*(?P<_library_area_sequential>\d+(?:\.\d+)?)",
+            r"Macro/Black Box area:\s*(?P<_library_area_macros_blackboxes>\d+(?:\.\d+)?)",
+            r"Net Interconnect area:\s*(?P<_library_area_nets>\S+.*$)",
+            r"Total cell area:\s*(?P<_library_area_cells>\d+(?:\.\d+)?)",
+            r"Total area:\s*(?P<_library_area_with_nets>\d+(?:\.\d+)?)",
             r"Core Area:\s*(?P<area_core>\d+(?:\.\d+)?)",
             r"Aspect Ratio:\s*(?P<aspect_ratio>\d+(?:\.\d+)?)",
             r"Utilization Ratio:\s*(?P<utilization_ratio>\d+(?:\.\d+)?)",
             dotall=False,
             optional=True,
         )
+        # The patterns name a group with a plain identifier. The results name the metric by its
+        # path. "Net Interconnect area" is text when the library has no wire load model.
+        for private, metric in LIBRARY_AREA_GROUPS.items():
+            value = self.results.get(private)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                self.results[metric] = value
 
         reportfile_path = reports_dir / "mapped.qor.rpt"
 
@@ -650,10 +669,6 @@ class Dc(AsicSynthFlow):
             re.MULTILINE,
         )
 
-        area_re = re.compile(
-            r"^\s*Area\s*\n\s*\-+\s*\n(?P<kv1>(?:^.*\n)+)\s*\-+\s*\n\s*(?P<kv2>(?:^.*\n)+)\s*",
-            re.MULTILINE,
-        )
         drc_re = re.compile(r"^\s*Design Rules\s*\n\s*\-+\s*\n(?P<kv>(?:^.*\n)+)", re.MULTILINE)
         wns_re = re.compile(
             r"^\s*Design\s+WNS:\s+(?P<wns>[-+]?\d+\.\d+)\s+TNS:\s+(?P<tns>[-+]?\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
@@ -684,49 +699,36 @@ class Dc(AsicSynthFlow):
                         )
                         for key, value in parse_kvs(match.group("kv")).items()
                     }
-
-                else:
-                    match = area_re.match(sec)
-                    if match:
-                        kv1 = parse_kvs(match.group("kv1"))
-                        kv2 = parse_kvs(match.group("kv2"))
-                        self.results["area"] = {**kv1, **kv2}
-                    else:
-                        match = drc_re.match(sec)
-                        if match:
-                            drc = parse_kvs(match.group("kv"), skip_zero=True)
-                            self.results["drc"] = drc
-                            if drc.get("Nets With Violations"):
-                                failed = True
-                                log.error(
-                                    "Nets With DRC Violations: %s", drc["Nets With Violations"]
-                                )
-                        else:
-                            match = wns_re.match(sec)
-                            if match:
-                                self.results["_drc_wns"] = from_library_time(
-                                    float(match.group("wns")), unit
-                                )
-                                self.results["_drc_tns"] = from_library_time(
-                                    float(match.group("tns")), unit
-                                )
-                                self.results["num_violating_paths"] = int(match.group("nvp"))
-                                if self.results["num_violating_paths"] != 0:
-                                    failed = True
-                            else:
-                                match = hold_wns_re.match(sec)
-                                if match:
-                                    self.results["_drc_hold_wns"] = from_library_time(
-                                        float(match.group("wns")), unit
-                                    )
-                                    self.results["_drc_hold_tns"] = from_library_time(
-                                        float(match.group("tns")), unit
-                                    )
-                                    self.results["hold_num_violating_paths"] = int(
-                                        match.group("nvp")
-                                    )
-                                    if self.results["hold_num_violating_paths"] != 0:
-                                        failed = True
+                    continue
+                match = drc_re.match(sec)
+                if match:
+                    drc = parse_kvs(match.group("kv"), skip_zero=True)
+                    self.results["electrical_violations"] = {
+                        name: count for name, count in drc.items() if name != "Total Number of Nets"
+                    }
+                    if drc.get("Nets With Violations"):
+                        failed = True
+                        log.error("Nets With DRC Violations: %s", drc["Nets With Violations"])
+                    continue
+                match = wns_re.match(sec)
+                if match:
+                    self.results["_drc_wns"] = from_library_time(float(match.group("wns")), unit)
+                    self.results["_drc_tns"] = from_library_time(float(match.group("tns")), unit)
+                    self.results["setup_violating_paths"] = int(match.group("nvp"))
+                    if self.results["setup_violating_paths"] != 0:
+                        failed = True
+                    continue
+                match = hold_wns_re.match(sec)
+                if match:
+                    self.results["_drc_hold_wns"] = from_library_time(
+                        float(match.group("wns")), unit
+                    )
+                    self.results["_drc_hold_tns"] = from_library_time(
+                        float(match.group("tns")), unit
+                    )
+                    self.results["hold_violating_paths"] = int(match.group("nvp"))
+                    if self.results["hold_violating_paths"] != 0:
+                        failed = True
             self.results["path_groups"] = path_groups
 
         return not failed

@@ -292,7 +292,7 @@ PULLUP`.
   its number is no usable delay. `nextpnr` reports `fmax` after placement and routing.
 - `nextpnr` parses timing and utilization from the JSON report named by its `report` setting. Its
   `lut`, `ff`, `bram`, `dsp` and `io` are given for ECP5 and Xilinx 7-series; other families get
-  the bel-type counts in `cell_types` (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.
+  the bel-type counts in `bel_types` (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.
 - `nextpnr`'s `wns` is derived: the difference between the constrained and achieved clock periods.
   With several constrained clock domains, `fmax` is the lowest achieved frequency and `wns` is the
   least-slack domain's (they may differ), and the scalar `clock_frequency` and `clock_period` are

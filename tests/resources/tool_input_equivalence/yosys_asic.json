@@ -516,11 +516,13 @@
     },
     "error": null,
     "metrics": {
-     "area": 376.5,
      "cell_types": {
       "fake_cell": 251
      },
      "cells": 251,
+     "library_area": {
+      "cells": 376.5
+     },
      "platform": {
       "corner": "typical",
       "name": "tiny",

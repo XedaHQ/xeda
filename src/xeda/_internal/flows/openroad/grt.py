@@ -39,8 +39,8 @@ log = logging.getLogger(__name__)
 #: The results that the global route adds to the common ones: the result, the metric after the
 #: stage prefix, and the reader of its value.
 ROUTE_TABLE = (
-    ("global_route_wirelength", "global_route__wirelength", number),
-    ("global_route_vias", "global_route__vias", count),
+    ("wirelength", "global_route__wirelength", number),
+    ("vias", "global_route__vias", count),
     ("antenna_violating_nets", "antenna__violating__nets", count),
     ("antenna_violating_pins", "antenna__violating__pins", count),
     ("antenna_diodes", "antenna_diodes_count", count),
@@ -126,18 +126,19 @@ class OpenroadGrt(OpenroadStage):
         "wns",
         "tns",
         "whs",
-        "worst_slack",
         "fmax",
         "fmax_by_clock",
         "utilization",
-        "power",
-        area=MetricSpec(
-            "Area of the standard cells after the global route and its repair, in square "
-            "micrometers.",
-            "number",
-            "um^2",
-        ),
-        hold_tns=MetricSpec(
+        "power.cells.total",
+        **{
+            "area.stdcells": MetricSpec(
+                "Area of the standard cells after the global route and its repair, in square "
+                "micrometers.",
+                "number",
+                "um^2",
+            )
+        },
+        ths=MetricSpec(
             "Total negative hold slack after the global route, with propagated clocks and the "
             "parasitics that OpenROAD estimates from the route.",
             "number",
@@ -149,10 +150,8 @@ class OpenroadGrt(OpenroadStage):
         clock_skew_hold=MetricSpec(
             "Clock skew of the hold check after the global route.", "number", "ns"
         ),
-        global_route_wirelength=MetricSpec(
-            "Total wire length of the global route.", "number", "um"
-        ),
-        global_route_vias=MetricSpec("Number of vias of the global route.", "integer"),
+        wirelength=MetricSpec("Total wire length of the global route.", "number", "um"),
+        vias=MetricSpec("Number of vias of the global route.", "integer"),
         antenna_violating_nets=MetricSpec(
             "Number of nets with an antenna violation after the global route and its repair.",
             "integer",

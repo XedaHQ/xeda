@@ -548,7 +548,9 @@
     "error": null,
     "metrics": {
      "power": {
-      "total": 0.5
+      "device": {
+       "total": 0.5
+      }
      }
     },
     "outcome": "passed",
@@ -2000,9 +2002,9 @@
     },
     "error": null,
     "metrics": {
-     "bram": {
+     "bram_sites": {
       "ramb18": 1,
-      "ramb36": 0
+      "ramb36_fifo": 0
      },
      "bram_tile": 0.5,
      "clock_frequency": 450.045,
@@ -2021,6 +2023,7 @@
      "setup_violations": 0,
      "slice": 877,
      "status": "route_design Complete!",
+     "ths": 0.0,
      "tns": 0.0,
      "whs": 0.006,
      "wns": 0.046

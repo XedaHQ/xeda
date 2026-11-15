@@ -137,9 +137,10 @@ def metric_unit_known(unit: str) -> bool:
 COMMON_METRICS: Dict[str, MetricSpec] = {
     # timing
     "fmax": MetricSpec(
-        "Maximum achievable clock frequency, derived from the constrained period and the worst "
-        "negative slack. This is the achieved result, unlike `clock_frequency`. Each tool times "
-        "a design with its own model: compare `fmax` only between runs of the same tool.",
+        "Maximum achievable clock frequency: the minimum over the clocks and the corners that "
+        "the tool times. This is the achieved result, unlike `clock_frequency`. A flow "
+        "whose tool gives the value in another way says so in its own description. Each tool "
+        "times a design with its own model: compare `fmax` only between runs of the same tool.",
         "number",
         "MHz",
     ),
@@ -156,71 +157,94 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
         "number",
         "MHz",
     ),
-    "clock_name": MetricSpec("Name of the clock the reported timing refers to.", "text"),
     "clock_port": MetricSpec("Design port the reported clock is attached to.", "text"),
     "wns": MetricSpec(
-        "Worst negative slack over all setup paths. Negative means setup timing is not met.",
+        "Worst setup slack: the smallest slack over all setup paths. The value is signed. "
+        "Negative means setup timing is not met.",
         "number",
         "ns",
     ),
     "whs": MetricSpec(
-        "Worst hold slack over all hold paths. Negative means a hold violation.", "number", "ns"
+        "Worst hold slack: the smallest slack over all hold paths. The value is signed. "
+        "Negative means a hold violation.",
+        "number",
+        "ns",
     ),
     "tns": MetricSpec(
         "Total negative slack, summed over every failing setup endpoint.", "number", "ns"
     ),
-    "setup_wns": MetricSpec("Worst negative slack on setup paths.", "number", "ns"),
-    "hold_wns": MetricSpec("Worst negative slack on hold paths.", "number", "ns"),
-    "worst_slack": MetricSpec("Worst slack over all analyzed paths.", "number", "ns"),
+    "ths": MetricSpec(
+        "Total negative hold slack, summed over every failing hold endpoint. It is zero or "
+        "negative.",
+        "number",
+        "ns",
+    ),
     "setup_violations": MetricSpec("Number of endpoints that fail setup timing.", "integer"),
     "hold_violations": MetricSpec("Number of endpoints that fail hold timing.", "integer"),
-    "num_violating_paths": MetricSpec("Number of paths that fail setup timing.", "integer"),
-    "hold_num_violating_paths": MetricSpec("Number of paths that fail hold timing.", "integer"),
-    "minimum_period": MetricSpec("Minimum achievable clock period.", "number", "ns"),
+    "setup_violating_paths": MetricSpec(
+        "Number of violating paths in the setup (maximum delay) timing, as Design Compiler "
+        "counts them.",
+        "integer",
+    ),
+    "hold_violating_paths": MetricSpec(
+        "Number of violating paths in the hold (minimum delay) timing, as Design Compiler "
+        "counts them.",
+        "integer",
+    ),
     # FPGA resources
     "lut": MetricSpec("Number of LUTs used.", "integer"),
     "ff": MetricSpec("Number of flip-flops (registers) used.", "integer"),
     "slice": MetricSpec("Number of slices / logic elements occupied.", "integer"),
-    "dsp": MetricSpec("Number of DSP blocks used.", "integer"),
+    "dsp": MetricSpec(
+        "Number of DSP primitives used: the DSP cells of the device family, such as a Xilinx "
+        "`DSP48E1` or a Lattice ECP5 `MULT18X18D` or `ALU54B`. On ECP5 a multiply-accumulate uses "
+        "two. Compare the counts only within one device family.",
+        "integer",
+    ),
     "bram": MetricSpec("Number of block RAM primitives used.", "integer"),
-    # ASIC area: the unit of an area is the one of the platform's Liberty files, so it has no
-    # unit here
-    "area": MetricSpec(
-        "Cell area of the synthesized design, in the technology's area unit. Compare areas only "
-        "within one platform.",
+    # ASIC area. `library_area.*` is a sum of Liberty `area` values: it is relative to the
+    # libraries and has no unit here. `area.*` comes from the layout geometry and is in um^2.
+    "library_area.cells": MetricSpec(
+        "Sum of the Liberty `area` of the cells, in the area unit of the libraries. Compare it "
+        "only between runs that use the same libraries.",
         "number",
     ),
-    "design_area": MetricSpec(
-        "Area of the placed design, in `design_area_unit`. Compare areas only within one "
-        "platform.",
+    "library_area.combinational": MetricSpec(
+        "Sum of the Liberty `area` of the combinational cells, in the area unit of the "
+        "libraries. Compare it only between runs that use the same libraries.",
         "number",
     ),
-    "design_area_unit": MetricSpec("Unit the reported `design_area` is expressed in.", "text"),
-    "utilization_percent": MetricSpec("Core area utilization, in percent.", "number"),
-    "utilization_ratio": MetricSpec("Core area utilization, as a ratio in 0..1.", "number"),
-    "aspect_ratio": MetricSpec("Core height divided by core width.", "number"),
-    "area_combinational": MetricSpec(
-        "Area of the combinational cells, in the technology's area unit.", "number"
-    ),
-    "area_noncombinational": MetricSpec(
-        "Area of the sequential (state-holding) cells, in the technology's area unit.", "number"
-    ),
-    "area_macro_bbox": MetricSpec(
-        "Area of macros and black boxes, in the technology's area unit.", "number"
-    ),
-    "area_cell_total": MetricSpec(
-        "Total cell area, excluding net interconnect, in the technology's area unit.", "number"
-    ),
-    "area_total": MetricSpec(
-        "Total area, including net interconnect where the tool reports it, in the technology's "
-        "area unit.",
+    "library_area.sequential": MetricSpec(
+        "Sum of the Liberty `area` of the sequential (state-holding) cells, in the area unit of "
+        "the libraries. Compare it only between runs that use the same libraries.",
         "number",
     ),
-    "area_core": MetricSpec("Area of the core region, in the technology's area unit.", "number"),
+    "library_area.macros_blackboxes": MetricSpec(
+        "Area of the macros and black boxes, in the area unit of the libraries. Compare it only "
+        "between runs that use the same libraries.",
+        "number",
+    ),
+    "library_area.nets": MetricSpec(
+        "Area of the net interconnect that the wire load model gives, in the area unit of the "
+        "libraries. Absent when the tool reports no number. Compare it only between runs that "
+        "use the same libraries.",
+        "number",
+    ),
+    "library_area.with_nets": MetricSpec(
+        "Total area: the cell area plus the net interconnect area where the tool reports it, in "
+        "the area unit of the libraries. Compare it only between runs that use the same "
+        "libraries.",
+        "number",
+    ),
     "utilization": MetricSpec(
-        "Share of the core area that the standard cells fill, as a ratio from 0 to 1.", "number"
+        "(Standard-cell area + macro area) / core area, as a ratio. It can exceed 1.", "number"
     ),
-    "power": MetricSpec("Total power of the design, as the tool estimates it.", "number", "W"),
+    "power.cells.total": MetricSpec(
+        "Total power of all cell instances, as OpenSTA estimates it: the sum of the internal, "
+        "switching and leakage power.",
+        "number",
+        "W",
+    ),
     "io": MetricSpec("Number of I/O buffers/pads used.", "integer"),
     "timing_met": MetricSpec(
         "Whether every constrained clock domain met its constraint.", "boolean"

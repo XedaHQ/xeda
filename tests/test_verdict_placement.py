@@ -39,8 +39,8 @@ VIOLATION_COUNTS = {
     "_failing_endpoints",
     "_num_unrouted",
     "_timing_errors",
-    "num_violating_paths",
-    "hold_num_violating_paths",
+    "setup_violating_paths",
+    "hold_violating_paths",
 }
 
 ORDERINGS = (ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.NotEq)

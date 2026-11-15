@@ -116,21 +116,21 @@ _EPSILON = 1e-9
 OPENROAD_FLOWS = ("openroad_place", "openroad_cts", "openroad_grt", "openroad")
 #: The metrics of a row and the result of the last xeda flow that gives each: the ORFS metric, the
 #: result, and the factor that turns the unit of xeda into the unit of ORFS. xeda reports `fmax`
-#: in MHz and ORFS in Hz. Both give times in ns, areas in um^2 and power in W. The worst slack is
-#: the result `worst_slack`: the result `wns` stops at zero, and the ORFS metric does not.
+#: in MHz and ORFS in Hz. Both give times in ns, areas in um^2 and power in W. The result is a
+#: dotted metric path (`area.stdcells` is the key `stdcells` of the table `area`).
 XEDA_RESULTS = (
-    ("finish__timing__setup__ws", "worst_slack", 1),
+    ("finish__timing__setup__ws", "wns", 1),
     ("finish__timing__setup__tns", "tns", 1),
     ("finish__timing__hold__ws", "whs", 1),
-    ("finish__timing__hold__tns", "hold_tns", 1),
-    ("finish__design__instance__area__stdcell", "area", 1),
-    ("finish__power__total", "power", 1),
+    ("finish__timing__hold__tns", "ths", 1),
+    ("finish__design__instance__area__stdcell", "area.stdcells", 1),
+    ("finish__power__total", "power.cells.total", 1),
     ("detailedroute__route__drc_errors", "drc_errors", 1),
     ("detailedroute__antenna__violating__nets", "antenna_violating_nets", 1),
     ("finish__timing__fmax", "fmax", 1_000_000),
     ("finish__timing__drv__setup_violation_count", "setup_violations", 1),
-    ("finish__design__instance__count__stdcell", "instances", 1),
-    ("finish__design__core__area", "core_area", 1),
+    ("finish__design__instance__count__stdcell", "stdcells", 1),
+    ("finish__design__core__area", "area.core", 1),
 )
 
 #: The flows that a half needs.
@@ -1036,6 +1036,16 @@ def root_node(document: Mapping[str, Any]) -> Mapping[str, Any]:
     return {}
 
 
+def metric_at(metrics: Mapping[str, Any], path: str) -> Any:
+    """Return the metric at the dotted `path` in the nested metrics of a record, or None."""
+    node: Any = metrics
+    for segment in path.split("."):
+        if not isinstance(node, Mapping) or segment not in node:
+            return None
+        node = node[segment]
+    return node
+
+
 def read_xeda_results(document: Mapping[str, Any], half: str) -> dict[str, Any]:
     """Return the part of a result row that the `--json` output of a xeda run gives.
 
@@ -1057,20 +1067,20 @@ def read_xeda_results(document: Mapping[str, Any], half: str) -> dict[str, Any]:
         "run_path": node.get("run_dir"),
     }
     if half == "synthesis":
-        part["yosys_area"] = results.get("area")
-        part["yosys_cells"] = results.get("cells")
+        part["yosys_area"] = metric_at(results, "library_area.cells")
+        part["yosys_cells"] = metric_at(results, "cells")
         return part
     missing = [
         f"`{key}` ({metric})"
         for metric, key, _factor in XEDA_RESULTS
-        if metric in REQUIRED_METRICS and key not in results
+        if metric in REQUIRED_METRICS and metric_at(results, key) is None
     ]
     if missing:
         raise ParityError(f"the xeda results lack {', '.join(missing)}")
     part["metrics"] = {
-        metric: results[key] * factor if factor != 1 else results[key]
+        metric: value * factor if factor != 1 else value
         for metric, key, factor in XEDA_RESULTS
-        if key in results
+        if (value := metric_at(results, key)) is not None
     }
     return part
 
@@ -1093,7 +1103,9 @@ def node_results(document: Mapping[str, Any], flow: str) -> dict[str, Any]:
             except RecordError:
                 return {}
             found: dict[str, Any] = {
-                key: record.metric(key) for key in ("area", "cells") if key in record.metric_info
+                key: record.metric(key)
+                for key in ("library_area.cells", "cells")
+                if key in record.metric_info
             }
             found["runtime"] = _seconds(record.runtime)
             return found
@@ -1843,7 +1855,7 @@ def run_half(
     else:
         synthesis = node_results(document, "yosys")
         row["metrics"] = part["metrics"]
-        row["yosys_area"] = synthesis.get("area")
+        row["yosys_area"] = synthesis.get("library_area.cells")
         row["yosys_cells"] = synthesis.get("cells")
         row["times"] = xeda_times(half, seconds, synthesis.get("runtime"))
         row["success"] = True

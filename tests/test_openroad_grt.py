@@ -1296,18 +1296,17 @@ def test_a_launch_reports_the_recorded_metrics_of_the_global_route(tmp_path, mon
     # the record holds the described metrics, with the values of the run
     assert_metrics_recorded(flow)
     results = flow.results
-    assert results["worst_slack"] == pytest.approx(-0.247746)
     assert results["wns"] == pytest.approx(-0.247746)
     assert results["tns"] == pytest.approx(-11.083)
     assert results["whs"] == pytest.approx(0.0142931)
-    assert results["hold_tns"] == 0
+    assert results["ths"] == 0
     assert results["fmax"] == pytest.approx(2009.06)
-    assert results["area"] == pytest.approx(773.528)
+    assert results["area.stdcells"] == pytest.approx(773.528)
     assert results["utilization"] == pytest.approx(0.887668)
-    assert results["power"] == pytest.approx(0.00571903)
+    assert results["power.cells.total"] == pytest.approx(0.00571903)
     assert results["clock_skew_setup"] == pytest.approx(0.00201635)
-    assert results["global_route_wirelength"] == 6506
-    assert results["global_route_vias"] == 1097
+    assert results["wirelength"] == 6506
+    assert results["vias"] == 1097
     assert results["antenna_violating_nets"] == 0
     assert results["antenna_violating_pins"] == 0
     # the diode of nangate45 is not usable: the recorded run skipped the repair
@@ -1323,23 +1322,22 @@ def test_the_results_are_described():
         "wns",
         "tns",
         "whs",
-        "worst_slack",
         "fmax",
         "utilization",
-        "power",
-        "area",
-        "hold_tns",
+        "power.cells.total",
+        "area.stdcells",
+        "ths",
         "clock_skew_setup",
         "clock_skew_hold",
-        "global_route_wirelength",
-        "global_route_vias",
+        "wirelength",
+        "vias",
         "antenna_violating_nets",
         "antenna_violating_pins",
         "antenna_diodes",
         "platform",
     ):
         assert described[key].description, key
-    for key in ("wns", "tns", "whs", "worst_slack", "fmax", "utilization", "power"):
+    for key in ("wns", "tns", "whs", "fmax", "utilization", "power.cells.total"):
         assert described[key] == COMMON_METRICS[key]
 
 

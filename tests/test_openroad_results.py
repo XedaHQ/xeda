@@ -111,15 +111,14 @@ def test_the_detailed_placement_stage_of_the_recorded_run():
     results = stage_results(
         metrics, "detailedplace", time_unit="1ns", file=METRICS / "openroad_place.json"
     )
-    assert results["worst_slack"] == pytest.approx(-0.1835)
     assert results["wns"] == pytest.approx(-0.1835)
     assert results["tns"] == pytest.approx(-7.7916)
     assert results["whs"] == pytest.approx(0.0846772)
-    assert results["hold_tns"] == 0
+    assert results["ths"] == 0
     assert results["fmax"] == pytest.approx(2306.81)
-    assert results["area"] == pytest.approx(657.02)
+    assert results["area.stdcells"] == pytest.approx(657.02)
     assert results["utilization"] == pytest.approx(0.753968)
-    assert results["power"] == pytest.approx(0.00388374)
+    assert results["power.cells.total"] == pytest.approx(0.00388374)
     assert "clock_skew_setup" not in results  # the stage does not report the skew
 
 
@@ -130,10 +129,10 @@ def test_the_clock_tree_stage_reports_the_skew():
     assert results["clock_skew_hold"] == pytest.approx(0.00116677)
 
 
-def test_the_wns_is_never_positive():
+def test_the_wns_keeps_its_sign():
     metrics = {"s__timing__setup__ws": 0.075}
     results = stage_results(metrics, "s", time_unit="1ns", file=Path("m.json"))
-    assert results["worst_slack"] == 0.075 and results["wns"] == 0
+    assert results["wns"] == 0.075 and "worst_slack" not in results
 
 
 def test_times_convert_from_the_liberty_unit_to_nanoseconds():
@@ -145,7 +144,6 @@ def test_times_convert_from_the_liberty_unit_to_nanoseconds():
         "s__clock__skew__setup": 12.0,
     }
     results = stage_results(metrics, "s", time_unit="1ps", file=Path("m.json"))
-    assert results["worst_slack"] == pytest.approx(-0.15)
     assert results["wns"] == pytest.approx(-0.15)
     assert results["tns"] == pytest.approx(-2.0)
     assert results["whs"] == pytest.approx(0.08)
@@ -154,7 +152,7 @@ def test_times_convert_from_the_liberty_unit_to_nanoseconds():
 
 def test_a_result_whose_metric_is_absent_is_left_out():
     results = stage_results({"s__power__total": 1.0}, "s", time_unit="1ns", file=Path("m.json"))
-    assert results == {"power": 1.0}
+    assert results == {"power.cells.total": 1.0}
 
 
 def test_fmax_is_the_lowest_frequency_over_the_clocks():
@@ -234,11 +232,11 @@ def last_flow() -> dict:
 
 def test_the_last_flow_takes_the_slack_from_the_final_file_and_the_counts_from_the_route_file():
     results = last_flow()
-    assert results["worst_slack"] == pytest.approx(-0.244411)
+    assert results["wns"] == pytest.approx(-0.244411)
     assert results["whs"] == pytest.approx(0.0159159)
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     assert results["wirelength"] == 3599 and results["vias"] == 3073
-    assert results["area"] == pytest.approx(773.528)
+    assert results["area.stdcells"] == pytest.approx(773.528)
     assert results["fmax"] == pytest.approx(2022.61)
 
 
@@ -281,4 +279,4 @@ def test_a_key_of_the_wrong_file_is_not_the_value():
     results = final_results(
         route, final, time_unit="1ns", route_file=Path("r.json"), final_file=Path("f.json")
     )
-    assert results["drc_errors"] == 0 and results["worst_slack"] == pytest.approx(-0.244411)
+    assert results["drc_errors"] == 0 and results["wns"] == pytest.approx(-0.244411)

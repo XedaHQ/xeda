@@ -65,8 +65,8 @@ def test_the_oracle_tells_each_type_from_the_others():
 
 def test_a_key_is_described_by_its_own_entry_only():
     declared = VivadoPower.results_description
-    assert descriptor_of("power.total", declared) is declared["power.total"]
-    assert descriptor_of("power.components.Clocks", declared) is None
+    assert descriptor_of("power.device.total", declared) is declared["power.device.total"]
+    assert descriptor_of("power.device.components.Clocks", declared) is None
     assert descriptor_of("Unknown", declared) is None
 
 
@@ -104,7 +104,7 @@ def test_yosys_fpga_writes_the_declared_types(tmp_path):
     assert flow.parse_reports()
     check(YosysFpga, flow.results, 6, all_described=True)
     assert flow.results["latch"] == 1 and flow.results["dsp"] == 2
-    assert flow.results["bram.ramb36"] == 1 and flow.results["bram.ramb18"] == 0
+    assert flow.results["bram_cells.ramb36"] == 1 and flow.results["bram_cells.ramb18"] == 0
     assert flow.results["cell_types"] == cells
 
 
@@ -130,7 +130,7 @@ def test_nextpnr_writes_the_declared_types(tmp_path):
     flow = make_flow(tmp_path, load_ecp5_report())
     assert flow.parse_reports()
     check(Nextpnr, flow.results, 8, all_described=True)
-    assert flow.results["cell_types"]["TRELLIS_COMB"] == flow.results["lut"]
+    assert flow.results["bel_types"]["TRELLIS_COMB"] == flow.results["lut"]
 
 
 TIMING_MAX = """\
@@ -147,8 +147,9 @@ Number of sequential cells:               16
 Number of macros/black boxes:              0
 Combinational area:                  252.5
 Noncombinational area:               434.75
+Net Interconnect area:                12.5
 Total cell area:                     687.25
-Total area:                          687.25
+Total area:                          699.75
 """
 QOR = """\
 Timing Path Group 'clk'
@@ -198,7 +199,12 @@ def test_dc_writes_the_declared_types(tmp_path):
         (reports / name).write_text(text)
     assert flow.parse_reports()
     check(Dc, flow.results, 12)
-    assert isinstance(flow.results["area"], dict)
+    assert flow.results["library_area.nets"] == 12.5
+    assert flow.results["library_area.with_nets"] == 699.75
+    assert flow.results["electrical_violations"] == {
+        "Max Trans Violations": 2,
+    }
+    assert "area" not in flow.results and "drc" not in flow.results
 
 
 POWER_REPORT = """\
@@ -224,11 +230,11 @@ def test_vivado_power_writes_the_declared_types(tmp_path):
     flow = VivadoPower.__new__(VivadoPower)
     results = flow.parse_power_report(report)
     check(VivadoPower, results, 7)
-    assert results["power.total"] == 0.5
-    assert results["power.components"] == {"Clocks": 0.2}
-    assert results["power.confidence"] == "High"
+    assert results["power.device.total"] == 0.5
+    assert results["power.device.components"] == {"Clocks": 0.2}
+    assert results["power.device.confidence"] == "High"
     # a bound is no number, so no value is written
-    assert "power.static" not in results
+    assert "power.device.static" not in results
 
 
 def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_path):
@@ -247,13 +253,13 @@ def test_vivado_power_writes_no_metric_for_a_summary_row_it_does_not_know(tmp_pa
     flow = VivadoPower.__new__(VivadoPower)
     results = flow.parse_power_report(report)
     assert set(results) == {
-        "power.total",
-        "power.dynamic",
-        "power.effective_tja",
-        "power.junction_temperature",
-        "power.thermal_margin",
-        "power.confidence",
-        "power.components",
+        "power.device.total",
+        "power.device.dynamic",
+        "thermal.effective_tja",
+        "thermal.junction_temperature",
+        "thermal.margin",
+        "power.device.confidence",
+        "power.device.components",
     }
 
 
@@ -368,7 +374,7 @@ def _yosys_fpga_with(tmp_path: Path, cells: dict) -> YosysFpga:
 
 def test_yosys_fpga_writes_a_resource_that_the_netlist_does_not_use_as_zero(tmp_path):
     flow = _yosys_fpga_with(tmp_path, {"LUT6": 5})
-    for key in ("ff", "latch", "bram.ramb18", "bram.ramb36", "dsp"):
+    for key in ("ff", "latch", "bram_cells.ramb18", "bram_cells.ramb36", "dsp"):
         assert flow.results[key] == 0, key
     assert flow.results["lut"] == 5
     check(YosysFpga, flow.results, 6, all_described=True)
@@ -377,7 +383,7 @@ def test_yosys_fpga_writes_a_resource_that_the_netlist_does_not_use_as_zero(tmp_
 def test_yosys_fpga_writes_zero_resources_for_a_netlist_with_no_cell(tmp_path):
     flow = _yosys_fpga_with(tmp_path, {})
     assert flow.results["cell_types"] == {}
-    for key in ("lut", "ff", "latch", "bram.ramb18", "bram.ramb36", "dsp"):
+    for key in ("lut", "ff", "latch", "bram_cells.ramb18", "bram_cells.ramb36", "dsp"):
         assert flow.results[key] == 0, key
 
 
@@ -389,7 +395,7 @@ def test_yosys_writes_zero_cells_and_zero_area_for_an_empty_design(parsed_flow):
     parsed_flow.results.clear()
     assert parsed_flow.parse_reports()
     assert parsed_flow.results["cells"] == 0
-    assert parsed_flow.results["area"] == 0.0
+    assert parsed_flow.results["library_area.cells"] == 0.0
     assert parsed_flow.results["cell_types"] == {}
     check(Yosys, parsed_flow.results, 3)
 
@@ -442,7 +448,7 @@ def test_vivado_synth_writes_a_resource_that_the_report_gives_as_zero(tmp_path):
     )
     assert flow.parse_reports()
     assert flow.results["lut"] == 12 and flow.results["ff"] == 7
-    for key in ("lut_mem", "latch", "bram.ramb36", "bram.ramb18", "dsp"):
+    for key in ("lut_mem", "latch", "bram_sites.ramb36_fifo", "bram_sites.ramb18", "dsp"):
         assert flow.results[key] == 0 and isinstance(flow.results[key], int), key
     assert flow.results["bram_tile"] == 0.0 and isinstance(flow.results["bram_tile"], float)
     check(VivadoSynth, flow.results, 8)

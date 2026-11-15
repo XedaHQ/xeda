@@ -232,7 +232,7 @@ def test_a_vivado_composite_resolves_the_same_declared_graph(tmp_path, remote_ho
     trace = json.loads((remote / "trace.json").read_text())
     assert len(trace["declared_inputs"]) == (3 if flow_name == "vivado_postsynth_sim" else 2)
     if flow_name == "vivado_power":
-        assert "power.total" in _results(document)
+        assert "power.device.total" in _results(document)
 
 
 def test_the_fpga_graph_runs_on_the_remote_and_mirrors_its_bitstream(tmp_path, remote_host):

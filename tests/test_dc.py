@@ -158,8 +158,8 @@ def test_the_times_of_the_reports_are_converted_from_the_unit_of_the_library(tmp
     assert flow.parse_reports()
     results = flow.results
     assert results["clock_period"] == 5.0
-    assert results["setup_wns"] == 0.12
-    assert results["hold_wns"] == 0.015
+    assert results["wns"] == 0.12
+    assert results["whs"] == 0.015
     assert results["fmax"] == pytest.approx(1000.0 / (5.0 - 0.12))
 
 
@@ -171,7 +171,7 @@ def test_a_library_in_ns_gives_the_numbers_of_the_report(tmp_path):
         qor=QOR_WNS,
     )
     assert flow.parse_reports()
-    assert (flow.results["clock_period"], flow.results["setup_wns"]) == (5.0, 0.12)
+    assert (flow.results["clock_period"], flow.results["wns"]) == (5.0, 0.12)
     assert flow.results["fmax"] == pytest.approx(1000.0 / 4.88)
 
 
@@ -189,7 +189,7 @@ def test_the_setup_slack_is_the_smallest_of_the_paths_of_one_clock(tmp_path):
 """
     flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
     assert not flow.parse_timing_reports()
-    assert flow.results["setup_wns"] == -0.25
+    assert flow.results["wns"] == -0.25
     assert flow.results["clock_name"] == "clk"
     assert flow.results["clock_period"] == 4.0
     assert flow.results["fmax"] == pytest.approx(1000.0 / 4.25)
@@ -205,7 +205,7 @@ def test_two_clocks_give_the_worst_slack_and_no_period_or_fmax(tmp_path, caplog)
     flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
     with caplog.at_level(logging.DEBUG):
         assert not flow.parse_timing_reports()
-    assert flow.results["setup_wns"] == -1.0
+    assert flow.results["wns"] == -1.0
     for key in ("fmax", "clock_period", "clock_name"):
         assert key not in flow.results
     assert "fast, slow" in caplog.text
@@ -220,7 +220,7 @@ def test_a_clock_name_with_a_slash_counts_as_a_second_clock(tmp_path):
 """
     flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
     assert not flow.parse_timing_reports()
-    assert flow.results["setup_wns"] == -1.0
+    assert flow.results["wns"] == -1.0
     for key in ("fmax", "clock_period", "clock_name"):
         assert key not in flow.results
 
@@ -269,14 +269,14 @@ def test_the_hold_slack_is_the_smallest_of_the_paths(tmp_path):
 """
     flow = _flow_with_reports(tmp_path, "1 ns", timing_min=min_report)
     assert flow.parse_timing_reports()
-    assert flow.results["hold_wns"] == 0.05
+    assert flow.results["whs"] == 0.05
 
 
 def test_a_violated_hold_path_anywhere_fails_the_run(tmp_path):
     min_report = "  slack (MET)   0.30\n  slack (VIOLATED)  -0.02\n"
     flow = _flow_with_reports(tmp_path, "1 ns", timing_min=min_report)
     assert not flow.parse_timing_reports()
-    assert flow.results["hold_wns"] == -0.02
+    assert flow.results["whs"] == -0.02
 
 
 def test_the_design_rule_times_are_converted_from_the_unit_of_the_library(tmp_path):
@@ -369,3 +369,41 @@ def test_a_units_report_that_agrees_or_has_no_time_unit_does_not_reject(report, 
     assert flow.parse_reports()
     assert flow.check_results()
     assert flow.rejection is None
+
+
+AREA_REPORT = """\
+Number of ports:                           9
+Number of cells:                          44
+Number of combinational cells:            28
+Number of sequential cells:               16
+Number of macros/black boxes:              1
+Combinational area:                  252.5
+Noncombinational area:               434.75
+Macro/Black Box area:                  5.0
+Net Interconnect area:             {nets}
+Total cell area:                     692.25
+Total area:                          {total}
+"""
+
+
+def test_the_area_report_gives_the_library_areas_and_the_counts(tmp_path):
+    area = AREA_REPORT.format(nets="12.5", total="704.75")
+    flow = _flow_with_reports(tmp_path, "1 ns", area=area, qor=QOR_WNS)
+    flow.parse_reports()
+    results = flow.results
+    assert results["library_area.combinational"] == 252.5
+    assert results["library_area.sequential"] == 434.75
+    assert results["library_area.macros_blackboxes"] == 5.0
+    assert results["library_area.cells"] == 692.25
+    assert results["library_area.nets"] == 12.5
+    assert results["library_area.with_nets"] == 704.75
+    assert (results["ports"], results["cells"], results["macros_blackboxes"]) == (9, 44, 1)
+    assert (results["combinational_cells"], results["sequential_cells"]) == (28, 16)
+
+
+def test_a_net_area_that_is_not_a_number_gives_no_library_area_of_the_nets(tmp_path):
+    area = AREA_REPORT.format(nets="undefined (no wire load specified)", total="692.25")
+    flow = _flow_with_reports(tmp_path, "1 ns", area=area, qor=QOR_WNS)
+    flow.parse_reports()
+    assert "library_area.nets" not in flow.results
+    assert flow.results["library_area.with_nets"] == 692.25

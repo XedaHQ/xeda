@@ -524,7 +524,7 @@ def test_gcd_runs_through_the_chain(tmp_path):
     assert flow.succeeded, flow.results.get("error")
     assert started(runner, 0) == CHAIN
     results = flow.results
-    assert results["wns"] == 0 and results["worst_slack"] > 0, results["worst_slack"]
+    assert results["wns"] > 0, results["wns"]
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     for name in CHAIN:
         assert (tmp_path / "run" / "gcd" / name / "trace.json").is_file(), name
@@ -559,7 +559,7 @@ def test_gcd_runs_on_sky130hd_from_lambdapdk(tmp_path):
     assert flow.succeeded, flow.results.get("error")
     results = flow.results
     assert results["platform"]["provider"] == "lambdapdk"
-    assert results["wns"] == 0 and results["worst_slack"] > 0, results["worst_slack"]
+    assert results["wns"] > 0, results["wns"]
     assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
     assert results["tap_cells"] > 0
     assert (flow.run_path / "final.gds").stat().st_size > 0  # the KLayout file of lambdapdk

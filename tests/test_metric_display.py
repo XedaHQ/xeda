@@ -112,7 +112,7 @@ RESULTS = {
     "fmax": 225.98870056497177,
     "sim.time": 30_000_000_000,
     "lut": 12345,
-    "power.components": {"clocks": 0.00023, "logic": 1.5},
+    "power.device.components": {"clocks": 0.00023, "logic": 1.5},
     "cell_types": {"LUT4": 1200, "DFF": 7},
     "equivalent": True,
     "note": "[bold]x[/bold]",
@@ -125,7 +125,7 @@ INFO = {
     "fmax": _info("fmax", "number", "MHz"),
     "sim.time": _info("sim.time", "integer", "fs"),
     "lut": _info("lut", "integer"),
-    "power.components": _info("power.components", "numbers", "W"),
+    "power.device.components": _info("power.device.components", "numbers", "W"),
     "cell_types": _info("cell_types", "counts"),
     "equivalent": _info("equivalent", "boolean"),
     "note": _info("note", "text"),
@@ -138,7 +138,7 @@ def test_the_table_has_a_unit_column(monkeypatch):
     assert ("fmax", "225.989", "MHz") in rows
     assert ("sim.time", "30", "us") in rows
     assert ("lut", "12,345", "") in rows
-    assert ("power.components:", "", "") in rows
+    assert ("power.device.components:", "", "") in rows
     assert (" clocks", "0.00023", "W") in rows
     assert (" logic", "1.5", "W") in rows
     assert ("cell_types:", "", "") in rows
