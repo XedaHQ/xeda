@@ -374,7 +374,7 @@ def _yosys_fpga_with(tmp_path: Path, cells: dict) -> YosysFpga:
 
 def test_yosys_fpga_writes_a_resource_that_the_netlist_does_not_use_as_zero(tmp_path):
     flow = _yosys_fpga_with(tmp_path, {"LUT6": 5})
-    for key in ("ff", "latch", "bram.ramb18", "bram.ramb36", "dsp"):
+    for key in ("ff", "latch", "bram_cells.ramb18", "bram_cells.ramb36", "dsp"):
         assert flow.results[key] == 0, key
     assert flow.results["lut"] == 5
     check(YosysFpga, flow.results, 6, all_described=True)
@@ -383,7 +383,7 @@ def test_yosys_fpga_writes_a_resource_that_the_netlist_does_not_use_as_zero(tmp_
 def test_yosys_fpga_writes_zero_resources_for_a_netlist_with_no_cell(tmp_path):
     flow = _yosys_fpga_with(tmp_path, {})
     assert flow.results["cell_types"] == {}
-    for key in ("lut", "ff", "latch", "bram.ramb18", "bram.ramb36", "dsp"):
+    for key in ("lut", "ff", "latch", "bram_cells.ramb18", "bram_cells.ramb36", "dsp"):
         assert flow.results[key] == 0, key
 
 
@@ -395,7 +395,7 @@ def test_yosys_writes_zero_cells_and_zero_area_for_an_empty_design(parsed_flow):
     parsed_flow.results.clear()
     assert parsed_flow.parse_reports()
     assert parsed_flow.results["cells"] == 0
-    assert parsed_flow.results["area"] == 0.0
+    assert parsed_flow.results["library_area.cells"] == 0.0
     assert parsed_flow.results["cell_types"] == {}
     check(Yosys, parsed_flow.results, 3)
 
@@ -448,7 +448,7 @@ def test_vivado_synth_writes_a_resource_that_the_report_gives_as_zero(tmp_path):
     )
     assert flow.parse_reports()
     assert flow.results["lut"] == 12 and flow.results["ff"] == 7
-    for key in ("lut_mem", "latch", "bram.ramb36", "bram.ramb18", "dsp"):
+    for key in ("lut_mem", "latch", "bram_sites.ramb36_fifo", "bram_sites.ramb18", "dsp"):
         assert flow.results[key] == 0 and isinstance(flow.results[key], int), key
     assert flow.results["bram_tile"] == 0.0 and isinstance(flow.results["bram_tile"], float)
     check(VivadoSynth, flow.results, 8)

@@ -220,7 +220,7 @@ def test_a_clock_name_with_a_slash_counts_as_a_second_clock(tmp_path):
 """
     flow = _flow_with_reports(tmp_path, "1 ns", timing_max=max_report)
     assert not flow.parse_timing_reports()
-    assert flow.results["setup_wns"] == -1.0
+    assert flow.results["wns"] == -1.0
     for key in ("fmax", "clock_period", "clock_name"):
         assert key not in flow.results
 
