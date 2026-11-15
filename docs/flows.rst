@@ -1459,8 +1459,8 @@ every family. A setting for which the selected pass has no option is an error an
 on for ECP5 in the full recipe and off everywhere else. ABC9 counts a wide ECP5 LUT as one LUT, but
 it costs several LUT4s and hard MUXes. In a benchmark of 23 ECP5 designs, ``nowidelut`` saved 11%
 of the LUTs on average at the same average fmax, and single designs got faster or slower by up to
-17%. ``nowidelut: false`` keeps the wide LUTs. Under ``synth_pass_only``, an unset ``nowidelut``
-is the choice of the pass. iCE40 UltraPlus DSP
+17%. ``nowidelut: false`` leaves the mapping choices to the synthesis pass, as an unset
+``nowidelut`` does under ``synth_pass_only``. iCE40 UltraPlus DSP
 and SPRAM inference are available as the ``ice40_dsp`` and ``ice40_spram`` settings of
 ``yosys_fpga``.
 
