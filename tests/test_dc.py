@@ -179,6 +179,29 @@ def test_the_design_rule_times_are_converted_from_the_unit_of_the_library(tmp_pa
     assert (flow.results["_drc_wns"], flow.results["_drc_tns"]) == (0.25, 1.5)
 
 
+def test_the_path_group_times_are_converted_from_the_unit_of_the_library(tmp_path):
+    qor = """\
+Timing Path Group 'clk'
+-----------------------------------
+  Levels of Logic:               4
+  Critical Path Length:       2500.00
+  Critical Path Slack:         120.00
+  Critical Path Clk Period:   5000.00
+  Total Negative Slack:          0.00
+  No. of Violating Paths:        0
+"""
+    flow = _flow_with_reports(tmp_path, "1 ps", qor=qor)
+    flow.parse_reports()
+    assert flow.results["path_groups"]["clk"] == {
+        "Levels of Logic": 4,
+        "Critical Path Length": 2.5,
+        "Critical Path Slack": 0.12,
+        "Critical Path Clk Period": 5.0,
+        "Total Negative Slack": 0.0,
+        "No. of Violating Paths": 0,
+    }
+
+
 @pytest.mark.parametrize("unit", ["2 ns", "0 ns", "1 min", "1500 ps"])
 def test_a_time_unit_that_no_library_has_is_refused_at_planning(unit, tmp_path):
     settings = _dc_settings(tmp_path, library_time_unit=unit)

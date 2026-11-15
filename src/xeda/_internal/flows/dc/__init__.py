@@ -38,6 +38,19 @@ HOOK_STAGES = ("pre_elab", "post_elab", "post_link", "finalize")
 #: The line of `report_units` (`mapped.units.rpt`) that states the time unit of the main library:
 #: `Time_unit : 1e-09 Second`. The pattern is narrow on purpose. A report that has no such line
 #: gives no check.
+#: The figures of a timing path group in the QoR report that are times, in the time unit of the
+#: library. Xeda converts them to ns; the other figures are counts.
+PATH_GROUP_TIMES = frozenset(
+    {
+        "Critical Path Length",
+        "Critical Path Slack",
+        "Critical Path Clk Period",
+        "Total Negative Slack",
+        "Worst Hold Violation",
+        "Total Hold Violation",
+    }
+)
+
 TIME_UNIT_LINE = re.compile(
     r"^\s*Time_unit\s*:\s*(?P<seconds>[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)\s+Second\s*$",
     re.MULTILINE,
@@ -123,8 +136,8 @@ class Dc(AsicSynthFlow):
             "Non-zero design-rule violation counts from the QoR report, by rule.", "counts"
         ),
         path_groups=MetricSpec(
-            "Per-timing-path-group QoR figures, keyed by path group name. The times in them are in the "
-            "time unit of the library (`library_time_unit`).",
+            "Per-timing-path-group QoR figures, keyed by path group name. The times in them "
+            "(`PATH_GROUP_TIMES`) are in ns.",
             "object",
         ),
         num_ports=MetricSpec("Number of ports in the mapped design.", "integer"),
@@ -628,7 +641,16 @@ class Dc(AsicSynthFlow):
                 match = path_group_re.match(sec)
                 if match:
                     group_name = match.group("path_group_name")
-                    path_groups[group_name] = parse_kvs(match.group("kv"))
+                    path_groups[group_name] = {
+                        key: (
+                            from_library_time(value, unit)
+                            if key in PATH_GROUP_TIMES
+                            and isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            else value
+                        )
+                        for key, value in parse_kvs(match.group("kv")).items()
+                    }
 
                 else:
                     match = area_re.match(sec)
