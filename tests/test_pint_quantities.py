@@ -234,6 +234,16 @@ def test_a_registry_that_defines_a_unit_again_is_refused(record, application):
         record.quantity("fmax")
 
 
+def test_a_setting_cell_refuses_a_registry_that_defines_its_unit_again(application):
+    from xeda._internal.introspect import settings_as_quantities
+
+    private = pint.UnitRegistry()
+    private.define("nanosecond = 1 * second = ns")
+    pint.set_application_registry(private)
+    with pytest.raises(ValueError, match="`ns`"):
+        settings_as_quantities("ghdl_sim", {"stop_time": "10 ns"})
+
+
 def test_each_call_builds_new_objects(record):
     first = record.quantity("fmax")
     first.ito("kHz")

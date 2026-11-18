@@ -424,9 +424,10 @@ def _in_field_units(
     if isinstance(unit, str):
         if isinstance(value, (str, Quantity, pint.Quantity)):
             try:
-                return render(quantity_in_unit(unit, value), value)
+                quantity = quantity_in_unit(unit, value)
             except ValueError:
                 return value
+            return render(quantity, value)
         return value
     for key in ("anyOf", "oneOf"):
         for branch in schema.get(key, ()):

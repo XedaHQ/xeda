@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 from . import code_epoch
 from .cancel import CancelToken, never_canceled, observing
 from .design import Design
-from xeda.errors import RecordError, SpecError, StalePlanError, StaleRuntimeError
+from xeda.errors import FlowNotFoundError, RecordError, SpecError, StalePlanError, StaleRuntimeError
 from .events import Event
 from .flow import registered_flows
 from .flow_runner import launch_run
@@ -249,7 +249,7 @@ def _setting_quantities(cells: Mapping[str, Any], result: Result) -> dict[str, A
         flow = result.nodes[node].flow if node in result.nodes else node
         try:
             table = settings_as_quantities(flow, table)
-        except Exception:  # pylint: disable=broad-exception-caught
+        except FlowNotFoundError:
             pass  # a name that is no flow keeps its settings
         for path, value in _leaves(table, node):
             converted[path] = value
