@@ -456,6 +456,7 @@ def test_a_numpy_scalar_is_accepted_and_an_array_is_refused():
     numpy = pytest.importorskip("numpy")
     assert _settings(Q(numpy.float32(2.5), "ns")) == _settings("2.5 ns")
     assert _settings(Q(numpy.int64(3), "ps")) == _settings("3 ps")
+    assert _settings(Q(numpy.float64(2.5), "ns")) == _settings("2.5 ns")
     with pytest.raises(ValidationError, match="ndarray"):
         _settings(Q(numpy.array(2.0), "ns"))
 
@@ -481,6 +482,13 @@ def test_a_pint_quantity_is_written_as_the_text_that_xeda_reads(tmp_path):
     assert _identity(Spec("yosys", reloaded), tmp_path) == _identity(
         Spec("yosys", _design(tmp_path, flows=_clock("10 ns"))), tmp_path
     )
+
+
+def test_a_unit_that_the_registry_defines_again_is_not_written_as_text():
+    private = pint.UnitRegistry()
+    private.define("nanosecond = 1 * second = ns")
+    with pytest.raises(ValueError, match="`ns`"):
+        json_encodable(private.Quantity(1, "ns"))
 
 
 def test_a_copy_of_a_design_keeps_the_quantity(tmp_path):

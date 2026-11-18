@@ -246,7 +246,8 @@ def _digits_of_text(number: str) -> _Decimal3:
 def _digits_of_number(value: Union[int, float, Decimal]) -> _Decimal3:
     """Return the sign, digits and exponent of a finite number. A float counts as its shortest
     decimal text (`repr`), the decimal that a person would read from it."""
-    exact = Decimal(repr(value)) if isinstance(value, float) else Decimal(value)
+    # `float(value)`: a subclass such as numpy's `float64` has another `repr` (`np.float64(2.5)`).
+    exact = Decimal(repr(float(value))) if isinstance(value, float) else Decimal(value)
     sign, digit_tuple, exponent = exact.as_tuple()
     assert isinstance(exponent, int)
     return bool(sign), "".join(map(str, digit_tuple)).lstrip("0"), exponent
@@ -1151,11 +1152,18 @@ def _named_by(units: Any, registry: Any) -> Iterator[str]:
 
 def pint_quantity_text(value: Any) -> str:
     """Return the text of the pint quantity `value` that Xeda reads back, such as `10 ns`. A unit
-    that Xeda has no name for is written in the short form of pint."""
+    that Xeda has no name for is written in the short form of pint. Raise `ValueError` for a unit
+    that has another meaning in the registry of `value` than in Xeda."""
     unit = pint_unit_text(value.units, value._REGISTRY)  # pylint: disable=protected-access
-    if unit is None:
-        return format(value, "~")
-    return f"{value.magnitude} {unit}"
+    if unit is not None:
+        return f"{value.magnitude} {unit}"
+    for name in _named_by(value.units, value._REGISTRY):  # pylint: disable=protected-access
+        # The text `1 ns` would mean another value when Xeda reads it back.
+        raise ValueError(
+            f"the unit `{name}` of the pint quantity `{value}` has another meaning in its "
+            "registry than in Xeda, so Xeda cannot write it as text"
+        )
+    return format(value, "~")
 
 
 def is_number_text(text: str) -> bool:
