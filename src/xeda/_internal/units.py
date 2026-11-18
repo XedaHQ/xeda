@@ -243,6 +243,14 @@ def _digits_of_text(number: str) -> _Decimal3:
     return sign == "-", digits, int(exponent or 0) - len(fraction)
 
 
+def _is_finite(value: Union[int, float, Decimal]) -> bool:
+    """Return whether a number is finite. An `int` always is: `math.isfinite` would convert it to
+    a float, and raise `OverflowError` for an `int` that no float holds."""
+    if isinstance(value, Decimal):
+        return value.is_finite()
+    return isinstance(value, numbers.Integral) or math.isfinite(value)
+
+
 def _digits_of_number(value: Union[int, float, Decimal]) -> _Decimal3:
     """Return the sign, digits and exponent of a finite number. A float counts as its shortest
     decimal text (`repr`), the decimal that a person would read from it."""
@@ -479,10 +487,7 @@ class Quantity:
         elif not isinstance(magnitude, (float, Decimal)):
             magnitude = float(magnitude)  # a numpy floating scalar
         shown = f"{magnitude} {unit_name}"
-        finite = (
-            magnitude.is_finite() if isinstance(magnitude, Decimal) else math.isfinite(magnitude)
-        )
-        if not finite:
+        if not _is_finite(magnitude):
             raise QuantityError(f"{where}`{shown}` is not a finite number")
         unit = pint_unit_text(value.units, value._REGISTRY)  # pylint: disable=protected-access
         if unit is None:
@@ -554,10 +559,7 @@ class Quantity:
                 f"expected a number of {unit}, not {type(magnitude).__name__}; "
                 f"for text write `{cls.example}`"
             )
-        finite = (
-            magnitude.is_finite() if isinstance(magnitude, Decimal) else math.isfinite(magnitude)
-        )
-        if not finite:
+        if not _is_finite(magnitude):
             raise QuantityError(f"`{magnitude}` {unit} is not a finite number")
         factor = cls._factor(unit, unit)
         shown = f"{magnitude} {unit}"
@@ -1102,9 +1104,9 @@ def _reference_registry() -> UnitRegistry:
     return UnitRegistry()
 
 
-def _in_base_units(registry: Any, text: str) -> Any:
+def _in_base_units(registry: Any, text: str, magnitude: int = 1) -> Any:
     try:
-        return registry.Quantity(1, text).to_base_units()
+        return registry.Quantity(magnitude, text).to_base_units()
     except PintError as error:
         raise ValueError(f"the registry does not define the unit `{text}`: {error}") from None
 
@@ -1115,15 +1117,17 @@ def verify_unit(registry: Any, text: str) -> None:
     A registry can define a unit again (`ns = 1 * second`). Xeda would then read a quantity
     wrongly. The check compares the unit, in base units, with the same unit in a registry that has
     the definitions that pint ships."""
-    got = _in_base_units(registry, text)
-    want = _in_base_units(_reference_registry(), text)
-    if dict(got.unit_items()) != dict(want.unit_items()) or not math.isclose(
-        got.magnitude, want.magnitude, rel_tol=1e-12
-    ):
-        raise ValueError(
-            f"the unit `{text}` has another meaning in this pint registry than in the default "
-            f"one: {got} against {want}"
-        )
+    # Two points fix a conversion that has an offset (`degC`) as well as its scale.
+    for magnitude in (1, 2):
+        got = _in_base_units(registry, text, magnitude)
+        want = _in_base_units(_reference_registry(), text, magnitude)
+        if dict(got.unit_items()) != dict(want.unit_items()) or not math.isclose(
+            got.magnitude, want.magnitude, rel_tol=1e-12
+        ):
+            raise ValueError(
+                f"the unit `{text}` has another meaning in this pint registry than in the default "
+                f"one: {got} against {want}"
+            )
 
 
 def pint_unit_text(units: Any, registry: Any) -> Optional[str]:

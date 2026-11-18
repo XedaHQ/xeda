@@ -154,12 +154,18 @@ class SweepResult:
                         f"`{text}`: the flow `{flow}` has no metric `{path}`. Its metrics are: "
                         f"{', '.join(described)}."
                     )
-        rows = [self._row(point, metrics, quantities) for point in self.points]
+        schemas: dict[Any, Any] = {}  # the settings schema of each flow, built once
+        rows = [self._row(point, metrics, quantities, schemas) for point in self.points]
         keys = list(dict.fromkeys(key for row in rows for key in row))
         return [{key: row.get(key) for key in keys} for row in rows]
 
     @staticmethod
-    def _row(point: SweepPoint, metrics: Sequence[str], quantities: bool) -> dict[str, Any]:
+    def _row(
+        point: SweepPoint,
+        metrics: Sequence[str],
+        quantities: bool,
+        schemas: dict[Any, Any],
+    ) -> dict[str, Any]:
         result, spec = point.result, point.spec
         root = result.nodes[result.roots[0]] if result.roots else None
         row: dict[str, Any] = {
@@ -183,7 +189,7 @@ class SweepResult:
             effective = _found(thaw(record.settings), rest) if record is not None else None
             cells[path] = value if effective is None else effective
         if quantities:
-            cells = _setting_quantities(cells, result)
+            cells = _setting_quantities(cells, result, schemas)
         for path, value in cells.items():
             row[f"settings.{path}"] = value
         for text in metrics:
@@ -231,7 +237,9 @@ def _metric_quantities(record: RunRecord, path: str) -> Any:
     return thaw(value)
 
 
-def _setting_quantities(cells: Mapping[str, Any], result: Result) -> dict[str, Any]:
+def _setting_quantities(
+    cells: Mapping[str, Any], result: Result, schemas: dict[Any, Any]
+) -> dict[str, Any]:
     """Return the setting cells of a point (by `<node>.<path>`) with each quantity as a pint
     quantity in the unit of its field. A cell of a node that is no flow stays as it is."""
     from .introspect import settings_as_quantities
@@ -248,7 +256,7 @@ def _setting_quantities(cells: Mapping[str, Any], result: Result) -> dict[str, A
     for node, table in nodes.items():
         flow = result.nodes[node].flow if node in result.nodes else node
         try:
-            table = settings_as_quantities(flow, table)
+            table = settings_as_quantities(flow, table, schemas)
         except FlowNotFoundError:
             pass  # a name that is no flow keeps its settings
         for path, value in _leaves(table, node):

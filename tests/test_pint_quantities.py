@@ -291,7 +291,7 @@ def test_a_mixed_row_has_quantities_where_a_metric_has_a_unit(tmp_path, design):
     assert result.to_pandas(metrics=metrics)["nextpnr.fmax"][0] == plain["nextpnr.fmax"]
 
 
-def test_a_point_with_no_record_keeps_none_and_the_value_as_given(
+def test_a_point_with_no_record_keeps_none_and_the_setting_in_the_unit_of_its_field(
     tmp_path, design, monkeypatch  # noqa: F811
 ):
     monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "yosys")
@@ -304,7 +304,8 @@ def test_a_point_with_no_record_keeps_none_and_the_value_as_given(
     rows = _workspace(tmp_path).sweep(specs).rows(metrics=("nextpnr.fmax",), quantities=True)
     assert [row["nextpnr.fmax"] for row in rows] == [None, None]
     first = rows[0]["settings.nextpnr.clocks.main_clock.period"]
-    assert first == given and str(first.units) == "picosecond"
+    assert first == Q(0.01, "ns") and str(first.units) == "nanosecond"  # 10 ps, exactly
+    assert first._REGISTRY is pint.get_application_registry().get()
     second = rows[1]["settings.nextpnr.clocks.main_clock.period"]
     assert second == Q(10, "ns") and str(second.units) == "nanosecond"
 
@@ -482,6 +483,34 @@ def test_a_pint_quantity_is_written_as_the_text_that_xeda_reads(tmp_path):
     assert _identity(Spec("yosys", reloaded), tmp_path) == _identity(
         Spec("yosys", _design(tmp_path, flows=_clock("10 ns"))), tmp_path
     )
+
+
+def test_an_integer_too_large_for_a_float_reads_as_its_text():
+    assert _settings(Q(10**310, "ps")) == _settings("1e310 ps")
+
+
+def test_a_redefined_offset_unit_is_refused_although_one_degree_agrees():
+    private = pint.UnitRegistry()
+    private.define("degree_Celsius = 2 * kelvin; offset: 272.15 = degC")
+    assert private.Quantity(1, "degC").to("K").magnitude == pytest.approx(274.15)
+    with pytest.raises(ValueError, match="`degC`"):
+        verify_unit(private, "degC")
+
+
+def test_the_settings_schema_of_a_flow_is_built_once_for_a_table(monkeypatch):
+    from xeda._internal.introspect import settings_as_quantities
+
+    built = []
+    original = GhdlSim.Settings.model_json_schema
+    monkeypatch.setattr(
+        GhdlSim.Settings,
+        "model_json_schema",
+        lambda *args, **kwargs: built.append(1) or original(*args, **kwargs),
+    )
+    schemas: dict = {}
+    for _ in range(3):
+        settings_as_quantities("ghdl_sim", {"stop_time": "10 ns"}, schemas)
+    assert len(built) == 1
 
 
 def test_a_unit_that_the_registry_defines_again_is_not_written_as_text():

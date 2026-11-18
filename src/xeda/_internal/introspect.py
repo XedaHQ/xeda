@@ -384,22 +384,29 @@ def _quantity_text(quantity: Quantity, given: Any) -> Any:
 
 
 def _pint_quantity(quantity: Quantity, given: Any) -> Any:
-    """Return `quantity` as a pint quantity of the application registry, in its display unit. A
-    value that was a pint quantity already is returned as `given`."""
-    if isinstance(given, pint.Quantity):
-        return given
+    """Return `quantity` as a pint quantity of the application registry, in its display unit, the
+    unit of its field. A value that was a pint quantity is converted too, so that every quantity
+    of a table has one registry."""
     unit = quantity.display_unit
     registry = pint.get_application_registry()
     verify_unit(registry, unit)
     return registry.Quantity(quantity.to(unit), unit)
 
 
-def settings_as_quantities(flow: Union[str, Type[Flow]], settings: Mapping[str, Any]) -> Any:
+def settings_as_quantities(
+    flow: Union[str, Type[Flow]],
+    settings: Mapping[str, Any],
+    schemas: Optional[dict[Type[Flow], Any]] = None,
+) -> Any:
     """Return the input `settings` of a flow with each quantity as a pint quantity in the unit of
     its field: `timeout: 2 min` is `120 s`. A value that is no quantity, or that does not read,
-    and a value that is a pint quantity already, stay as they are."""
+    stays as it is. `schemas` keeps the settings schema of each flow class across calls."""
     cls = _resolve(flow)
-    schema = cls.Settings.model_json_schema(by_alias=True)
+    schema = None if schemas is None else schemas.get(cls)
+    if schema is None:
+        schema = cls.Settings.model_json_schema(by_alias=True)
+        if schemas is not None:
+            schemas[cls] = schema
     return _in_field_units(schema, schema.get("$defs", {}), dict(settings), _pint_quantity)
 
 
