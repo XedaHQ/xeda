@@ -39,11 +39,13 @@ from typing import (
 )
 from xml.etree import ElementTree
 
+import pint
+
 
 from .dataclass import AtomicName, BaseModel, SettingText, XedaBaseModel
 from .frozen import FrozenDict, thaw
 from .package_paths import IMPL, impl_root
-from .units import Quantity
+from .units import Quantity, pint_quantity_text
 
 __all__ = [
     "SDF",
@@ -583,6 +585,8 @@ def json_encodable(obj: Any) -> Any:
     attributes included, which nothing can load. It would also skip the `Path`, enum and
     `FileResource` conversions that the models define.
 
+    A pint quantity is written as quantity text (`10 ns`), which a quantity setting reads back.
+
     Any object that is not a model says how it is written by defining `as_json_value()`
     (`FileResource`, `Source`, `FlowOutcome`). An `Enum` is written as its value, as
     pydantic writes one in JSON mode. A set or frozenset is written as a list.
@@ -604,6 +608,8 @@ def json_encodable(obj: Any) -> Any:
         return with_json_keys(thaw(obj))
     if isinstance(obj, (set, frozenset)):
         return list(obj)  # as `json` itself writes a tuple; `str()` would write `{...}` text
+    if isinstance(obj, pint.Quantity):
+        return pint_quantity_text(obj)  # as text with a unit, which a quantity setting reads
     as_json_value = getattr(obj, "as_json_value", None)
     if callable(as_json_value):
         return with_json_keys(as_json_value())

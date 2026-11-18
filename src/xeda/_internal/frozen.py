@@ -7,9 +7,11 @@ into a form that nothing can change: a table becomes a `FrozenDict` and a list b
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterator, Mapping
 from typing import Any
 
+import pint
 from pydantic import BaseModel
 from pydantic_core import core_schema
 
@@ -59,6 +61,8 @@ def freeze(value: Any) -> Any:
         return FrozenDict({key: freeze(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
         return tuple(freeze(item) for item in value)
+    if isinstance(value, pint.Quantity):
+        return copy.copy(value)  # `ito` changes a quantity in place
     return value
 
 
@@ -71,10 +75,27 @@ def thaw(value: Any) -> Any:
     return value
 
 
+def _quantity_texts(value: Any) -> Any:
+    """Return `value` with every pint quantity written as quantity text (`10 ns`)."""
+    from .units import pint_quantity_text
+
+    if isinstance(value, Mapping):
+        return {key: _quantity_texts(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_quantity_texts(item) for item in value]
+    return pint_quantity_text(value) if isinstance(value, pint.Quantity) else value
+
+
+def _dump(value: Any, info: core_schema.SerializationInfo) -> Any:
+    """Serialize a frozen value: plain tables and lists. A JSON dump also writes a pint quantity,
+    which a raw settings table can hold before validation, as text."""
+    return _quantity_texts(value) if info.mode_is_json() else thaw(value)
+
+
 def _serialization() -> Any:
     """Return the serializer of a frozen value: a dump holds plain tables and lists."""
     return core_schema.plain_serializer_function_ser_schema(
-        thaw, return_schema=core_schema.any_schema()
+        _dump, info_arg=True, return_schema=core_schema.any_schema()
     )
 
 

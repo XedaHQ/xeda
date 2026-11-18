@@ -190,9 +190,11 @@ A setting accepts exactly the input forms that its type lists, from Python and f
 Xeda converts no value to another type. A wrong form raises ``SettingsError`` (for example with the
 code ``invalid_value``). In particular:
 
-* A physical quantity is text with a unit: ``"10 ns"``, ``"100 MHz"``. A bare number raises
-  ``SettingsError`` (``invalid_quantity``). A record, a plan and a sweep column hold a
-  quantity in its canonical text, in the unit of its setting.
+* A physical quantity is text with a unit: ``"10 ns"``, ``"100 MHz"``. From Python, a ``pint``
+  quantity of the right kind is the same value: ``Q(10, "ns")``. A bare number raises
+  ``SettingsError`` (``invalid_quantity``), and so does a pint quantity of another kind or with a
+  unit that Xeda does not know. Only a quantity setting takes a pint quantity. A record, a plan and
+  a sweep column hold a quantity in its canonical text, in the unit of its setting.
 * An integer is an ``int``. The text ``"1"``, the number ``1.0`` and ``True`` are refused.
 * A boolean is ``True`` or ``False`` only.
 * A list is a list, or comma-separated text. Text in brackets is refused.
@@ -358,6 +360,30 @@ or ``sim.ended_by``. A unit is never part of the name: it is in
 ``record.metric_info[path].unit``. ``record.metric(path)`` raises ``KeyError`` when the run did
 not report the metric.
 
+``record.quantity(path)`` returns the same metric as a ``pint`` quantity, with the unit from
+``metric_info``. A metric of the type ``numbers`` gives a read-only table of quantities. The
+quantity belongs to the application registry of pint (``pint.get_application_registry()``), so it
+adds to the quantities of your own code. The call raises ``KeyError`` for a path that is no metric,
+and ``ValueError`` for a metric that has no unit (a count, a ratio, a text): read it with
+``record.metric(path)``. Each call returns new objects, and changing one does not change the
+record. The JSON documents do not change: they hold the number in ``metrics`` and the unit in
+``metric_info``.
+
+.. code-block:: python
+
+    # quantities.py
+    import pint
+    from xeda import Design, Spec, Workspace
+
+    Q = pint.get_application_registry().Quantity
+    design = Design.load("examples/vhdl/sqrt/sqrt.yaml")
+    spec = Spec("vivado_synth", design, settings={"vivado_synth.clock.period": Q(5, "ns")})
+
+    record = Workspace("xeda_run").run(spec).record
+    fmax = record.quantity("fmax")
+    print(fmax.to("GHz"))                    # 0.4595 gigahertz
+    print(fmax > Q(400, "MHz"))              # True
+
 Find a flow, its settings and its metrics
 -----------------------------------------
 
@@ -427,6 +453,10 @@ directory, and the sweep raises ``colliding_run_dirs`` before any point runs.
 * The columns come only from the spec: vary a design with ``with_updates``.
 * ``sweep.to_pandas(metrics=...)`` returns a pandas ``DataFrame``. Xeda does not install pandas:
   without it, the call raises ``SpecError`` with the code ``missing_dependency``.
+* ``rows`` and ``to_pandas`` take ``quantities=True``. A cell that holds a quantity is then a
+  ``pint`` quantity: a metric that has a unit (``record.quantity``), and a setting that is a
+  quantity, in the unit of its setting. Every other cell keeps its value. In a ``DataFrame``, the
+  quantities are objects in a column of the type ``object``.
 * ``max_workers`` above 1 starts worker processes with the ``spawn`` method. Each worker imports
   the main script again, so a script that does this puts every launch under
   ``if __name__ == "__main__":``. A launch that the script starts at module level is refused in the

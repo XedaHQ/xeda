@@ -308,7 +308,8 @@ the error of the point, as it is of a launch. A failure of the generator of the 
 ``target``, ``outcome``, ``error_code`` and ``run_dir``, then ``design.<path>`` for each setting
 that the updates of the design changed, ``settings.<node>.<path>`` for each setting of the specs,
 and the metrics that you ask for as ``<node>.<metric>``. A metric is ``None`` for a node that has
-no record in that point. ``to_pandas`` returns the same table as a ``DataFrame``.
+no record in that point. ``to_pandas`` returns the same table as a ``DataFrame``. Both take
+``quantities=True`` to give ``pint`` quantities in the cells that hold a quantity.
 
 With ``max_workers`` of 1, a sweep executes its nodes in the calling process. With more, it
 executes them in that many worker processes, and nodes that do not wait for each other run at

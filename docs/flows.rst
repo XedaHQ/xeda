@@ -524,6 +524,12 @@ In a design file, a quantity is plain text:
 A time limit is a quantity too. On a simulation flow, ``timeout: 2 min`` limits the wall-clock
 time of each tool run, and ``stop_time: 100 us`` stops the simulation at a simulated time.
 
+In Python, a setting that is a quantity takes text such as ``"10 ns"`` or a ``pint`` quantity such
+as ``Quantity(10, "ns")``. Both give the same value and the same run identity. The unit of a pint
+quantity must be one of the units of the kind (see below), with its usual meaning: Xeda refuses a
+unit such as ``kilosecond``, and a registry that defines a unit again. A setting that is not a
+quantity refuses a pint quantity.
+
 In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
 write the number and the unit without a space. The shell then passes one word, and the item needs
 no quotes: ``-s vivado_synth.clock.period=2.5ns``. With a space, quote the whole item:
