@@ -400,6 +400,9 @@ def test_a_change_between_two_producers_fails_the_second_one_as_a_value(
         f"{name}_b": ("failed", "stale_runtime"),
         f"{name}_root": ("blocked", "producer_failed"),
     }
+    # The entry refused the second producer before its run began: it did not run.
+    assert result.nodes[f"{name}_b"].disposition == "not_run"
+    assert result.nodes[f"{name}_b"].elapsed == "0 s"
     assert (str(result.outcome), result.error and result.error.code) == ("failed", "stale_runtime")
 
 

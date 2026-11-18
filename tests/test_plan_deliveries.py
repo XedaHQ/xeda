@@ -574,7 +574,7 @@ def test_a_refusal_at_a_producer_s_turn_fails_that_node_in_a_launch_that_started
     states = {node["name"]: (node["outcome"], node["disposition"]) for node in document["nodes"]}
     assert states == {
         "t_reads_dir": ("passed", "ran"),
-        "t_delivers": ("failed", "ran"),
+        "t_delivers": ("failed", "not_run"),  # refused before its run began
         "t_both": ("blocked", "not_run"),
     }
 

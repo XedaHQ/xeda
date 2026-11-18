@@ -821,7 +821,8 @@ name and meaning:
 ``disposition``
     What this launch did with the node: ``ran``, ``reused`` (the recorded run was up to date, and Xeda
     did not run it again; only a ``passed`` or ``rejected`` run is reused), ``shared`` (a sweep
-    executed it once for several points) or ``not_run``.
+    executed it once for several points) or ``not_run``. ``ran`` means that the run of the node
+    began. A node that failed or was canceled before its run began is ``not_run``.
 ``reason``
     Why the node ran, was reused, was blocked or was not reached. For a node that ran, this is
     the text that the log shows as ``Running <flow>: <reason>``. For a rejected run that Xeda
@@ -1708,7 +1709,8 @@ In this example, the chain replaced both bindings that the file saved: the ``rea
 names the chain, and the bindings that it replaced with their sections. A request for a single flow
 has a ``roots`` of that flow. In the run document of a launch that failed, a node that Xeda
 planned and never entered has the disposition ``not_run``, and the outcome ``blocked`` or
-``skipped``. A chain that Xeda refused before it was planned (a usage error) has ``"spec": null`` and
+``skipped``. A node that Xeda refused before its run began (for example with ``stale_runtime``) is
+``not_run`` too, with the outcome ``failed``. A chain that Xeda refused before it was planned (a usage error) has ``"spec": null`` and
 empty ``roots`` and ``nodes`` in its run document.
 
 Using Xeda as a library

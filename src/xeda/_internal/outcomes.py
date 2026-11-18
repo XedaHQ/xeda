@@ -66,8 +66,9 @@ class Outcome(StrEnum):
 class Disposition(StrEnum):
     """What this launch did with a node. The set is closed.
 
-    `ran`: the launch executed it. `reused`: an earlier run was up to date. `shared`: a sweep
-    executed it once for several points. `not_run`: it did not start."""
+    `ran`: the launch executed it: its run began. `reused`: an earlier run was up to date.
+    `shared`: a sweep executed it once for several points. `not_run`: its run did not begin, also
+    when the node failed or was canceled before."""
 
     RAN = "ran"
     SHARED = "shared"

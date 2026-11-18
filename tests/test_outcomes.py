@@ -366,7 +366,10 @@ def test_a_storage_failure_is_a_failed_node_without_a_record(tmp_path, monkeypat
         monkeypatch.setattr(launch_report, "dump_json", full)
     result = _launch(_runner(tmp_path), TMayFail, _design(tmp_path))
     node = result.nodes[MAY_FAIL]
-    assert (node.outcome, node.disposition) == ("failed", "ran")
+    # A refusal before the run leaves a node whose run did not begin: it did not run.
+    ran = "not_run" if stage == "before the run" else "ran"
+    assert (node.outcome, node.disposition) == ("failed", ran)
+    assert node.elapsed == "0 s" or ran == "ran"
     assert node.record is None
     assert node.error is not None and node.error.code == "storage_error"
     assert node.error.node == MAY_FAIL

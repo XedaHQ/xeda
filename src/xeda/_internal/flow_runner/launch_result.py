@@ -410,6 +410,17 @@ def shared_result(result: NodeResult, point: int) -> NodeResult:
     )
 
 
+def _disposition(flow: Flow) -> Disposition:
+    """Return `ran` when the run of `flow` began (`Flow.start_run`), and `not_run` otherwise: a
+    node that failed or was canceled before its run began did not run."""
+    return Disposition.RAN if flow.run_started else Disposition.NOT_RUN
+
+
+def _elapsed(flow: Flow, end: _Ended) -> str:
+    """Return the time of a node whose end is `end`: `0 s` unless its run began."""
+    return end.elapsed if flow.run_started else seconds_text(0)
+
+
 def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> NodeResult:
     """Return the result of a node that the launch started."""
     flow, error = end.flow, end.error
@@ -419,7 +430,7 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
         return NodeResult(
             name=node.name,
             outcome=Outcome.FAILED,
-            disposition=Disposition.RAN,
+            disposition=Disposition.NOT_RUN,
             reason="",
             blocked_by=None,
             elapsed="0 s",
@@ -443,10 +454,10 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
         return NodeResult(
             name=node.name,
             outcome=record.outcome,
-            disposition=Disposition.REUSED if reused else Disposition.RAN,
+            disposition=Disposition.REUSED if reused else _disposition(flow),
             reason=reason,
             blocked_by=None,
-            elapsed="0 s" if reused else end.elapsed,
+            elapsed="0 s" if reused else _elapsed(flow, end),
             record=record,
             error=record.error,
             deliveries=deliveries,
@@ -458,10 +469,10 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
         return NodeResult(
             name=node.name,
             outcome=Outcome.CANCELED,
-            disposition=Disposition.NOT_RUN,
+            disposition=_disposition(flow),
             reason="",
             blocked_by=None,
-            elapsed=end.elapsed,
+            elapsed=_elapsed(flow, end),
             record=None,
             error=error_info(error, node=node.name),
             deliveries=(),
@@ -483,10 +494,10 @@ def _ended_node(node: PlanNode, end: _Ended, collector: LaunchCollector) -> Node
     return NodeResult(
         name=node.name,
         outcome=Outcome.FAILED,
-        disposition=Disposition.RAN,
+        disposition=_disposition(flow),
         reason=flow.stale_reason or "",
         blocked_by=None,
-        elapsed=end.elapsed,
+        elapsed=_elapsed(flow, end),
         record=None,
         error=cause,
         deliveries=deliveries,
@@ -689,10 +700,15 @@ def failed_result(
         if end is not None and not running:
             nodes[node.name] = _ended_node(node, end, collector)
         elif running:
+            # A node that the interrupt left before it had a flow has no end: it did not run.
             nodes[node.name] = NodeResult(
                 name=node.name,
                 outcome=Outcome.CANCELED,
-                disposition=Disposition.RAN,
+                disposition=(
+                    Disposition.NOT_RUN
+                    if end is None or end.flow is None
+                    else _disposition(end.flow)
+                ),
                 reason="",
                 blocked_by=None,
                 elapsed="0 s",

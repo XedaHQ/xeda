@@ -25,7 +25,7 @@ from xeda.errors import SpecError
 from xeda._internal.events import Event
 from xeda._internal.flow import Flow
 from xeda._internal.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
-from xeda._internal.outcomes import Outcome
+from xeda._internal.outcomes import Disposition, Outcome
 from xeda._internal import sweep
 from xeda._internal.spec import Spec
 from xeda._internal.sweep import NodeTask, worker_main
@@ -408,7 +408,7 @@ def test_a_worker_that_does_not_make_the_flow_fails_its_node_with_its_code(tmp_p
     (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
     node = point.result.nodes["parent_only_flow"]
     assert point.result.outcome is Outcome.FAILED and node.error is not None
-    assert node.error.code == "flow_not_importable"
+    assert node.error.code == "flow_not_importable" and node.disposition is Disposition.NOT_RUN
     assert node.error.message == (
         "a worker process does not rebuild the flow `parent_only_flow` as the sweep planned it, "
         "`ParentOnlyFlow` in `flow_of_the_parent`. It has no such flow."
@@ -600,6 +600,7 @@ def test_a_worker_refuses_the_task_of_other_code_before_it_reads_it(tmp_path, de
     error = outcome.result.error
     assert outcome.result.outcome is Outcome.FAILED and error is not None
     assert (outcome.node, error.node, error.code) == ("yosys_fpga", "yosys_fpga", "stale_runtime")
+    assert outcome.result.disposition is Disposition.NOT_RUN, "a refused task did not run"
     assert error.message == (
         "The process that planned the sweep runs other Xeda code than the code on disk, which this "
         "worker process imported: the files changed after that process imported them. Restart the "
@@ -637,6 +638,8 @@ def test_workers_refuse_the_tasks_of_a_process_that_runs_older_code(tmp_path, de
         assert (error.code, error.node) == ("stale_runtime", "yosys_fpga")
         assert error.message.startswith("The process that planned the sweep runs other Xeda code")
         assert point.result.nodes["yosys_fpga"].name == "yosys_fpga"
+    # Refused in every point: no point ran it, so no point shares a run of it.
+    assert _dispositions(result, "yosys_fpga") == ["not_run"] * len(result.points)
     assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
 
 
