@@ -191,7 +191,7 @@ Xeda converts no value to another type. A wrong form raises ``SettingsError`` (f
 code ``invalid_value``). In particular:
 
 * A physical quantity is text with a unit: ``"10 ns"``, ``"100 MHz"``. From Python, a ``pint``
-  quantity of the right kind is the same value: ``Q(10, "ns")``. A bare number raises
+  quantity of the right kind is the same value: ``pint.Quantity(10, "ns")``. A bare number raises
   ``SettingsError`` (``invalid_quantity``), and so does a pint quantity of another kind or with a
   unit that Xeda does not know. Only a quantity setting takes a pint quantity. A record, a plan and
   a sweep column hold a quantity in its canonical text, in the unit of its setting.
