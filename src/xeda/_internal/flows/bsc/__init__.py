@@ -341,6 +341,65 @@ def _verilog_modules(path: Path) -> list[str]:
     return _VERILOG_MODULE.findall(_VERILOG_COMMENT.sub(" ", text))
 
 
+#: A row of the port table in the header comment that bsc writes at the top of a Verilog module:
+#: `// <name> <I|O|IO> <size> [props]`.
+_PORT_ROW = re.compile(r"^//\s+(\w+)\s+(?:IO|I|O)\s+\d+(?:\s+(.*?))?\s*$")
+#: The ports that bsc names after the clock, the gate of a clock and the reset of the module.
+#: A clock or a reset that the module does not use carries no property, so the name tells it.
+_CLOCK_OR_RESET_PORT = re.compile(r"^(?:CLK|CLK_GATE|RST_N)(?:_\w+)?$")
+#: A member function of the C++ class that bsc writes for a Bluesim module, for one method.
+_BLUESIM_METHOD = re.compile(r"\bMETH_(\w+)\s*\(")
+
+
+def _verilog_method_ports(text: str, reset_prefix: str | None = None) -> list[str] | None:
+    """Return the ports of a generated Verilog module that are neither a clock nor a reset.
+
+    `text` is the Verilog that bsc generated. The port table is in its header comment, after the
+    line `// Ports:`. A port that has the property `clock`, `reset` or `gate`, or the name that
+    bsc gives a clock, a clock gate or a reset, belongs to the clock or the reset. That name is
+    `CLK`, `CLK_GATE` or `RST_N` by default, and `reset_prefix` replaces `RST_N` (`-reset-prefix`).
+    Every other port belongs to a method, so a module with an `Empty` interface has none.
+    Return None if `text` has no port table.
+    """
+    named = _CLOCK_OR_RESET_PORT
+    if reset_prefix:
+        named = re.compile(named.pattern + "|" + rf"^{re.escape(reset_prefix)}(?:_\w+)?$")
+    lines = text.splitlines()
+    for number, line in enumerate(lines):
+        if line.strip() == "// Ports:":
+            break
+    else:
+        return None
+    rows = lines[number + 1 :]
+    if not rows or not re.match(r"^//\s+Name\s+I/O\s+size\s+props\b", rows[0]):
+        return None
+    ports: list[str] = []
+    for row in rows[1:]:
+        if not row.startswith("//"):
+            break
+        found = _PORT_ROW.match(row)
+        if found is None:
+            continue
+        name, props = found.group(1), (found.group(2) or "").split()
+        if named.match(name) or {"clock", "reset", "gate"} & set(props):
+            continue
+        ports.append(name)
+    return ports
+
+
+def _bluesim_methods(text: str, module: str) -> list[str] | None:
+    """Return the names of the methods in the C++ header that bsc wrote for a Bluesim module.
+
+    Every method has a member function `METH_<name>`, and a method with a ready signal has
+    `METH_RDY_<name>` as well. A module with an `Empty` interface has none. Return None if
+    `text` does not declare the class of `module`.
+    """
+    if re.search(rf"\bclass\s+MOD_{re.escape(module)}\b", text) is None:
+        return None
+    names = unique(_BLUESIM_METHOD.findall(text))
+    return [name for name in names if not name.startswith("RDY_")] or names
+
+
 class BscFlow(Flow, metaclass=ABCMeta):
     """Compile Bluespec with bsc: the settings and the compilation `bsc` and `bsc_sim` share."""
 
@@ -1389,8 +1448,10 @@ class BscSim(BscFlow, SimFlow):
 
     The flow compiles the design's Bluespec sources in order, RTL first and then the testbench,
     with the package that defines `tb.top` last. It simulates `tb.top`, a module with an `Empty`
-    interface (`rtl.top` when the design has no testbench). `simulator` selects Bluesim, the
-    cycle-based simulator of bsc, or a Verilog simulator that bsc links with the generated
+    interface (`rtl.top` when the design has no testbench). The run fails before the simulation
+    if that module has methods, since nothing calls them and the simulation would not end.
+    `simulator` selects Bluesim,
+    the cycle-based simulator of bsc, or a Verilog simulator that bsc links with the generated
     Verilog (`bsc -vsim`). The clock and reset come from the `main.v` of bsc.
 
     Bluesim records the system-task calls in the generated code, and a script of Xeda measures
@@ -1755,6 +1816,8 @@ class BscSim(BscFlow, SimFlow):
             build_end_monitor(self, self.bsc)
         _check_link_paths([*path_flags, *link_flags, executable, *link_files])
         self._compile(backend, sources, tb_top, top_file, flags)
+        if not bluesim:
+            self._require_empty_interface(tb_top, sim_dir, bluesim)
 
         self._run_bsc(
             LINK_LOG,
@@ -1772,6 +1835,8 @@ class BscSim(BscFlow, SimFlow):
             env=link_env,
         )
         self.artifacts.executable = str(executable)
+        if bluesim:
+            self._require_empty_interface(tb_top, sim_dir, bluesim)
 
         sim_args = list(ss.sim_args)
         vcd = Path(ss.vcd) if ss.vcd else None
@@ -1846,6 +1911,43 @@ class BscSim(BscFlow, SimFlow):
                 f"`vcd` asks for a waveform, and bsc's Verilator driver wrote no {dump} in this "
                 "run: the design may end the simulation before it dumps"
             )
+
+    def _require_empty_interface(self, top: str, sim_dir: Path, bluesim: bool) -> None:
+        """Fail the run if the module to simulate has methods, before the simulation starts.
+
+        The clock and the reset come from the harness of bsc, which runs until the module calls
+        `$finish`. Nothing calls the methods of the simulated module, so the simulation would
+        not end. The check reads what this run's bsc wrote for the module: the C++ header of
+        Bluesim, or the header comment of the generated Verilog. A missing file or a missing
+        section fails the run, as the output of bsc may have changed.
+        """
+        path = sim_dir / (f"{top}.h" if bluesim else f"{top}.v")
+        report = self.report_file(path)
+        text = report.read_text(encoding="utf-8", errors="replace") if report else ""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        found = (
+            _bluesim_methods(text, top) if bluesim else _verilog_method_ports(text, ss.reset_prefix)
+        )
+        if found is None:
+            raise FlowFatalError(
+                f"bsc_sim cannot check that `{top}` has an `Empty` interface: bsc wrote no "
+                f"{'class' if bluesim else 'port table'} for it in {self.run_file(path)}."
+            )
+        if not found:
+            return
+        kind = "methods" if bluesim else "ports that are not a clock or a reset"
+        fallback = (
+            ""
+            if self.design.tb.top
+            else " The design has no testbench, so `rtl.top` is the simulated module."
+        )
+        raise FlowFatalError(
+            f"bsc_sim cannot simulate `{top}`: it has {kind} ({', '.join(found)}).{fallback} "
+            "bsc drives the clock and the reset of the module until it calls `$finish`, and "
+            "nothing calls its methods, so the simulation would not end. Simulate a "
+            "testbench module with an `Empty` interface: set `tb.top`."
+        )
 
     def _run_modelsim(self, top: str, plusargs: list[str]) -> None:
         """Load bsc's compiled work library with Xeda's own ModelSim evidence script."""

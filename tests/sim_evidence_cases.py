@@ -82,6 +82,26 @@ CASES = [SimCase(name) for name in SIMULATORS if name != "bsc_sim"] + [
 ]
 
 
+def _write_bsc_module_files(cwd: Path, words: list[str], backend: str | None) -> None:
+    """Write what bsc writes for the simulated `Empty` module: the header comment of its Verilog
+    at the generate step (`-g`), the C++ header of Bluesim at the link step (`-e`)."""
+    for flag, directory_flag in (("-g", "-vdir"), ("-e", "-simdir")):
+        if flag not in words or directory_flag not in words:
+            continue
+        module = words[words.index(flag) + 1]
+        directory = cwd / words[words.index(directory_flag) + 1]
+        directory.mkdir(parents=True, exist_ok=True)
+        if directory_flag == "-vdir":
+            (directory / f"{module}.v").write_text(
+                "// Ports:\n// Name                         I/O  size props\n"
+                "// CLK                            I     1 clock\n"
+                "// RST_N                          I     1 reset\n//\nmodule "
+                f"{module}(CLK, RST_N);\nendmodule\n"
+            )
+        elif backend == "bluesim":
+            (directory / f"{module}.h").write_text(f"class MOD_{module} : public Module {{}};\n")
+
+
 def launch_case(
     case: SimCase,
     work: Path,
@@ -298,6 +318,8 @@ def launch_case(
                 cwd=cwd,
             )
         (cwd / "oracle.build").write_text("analysis/elaboration succeeded\n")
+        if name == "bsc":
+            _write_bsc_module_files(cwd, words, case.backend)
         if name == "yosys-config":
             return str(work / "include")
         if name == "bsc" and "-o" in words and case.backend in ("verilator", "iverilog"):
