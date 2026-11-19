@@ -2657,6 +2657,9 @@ another simulator that bsc supports. Every accepted backend (listed below) requi
 (default ``error``). The argument of ``$finish(n)`` is a verbosity level and not an exit status. A
 requested Bluesim ``max_cycles`` passes only with the measured cycle count and the end tick. An
 early explicit finish remains valid. A silent exit 0 and a drained event queue fail.
+``bsc_sim`` also fails before the simulation if the module that it simulates has methods: nothing
+calls them, so the simulation would not end. Simulate a testbench module with an ``Empty``
+interface (``tb.top``), or, with Bluesim, set ``max_cycles`` to bound the run.
 ``bsc_sim`` refuses a run directory whose path has whitespace, with every simulator, before
 anything is created and when planning, because the link step of bsc runs its tools through a shell
 without quoting. Use a run root without whitespace (``--run-root``).
