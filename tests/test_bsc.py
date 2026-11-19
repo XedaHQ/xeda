@@ -1372,15 +1372,44 @@ endpackage
 """
 
 
+def _port_table(*rows: str) -> str:
+    return "// Ports:\n// Name                         I/O  size props\n" + "".join(
+        f"// {row}\n" for row in rows
+    )
+
+
 def test_a_reset_prefix_names_the_reset_port_that_is_not_a_method():
-    header = (
-        "// Ports:\n// Name                         I/O  size props\n"
-        "// CLK                            I     1 unused\n"
-        "// RST                            I     1 unused\n"
-        "// RST_other                      I     1 unused\n"
+    header = _port_table(
+        "CLK                            I     1 clock",
+        "RST                            I     1",
+        "RST_other                      I     1",
     )
     assert bsc_module._verilog_method_ports(header) == ["RST", "RST_other"]
     assert bsc_module._verilog_method_ports(header, "RST") == []
+
+
+def test_an_unused_input_with_a_name_the_design_chose_is_not_a_method_port():
+    header = _port_table(
+        "CK                             I     1 unused",
+        "RESET_B                        I     1 unused",
+    )
+    assert bsc_module._verilog_method_ports(header) == []
+
+
+def test_every_output_and_an_input_without_a_clock_property_is_a_method_port():
+    # a value method that is always ready has an output row only
+    assert bsc_module._verilog_method_ports(
+        _port_table("value                          O     8 const", "CLK  I     1 unused")
+    ) == ["value"]
+    # an output of a clock or a reset is a member of the interface too
+    assert bsc_module._verilog_method_ports(
+        _port_table("CLK_out                        O     1 clock", "RST_N_out  O  1 reset")
+    ) == ["CLK_out", "RST_N_out"]
+    # an input argument that nothing says is a clock
+    assert bsc_module._verilog_method_ports(
+        _port_table("CLK                            I     1 clock", "start_num1  I  51")
+    ) == ["start_num1"]
+    assert bsc_module._verilog_method_ports(_port_table("data  IO  8")) == ["data"]
 
 
 @pytest.mark.parametrize("simulator", ["bluesim", "iverilog"])
@@ -1399,6 +1428,24 @@ def test_an_empty_testbench_with_an_unused_reset_runs_again_in_its_run_directory
         captured = capfd.readouterr()
         assert flow is not None and flow.succeeded, run_report(flow, captured)
         assert "PASS" in captured.out
+
+
+def test_a_verilog_filter_that_removes_the_port_table_is_named_in_the_failure(tmp_path):
+    require_bsc()
+    require_iverilog()
+    strip = tmp_path / "strip.sh"
+    strip.write_text('#!/bin/sh\ngrep -v "^//" "$1" > "$1.new" && mv "$1.new" "$1"\n')
+    strip.chmod(0o755)
+    _write(tmp_path, {"Endless.bsv": ENDLESS_TB})
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["Endless.bsv"], "top": "mkEndless"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"simulator": "iverilog", "timeout": "60 s", "verilog_filters": [str(strip)]}
+    result = launch_result(
+        runner, Spec(BscSim.name, design), lambda: runner.run_flow(BscSim, design, settings)
+    )
+    assert result.error is not None and result.error.code == "reported_failure"
+    assert "bsc wrote no port table" in result.error.message
+    assert "`verilog_filters` command may have changed the file" in result.error.message
 
 
 #: A testbench calling a C function through `import "BDPI"`.

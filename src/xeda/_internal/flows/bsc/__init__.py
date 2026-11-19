@@ -343,7 +343,7 @@ def _verilog_modules(path: Path) -> list[str]:
 
 #: A row of the port table in the header comment that bsc writes at the top of a Verilog module:
 #: `// <name> <I|O|IO> <size> [props]`.
-_PORT_ROW = re.compile(r"^//\s+(\w+)\s+(?:IO|I|O)\s+\d+(?:\s+(.*?))?\s*$")
+_PORT_ROW = re.compile(r"^//\s+(\w+)\s+(IO|I|O)\s+\d+(?:\s+(.*?))?\s*$")
 #: The ports that bsc names after the clock, the gate of a clock and the reset of the module.
 #: A clock or a reset that the module does not use carries no property, so the name tells it.
 _CLOCK_OR_RESET_PORT = re.compile(r"^(?:CLK|CLK_GATE|RST_N)(?:_\w+)?$")
@@ -355,10 +355,13 @@ def _verilog_method_ports(text: str, reset_prefix: str | None = None) -> list[st
     """Return the ports of a generated Verilog module that are neither a clock nor a reset.
 
     `text` is the Verilog that bsc generated. The port table is in its header comment, after the
-    line `// Ports:`. A port that has the property `clock`, `reset` or `gate`, or the name that
-    bsc gives a clock, a clock gate or a reset, belongs to the clock or the reset. That name is
-    `CLK`, `CLK_GATE` or `RST_N` by default, and `reset_prefix` replaces `RST_N` (`-reset-prefix`).
-    Every other port belongs to a method, so a module with an `Empty` interface has none.
+    line `// Ports:`. Each row has a name, the direction (`I`, `O` or `IO`), a size and props.
+    Every output and every inout port belongs to a method, whatever its props: an `Empty`
+    interface has none. An input port belongs to the clock or the reset if it has the property
+    `clock`, `reset`, `gate` or `unused`, or if it has the name that bsc gives a clock, a clock
+    gate or a reset. That name is `CLK`, `CLK_GATE` or `RST_N` by default, and `reset_prefix`
+    replaces `RST_N` (`-reset-prefix`). An input port that has none of these belongs to a method.
+    An input that nothing uses can have a name that the design chose, so `unused` leaves it out.
     Return None if `text` has no port table.
     """
     named = _CLOCK_OR_RESET_PORT
@@ -380,8 +383,11 @@ def _verilog_method_ports(text: str, reset_prefix: str | None = None) -> list[st
         found = _PORT_ROW.match(row)
         if found is None:
             continue
-        name, props = found.group(1), (found.group(2) or "").split()
-        if named.match(name) or {"clock", "reset", "gate"} & set(props):
+        name, direction = found.group(1), found.group(2)
+        props = (found.group(3) or "").split()
+        if direction == "I" and (
+            named.match(name) or {"clock", "reset", "gate", "unused"} & set(props)
+        ):
             continue
         ports.append(name)
     return ports
@@ -1450,9 +1456,9 @@ class BscSim(BscFlow, SimFlow):
     with the package that defines `tb.top` last. It simulates `tb.top`, a module with an `Empty`
     interface (`rtl.top` when the design has no testbench). The run fails before the simulation
     if that module has methods, since nothing calls them and the simulation would not end.
-    `simulator` selects Bluesim,
-    the cycle-based simulator of bsc, or a Verilog simulator that bsc links with the generated
-    Verilog (`bsc -vsim`). The clock and reset come from the `main.v` of bsc.
+    `simulator` selects Bluesim, the cycle-based simulator of bsc, or a Verilog simulator that
+    bsc links with the generated Verilog (`bsc -vsim`). The clock and reset come from the
+    `main.v` of bsc.
 
     Bluesim records the system-task calls in the generated code, and a script of Xeda measures
     the clock cycles and the time. Verilator and Icarus record the system tasks that the linked
@@ -1930,9 +1936,14 @@ class BscSim(BscFlow, SimFlow):
             _bluesim_methods(text, top) if bluesim else _verilog_method_ports(text, ss.reset_prefix)
         )
         if found is None:
+            filtered = (
+                " A `verilog_filters` command may have changed the file."
+                if not bluesim and ss.verilog_filters
+                else ""
+            )
             raise FlowFatalError(
                 f"bsc_sim cannot check that `{top}` has an `Empty` interface: bsc wrote no "
-                f"{'class' if bluesim else 'port table'} for it in {self.run_file(path)}."
+                f"{'class' if bluesim else 'port table'} for it in {self.run_file(path)}.{filtered}"
             )
         if not found:
             return
