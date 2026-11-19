@@ -13,6 +13,7 @@ import os
 import pickle
 import types
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, ClassVar
 
 import pytest
@@ -21,7 +22,7 @@ import xeda._internal.deliver
 from xeda import Design, Workspace
 from xeda._internal.dataclass import Field, deliverable
 from xeda._internal.design import SourceType
-from xeda.errors import RecordError, RunFailedError
+from xeda.errors import LeaseHeldError, RecordError, RunFailedError
 from xeda._internal.flow import (
     Flow,
     FlowFatalError,
@@ -32,7 +33,8 @@ from xeda._internal.flow import (
     registered_flows,
 )
 from xeda._internal.deliver import DeliveryError
-from xeda._internal.flow_runner import DefaultRunner, launch_identity, launch_report
+from xeda._internal.events import Event
+from xeda._internal.flow_runner import DefaultRunner, launch_identity, launch_report, run_lock
 from xeda._internal.flow_runner import default_runner as default_runner_module
 from xeda._internal.flow_runner.launch_result import failed_result, launch_result
 from xeda._internal.frozen import thaw
@@ -227,6 +229,7 @@ def _launch(
     design: Design,
     sections: dict[str, Any] | None = None,
     settings: dict[str, Any] | None = None,
+    on_event: Callable[[Event], None] | None = None,
 ) -> Result:
     """Launch `flow` on `runner` and return what the launch did."""
     spec = Spec(flow.name, design, settings=sections or {})
@@ -234,6 +237,7 @@ def _launch(
         runner,
         spec,
         lambda: runner.run_flow(flow, design, settings or {}, all_flows_settings=sections),
+        on_event=on_event,
     )
     _skipped_means_never_attempted(runner, result)
     return result
@@ -789,17 +793,36 @@ def _refuse_identity_of(monkeypatch, name, failure):
 def test_a_node_that_fails_before_it_has_a_flow_is_failed_not_skipped(
     tmp_path, monkeypatch, failing
 ):
+    """The node has its events. A producer fails under the locks of the graph, so its callback
+    takes no other lock; the requested flow fails before the launch locks the graph, so its
+    callback may."""
     name = MAY_FAIL if failing == "producer" else TNeedsMayFail.name
     _refuse_identity_of(monkeypatch, name, RunDirectoryError("refused for the test"))
-    result = _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path))
+    seen: list[tuple[str, str | None]] = []
+    took: list[str] = []
+
+    def on_event(event: Event) -> None:
+        seen.append((event.kind, event.node))
+        if event.kind == "node_finished" and event.node == name:
+            try:
+                with run_lock.run_dir_read_lock(tmp_path / "elsewhere"):
+                    took.append("took a lock")
+            except LeaseHeldError as error:
+                took.append(error.code)
+
+    result = _launch(_runner(tmp_path), TNeedsMayFail, _design(tmp_path), on_event=on_event)
     node = result.nodes[name]
-    assert (node.outcome, node.record) == ("failed", None)
+    assert (node.outcome, node.disposition, node.record) == ("failed", "not_run", None)
     assert node.error is not None and node.error.code == "storage_error"
     assert node.error.node == name and "refused for the test" in node.error.message
     assert result.outcome == "failed" and result.error == node.error
+    told = [("node_started", name), ("node_finished", name)]
     if failing == "producer":
         consumer = result.nodes[TNeedsMayFail.name]
         assert (consumer.outcome, consumer.blocked_by) == ("blocked", MAY_FAIL)
+        told += [("node_started", consumer.name), ("node_finished", consumer.name)]
+    assert seen == [("launch_started", None), *told, ("launch_finished", None)]
+    assert took == ["lease_held" if failing == "producer" else "took a lock"]
 
 
 @pytest.mark.usefixtures("flows")
@@ -1179,36 +1202,39 @@ def test_an_interrupt_before_the_run_began_leaves_the_node_not_run(tmp_path, mon
     assert consumer.elapsed == "0 s"
 
 
-def test_a_remote_launch_tells_the_nodes_that_ran_or_failed(tmp_path):
-    """A node that failed was reached, also before its run began (`not_run`), and a launch here
-    tells its events. Whether a blocked or canceled node that did not run was reached, the result
-    does not say: the replay tells no events of it."""
+def test_a_remote_launch_tells_the_nodes_that_the_host_told(tmp_path):
+    """The host tells which nodes its launch reached, in its order: a `blocked` node may or may not
+    have been reached (a node of a diamond whose sibling failed is not), so the result cannot say
+    it. Each `node_finished` has the outcome and the disposition of the node in the result."""
     from xeda._internal.flow_runner.launch_result import _Progress
     from xeda._internal.remote.client import _tell
 
     nodes = {
         "a": dataclasses.replace(_node("a", "failed"), disposition=Disposition.NOT_RUN),
         "b": _node("b", "blocked", blocked_by="a"),
-        "c": _node("c", "skipped"),
-        "d": _node("d", "detached"),
+        "c": _node("c", "blocked", blocked_by="a"),
         "e": _node("e", "passed"),
         "f": dataclasses.replace(_node("f", "canceled"), disposition=Disposition.NOT_RUN),
-        "g": _node("g", "failed"),
     }
-    result = Result(launch_id="id", spec=Spec("b", _design(tmp_path)), roots=["b"], outcome="failed", error=nodes["a"].error, nodes=nodes)  # type: ignore[arg-type]
+    result = Result(
+        launch_id="id",
+        spec=Spec("b", _design(tmp_path)),
+        roots=["b"],
+        outcome="failed",
+        error=nodes["a"].error,
+        nodes=nodes,
+    )
     seen: list = []
-    _tell(_Progress("", None, seen.append), result)
-    told = [(event.kind, event.node) for event in seen]
-    assert told == [
-        ("launch_started", None),
-        ("node_started", "a"),
-        ("node_finished", "a"),
-        ("node_started", "e"),
-        ("node_finished", "e"),
-        ("node_started", "g"),
-        ("node_finished", "g"),
-        ("launch_finished", None),
-    ]
+    _tell(_Progress("", None, seen.append), result, ["e", "a", "b", "f", "not planned"])
+    expected: list = [("launch_started", None, None, None)]
+    for name in ["e", "a", "b", "f"]:
+        node = nodes[name]
+        expected += [
+            ("node_started", name, None, None),
+            ("node_finished", name, node.outcome, node.disposition),
+        ]
+    expected.append(("launch_finished", None, result.outcome, None))
+    assert [(e.kind, e.node, e.outcome, e.disposition) for e in seen] == expected
 
 
 def test_a_design_file_is_not_part_of_the_equality_of_designs(tmp_path):

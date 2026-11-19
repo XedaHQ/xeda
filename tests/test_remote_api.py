@@ -19,7 +19,7 @@ from xeda._internal.cli import cli
 from xeda._internal.design import Design
 from xeda.errors import RemoteError, StalePlanError
 from xeda._internal.events import Event
-from xeda._internal.outcomes import Outcome
+from xeda._internal.outcomes import Disposition, Outcome
 from xeda._internal.plan import Plan, plan_from_dict
 from xeda._internal.remote import client
 from xeda._internal.remote_value import Remote
@@ -155,6 +155,26 @@ def test_a_failed_node_is_an_outcome_and_not_an_exception(tmp_path, remote_host)
     assert result.error is not None and result.error.node == "nextpnr"
     assert result.nodes["nextpnr"].outcome is Outcome.FAILED
     assert result.nodes["yosys_fpga"].outcome is Outcome.PASSED
+
+
+def test_a_remote_launch_tells_the_nodes_that_the_launch_on_the_host_reached(tmp_path, remote_host):
+    """The producer fails and blocks its consumer. The launch on the host reached both, so both
+    have their events, as in a launch on this machine, with their outcomes in the result."""
+    remote_host.configure(env={"XEDA_FAKE_FPGA_MODE": "fail", "XEDA_FAKE_FPGA_TOOL": "yosys"})
+    seen: list[Event] = []
+    result = _workspace(tmp_path).run(_spec(tmp_path), on_event=seen.append)
+    assert [(node.outcome, node.disposition) for node in result.nodes.values()] == [
+        (Outcome.FAILED, Disposition.RAN),
+        (Outcome.BLOCKED, Disposition.NOT_RUN),
+    ]
+    assert [(e.kind, e.node, e.outcome, e.disposition) for e in seen] == [
+        ("launch_started", None, None, None),
+        ("node_started", "yosys_fpga", None, None),
+        ("node_finished", "yosys_fpga", Outcome.FAILED, Disposition.RAN),
+        ("node_started", "nextpnr", None, None),
+        ("node_finished", "nextpnr", Outcome.BLOCKED, Disposition.NOT_RUN),
+        ("launch_finished", None, Outcome.FAILED, None),
+    ]
 
 
 def test_a_fetch_failure_after_node_success_is_a_launch_level_error(

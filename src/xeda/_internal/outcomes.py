@@ -97,8 +97,9 @@ class NodeResult:
     the producer whose outcome blocked the node. `elapsed` is the time that this launch spent on
     the node, as text with a unit in seconds (`1.25 s`): it is `0 s` unless the node `ran`, and
     for a node that is `ran` only because Xeda cannot tell whether its run began.
-    `record` is the record of the run, or `None` when the node did not run or when its record
-    could not be stored. A `skipped` node has no `error`. `name` identifies the node in the plan,
+    `record` is the record of the run, or `None` when the node has none: it was blocked, skipped
+    or detached, its record could not be stored, or it failed or was canceled before its run
+    began and wrote none (a failed `init()` writes one). A `skipped` node has no `error`. `name` identifies the node in the plan,
     `run_dir` is its run directory, and `flow` is the canonical name of its flow. The run
     document has a key of the same name for each field."""
 

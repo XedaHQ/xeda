@@ -39,7 +39,7 @@ from ..spec import Spec
 from ..utils import Canceled
 from .error_codes import CLEANUP_FAILED, DELIVERY_FAILED, GENERATOR_FAILED, error_info
 from .resolver import Plan, PlanNode
-from .run_lock import callback_guard
+from .run_lock import callback_guard, held_by_this_thread
 from ..units import seconds_text
 
 log = logging.getLogger(__name__)
@@ -232,7 +232,7 @@ class LaunchCollector:
         end = self.ended.get(node.name)
         if end is None:
             self.ended[node.name] = _Ended(None, error, "0 s")
-            self._tell_end(node, locked=True)
+            self._tell_end(node)
         elif end.error is not error:
             self.ended[node.name] = replace(end, error=error)
 
@@ -240,15 +240,17 @@ class LaunchCollector:
         """Note that `node` failed with `error` before it had a flow: its entry refused it."""
         if node.name not in self.ended:
             self.ended[node.name] = _Ended(None, error, "0 s")
-            self._tell_end(node, locked=True)
+            self._tell_end(node)
 
-    def _tell_end(self, node: PlanNode, *, locked: bool) -> None:
+    def _tell_end(self, node: PlanNode) -> None:
         """Tell the events of `node`, which ended with no flow: the launch reached it and it failed,
-        so it has its events as a node that ended with a flow has them (`node_ended`). `locked`
-        says whether the launch holds its locks."""
+        so it has its events as a node that ended with a flow has them (`node_ended`). A node can
+        end so before the launch locks its graph, under the locks, or after the launch left them,
+        so the callback is guarded only while this thread holds a lock."""
         progress = self._progress
         if progress is None:
             return
+        locked = held_by_this_thread()
         progress.emit("node_started", node.name, locked=locked)
         result = _ended_node(node, self.ended[node.name], self)
         progress.emit("node_finished", node.name, result.outcome, result.disposition, locked=locked)
@@ -314,7 +316,7 @@ class LaunchCollector:
         if self.refused is None or self.refused[1] is not error or not self.ended:
             return False
         self.ended[self.refused[0].name] = _Ended(None, error, "0 s")
-        self._tell_end(self.refused[0], locked=False)  # the launch left: it holds no lock
+        self._tell_end(self.refused[0])
         return True
 
 

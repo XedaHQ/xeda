@@ -8,11 +8,13 @@ locks until it ends. The exit status is 0 when the launch passed, 1 when it did 
 request is invalid and 130 when the launch was interrupted. The result is in `result.json` in every case.
 
 `result.json` is the document that `xeda run --json` prints (`Result.to_dict`), or the dry-run
-document, so the local xeda can report it as it reports a local run. It has two more keys for a
-launch that was not a dry run. `written` holds the files that this launch wrote, for each node
+document, so the local xeda can report it as it reports a local run. It has four more keys for
+a launch that was not a dry run. `written` holds the files that this launch wrote, for each node
 that ran. `unreadable` holds the directories under a run directory that could not be read, so
 that the files under them are not in `written`. `named` holds the names of the nodes that the
-request names: their declared outputs and artifacts come back.
+request names: their declared outputs and artifacts come back. `told` holds the names of the nodes
+that the launch told `on_event` about (`node_started`), in its order: the local xeda tells the
+events of these nodes, and of no other, as a launch on its own machine would.
 
 The launch ends with a result even when it ends in `SystemExit` or another `BaseException`. The
 entry writes the failure document first and then raises the exception again.
@@ -326,6 +328,12 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
     snapshot: Optional[RunDirectorySnapshot] = None
     loaded: Any = None
     parsed: Any = None
+    told: List[str] = []
+
+    def tell(event: Any) -> None:
+        if event.kind == "node_started":
+            told.append(event.node)
+
     try:
         setup_logger(request.log_level, request.detailed_logs)
         code_epoch.verify()
@@ -391,10 +399,12 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
                 launcher,
                 Spec(request.chain, loaded),
                 lambda: launcher.run(request.chain, **arguments),
+                on_event=tell,
             )
         document = result.to_dict()
         _record_written(document, snapshot, plan, launcher.launched)
         document["named"] = [element["node"] for element in parsed.as_elements()]
+        document["told"] = told
         return document, None
     except BaseException as e:  # pylint: disable=broad-except
         interrupted = isinstance(e, KeyboardInterrupt)
@@ -462,6 +472,7 @@ def execute(request: LaunchRequest) -> Tuple[Dict[str, Any], Optional[BaseExcept
             document["named"] = (
                 [element["node"] for element in parsed.as_elements()] if parsed is not None else []
             )
+            document["told"] = told
         return document, None if isinstance(e, Exception | KeyboardInterrupt) else e
 
 
