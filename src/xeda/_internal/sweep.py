@@ -24,7 +24,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from multiprocessing.connection import Connection
 from multiprocessing.context import BaseContext
-from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, Future, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field, fields, replace
 from datetime import datetime, timezone
@@ -46,6 +46,7 @@ from .flow_runner.launch_report import results_of
 from .flow_runner.launch_result import (
     CANCELED_ERROR,
     blocked_result,
+    has_events,
     shared_result,
     skipped_result,
     stops_consumers,
@@ -470,10 +471,16 @@ class WorkerChannel:
     included), since the write end closes with it. A pipe is no file and no named object, so a
     sweep writes nothing outside the run root for it. The events of the sweep never cross it: the
     calling process tells them from the results of the nodes, so a worker never waits for the
-    callback."""
+    callback. Before the first node, the pipe also lets the warm-ups go (`release`, `_warm_up`):
+    each one reads one message, so no message is left when the first node starts."""
 
     def __init__(self, context: BaseContext) -> None:
         self.reader, self._writer = context.Pipe(duplex=False)
+
+    def release(self, count: int) -> None:
+        """Let `count` warm-ups go on: one message for each."""
+        for _ in range(count):
+            self._writer.send_bytes(b"")
 
     def cancel(self) -> None:
         self._writer.close()
@@ -511,6 +518,17 @@ def _start_worker(request: Connection) -> None:
         threading.Thread(target=end_with_the_parent, daemon=True).start()
 
 
+def _warm_up() -> None:
+    """Wait until the calling process has submitted all its warm-ups (`_Sweep._start_workers`):
+    while no warm-up has returned, no worker is idle, so each of these submits starts a process.
+    The calling process sends one message for each warm-up, or closes the pipe."""
+    try:
+        if _REQUEST is not None:
+            _REQUEST.recv_bytes()
+    except (OSError, EOFError):
+        pass  # the calling process stops the sweep, or it is gone
+
+
 def _ignore_interrupt(_signal: int, _frame: Any) -> None:
     """Do nothing on Ctrl-C in a worker: the calling process stops it through the request."""
 
@@ -533,7 +551,7 @@ def worker_main(task: NodeTask) -> NodeOutcome:
 
     The calling process can run older or newer code than this worker, which imports the code on
     disk: the worker refuses the task of other code (`_other_code`). To refuse it, the worker must
-    get it, so this function and `_start_worker` keep their names and parameters."""
+    get it, so this function, `_start_worker` and `_warm_up` keep their names and parameters."""
     _IDLE.clear()
     try:
         return _execute_in_worker(task)
@@ -743,6 +761,9 @@ class _Sweep:
         self.snapshot = snapshot
         #: Whether a worker returned an outcome: a pool that broke before it did returned none.
         self._worker_returned = False
+        #: Whether the sweep started its workers (`_start_workers`), and why it could not.
+        self._workers_started = False
+        self._pool_error: Exception | None = None
         self.points = [_Point(index, plan) for index, plan in enumerate(plans)]
         self.units: dict[tuple[Any, ...], _Unit] = {}
         self.order: list[_Unit] = []
@@ -792,12 +813,15 @@ class _Sweep:
         self._emit(point, "launch_started")
 
     def _advance(self, point: _Point) -> None:
-        """Tell the events of the nodes of `point` that have a result, in plan order."""
+        """Tell the events of the nodes of `point` that have a result, in plan order, as a launch
+        tells them (`has_events`): a node that the sweep never entered has none."""
         for name in point.names:
             result = point.results.get(name)
             if result is None:
                 return
             self._begin(point)
+            if not has_events(result.outcome):
+                continue
             self._emit(point, "node_started", name)
             self._emit(point, "node_finished", name, result.outcome, result.disposition)
         self._finish(point)
@@ -830,6 +854,12 @@ class _Sweep:
             nodes=nodes,
         )
         self._begin(point)
+        # `_advance` stops at a node with no result: a node after it in plan order that ended (in
+        # a sweep that stopped) has its events here.
+        for name, result in nodes.items():
+            if has_events(result.outcome):
+                self._emit(point, "node_started", name)
+                self._emit(point, "node_finished", name, result.outcome, result.disposition)
         self._emit(point, "launch_finished", None, outcome)
 
     def _deliver(self, point: _Point, nodes: dict[str, NodeResult]) -> ErrorInfo | None:
@@ -919,18 +949,33 @@ class _Sweep:
 
         point = self.points[unit.point]
         self._begin(point)
-        self._emit(point, "node_started", unit.node.name)
+        name = unit.node.name
+        #: The exception that the callback raised at the start of the node.
+        raised: list[Exception] = []
+
+        def started(event: Event) -> None:
+            # The node tells its start when its launch has its producers, as a launch does: a
+            # node that the launch never entered (`skipped`) has no event.
+            if event.kind == "node_started" and event.node == name:
+                try:
+                    self._emit(point, "node_started", name)
+                except Exception as error:
+                    raised.append(error)
+                    raise
+
         try:
-            outcome = run_node(self._task(unit), canceled=self.canceled, emit=lambda event: None)
+            outcome = run_node(self._task(unit), canceled=self.canceled, emit=started)
         except (StalePlanError, KeyboardInterrupt):
             raise
-        except StaleRuntimeError as error:
-            # A refusal before the run began (`_execute_in_worker` says why).
-            self._failed(unit, error_info(error, node=unit.node.name), Disposition.NOT_RUN)
-            return
         except Exception as error:  # noqa: BLE001 - the failure of a node is a value
-            # The launch of the node left no result: whether its run began is unknown.
-            self._failed(unit, error_info(error, node=unit.node.name), Disposition.RAN)
+            if raised and error is raised[0]:
+                # The launch of the node stopped, released its locks and raised the exception of
+                # the callback unchanged: it stops the sweep, as at any other event.
+                raise
+            # A refusal before the run began (`_execute_in_worker` says why). Any other failure
+            # left the launch of the node with no result: whether its run began is unknown.
+            known = Disposition.NOT_RUN if isinstance(error, StaleRuntimeError) else Disposition.RAN
+            self._failed(unit, error_info(error, node=name), known)
             return
         self._ran(unit, outcome)
 
@@ -1002,7 +1047,7 @@ class _Sweep:
         running: dict[Future[NodeOutcome], _Unit] = {}
         try:
             with ProcessPoolExecutor(
-                self.max_workers,
+                self._pool_size,
                 mp_context=context,
                 initializer=_start_worker,
                 initargs=(channel.reader,),
@@ -1015,6 +1060,44 @@ class _Sweep:
                     raise
         finally:
             channel.close()
+
+    @property
+    def _pool_size(self) -> int:
+        """The number of worker processes: no more than the sweep has nodes."""
+        return min(self.max_workers, len(self.units))
+
+    def _start_workers(self, pool: ProcessPoolExecutor, channel: WorkerChannel) -> Exception | None:
+        """Start every worker process of `pool`, before the first node that it runs. Return the
+        error that stopped one, or `None`.
+
+        `ProcessPoolExecutor.submit` queues a task first, and only then starts a process for it
+        when no worker is idle. A failure to start one leaves a queued task, which a worker may
+        still run while the sweep counts it as failed. So the sweep first submits one `_warm_up`
+        for each worker, which waits until all of them are submitted: while none has returned, no
+        worker is idle, so each of these submits starts a process, and the submit of a node later
+        starts none. When a warm-up fails, the channel ends the warm-ups that wait, and the pool
+        runs no node."""
+        count = self._pool_size
+        warm_ups: list[Future[None]] = []
+        try:
+            for _ in range(count):
+                warm_ups.append(pool.submit(_warm_up))
+        except Exception as error:  # noqa: BLE001 - the failure of the nodes is a value
+            channel.cancel()
+            return error
+        channel.release(count)
+        pending = set(warm_ups)
+        while pending:
+            if self.canceled():
+                channel.cancel()  # and the scheduler starts nothing
+                return None
+            done, pending = wait(pending, timeout=CANCEL_POLL, return_when=FIRST_EXCEPTION)
+            for future in done:
+                failure = future.exception()
+                if isinstance(failure, Exception):
+                    channel.cancel()
+                    return failure
+        return None
 
     def _schedule(
         self,
@@ -1035,7 +1118,7 @@ class _Sweep:
                 elif self._settle(unit):
                     continue
                 elif len(running) < self.max_workers:
-                    self._start(unit, pool, running)
+                    self._start(unit, pool, channel, running)
                 else:
                     waiting.append(unit)
             pending = waiting
@@ -1063,7 +1146,8 @@ class _Sweep:
                     "the worker processes ended before any of them returned a result. A likely "
                     "cause is a script that launches at module level: each worker imports the "
                     'script again, so put the code that launches under `if __name__ == "__main__":`. '
-                    "The standard error of the worker has the details."
+                    "Another cause is Xeda code on disk that is older than the code of this "
+                    "process. The standard error of the worker has the details."
                 ),
                 node=info.node,
                 exit_status=None,
@@ -1075,14 +1159,26 @@ class _Sweep:
         self,
         unit: _Unit,
         pool: ProcessPoolExecutor,
+        channel: WorkerChannel,
         running: dict[Future[NodeOutcome], _Unit],
     ) -> None:
+        if not self._workers_started:
+            # Only a sweep that runs a node in a worker starts the workers.
+            self._workers_started = True
+            self._pool_error = self._start_workers(pool, channel)
+            if self.canceled():
+                return  # the sweep stops, and the node is skipped
+        if self._pool_error is not None:
+            # The pool could not start its workers: the node was never submitted.
+            self._failed(unit, self._worker_failure(unit, self._pool_error), Disposition.NOT_RUN)
+            return
         try:
             future = pool.submit(worker_main, self._task(unit))
         except Exception as error:  # noqa: BLE001 - a broken pool is the failure of the node
-            # A broken pool refuses the task before it queues it, so the node did not run. Any
-            # other error came after the pool queued the task (it failed to start a process or
-            # its thread), which a worker may still run: whether it ran is unknown.
+            # A broken pool refuses the task before it queues it, so the node did not run. Every
+            # worker started before the first node (`_start_workers`), so the pool starts no
+            # process or thread here; any other error came after the pool queued the task, which a
+            # worker may still run: whether it ran is unknown.
             known = Disposition.NOT_RUN if isinstance(error, BrokenProcessPool) else Disposition.RAN
             self._failed(unit, self._worker_failure(unit, error), known)
             return
@@ -1141,7 +1237,7 @@ class _Sweep:
             self._begin(point)
         if not self.canceled():
             self._generate()
-        if self.max_workers > 1:
+        if self.max_workers > 1 and self.units:  # a sweep with no node needs no worker
             self._run_in_workers()
         else:
             for unit in self.order:

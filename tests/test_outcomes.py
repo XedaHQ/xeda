@@ -1202,17 +1202,18 @@ def test_an_interrupt_before_the_run_began_leaves_the_node_not_run(tmp_path, mon
     assert consumer.elapsed == "0 s"
 
 
-def test_a_remote_launch_tells_the_nodes_that_the_host_told(tmp_path):
-    """The host tells which nodes its launch reached, in its order: a `blocked` node may or may not
-    have been reached (a node of a diamond whose sibling failed is not), so the result cannot say
-    it. Each `node_finished` has the outcome and the disposition of the node in the result."""
+def test_a_remote_launch_tells_the_nodes_as_a_launch_does(tmp_path):
+    """Every node of the result has its two events, in plan order, but a skipped node, which the
+    launch never entered, and a detached node, which it left running on its host. Each
+    `node_finished` has the outcome and the disposition of the node in the result."""
     from xeda._internal.flow_runner.launch_result import _Progress
     from xeda._internal.remote.client import _tell
 
     nodes = {
         "a": dataclasses.replace(_node("a", "failed"), disposition=Disposition.NOT_RUN),
         "b": _node("b", "blocked", blocked_by="a"),
-        "c": _node("c", "blocked", blocked_by="a"),
+        "c": _node("c", "skipped"),
+        "d": _node("d", "detached"),
         "e": _node("e", "passed"),
         "f": dataclasses.replace(_node("f", "canceled"), disposition=Disposition.NOT_RUN),
     }
@@ -1225,9 +1226,9 @@ def test_a_remote_launch_tells_the_nodes_that_the_host_told(tmp_path):
         nodes=nodes,
     )
     seen: list = []
-    _tell(_Progress("", None, seen.append), result, ["e", "a", "b", "f", "not planned"])
+    _tell(_Progress("", None, seen.append), result)
     expected: list = [("launch_started", None, None, None)]
-    for name in ["e", "a", "b", "f"]:
+    for name in ["a", "b", "e", "f"]:
         node = nodes[name]
         expected += [
             ("node_started", name, None, None),

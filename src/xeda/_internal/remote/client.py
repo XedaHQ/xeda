@@ -73,7 +73,10 @@ from xeda.errors import RemoteError as PublicRemoteError
 from ..events import Event
 from ..flow_runner.default_runner import PreparedRequest
 from ..flow_runner.launch_options import LaunchOptions, WorkspaceOptions
-from ..flow_runner.launch_result import _Progress  # pylint: disable=protected-access
+from ..flow_runner.launch_result import (  # pylint: disable=protected-access
+    _Progress,
+    has_events,
+)
 from ..flow_runner.run_lock import LockRequest, LockSet, acquire_all
 from ..frozen import thaw
 from ..outcomes import (
@@ -636,8 +639,6 @@ class _Run:
     #: Makes the document of the result of the remote launch, with the paths of the mirror, or
     #: `None` before the launch ended. A failure after the launch builds its document from it.
     localize: Optional[Callable[[], Dict[str, Any]]] = None
-    #: The nodes that the launch on the host told `on_event` about, in its order, once it ended.
-    told: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -1233,7 +1234,6 @@ def _localized(
     document.pop("written", None)
     document.pop("unreadable", None)
     document.pop("named", None)
-    document.pop("told", None)
     document["launch_id"] = run.launch_id
     document["spec"] = _spec_fields(run)
     for node in document.get("nodes") or []:
@@ -1509,7 +1509,7 @@ def run_remote(
             )
         except Exception as error:  # pylint: disable=broad-except
             result = _failed(run, error)
-        _tell(progress, result, run.told)
+        _tell(progress, result)
     if progress.raised is not None:
         raise progress.raised
     return result
@@ -1557,30 +1557,16 @@ def plan_remote(
         raise _not_started(run, error) from error
 
 
-def _told(result: Mapping[str, Any], host: str) -> Tuple[str, ...]:
-    """The names of the nodes that the launch on `host` told `on_event` about (`told` of its
-    result document), in its order."""
-    told = result.get("told")
-    if not isinstance(told, list) or not all(isinstance(name, str) for name in told):
-        raise RemoteProtocolError(
-            f"The result of the launch on {host} does not list the nodes that it told about."
-        )
-    return tuple(told)
-
-
-def _tell(progress: _Progress, result: Result, told: Sequence[str]) -> None:
-    """Tell `on_event` what a finished launch did: the nodes that the launch on the host told
-    about (`told`, in its order), then its end. The host ran the nodes, so their events come
-    together, and each `node_finished` has the outcome and the disposition of the node in
-    `result`. The host tells which nodes it reached: the result cannot say it, since a node that
-    a launch did not reach can be `blocked` as one that it reached is."""
+def _tell(progress: _Progress, result: Result) -> None:
+    """Tell `on_event` what a finished launch did: the events of its nodes, in plan order, then
+    its end. The host ran the nodes, so their events come together. A node has them as in a launch
+    on this machine (`has_events`)."""
     progress.launch_id = result.launch_id
     progress.emit("launch_started")
-    for name in told:
-        node = result.nodes.get(name)
-        if node is not None:
-            progress.emit("node_started", name)
-            progress.emit("node_finished", name, node.outcome, node.disposition)
+    for node in result.nodes.values():
+        if has_events(node.outcome):
+            progress.emit("node_started", node.name)
+            progress.emit("node_finished", node.name, node.outcome, node.disposition)
     progress.emit("launch_finished", None, result.outcome)
 
 
@@ -1848,10 +1834,6 @@ def _run(
                             )
                         run.started = not dry_run
                         result = _launch(agent, launch, launch_id, profile.setup)
-                    if not dry_run:
-                        # Before the fetch: a result that does not list them is damaged, which is
-                        # no failure of the fetch.
-                        run.told = _told(result, destination_text)
                 except BaseException:
                     if not dry_run:
                         _discard_mirrors(local, mirror_root, local_root)

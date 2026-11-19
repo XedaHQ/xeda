@@ -589,9 +589,9 @@ def test_a_refusal_at_a_producer_s_turn_fails_that_node_in_a_launch_that_started
 
 def test_a_refusal_at_a_producer_s_turn_tells_the_events_of_that_node(world, monkeypatch):
     """The launch counts the refusal as the failure of the producer once the launch has left it
-    (`LaunchCollector.settle`). The producer then has its two events, once and before the end of
-    the launch, with its outcome and disposition in the result. The flow that asked for it is
-    blocked, and it reports no end: the refusal left it untouched (`launch_flow`)."""
+    (`LaunchCollector.settle`). The flow that asked for it is blocked, and the refusal left it
+    untouched (`launch_flow`). Each has its two events once, before the end of the launch, with
+    its outcome and disposition in the result."""
     _refuse_at_the_producer_s_turn(monkeypatch)
     sections = {"t_delivers": {"netlist": str(world.user / "n.v")}}
     seen: list[Event] = []
@@ -608,13 +608,13 @@ def test_a_refusal_at_a_producer_s_turn_tells_the_events_of_that_node(world, mon
         ("node_finished", "t_reads_dir"),
         ("node_started", "t_delivers"),
         ("node_finished", "t_delivers"),
+        ("node_started", "t_both"),
+        ("node_finished", "t_both"),
         ("launch_finished", None),
     ]
     assert result.nodes["t_both"].outcome == "blocked"
     finished = {e.node: (e.outcome, e.disposition) for e in seen if e.kind == "node_finished"}
-    assert finished == {
-        name: (result.nodes[name].outcome, result.nodes[name].disposition) for name in finished
-    }
+    assert finished == {n.name: (n.outcome, n.disposition) for n in result.nodes.values()}
 
 
 @pytest.mark.parametrize("error_class", [DeliveryError, OutputExistsError])

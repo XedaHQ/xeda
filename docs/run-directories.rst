@@ -315,8 +315,9 @@ no record in that point. ``to_pandas`` returns the same table as a ``DataFrame``
 ``quantities=True`` to give ``pint`` quantities in the cells that hold a quantity.
 
 With ``max_workers`` of 1, a sweep executes its nodes in the calling process. With more, it
-executes them in that many worker processes, and nodes that do not wait for each other run at
-once. The workers start with the ``spawn`` method on every platform. Each worker imports the
+starts that many worker processes (no more than it has nodes) before its first node, and nodes
+that do not wait for each other run at once. The workers start with the ``spawn`` method on every
+platform. Each worker imports the
 main script again, so a script that calls ``sweep`` this way puts every call that launches, not
 only ``sweep``, under ``if __name__ == "__main__":``. A launch that the script starts at module
 level is refused in the worker with the code ``unguarded_main``. The worker ends, and each point of

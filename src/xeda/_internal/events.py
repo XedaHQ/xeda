@@ -17,13 +17,13 @@ class Event:
     """One step of a launch.
 
     `kind` is `launch_started`, `node_started`, `node_finished` or `launch_finished`. A launch has
-    one `launch_started`, then a `node_started` and a `node_finished` for each node that it reports
-    on, then one `launch_finished`. It reports on each node that it ran, reused or shared and on
-    each node that failed. It may also report on a `blocked`, `canceled` or `skipped` node, and the
-    `Result` lists every node. `node` names the node of a node event. `outcome` and `disposition`
-    are those of the node in the `Result` (`node_finished`), and `outcome` is the aggregate of the
-    launch (`launch_finished`). A field that does not apply is `None`. `occurred_at` is aware and in
-    UTC, as `RunRecord.started_at`."""
+    one `launch_started`, then a `node_started` and a `node_finished` for each node of its `Result`
+    but a `skipped` or `detached` one, then one `launch_finished`. The launch never entered a
+    `skipped` node, and a remote launch left a `detached` node running on its host. A launch, a
+    point of a sweep and a remote launch follow this one rule. `node` names the node of a node
+    event. `outcome` and `disposition` are those of the node in the `Result` (`node_finished`), and
+    `outcome` is the aggregate of the launch (`launch_finished`). A field that does not apply is
+    `None`. `occurred_at` is aware and in UTC, as `RunRecord.started_at`."""
 
     kind: str
     launch_id: str

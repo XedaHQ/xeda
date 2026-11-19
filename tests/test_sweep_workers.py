@@ -627,28 +627,173 @@ def test_a_worker_refuses_a_task_whose_flow_code_differs_before_the_run_begins(t
 
 
 @pytest.mark.parametrize(
-    "error, dispositions",
+    "error", [BrokenProcessPool("broken"), OSError(24, "Too many open files")], ids=repr
+)
+@pytest.mark.parametrize(
+    "failing, dispositions",
     [
-        # A broken pool refuses the task before it queues it: no point ran the node.
-        (BrokenProcessPool("broken"), ["not_run"] * 4),
-        # A failure to start a process comes after the pool queued the task, so a worker may still
-        # run it: the sweep cannot tell, and counts it as run once and shared.
-        (OSError(24, "Too many open files"), ["ran", "shared", "shared", "shared"]),
+        # The workers start before the first node: a pool that cannot start them runs no node.
+        ("warm-up", ["not_run"] * 4),
+        # Every worker started, so the submit of a node starts no process. A broken pool refuses
+        # the task before it queues it: no point ran the node. Any other error comes after the
+        # pool queued the task, which a worker may still run: the sweep cannot tell, and counts
+        # it as run once and shared.
+        ("node", None),
     ],
-    ids=["broken-pool", "spawn-failure"],
 )
 def test_a_task_that_the_pool_does_not_take_is_not_run_only_when_the_pool_refused_it(
-    tmp_path, design, monkeypatch, error, dispositions
+    tmp_path, design, monkeypatch, error, failing, dispositions
 ):
+    real = ProcessPoolExecutor.submit
+
     def submit(self, fn, /, *args, **kwargs):
-        raise error
+        if failing == "warm-up" or fn is worker_main:
+            raise error
+        return real(self, fn, *args, **kwargs)
 
     monkeypatch.setattr(ProcessPoolExecutor, "submit", submit)
     workspace = _workspace(tmp_path)
     result = workspace.sweep(_seeds(design), max_workers=2)
     assert all(point.result.outcome is Outcome.FAILED for point in result)
+    if dispositions is None:
+        refused = isinstance(error, BrokenProcessPool)
+        dispositions = ["not_run"] * 4 if refused else ["ran", "shared", "shared", "shared"]
     assert _dispositions(result, "yosys_fpga") == dispositions
     assert not _calls(workspace)
+
+
+def test_the_warm_ups_start_every_worker_before_any_node(tmp_path):
+    """No warm-up returns before the calling process lets them go, so no worker is idle while it
+    submits them: each submit starts a process, and the pool has all its workers before the first
+    node. Each warm-up reads one message, so none is left to read as a request to stop."""
+    import multiprocessing
+    from concurrent.futures import wait
+
+    context = multiprocessing.get_context("spawn")
+    channel = sweep.WorkerChannel(context)
+    before = set(multiprocessing.active_children())
+    try:
+        with ProcessPoolExecutor(
+            3, mp_context=context, initializer=sweep._start_worker, initargs=(channel.reader,)
+        ) as pool:
+            try:
+                warm_ups = [pool.submit(sweep._warm_up) for _ in range(3)]
+                assert len(set(multiprocessing.active_children()) - before) == 3
+                done, _ = wait(warm_ups, timeout=0.5)
+                assert not done, "a warm-up went on before the calling process let it"
+                channel.release(3)
+                for future in warm_ups:
+                    future.result(timeout=60)
+                assert not channel.reader.poll(), "every message was read"
+            finally:
+                channel.cancel()  # a warm-up that still waits ends, and the pool shuts down
+    finally:
+        channel.close()
+
+
+def test_a_cancel_while_the_workers_start_runs_no_node(tmp_path, design, monkeypatch):
+    """The warm-ups wait for a release that never comes: the cancel ends them, and the sweep runs
+    no node."""
+    token = CancelToken()
+    monkeypatch.setattr(sweep.WorkerChannel, "release", lambda self, count: token.cancel())
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design), max_workers=2, cancel=token)
+    assert result.canceled
+    assert {str(n.outcome) for p in result for n in p.result.nodes.values()} == {"skipped"}
+    assert not _calls(workspace)
+
+
+def test_the_workers_start_before_the_first_node_and_are_no_more_than_the_nodes(tmp_path, design):
+    """Three nodes (one `yosys_fpga` that both points share, and a `nextpnr` for each): the pool
+    starts three workers of the eight allowed, all before the first node ends."""
+    import multiprocessing
+
+    before = set(multiprocessing.active_children())
+    counted: list[int] = []
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and not counted:
+            counted.append(len(set(multiprocessing.active_children()) - before))
+
+    result = _workspace(tmp_path).sweep(_seeds(design, 2), max_workers=8, on_event=on_event)
+    assert all(point.result.passed for point in result)
+    assert counted == [3]
+
+
+def test_a_stopped_sweep_tells_a_node_that_ended_after_one_that_never_started(
+    tmp_path, monkeypatch
+):
+    """`t_right` ends while `t_left`, before it in the plan, never starts, and the sweep stops: the
+    node that ended has its events all the same, and the nodes that never started have none."""
+    token = CancelToken()
+    start, collect = sweep._Sweep._start, sweep._Sweep._collect
+
+    def start_all_but_t_left(self, unit, pool, channel, running):
+        if unit.node.name != "t_left":
+            start(self, unit, pool, channel, running)
+
+    def stop_after_t_right(self, unit, future):
+        collect(self, unit, future)
+        if unit.node.name == "t_right":
+            token.cancel()
+
+    monkeypatch.setattr(sweep._Sweep, "_start", start_all_but_t_left)
+    monkeypatch.setattr(sweep._Sweep, "_collect", stop_after_t_right)
+    events: list[Event] = []
+    (point,) = Workspace(tmp_path / "run").sweep(
+        [Spec("t_join", _plain_design(tmp_path))],
+        max_workers=2,
+        cancel=token,
+        on_event=events.append,
+    )
+    nodes = point.result.nodes
+    assert {name: str(node.outcome) for name, node in nodes.items()} == {
+        "t_fork": "passed",
+        "t_left": "skipped",
+        "t_right": "passed",
+        "t_join": "skipped",
+    }
+    assert [(e.kind, e.node) for e in events] == [
+        ("launch_started", None),
+        ("node_started", "t_fork"),
+        ("node_finished", "t_fork"),
+        ("node_started", "t_right"),
+        ("node_finished", "t_right"),
+        ("launch_finished", None),
+    ]
+
+
+def test_a_launch_and_a_sweep_tell_the_same_nodes_of_a_diamond_whose_fork_failed(
+    tmp_path, monkeypatch
+):
+    """`t_left` and `t_right` read `t_fork`, and `t_join` reads both. When `t_fork` fails, a
+    launch never enters `t_right`, and a sweep settles the branches without executing them (the
+    sweeping process settles them so with workers too). Every node has its two events all the
+    same, with its outcome in the result."""
+
+    def fail(self):
+        raise RuntimeError("the fork fails")
+
+    monkeypatch.setattr(io_flows.TFork, "run", fail)
+    design = _plain_design(tmp_path)
+    launched: list[Event] = []
+    alone = Workspace(tmp_path / "alone").run(Spec("t_join", design), on_event=launched.append)
+    swept: list[Event] = []
+    (point,) = Workspace(tmp_path / "run").sweep([Spec("t_join", design)], on_event=swept.append)
+    for result, events in ((alone, launched), (point.result, swept)):
+        assert result.nodes["t_fork"].outcome is Outcome.FAILED
+        assert {str(node.outcome) for name, node in result.nodes.items() if name != "t_fork"} == {
+            "blocked"
+        }
+        finished = {e.node: (e.outcome, e.disposition) for e in events if e.kind == "node_finished"}
+        assert finished == {n.name: (n.outcome, n.disposition) for n in result.nodes.values()}
+        kinds = [(e.kind, e.node) for e in events]
+        assert sorted(kinds) == sorted(
+            [("launch_started", None), ("launch_finished", None)]
+            + [(kind, name) for name in result.nodes for kind in ("node_started", "node_finished")]
+        )
+        for name in result.nodes:
+            assert kinds.index(("node_started", name)) < kinds.index(("node_finished", name))
 
 
 def test_a_failure_that_leaves_the_launch_of_a_node_without_a_result_is_ran(
