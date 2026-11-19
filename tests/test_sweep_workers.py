@@ -627,28 +627,98 @@ def test_a_worker_refuses_a_task_whose_flow_code_differs_before_the_run_begins(t
 
 
 @pytest.mark.parametrize(
-    "error, dispositions",
+    "error", [BrokenProcessPool("broken"), OSError(24, "Too many open files")], ids=repr
+)
+@pytest.mark.parametrize(
+    "failing, dispositions",
     [
-        # A broken pool refuses the task before it queues it: no point ran the node.
-        (BrokenProcessPool("broken"), ["not_run"] * 4),
-        # A failure to start a process comes after the pool queued the task, so a worker may still
-        # run it: the sweep cannot tell, and counts it as run once and shared.
-        (OSError(24, "Too many open files"), ["ran", "shared", "shared", "shared"]),
+        # The workers start before the first node: a pool that cannot start them runs no node.
+        ("warm-up", ["not_run"] * 4),
+        # Every worker started, so the submit of a node starts no process. A broken pool refuses
+        # the task before it queues it: no point ran the node. Any other error comes after the
+        # pool queued the task, which a worker may still run: the sweep cannot tell, and counts
+        # it as run once and shared.
+        ("node", None),
     ],
-    ids=["broken-pool", "spawn-failure"],
 )
 def test_a_task_that_the_pool_does_not_take_is_not_run_only_when_the_pool_refused_it(
-    tmp_path, design, monkeypatch, error, dispositions
+    tmp_path, design, monkeypatch, error, failing, dispositions
 ):
+    real = ProcessPoolExecutor.submit
+
     def submit(self, fn, /, *args, **kwargs):
-        raise error
+        if failing == "warm-up" or fn is worker_main:
+            raise error
+        return real(self, fn, *args, **kwargs)
 
     monkeypatch.setattr(ProcessPoolExecutor, "submit", submit)
     workspace = _workspace(tmp_path)
     result = workspace.sweep(_seeds(design), max_workers=2)
     assert all(point.result.outcome is Outcome.FAILED for point in result)
+    if dispositions is None:
+        refused = isinstance(error, BrokenProcessPool)
+        dispositions = ["not_run"] * 4 if refused else ["ran", "shared", "shared", "shared"]
     assert _dispositions(result, "yosys_fpga") == dispositions
     assert not _calls(workspace)
+
+
+def test_the_warm_ups_start_every_worker_before_any_node(tmp_path):
+    """No warm-up returns before the calling process lets them go, so no worker is idle while it
+    submits them: each submit starts a process, and the pool has all its workers before the first
+    node. Each warm-up reads one message, so none is left to read as a request to stop."""
+    import multiprocessing
+    from concurrent.futures import wait
+
+    context = multiprocessing.get_context("spawn")
+    channel = sweep.WorkerChannel(context)
+    before = set(multiprocessing.active_children())
+    try:
+        with ProcessPoolExecutor(
+            3, mp_context=context, initializer=sweep._start_worker, initargs=(channel.reader,)
+        ) as pool:
+            warm_ups = [pool.submit(sweep._warm_up) for _ in range(3)]
+            assert len(set(multiprocessing.active_children()) - before) == 3
+            done, _ = wait(warm_ups, timeout=0.5)
+            assert not done, "a warm-up went on before the calling process let it"
+            channel.release(3)
+            for future in warm_ups:
+                future.result(timeout=60)
+            assert not channel.reader.poll(), "every message was read"
+    finally:
+        channel.close()
+
+
+def test_a_launch_and_a_sweep_tell_the_same_nodes_of_a_diamond_whose_fork_failed(
+    tmp_path, monkeypatch
+):
+    """`t_left` and `t_right` read `t_fork`, and `t_join` reads both. When `t_fork` fails, a
+    launch never enters `t_right`, and a sweep settles the branches without executing them (the
+    sweeping process settles them so with workers too). Every node has its two events all the
+    same, with its outcome in the result."""
+
+    def fail(self):
+        raise RuntimeError("the fork fails")
+
+    monkeypatch.setattr(io_flows.TFork, "run", fail)
+    design = _plain_design(tmp_path)
+    launched: list[Event] = []
+    alone = Workspace(tmp_path / "alone").run(Spec("t_join", design), on_event=launched.append)
+    swept: list[Event] = []
+    (point,) = Workspace(tmp_path / "run").sweep([Spec("t_join", design)], on_event=swept.append)
+    for result, events in ((alone, launched), (point.result, swept)):
+        assert result.nodes["t_fork"].outcome is Outcome.FAILED
+        assert {str(node.outcome) for name, node in result.nodes.items() if name != "t_fork"} == {
+            "blocked"
+        }
+        finished = {e.node: (e.outcome, e.disposition) for e in events if e.kind == "node_finished"}
+        assert finished == {n.name: (n.outcome, n.disposition) for n in result.nodes.values()}
+        kinds = [(e.kind, e.node) for e in events]
+        assert sorted(kinds) == sorted(
+            [("launch_started", None), ("launch_finished", None)]
+            + [(kind, name) for name in result.nodes for kind in ("node_started", "node_finished")]
+        )
+        for name in result.nodes:
+            assert kinds.index(("node_started", name)) < kinds.index(("node_finished", name))
 
 
 def test_a_failure_that_leaves_the_launch_of_a_node_without_a_result_is_ran(

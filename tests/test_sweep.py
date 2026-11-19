@@ -558,6 +558,22 @@ def test_events_of_a_sweep_come_in_order_within_each_launch(tmp_path, design):
     assert [str(e.disposition) for e in finished] == ["ran", "shared"]
 
 
+def test_an_exception_of_the_callback_at_the_start_of_a_node_stops_the_sweep(tmp_path, design):
+    """The node tells its start from its launch in this process: the exception stops that launch
+    before its tool, and the sweep raises it unchanged, as at any other event."""
+    workspace = _workspace(tmp_path)
+    boom = ValueError("at the start of a node")
+
+    def on_event(event: Event) -> None:
+        if (event.kind, event.node) == ("node_started", "yosys_fpga"):
+            raise boom
+
+    with pytest.raises(ValueError) as raised:
+        workspace.sweep(_seeds(design, 1), on_event=on_event)
+    assert raised.value is boom
+    assert not _calls(workspace)
+
+
 def test_a_number_of_workers_that_is_not_a_positive_whole_number_is_refused(tmp_path, design):
     workspace = _workspace(tmp_path)
     for bad in (0, -1, True, 1.5):
@@ -691,11 +707,19 @@ def test_a_generator_failure_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_p
         Spec(flow.name, base.with_updates({"rtl": {"parameters": {"W": width}}}))
         for width in (1, 2)
     ]
-    swept = Workspace(world.run_root, hashed_run_dirs=True).sweep(specs)
+    events: list[Event] = []
+    swept = Workspace(world.run_root, hashed_run_dirs=True).sweep(specs, on_event=events.append)
     for point, spec in zip(swept, specs):
-        alone = Workspace(tmp_path / "alone", hashed_run_dirs=True).run(spec)
+        launched: list[Event] = []
+        alone = Workspace(tmp_path / "alone", hashed_run_dirs=True).run(
+            spec, on_event=launched.append
+        )
         assert alone.error is not None and alone.error.code == "generator_failed"
         assert _point_view(point.result) == _point_view(alone)
+        # Its nodes are skipped: the launch never entered them, and neither did the sweep.
+        mine = [(e.kind, e.node) for e in events if e.launch_id == point.result.launch_id]
+        assert mine == [(e.kind, e.node) for e in launched]
+        assert mine == [("launch_started", None), ("launch_finished", None)]
         assert point.result.error.node is None
         assert {str(n.disposition) for n in point.result.nodes.values()} == {"not_run"}
     assert {point.result.outcome for point in swept} == {Outcome.FAILED}

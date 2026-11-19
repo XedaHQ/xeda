@@ -51,6 +51,7 @@ __all__ = [
     "blocked_result",
     "FinishFailure",
     "failed_result",
+    "has_events",
     "launch_level_error",
     "launch_result",
     "shared_result",
@@ -61,6 +62,9 @@ __all__ = [
 #: The outcomes of a producer that stop its consumers. A canceled producer is not one of them: the
 #: launch stopped, and a consumer that it never started is skipped.
 _STOPS_CONSUMERS = frozenset({Outcome.FAILED, Outcome.REJECTED, Outcome.BLOCKED, Outcome.DETACHED})
+
+#: The outcomes of a node that the launch never entered: such a node has no events.
+_WITHOUT_EVENTS = frozenset({Outcome.SKIPPED, Outcome.DETACHED})
 
 
 class _Progress:
@@ -243,10 +247,10 @@ class LaunchCollector:
             self._tell_end(node)
 
     def _tell_end(self, node: PlanNode) -> None:
-        """Tell the events of `node`, which ended with no flow: the launch reached it and it failed,
-        so it has its events as a node that ended with a flow has them (`node_ended`). A node can
-        end so before the launch locks its graph, under the locks, or after the launch left them,
-        so the callback is guarded only while this thread holds a lock."""
+        """Tell the events of `node`, which ended with no flow: it failed, so it has its events now,
+        before those of its consumer, as a node that ended with a flow has them (`node_ended`). A
+        node can end so before the launch locks its graph or under its locks, so the callback is
+        guarded only while this thread holds a lock."""
         progress = self._progress
         if progress is None:
             return
@@ -316,7 +320,6 @@ class LaunchCollector:
         if self.refused is None or self.refused[1] is not error or not self.ended:
             return False
         self.ended[self.refused[0].name] = _Ended(None, error, "0 s")
-        self._tell_end(self.refused[0])
         return True
 
 
@@ -365,6 +368,12 @@ def _producer_names(plan: Plan, node: PlanNode) -> set[str]:
 def stops_consumers(outcome: Outcome) -> bool:
     """Return whether a producer that ended with `outcome` stops its consumers."""
     return outcome in _STOPS_CONSUMERS
+
+
+def has_events(outcome: Outcome) -> bool:
+    """Return whether a node that ended with `outcome` has its two events (`Event`): every node of
+    a `Result` has them but a `skipped` or `detached` one, which the launch never entered."""
+    return outcome not in _WITHOUT_EVENTS
 
 
 def blocked_result(
@@ -680,6 +689,14 @@ def launch_result(
         error=error,
         nodes=nodes,
     )
+    # The launch told the nodes that it entered as they ended. It tells the other nodes that have
+    # events here, after it left its locks: a node that the failure of another node stopped before
+    # the launch entered it, a consumer that the refusal of its producer left, and a refused node
+    # that `settle` counted.
+    for name, node_result in nodes.items():
+        if has_events(node_result.outcome):
+            progress.emit("node_started", name)
+            progress.emit("node_finished", name, node_result.outcome, node_result.disposition)
     progress.emit("launch_finished", None, outcome)
     if progress.raised is not None:
         raise progress.raised
