@@ -142,7 +142,8 @@ def test_result_is_the_json_document_of_a_local_run(tmp_path, fake_fpga):
     assert local.returncode == 0, local.stderr
     document = json.loads(local.stdout)
     assert result["outcome"] == "passed" and document["outcome"] == "passed"
-    assert set(result) == set(document) | {"written", "unreadable", "named"}
+    assert set(result) == set(document) | {"written", "unreadable", "named", "told"}
+    assert result["told"] == ["yosys_fpga", "nextpnr"]
     assert result["roots"] == document["roots"]
     assert result["spec"]["flow"] == document["spec"]["flow"] == "nextpnr"
     assert result["spec"]["design_name"] == document["spec"]["design_name"]
