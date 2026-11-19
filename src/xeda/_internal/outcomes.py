@@ -66,8 +66,10 @@ class Outcome(StrEnum):
 class Disposition(StrEnum):
     """What this launch did with a node. The set is closed.
 
-    `ran`: the launch executed it. `reused`: an earlier run was up to date. `shared`: a sweep
-    executed it once for several points. `not_run`: it did not start."""
+    `ran`: the launch executed it: its run began, or Xeda cannot tell whether it began (a sweep
+    worker died, or the launch of the node ended with no result). `reused`: an earlier run was up
+    to date. `shared`: a sweep executed it once for several points. `not_run`: its run did not
+    begin, also when the node failed or was canceled before."""
 
     RAN = "ran"
     SHARED = "shared"
@@ -93,9 +95,11 @@ class NodeResult:
 
     `reason` says why the node ran, was reused, was blocked or was not reached. `blocked_by` names
     the producer whose outcome blocked the node. `elapsed` is the time that this launch spent on
-    the node, as text with a unit in seconds (`1.25 s`): it is `0 s` unless the node `ran`.
-    `record` is the record of the run, or `None` when the node did not run or when its record
-    could not be stored. A `skipped` node has no `error`. `name` identifies the node in the plan,
+    the node, as text with a unit in seconds (`1.25 s`): it is `0 s` unless the node `ran`, and
+    for a node that is `ran` only because Xeda cannot tell whether its run began.
+    `record` is the record of the run, or `None` when the node has none: it was blocked, skipped
+    or detached, its record could not be stored, or it failed or was canceled before its run
+    began and wrote none (a failed `init()` writes one). A `skipped` node has no `error`. `name` identifies the node in the plan,
     `run_dir` is its run directory, and `flow` is the canonical name of its flow. The run
     document has a key of the same name for each field."""
 

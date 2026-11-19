@@ -590,19 +590,22 @@ def _execute_in_worker(task: NodeTask) -> NodeOutcome:
     if not isinstance(node, str):
         node = None
 
-    def failed(code: str, message: str) -> NodeOutcome:
+    def refused(code: str, message: str) -> NodeOutcome:
+        # The worker refused the task before the node's run began.
         return _failed(
-            node, ErrorInfo(code=code, message=message, node=node, exit_status=None, log=None)
+            node,
+            ErrorInfo(code=code, message=message, node=node, exit_status=None, log=None),
+            Disposition.NOT_RUN,
         )
 
     try:
         if _other_code(task):
-            return failed(STALE_RUNTIME, _OTHER_CODE)
+            return refused(STALE_RUNTIME, _OTHER_CODE)
         for name in sorted({module for _, module, _ in task.flows}):
             try:
                 importlib.import_module(name)
             except BaseException as error:  # noqa: BLE001 - a module may exit; a failure is a value
-                return failed(
+                return refused(
                     FLOW_NOT_IMPORTABLE,
                     f"a worker process cannot import `{name}`, the module of a flow: {error}",
                 )
@@ -614,28 +617,44 @@ def _execute_in_worker(task: NodeTask) -> NodeOutcome:
                     if found is None
                     else f"`{found[1].__qualname__}` in `{found[0]}`"
                 )
-                return failed(
+                return refused(
                     FLOW_NOT_IMPORTABLE,
                     f"a worker process does not rebuild the flow `{flow}` as the sweep planned "
                     f"it, `{qualname}` in `{module}`. It has {seen}.",
                 )
         return run_node(task, canceled=_stop_requested, emit=lambda event: None)
     except StalePlanError as error:
-        return failed(error.code or "stale_plan", str(error))
+        return refused(error.code or "stale_plan", str(error))
+    except StaleRuntimeError as error:
+        # The code checks that raise it are refusals before the run began: a check after the run
+        # is an outcome of the node, which `run_node` returns.
+        return _failed(node, error_info(error, node=node), Disposition.NOT_RUN)
+    # The two failures below left the launch of the node with no result, so the worker cannot
+    # tell whether the run began: it reports the node as executed.
     except Exception as error:  # noqa: BLE001 - the failure of a node is a value
-        return _failed(node, error_info(error, node=node))
+        return _failed(node, error_info(error, node=node), Disposition.RAN)
     except BaseException as error:  # a flow that exits, or a signal that stops this process
-        return failed(REPORTED_FAILURE, f"the node ended its worker process with {error!r}")
+        return _failed(
+            node,
+            ErrorInfo(
+                code=REPORTED_FAILURE,
+                message=f"the node ended its worker process with {error!r}",
+                node=node,
+                exit_status=None,
+                log=None,
+            ),
+            Disposition.RAN,
+        )
 
 
-def _failed(node: str | None, error: ErrorInfo) -> NodeOutcome:
+def _failed(node: str | None, error: ErrorInfo, disposition: Disposition) -> NodeOutcome:
     """Return the outcome of the node `node` that failed in a worker (`None`: the task names no
-    node). The calling process knows the name, the flow and the run directory of the node: it
-    fills them in."""
+    node), with `disposition`: `not_run` when its run did not begin. The calling process knows
+    the name, the flow and the run directory of the node: it fills them in."""
     result = NodeResult(
         name=node or "",
         outcome=Outcome.FAILED,
-        disposition=Disposition.RAN,
+        disposition=disposition,
         reason="",
         blocked_by=None,
         elapsed="0 s",
@@ -905,17 +924,22 @@ class _Sweep:
             outcome = run_node(self._task(unit), canceled=self.canceled, emit=lambda event: None)
         except (StalePlanError, KeyboardInterrupt):
             raise
+        except StaleRuntimeError as error:
+            # A refusal before the run began (`_execute_in_worker` says why).
+            self._failed(unit, error_info(error, node=unit.node.name), Disposition.NOT_RUN)
+            return
         except Exception as error:  # noqa: BLE001 - the failure of a node is a value
-            self._failed(unit, error_info(error, node=unit.node.name))
+            # The launch of the node left no result: whether its run began is unknown.
+            self._failed(unit, error_info(error, node=unit.node.name), Disposition.RAN)
             return
         self._ran(unit, outcome)
 
-    def _failed(self, unit: _Unit, error: ErrorInfo) -> None:
+    def _failed(self, unit: _Unit, error: ErrorInfo, disposition: Disposition) -> None:
         node = unit.node
         result = NodeResult(
             name=node.name,
             outcome=Outcome.FAILED,
-            disposition=Disposition.RAN,
+            disposition=disposition,
             reason="",
             blocked_by=None,
             elapsed="0 s",
@@ -942,7 +966,7 @@ class _Sweep:
                 # Another launch replaced the producer after the sweep completed it, and the node
                 # read the run that is there now. The result of the producer stays what the sweep
                 # saw, so the cause is the node itself: it did not pass.
-                result = replace(result, outcome=Outcome.FAILED, disposition=Disposition.RAN)
+                result = replace(result, outcome=Outcome.FAILED)
         self._complete(unit, result, outcome.run_id)
 
     def _settle(self, unit: _Unit) -> bool:
@@ -1056,7 +1080,11 @@ class _Sweep:
         try:
             future = pool.submit(worker_main, self._task(unit))
         except Exception as error:  # noqa: BLE001 - a broken pool is the failure of the node
-            self._failed(unit, self._worker_failure(unit, error))
+            # A broken pool refuses the task before it queues it, so the node did not run. Any
+            # other error came after the pool queued the task (it failed to start a process or
+            # its thread), which a worker may still run: whether it ran is unknown.
+            known = Disposition.NOT_RUN if isinstance(error, BrokenProcessPool) else Disposition.RAN
+            self._failed(unit, self._worker_failure(unit, error), known)
             return
         # Its events come when it completes, with those of the nodes before it in the plan.
         running[future] = unit
@@ -1065,7 +1093,8 @@ class _Sweep:
         try:
             outcome = future.result()
         except Exception as error:  # noqa: BLE001 - a worker that died is the failure of the node
-            self._failed(unit, self._worker_failure(unit, error))
+            # The worker died while it had the node: whether its run began is unknown.
+            self._failed(unit, self._worker_failure(unit, error), Disposition.RAN)
             return
         self._worker_returned = True
         node = unit.node

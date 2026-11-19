@@ -6,6 +6,7 @@ The workers start with `spawn` on every platform. The tests run the same fake to
 """
 
 import copy
+import dataclasses
 import json
 import os
 import pickle
@@ -25,7 +26,9 @@ from xeda.errors import SpecError
 from xeda._internal.events import Event
 from xeda._internal.flow import Flow
 from xeda._internal.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
-from xeda._internal.outcomes import Outcome
+from xeda._internal.outcomes import Disposition, Outcome
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from xeda._internal import sweep
 from xeda._internal.spec import Spec
 from xeda._internal.sweep import NodeTask, worker_main
@@ -408,7 +411,7 @@ def test_a_worker_that_does_not_make_the_flow_fails_its_node_with_its_code(tmp_p
     (point,) = Workspace(tmp_path / "run").sweep([spec], max_workers=2)
     node = point.result.nodes["parent_only_flow"]
     assert point.result.outcome is Outcome.FAILED and node.error is not None
-    assert node.error.code == "flow_not_importable"
+    assert node.error.code == "flow_not_importable" and node.disposition is Disposition.NOT_RUN
     assert node.error.message == (
         "a worker process does not rebuild the flow `parent_only_flow` as the sweep planned it, "
         "`ParentOnlyFlow` in `flow_of_the_parent`. It has no such flow."
@@ -600,12 +603,66 @@ def test_a_worker_refuses_the_task_of_other_code_before_it_reads_it(tmp_path, de
     error = outcome.result.error
     assert outcome.result.outcome is Outcome.FAILED and error is not None
     assert (outcome.node, error.node, error.code) == ("yosys_fpga", "yosys_fpga", "stale_runtime")
+    assert outcome.result.disposition is Disposition.NOT_RUN, "a refused task did not run"
     assert error.message == (
         "The process that planned the sweep runs other Xeda code than the code on disk, which this "
         "worker process imported: the files changed after that process imported them. Restart the "
         "process that sweeps (in Jupyter, restart the kernel), and sweep again."
     )
     assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
+
+
+def test_a_worker_refuses_a_task_whose_flow_code_differs_before_the_run_begins(tmp_path, design):
+    # The code of Xeda matches, but the sweep planned with other code of the flow: the entry of
+    # `run_node` refuses the task before the run of the node began.
+    workspace = _workspace(tmp_path)
+    task = _task(workspace, _spec(design, 1), "yosys_fpga", [])
+    assert "yosys_fpga" in task.code
+    outcome = worker_main(dataclasses.replace(task, code={**task.code, "yosys_fpga": "0" * 32}))
+    error = outcome.result.error
+    assert error is not None and error.code == "stale_runtime"
+    assert "the code of the flow `yosys_fpga` differs" in error.message
+    assert outcome.result.disposition is Disposition.NOT_RUN
+    assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
+
+
+@pytest.mark.parametrize(
+    "error, dispositions",
+    [
+        # A broken pool refuses the task before it queues it: no point ran the node.
+        (BrokenProcessPool("broken"), ["not_run"] * 4),
+        # A failure to start a process comes after the pool queued the task, so a worker may still
+        # run it: the sweep cannot tell, and counts it as run once and shared.
+        (OSError(24, "Too many open files"), ["ran", "shared", "shared", "shared"]),
+    ],
+    ids=["broken-pool", "spawn-failure"],
+)
+def test_a_task_that_the_pool_does_not_take_is_not_run_only_when_the_pool_refused_it(
+    tmp_path, design, monkeypatch, error, dispositions
+):
+    def submit(self, fn, /, *args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(ProcessPoolExecutor, "submit", submit)
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design), max_workers=2)
+    assert all(point.result.outcome is Outcome.FAILED for point in result)
+    assert _dispositions(result, "yosys_fpga") == dispositions
+    assert not _calls(workspace)
+
+
+def test_a_failure_that_leaves_the_launch_of_a_node_without_a_result_is_ran(
+    tmp_path, design, monkeypatch
+):
+    # Whether the run of the node began is unknown, so the worker reports the node as executed.
+    def broken(task, **_):
+        raise RuntimeError("a bug of the launch")
+
+    monkeypatch.setattr(sweep, "run_node", broken)
+    workspace = _workspace(tmp_path)
+    outcome = worker_main(_task(workspace, _spec(design, 1), "yosys_fpga", []))
+    assert outcome.result.error is not None and outcome.result.error.code == "internal_error"
+    assert outcome.result.disposition is Disposition.RAN
 
 
 def test_a_worker_reports_a_task_that_names_no_node(tmp_path, design):
@@ -637,6 +694,8 @@ def test_workers_refuse_the_tasks_of_a_process_that_runs_older_code(tmp_path, de
         assert (error.code, error.node) == ("stale_runtime", "yosys_fpga")
         assert error.message.startswith("The process that planned the sweep runs other Xeda code")
         assert point.result.nodes["yosys_fpga"].name == "yosys_fpga"
+    # Refused in every point: no point ran it, so no point shares a run of it.
+    assert _dispositions(result, "yosys_fpga") == ["not_run"] * len(result.points)
     assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
 
 
@@ -668,6 +727,8 @@ def test_a_worker_that_ends_after_the_code_changed_on_disk_fails_its_node_with_s
     error = point.result.nodes["changing_flow"].error
     assert point.result.outcome is Outcome.FAILED and error is not None
     assert error.code == "stale_runtime"
+    # A worker that died leaves the sweep unable to tell whether the run began: it reports `ran`.
+    assert point.result.nodes["changing_flow"].disposition is Disposition.RAN
     assert "terminated abruptly" in error.message and "__main__" not in error.message
 
 
@@ -711,6 +772,8 @@ def test_a_flow_that_leaves_the_worker_fails_its_node_not_the_sweep(
     node = point.result.nodes["leaving_flow"]
     assert point.result.outcome is Outcome.FAILED and node.error is not None
     assert node.error.code == "reported_failure"
+    # The run began, and the exception left it with no result: the worker reports `ran`.
+    assert node.disposition is Disposition.RAN
 
 
 def test_the_events_of_a_diamond_come_in_the_order_of_the_plan(tmp_path):

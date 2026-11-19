@@ -25,13 +25,16 @@ from xeda._internal.cli import _prompt_removal, cli
 from xeda._internal.console import console
 from xeda._internal.dataclass import Field, deliverable
 from xeda._internal.deliver import Deliveries, DeliveryError, OutputExistsError
+from xeda._internal.events import Event
 from xeda._internal.design import SourceType
 from xeda._internal.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda._internal.flow_runner import DefaultRunner, launch_locks
+from xeda._internal.flow_runner.launch_result import launch_result
 from xeda._internal.flow_runner.run_lock import lock_file
 from xeda._internal.run_dir import RunDirectoryError
 from xeda._internal.workspace import _removal_question
 from xeda._internal.run_root import ensure_run_root
+from xeda._internal.spec import Spec
 
 RUNS: List[str] = []
 #: what a test does while the first producer's tool runs (a user editing a file meanwhile)
@@ -530,9 +533,8 @@ def test_a_destination_two_flows_name_is_refused_before_the_question_about_a_fil
     assert same.read_text() == "the user's file\n"
 
 
-def _refusal_at_a_producers_turn(world, monkeypatch):
-    """Run `t_both`, whose producer `t_delivers` refuses its delivery at its own turn, after the
-    producer `t_reads_dir` ran. Return the result of the command and its document."""
+def _refuse_at_the_producer_s_turn(monkeypatch) -> None:
+    """Make `t_delivers` refuse its delivery at its own turn, after the check made ahead."""
     check = Deliveries.check
     seen: list[Path] = []
 
@@ -544,6 +546,12 @@ def _refusal_at_a_producers_turn(world, monkeypatch):
         return check(self, predicted)
 
     monkeypatch.setattr(Deliveries, "check", check_again)
+
+
+def _refusal_at_a_producers_turn(world, monkeypatch):
+    """Run `t_both`, whose producer `t_delivers` refuses its delivery at its own turn, after the
+    producer `t_reads_dir` ran. Return the result of the command and its document."""
+    _refuse_at_the_producer_s_turn(monkeypatch)
     design = world.design.root / "d.yaml"
     design.write_text(
         yaml.safe_dump(
@@ -574,8 +582,38 @@ def test_a_refusal_at_a_producer_s_turn_fails_that_node_in_a_launch_that_started
     states = {node["name"]: (node["outcome"], node["disposition"]) for node in document["nodes"]}
     assert states == {
         "t_reads_dir": ("passed", "ran"),
-        "t_delivers": ("failed", "ran"),
+        "t_delivers": ("failed", "not_run"),  # refused before its run began
         "t_both": ("blocked", "not_run"),
+    }
+
+
+def test_a_refusal_at_a_producer_s_turn_tells_the_events_of_that_node(world, monkeypatch):
+    """The launch counts the refusal as the failure of the producer once the launch has left it
+    (`LaunchCollector.settle`). The producer then has its two events, once and before the end of
+    the launch, with its outcome and disposition in the result. The flow that asked for it is
+    blocked, and it reports no end: the refusal left it untouched (`launch_flow`)."""
+    _refuse_at_the_producer_s_turn(monkeypatch)
+    sections = {"t_delivers": {"netlist": str(world.user / "n.v")}}
+    seen: list[Event] = []
+    result = launch_result(
+        world.runner,
+        Spec(TBoth.name, world.design, settings=sections),
+        lambda: world.runner.launch_flow(TBoth, world.design, {}, all_flows_settings=sections),
+        on_event=seen.append,
+    )
+    assert result.nodes["t_delivers"].outcome == "failed"
+    assert [(e.kind, e.node) for e in seen] == [
+        ("launch_started", None),
+        ("node_started", "t_reads_dir"),
+        ("node_finished", "t_reads_dir"),
+        ("node_started", "t_delivers"),
+        ("node_finished", "t_delivers"),
+        ("launch_finished", None),
+    ]
+    assert result.nodes["t_both"].outcome == "blocked"
+    finished = {e.node: (e.outcome, e.disposition) for e in seen if e.kind == "node_finished"}
+    assert finished == {
+        name: (result.nodes[name].outcome, result.nodes[name].disposition) for name in finished
     }
 
 

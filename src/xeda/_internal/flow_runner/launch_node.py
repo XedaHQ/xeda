@@ -319,10 +319,10 @@ def execute_node(
         # node. The sweep reads it and gives its points that error.
         return NodeOutcome(task.node, replace(node, error=error), None)
     if node.outcome is Outcome.SKIPPED and not canceled():
+        # The node was not reached, so it did not run: it fails, and keeps `not_run`.
         node = replace(
             node,
             outcome=Outcome.FAILED,
-            disposition=Disposition.RAN,
             error=ErrorInfo(
                 code=INTERNAL_ERROR,
                 message=f"`{node.name}` was not reached",

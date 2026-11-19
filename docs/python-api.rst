@@ -100,7 +100,8 @@ time is an aware UTC ``datetime`` (``RunRecord.started_at``, ``RunRecord.finishe
 ``Event.occurred_at``). In a JSON document it is ISO 8601 text in UTC.
 
 ``result.record`` raises ``RecordError`` (code ``missing_record``) when the requested node has no
-record: it was blocked, skipped or detached, or Xeda could not store the record. To test for it,
+record: it was blocked, skipped or detached, Xeda could not store the record, or it failed or was
+canceled before its run began (disposition ``not_run``) and wrote none. To test for it,
 use ``result.nodes[name].record is not None``.
 
 ``print(result)`` shows the outcome, the cause and one entry for each node. For a missing tool in a

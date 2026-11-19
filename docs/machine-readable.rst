@@ -821,7 +821,10 @@ name and meaning:
 ``disposition``
     What this launch did with the node: ``ran``, ``reused`` (the recorded run was up to date, and Xeda
     did not run it again; only a ``passed`` or ``rejected`` run is reused), ``shared`` (a sweep
-    executed it once for several points) or ``not_run``.
+    executed it once for several points) or ``not_run``. ``ran`` means that the run of the node
+    began. A node that failed or was canceled before its run began is ``not_run``. When Xeda cannot
+    tell whether the run began, it reports ``ran``: a sweep worker process that died while it had
+    the node, or a launch of the node that ended with an exception and no result.
 ``reason``
     Why the node ran, was reused, was blocked or was not reached. For a node that ran, this is
     the text that the log shows as ``Running <flow>: <reason>``. For a rejected run that Xeda
@@ -830,7 +833,8 @@ name and meaning:
     The name of the producer whose outcome blocked the node, or ``null``.
 ``elapsed``
     The time that this launch spent on the node, as text with a unit in seconds, such as
-    ``"4.2 s"``. It is ``"0 s"`` unless the node ran.
+    ``"4.2 s"``. It is ``"0 s"`` unless the node ran, and for a node that is ``ran`` only because
+    Xeda cannot tell whether its run began.
 ``run_dir``
     The run directory of the node.
 ``deliveries``
@@ -845,13 +849,14 @@ name and meaning:
     node, whether or not its tool ran.
 ``record``
     The ``results.json`` of the run, as :ref:`described above <results-json>`, or ``null`` for a node
-    that did not run (``blocked``, ``skipped`` or ``detached``) or whose record could not be stored.
+    that was ``blocked``, ``skipped`` or ``detached`` or whose record could not be stored. A node
+    that failed or was canceled before its run began may have no record either.
     The metrics of a run are in ``record.metrics``, for example ``.nodes[-1].record.metrics.fmax``.
 ``error``
     Why the node did not pass, or ``null`` for a node that passed or was skipped. It has the keys of
     the ``error`` of the document. For a node that ran, it is the error of its ``record``. A
-    ``blocked`` node has the code ``producer_failed``. A node that failed before its run started has
-    no ``record``, so this is the only place that names the cause.
+    ``blocked`` node has the code ``producer_failed``. A node that failed before its run began often
+    has no ``record``, and then this is the only place that names the cause.
 
 The ``outcome`` of the document is the outcome of the cause of the launch, in this order:
 
@@ -1708,8 +1713,9 @@ In this example, the chain replaced both bindings that the file saved: the ``rea
 names the chain, and the bindings that it replaced with their sections. A request for a single flow
 has a ``roots`` of that flow. In the run document of a launch that failed, a node that Xeda
 planned and never entered has the disposition ``not_run``, and the outcome ``blocked`` or
-``skipped``. A chain that Xeda refused before it was planned (a usage error) has ``"spec": null`` and
-empty ``roots`` and ``nodes`` in its run document.
+``skipped``. A node that Xeda refused before its run began (for example with ``stale_runtime``) is
+``not_run`` too, with the outcome ``failed``. A chain that Xeda refused before it was planned (a
+usage error) has ``"spec": null`` and empty ``roots`` and ``nodes`` in its run document.
 
 Using Xeda as a library
 =======================
