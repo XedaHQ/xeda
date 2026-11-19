@@ -15,14 +15,16 @@ the unit it wants: `period.to("ns")`.
 """
 
 import decimal
+import functools
 import math
 import numbers
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from decimal import Decimal
 from fractions import Fraction
 from typing import Any, ClassVar, NoReturn, Optional, Self, Union
 
+import pint
 from pint import PintError, UnitRegistry
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
@@ -241,10 +243,19 @@ def _digits_of_text(number: str) -> _Decimal3:
     return sign == "-", digits, int(exponent or 0) - len(fraction)
 
 
+def _is_finite(value: Union[int, float, Decimal]) -> bool:
+    """Return whether a number is finite. An `int` always is: `math.isfinite` would convert it to
+    a float, and raise `OverflowError` for an `int` that no float holds."""
+    if isinstance(value, Decimal):
+        return value.is_finite()
+    return isinstance(value, numbers.Integral) or math.isfinite(value)
+
+
 def _digits_of_number(value: Union[int, float, Decimal]) -> _Decimal3:
     """Return the sign, digits and exponent of a finite number. A float counts as its shortest
     decimal text (`repr`), the decimal that a person would read from it."""
-    exact = Decimal(repr(value)) if isinstance(value, float) else Decimal(value)
+    # `float(value)`: a subclass such as numpy's `float64` has another `repr` (`np.float64(2.5)`).
+    exact = Decimal(repr(float(value))) if isinstance(value, float) else Decimal(value)
     sign, digit_tuple, exponent = exact.as_tuple()
     assert isinstance(exponent, int)
     return bool(sign), "".join(map(str, digit_tuple)).lstrip("0"), exponent
@@ -408,6 +419,8 @@ class Quantity:
             return value._magnitude
         if isinstance(value, Quantity):
             raise QuantityError(f"`{value}` is a {value.kind}, not a {cls.kind}")
+        if isinstance(value, pint.Quantity):
+            return cls._read_pint(value, field)
         where = "" if field is None else f"`{field}`: "
 
         def suggestion(number: Optional[str] = None) -> str:
@@ -447,6 +460,50 @@ class Quantity:
             raise cls._out_of_range(e, text) from None
         except ValueError:  # `int()` refuses a number of thousands of digits
             raise QuantityError(f"`{text[:40]}...` has too many digits") from None
+
+    @classmethod
+    def _read_pint(cls, value: Any, field: Optional[str]) -> float:
+        """Return the canonical magnitude of the pint quantity `value`.
+
+        The unit must be one that Xeda knows, with the meaning that it has in Xeda
+        (`pint_unit_text`). The number goes through the exact path of text, so `Q(3, "ps")` and
+        `"3 ps"` are one value. A magnitude that is no plain real number (a `bool`, a `Fraction`,
+        an array, a complex number) is refused."""
+        where = "" if field is None else f"`{field}`: "
+        magnitude = value.magnitude
+        unit_name = str(value.units)
+        if isinstance(magnitude, bool) or not isinstance(magnitude, (numbers.Real, Decimal)):
+            raise QuantityError(
+                f"{where}the number of a pint quantity must be an `int` or a `float`, not "
+                f"{type(magnitude).__name__}; write `{cls.example}`"
+            )
+        if isinstance(magnitude, numbers.Integral):
+            magnitude = int(magnitude)
+        elif isinstance(magnitude, numbers.Rational):
+            raise QuantityError(
+                f"{where}the number of a pint quantity must be an `int` or a `float`, not "
+                f"{type(magnitude).__name__}; write `{cls.example}`"
+            )
+        elif not isinstance(magnitude, (float, Decimal)):
+            magnitude = float(magnitude)  # a numpy floating scalar
+        shown = f"{magnitude} {unit_name}"
+        if not _is_finite(magnitude):
+            raise QuantityError(f"{where}`{shown}` is not a finite number")
+        unit = pint_unit_text(value.units, value._REGISTRY)  # pylint: disable=protected-access
+        if unit is None:
+            names = list(_named_by(value.units, value._REGISTRY))  # pylint: disable=W0212
+            if names:
+                raise QuantityError(
+                    f"{where}the unit `{names[0]}` of the pint quantity has another meaning in "
+                    "its registry than in Xeda"
+                )
+        factor = cls._factor(unit_name if unit is None else unit, shown)
+        try:
+            return _exact_float(_digits_of_number(magnitude), factor)
+        except _OutOfRange as e:
+            raise cls._out_of_range(e, shown) from None
+        except (ValueError, OverflowError):
+            raise QuantityError(f"`{shown[:40]}...` has too many digits") from None
 
     @classmethod
     def _from_magnitude(cls, magnitude: float, display: Optional[str] = None) -> Self:
@@ -502,10 +559,7 @@ class Quantity:
                 f"expected a number of {unit}, not {type(magnitude).__name__}; "
                 f"for text write `{cls.example}`"
             )
-        finite = (
-            magnitude.is_finite() if isinstance(magnitude, Decimal) else math.isfinite(magnitude)
-        )
-        if not finite:
+        if not _is_finite(magnitude):
             raise QuantityError(f"`{magnitude}` {unit} is not a finite number")
         factor = cls._factor(unit, unit)
         shown = f"{magnitude} {unit}"
@@ -936,8 +990,9 @@ class Unit:
         return json_schema
 
 
-def quantity_in_unit(unit: str, value: Union[str, Quantity]) -> Quantity:
-    """Return `value`, text with a unit or a quantity, as a quantity shown in `unit`. The kind is
+def quantity_in_unit(unit: str, value: Any) -> Quantity:
+    """Return `value`, text with a unit, a quantity or a pint quantity, as a quantity shown in
+    `unit`. The kind is
     the one of `unit`. Raise `QuantityError` for a value that is no quantity of that kind, or a
     unit that a quantity cannot be shown in."""
     kind = Quantity._kind_of_unit.get(unit)  # pylint: disable=protected-access
@@ -1041,6 +1096,78 @@ def is_metric_unit(text: str) -> bool:
     """Return whether `text` is exactly a unit that a metric can have: a unit of a quantity kind
     (`ns`, `MHz`) or one of `METRIC_ONLY_UNITS`."""
     return is_quantity_unit(text) or text in METRIC_ONLY_UNITS
+
+
+@functools.cache
+def _reference_registry() -> UnitRegistry:
+    """Return a registry with the default definitions of pint, to check the meaning of a unit."""
+    return UnitRegistry()
+
+
+def _in_base_units(registry: Any, text: str, magnitude: int = 1) -> Any:
+    try:
+        return registry.Quantity(magnitude, text).to_base_units()
+    except PintError as error:
+        raise ValueError(f"the registry does not define the unit `{text}`: {error}") from None
+
+
+def verify_unit(registry: Any, text: str) -> None:
+    """Raise `ValueError` unless the unit `text` of Xeda has its usual meaning in `registry`.
+
+    A registry can define a unit again (`ns = 1 * second`). Xeda would then read a quantity
+    wrongly. The check compares the unit, in base units, with the same unit in a registry that has
+    the definitions that pint ships."""
+    # Two points fix a conversion that has an offset (`degC`) as well as its scale.
+    for magnitude in (1, 2):
+        got = _in_base_units(registry, text, magnitude)
+        want = _in_base_units(_reference_registry(), text, magnitude)
+        if dict(got.unit_items()) != dict(want.unit_items()) or not math.isclose(
+            got.magnitude, want.magnitude, rel_tol=1e-12
+        ):
+            raise ValueError(
+                f"the unit `{text}` has another meaning in this pint registry than in the default "
+                f"one: {got} against {want}"
+            )
+
+
+def pint_unit_text(units: Any, registry: Any) -> Optional[str]:
+    """Return the unit text of Xeda that means the pint `units` of `registry`, or `None`.
+
+    The search covers the units of every quantity kind and the units of metrics. A text matches
+    when `registry` parses it to `units` and `verify_unit` accepts the text in `registry`."""
+    for text in _named_by(units, registry):
+        try:
+            verify_unit(registry, text)
+        except ValueError:
+            continue
+        return text
+    return None
+
+
+def _named_by(units: Any, registry: Any) -> Iterator[str]:
+    """Yield each unit text of Xeda that `registry` parses to `units`, whatever it means there."""
+    for text in (*Quantity._kind_of_unit, *METRIC_ONLY_UNITS):  # pylint: disable=W0212
+        try:
+            if units == registry.parse_units(text):
+                yield text
+        except PintError:
+            continue
+
+
+def pint_quantity_text(value: Any) -> str:
+    """Return the text of the pint quantity `value` that Xeda reads back, such as `10 ns`. A unit
+    that Xeda has no name for is written in the short form of pint. Raise `ValueError` for a unit
+    that has another meaning in the registry of `value` than in Xeda."""
+    unit = pint_unit_text(value.units, value._REGISTRY)  # pylint: disable=protected-access
+    if unit is not None:
+        return f"{value.magnitude} {unit}"
+    for name in _named_by(value.units, value._REGISTRY):  # pylint: disable=protected-access
+        # The text `1 ns` would mean another value when Xeda reads it back.
+        raise ValueError(
+            f"the unit `{name}` of the pint quantity `{value}` has another meaning in its "
+            "registry than in Xeda, so Xeda cannot write it as text"
+        )
+    return format(value, "~")
 
 
 def is_number_text(text: str) -> bool:

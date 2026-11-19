@@ -18,11 +18,13 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
+import pint
+
 from xeda.errors import RecordError, RunReplacedError
-from .frozen import freeze, thaw
+from .frozen import FrozenDict, freeze, thaw
 from .generation import generation_storage, stored_pattern
 from .outcomes import Outcome
-from .units import duration_text, seconds_text
+from .units import duration_text, is_metric_unit, seconds_text, verify_unit
 
 if TYPE_CHECKING:
     from .flow.flow import Flow
@@ -125,6 +127,8 @@ class ErrorInfo:
 OUTCOMES: Final = ("passed", "rejected", "failed", "canceled")
 
 #: The types of a metric value (`xeda._internal.flow.metrics.MetricType`).
+#: The metric types that hold numbers, which a unit makes quantities.
+_NUMERIC_METRIC_TYPES: Final = ("number", "integer", "numbers")
 _METRIC_TYPES: Final = (
     "number",
     "integer",
@@ -167,6 +171,12 @@ class MetricInfo:
         "number", "integer", "boolean", "text", "text_list", "counts", "numbers", "object"
     ]
     unit: str | None
+
+
+def has_quantity(info: MetricInfo) -> bool:
+    """Return whether the metric of `info` is a number, or a table of numbers, with a unit: only
+    such a metric is a quantity (`RunRecord.quantity`)."""
+    return info.unit is not None and info.type in _NUMERIC_METRIC_TYPES
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -310,6 +320,39 @@ class RunRecord:
             if walked in self.metric_info and walked != path:
                 raise KeyError(path)
         return node
+
+    def quantity(self, path: str) -> pint.Quantity | Mapping[str, pint.Quantity]:
+        """Return the metric at the dotted `path` as a pint quantity (`nextpnr.fmax`).
+
+        The quantity comes from the application registry of pint (`pint.get_application_registry`),
+        which the call looks up each time, so `pint.set_application_registry` applies. It has the
+        unit of the metric (`MetricInfo.unit`) and the stored number: an `int` stays an `int`. A
+        metric of the type `numbers` gives a read-only table with a quantity for each key. Each
+        call builds new objects.
+
+        `path` must be the path of a metric, as for `metric`: another path raises `KeyError`, and
+        so does the path of a group. A metric that has no unit (a count, a ratio, a text) raises
+        `ValueError`: read it with `metric`. So does a unit that this version of Xeda does not
+        know, or that the registry defines in another way."""
+        info = self.metric_info.get(path)
+        if info is None:
+            self.metric(path)  # `KeyError` for a path that is no metric
+            raise KeyError(f"`{path}` is a group of metrics, and a group has no unit")
+        unit = info.unit
+        if unit is None or not has_quantity(info):
+            raise ValueError(
+                f"the metric `{path}` is of the type `{info.type}`"
+                + ("" if info.unit is None else f" with the unit `{info.unit}`")
+                + " and has no quantity: read it with `metric`"
+            )
+        if not is_metric_unit(unit):
+            raise ValueError(f"the metric `{path}` has the unit `{unit}`, which is not known")
+        registry = pint.get_application_registry()
+        verify_unit(registry, unit)
+        value = self.metric(path)
+        if isinstance(value, Mapping):  # a table of numbers: the unit is the unit of every value
+            return FrozenDict({key: registry.Quantity(item, unit) for key, item in value.items()})
+        return registry.Quantity(value, unit)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the `results.json` document of the record (`encode_record`)."""

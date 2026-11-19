@@ -216,6 +216,9 @@ STANDARD_MODULES = {
     "dataclasses",
     "types",
 }
+#: The packages whose types a public annotation may name: pint quantities (`RunRecord.quantity`)
+#: and the optional pandas `DataFrame` (`SweepResult.to_pandas`).
+THIRD_PARTY_PACKAGES = ("pint", "pandas")
 
 
 def _public_objects() -> dict[str, object]:
@@ -274,7 +277,7 @@ def _allowed(leaf: object) -> bool:
     module = getattr(leaf, "__module__", None)
     return (
         module in STANDARD_MODULES
-        or str(module).split(".")[0] == "pandas"
+        or str(module).split(".")[0] in THIRD_PARTY_PACKAGES
         or (isinstance(leaf, type) and leaf.__module__ == "xeda.errors")
     )
 
@@ -326,9 +329,9 @@ class _Undefined:
 def annotation_problems(obj: Any) -> list[str]:
     """Return the annotations of a public name that name something not public.
 
-    A public signature, return or attribute annotation may name a public name, a builtin, or a
+    A public signature, return or attribute annotation may name a public name, a builtin, a
     type of `typing`, `collections.abc`, `os`, `pathlib`, `datetime`, `enum`, `dataclasses`
-    or `types`. An empty list means the annotations are fine."""
+    or `types`, or a type of pint or pandas. An empty list means the annotations are fine."""
     found: list[str] = []
     qualname = getattr(obj, "__qualname__", repr(obj))
     if not inspect.isclass(obj):

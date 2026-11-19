@@ -13,7 +13,7 @@ import inspect
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from enum import Enum, IntEnum
 from pathlib import Path
 from types import UnionType
@@ -30,6 +30,7 @@ from typing import (
     get_origin,
 )
 
+import pint
 from pydantic import BaseModel, PydanticSchemaGenerationError
 from pydantic.errors import PydanticInvalidForJsonSchema
 
@@ -60,7 +61,7 @@ from .flow.io import declared_inputs, declared_outputs
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
-from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit
+from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit, verify_unit
 from .utils import json_encodable, unique, with_json_keys
 
 log = logging.getLogger(__name__)
@@ -378,35 +379,73 @@ def unit_of(field_schema: Any) -> Optional[str]:
     return next(iter(units)) if len(units) == 1 else None
 
 
-def _in_field_units(schema: Any, definitions: Mapping[str, Any], value: Any) -> Any:
+def _quantity_text(quantity: Quantity, given: Any) -> Any:
+    return quantity.as_json_value()
+
+
+def _pint_quantity(quantity: Quantity, given: Any) -> Any:
+    """Return `quantity` as a pint quantity of the application registry, in its display unit, the
+    unit of its field. A value that was a pint quantity is converted too, so that every quantity
+    of a table has one registry."""
+    unit = quantity.display_unit
+    registry = pint.get_application_registry()
+    verify_unit(registry, unit)
+    return registry.Quantity(quantity.to(unit), unit)
+
+
+def settings_as_quantities(
+    flow: Union[str, Type[Flow]],
+    settings: Mapping[str, Any],
+    schemas: Optional[dict[Type[Flow], Any]] = None,
+) -> Any:
+    """Return the input `settings` of a flow with each quantity as a pint quantity in the unit of
+    its field: `timeout: 2 min` is `120 s`. A value that is no quantity, or that does not read,
+    stays as it is. `schemas` keeps the settings schema of each flow class across calls."""
+    cls = _resolve(flow)
+    schema = None if schemas is None else schemas.get(cls)
+    if schema is None:
+        schema = cls.Settings.model_json_schema(by_alias=True)
+        if schemas is not None:
+            schemas[cls] = schema
+    return _in_field_units(schema, schema.get("$defs", {}), dict(settings), _pint_quantity)
+
+
+def _in_field_units(
+    schema: Any,
+    definitions: Mapping[str, Any],
+    value: Any,
+    render: Callable[[Quantity, Any], Any] = _quantity_text,
+) -> Any:
     """Return `value`, the input of a setting, with each quantity written in the unit of its field.
 
     `schema` is the JSON Schema of the setting. A quantity that does not read (a bare number, text
     that is no quantity) stays as it is: the launch reports it. Keys that the schema does not
-    know stay as they are."""
+    know stay as they are. `render(quantity, given)` makes the result for each quantity that
+    reads. By default it is the text of the quantity."""
     if not isinstance(schema, dict):
         return value
     ref = schema.get("$ref")
     if isinstance(ref, str):
-        return _in_field_units(definitions.get(ref.rsplit("/", 1)[-1]), definitions, value)
+        return _in_field_units(definitions.get(ref.rsplit("/", 1)[-1]), definitions, value, render)
     unit = schema.get(UNIT_KEY)
     if isinstance(unit, str):
-        if isinstance(value, (str, Quantity)):
+        if isinstance(value, (str, Quantity, pint.Quantity)):
             try:
-                return quantity_in_unit(unit, value).as_json_value()
+                quantity = quantity_in_unit(unit, value)
             except ValueError:
                 return value
+            return render(quantity, value)
         return value
     for key in ("anyOf", "oneOf"):
         for branch in schema.get(key, ()):
-            changed = _in_field_units(branch, definitions, value)
+            changed = _in_field_units(branch, definitions, value, render)
             if changed != value:
                 return changed
     if isinstance(value, Mapping):
         properties = schema.get("properties", {})
         values = schema.get("additionalProperties")
         return {
-            key: _in_field_units(properties.get(key, values), definitions, item)
+            key: _in_field_units(properties.get(key, values), definitions, item, render)
             for key, item in value.items()
         }
     if isinstance(value, str) and schema.get("type") == "array":
@@ -416,13 +455,15 @@ def _in_field_units(schema: Any, definitions: Mapping[str, Any], value: Any) -> 
             parts = comma_separated_items("setting", value)
         except ListLiteralText:
             return value  # the launch refuses it
-        shown = _in_field_units(schema, definitions, parts)
+        shown = _in_field_units(schema, definitions, parts, render)
         return shown if shown != parts else value
     if isinstance(value, (list, tuple)):
         prefix = schema.get("prefixItems")
         items = schema.get("items")
         return [
-            _in_field_units(prefix[i] if prefix and i < len(prefix) else items, definitions, item)
+            _in_field_units(
+                prefix[i] if prefix and i < len(prefix) else items, definitions, item, render
+            )
             for i, item in enumerate(value)
         ]
     return value

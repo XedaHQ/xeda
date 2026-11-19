@@ -77,8 +77,9 @@ html_static_path = []
 
 # The reference documents the public names of `xeda`, `xeda.errors` and `xeda.introspect` (see
 # docs/api/). Its annotations name standard-library types, and the build has no intersphinx and
-# no network, so those names have no link target. Only standard-library names (and the optional
-# pandas `DataFrame`) are ignored here: a missing target for a Xeda name must fail the build.
+# no network, so those names have no link target. Only standard-library names, the pint `Quantity`
+# and the optional pandas `DataFrame` are ignored here: a missing target for a Xeda name must fail
+# the build.
 autodoc_typehints = "signature"
 autodoc_member_order = "bysource"
 # A class has the docstring that it gives, not the one of a base class (pydantic's own text).
@@ -90,6 +91,7 @@ nitpick_ignore_regex = [
     ("py:class", r"(pathlib|datetime|os|collections\.abc)\..*"),
     ("py:class", r"(Path|datetime)"),
     ("py:class", r"pandas\.DataFrame"),
+    ("py:class", r"pint\.(registry\.)?Quantity"),
     # Sphinx splits `tuple[Path, ...]` at the comma (`LocalSettings.path`).
     ("py:class", r"tuple\[~pathlib\.Path"),
 ]

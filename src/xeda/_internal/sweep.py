@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 from . import code_epoch
 from .cancel import CancelToken, never_canceled, observing
 from .design import Design
-from xeda.errors import RecordError, SpecError, StalePlanError, StaleRuntimeError
+from xeda.errors import FlowNotFoundError, RecordError, SpecError, StalePlanError, StaleRuntimeError
 from .events import Event
 from .flow import registered_flows
 from .flow_runner import launch_run
@@ -55,7 +55,7 @@ from .frozen import thaw
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
 from .proc_utils import CANCEL_POLL
-from .records import ErrorInfo, read_record
+from .records import ErrorInfo, RunRecord, has_quantity, read_record
 from .run_dir import RunDirectory
 from .spec import Spec
 from .utils import Canceled, expanding_from
@@ -114,7 +114,9 @@ class SweepResult:
         found = Counter(point.result.outcome for point in self.points)
         return {outcome: found[outcome] for outcome in Outcome if found[outcome]}
 
-    def rows(self, *, metrics: Sequence[str] = ()) -> list[dict[str, Any]]:
+    def rows(
+        self, *, metrics: Sequence[str] = (), quantities: bool = False
+    ) -> list[dict[str, Any]]:
         """Return one table row for each point, as a dict.
 
         The keys are `index`, `flow` (the flow or chain of the spec), `design`, `target`,
@@ -124,6 +126,11 @@ class SweepResult:
         named `<node>.<path>`, as `nextpnr.fmax`, and its key is that text. The path of a group of
         metrics gives the table of what is below it. A setting of a node that
         has a record is the value that the node ran with, in the canonical text of a quantity.
+
+        With `quantities=True`, a cell that holds a quantity is a pint quantity of the application
+        registry (`RunRecord.quantity`): a metric that has a unit, and a setting that is a
+        quantity, in the unit of its field. A metric that has no unit keeps its stored value, and
+        so does every other cell.
 
         A metric reads the record of its node in that point, whatever the outcome of the point. Its
         value is `None` when the node has no record there or the record has no such metric. A
@@ -147,12 +154,18 @@ class SweepResult:
                         f"`{text}`: the flow `{flow}` has no metric `{path}`. Its metrics are: "
                         f"{', '.join(described)}."
                     )
-        rows = [self._row(point, metrics) for point in self.points]
+        schemas: dict[Any, Any] = {}  # the settings schema of each flow, built once
+        rows = [self._row(point, metrics, quantities, schemas) for point in self.points]
         keys = list(dict.fromkeys(key for row in rows for key in row))
         return [{key: row.get(key) for key in keys} for row in rows]
 
     @staticmethod
-    def _row(point: SweepPoint, metrics: Sequence[str]) -> dict[str, Any]:
+    def _row(
+        point: SweepPoint,
+        metrics: Sequence[str],
+        quantities: bool,
+        schemas: dict[Any, Any],
+    ) -> dict[str, Any]:
         result, spec = point.result, point.spec
         root = result.nodes[result.roots[0]] if result.roots else None
         row: dict[str, Any] = {
@@ -169,30 +182,86 @@ class SweepResult:
             updates = _merged(updates, Design._expanded(thaw(update)))
         for path, value in _leaves(updates):
             row[f"design.{path}"] = value
+        cells: dict[str, Any] = {}
         for path, value in _leaves(thaw(spec.settings)):
             node, _, rest = path.partition(".")
             record = result.nodes[node].record if node in result.nodes else None
             effective = _found(thaw(record.settings), rest) if record is not None else None
-            row[f"settings.{path}"] = value if effective is None else effective
+            cells[path] = value if effective is None else effective
+        if quantities:
+            cells = _setting_quantities(cells, result, schemas)
+        for path, value in cells.items():
+            row[f"settings.{path}"] = value
         for text in metrics:
             node, _, metric = text.partition(".")
             record = result.nodes[node].record if node in result.nodes else None
             try:
-                row[text] = None if record is None else thaw(record.metric(metric))
+                if record is None:
+                    row[text] = None
+                elif quantities:
+                    row[text] = _metric_quantities(record, metric)
+                else:
+                    row[text] = thaw(record.metric(metric))
             except KeyError:  # this record has no such metric, or only a part of the group
                 row[text] = None
         return row
 
-    def to_pandas(self, *, metrics: Sequence[str] = ()) -> "pandas.DataFrame":
-        """Return `rows(metrics=...)` as a pandas `DataFrame`. Raise `SpecError`
-        (`missing_dependency`) when pandas is not installed."""
+    def to_pandas(
+        self, *, metrics: Sequence[str] = (), quantities: bool = False
+    ) -> "pandas.DataFrame":
+        """Return `rows(metrics=..., quantities=...)` as a pandas `DataFrame`. With
+        `quantities=True`, a column of quantities holds pint quantities, in a column of the type
+        `object`. Raise `SpecError` (`missing_dependency`) when pandas is not installed."""
         try:
             import pandas
         except ImportError:
             raise SpecError(
                 "`to_pandas` needs pandas: install it, or use `rows`", code="missing_dependency"
             ) from None
-        return pandas.DataFrame(self.rows(metrics=metrics))
+        return pandas.DataFrame(self.rows(metrics=metrics, quantities=quantities))
+
+
+def _metric_quantities(record: RunRecord, path: str) -> Any:
+    """Return the metric at `path` of `record` for a table with `quantities=True`: a metric with
+    a unit as a pint quantity, a group of metrics as a table of what is below it, and any other
+    metric as it is stored. Raise `KeyError` as `RunRecord.metric` does."""
+    value = record.metric(path)
+    if path in record.metric_info:
+        info = record.metric_info[path]
+        if has_quantity(info):
+            quantity = record.quantity(path)
+            return dict(quantity) if isinstance(quantity, Mapping) else quantity
+        return thaw(value)
+    if isinstance(value, Mapping):
+        return {key: _metric_quantities(record, f"{path}.{key}") for key in value}
+    return thaw(value)
+
+
+def _setting_quantities(
+    cells: Mapping[str, Any], result: Result, schemas: dict[Any, Any]
+) -> dict[str, Any]:
+    """Return the setting cells of a point (by `<node>.<path>`) with each quantity as a pint
+    quantity in the unit of its field. A cell of a node that is no flow stays as it is."""
+    from .introspect import settings_as_quantities
+
+    nodes: dict[str, dict[str, Any]] = {}
+    for path, value in cells.items():
+        node, _, rest = path.partition(".")
+        table = nodes.setdefault(node, {})
+        *parents, leaf = rest.split(".")
+        for parent in parents:
+            table = table.setdefault(parent, {})
+        table[leaf] = value
+    converted: dict[str, Any] = {}
+    for node, table in nodes.items():
+        flow = result.nodes[node].flow if node in result.nodes else node
+        try:
+            table = settings_as_quantities(flow, table, schemas)
+        except FlowNotFoundError:
+            pass  # a name that is no flow keeps its settings
+        for path, value in _leaves(table, node):
+            converted[path] = value
+    return converted
 
 
 def _merged(base: dict[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:

@@ -2065,6 +2065,17 @@
               "annotation": "bool",
               "kind": "property"
             },
+            "quantity": {
+              "kind": "method",
+              "parameters": [
+                {
+                  "annotation": "str",
+                  "kind": "positional_or_keyword",
+                  "name": "path"
+                }
+              ],
+              "return": "pint.Quantity | Mapping[str, pint.Quantity]"
+            },
             "to_dict": {
               "kind": "method",
               "parameters": [],
@@ -2321,6 +2332,12 @@
                   "default": "()",
                   "kind": "keyword_only",
                   "name": "metrics"
+                },
+                {
+                  "annotation": "bool",
+                  "default": "False",
+                  "kind": "keyword_only",
+                  "name": "quantities"
                 }
               ],
               "return": "list[dict[str, Any]]"
@@ -2333,6 +2350,12 @@
                   "default": "()",
                   "kind": "keyword_only",
                   "name": "metrics"
+                },
+                {
+                  "annotation": "bool",
+                  "default": "False",
+                  "kind": "keyword_only",
+                  "name": "quantities"
                 }
               ],
               "return": "pandas.DataFrame"
