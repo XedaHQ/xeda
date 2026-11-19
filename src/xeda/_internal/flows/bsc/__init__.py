@@ -352,7 +352,7 @@ _BLUESIM_METHOD = re.compile(r"\bMETH_(\w+)\s*\(")
 
 
 def _verilog_method_ports(text: str, reset_prefix: str | None = None) -> list[str] | None:
-    """Return the ports of a generated Verilog module that are neither a clock nor a reset.
+    """Return the method ports in the port table of a generated Verilog module.
 
     `text` is the Verilog that bsc generated. The port table is in its header comment, after the
     line `// Ports:`. Each row has a name, the direction (`I`, `O` or `IO`), a size and props.
@@ -1455,7 +1455,8 @@ class BscSim(BscFlow, SimFlow):
     The flow compiles the design's Bluespec sources in order, RTL first and then the testbench,
     with the package that defines `tb.top` last. It simulates `tb.top`, a module with an `Empty`
     interface (`rtl.top` when the design has no testbench). The run fails before the simulation
-    if that module has methods, since nothing calls them and the simulation would not end.
+    if that module has methods, since nothing calls them and the simulation would not end (a
+    Bluesim run with `max_cycles` is bounded and is not checked).
     `simulator` selects Bluesim, the cycle-based simulator of bsc, or a Verilog simulator that
     bsc links with the generated Verilog (`bsc -vsim`). The clock and reset come from the
     `main.v` of bsc.
@@ -1590,7 +1591,7 @@ class BscSim(BscFlow, SimFlow):
             gt=0,
             description="Stop a Bluesim simulation after this many measured rising clock edges. "
             "The evidence script of Xeda confirms the count and the final time. A finish before the limit is "
-            "also valid.",
+            "also valid. The limit also lets a top module with methods run.",
             json_schema_extra=count(),
         )
         system_verilog_tasks: bool = Field(
@@ -1925,39 +1926,51 @@ class BscSim(BscFlow, SimFlow):
         `$finish`. Nothing calls the methods of the simulated module, so the simulation would
         not end. The check reads what this run's bsc wrote for the module: the C++ header of
         Bluesim, or the header comment of the generated Verilog. A missing file or a missing
-        section fails the run, as the output of bsc may have changed.
+        section fails the run, as the output of bsc may have changed. Two cases skip the check:
+        a Bluesim run bounded by `max_cycles` ends anyway, and a `verilog_filters` command may
+        have removed the port table.
         """
-        path = sim_dir / (f"{top}.h" if bluesim else f"{top}.v")
-        report = self.report_file(path)
-        text = report.read_text(encoding="utf-8", errors="replace") if report else ""
         ss = self.settings
         assert isinstance(ss, self.Settings)
+        if bluesim and ss.max_cycles is not None:
+            return
+        path = sim_dir / (f"{top}.h" if bluesim else f"{top}.v")
+        report = self.report_file(path)
+        if report is None:
+            raise FlowFatalError(
+                f"bsc_sim cannot check that `{top}` has an `Empty` interface: this run's bsc "
+                f"did not write {self.run_file(path)}."
+            )
+        text = report.read_text(encoding="utf-8", errors="replace")
         found = (
             _bluesim_methods(text, top) if bluesim else _verilog_method_ports(text, ss.reset_prefix)
         )
         if found is None:
-            filtered = (
-                " A `verilog_filters` command may have changed the file."
-                if not bluesim and ss.verilog_filters
-                else ""
-            )
+            if not bluesim and ss.verilog_filters:
+                log.warning(
+                    "The Empty-interface check is skipped: a `verilog_filters` command removed "
+                    "the port table of `%s`.",
+                    top,
+                )
+                return
             raise FlowFatalError(
                 f"bsc_sim cannot check that `{top}` has an `Empty` interface: bsc wrote no "
-                f"{'class' if bluesim else 'port table'} for it in {self.run_file(path)}.{filtered}"
+                f"{'class' if bluesim else 'port table'} for it in {self.run_file(path)}."
             )
         if not found:
             return
-        kind = "methods" if bluesim else "ports that are not a clock or a reset"
         fallback = (
             ""
             if self.design.tb.top
             else " The design has no testbench, so `rtl.top` is the simulated module."
         )
+        advice = "Simulate a testbench module with an `Empty` interface (set `tb.top`)"
+        advice += ", or set `max_cycles` to bound the Bluesim run." if bluesim else "."
         raise FlowFatalError(
-            f"bsc_sim cannot simulate `{top}`: it has {kind} ({', '.join(found)}).{fallback} "
-            "bsc drives the clock and the reset of the module until it calls `$finish`, and "
-            "nothing calls its methods, so the simulation would not end. Simulate a "
-            "testbench module with an `Empty` interface: set `tb.top`."
+            f"bsc_sim cannot simulate `{top}`: it has {'methods' if bluesim else 'method ports'} "
+            f"({', '.join(found)}).{fallback} bsc drives the clock and the reset of the module "
+            "until the module calls `$finish`, and nothing calls its methods, so the simulation "
+            f"would not end. {advice}"
         )
 
     def _run_modelsim(self, top: str, plusargs: list[str]) -> None:

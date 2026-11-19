@@ -1297,7 +1297,7 @@
       "max_cycles": {
         "children": false,
         "assignable": true,
-        "help": "Stop a Bluesim simulation after this many measured rising clock edges. The evidence script of Xeda confirms the count and the final time. A finish before the limit is also valid."
+        "help": "Stop a Bluesim simulation after this many measured rising clock edges. The evidence script of Xeda confirms the count and the final time. A finish before the limit is also valid. The limit also lets a top module with methods run."
       },
       "parallel_sim_link": {
         "children": false,

@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from xeda import Design
-from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException
 from xeda._internal.flow_runner import DefaultRunner
 from xeda._internal.flow_runner.launch_result import launch_result
 from xeda._internal.flows import Bsc, BscSim
@@ -1348,13 +1348,34 @@ def test_a_top_with_methods_fails_before_the_simulation(simulator, testbench, tm
     top = "mkMethodsTb" if testbench else "mkIfc"
     assert f"bsc_sim cannot simulate `{top}`" in error.message
     assert "set `tb.top`" in error.message
+    assert ("set `max_cycles`" in error.message) is (simulator == "bluesim")
+    assert "until the module calls `$finish`" in error.message
     assert ("The design has no testbench" in error.message) is (not testbench)
     names = ["read", "inc"] if simulator == "bluesim" else ["RDY_read", "EN_inc"]
     assert all(name in error.message for name in names)
     # the simulation never started
     run_path = Path(result.nodes[BscSim.name].run_dir)
+    simulator_log = "vvp.log" if simulator == "iverilog" else f"{top}.log"
     for name in ("sim.log", "xeda_end.json", "bluesim_events.jsonl", "bluesim_end.json"):
         assert not (run_path / name).exists()
+    assert not (run_path / "logs" / simulator_log).exists()
+
+
+def test_max_cycles_bounds_bluesim_run_of_a_top_with_methods(tmp_path, capfd):
+    """The limit ends the run, so the module needs no `$finish`: it is not refused."""
+    require_bluesim()
+    design = _methods_design(tmp_path / "d", testbench=False)
+    flow = _run(BscSim, design, tmp_path / "run", max_cycles=100, timeout="60 s")
+    captured = capfd.readouterr()
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
+
+
+def test_the_check_names_a_file_this_run_did_not_write(tmp_path, monkeypatch):
+    design = _methods_design(tmp_path / "d", testbench=False)
+    flow = _flow(BscSim, design, tmp_path / "run")
+    monkeypatch.setattr(BscSim, "report_file", lambda self, path, **kw: None)
+    with pytest.raises(FlowFatalError, match="this run's bsc did not write .*mkIfc.h"):
+        flow._require_empty_interface("mkIfc", tmp_path / "run" / "sim_build", True)
 
 
 #: An `Empty` testbench that uses neither a reset (`mkRegU`) nor a method.
@@ -1430,22 +1451,27 @@ def test_an_empty_testbench_with_an_unused_reset_runs_again_in_its_run_directory
         assert "PASS" in captured.out
 
 
-def test_a_verilog_filter_that_removes_the_port_table_is_named_in_the_failure(tmp_path):
+def test_a_verilog_filter_that_removes_the_port_table_skips_the_check(tmp_path, caplog, capfd):
+    """Without a port table the check cannot tell: it warns and lets the run go on."""
     require_bsc()
     require_iverilog()
     strip = tmp_path / "strip.sh"
     strip.write_text('#!/bin/sh\ngrep -v "^//" "$1" > "$1.new" && mv "$1.new" "$1"\n')
     strip.chmod(0o755)
-    _write(tmp_path, {"Endless.bsv": ENDLESS_TB})
-    design = Design(name="t", root=tmp_path, rtl={"sources": ["Endless.bsv"], "top": "mkEndless"})
-    runner = DefaultRunner(tmp_path / "run", display_results=False)
-    settings = {"simulator": "iverilog", "timeout": "60 s", "verilog_filters": [str(strip)]}
-    result = launch_result(
-        runner, Spec(BscSim.name, design), lambda: runner.run_flow(BscSim, design, settings)
-    )
-    assert result.error is not None and result.error.code == "reported_failure"
-    assert "bsc wrote no port table" in result.error.message
-    assert "`verilog_filters` command may have changed the file" in result.error.message
+    _write(tmp_path, {"NoReset.bsv": NO_RESET_TB})
+    design = Design(name="t", root=tmp_path, rtl={"sources": ["NoReset.bsv"], "top": "mkNoReset"})
+    with caplog.at_level(logging.WARNING):
+        flow = _run(
+            BscSim,
+            design,
+            tmp_path / "run",
+            simulator="iverilog",
+            timeout="60 s",
+            verilog_filters=[str(strip)],
+        )
+    captured = capfd.readouterr()
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
+    assert "a `verilog_filters` command removed the port table of `mkNoReset`" in caplog.text
 
 
 #: A testbench calling a C function through `import "BDPI"`.
