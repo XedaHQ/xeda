@@ -343,7 +343,7 @@ def _verilog_modules(path: Path) -> list[str]:
 
 #: A row of the port table in the header comment that bsc writes at the top of a Verilog module:
 #: `// <name> <I|O|IO> <size> [props]`.
-_PORT_ROW = re.compile(r"^//\s+(\w+)\s+(IO|I|O)\s+\d+(?:\s+(.*?))?\s*$")
+_PORT_ROW = re.compile(r"^//\s+(\S+)\s+(IO|I|O)\s+\d+(?:\s+(.*?))?\s*$")
 #: The ports that bsc names after the clock, the gate of a clock and the reset of the module.
 #: A clock or a reset that the module does not use carries no property, so the name tells it.
 _CLOCK_OR_RESET_PORT = re.compile(r"^(?:CLK|CLK_GATE|RST_N)(?:_\w+)?$")

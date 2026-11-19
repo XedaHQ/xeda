@@ -1431,6 +1431,8 @@ def test_every_output_and_an_input_without_a_clock_property_is_a_method_port():
         _port_table("CLK                            I     1 clock", "start_num1  I  51")
     ) == ["start_num1"]
     assert bsc_module._verilog_method_ports(_port_table("data  IO  8")) == ["data"]
+    # a Verilog name may hold `$`, for example where a BH name has a prime
+    assert bsc_module._verilog_method_ports(_port_table("get$x  O  8 reg")) == ["get$x"]
 
 
 @pytest.mark.parametrize("simulator", ["bluesim", "iverilog"])
