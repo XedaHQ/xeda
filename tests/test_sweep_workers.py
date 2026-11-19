@@ -6,6 +6,7 @@ The workers start with `spawn` on every platform. The tests run the same fake to
 """
 
 import copy
+import dataclasses
 import json
 import os
 import pickle
@@ -26,6 +27,8 @@ from xeda._internal.events import Event
 from xeda._internal.flow import Flow
 from xeda._internal.flow_runner.run_lock import LockRequest, LockWaitCanceled, acquire_all
 from xeda._internal.outcomes import Disposition, Outcome
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from xeda._internal import sweep
 from xeda._internal.spec import Spec
 from xeda._internal.sweep import NodeTask, worker_main
@@ -607,6 +610,45 @@ def test_a_worker_refuses_the_task_of_other_code_before_it_reads_it(tmp_path, de
         "process that sweeps (in Jupyter, restart the kernel), and sweep again."
     )
     assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
+
+
+def test_a_worker_refuses_a_task_whose_flow_code_differs_before_the_run_begins(tmp_path, design):
+    # The code of Xeda matches, but the sweep planned with other code of the flow: the entry of
+    # `run_node` refuses the task before the run of the node began.
+    workspace = _workspace(tmp_path)
+    task = _task(workspace, _spec(design, 1), "yosys_fpga", [])
+    assert "yosys_fpga" in task.code
+    outcome = worker_main(dataclasses.replace(task, code={**task.code, "yosys_fpga": "0" * 32}))
+    error = outcome.result.error
+    assert error is not None and error.code == "stale_runtime"
+    assert "the code of the flow `yosys_fpga` differs" in error.message
+    assert outcome.result.disposition is Disposition.NOT_RUN
+    assert not _calls(workspace) and not list(workspace.run_root.rglob("results.json"))
+
+
+@pytest.mark.parametrize(
+    "error, dispositions",
+    [
+        # A broken pool refuses the task before it queues it: no point ran the node.
+        (BrokenProcessPool("broken"), ["not_run"] * 4),
+        # A failure to start a process comes after the pool queued the task, so a worker may still
+        # run it: the sweep cannot tell, and counts it as run once and shared.
+        (OSError(24, "Too many open files"), ["ran", "shared", "shared", "shared"]),
+    ],
+    ids=["broken-pool", "spawn-failure"],
+)
+def test_a_task_that_the_pool_does_not_take_is_not_run_only_when_the_pool_refused_it(
+    tmp_path, design, monkeypatch, error, dispositions
+):
+    def submit(self, fn, /, *args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(ProcessPoolExecutor, "submit", submit)
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design), max_workers=2)
+    assert all(point.result.outcome is Outcome.FAILED for point in result)
+    assert _dispositions(result, "yosys_fpga") == dispositions
+    assert not _calls(workspace)
 
 
 def test_a_worker_reports_a_task_that_names_no_node(tmp_path, design):

@@ -822,7 +822,9 @@ name and meaning:
     What this launch did with the node: ``ran``, ``reused`` (the recorded run was up to date, and Xeda
     did not run it again; only a ``passed`` or ``rejected`` run is reused), ``shared`` (a sweep
     executed it once for several points) or ``not_run``. ``ran`` means that the run of the node
-    began. A node that failed or was canceled before its run began is ``not_run``.
+    began. A node that failed or was canceled before its run began is ``not_run``. When Xeda cannot
+    tell whether the run began, it reports ``ran``: a sweep worker process that died while it had
+    the node, or a launch of the node that ended with an exception and no result.
 ``reason``
     Why the node ran, was reused, was blocked or was not reached. For a node that ran, this is
     the text that the log shows as ``Running <flow>: <reason>``. For a rejected run that Xeda
@@ -846,7 +848,8 @@ name and meaning:
     node, whether or not its tool ran.
 ``record``
     The ``results.json`` of the run, as :ref:`described above <results-json>`, or ``null`` for a node
-    that did not run (``blocked``, ``skipped`` or ``detached``) or whose record could not be stored.
+    that did not run (``blocked``, ``skipped`` or ``detached``, or ``not_run`` because it failed or
+    was canceled before its run began) or whose record could not be stored.
     The metrics of a run are in ``record.metrics``, for example ``.nodes[-1].record.metrics.fmax``.
 ``error``
     Why the node did not pass, or ``null`` for a node that passed or was skipped. It has the keys of

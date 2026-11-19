@@ -625,6 +625,10 @@ def _execute_in_worker(task: NodeTask) -> NodeOutcome:
         return run_node(task, canceled=_stop_requested, emit=lambda event: None)
     except StalePlanError as error:
         return refused(error.code or "stale_plan", str(error))
+    except StaleRuntimeError as error:
+        # The code checks that raise it are refusals before the run began: a check after the run
+        # is an outcome of the node, which `run_node` returns.
+        return _failed(node, error_info(error, node=node), Disposition.NOT_RUN)
     # The two failures below left the launch of the node with no result, so the worker cannot
     # tell whether the run began: it reports the node as executed.
     except Exception as error:  # noqa: BLE001 - the failure of a node is a value
@@ -920,6 +924,10 @@ class _Sweep:
             outcome = run_node(self._task(unit), canceled=self.canceled, emit=lambda event: None)
         except (StalePlanError, KeyboardInterrupt):
             raise
+        except StaleRuntimeError as error:
+            # A refusal before the run began (`_execute_in_worker` says why).
+            self._failed(unit, error_info(error, node=unit.node.name), Disposition.NOT_RUN)
+            return
         except Exception as error:  # noqa: BLE001 - the failure of a node is a value
             # The launch of the node left no result: whether its run began is unknown.
             self._failed(unit, error_info(error, node=unit.node.name), Disposition.RAN)
@@ -1072,8 +1080,11 @@ class _Sweep:
         try:
             future = pool.submit(worker_main, self._task(unit))
         except Exception as error:  # noqa: BLE001 - a broken pool is the failure of the node
-            # No worker got the node: it did not run.
-            self._failed(unit, self._worker_failure(unit, error), Disposition.NOT_RUN)
+            # A broken pool refuses the task before it queues it, so the node did not run. Any
+            # other error came after the pool queued the task (it failed to start a process or
+            # its thread), which a worker may still run: whether it ran is unknown.
+            known = Disposition.NOT_RUN if isinstance(error, BrokenProcessPool) else Disposition.RAN
+            self._failed(unit, self._worker_failure(unit, error), known)
             return
         # Its events come when it completes, with those of the nodes before it in the plan.
         running[future] = unit

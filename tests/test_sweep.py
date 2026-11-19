@@ -33,6 +33,7 @@ from xeda._internal.flow_runner.launch_options import LaunchOptions
 from xeda._internal.outcomes import Disposition, Outcome, Result
 from xeda._internal.records import ErrorInfo, encode_record, read_record
 from xeda._internal.spec import Spec
+from xeda._internal import sweep as sweep_module
 from xeda._internal.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
 from xeda._internal.frozen import thaw
 from xeda._internal.utils import dump_json
@@ -97,6 +98,22 @@ def _calls_of(workspace: Workspace, prefix: str) -> Counter:
 
 def _dispositions(result: SweepResult, node: str) -> list[str]:
     return [str(point.result.nodes[node].disposition) for point in result]
+
+
+def test_a_refusal_for_changed_code_in_the_sweeping_process_is_not_run(
+    tmp_path, design, monkeypatch
+):
+    # `run_node` checks the code at its entry, before the run of the node begins.
+    def refuse(task, **_):
+        raise StaleRuntimeError("the code changed", code="stale_runtime")
+
+    monkeypatch.setattr(sweep_module, "run_node", refuse)
+    result = _workspace(tmp_path).sweep(_seeds(design), max_workers=1)
+    for point in result:
+        node = point.result.nodes["yosys_fpga"]
+        assert node.error is not None and node.error.code == "stale_runtime"
+    assert _dispositions(result, "yosys_fpga") == ["not_run"] * 4
+    assert _dispositions(result, "nextpnr") == ["not_run"] * 4
 
 
 def test_a_seed_sweep_runs_one_shared_producer(tmp_path, design):

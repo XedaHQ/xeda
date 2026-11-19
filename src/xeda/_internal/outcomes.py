@@ -66,9 +66,10 @@ class Outcome(StrEnum):
 class Disposition(StrEnum):
     """What this launch did with a node. The set is closed.
 
-    `ran`: the launch executed it: its run began. `reused`: an earlier run was up to date.
-    `shared`: a sweep executed it once for several points. `not_run`: its run did not begin, also
-    when the node failed or was canceled before."""
+    `ran`: the launch executed it: its run began, or Xeda cannot tell whether it began (a sweep
+    worker died, or the launch of the node ended with no result). `reused`: an earlier run was up
+    to date. `shared`: a sweep executed it once for several points. `not_run`: its run did not
+    begin, also when the node failed or was canceled before."""
 
     RAN = "ran"
     SHARED = "shared"

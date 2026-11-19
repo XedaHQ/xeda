@@ -711,7 +711,9 @@ def failed_result(
                 ),
                 reason="",
                 blocked_by=None,
-                elapsed="0 s",
+                elapsed=(
+                    seconds_text(0) if end is None or end.flow is None else _elapsed(end.flow, end)
+                ),
                 record=None,
                 error=ErrorInfo(
                     code=CANCELED,

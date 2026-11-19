@@ -1122,6 +1122,8 @@ def test_an_interrupted_launch_keeps_the_producer_that_passed_and_cancels_the_ru
     assert (producer.outcome, producer.record is not None) == (Outcome.PASSED, True)
     assert (consumer.outcome, consumer.record) == (Outcome.CANCELED, None)
     assert consumer.error is not None and consumer.error.code == "canceled"
+    # The interrupt came in its `run()`: its run began, and its time is measured.
+    assert consumer.disposition is Disposition.RAN and consumer.elapsed != "0 s"
     # without `interrupted`, the node that the interrupt left is a failure like any other
     failed = failed_result(
         runner,
@@ -1159,6 +1161,48 @@ def test_a_node_that_ended_before_the_interrupt_keeps_its_outcome(tmp_path, monk
     producer, consumer = result.nodes.values()
     assert (producer.outcome, producer.record is not None) == (Outcome.PASSED, True)
     assert consumer.outcome is Outcome.CANCELED
+
+
+@pytest.mark.usefixtures("flows")
+def test_an_interrupt_before_the_run_began_leaves_the_node_not_run(tmp_path, monkeypatch):
+    def interrupted(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(TNeedsMayFail, "start_run", interrupted)
+    runner, design = _runner(tmp_path), _design(tmp_path)
+    spec = Spec(TNeedsMayFail.name, design)
+    with pytest.raises(KeyboardInterrupt):
+        launch_result(runner, spec, lambda: runner.run_flow(TNeedsMayFail, design, {}))
+    error = ErrorInfo(code="canceled", message="interrupted", node=None, exit_status=None, log=None)
+    consumer = failed_result(runner, spec, None, error, interrupted=True).nodes[TNeedsMayFail.name]
+    assert (consumer.outcome, consumer.disposition) == (Outcome.CANCELED, Disposition.NOT_RUN)
+    assert consumer.elapsed == "0 s"
+
+
+def test_a_remote_launch_tells_every_node_it_reached_as_a_launch_here_does(tmp_path):
+    """A blocked node and a node that failed before its run began are `not_run`, and a launch on
+    this machine tells their events. Only a node that the launch never reached has none."""
+    from xeda._internal.flow_runner.launch_result import _Progress
+    from xeda._internal.remote.client import _tell
+
+    nodes = {
+        "a": dataclasses.replace(_node("a", "failed"), disposition=Disposition.NOT_RUN),
+        "b": _node("b", "blocked", blocked_by="a"),
+        "c": _node("c", "skipped"),
+        "d": _node("d", "detached"),
+    }
+    result = Result(launch_id="id", spec=Spec("b", _design(tmp_path)), roots=["b"], outcome="failed", error=nodes["a"].error, nodes=nodes)  # type: ignore[arg-type]
+    seen: list = []
+    _tell(_Progress("", None, seen.append), result)
+    told = [(event.kind, event.node) for event in seen]
+    assert told == [
+        ("launch_started", None),
+        ("node_started", "a"),
+        ("node_finished", "a"),
+        ("node_started", "b"),
+        ("node_finished", "b"),
+        ("launch_finished", None),
+    ]
 
 
 def test_a_design_file_is_not_part_of_the_equality_of_designs(tmp_path):

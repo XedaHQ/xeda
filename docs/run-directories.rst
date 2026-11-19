@@ -283,11 +283,12 @@ that are the same run (``equal_specs``), two configurations on one run directory
 (``colliding_run_dirs``) and two points that deliver to one destination
 (``shared_destination``).
 
-Each point has a ``Result`` as a launch has. In the first point that has a node, the node is
+Each point has a ``Result`` as a launch has. In the first point that runs a node, the node is
 ``ran``. In the others it is ``shared``, with the same outcome, record and error, the time 0.0 and
 the reason ``shared with point N``. A node that an earlier launch left up to date is ``reused`` in
 every point, and a node whose run did not begin is ``not_run`` in every point: a worker that
-refuses a task (for example with ``stale_runtime``) does not run it. A producer that fails or is rejected blocks its consumers in every point. All points
+refuses a task (for example with ``stale_runtime``) does not run it. A worker process that dies
+while it has a node leaves Xeda unable to tell whether the run began, so that node is ``ran``. A producer that fails or is rejected blocks its consumers in every point. All points
 read one snapshot of the environment, taken when the sweep starts. ``rebuild_all`` and ``clean``
 apply to each node once.
 
