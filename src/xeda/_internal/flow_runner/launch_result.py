@@ -232,12 +232,26 @@ class LaunchCollector:
         end = self.ended.get(node.name)
         if end is None:
             self.ended[node.name] = _Ended(None, error, "0 s")
+            self._tell_end(node, locked=True)
         elif end.error is not error:
             self.ended[node.name] = replace(end, error=error)
 
     def failed_before_start(self, node: PlanNode, error: Exception) -> None:
         """Note that `node` failed with `error` before it had a flow: its entry refused it."""
-        self.ended.setdefault(node.name, _Ended(None, error, "0 s"))
+        if node.name not in self.ended:
+            self.ended[node.name] = _Ended(None, error, "0 s")
+            self._tell_end(node, locked=True)
+
+    def _tell_end(self, node: PlanNode, *, locked: bool) -> None:
+        """Tell the events of `node`, which ended with no flow: the launch reached it and it failed,
+        so it has its events as a node that ended with a flow has them (`node_ended`). `locked`
+        says whether the launch holds its locks."""
+        progress = self._progress
+        if progress is None:
+            return
+        progress.emit("node_started", node.name, locked=locked)
+        result = _ended_node(node, self.ended[node.name], self)
+        progress.emit("node_finished", node.name, result.outcome, result.disposition, locked=locked)
 
     def node_ended(self, node: PlanNode, flow: Flow, error: BaseException | None) -> None:
         """Note that the launch started `node` as `flow`, and how it ended: `error` is the
@@ -300,6 +314,7 @@ class LaunchCollector:
         if self.refused is None or self.refused[1] is not error or not self.ended:
             return False
         self.ended[self.refused[0].name] = _Ended(None, error, "0 s")
+        self._tell_end(self.refused[0], locked=False)  # the launch left: it holds no lock
         return True
 
 

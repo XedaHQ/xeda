@@ -116,6 +116,18 @@ def test_a_refusal_for_changed_code_in_the_sweeping_process_is_not_run(
     assert _dispositions(result, "nextpnr") == ["not_run"] * 4
 
 
+def test_a_failure_that_leaves_the_launch_of_a_node_in_the_sweeping_process_is_ran(
+    tmp_path, design, monkeypatch
+):
+    # The launch of the node left no result: whether its run began is unknown.
+    def broken(task, **_):
+        raise RuntimeError("a bug of the launch")
+
+    monkeypatch.setattr(sweep_module, "run_node", broken)
+    result = _workspace(tmp_path).sweep(_seeds(design), max_workers=1)
+    assert _dispositions(result, "yosys_fpga") == ["ran", "shared", "shared", "shared"]
+
+
 def test_a_seed_sweep_runs_one_shared_producer(tmp_path, design):
     workspace = _workspace(tmp_path)
     result = workspace.sweep(_seeds(design))
@@ -772,6 +784,8 @@ def test_a_producer_replaced_by_a_failed_run_under_the_lease_fails_the_point(
     assert point.result.outcome is Outcome.FAILED
     assert point.result.error is not None and point.result.error.code == "producer_failed"
     assert point.result.nodes["nextpnr"].outcome is not Outcome.BLOCKED
+    # The run that the consumer found blocked it: the consumer did not run.
+    assert point.result.nodes["nextpnr"].disposition is Disposition.NOT_RUN
     assert result.counts() == {Outcome.FAILED: 1}
 
 

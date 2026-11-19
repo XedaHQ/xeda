@@ -1555,14 +1555,15 @@ def plan_remote(
 
 
 def _tell(progress: _Progress, result: Result) -> None:
-    """Tell `on_event` what a finished launch did: the nodes that it reached, then its end. The
-    host ran the nodes, so they come together. As in a launch on this machine, a node that the
-    launch reached has its events whatever its disposition (a blocked node, or one that failed
-    before its run began), and a node that it never reached has none."""
+    """Tell `on_event` what a finished launch did: the nodes that it ran or that failed, then its
+    end. The host ran the nodes, so they come together. A node that failed was reached, also when
+    it failed before its run began (`not_run`), and a launch on this machine tells its events too.
+    A blocked or canceled node that did not run may or may not have been reached, which the result
+    does not say, so it has no events here."""
     progress.launch_id = result.launch_id
     progress.emit("launch_started")
     for node in result.nodes.values():
-        if node.outcome not in (Outcome.SKIPPED, Outcome.DETACHED):
+        if node.disposition is not Disposition.NOT_RUN or node.outcome is Outcome.FAILED:
             progress.emit("node_started", node.name)
             progress.emit("node_finished", node.name, node.outcome, node.disposition)
     progress.emit("launch_finished", None, result.outcome)

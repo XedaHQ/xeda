@@ -288,9 +288,10 @@ Each point has a ``Result`` as a launch has. In the first point that runs a node
 the reason ``shared with point N``. A node that an earlier launch left up to date is ``reused`` in
 every point, and a node whose run did not begin is ``not_run`` in every point: a worker that
 refuses a task (for example with ``stale_runtime``) does not run it. A worker process that dies
-while it has a node leaves Xeda unable to tell whether the run began, so that node is ``ran``. A producer that fails or is rejected blocks its consumers in every point. All points
-read one snapshot of the environment, taken when the sweep starts. ``rebuild_all`` and ``clean``
-apply to each node once.
+while it has a node leaves Xeda unable to tell whether the run began, so that node is ``ran``. A
+producer that fails or is rejected blocks its consumers in every point. All points read one
+snapshot of the environment, taken when the sweep starts. ``rebuild_all`` and ``clean`` apply to
+each node once.
 
 ``post_cleanup`` and ``post_cleanup_purge`` act when every point has finished. For each node that
 the sweep ran, the sweep takes the lock of the node again and checks that ``results.json`` still

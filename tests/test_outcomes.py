@@ -369,7 +369,7 @@ def test_a_storage_failure_is_a_failed_node_without_a_record(tmp_path, monkeypat
     # A refusal before the run leaves a node whose run did not begin: it did not run.
     ran = "not_run" if stage == "before the run" else "ran"
     assert (node.outcome, node.disposition) == ("failed", ran)
-    assert node.elapsed == "0 s" or ran == "ran"
+    assert (node.elapsed == "0 s") is (ran == "not_run")
     assert node.record is None
     assert node.error is not None and node.error.code == "storage_error"
     assert node.error.node == MAY_FAIL
@@ -1179,9 +1179,10 @@ def test_an_interrupt_before_the_run_began_leaves_the_node_not_run(tmp_path, mon
     assert consumer.elapsed == "0 s"
 
 
-def test_a_remote_launch_tells_every_node_it_reached_as_a_launch_here_does(tmp_path):
-    """A blocked node and a node that failed before its run began are `not_run`, and a launch on
-    this machine tells their events. Only a node that the launch never reached has none."""
+def test_a_remote_launch_tells_the_nodes_that_ran_or_failed(tmp_path):
+    """A node that failed was reached, also before its run began (`not_run`), and a launch here
+    tells its events. Whether a blocked or canceled node that did not run was reached, the result
+    does not say: the replay tells no events of it."""
     from xeda._internal.flow_runner.launch_result import _Progress
     from xeda._internal.remote.client import _tell
 
@@ -1190,6 +1191,9 @@ def test_a_remote_launch_tells_every_node_it_reached_as_a_launch_here_does(tmp_p
         "b": _node("b", "blocked", blocked_by="a"),
         "c": _node("c", "skipped"),
         "d": _node("d", "detached"),
+        "e": _node("e", "passed"),
+        "f": dataclasses.replace(_node("f", "canceled"), disposition=Disposition.NOT_RUN),
+        "g": _node("g", "failed"),
     }
     result = Result(launch_id="id", spec=Spec("b", _design(tmp_path)), roots=["b"], outcome="failed", error=nodes["a"].error, nodes=nodes)  # type: ignore[arg-type]
     seen: list = []
@@ -1199,8 +1203,10 @@ def test_a_remote_launch_tells_every_node_it_reached_as_a_launch_here_does(tmp_p
         ("launch_started", None),
         ("node_started", "a"),
         ("node_finished", "a"),
-        ("node_started", "b"),
-        ("node_finished", "b"),
+        ("node_started", "e"),
+        ("node_finished", "e"),
+        ("node_started", "g"),
+        ("node_finished", "g"),
         ("launch_finished", None),
     ]
 

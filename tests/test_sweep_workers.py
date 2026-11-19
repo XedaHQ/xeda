@@ -651,6 +651,20 @@ def test_a_task_that_the_pool_does_not_take_is_not_run_only_when_the_pool_refuse
     assert not _calls(workspace)
 
 
+def test_a_failure_that_leaves_the_launch_of_a_node_without_a_result_is_ran(
+    tmp_path, design, monkeypatch
+):
+    # Whether the run of the node began is unknown, so the worker reports the node as executed.
+    def broken(task, **_):
+        raise RuntimeError("a bug of the launch")
+
+    monkeypatch.setattr(sweep, "run_node", broken)
+    workspace = _workspace(tmp_path)
+    outcome = worker_main(_task(workspace, _spec(design, 1), "yosys_fpga", []))
+    assert outcome.result.error is not None and outcome.result.error.code == "internal_error"
+    assert outcome.result.disposition is Disposition.RAN
+
+
 def test_a_worker_reports_a_task_that_names_no_node(tmp_path, design):
     # The error reads no field that the task may lack. The process that sweeps fills in the name.
     workspace = _workspace(tmp_path)
@@ -713,6 +727,8 @@ def test_a_worker_that_ends_after_the_code_changed_on_disk_fails_its_node_with_s
     error = point.result.nodes["changing_flow"].error
     assert point.result.outcome is Outcome.FAILED and error is not None
     assert error.code == "stale_runtime"
+    # A worker that died leaves the sweep unable to tell whether the run began: it reports `ran`.
+    assert point.result.nodes["changing_flow"].disposition is Disposition.RAN
     assert "terminated abruptly" in error.message and "__main__" not in error.message
 
 
@@ -756,6 +772,8 @@ def test_a_flow_that_leaves_the_worker_fails_its_node_not_the_sweep(
     node = point.result.nodes["leaving_flow"]
     assert point.result.outcome is Outcome.FAILED and node.error is not None
     assert node.error.code == "reported_failure"
+    # The run began, and the exception left it with no result: the worker reports `ran`.
+    assert node.disposition is Disposition.RAN
 
 
 def test_the_events_of_a_diamond_come_in_the_order_of_the_plan(tmp_path):

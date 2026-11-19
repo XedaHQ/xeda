@@ -379,8 +379,10 @@ def test_a_change_between_two_producers_fails_the_second_one_as_a_value(
     monkeypatch.syspath_prepend(str(root))
     importlib.invalidate_caches()
     changed: list[str] = []
+    told: list[Event] = []
 
     def on_event(event: Event) -> None:
+        told.append(event)
         if event.kind == "node_finished" and not changed:
             changed.append(event.node or "")
             _write(root / package / "helper.py", 'TEXT = "two\\n"\n')
@@ -403,6 +405,10 @@ def test_a_change_between_two_producers_fails_the_second_one_as_a_value(
     # The entry refused the second producer before its run began: it did not run.
     assert result.nodes[f"{name}_b"].disposition == "not_run"
     assert result.nodes[f"{name}_b"].elapsed == "0 s"
+    # The launch reached it, so it has its events, as a node that failed with a flow has them.
+    finished = [e for e in told if e.kind == "node_finished" and e.node == f"{name}_b"]
+    assert [(e.outcome, e.disposition) for e in finished] == [("failed", "not_run")]
+    assert [e.kind for e in told if e.node == f"{name}_b"] == ["node_started", "node_finished"]
     assert (str(result.outcome), result.error and result.error.code) == ("failed", "stale_runtime")
 
 
