@@ -1848,6 +1848,10 @@ def _run(
                             )
                         run.started = not dry_run
                         result = _launch(agent, launch, launch_id, profile.setup)
+                    if not dry_run:
+                        # Before the fetch: a result that does not list them is damaged, which is
+                        # no failure of the fetch.
+                        run.told = _told(result, destination_text)
                 except BaseException:
                     if not dry_run:
                         _discard_mirrors(local, mirror_root, local_root)
@@ -1874,7 +1878,6 @@ def _run(
                         _plan_deliveries(outcome, prepared.planned_deliveries)
                     _print_dry_run(destination_text, uploaded)
                 else:
-                    run.told = _told(result, destination_text)
                     run.localize = lambda: _localized(
                         result,
                         run,

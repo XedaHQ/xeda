@@ -177,6 +177,38 @@ def test_a_remote_launch_tells_the_nodes_that_the_launch_on_the_host_reached(tmp
     ]
 
 
+@pytest.mark.parametrize("told", [None, "yosys_fpga"])
+def test_a_result_that_does_not_list_the_nodes_it_told_fails_before_the_fetch(
+    tmp_path, remote_host, monkeypatch, told
+):
+    """The client reads the list of the nodes that the launch on the host told about before it
+    fetches anything. A result without that list is damaged: the launch fails as `remote_failed`,
+    not as a fetch, and its nodes are as a launch that did not reach them leaves them."""
+    real_launch, real_fetch = client._launch, client._fetch
+    fetched: list[bool] = []
+
+    def damaged(*args):
+        document = real_launch(*args)
+        if told is None:
+            del document["told"]
+        else:
+            document["told"] = told
+        return document
+
+    def fetch(agent, fetch_all):
+        fetched.append(fetch_all)
+        return real_fetch(agent, fetch_all)
+
+    monkeypatch.setattr(client, "_launch", damaged)
+    monkeypatch.setattr(client, "_fetch", fetch)
+    result = _workspace(tmp_path).run(_spec(tmp_path))
+    assert result.outcome is Outcome.FAILED and fetched == []
+    assert result.error is not None
+    assert (result.error.code, result.error.node) == ("remote_failed", None)
+    assert "does not list the nodes that it told about" in result.error.message
+    assert [node.outcome for node in result.nodes.values()] == [Outcome.SKIPPED] * 2
+
+
 def test_a_fetch_failure_after_node_success_is_a_launch_level_error(
     tmp_path, remote_host, monkeypatch
 ):
