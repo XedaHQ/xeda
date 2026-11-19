@@ -574,6 +574,26 @@ def test_an_exception_of_the_callback_at_the_start_of_a_node_stops_the_sweep(tmp
     assert not _calls(workspace)
 
 
+def test_a_callback_at_the_start_of_a_node_in_this_process_takes_no_lock(tmp_path, design):
+    """The node tells its start while its launch holds its locks: the callback may reuse them and
+    takes no other, as in a launch."""
+    from xeda._internal.flow_runner import run_lock
+    from xeda.errors import LeaseHeldError
+
+    found: list[str] = []
+
+    def on_event(event: Event) -> None:
+        if (event.kind, event.node) == ("node_started", "yosys_fpga"):
+            try:
+                with run_lock.run_dir_read_lock(tmp_path / "elsewhere"):
+                    found.append("took a lock")
+            except LeaseHeldError as error:
+                found.append(error.code)
+
+    _workspace(tmp_path).sweep(_seeds(design, 1), on_event=on_event)
+    assert found == ["lease_held"]
+
+
 def test_a_number_of_workers_that_is_not_a_positive_whole_number_is_refused(tmp_path, design):
     workspace = _workspace(tmp_path)
     for bad in (0, -1, True, 1.5):

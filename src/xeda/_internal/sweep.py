@@ -761,7 +761,8 @@ class _Sweep:
         self.snapshot = snapshot
         #: Whether a worker returned an outcome: a pool that broke before it did returned none.
         self._worker_returned = False
-        #: Why the pool could not start its workers (`_start_workers`): it then runs no node.
+        #: Whether the sweep started its workers (`_start_workers`), and why it could not.
+        self._workers_started = False
         self._pool_error: Exception | None = None
         self.points = [_Point(index, plan) for index, plan in enumerate(plans)]
         self.units: dict[tuple[Any, ...], _Unit] = {}
@@ -853,6 +854,12 @@ class _Sweep:
             nodes=nodes,
         )
         self._begin(point)
+        # `_advance` stops at a node with no result: a node after it in plan order that ended (in
+        # a sweep that stopped) has its events here.
+        for name, result in nodes.items():
+            if has_events(result.outcome):
+                self._emit(point, "node_started", name)
+                self._emit(point, "node_finished", name, result.outcome, result.disposition)
         self._emit(point, "launch_finished", None, outcome)
 
     def _deliver(self, point: _Point, nodes: dict[str, NodeResult]) -> ErrorInfo | None:
@@ -1038,17 +1045,14 @@ class _Sweep:
         context = multiprocessing.get_context("spawn")
         channel = WorkerChannel(context)
         running: dict[Future[NodeOutcome], _Unit] = {}
-        # No more workers than nodes: each worker starts before the first node.
-        workers = min(self.max_workers, len(self.units))
         try:
             with ProcessPoolExecutor(
-                workers,
+                self._pool_size,
                 mp_context=context,
                 initializer=_start_worker,
                 initargs=(channel.reader,),
             ) as pool:
                 try:
-                    self._pool_error = self._start_workers(pool, channel, workers)
                     self._schedule(pool, channel, running)
                 except BaseException:
                     channel.cancel()
@@ -1057,11 +1061,14 @@ class _Sweep:
         finally:
             channel.close()
 
-    def _start_workers(
-        self, pool: ProcessPoolExecutor, channel: WorkerChannel, count: int
-    ) -> Exception | None:
-        """Start the `count` worker processes of `pool` before the first node. Return the error
-        that stopped one, or `None`.
+    @property
+    def _pool_size(self) -> int:
+        """The number of worker processes: no more than the sweep has nodes."""
+        return min(self.max_workers, len(self.units))
+
+    def _start_workers(self, pool: ProcessPoolExecutor, channel: WorkerChannel) -> Exception | None:
+        """Start every worker process of `pool`, before the first node that it runs. Return the
+        error that stopped one, or `None`.
 
         `ProcessPoolExecutor.submit` queues a task first, and only then starts a process for it
         when no worker is idle. A failure to start one leaves a queued task, which a worker may
@@ -1070,6 +1077,7 @@ class _Sweep:
         worker is idle, so each of these submits starts a process, and the submit of a node later
         starts none. When a warm-up fails, the channel ends the warm-ups that wait, and the pool
         runs no node."""
+        count = self._pool_size
         warm_ups: list[Future[None]] = []
         try:
             for _ in range(count):
@@ -1089,7 +1097,6 @@ class _Sweep:
                 if isinstance(failure, Exception):
                     channel.cancel()
                     return failure
-        self._worker_returned = True
         return None
 
     def _schedule(
@@ -1111,7 +1118,7 @@ class _Sweep:
                 elif self._settle(unit):
                     continue
                 elif len(running) < self.max_workers:
-                    self._start(unit, pool, running)
+                    self._start(unit, pool, channel, running)
                 else:
                     waiting.append(unit)
             pending = waiting
@@ -1139,7 +1146,8 @@ class _Sweep:
                     "the worker processes ended before any of them returned a result. A likely "
                     "cause is a script that launches at module level: each worker imports the "
                     'script again, so put the code that launches under `if __name__ == "__main__":`. '
-                    "The standard error of the worker has the details."
+                    "Another cause is Xeda code on disk that is older than the code of this "
+                    "process. The standard error of the worker has the details."
                 ),
                 node=info.node,
                 exit_status=None,
@@ -1151,8 +1159,15 @@ class _Sweep:
         self,
         unit: _Unit,
         pool: ProcessPoolExecutor,
+        channel: WorkerChannel,
         running: dict[Future[NodeOutcome], _Unit],
     ) -> None:
+        if not self._workers_started:
+            # Only a sweep that runs a node in a worker starts the workers.
+            self._workers_started = True
+            self._pool_error = self._start_workers(pool, channel)
+            if self.canceled():
+                return  # the sweep stops, and the node is skipped
         if self._pool_error is not None:
             # The pool could not start its workers: the node was never submitted.
             self._failed(unit, self._worker_failure(unit, self._pool_error), Disposition.NOT_RUN)

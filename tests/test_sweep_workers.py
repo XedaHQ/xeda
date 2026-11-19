@@ -688,6 +688,78 @@ def test_the_warm_ups_start_every_worker_before_any_node(tmp_path):
         channel.close()
 
 
+def test_a_cancel_while_the_workers_start_runs_no_node(tmp_path, design, monkeypatch):
+    """The warm-ups wait for a release that never comes: the cancel ends them, and the sweep runs
+    no node."""
+    token = CancelToken()
+    monkeypatch.setattr(sweep.WorkerChannel, "release", lambda self, count: token.cancel())
+    workspace = _workspace(tmp_path)
+    result = workspace.sweep(_seeds(design), max_workers=2, cancel=token)
+    assert result.canceled
+    assert {str(n.outcome) for p in result for n in p.result.nodes.values()} == {"skipped"}
+    assert not _calls(workspace)
+
+
+def test_the_workers_start_before_the_first_node_and_are_no_more_than_the_nodes(tmp_path, design):
+    """Three nodes (one `yosys_fpga` that both points share, and a `nextpnr` for each): the pool
+    starts three workers of the eight allowed, all before the first node ends."""
+    import multiprocessing
+
+    before = set(multiprocessing.active_children())
+    counted: list[int] = []
+
+    def on_event(event: Event) -> None:
+        if event.kind == "node_finished" and not counted:
+            counted.append(len(set(multiprocessing.active_children()) - before))
+
+    result = _workspace(tmp_path).sweep(_seeds(design, 2), max_workers=8, on_event=on_event)
+    assert all(point.result.passed for point in result)
+    assert counted == [3]
+
+
+def test_a_stopped_sweep_tells_a_node_that_ended_after_one_that_never_started(
+    tmp_path, monkeypatch
+):
+    """`t_right` ends while `t_left`, before it in the plan, never starts, and the sweep stops: the
+    node that ended has its events all the same, and the nodes that never started have none."""
+    token = CancelToken()
+    start, collect = sweep._Sweep._start, sweep._Sweep._collect
+
+    def start_all_but_t_left(self, unit, pool, channel, running):
+        if unit.node.name != "t_left":
+            start(self, unit, pool, channel, running)
+
+    def stop_after_t_right(self, unit, future):
+        collect(self, unit, future)
+        if unit.node.name == "t_right":
+            token.cancel()
+
+    monkeypatch.setattr(sweep._Sweep, "_start", start_all_but_t_left)
+    monkeypatch.setattr(sweep._Sweep, "_collect", stop_after_t_right)
+    events: list[Event] = []
+    (point,) = Workspace(tmp_path / "run").sweep(
+        [Spec("t_join", _plain_design(tmp_path))],
+        max_workers=2,
+        cancel=token,
+        on_event=events.append,
+    )
+    nodes = point.result.nodes
+    assert {name: str(node.outcome) for name, node in nodes.items()} == {
+        "t_fork": "passed",
+        "t_left": "skipped",
+        "t_right": "passed",
+        "t_join": "skipped",
+    }
+    assert [(e.kind, e.node) for e in events] == [
+        ("launch_started", None),
+        ("node_started", "t_fork"),
+        ("node_finished", "t_fork"),
+        ("node_started", "t_right"),
+        ("node_finished", "t_right"),
+        ("launch_finished", None),
+    ]
+
+
 def test_a_launch_and_a_sweep_tell_the_same_nodes_of_a_diamond_whose_fork_failed(
     tmp_path, monkeypatch
 ):
