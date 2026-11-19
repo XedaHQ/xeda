@@ -1237,7 +1237,7 @@ class _Sweep:
             self._begin(point)
         if not self.canceled():
             self._generate()
-        if self.max_workers > 1:
+        if self.max_workers > 1 and self.units:  # a sweep with no node needs no worker
             self._run_in_workers()
         else:
             for unit in self.order:

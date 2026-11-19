@@ -506,8 +506,9 @@ the nodes that had not started are ``skipped``. Create one token for each launch
 
 ``on_event`` receives an ``Event`` for each step of a launch, in the thread that called ``run``.
 ``event.kind`` is ``launch_started``, ``node_started``, ``node_finished`` or ``launch_finished``.
-Each node of the result has a ``node_started`` and a ``node_finished``, except a ``skipped`` or
-``detached`` node, which the launch never entered.
+Each node of the result has a ``node_started`` and a ``node_finished``, except a ``skipped`` node,
+which the launch never entered, and a ``detached`` node, which a remote launch left running on its
+host.
 In a sweep, the events of different points interleave: use ``event.launch_id`` to tell them apart.
 
 .. code-block:: python

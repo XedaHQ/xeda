@@ -63,7 +63,8 @@ __all__ = [
 #: launch stopped, and a consumer that it never started is skipped.
 _STOPS_CONSUMERS = frozenset({Outcome.FAILED, Outcome.REJECTED, Outcome.BLOCKED, Outcome.DETACHED})
 
-#: The outcomes of a node that the launch never entered: such a node has no events.
+#: The outcomes of a node that has no events: a `skipped` node, which the launch never entered,
+#: and a `detached` node, which a remote launch left running on its host.
 _WITHOUT_EVENTS = frozenset({Outcome.SKIPPED, Outcome.DETACHED})
 
 
@@ -372,7 +373,7 @@ def stops_consumers(outcome: Outcome) -> bool:
 
 def has_events(outcome: Outcome) -> bool:
     """Return whether a node that ended with `outcome` has its two events (`Event`): every node of
-    a `Result` has them but a `skipped` or `detached` one, which the launch never entered."""
+    a `Result` has them but a `skipped` or `detached` one (`_WITHOUT_EVENTS`)."""
     return outcome not in _WITHOUT_EVENTS
 
 

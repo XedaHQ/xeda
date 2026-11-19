@@ -612,8 +612,9 @@ def test_a_task_crosses_a_process_boundary(tmp_path, design):
     assert pickle.loads(pickle.dumps(done)) == done
 
 
-def test_an_empty_sweep_has_no_point(tmp_path):
-    result = Workspace(tmp_path / "run").sweep([])
+@pytest.mark.parametrize("max_workers", [1, 2])
+def test_an_empty_sweep_has_no_point(tmp_path, max_workers):
+    result = Workspace(tmp_path / "run").sweep([], max_workers=max_workers)
     assert len(result) == 0 and not result.canceled and result.rows() == []
 
 

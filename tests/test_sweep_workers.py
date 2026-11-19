@@ -676,14 +676,17 @@ def test_the_warm_ups_start_every_worker_before_any_node(tmp_path):
         with ProcessPoolExecutor(
             3, mp_context=context, initializer=sweep._start_worker, initargs=(channel.reader,)
         ) as pool:
-            warm_ups = [pool.submit(sweep._warm_up) for _ in range(3)]
-            assert len(set(multiprocessing.active_children()) - before) == 3
-            done, _ = wait(warm_ups, timeout=0.5)
-            assert not done, "a warm-up went on before the calling process let it"
-            channel.release(3)
-            for future in warm_ups:
-                future.result(timeout=60)
-            assert not channel.reader.poll(), "every message was read"
+            try:
+                warm_ups = [pool.submit(sweep._warm_up) for _ in range(3)]
+                assert len(set(multiprocessing.active_children()) - before) == 3
+                done, _ = wait(warm_ups, timeout=0.5)
+                assert not done, "a warm-up went on before the calling process let it"
+                channel.release(3)
+                for future in warm_ups:
+                    future.result(timeout=60)
+                assert not channel.reader.poll(), "every message was read"
+            finally:
+                channel.cancel()  # a warm-up that still waits ends, and the pool shuts down
     finally:
         channel.close()
 
