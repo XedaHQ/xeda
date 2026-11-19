@@ -1471,7 +1471,7 @@ def test_a_verilog_filter_that_removes_the_port_table_skips_the_check(tmp_path, 
         )
     captured = capfd.readouterr()
     assert flow is not None and flow.succeeded, run_report(flow, captured)
-    assert "a `verilog_filters` command removed the port table of `mkNoReset`" in caplog.text
+    assert "the generated Verilog of `mkNoReset` has no port table" in caplog.text
 
 
 #: A testbench calling a C function through `import "BDPI"`.

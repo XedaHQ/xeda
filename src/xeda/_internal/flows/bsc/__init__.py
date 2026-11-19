@@ -1948,8 +1948,8 @@ class BscSim(BscFlow, SimFlow):
         if found is None:
             if not bluesim and ss.verilog_filters:
                 log.warning(
-                    "The Empty-interface check is skipped: a `verilog_filters` command removed "
-                    "the port table of `%s`.",
+                    "The Empty-interface check is skipped: the generated Verilog of `%s` has no "
+                    "port table, which a `verilog_filters` command may have removed.",
                     top,
                 )
                 return
