@@ -1870,3 +1870,68 @@ def test_the_pwd_of_a_process_started_through_a_link_and_dot_dot_names_where_it_
     assert os.path.samefile(cwd, tmp_path / "real" / "build")
     assert os.path.samefile(pwd, cwd)
     assert not {".", ".."} & set(pwd.split(os.sep))
+
+
+# ---------------------------------------------------------------------------------------------
+# console_paths: the console shows real paths, the logs keep the text of the child
+# ---------------------------------------------------------------------------------------------
+
+PATHS = {"stage/A.bsv": "/real/A.bsv", "search/0": "/lib"}
+BSC_LINES = (
+    'Error: "stage/A.bsv", line 9, column 15: (T0080) Type error\\n'
+    'Error: "search/0/sub/P.bsv", line 2: (T0080)\\n'
+    "compiling stage/A.bsv\\n"
+    'say "stage/A.bsv" please\\n'
+    "display stage/A.bsv, line 3\\n"
+    'Error: "other/B.bsv", line 4: (T0080)\\n'
+)
+REWRITTEN = (
+    'Error: "/real/A.bsv", line 9, column 15: (T0080) Type error\n'
+    'Error: "/lib/sub/P.bsv", line 2: (T0080)\n'
+    "compiling /real/A.bsv\n"
+    'say "stage/A.bsv" please\n'
+    "display stage/A.bsv, line 3\n"
+    'Error: "other/B.bsv", line 4: (T0080)\n'
+)
+
+
+def test_console_paths_change_the_console_only(tmp_path, capsys):
+    log = tmp_path / "tool.log"
+    run_process(
+        sys.executable,
+        ["-c", f"import sys; sys.stdout.write('{BSC_LINES}')"],
+        tee=log,
+        console_paths=PATHS,
+        highlight_rules=HIGHLIGHT,
+    )
+    assert capsys.readouterr().out == REWRITTEN
+    assert log.read_text() == BSC_LINES.replace("\\n", "\n")
+
+
+def test_console_paths_apply_before_the_highlight_rules(capsys):
+    run_process(
+        sys.executable,
+        ["-c", "print('ERROR: \"stage/A.bsv\", line 1')"],
+        console_paths=PATHS,
+        highlight_rules=HIGHLIGHT,
+    )
+    assert capsys.readouterr().out.startswith('<<ERROR: "/real/A.bsv", line 1')
+
+
+def test_console_paths_leave_a_process_without_them_alone(tmp_path, capsys):
+    run_process(sys.executable, ["-c", "print('compiling stage/A.bsv')"], tee=tmp_path / "t.log")
+    assert capsys.readouterr().out == "compiling stage/A.bsv\n"
+
+
+def test_console_paths_rewrite_the_error_output_too(tmp_path, capsys):
+    log = tmp_path / "out.log"
+    errors = tmp_path / "err.log"
+    run_process(
+        sys.executable,
+        ["-c", "import sys; sys.stderr.write('compiling stage/A.bsv\\n')"],
+        tee=log,
+        log_to=errors,
+        console_paths=PATHS,
+    )
+    assert capsys.readouterr().err == "compiling /real/A.bsv\n"
+    assert errors.read_text() == "compiling stage/A.bsv\n"

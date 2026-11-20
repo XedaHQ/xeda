@@ -11,3 +11,5 @@
   that is the run directory or lies inside a stage folder. bsc now runs with an empty
   `BSC_OPTIONS`, so it ignores that variable of the caller and the flow warns about it. The `env`
   setting must not set it.
+  bsc's messages in the console and in Xeda's summary name the real files. The log keeps bsc's
+  text (`bsc_sources/...`).

@@ -14,7 +14,7 @@ import termios
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 import contextvars
 from contextvars import ContextVar
@@ -807,9 +807,12 @@ def _run_copying(
     terminal: bool,
     new_session: bool,
     canceled: Callable[[], bool] | None,
+    console_paths: Mapping[str, str] | None = None,
 ) -> None:
     """Run a child whose output is not captured. The output goes to the logs (`tee` and `log_to`)
     as it arrives. It goes to the terminal too, when `TOOL_OUTPUT` is `"terminal"`.
+
+    `console_paths` changes the lines that the terminal shows (`rewrite_paths`), never the logs.
 
     The error output goes to `log_to` and, in `"terminal"` mode, to the standard error, unless
     `merge_stderr` folds it into the output. A child with no log and no terminal has its output
@@ -821,6 +824,7 @@ def _run_copying(
         and tee is None
         and log_to is None
         and not highlight_rules
+        and not console_paths
         and (redirect is None or _stream_has_fileno(redirect))
     ):
         _run_inherited(command, env, cwd, check, timeout, on_stop, new_session, canceled)
@@ -849,6 +853,7 @@ def _run_copying(
         if (
             terminal
             and show
+            and not console_paths
             and logs.files
             and (tee is None or log_to is None or merge_stderr)
             and _stdout_terminal_fd() is not None
@@ -894,7 +899,9 @@ def _run_copying(
             pump = None
             if errors_apart:
                 assert proc.stderr is not None and tool_log is not None
-                pump = _context_thread(_copy_errors, proc.stderr, tool_log, show, name)
+                pump = _context_thread(
+                    _copy_errors, proc.stderr, tool_log, show, name, console_paths
+                )
                 pump.start()
             terminal_fd = _stdout_terminal_fd() if show else None
             with _Deadline(
@@ -904,6 +911,8 @@ def _run_copying(
                     for line in proc_stdout:
                         logs.write(line)
                         if show:
+                            if console_paths:
+                                line = rewrite_paths(line, console_paths)
                             for re_pat, subs in highlight_rules_re.items():
                                 line, matches = re_pat.subn(
                                     subs + colorama.Style.RESET_ALL, line, count=1
@@ -935,7 +944,13 @@ def _context_thread(target: Any, *args: Any) -> threading.Thread:
     )
 
 
-def _copy_errors(pipe: IO[str], tool_log: _LogFile | None, show: bool, name: str) -> None:
+def _copy_errors(
+    pipe: IO[str],
+    tool_log: _LogFile | None,
+    show: bool,
+    name: str,
+    console_paths: Mapping[str, str] | None = None,
+) -> None:
     """Copy the error output of a child to the log of the tool, and to the standard error when
     the terminal shows the output. Without a log and without a terminal, it goes to the `xeda`
     logger at DEBUG. The function runs in a thread of its own and ends with the pipe."""
@@ -945,7 +960,7 @@ def _copy_errors(pipe: IO[str], tool_log: _LogFile | None, show: bool, name: str
                 if tool_log is not None:
                     tool_log.write(line)
                 if show:
-                    sys.stderr.write(line)
+                    sys.stderr.write(rewrite_paths(line, console_paths) if console_paths else line)
                 elif tool_log is None:
                     log.debug("%s: %s", name, line.rstrip("\r\n"))
     except (OSError, ValueError):
@@ -1060,6 +1075,45 @@ def _pwd(cwd: Union[None, str, "os.PathLike[str]"]) -> str:
     return os.path.normpath(path)  # `.` and repeated separators never cross a link
 
 
+_QUOTED_POSITION = re.compile(r'"([^"\r\n]+)", line (?=\d)')
+_PROGRESS_PATH = re.compile(r"^((?:re)?compiling )(\S.*?)(\s*)$")
+
+
+def _real_path(name: str, paths: Mapping[str, str]) -> str | None:
+    """Return the path that `paths` gives for `name`: for the name itself, else for its nearest
+    parent folder, with the rest of `name` appended."""
+    if name in paths:
+        return paths[name]
+    folder = name
+    while "/" in folder:
+        folder, _, _ = folder.rpartition("/")
+        if folder in paths:
+            return paths[folder] + name[len(folder) :]
+    return None
+
+
+def rewrite_paths(line: str, paths: Mapping[str, str]) -> str:
+    """Return `line` with the file names of a compiler message replaced by the paths in `paths`.
+
+    Only two forms change. A quoted name that a position follows (`"A.bsv", line 3`) is the file
+    of a message. A line that starts with `compiling ` or `recompiling ` and a name is a progress
+    line. Any other text stays as it is, even if it holds a name of `paths`: a program may print
+    it as data. A name is in `paths` itself, or lies in a folder that is.
+    """
+
+    def quoted(match: re.Match[str]) -> str:
+        real = _real_path(match[1], paths)
+        return match[0] if real is None else f'"{real}", line '
+
+    line = _QUOTED_POSITION.sub(quoted, line)
+    progress = _PROGRESS_PATH.match(line)
+    if progress is not None:
+        real = _real_path(progress[2], paths)
+        if real is not None:
+            return f"{progress[1]}{real}{progress[3]}"
+    return line
+
+
 def run_process(
     executable: str,
     args: Optional[Sequence[Any]] = None,
@@ -1077,6 +1131,7 @@ def run_process(
     log_to: Path | None = None,
     log_append: bool = False,
     canceled: Callable[[], bool] | None = None,
+    console_paths: Mapping[str, str] | None = None,
 ) -> Union[None, str]:
     """Run `executable`, and return its captured stdout when `stdout` is True.
 
@@ -1139,6 +1194,10 @@ def run_process(
     each redraw and no empty line. In any other case (a pipe, a file, a CI log, a captured
     stream) `terminal` has no effect, and the child sees the pipe that it always saw.
     `highlight_rules` do not apply to a child with a terminal, which colors its own output.
+    `console_paths` maps names that the child prints to the paths that the terminal shows
+    instead (`rewrite_paths`). It changes the lines on the terminal only, before the highlight
+    rules. The logs and the captured output keep the text of the child. With `console_paths`,
+    the child gets a pipe even when `terminal` asks for a terminal, so that its lines can change.
     The terminal is the output of the child, not its controlling terminal: the child leads a
     session of its own, as with any other output.
     """
@@ -1211,6 +1270,7 @@ def run_process(
         terminal,
         new_session,
         canceled,
+        console_paths,
     )
     return None
 

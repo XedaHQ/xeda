@@ -14,10 +14,11 @@ import os
 import re
 from importlib.resources import files
 from abc import ABCMeta
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, ClassVar, Literal
 
 import colorama
@@ -48,6 +49,7 @@ from .sim_evidence import (
     verilator_evidence,
     xsim_evidence,
 )
+from ...proc_utils import rewrite_paths
 from ...package_paths import impl_module
 from ...tool import Docker, Tool
 from ...units import count
@@ -300,6 +302,40 @@ def diagnostic_lines(text: str) -> list[str]:
             for line in found
         )
     )
+
+
+#: The advice that Xeda adds to a failure of bsc, by the text that identifies the failure.
+_MISSING_PACKAGE = re.compile(r"\(S0000\)|Cannot find package")
+_MISSING_INCLUDE = re.compile(r"\(S0034\)|Cannot find the file .* to be included")
+_MISSING_FOLDER = re.compile(r"\(S0091\)")
+
+
+def _hint(shown: Sequence[str], *, cpp: bool) -> str:
+    """Return the advice for the error lines `shown` of a failed bsc run, or an empty text.
+
+    The advice starts with a space, so that it can follow the quoted lines. It names the setting
+    or the source entry that gives bsc the file it did not find."""
+    text = "\n".join(shown)
+    if _MISSING_PACKAGE.search(text):
+        return (
+            " (bsc reads only the listed sources and the folders of the path settings: list the"
+            " file of the package, or name its folder in `search_paths`, or its folder in bsc's"
+            " installation in `installed_libraries`)"
+        )
+    if _MISSING_INCLUDE.search(text):
+        return " (list the file with `type: BluespecHeader`, or name its folder in `search_paths`)"
+    if _MISSING_FOLDER.search(text):
+        return (
+            " (a folder that a path setting names does not exist: check `search_paths`,"
+            " `installed_libraries` and `verilog_search_paths`)"
+        )
+    if cpp and any("file not found" in line or "No such file" in line for line in shown):
+        return (
+            f" (with `cpp`, a BH source finds a quoted `#include` only among the listed "
+            f"sources, which are links in `{STAGE_SOURCES}`: list the header in the "
+            "design's sources)"
+        )
+    return ""
 
 
 def _message_list(tags: Sequence[str]) -> str:
@@ -555,6 +591,11 @@ class BscFlow(Flow, metaclass=ABCMeta):
     """Compile Bluespec with bsc: the settings and the compilation `bsc` and `bsc_sim` share."""
 
     executables: ClassVar[tuple[str, ...]] = ("bsc",)
+
+    #: The absolute path that each staged name (`bsc_sources/A.bsv`) or folder (`bsc_search/0`)
+    #: stands for. `_stage` sets it for the run. The console and the failure text show these
+    #: paths in place of bsc's names (`proc_utils.rewrite_paths`).
+    _real_paths: Mapping[str, str] = MappingProxyType({})
 
     artifacts_description = describe_artifacts("log")
 
@@ -1135,9 +1176,11 @@ class BscFlow(Flow, metaclass=ABCMeta):
             self.run_file(folder).mkdir(parents=True, exist_ok=True)
         for link, original in entries.items():
             self.run_file(link).symlink_to(original)
-        self._stage_search(tb=tb)
+        paths = {str(link): str(original) for link, original in entries.items()}
+        paths.update(self._stage_search(tb=tb))
+        self._real_paths = paths
 
-    def _stage_search(self, *, tb: bool) -> None:
+    def _stage_search(self, *, tb: bool) -> dict[str, str]:
         """Fill `bsc_search/<i>` with a link to each entry of the folder `search_paths[i]`.
 
         The links are absolute. bsc finds a package, an include file and a compiled `.bo` of a
@@ -1153,11 +1196,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
           a link to the run root would lead the stage into itself.
 
         One INFO line for each folder says what was left out.
+
+        Return the folder that each `bsc_search/<i>` stands for, as an absolute path.
         """
         ss = self.settings
         assert isinstance(ss, BscFlow.Settings)
         listed = {src.file.stem for src in self._sources_of(SourceType.Bluespec, tb=tb)}
         run_dir = Path(os.path.realpath(self.run_path))
+        folders: dict[str, str] = {}
         for index, entry in enumerate(ss.search_paths):
             target = self.run_file(f"{STAGE_SEARCH}/{index}")
             target.mkdir(parents=True, exist_ok=True)
@@ -1166,6 +1212,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 raise FlowSettingsException(
                     f"`search_paths` names {str(entry)!r} ({folder}), which is no folder"
                 )
+            folders[f"{STAGE_SEARCH}/{index}"] = str(folder)
             children = sorted(folder.iterdir())
             names = {child.name for child in children}
             hidden: list[str] = []
@@ -1190,6 +1237,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
                     folder,
                     ", ".join(hidden),
                 )
+        return folders
 
     def _path_flags(self, backend: str, out_dir: Path, sources: list[Source]) -> list[str]:
         """Return where bsc reads and writes.
@@ -1474,7 +1522,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
         timeout keeps its own words."""
         log_file = self.run_directory.writable(log_name)
         try:
-            self.bsc.run(*args, env=env, tee=log_file, merge_stderr=True)
+            self.bsc.run(
+                *args, env=env, tee=log_file, merge_stderr=True, console_paths=self._real_paths
+            )
         except NonZeroExitCode as error:
             if type(error) is not NonZeroExitCode:
                 raise
@@ -1486,21 +1536,13 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
             if not found:
                 raise
-            shown = found[:DIAGNOSTICS_SHOWN]
+            shown = [rewrite_paths(line, self._real_paths) for line in found[:DIAGNOSTICS_SHOWN]]
             more = (
                 f" (and {len(found) - len(shown)} more in {log_name})"
                 if len(found) > len(shown)
                 else ""
             )
-            hint = ""
-            if getattr(self.settings, "cpp", False) and any(
-                "file not found" in line or "No such file" in line for line in shown
-            ):
-                hint = (
-                    f" (with `cpp`, a BH source finds a quoted `#include` only among the listed "
-                    f"sources, which are links in `{STAGE_SOURCES}`: list the header in the "
-                    "design's sources)"
-                )
+            hint = _hint(shown, cpp=bool(getattr(self.settings, "cpp", False)))
             raise error.with_message(f"bsc reported: {' | '.join(shown)}{more}{hint}") from error
 
     def _top_file(self, sources: list[Source], what: str) -> Path:
@@ -1896,6 +1938,10 @@ class BscSim(BscFlow, SimFlow):
     root, in the folder of a listed C or C++ source, or in a folder of `include_dirs`. Xeda does
     not track any other file, such as a header that an absolute or `../` include reaches outside
     those folders. With `--remote`, list the headers in the design so they reach the host.
+    The console and the failure text name the real file in a message of bsc, and the log keeps
+    the staged name (`bsc_sources/Tb.bsv`). The simulation runs with that change off, so the
+    text of a run-time assertion keeps the staged name.
+
     The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and
     xsim. The legacy simulators cvc, cver, isim, ncverilog and veriwell are rejected before
     compilation. The Linux CI job checks the real Icarus evidence and the registration of the

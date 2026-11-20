@@ -119,6 +119,7 @@ class Docker(XedaBaseModel):
         log_to: Path | None = None,
         log_append: bool = False,
         client_env: Optional[Dict[str, Any]] = None,
+        console_paths: Optional[Mapping[str, str]] = None,
     ) -> Union[str, None]:
         """Run the tool in a Docker container.
 
@@ -229,6 +230,7 @@ class Docker(XedaBaseModel):
                 on_stop=kill_container,
                 log_to=log_to,
                 log_append=log_append,
+                console_paths=console_paths,
             )
         except FileNotFoundError as e:
             path = (client_env or os.environ).get("PATH", "")
@@ -556,8 +558,12 @@ class Tool(XedaBaseModel):
         timeout: float | None = None,
         tee: Path | None = None,
         cwd: Path | None = None,
+        console_paths: Optional[Mapping[str, str]] = None,
     ) -> Union[str, None]:
-        """Run the tool with `args` in its working directory (`execute`)."""
+        """Run the tool with `args` in its working directory (`execute`).
+
+        `console_paths` maps names in the output of the tool to the paths that the console shows
+        instead (`proc_utils.rewrite_paths`). The logs keep the text of the tool."""
         if env:
             env = {k: str(v) for k, v in env.items() if v is not None}
             env_file = self._directory(cwd) / "env.sh"
@@ -576,6 +582,7 @@ class Tool(XedaBaseModel):
             merge_stderr=merge_stderr,
             timeout=timeout,
             tee=tee,
+            console_paths=console_paths,
         )
 
     def _live_flow(self) -> Optional[Flow]:
@@ -691,6 +698,7 @@ class Tool(XedaBaseModel):
         merge_stderr: bool = False,
         timeout: float | None = None,
         tee: Path | None = None,
+        console_paths: Optional[Mapping[str, str]] = None,
     ) -> Union[str, None]:
         """Start `executable` with `args` in an explicit directory and return what `run_process`
         returns.
@@ -717,6 +725,7 @@ class Tool(XedaBaseModel):
                 tee=tee,
                 log_to=log_to,
                 log_append=log_append,
+                console_paths=console_paths,
             )
         except NonZeroExitCode as error:
             if error.program is None:
@@ -741,6 +750,7 @@ class Tool(XedaBaseModel):
         tee: Path | None,
         log_to: Path | None,
         log_append: bool,
+        console_paths: Optional[Mapping[str, str]] = None,
     ) -> Union[str, None]:
         """Start the program, with its log at `log_to` (`execute` has chosen it), in
         `directory`."""
@@ -770,6 +780,7 @@ class Tool(XedaBaseModel):
                 cwd=container_directory,
                 log_to=log_to,
                 log_append=log_append,
+                console_paths=console_paths,
             )
         if flow is not None:
             env = flow.process_environment(env or {})
@@ -791,6 +802,7 @@ class Tool(XedaBaseModel):
                 terminal=self.console_colors and (self.pseudo_terminal or not highlight_rules),
                 log_to=log_to,
                 log_append=log_append,
+                console_paths=console_paths,
             )
         except FileNotFoundError as e:
             path = (env if env is not None else os.environ).get("PATH")

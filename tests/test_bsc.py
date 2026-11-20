@@ -2210,7 +2210,9 @@ class _FailingBsc:
         self.error = error
         self.calls: list[dict[str, Any]] = []
 
-    def run(self, *args: Any, env: Any, tee: Path, merge_stderr: bool) -> None:
+    def run(
+        self, *args: Any, env: Any, tee: Path, merge_stderr: bool, console_paths: Any = None
+    ) -> None:
         self.calls.append({"args": args, "env": env, "tee": tee, "merge_stderr": merge_stderr})
         tee.write_text(self.output)
         raise self.error
@@ -3042,3 +3044,140 @@ def test_bsc_combines_promote_warnings_flags_as_the_flow_assumes(flags, fails, t
     require_bsc()
     code, text = _bsc_outcome(tmp_path, *flags)
     assert (code != 0) == fails, text
+
+
+# ---------------------------------------------------------------------------------------------
+# messages: the console and the failure text name real files, the log keeps bsc's text
+# ---------------------------------------------------------------------------------------------
+
+TYPE_ERROR_PKG = "package {name};\nfunction Bit#(8) f(Bit#(8) x) = x + True;\nendpackage\n"
+EMPTY_TOP = "package Top;\n{imports}module mkTop(Empty); endmodule\nendpackage\n"
+
+
+def _failed_message(flow: Any) -> str:
+    assert flow is not None and not flow.succeeded
+    return json.loads((flow.run_path / "results.json").read_text())["error"]["message"]
+
+
+def test_a_type_error_in_a_listed_source_names_the_real_file(tmp_path, capfd):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "rtl/Top.bsv": TYPE_ERROR_PKG.format(name="Top").replace(
+                "endpackage", "module mkTop(Empty); endmodule\nendpackage"
+            )
+        },
+    )
+    design = Design(name="m", root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
+    flow = _run(Bsc, design, tmp_path / "run")
+    real = str(root / "rtl" / "Top.bsv")
+    message = _failed_message(flow).partition("bsc reported:")[2]
+    assert f'Error: "{real}", line 2' in message and "bsc_sources" not in message
+    console = capfd.readouterr()
+    assert f'Error: "{real}", line 2' in console.out + console.err
+    assert '"bsc_sources/Top.bsv"' not in console.out + console.err
+    log = (flow.run_path / bsc_module.COMPILE_LOG).read_text()
+    assert 'Error: "bsc_sources/Top.bsv", line 2' in log and real not in log
+
+
+def test_a_type_error_in_a_package_of_a_search_folder_names_the_real_file(tmp_path, capfd):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "lib/P.bsv": TYPE_ERROR_PKG.format(name="P"),
+            "Top.bsv": EMPTY_TOP.format(imports="import P::*;\n"),
+        },
+    )
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    real = str(root / "lib" / "P.bsv")
+    message = _failed_message(flow).partition("bsc reported:")[2]
+    assert f'Error: "{real}", line 2' in message and "bsc_search" not in message
+    console = capfd.readouterr()
+    assert f'"{real}", line 2' in console.out + console.err
+    assert '"bsc_search/0/P.bsv"' not in console.out + console.err
+    log = (flow.run_path / bsc_module.COMPILE_LOG).read_text()
+    assert '"bsc_search/0/P.bsv", line 2' in log
+
+
+def test_the_console_shows_the_real_path_in_a_progress_line(tmp_path, capfd):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": EMPTY_TOP.format(imports="")})
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run(Bsc, design, tmp_path / "run")
+    assert flow.succeeded
+    console = capfd.readouterr()
+    assert f"compiling {root / 'Top.bsv'}" in console.out + console.err
+    assert "compiling bsc_sources/Top.bsv" in (flow.run_path / bsc_module.COMPILE_LOG).read_text()
+
+
+def test_a_testbench_text_that_looks_like_a_staged_path_is_not_rewritten(tmp_path, capfd):
+    require_bsc()
+    require_bluesim()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {"Tb.bsv": """package Tb;
+(* synthesize *)
+module mkTb(Empty);
+  rule go;
+    $display("\\"bsc_sources/x.bsv\\", line 3");
+    $finish(0);
+  endrule
+endmodule
+endpackage
+"""},
+    )
+    design = Design(
+        name="m", root=root, rtl={"sources": []}, tb={"sources": ["Tb.bsv"], "top": "mkTb"}
+    )
+    flow = _run(BscSim, design, tmp_path / "run")
+    assert flow.succeeded, run_report(flow, capfd.readouterr())
+    console = capfd.readouterr()
+    assert '"bsc_sources/x.bsv", line 3' in console.out + console.err
+    assert '"bsc_sources/x.bsv", line 3' in (flow.run_path / "sim.log").read_text()
+
+
+def test_a_missing_package_names_the_ways_to_provide_it(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": EMPTY_TOP.format(imports="import Lost::*;\n")})
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    message = _failed_message(_run(Bsc, design, tmp_path / "run"))
+    assert "(S0000)" in message
+    for word in ("list the file", "`search_paths`", "`installed_libraries`"):
+        assert word in message
+
+
+def test_a_missing_include_names_the_ways_to_provide_it(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": EMPTY_TOP.format(imports='`include "gone.bsvi"\n')})
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    message = _failed_message(_run(Bsc, design, tmp_path / "run"))
+    assert "(S0034)" in message
+    assert "`type: BluespecHeader`" in message and "`search_paths`" in message
+
+
+def test_a_missing_folder_names_the_settings_that_can_name_one(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": EMPTY_TOP.format(imports="")})
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run(Bsc, design, tmp_path / "run", verilog_search_paths=["nowhere"])
+    message = _failed_message(flow)
+    assert "(S0091)" in message
+    for setting in ("`search_paths`", "`installed_libraries`", "`verilog_search_paths`"):
+        assert setting in message
+
+
+def test_the_hints_follow_the_error_code_only():
+    hint = bsc_module._hint
+    assert hint(['Error: "A.bsv", line 1: (T0080) Type error'], cpp=False) == ""
+    assert "search_paths" in hint(["Error: x: (S0000) Cannot find package `P'"], cpp=False)
+    assert "BluespecHeader" in hint(["Error: x: (S0034) Cannot find the file"], cpp=False)

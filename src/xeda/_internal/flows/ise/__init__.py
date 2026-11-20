@@ -48,6 +48,7 @@ class XTclSh(Tool):
             log_to: Path | None = None,
             log_append: bool = False,
             client_env: Optional[Dict[str, Any]] = None,
+            console_paths: Optional[Mapping[str, str]] = None,
         ) -> Union[None, str]:
             XILINX = "/opt/Xilinx/14.7/ISE_DS"
             args_str = " ".join(str(a) for a in args)
@@ -74,6 +75,7 @@ class XTclSh(Tool):
                 log_to=log_to,
                 log_append=log_append,
                 client_env=client_env,
+                console_paths=console_paths,
             )
 
     executable: str = "xtclsh"
