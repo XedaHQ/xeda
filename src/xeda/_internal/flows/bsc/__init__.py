@@ -424,7 +424,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
     #: `tb` stays declared there, a safe over-approximation.
     design_parts = frozenset({"rtl", "tb"})
 
-    reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES})
+    reads_sources = frozenset({SourceType.Bluespec, SourceType.BluespecHeader, *_VERILOG_TYPES})
 
     #: The parts of the design whose `defines` and `parameters` become preprocessor macros
     #: (`_macros`).
@@ -1154,8 +1154,14 @@ class Bsc(BscFlow):
 
     @classmethod
     def design_conversion(cls, settings: Flow.Settings) -> DesignConversion | None:
-        """Convert the Bluespec sources into Verilog."""
-        return DesignConversion(frozenset({SourceType.Bluespec}), frozenset({SourceType.Verilog}))
+        """Convert the Bluespec sources into Verilog.
+
+        A Bluespec include file is read by bsc and never handed on."""
+        return DesignConversion(
+            frozenset({SourceType.Bluespec}),
+            frozenset({SourceType.Verilog}),
+            absorbs=frozenset({SourceType.BluespecHeader}),
+        )
 
     class Settings(BscFlow.Settings):
         verilog_out_dir: Path = Field(
@@ -1285,17 +1291,19 @@ class Bsc(BscFlow):
         """Return the sources of the derived design from what the collection found.
 
         The defining file and the library copies come first (`Generated`). Then every source of
-        `rtl` that is not Bluespec (`Passed`: the design's Verilog and SystemVerilog, VHDL,
-        headers, constraints, ...), in the order of the design. The modules bsc generated come
-        last, each before the module that instantiates it and the top module at the end
-        (`Generated`). Each source appears once."""
+        `rtl` that the conversion hands on (`Passed`: neither Bluespec nor a Bluespec header, so
+        the design's Verilog and SystemVerilog, VHDL, other headers, constraints, ...), in the
+        order of the design. The modules bsc generated come last, each before the module that
+        instantiates it and the top module at the end (`Generated`). Each source appears once."""
+        conversion = self.design_conversion(self.settings)
+        assert conversion is not None
         entries: list[Generated | Passed] = [
             Generated(path, SourceType.Verilog) for path in collected.defines + collected.library
         ]
         entries.extend(
             Passed(index)
             for index, src in enumerate(self.design.rtl.sources)
-            if src.type is not SourceType.Bluespec
+            if conversion.passes_through(src)
         )
         entries.extend(Generated(path, SourceType.Verilog) for path in collected.generated)
         return DerivedSources(top, tuple(unique(entries)))
@@ -1521,7 +1529,9 @@ class BscSim(BscFlow, SimFlow):
     #: The testbench's macros go over the RTL's (`_macros`).
     macro_parts = ("rtl", "tb")
 
-    reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES, *_FOREIGN_TYPES})
+    reads_sources = frozenset(
+        {SourceType.Bluespec, SourceType.BluespecHeader, *_VERILOG_TYPES, *_FOREIGN_TYPES}
+    )
 
     @classmethod
     def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:

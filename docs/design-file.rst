@@ -238,8 +238,8 @@ A path string is enough when its extension identifies the type:
      - ``Verilog`` / ``SystemVerilog``
    * - ``.vh`` / ``.svh``
      - ``VerilogHeader`` / ``SVHeader``
-   * - ``.bsv``, ``.bs``, ``.bh``
-     - ``Bluespec``
+   * - ``.bsv``, ``.bs``, ``.bh`` / ``.bsvi``
+     - ``Bluespec`` / ``BluespecHeader``
    * - ``.py``
      - ``Cocotb``
    * - ``.cc``, ``.cpp``, ``.cxx`` / ``.c`` / ``.h``, ``.hpp`` / ``.o``, ``.a``
@@ -473,6 +473,12 @@ paths.
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files. It rejects a ``.bh``
    source with a settings error that names the file to rename.
+
+   A ``.bsvi`` file is a ``BluespecHeader``: a BSV include file. Other include
+   files, such as ``.defines`` files and ``.bsv`` fragments, take ``type: BluespecHeader``. The
+   ``bsc`` and ``bsc_sim`` flows never compile a header. They read it through the ``include`` of a
+   Bluespec source, and a change of the header runs the flow again. The derived design of ``bsc``
+   holds no header.
 
 When the suffix is not enough, write a table in place of the string:
 

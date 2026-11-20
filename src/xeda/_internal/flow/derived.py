@@ -51,22 +51,28 @@ class DesignConversion:
     """The languages a converter flow converts and writes.
 
     `transforms` are the languages of `rtl.sources` that the flow converts. `produces` are the
-    languages of the sources it writes. Every other source of `rtl` passes through unchanged."""
+    languages of the sources it writes. `absorbs` are the types of sources that the flow reads but
+    does not hand on, such as an include file of a converted language. Every other source of `rtl`
+    passes through unchanged."""
 
     transforms: frozenset[SourceType]
     produces: frozenset[SourceType]
+    absorbs: frozenset[SourceType] = frozenset()
 
     def __post_init__(self) -> None:
-        for name in ("transforms", "produces"):
+        for name in ("transforms", "produces", "absorbs"):
             value = getattr(self, name)
             if (
                 not isinstance(value, frozenset)
-                or not value
+                or (not value and name != "absorbs")
                 or not all(isinstance(member, SourceType) for member in value)
             ):
-                raise TypeError(f"DesignConversion.{name} is a nonempty frozenset of SourceType")
+                kind = "a frozenset" if name == "absorbs" else "a nonempty frozenset"
+                raise TypeError(f"DesignConversion.{name} is {kind} of SourceType")
         if self.transforms & self.produces:
             raise TypeError("a converter writes no language that it converts")
+        if self.absorbs & (self.transforms | self.produces):
+            raise TypeError("a converter absorbs no type that it converts or writes")
 
     @property
     def written_type(self) -> SourceType:
@@ -75,7 +81,7 @@ class DesignConversion:
 
     def passes_through(self, source: Source) -> bool:
         """Return whether `source` passes through the converter unchanged."""
-        return source.type not in self.transforms
+        return source.type not in self.transforms and source.type not in self.absorbs
 
 
 @dataclass(frozen=True)
