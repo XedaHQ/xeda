@@ -1757,11 +1757,13 @@ class BscSim(BscFlow, SimFlow):
         objects and archives, after writing a wrapper for each source.
 
         bsc compiles a C or C++ source to an object beside the name it is given. So the link names
-        a wrapper in the run directory: `bsc_foreign/<digest of the source's folder>/<the source's
+        a wrapper in the run directory: `bsc_foreign/<digest of the source's path>/<the source's
         name>`. The wrapper includes the source by its absolute path, and bsc writes the object
-        beside the wrapper, never beside the design's file. The compiler looks for a quoted
-        `#include` first in the folder of the file that holds it, so the source finds its headers
-        as before. The link names objects and archives as they are: bsc only reads them.
+        beside the wrapper, never beside the design's file. Each source has a folder of its own,
+        so the objects of `ops.c` and `ops.cpp`, or of two `ops.c`, never share a name. The
+        compiler looks for a quoted `#include` first in the folder of the file that holds it, so
+        the source finds its headers as before. The link names objects and archives as they are:
+        bsc only reads them.
         """
         self.run_directory.remove(_FOREIGN_DIR)
         files = []
@@ -1770,7 +1772,7 @@ class BscSim(BscFlow, SimFlow):
                 files.append(src.file)
                 continue
             source = Path(os.path.abspath(src.file))
-            digest = hashlib.sha256(str(source.parent).encode()).hexdigest()[:12]
+            digest = hashlib.sha256(str(source).encode()).hexdigest()[:12]
             wrapper = self.run_directory.writable(Path(_FOREIGN_DIR, digest, source.name))
             wrapper.parent.mkdir(parents=True, exist_ok=True)
             with replacing_file(wrapper, encoding="utf-8") as f:

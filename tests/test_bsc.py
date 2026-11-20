@@ -1706,16 +1706,19 @@ def test_a_plain_c_function_is_linked_into_the_simulation(simulator, tmp_path, c
 
 
 #: C functions for `import "BDPI"` from two sources of one name in two folders, each including a
-#: header of one name beside it, and from a prebuilt object beside one of them under its name.
+#: header of one name beside it, from a C++ source of the same stem, and from a prebuilt object
+#: beside one of them under its name.
 BDPI_FOLDERS_TB = """package Dpi;
 import "BDPI" function Bit#(32) xeda_mul(Bit#(32) a);
 import "BDPI" function Bit#(32) xeda_add(Bit#(32) a);
 import "BDPI" function Bit#(32) xeda_pre(Bit#(32) a);
+import "BDPI" function Bit#(32) xeda_dec(Bit#(32) a);
 (* synthesize *)
 module mkDpi(Empty);
   rule check;
-    if (xeda_mul(2) == 6 && xeda_add(2) == 102 && xeda_pre(2) == 7) $display("PASS");
-    else $display("FAIL: %0d %0d %0d", xeda_mul(2), xeda_add(2), xeda_pre(2));
+    if (xeda_mul(2) == 6 && xeda_add(2) == 102 && xeda_pre(2) == 7 && xeda_dec(2) == 1)
+      $display("PASS");
+    else $display("FAIL: %0d %0d %0d %0d", xeda_mul(2), xeda_add(2), xeda_pre(2), xeda_dec(2));
     $finish(0);
   endrule
 endmodule
@@ -1737,6 +1740,7 @@ def test_the_link_compiles_c_sources_in_the_run_directory(simulator, tmp_path, c
             "Dpi.bsv": BDPI_FOLDERS_TB,
             "mul/ops.h": "#define K 3\n",
             "mul/ops.c": '#include "ops.h"\nunsigned xeda_mul(unsigned a) { return a * K; }\n',
+            "mul/ops.cpp": 'extern "C" unsigned xeda_dec(unsigned a) { return a - 1; }\n',
             "add/ops.h": "#define K 100\n",
             "add/ops.c": '#include "ops.h"\nunsigned xeda_add(unsigned a) { return a + K; }\n',
         },
@@ -1753,7 +1757,10 @@ def test_the_link_compiles_c_sources_in_the_run_directory(simulator, tmp_path, c
         name="dpi_folders",
         root=root,
         rtl={"sources": []},
-        tb={"sources": ["mul/ops.c", "add/ops.c", "add/ops.o", "Dpi.bsv"], "top": "mkDpi"},
+        tb={
+            "sources": ["mul/ops.c", "mul/ops.cpp", "add/ops.c", "add/ops.o", "Dpi.bsv"],
+            "top": "mkDpi",
+        },
     )
     flow = _run(
         BscSim, design, tmp_path / "run", simulator=simulator, use_dpi=simulator == "verilator"
