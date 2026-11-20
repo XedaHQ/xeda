@@ -12,7 +12,9 @@ at hand; `test_bsc_examples.py` runs the example designs.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -1701,6 +1703,65 @@ def test_a_plain_c_function_is_linked_into_the_simulation(simulator, tmp_path, c
     out = captured.out
     assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in out
+
+
+#: C functions for `import "BDPI"` from two sources of one name in two folders, each including a
+#: header of one name beside it, and from a prebuilt object beside one of them under its name.
+BDPI_FOLDERS_TB = """package Dpi;
+import "BDPI" function Bit#(32) xeda_mul(Bit#(32) a);
+import "BDPI" function Bit#(32) xeda_add(Bit#(32) a);
+import "BDPI" function Bit#(32) xeda_pre(Bit#(32) a);
+(* synthesize *)
+module mkDpi(Empty);
+  rule check;
+    if (xeda_mul(2) == 6 && xeda_add(2) == 102 && xeda_pre(2) == 7) $display("PASS");
+    else $display("FAIL: %0d %0d %0d", xeda_mul(2), xeda_add(2), xeda_pre(2));
+    $finish(0);
+  endrule
+endmodule
+endpackage
+"""
+
+
+@pytest.mark.parametrize("simulator", SIMULATORS)
+def test_the_link_compiles_c_sources_in_the_run_directory(simulator, tmp_path, capfd):
+    """bsc writes the object of a C source beside the name it is given, so the source gets a
+    wrapper in the run directory: the design's folders stay as they were, a prebuilt object beside
+    a source of its name included, and each source still includes the header beside it."""
+    _require_simulator(simulator)
+    require_c_toolchain()
+    root = tmp_path / "design"
+    _write(
+        root,
+        {
+            "Dpi.bsv": BDPI_FOLDERS_TB,
+            "mul/ops.h": "#define K 3\n",
+            "mul/ops.c": '#include "ops.h"\nunsigned xeda_mul(unsigned a) { return a * K; }\n',
+            "add/ops.h": "#define K 100\n",
+            "add/ops.c": '#include "ops.h"\nunsigned xeda_add(unsigned a) { return a + K; }\n',
+        },
+    )
+    (tmp_path / "pre.c").write_text("unsigned int xeda_pre(unsigned int a) { return a + 5; }\n")
+    compiler = os.environ.get("CC") or shutil.which("cc") or "clang"
+    subprocess.run(
+        [compiler, "-c", "-fPIC", "pre.c", "-o", str(root / "add" / "ops.o")],
+        cwd=tmp_path,
+        check=True,
+    )
+    before = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    design = Design(
+        name="dpi_folders",
+        root=root,
+        rtl={"sources": []},
+        tb={"sources": ["mul/ops.c", "add/ops.c", "add/ops.o", "Dpi.bsv"], "top": "mkDpi"},
+    )
+    flow = _run(
+        BscSim, design, tmp_path / "run", simulator=simulator, use_dpi=simulator == "verilator"
+    )
+    captured = capfd.readouterr()
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
+    assert "PASS" in captured.out
+    assert {path: path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
 
 
 def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch):

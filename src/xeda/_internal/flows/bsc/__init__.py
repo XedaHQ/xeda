@@ -8,6 +8,7 @@ Verilog link step of `bsc`.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -123,6 +124,8 @@ _VERILOG_TYPES = (SourceType.Verilog, SourceType.SystemVerilog)
 #: What bsc links in for imported C functions: C and C++ sources, objects and archives. A source
 #: is one of them by its type, as for every flow, whatever its suffix.
 _FOREIGN_TYPES = (SourceType.C, SourceType.Cpp, SourceType.ObjectFile)
+#: The folder of the run directory that holds a wrapper for each C and C++ source of the link.
+_FOREIGN_DIR = "bsc_foreign"
 #: What separates the entries of a bsc search path, so no entry can contain it.
 _PATH_SEPARATOR = ":"
 
@@ -1749,6 +1752,32 @@ class BscSim(BscFlow, SimFlow):
         """
         return [src.file for src in self._sources_of(*_FOREIGN_TYPES, tb=True)]
 
+    def _stage_foreign_sources(self) -> list[Path]:
+        """Return the files that the link step takes for the design's C and C++ sources,
+        objects and archives, after writing a wrapper for each source.
+
+        bsc compiles a C or C++ source to an object beside the name it is given. So the link names
+        a wrapper in the run directory: `bsc_foreign/<digest of the source's folder>/<the source's
+        name>`. The wrapper includes the source by its absolute path, and bsc writes the object
+        beside the wrapper, never beside the design's file. The compiler looks for a quoted
+        `#include` first in the folder of the file that holds it, so the source finds its headers
+        as before. The link names objects and archives as they are: bsc only reads them.
+        """
+        self.run_directory.remove(_FOREIGN_DIR)
+        files = []
+        for src in self._sources_of(*_FOREIGN_TYPES, tb=True):
+            if src.type is SourceType.ObjectFile:
+                files.append(src.file)
+                continue
+            source = Path(os.path.abspath(src.file))
+            digest = hashlib.sha256(str(source.parent).encode()).hexdigest()[:12]
+            wrapper = self.run_directory.writable(Path(_FOREIGN_DIR, digest, source.name))
+            wrapper.parent.mkdir(parents=True, exist_ok=True)
+            with replacing_file(wrapper, encoding="utf-8") as f:
+                f.write(f'#include "{source}"\n')
+            files.append(wrapper)
+        return files
+
     @staticmethod
     def _tb_top_of(design: Design) -> str | None:
         """Return the module to simulate: `tb.top`, or `rtl.top` if the design has no testbench."""
@@ -1802,7 +1831,7 @@ class BscSim(BscFlow, SimFlow):
         # A Verilog link finds a module on `-vsearch` only in a file named after it. The link
         # therefore names the design's Verilog files, and a file that holds another module, or
         # several, counts too.
-        link_files = [*self._foreign_sources()]
+        link_files = self._stage_foreign_sources()
         if not bluesim:
             link_files += [src.file for src in self._sources_of(*_VERILOG_TYPES, tb=True)]
         link_flags = self._link_flags(bluesim)
