@@ -43,23 +43,15 @@ dependencies = [
     "pydantic            >= 2.14.3, < 3",
     "python-box[]        ~= 7.4.1",
     "attrs               ~= 26.1.0",
-    "cattrs              ~= 26.2.1",
-    "attrs_strict        ~= 1.0.1",
-    "pathvalidate        ~= 3.3.1",
     "click               ~= 8.5.1",
     "click_extra         ~= 10.2",
     "coloredlogs         ~= 15.0",
     "rich                >= 15.0.0",
     "pint                >= 0.25.3, < 1",
     "importlib_resources >= 7.1.0",                      # backport of importlib.resources, replaces pkg_resources
-    "simpleeval          ~= 1.0.8",
     "PyYAML              ~= 6.0",
-    # experimental:
-    "overrides         ~= 7.7",
-    "psutil            ~= 7.2.2",
-    "pyvcd             ~= 0.5.0",
-    "devtools          ~= 0.13",
-    "colorama          ~= 0.4",
+    "psutil              ~= 7.2.2",
+    "colorama            ~= 0.4",
 ]
 
 [project.optional-dependencies]
