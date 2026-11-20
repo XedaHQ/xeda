@@ -142,6 +142,9 @@ STAGE_VERILOG = "bsc_verilog"
 #: would let bsc read a file that the design does not list (`BscFlow._stage_search`).
 STAGE_SEARCH = "bsc_search"
 
+#: The tag of bsc's warning for a `-p` or `-vsearch` folder that does not exist.
+MISSING_FOLDER_WARNING = "S0091"
+
 
 @dataclass(frozen=True)
 class _Collected:
@@ -244,6 +247,23 @@ def diagnostic_lines(text: str) -> list[str]:
 def _message_list(tags: Sequence[str]) -> str:
     """Return bsc's `:`-separated message list."""
     return ":".join(tags)
+
+
+def _installed_library_problem(entry: str) -> str | None:
+    """Return why `entry` is no folder below bsc's `Libraries` folder, or `None` if it is one."""
+    if not entry:
+        return "is empty"
+    if ":" in entry:
+        return 'has a ":", which separates the entries of a bsc path'
+    if "%" in entry:
+        return 'has a "%", which bsc expands'
+    if any(ch.isspace() for ch in entry):
+        return "has whitespace"
+    if entry.startswith("/"):
+        return "is absolute; give a folder below the `Libraries` folder of bsc"
+    if any(part in ("", ".", "..") for part in entry.split("/")):
+        return 'has an empty, "." or ".." component'
+    return None
 
 
 def staged_name(src: Source) -> Path | None:
@@ -489,6 +509,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
             "does not see a stray compiled `.bo` file that lies beside its source, or any file "
             "(`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first "
             "directory that holds a package wins.",
+        )
+        installed_libraries: list[str] = Field(
+            [],
+            description="Folders of bsc's own installation that bsc searches for imported "
+            "packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for "
+            "bsc-contrib installed into bsc. bsc searches them after `search_paths` and before "
+            "its own libraries. A folder that does not exist fails the run. These files belong "
+            "to bsc's installation, so a run does not trace them.",
         )
         verilog_search_paths: list[Path] = Field(
             [],
@@ -810,6 +838,15 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 raise ValueError(f"{value!r} is not a legal Verilog port name")
             return value
 
+        @field_validator("installed_libraries", mode="after")
+        @classmethod
+        def _validate_installed_libraries(cls, value: list[str]) -> list[str]:
+            for entry in value:
+                problem = _installed_library_problem(entry)
+                if problem:
+                    raise ValueError(f"installed_libraries entry {entry!r} {problem}")
+            return value
+
         @field_validator("promote_warnings", "suppress_warnings", "demote_errors", mode="after")
         @classmethod
         def _validate_message_tags(cls, value: list[str]) -> list[str]:
@@ -1020,7 +1057,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
         package_dirs = [STAGE_SOURCES] + [
             f"{STAGE_SEARCH}/{i}" for i in range(len(ss.search_paths))
         ]
-        flags += ["-p", ":".join([*package_dirs, "%/Libraries"])]
+        installed = [f"%/Libraries/{entry}" for entry in ss.installed_libraries]
+        flags += ["-p", ":".join([*package_dirs, *installed, "%/Libraries"])]
         if backend == "sim":
             # Bluesim reads no Verilog (it rejects imported Verilog modules), so it gets no
             # `-vsearch`.
@@ -1034,6 +1072,28 @@ class BscFlow(Flow, metaclass=ABCMeta):
             ),
         ]
         return flags + self._fdir_flags()
+
+    def _message_flags(self) -> list[str]:
+        """Return the flags that promote, suppress and demote bsc's messages.
+
+        bsc only warns (S0091) about a `-p` folder that does not exist, and drops it. The last
+        `-promote-warnings` makes that warning an error. It comes after the setting's own flag,
+        because bsc adds the tags of each `-promote-warnings` to the earlier ones, and `NONE`
+        clears them. A `-suppress-warnings` or `-demote-errors` of S0091 still wins over the
+        promotion: that is the setting's explicit request.
+        """
+        ss = self.settings
+        assert isinstance(ss, BscFlow.Settings)
+        flags: list[str] = []
+        # An empty list would be taken as the flag's argument by the next flag.
+        if ss.promote_warnings:
+            flags += ["-promote-warnings", _message_list(ss.promote_warnings)]
+        flags += ["-promote-warnings", MISSING_FOLDER_WARNING]
+        if ss.suppress_warnings:
+            flags += ["-suppress-warnings", _message_list(ss.suppress_warnings)]
+        if ss.demote_errors:
+            flags += ["-demote-errors", _message_list(ss.demote_errors)]
+        return flags
 
     def _fdir_flags(self) -> list[str]:
         """Return `-fdir`, where relative file names in the design resolve during elaboration."""
@@ -1126,13 +1186,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         ]
         for r1, r2 in ss.show_rule_rel:
             flags += ["-show-rule-rel", r1, r2]
-        # An empty list would be taken as the flag's argument by the next flag.
-        if ss.promote_warnings:
-            flags += ["-promote-warnings", _message_list(ss.promote_warnings)]
-        if ss.suppress_warnings:
-            flags += ["-suppress-warnings", _message_list(ss.suppress_warnings)]
-        if ss.demote_errors:
-            flags += ["-demote-errors", _message_list(ss.demote_errors)]
+        flags += self._message_flags()
         flags += [
             "-steps-warn-interval",
             str(ss.steps_warn_interval),
@@ -2015,6 +2069,7 @@ class BscSim(BscFlow, SimFlow):
             *self._runtime_flags(),
             *path_flags,
             *self._verbosity_flags(),
+            *self._message_flags(),
             f"-{backend}",
             "-e",
             tb_top,

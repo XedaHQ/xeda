@@ -230,7 +230,7 @@ def test_default_bsc_flags(tmp_path):
     assert "-opt-undetermined-vals" in flags and "-O" not in flags
     assert "-remove-dollar" in flags and "-remove-unused-modules" in flags
     assert "-show-module-use" in flags and "-check-assert" in flags
-    assert "-promote-warnings" not in flags
+    assert _pairs(flags, "-promote-warnings") == ["S0091"]
     assert "-cross-info" not in flags and "-no-show-timestamps" in flags
 
 
@@ -809,9 +809,14 @@ def test_each_boolean_setting_sets_its_bsc_flag(flow_class, setting, tmp_path):
         ({"steps_warn_interval": 7}, "redStepsWarnInterval", "7"),
         ({"steps_max_intervals": 9}, "redStepsMaxIntervals", "9"),
         ({"reset_prefix": "RST"}, "resetName", '"RST"'),
-        ({"promote_warnings": ["G0010", "G0020"]}, "promoteWarnings", 'SomeMsgs ["G0010","G0020"]'),
+        (
+            {"promote_warnings": ["G0010", "G0020"]},
+            "promoteWarnings",
+            'SomeMsgs ["G0010","G0020","S0091"]',
+        ),
         ({"promote_warnings": ["ALL"]}, "promoteWarnings", "AllMsgs"),
-        ({"promote_warnings": []}, "promoteWarnings", "SomeMsgs []"),
+        ({"promote_warnings": ["NONE"]}, "promoteWarnings", 'SomeMsgs ["S0091"]'),
+        ({"promote_warnings": []}, "promoteWarnings", 'SomeMsgs ["S0091"]'),
         ({"suppress_warnings": ["G0021"]}, "suppressWarnings", 'SomeMsgs ["G0021"]'),
         ({"demote_errors": ["G0004"]}, "demoteErrors", 'SomeMsgs ["G0004"]'),
         ({"show_rule_rel": [("r1", "r2")]}, "schedQueries", '[("r1","r2")]'),
@@ -2467,3 +2472,171 @@ def test_a_run_root_with_whitespace_fails_with_a_clean_message_or_runs(tmp_path)
     assert "mkTop" in flow.results["modules"]
     with pytest.raises(FlowSettingsException, match="whitespace"):
         BscSim.check_run_directory(BscSim.Settings(), tmp_path / "a run root" / "run")
+
+
+# ---------------------------------------------------------------------------------------------
+# installed_libraries, and the warning about a missing search folder
+# ---------------------------------------------------------------------------------------------
+
+
+def test_installed_libraries_come_after_the_search_paths_and_before_bsc_libraries(tmp_path):
+    design = _accum_design(tmp_path / "d")
+    flow = _flow(
+        Bsc,
+        design,
+        tmp_path / "run",
+        search_paths=["libs", "more"],
+        installed_libraries=["FPGA/Xilinx", "TLM3"],
+    )
+    flags = flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
+    assert _pairs(flags, "-p") == [
+        "bsc_sources:bsc_search/0:bsc_search/1:%/Libraries/FPGA/Xilinx:%/Libraries/TLM3"
+        ":%/Libraries"
+    ]
+    sim = flow._path_flags("sim", tmp_path / "out", design.rtl.sources)
+    assert _pairs(sim, "-p") == _pairs(flags, "-p")
+
+
+def test_no_installed_library_leaves_the_path_as_it_was(tmp_path):
+    design = _accum_design(tmp_path / "d")
+    flow = _flow(Bsc, design, tmp_path / "run")
+    flags = flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
+    assert _pairs(flags, "-p") == ["bsc_sources:%/Libraries"]
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ("", "is empty"),
+        ("/opt/lib", "is absolute"),
+        ("../Other", 'empty, "." or ".." component'),
+        ("FPGA/../../x", 'empty, "." or ".." component'),
+        ("FPGA//Xilinx", 'empty, "." or ".." component'),
+        ("FPGA/", 'empty, "." or ".." component'),
+        (".", 'empty, "." or ".." component'),
+        ("A:B", 'has a ":"'),
+        ("%/Libraries/A", 'has a "%"'),
+        ("FPGA Xilinx", "has whitespace"),
+        ("A\tB", "has whitespace"),
+    ],
+)
+def test_an_installed_library_must_be_a_folder_below_the_libraries_folder(entry, message):
+    with pytest.raises(FlowSettingsError, match=rf"installed_libraries entry .* {message}"):
+        Bsc.Settings.from_input({"installed_libraries": [entry]})
+
+
+def test_a_nested_installed_library_is_accepted_and_stays_as_given():
+    ss = Bsc.Settings(installed_libraries=["FPGA/Xilinx", "TLM3"])
+    assert ss.installed_libraries == ["FPGA/Xilinx", "TLM3"]
+    assert Bsc.Settings(**ss.model_dump()).installed_libraries == ss.installed_libraries
+
+
+def test_installed_libraries_are_part_of_the_identity():
+    assert Bsc.Settings().model_dump() != Bsc.Settings(installed_libraries=["TLM3"]).model_dump()
+
+
+@pytest.mark.parametrize(
+    "settings, expected",
+    [
+        ({}, [("-promote-warnings", "S0091")]),
+        (
+            {"promote_warnings": ["G0010", "G0117"]},
+            [("-promote-warnings", "G0010:G0117"), ("-promote-warnings", "S0091")],
+        ),
+        # `NONE` clears the tags before it, so S0091 comes after it.
+        (
+            {"promote_warnings": ["NONE"]},
+            [("-promote-warnings", "NONE"), ("-promote-warnings", "S0091")],
+        ),
+        (
+            {"suppress_warnings": ["S0091"], "demote_errors": ["G0004"]},
+            [
+                ("-promote-warnings", "S0091"),
+                ("-suppress-warnings", "S0091"),
+                ("-demote-errors", "G0004"),
+            ],
+        ),
+    ],
+)
+def test_the_message_flags_promote_a_missing_folder_after_the_settings_own(
+    settings, expected, tmp_path
+):
+    flow = _flow(Bsc, _accum_design(tmp_path / "d"), tmp_path / "run", **settings)
+    flags = flow._message_flags()
+    assert list(zip(flags[::2], flags[1::2])) == expected
+    compile_flags = flow._compile_flags("verilog")
+    start = compile_flags.index(flags[0])
+    assert compile_flags[start : start + len(flags)] == flags
+
+
+def _folder_check(tmp_path: Path, name: str = "Top.bsv") -> Design:
+    _write(tmp_path, {"Top.bsv": "package Top;\nmodule mkTop(Empty); endmodule\nendpackage\n"})
+    return Design(name="m", root=tmp_path, rtl={"sources": [name], "top": "mkTop"})
+
+
+def test_a_missing_installed_library_folder_fails_the_run(tmp_path):
+    require_bsc()
+    design = _folder_check(tmp_path)
+    with pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, tmp_path / "run", installed_libraries=["No/Such/Folder"])
+    text = _failure_text(tmp_path / "run", error.value)
+    assert "S0091" in text and "No/Such/Folder" in text
+
+
+def test_a_missing_verilog_search_folder_fails_the_run(tmp_path):
+    require_bsc()
+    design = _folder_check(tmp_path)
+    with pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, tmp_path / "run", verilog_search_paths=["nowhere"])
+    assert "S0091" in _failure_text(tmp_path / "run", error.value)
+
+
+def test_a_run_without_a_missing_folder_passes_with_the_promotion(tmp_path):
+    require_bsc()
+    design = _folder_check(tmp_path)
+    flow = _run_directly(Bsc, design, tmp_path / "run", promote_warnings=["NONE"])
+    assert (flow.run_path / "gen_rtl" / "mkTop.v").exists()
+
+
+def _bsc_outcome(tmp_path: Path, *flags: str) -> tuple[int, str]:
+    """Compile a package in a clean copy with `-p` naming a missing folder, plus `flags`."""
+    root = tmp_path / "t"
+    root.mkdir(exist_ok=True)
+    for name in ("b", "o"):
+        (root / name).mkdir(exist_ok=True)
+    (root / "T.bsv").write_text("package T;\nmodule mkT(Empty); endmodule\nendpackage\n")
+    proc = subprocess.run(
+        ["bsc", "-u", "-verilog", "-bdir", "b", "-vdir", "o", "-p", ".:%/Libraries/No:%/Libraries"]
+        + list(flags)
+        + ["T.bsv"],
+        capture_output=True,
+        text=True,
+        cwd=root,
+        check=False,
+    )
+    shutil.rmtree(root)
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+@pytest.mark.parametrize(
+    "flags, fails",
+    [
+        (["-promote-warnings", "S0091"], True),
+        (["-promote-warnings", "G0010", "-promote-warnings", "S0091"], True),
+        (["-promote-warnings", "S0091", "-promote-warnings", "G0010"], True),
+        (["-promote-warnings", "ALL", "-promote-warnings", "S0091"], True),
+        (["-promote-warnings", "NONE", "-promote-warnings", "S0091"], True),
+        # `NONE` after the tag clears it: the order is what the flow relies on.
+        (["-promote-warnings", "S0091", "-promote-warnings", "NONE"], False),
+        # a suppressed or demoted S0091 stays a warning (or is not reported), in any order
+        (["-promote-warnings", "S0091", "-suppress-warnings", "S0091"], False),
+        (["-suppress-warnings", "S0091", "-promote-warnings", "S0091"], False),
+        (["-promote-warnings", "S0091", "-suppress-warnings", "ALL"], False),
+        (["-promote-warnings", "S0091", "-demote-errors", "S0091"], False),
+        (["-demote-errors", "S0091", "-promote-warnings", "S0091"], False),
+    ],
+)
+def test_bsc_combines_promote_warnings_flags_as_the_flow_assumes(flags, fails, tmp_path):
+    require_bsc()
+    code, text = _bsc_outcome(tmp_path, *flags)
+    assert (code != 0) == fails, text

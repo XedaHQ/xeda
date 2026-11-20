@@ -352,6 +352,17 @@
           "type": "boolean",
           "unit": null
         },
+        "installed_libraries": {
+          "default": [],
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array[string]",
+          "unit": null
+        },
         "keep_fires": {
           "default": false,
           "schema": {
@@ -1225,6 +1236,17 @@
             "type": "boolean"
           },
           "type": "boolean",
+          "unit": null
+        },
+        "installed_libraries": {
+          "default": [],
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array[string]",
           "unit": null
         },
         "keep_fires": {
