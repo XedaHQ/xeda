@@ -711,3 +711,16 @@ def test_the_planning_of_bsc_refuses_the_reset_macro(tmp_path) -> None:
         "bsc", design, flow_settings=node_settings("bsc", {"positive_reset": False})
     )
     assert [node.name for node in planned.nodes] == ["bsc"]
+
+
+def test_a_bluespec_header_is_read_by_the_converter_and_not_handed_on(tmp_path) -> None:
+    design = _design(tmp_path / "d")
+    header = tmp_path / "d" / "Limit.bsvi"
+    header.write_text("`define LIMIT 5\n")
+    sources = [*design.rtl.sources, Source(header, SourceType.BluespecHeader)]
+    design = with_updates(design, rtl={"sources": tuple(sources)})
+    conversion = Bsc.design_conversion(Bsc.Settings())
+    assert conversion is not None
+    assert not conversion.passes_through(sources[-1])
+    planned = planned_design(design, conversion, tmp_path / "run")
+    assert SourceType.BluespecHeader not in {src.type for src in planned.rtl.sources}

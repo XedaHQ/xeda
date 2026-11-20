@@ -200,7 +200,7 @@ A suffix gives the type when it is in this table:
 | `.vhd`, `.vhdl` | `Vhdl` |
 | `.v` / `.sv` | `Verilog` / `SystemVerilog` |
 | `.vh` / `.svh` | `VerilogHeader` / `SVHeader` |
-| `.bsv`, `.bs`, `.bh` | `Bluespec` |
+| `.bsv`, `.bs`, `.bh` / `.bsvi` | `Bluespec` / `BluespecHeader` |
 | `.py` | `Cocotb` |
 | `.cc`, `.cpp`, `.cxx` / `.c` / `.h`, `.hpp` / `.o`, `.a` | `Cpp` / `C` / `CHeader` / `ObjectFile` |
 | `.sc` | `Chisel` |
@@ -273,6 +273,8 @@ a constraint file included. Simulators, `bsc` and `vivado_project` check `tb.sou
 C++ files are never refused. `nextpnr`, `fpga_pack`, `openfpgaloader`, `vivado_impl` and
 `vivado_power` read only their declared inputs.
 `bsc` compiles Bluespec Classic only from `.bs` files and refuses a `.bh` source.
+A BSV include file (`.bsvi`) is a `BluespecHeader`; other include files (`.defines`, `.bsv`
+fragments) take `type: BluespecHeader`. `bsc` and `bsc_sim` never compile it and rerun when it changes.
 
 ## `language`: standards
 

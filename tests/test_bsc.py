@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from xeda import Design
+from xeda._internal.design import SourceType
 from xeda._internal.flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException
 from xeda._internal.flow_runner import DefaultRunner
 from xeda._internal.flow_runner.launch_result import launch_result
@@ -1938,3 +1939,71 @@ def test_a_failed_bsc_run_keeps_its_own_failure_unless_the_log_names_an_error(
     with pytest.raises(NonZeroExitCode) as raised:
         flow._run_bsc(LINK_LOG)
     assert raised.value is error
+
+
+# ---------------------------------------------------------------------------------------------
+# a Bluespec include file is a declared source
+# ---------------------------------------------------------------------------------------------
+
+#: A testbench whose cycle count comes from the include file `Limit.bsvi`.
+INCLUDE_TB = """package IncTb;
+`include "Limit.bsvi"
+(* synthesize *)
+module mkIncTb(Empty);
+  Reg#(UInt#(8)) cycle <- mkReg(0);
+  rule tick; cycle <= cycle + 1; endrule
+  rule check (cycle == `LIMIT);
+    $display("PASS after %0d", cycle);
+    $finish(0);
+  endrule
+endmodule
+endpackage
+"""
+
+
+def _include_design(root: Path, limit: int) -> Design:
+    _write(root, {"IncTb.bsv": INCLUDE_TB, "Limit.bsvi": f"`define LIMIT {limit}\n"})
+    return Design(
+        name="inc",
+        root=root,
+        rtl={"sources": ["IncTb.bsv", "Limit.bsvi"], "top": "mkIncTb"},
+    )
+
+
+def test_a_listed_include_file_is_a_bluespec_header_and_is_never_compiled(tmp_path):
+    design = _include_design(tmp_path, 5)
+    header = design.rtl.sources[1]
+    assert header.type is SourceType.BluespecHeader
+    for flow_class in (Bsc, BscSim):
+        assert SourceType.BluespecHeader in flow_class.reads_sources
+        flow = _flow(flow_class, design, tmp_path / f"run_{flow_class.name}")
+        assert [src.file.name for src in flow._bsc_sources(tb=False)] == ["IncTb.bsv"]
+
+
+def test_an_include_file_runs_the_flow_again_when_it_changes(tmp_path, capfd):
+    require_bluesim()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"simulator": "bluesim", "timeout": "60 s"}
+    dispositions = []
+    for limit in (5, 5, 6):
+        design = _include_design(tmp_path / "d", limit)
+        result = launch_result(
+            runner,
+            Spec(BscSim.name, design),
+            lambda design=design: runner.run_flow(BscSim, design, settings),
+        )
+        captured = capfd.readouterr()
+        assert result.outcome == "passed", captured.out + captured.err
+        dispositions.append(result.nodes[BscSim.name].disposition)
+    assert dispositions == ["ran", "reused", "ran"]
+
+
+def test_the_derived_design_of_bsc_holds_no_bluespec_header(tmp_path, capfd):
+    require_bsc()
+    design = _include_design(tmp_path / "d", 5)
+    flow = _run(Bsc, design, tmp_path / "run")
+    captured = capfd.readouterr()
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
+    record = flow.results["outputs"]["design"]
+    assert {item["type"] for item in record["sources"]} == {"Verilog"}
+    assert not any("source" in item for item in record["sources"]), "nothing passes through"

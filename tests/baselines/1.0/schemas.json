@@ -560,7 +560,8 @@
                             "OpenroadSdcCts",
                             "OpenroadSdcGlobalRouted",
                             "OpenroadSdcRouted",
-                            "GenericVerilogNetlist"
+                            "GenericVerilogNetlist",
+                            "BluespecHeader"
                           ],
                           "type": "string"
                         }
@@ -666,7 +667,8 @@
                           "OpenroadSdcCts",
                           "OpenroadSdcGlobalRouted",
                           "OpenroadSdcRouted",
-                          "GenericVerilogNetlist"
+                          "GenericVerilogNetlist",
+                          "BluespecHeader"
                         ],
                         "type": "string"
                       }
@@ -946,7 +948,8 @@
                             "OpenroadSdcCts",
                             "OpenroadSdcGlobalRouted",
                             "OpenroadSdcRouted",
-                            "GenericVerilogNetlist"
+                            "GenericVerilogNetlist",
+                            "BluespecHeader"
                           ],
                           "type": "string"
                         }
@@ -1052,7 +1055,8 @@
                           "OpenroadSdcCts",
                           "OpenroadSdcGlobalRouted",
                           "OpenroadSdcRouted",
-                          "GenericVerilogNetlist"
+                          "GenericVerilogNetlist",
+                          "BluespecHeader"
                         ],
                         "type": "string"
                       }
@@ -1260,7 +1264,8 @@
                             "OpenroadSdcCts",
                             "OpenroadSdcGlobalRouted",
                             "OpenroadSdcRouted",
-                            "GenericVerilogNetlist"
+                            "GenericVerilogNetlist",
+                            "BluespecHeader"
                           ],
                           "type": "string"
                         }
@@ -1366,7 +1371,8 @@
                           "OpenroadSdcCts",
                           "OpenroadSdcGlobalRouted",
                           "OpenroadSdcRouted",
-                          "GenericVerilogNetlist"
+                          "GenericVerilogNetlist",
+                          "BluespecHeader"
                         ],
                         "type": "string"
                       }
@@ -1602,7 +1608,8 @@
                             "OpenroadSdcCts",
                             "OpenroadSdcGlobalRouted",
                             "OpenroadSdcRouted",
-                            "GenericVerilogNetlist"
+                            "GenericVerilogNetlist",
+                            "BluespecHeader"
                           ],
                           "type": "string"
                         }
@@ -1708,7 +1715,8 @@
                           "OpenroadSdcCts",
                           "OpenroadSdcGlobalRouted",
                           "OpenroadSdcRouted",
-                          "GenericVerilogNetlist"
+                          "GenericVerilogNetlist",
+                          "BluespecHeader"
                         ],
                         "type": "string"
                       }

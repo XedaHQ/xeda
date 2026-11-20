@@ -33,7 +33,7 @@ MEMBERS = [
     "FpgaNetlist", "SynthCheckpoint", "RoutedCheckpoint", "FpgaTimingNetlist",
     "OpenroadDbPlaced", "OpenroadDbCts", "OpenroadDbGlobalRouted", "OpenroadDbRouted",
     "OpenroadSdcPlaced", "OpenroadSdcCts", "OpenroadSdcGlobalRouted", "OpenroadSdcRouted",
-    "GenericVerilogNetlist",
+    "GenericVerilogNetlist", "BluespecHeader",
 ]
 # fmt: on
 

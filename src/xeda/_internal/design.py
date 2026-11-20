@@ -758,6 +758,9 @@ class SourceType(str, Enum):
     # library holds them, so `VerilogNetlist` (a netlist mapped to a Liberty library) is a
     # different type. `xeda._internal.artifact_kinds` has one row for each netlist, checkpoint and database.
     GenericVerilogNetlist = "GenericVerilogNetlist"
+    # A BSV include file (`` `include ``). It is never compiled by itself: a flow that compiles
+    # Bluespec reads it only through the `include` of another source.
+    BluespecHeader = "BluespecHeader"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -798,6 +801,7 @@ SOURCE_SUFFIXES: dict[str, SourceType] = {
     "bsv": SourceType.Bluespec,
     "bs": SourceType.Bluespec,
     "bh": SourceType.Bluespec,
+    "bsvi": SourceType.BluespecHeader,
     "xdc": SourceType.Xdc,
     "sdc": SourceType.Sdc,
     "mem": SourceType.MemoryFile,
