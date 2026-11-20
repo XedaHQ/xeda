@@ -132,6 +132,10 @@ A run directory of ``vivado_synth`` looks like this, for example:
       outputs/               netlists, bitstreams and other deliverables
       checkpoints/           tool checkpoints, where the flow writes them
 
+The ``bsc`` and ``bsc_sim`` flows also write the folders ``bsc_sources/``, ``bsc_verilog/``,
+``bsc_search/`` and ``bsc_foreign/``. They hold links to the files that bsc may read, and the
+wrappers of the C and C++ sources (see :ref:`bsc-reads`).
+
 ``logs/``
 ---------
 

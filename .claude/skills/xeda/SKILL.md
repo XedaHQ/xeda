@@ -341,6 +341,20 @@ for `yosys`. `bsc+openroad` and
 converters are an error that names the chain and the binding to choose one. `bsc` passes the other
 sources of `rtl` through in order and carries `tb`: a Bluespec testbench needs `bsc_sim`. A comment
 edit of a `.bsv` reruns `bsc` only; an edit that changes the Verilog reruns the later flows too.
+`bsc` and `bsc_sim` let bsc read only what the design declares: listed sources, `search_paths`
+folders, `installed_libraries` folders (below bsc's `Libraries`, e.g. `FPGA/Xilinx` for bsc-contrib
+installed into bsc) and bsc's libraries. An imported package or an included file beside a source
+is invisible unless listed. List an include file as `BluespecHeader` (`.bsvi`, or `type:
+BluespecHeader` for `.defines` and `.bsv` fragments). A `search_paths` folder hides stray `.bo`
+files and files that define a listed package. Refused at planning: `-p`, `-vsearch`, `-bdir`,
+`-info-dir`, `-fdir`, `-vdir`, `-simdir`, `-i`, and in `bsc_sim` `-I`, `-L`, in `extra_flags` (use
+`search_paths`, `installed_libraries`, `verilog_search_paths`, `bobj_dir`, `info_dir`, `fdir`,
+`verilog_out_dir`/`sim_dir`, `include_dirs`, `library_dirs`),
+`BSC_OPTIONS` in `env`, two listed files of one name, and the removed `cleanup_bobjs`. BDPI C
+headers are tracked only under the design root, beside a listed C/C++ source or in `include_dirs`;
+with `--remote`, list them in the design. Console and error text name the real files; the log keeps
+bsc's staged names (`bsc_sources/...`). Untracked: absolute or `../` includes, files named in
+`link_flags`, `-Xc` flags or `verilog_filters`, contents of `installed_libraries`.
 `examples/bluespec/gcd/gcd.yaml` holds every configuration of one design: `xeda run bsc_sim`,
 `openroad`, `vivado_synth`, `yosys_fpga+nextpnr --target ecp5` and `yosys_fpga --target artix7` (the
 FPGA ones are estimates without pins; a board build needs an I/O wrapper and constraints).

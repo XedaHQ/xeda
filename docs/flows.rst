@@ -2675,6 +2675,133 @@ in microseconds would be a time that the model does not have. ``sim.evidence.cyc
 cycle count. ``sim.evidence.time`` and the times of its events are kernel ticks, so
 ``sim.evidence.time_unit`` is null. A ``$finish`` at another tick than the end of the run fails. The Verilog simulators that ``bsc_sim`` links report their own simulated time.
 
+.. _bsc-reads:
+
+What bsc reads
+--------------
+
+The ``bsc`` and ``bsc_sim`` flows let bsc find the files of the design only through links in the
+run directory. A file that the design and the settings do not name is not there, so bsc cannot
+find it by its name. bsc finds a package, an include file or a Verilog module only in these places:
+
+- the Bluespec sources and the Bluespec headers that the design lists (``bsc_sources/``);
+- the Verilog sources that the design lists, for ``import "BVI"`` (``bsc_verilog/``);
+- the ``search_paths`` folders, filtered (``bsc_search/<i>/``), and the ``verilog_search_paths``
+  folders;
+- the folders of ``installed_libraries`` and the libraries of bsc.
+
+A file that lies beside a listed source is not read unless the design lists it. So a package that
+the design imports must be a listed source or lie in a ``search_paths`` folder. An ``include`` file
+must be a listed source of type ``BluespecHeader``, or lie in a ``search_paths`` folder. If the
+design imports or includes a file that none of these gives, bsc fails, and the error text says how
+to fix it. A package name that two listed files share is refused when the run is planned.
+
+Include files
+~~~~~~~~~~~~~
+
+A file with the suffix ``.bsvi`` has the type ``BluespecHeader``. Give another include file, such
+as a ``.defines`` file or a ``.bsv`` fragment, the type in a table. bsc never compiles a header.
+It reads the header through the ``include`` of a Bluespec source. A change of a header runs the
+flow again.
+
+.. code-block:: yaml
+
+    # bsc_includes.yaml
+    name: bsc_includes
+    rtl.top: mkTop
+    rtl.sources:
+      - Config.bsvi
+      - file: Widths.defines
+        type: BluespecHeader
+      - Top.bsv
+    flows:
+      bsc:
+        installed_libraries: [FPGA/Xilinx]
+
+Libraries
+~~~~~~~~~
+
+``search_paths`` names folders of the design (relative to the design root) that bsc searches for
+packages, after the listed sources. Each folder reaches bsc through a filtered link. bsc does not
+see these files of a folder:
+
+- a compiled ``.bo`` file that has a ``.bsv`` or ``.bs`` file of the same name beside it, because
+  bsc takes the newer of the two;
+- a ``.bsv``, ``.bs`` or ``.bo`` file that defines a package that the design lists, because the
+  listed source is that package;
+- a folder that holds the run directory, and the metadata of version control.
+
+The log says what each folder hides. A ``search_paths`` or ``verilog_search_paths`` folder that
+does not exist fails the run.
+
+``installed_libraries`` names folders inside the installation of bsc, below its ``Libraries``
+folder. Use it for a library that you installed into bsc. For example, bsc-contrib installed into
+bsc has its Xilinx packages in ``FPGA/Xilinx``, so ``installed_libraries: [FPGA/Xilinx]`` lets a
+design import them. bsc searches these folders after ``search_paths`` and before its own
+libraries. A folder that does not exist fails the run. The files in these folders belong to the
+installation, so the trace of the run does not record them.
+
+BDPI headers
+~~~~~~~~~~~~
+
+A C or C++ source of ``bsc_sim`` (``import "BDPI"``) can include headers. The compiler writes a
+depfile, and Xeda records every header in it as an input of the run, so an edit of a header runs
+the flow again. A header counts only when it lies in the design root, beside a listed C or C++
+source, or in a folder of ``include_dirs``. With ``--remote``, list the headers in the design
+(type ``CHeader``), so that they reach the host.
+
+What is refused
+~~~~~~~~~~~~~~~
+
+The flows refuse a setting that lets bsc read or write a place that Xeda does not expect. The
+refusal comes when the run is planned, and the message names the setting to use instead.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Refused
+     - Use instead
+   * - ``-p`` in ``extra_flags``
+     - ``search_paths`` for folders of the design, ``installed_libraries`` for folders of bsc
+   * - ``-vsearch`` in ``extra_flags``
+     - ``verilog_search_paths``
+   * - ``-bdir``, ``-info-dir``, ``-fdir`` in ``extra_flags``
+     - ``bobj_dir``, ``info_dir``, ``fdir``
+   * - ``-vdir`` in ``extra_flags``
+     - ``verilog_out_dir`` (``bsc``), ``sim_dir`` (``bsc_sim``)
+   * - ``-simdir`` in ``extra_flags`` of ``bsc_sim``
+     - ``sim_dir``
+   * - ``-I``, ``-L`` in ``extra_flags`` of ``bsc_sim``
+     - ``include_dirs``, ``library_dirs``
+   * - ``-i``, or ``-simdir`` in ``extra_flags`` of ``bsc``
+     - no setting: remove the flag
+   * - ``BSC_OPTIONS`` in ``env``
+     - ``extra_flags``
+   * - two listed files with the same name
+     - rename one of them
+   * - ``cleanup_bobjs``
+     - nothing: delete the setting (every run compiles every package again)
+
+bsc always runs with an empty ``BSC_OPTIONS``, so a value in your shell has no effect. The flows
+warn when the variable is set.
+
+Messages
+~~~~~~~~
+
+bsc reads the files through the links, so its own text names ``bsc_sources/Top.bsv`` and not the
+file of the design. The console and the error text of Xeda show the real file instead. The log
+file keeps the text of bsc as it is. The simulation of ``bsc_sim`` runs without this change, so
+the text of a run-time assertion keeps the staged name.
+
+Xeda does not track these files:
+
+- a file that an ``include`` or an ``#include`` names with an absolute path or with ``../``, and
+  that lies outside the folders above;
+- a file that the design names in full in ``link_flags``, in ``-Xc`` flags or in a command of
+  ``verilog_filters``;
+- the contents of the ``installed_libraries`` folders.
+
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
 that mixes BSV and BH. ``examples/bluespec/uart_link`` shows a larger design: a reliable packet
