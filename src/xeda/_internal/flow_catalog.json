@@ -124,7 +124,7 @@
       "search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories."
+        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first directory that holds a package wins."
       },
       "verilog_search_paths": {
         "children": false,
@@ -806,7 +806,7 @@
       "search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories."
+        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first directory that holds a package wins."
       },
       "verilog_search_paths": {
         "children": false,

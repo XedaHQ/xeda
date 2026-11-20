@@ -2757,6 +2757,11 @@ REVIEWED_WRITES = [
         "just before",
     ),
     (
+        "flows/bsc/__init__.py",
+        "(target / child.name).symlink_to(child)",
+        "creates a link of its own under `bsc_search/<index>/`, which the run emptied just before",
+    ),
+    (
         "agent_skill.py",
         'flows_md.write_text(generate_flows_reference(), encoding="utf-8")',
         f"`xeda skill install` into the directory the user names: {_OUTSIDE_RUNS}",

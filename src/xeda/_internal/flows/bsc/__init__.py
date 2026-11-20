@@ -51,6 +51,7 @@ from .sim_evidence import (
 from ...package_paths import impl_module
 from ...tool import Docker, Tool
 from ...units import count
+from ...listing import VCS_METADATA
 from ...utils import NonZeroExitCode, replacing_copy, replacing_file, tcl_word, unique
 
 log = logging.getLogger(__name__)
@@ -136,6 +137,10 @@ STAGE_SOURCES = "bsc_sources"
 #: The folder of the run directory that holds a link to each listed Verilog source. bsc finds
 #: the modules of the design's `import "BVI"` there.
 STAGE_VERILOG = "bsc_verilog"
+#: The folder of the run directory that holds one folder for each entry of `search_paths`
+#: (`bsc_search/0`, `bsc_search/1`, ...). Each holds a link to what lies in the entry, less what
+#: would let bsc read a file that the design does not list (`BscFlow._stage_search`).
+STAGE_SEARCH = "bsc_search"
 
 
 @dataclass(frozen=True)
@@ -480,7 +485,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Additional directories bsc searches for imported packages (`-p`), after "
             "the design's listed Bluespec sources and before bsc's own libraries, e.g. for "
             "libraries such as bsc-contrib's. Relative to the design root. bsc reads a package "
-            "of the design only from a listed source or from one of these directories.",
+            "of the design only from a listed source or from one of these directories. bsc "
+            "does not see a stray compiled `.bo` file that lies beside its source, or any file "
+            "(`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first "
+            "directory that holds a package wins.",
         )
         verilog_search_paths: list[Path] = Field(
             [],
@@ -933,12 +941,67 @@ class BscFlow(Flow, metaclass=ABCMeta):
         and the search paths, so it never finds a file that sits beside a source but is not listed.
         """
         entries = self._stage_entries(tb=tb)
-        self.run_directory.remove(STAGE_SOURCES, STAGE_VERILOG)
+        self.run_directory.remove(STAGE_SOURCES, STAGE_VERILOG, STAGE_SEARCH)
         # bsc warns about a search path folder that does not exist, so both folders always do.
         for folder in (STAGE_SOURCES, STAGE_VERILOG):
             self.run_file(folder).mkdir(parents=True, exist_ok=True)
         for link, original in entries.items():
             self.run_file(link).symlink_to(original)
+        self._stage_search(tb=tb)
+
+    def _stage_search(self, *, tb: bool) -> None:
+        """Fill `bsc_search/<i>` with a link to each entry of the folder `search_paths[i]`.
+
+        The links are absolute. bsc finds a package, an include file and a compiled `.bo` of a
+        search folder only through them, so the folder lets bsc read less than it holds. Left
+        out of each folder:
+
+        - a `.bo` file with a `.bsv` or `.bs` file of the same name beside it, because bsc takes
+          the newer of the two, and a stray `.bo` can win;
+        - every `.bsv`, `.bs` and `.bo` file named like a listed Bluespec source (`Pkg`): the
+          listed source in `bsc_sources` is the package;
+        - a folder that holds the run directory (the run root, for one), and the metadata of
+          version control. The trace leaves them out of a folder that a setting names, too, and
+          a link to the run root would lead the stage into itself.
+
+        One INFO line for each folder says what was left out.
+        """
+        ss = self.settings
+        assert isinstance(ss, BscFlow.Settings)
+        listed = {src.file.stem for src in self._sources_of(SourceType.Bluespec, tb=tb)}
+        run_dir = Path(os.path.realpath(self.run_path))
+        for index, entry in enumerate(ss.search_paths):
+            target = self.run_file(f"{STAGE_SEARCH}/{index}")
+            target.mkdir(parents=True, exist_ok=True)
+            folder = Path(os.path.abspath(self.normalize_path_to_design_root(entry)))
+            if not folder.is_dir():
+                raise FlowSettingsException(
+                    f"`search_paths` names {str(entry)!r} ({folder}), which is no folder"
+                )
+            children = sorted(folder.iterdir())
+            names = {child.name for child in children}
+            hidden: list[str] = []
+            for child in children:
+                real = Path(os.path.realpath(child))
+                if (
+                    child.name in VCS_METADATA
+                    or run_dir.is_relative_to(real)
+                    or (
+                        child.suffix == ".bo"
+                        and (f"{child.stem}.bsv" in names or f"{child.stem}.bs" in names)
+                    )
+                    or (child.suffix in (".bsv", ".bs", ".bo") and child.stem in listed)
+                ):
+                    hidden.append(child.name)
+                    continue
+                (target / child.name).symlink_to(child)
+            if hidden:
+                log.info(
+                    "search_paths[%d] (%s): bsc does not see %s",
+                    index,
+                    folder,
+                    ", ".join(hidden),
+                )
 
     def _path_flags(self, backend: str, out_dir: Path, sources: list[Source]) -> list[str]:
         """Return where bsc reads and writes.
@@ -954,9 +1017,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
         info_dir = self._rel(ss.info_dir) if ss.info_dir else bdir
         flags = ["-bdir", bdir, "-info-dir", info_dir]
         flags += ["-simdir" if backend == "sim" else "-vdir", self._rel(out_dir)]
-        package_dirs: list[str | Path] = [STAGE_SOURCES]
-        package_dirs += [self.normalize_path_to_design_root(p) for p in ss.search_paths]
-        flags += ["-p", _bsc_path(package_dirs, "search_paths", tail="%/Libraries")]
+        package_dirs = [STAGE_SOURCES] + [
+            f"{STAGE_SEARCH}/{i}" for i in range(len(ss.search_paths))
+        ]
+        flags += ["-p", ":".join([*package_dirs, "%/Libraries"])]
         if backend == "sim":
             # Bluesim reads no Verilog (it rejects imported Verilog modules), so it gets no
             # `-vsearch`.

@@ -502,11 +502,25 @@ def test_the_foreign_code_bsc_links_is_chosen_by_source_type_not_by_suffix(tmp_p
     assert [p.name for p in flow._foreign_sources()] == ["mac.cpp", "kernel.cu", "lib.a", "plain.c"]
 
 
-def test_a_search_path_with_a_colon_is_rejected(tmp_path):
+def test_a_verilog_search_path_with_a_colon_is_rejected(tmp_path):
     design = _accum_design(tmp_path / "d")
-    flow = _flow(Bsc, design, tmp_path / "run", search_paths=["/a:b"])
+    flow = _flow(Bsc, design, tmp_path / "run", verilog_search_paths=["/a:b"])
     with pytest.raises(FlowSettingsException, match="':'"):
         flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
+
+
+def test_a_search_path_with_a_colon_is_staged_under_a_name_without_one(tmp_path):
+    """bsc gets `bsc_search/0`, never the folder, so a colon in the folder name is no problem."""
+    root = tmp_path / "d"
+    design = _accum_design(root)
+    _write(root, {"a:b/Extra.bsv": "package Extra; endpackage\n"})
+    flow = _flow(Bsc, design, tmp_path / "run", search_paths=["a:b"])
+    flags = flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
+    assert flags[flags.index("-p") + 1] == "bsc_sources:bsc_search/0:%/Libraries"
+    flow._stage(tb=False)
+    assert (
+        flow.run_path / "bsc_search" / "0" / "Extra.bsv"
+    ).resolve() == root / "a:b" / "Extra.bsv"
 
 
 def test_haskell_string_lists():
@@ -832,15 +846,15 @@ def test_the_path_settings_reach_bsc(tmp_path, monkeypatch):
         verilog_primitives="vivado",
     )
     # bsc leaves a folder that does not exist out of the path it records.
-    for folder in ("bobjs", "bsc_sources", "bsc_verilog"):
-        (tmp_path / "run" / folder).mkdir()
+    for folder in ("bobjs", "bsc_sources", "bsc_verilog", "bsc_search/0"):
+        (tmp_path / "run" / folder).mkdir(parents=True)
     (tmp_path / "out").mkdir()
     record = _bsc_record(
         *flow._path_flags("verilog", tmp_path / "out", design.rtl.sources), cwd=tmp_path / "run"
     )
     # Neither the source folders nor the run directory (`+`, `.`) is on the package path.
     ifc_path = _parse_haskell_strings(record["ifcPath"])
-    assert ifc_path[:3] == ["bobjs", "bsc_sources", str(tmp_path / "pkgs")]
+    assert ifc_path[:3] == ["bobjs", "bsc_sources", "bsc_search/0"]
     assert len(ifc_path) == 4 and ifc_path[3].endswith("/Libraries")
     v_path = _parse_haskell_strings(record["vPath"])
     assert v_path[0] == str(tmp_path / "out")
@@ -2131,6 +2145,224 @@ def test_a_stray_package_in_the_run_directory_is_ignored(tmp_path):
     assert "mkAccum" in flow.results["modules"]
 
 
+def _search_flow(tmp_path: Path, files: dict[str, str], search: list[str], **fields: Any) -> Any:
+    root = tmp_path / "d"
+    _write(root, files)
+    design = Design(name="s", root=root, **fields)
+    return _flow(Bsc, design, tmp_path / "run", search_paths=search)
+
+
+def _search_names(flow: Any, index: int = 0) -> list[str]:
+    folder = flow.run_path / "bsc_search" / str(index)
+    return sorted(p.name for p in folder.iterdir())
+
+
+def test_a_search_folder_is_staged_as_links_less_what_bsc_must_not_read(tmp_path, caplog):
+    stub = "package X; endpackage\n"
+    flow = _search_flow(
+        tmp_path,
+        {
+            "Top.bsv": "package Top; endpackage\n",
+            "lib/Pure.bsv": stub,
+            "lib/Pure.bo": "",  # a compiled file beside its source
+            "lib/Old.bs": stub,
+            "lib/Old.bo": "",
+            "lib/Lone.bo": "",  # no source beside it: stays
+            "lib/Top.bsv": stub,  # defines a listed package
+            "lib/Top.bo": "",
+            "lib/sub/x.bsvi": "\n",
+            "lib/.git/config": "",
+            "lib/notes.txt": "",
+        },
+        ["lib"],
+        rtl={"sources": ["Top.bsv"], "top": "mkTop"},
+    )
+    with caplog.at_level(logging.INFO):
+        flow._stage(tb=False)
+    assert _search_names(flow) == ["Lone.bo", "Old.bs", "Pure.bsv", "notes.txt", "sub"]
+    link = flow.run_path / "bsc_search" / "0" / "sub"
+    assert link.is_symlink() and link.resolve() == tmp_path / "d" / "lib" / "sub"
+    assert os.path.isabs(os.readlink(link))
+    (message,) = [r.getMessage() for r in caplog.records if "does not see" in r.getMessage()]
+    for name in ("Pure.bo", "Old.bo", "Top.bsv", "Top.bo", ".git"):
+        assert name in message
+    assert "Lone.bo" not in message
+
+
+def test_the_stage_of_the_design_root_leaves_out_the_run_root(tmp_path):
+    """`search_paths: [.]` with the run root inside the design root: the stage never links the
+    run root, or any folder that holds the run directory, into itself."""
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": "package Top; endpackage\n", "Other.bsv": "package O; endpackage\n"})
+    design = Design(name="s", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    run = root / "xeda_run" / "s" / "bsc"
+    run.mkdir(parents=True)
+    flow = Bsc(
+        {"search_paths": ["."]},
+        design,
+        run,
+        run_directory=RunDirectory.claimed(run, root / "xeda_run"),
+    )
+    flow._stage(tb=False)
+    assert _search_names(flow) == ["Other.bsv"]
+
+
+def test_a_stale_search_stage_is_replaced(tmp_path):
+    flow = _search_flow(
+        tmp_path,
+        {
+            "Top.bsv": "package Top; endpackage\n",
+            "lib/A.bsv": "package A; endpackage\n",
+            "lib2/B.bsv": "package B; endpackage\n",
+        },
+        ["lib", "lib2"],
+        rtl={"sources": ["Top.bsv"], "top": "mkTop"},
+    )
+    flow._stage(tb=False)
+    (flow.run_path / "bsc_search" / "1" / "stale").symlink_to(tmp_path)
+    (flow.run_path / "bsc_search" / "7").mkdir()
+    flow._stage(tb=False)
+    assert sorted(p.name for p in (flow.run_path / "bsc_search").iterdir()) == ["0", "1"]
+    assert _search_names(flow, 1) == ["B.bsv"]
+
+
+def test_a_search_path_that_is_no_folder_fails_the_run(tmp_path):
+    """A `search_paths` entry that names no folder (a typo, for one) fails the run and names
+    the entry, rather than leaving bsc a search folder that holds nothing."""
+    flow = _search_flow(
+        tmp_path,
+        {"Top.bsv": "package Top; endpackage\n", "lib/A.bsv": "package A; endpackage\n"},
+        ["lib", "libz"],
+        rtl={"sources": ["Top.bsv"], "top": "mkTop"},
+    )
+    with pytest.raises(FlowSettingsException, match="`search_paths` names 'libz'"):
+        flow._stage(tb=False)
+
+
+def _mkTop_verilog(flow: Any) -> str:
+    return (flow.run_path / "gen_rtl" / "mkTop.v").read_text()
+
+
+def test_a_stray_compiled_package_in_a_search_folder_is_not_used(tmp_path):
+    """Helper is only functions, so it has no `.bo` of its own. A foreign `Helper.bo` that is
+    newer than the unlisted `Helper.bsv` beside it won before (bsc takes the newer one)."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"lib/Helper.bsv": _helper_pkg(1)})
+    _compile_package(root / "lib" / "Helper.bsv", root / "lib")  # a stray `Helper.bo`, body 1
+    _write(root, {"lib/Helper.bsv": _helper_pkg(3)})
+    old = (root / "lib" / "Helper.bo").stat().st_mtime - 100
+    os.utime(root / "lib" / "Helper.bsv", (old, old))
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    assert "8'd13" in _mkTop_verilog(flow) and "8'd11" not in _mkTop_verilog(flow)
+
+
+def test_a_listed_source_in_a_search_folder_compiles_once(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"Helper.bsv": _helper_pkg(1)})
+    design = Design(name="g", root=root, rtl={"sources": ["Helper.bsv", "Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["."])
+    assert "8'd11" in _mkTop_verilog(flow)
+    logs = [p.read_text() for p in flow.run_path.rglob("*.log")]
+    assert logs and not any("S0089" in text for text in logs)
+    # The search folder holds no second copy of a listed package.
+    assert _search_names(flow) == []
+
+
+def test_a_listed_bh_source_wins_over_an_unlisted_bsv_package_in_a_search_folder(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(
+        root,
+        {
+            "bh/Helper.bs": "package Helper where\nbump :: Bit 8 -> Bit 8\nbump x = x + 5\n",
+            "lib/Helper.bsv": _helper_pkg(1),
+        },
+    )
+    design = Design(
+        name="g", root=root, rtl={"sources": ["bh/Helper.bs", "Top.bsv"], "top": "mkTop"}
+    )
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    assert "8'd15" in _mkTop_verilog(flow) and "8'd11" not in _mkTop_verilog(flow)
+
+
+def test_an_include_with_a_folder_part_resolves_from_a_search_folder(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "Top.bsv": """package Top;
+`include "sub/k.bsvi"
+interface Top_IFC;
+  method Bit#(8) out;
+endinterface
+(* synthesize *)
+module mkTop(Top_IFC);
+  method out = `K;
+endmodule
+endpackage
+""",
+            "lib/sub/k.bsvi": "`define K 8'd42\n",
+        },
+    )
+    design = Design(name="i", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    assert "8'd42" in _mkTop_verilog(flow)
+
+
+def test_the_first_search_folder_that_defines_a_package_wins(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"a/Helper.bsv": _helper_pkg(1), "b/Helper.bsv": _helper_pkg(2)})
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["a", "b"])
+    assert "8'd11" in _mkTop_verilog(flow) and "8'd12" not in _mkTop_verilog(flow)
+
+
+def _dispositions(runner: DefaultRunner, design: Design, settings: dict, times: int) -> list[str]:
+    found = []
+    for _ in range(times):
+        result = launch_result(
+            runner, Spec(Bsc.name, design), lambda: runner.run_flow(Bsc, design, settings)
+        )
+        assert result.outcome == "passed"
+        found.append(result.nodes[Bsc.name].disposition)
+    return found
+
+
+def test_a_stray_compiled_package_added_to_a_search_folder_runs_the_flow_again(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"lib/Helper.bsv": _helper_pkg(1)})
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"search_paths": ["lib"]}
+    assert _dispositions(runner, design, settings, 2) == ["ran", "reused"]
+    _write(tmp_path / "scratch", {"Helper.bsv": _helper_pkg(7)})
+    _compile_package(tmp_path / "scratch" / "Helper.bsv", root / "lib")  # a stray, newer `.bo`
+    assert _dispositions(runner, design, settings, 1) == ["ran"]
+    (run,) = (tmp_path / "run").rglob("mkTop.v")
+    assert "8'd11" in run.read_text() and "8'd17" not in run.read_text()
+
+
+def test_the_design_root_as_a_search_folder_with_the_run_root_inside_it(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"Helper.bsv": _helper_pkg(1)})
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    runner = DefaultRunner(root / "xeda_run", display_results=False)
+    assert _dispositions(runner, design, {"search_paths": ["."]}, 2) == ["ran", "reused"]
+
+
 def test_an_old_package_and_an_old_module_are_gone_before_the_compile(tmp_path):
     require_bsc()
     design = _accum_design(tmp_path / "d")
@@ -2178,7 +2410,7 @@ def test_the_path_flags_name_no_source_folder_and_no_current_directory(tmp_path)
     design = _accum_design(tmp_path / "d", rtl={"sources": ["lib/Accum.bsv", "rtl/Top.bsv"]})
     flow = _flow(Bsc, design, tmp_path / "run", search_paths=["libs"])
     flags = flow._path_flags("verilog", tmp_path / "run" / "gen_rtl", design.rtl.sources)
-    assert flags[flags.index("-p") + 1] == f"bsc_sources:{tmp_path / 'd' / 'libs'}:%/Libraries"
+    assert flags[flags.index("-p") + 1] == "bsc_sources:bsc_search/0:%/Libraries"
     assert flags[flags.index("-vsearch") + 1] == "bsc_verilog:%/Libraries:%/Verilog"
     assert flags[flags.index("-bdir") + 1] == "bobjs"
     assert flags[flags.index("-vdir") + 1] == "gen_rtl"
