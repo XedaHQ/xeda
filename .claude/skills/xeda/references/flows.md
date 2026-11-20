@@ -17,7 +17,7 @@ Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_p
 
 Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. The flow compiles the design's Bluespec sources in order, RTL first and then the testbench, with the package that defines `tb.top` last. It simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). The run fails before the simulation if that module has methods, since nothing calls them and the simulation would not end (a Bluesim run with `max_cycles` is bounded and is not checked). `simulator` selects Bluesim, the cycle-based simulator of bsc, or a Verilog simulator that bsc links with the generated Verilog (`bsc -vsim`). The clock and reset come from the `main.v` of bsc. Bluesim records the system-task calls in the generated code, and a script of Xeda measures the clock cycles and the time. Verilator and Icarus record the system tasks that the linked runtime observes. For these three simulators, a run passes only if the testbench finishes explicitly (or Bluesim reaches a confirmed `max_cycles` limit) and no event reaches `fail_severity`. A fatal error or a nonzero exit status always fails the run. `$finish(n)` uses `n` as a verbosity level. The design's `defines` and `parameters` are preprocessor macros, and the testbench's go over the RTL's. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`. The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim. The legacy simulators cvc, cver, isim, ncverilog and veriwell are rejected before compilation. The Linux CI job checks the real Icarus evidence and the registration of the built-in tasks.
 
-76 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
+75 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `simulator`
 
@@ -409,7 +409,7 @@ Artifacts: `log`, `rtl_json`, `rtl_verilog`, `utilization_report`, `timing_repor
 
 Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It generates Verilog for `rtl.top` and for every `synthesize`d module on the way. The output `design` lists the Verilog files that the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library that it instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream synthesis or simulation flow can take the list as it is. If the generated Verilog instantiates a module that no Verilog file defines (a vendor primitive, for example), the flow leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`. The flow converts the design for the flows that read Verilog: its output `design` is the design with the generated Verilog in place of the Bluespec sources. Every other source of `rtl` passes through, once and in the order of the design, and the rest of the design is carried unchanged.
 
-60 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
+59 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
 
 Reports: `modules`
 

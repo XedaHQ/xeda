@@ -5,6 +5,7 @@ rtl.sources:
 targets:
   test:
     tb.sources:
+      - "rtl/LeanLinkTestTop.bsv"
       - "tb/LeanLinkFrames.bsv"
       - "tb/TbLeanLink.bsv"
     tb.top: mkTbLeanLink

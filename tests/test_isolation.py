@@ -2751,6 +2751,12 @@ REVIEWED_WRITES = [
         "creates a link of its own under `path_aliases/`, where no entry is left at the name",
     ),
     (
+        "flows/bsc/__init__.py",
+        "self.run_file(link).symlink_to(original)",
+        "creates a link of its own under `bsc_sources/` or `bsc_verilog/`, which the run emptied "
+        "just before",
+    ),
+    (
         "agent_skill.py",
         'flows_md.write_text(generate_flows_reference(), encoding="utf-8")',
         f"`xeda skill install` into the directory the user names: {_OUTSIDE_RUNS}",

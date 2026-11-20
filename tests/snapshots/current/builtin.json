@@ -198,14 +198,6 @@
           "type": "boolean",
           "unit": null
         },
-        "cleanup_bobjs": {
-          "default": true,
-          "schema": {
-            "type": "boolean"
-          },
-          "type": "boolean",
-          "unit": null
-        },
         "continue_after_errors": {
           "default": false,
           "schema": {
@@ -1021,14 +1013,6 @@
           "unit": null
         },
         "check_assert": {
-          "default": true,
-          "schema": {
-            "type": "boolean"
-          },
-          "type": "boolean",
-          "unit": null
-        },
-        "cleanup_bobjs": {
           "default": true,
           "schema": {
             "type": "boolean"

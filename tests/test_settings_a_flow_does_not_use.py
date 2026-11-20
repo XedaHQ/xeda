@@ -266,6 +266,8 @@ def test_nvc_treats_an_analysis_warning_as_an_error_when_asked(tmp_path) -> None
 #: alias of one, of that flow there. A removal entry on a class that never had the setting would
 #: refuse an unknown name as a removed one.
 FORMER_FIELDS = {
+    "bsc": {"cleanup_bobjs"},
+    "bsc_sim": {"cleanup_bobjs"},
     "dc": {
         "additional_search_path",
         "alib_dir",
