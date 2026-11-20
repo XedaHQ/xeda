@@ -145,6 +145,55 @@ STAGE_SEARCH = "bsc_search"
 #: The tag of bsc's warning for a `-p` or `-vsearch` folder that does not exist.
 MISSING_FOLDER_WARNING = "S0091"
 
+#: The stage folders and the folder of the C and C++ wrappers: the folders of the run directory
+#: that the flow fills with links and wrappers. No output folder of bsc may be one or lie
+#: inside one.
+STAGE_FOLDERS = (STAGE_SOURCES, STAGE_VERILOG, STAGE_SEARCH, _FOREIGN_DIR)
+
+#: The variable through which bsc reads flags from the environment. An empty value means unset.
+BSC_OPTIONS = "BSC_OPTIONS"
+
+#: The flags of bsc that take one argument, as `FlagsDecode.hs` of bsc lists them. A flag of
+#: this kind refuses an argument that starts with `-`.
+_FLAGS_WITH_ARGUMENT = frozenset(
+    {
+        "bdir",
+        "D",
+        "demote-errors",
+        "e",
+        "expand-ATS-limit",
+        "fdir",
+        "final-cleanup",
+        "g",
+        "i",
+        "I",
+        "info-dir",
+        "L",
+        "l",
+        "max-tcheck-stack-depth",
+        "o",
+        "opt-if-mux-size",
+        "p",
+        "parallel-sim-link",
+        "promote-warnings",
+        "reset-prefix",
+        "simdir",
+        "steps",
+        "steps-warn-interval",
+        "steps-max-intervals",
+        "suppress-warnings",
+        "unspecified-to",
+        "vdir",
+        "verilog-filter",
+        "vsearch",
+        "vsim",
+    }
+)
+#: The flags of bsc that take two arguments.
+_FLAGS_WITH_TWO_ARGUMENTS = frozenset({"show-rule-rel"})
+#: The flags of bsc that pass their next argument on, whatever it is, to a program that bsc runs.
+_PASS_THROUGH_FLAGS = frozenset({"Xc", "Xc++", "Xcpp", "Xl", "Xv"})
+
 
 @dataclass(frozen=True)
 class _Collected:
@@ -187,6 +236,12 @@ class BscTool(Tool):
         + colorama.Style.NORMAL
         + r"\g<2>",
     }
+
+    def run(self, *args: Any, env: dict[str, Any] | None = None, **kwargs: Any) -> str | None:
+        """Run bsc with an empty `BSC_OPTIONS`, so that no flag of the caller's environment
+        reaches it. bsc treats an empty value as unset. A program that the flow derives from this
+        tool (a simulator, a C++ compiler) gets it too, which does it no harm."""
+        return super().run(*args, env={BSC_OPTIONS: "", **(env or {})}, **kwargs)
 
 
 #: The number of diagnostic lines that a failed bsc run quotes in the message of the failure.
@@ -275,6 +330,44 @@ def staged_name(src: Source) -> Path | None:
         return Path(STAGE_SOURCES) / src.file.name
     if src.type in _VERILOG_TYPES:
         return Path(STAGE_VERILOG) / src.file.name
+    return None
+
+
+def flags_used(flags: Sequence[str]) -> list[tuple[str, str]]:
+    """Return each flag that `flags` sets, as the pair of the text and the name of the flag in
+    bsc's flag table, in order.
+
+    This follows how bsc reads its command line (`decodeFlags`). A flag is `-name`, or `--name`
+    when the name has two letters or more. A flag that takes an argument takes the next
+    argument, so that argument is no flag: in `-Xc -I/x` the `-I/x` belongs to `-Xc`. An
+    attached argument (`-I/x`) is no flag of the table, and bsc rejects it."""
+    found: list[tuple[str, str]] = []
+    index = 0
+    while index < len(flags):
+        text = flags[index]
+        index += 1
+        if not text.startswith("-"):
+            continue
+        name = text[2:] if text.startswith("--") and len(text) > 3 and text[2] != "-" else text[1:]
+        found.append((text, name))
+        if name in _PASS_THROUGH_FLAGS:
+            index += 1
+        elif name in _FLAGS_WITH_ARGUMENT or name in _FLAGS_WITH_TWO_ARGUMENTS:
+            count = 2 if name in _FLAGS_WITH_TWO_ARGUMENTS else 1
+            for _ in range(count):
+                if index < len(flags) and not flags[index].startswith("-"):
+                    index += 1
+    return found
+
+
+def _stage_folder_conflict(path: Path) -> str | None:
+    """Return how `path`, a working folder relative to the run directory, meets the stage folders
+    (`STAGE_FOLDERS`), or `None` if it does not. The judgment is lexical. The settings already
+    refuse a working folder that is absolute or has a `..` part."""
+    if not path.parts:
+        return "is the run directory itself"
+    if path.parts[0] in STAGE_FOLDERS:
+        return f"is or lies inside the stage folder `{path.parts[0]}`"
     return None
 
 
@@ -472,6 +565,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
     design_parts = frozenset({"rtl", "tb"})
 
     reads_sources = frozenset({SourceType.Bluespec, SourceType.BluespecHeader, *_VERILOG_TYPES})
+
+    #: Whether the flow compiles the Bluespec sources of the testbench, besides those of `rtl`.
+    #: Both flows stage the Verilog sources of `rtl` and `tb`.
+    compiles_tb: ClassVar[bool]
 
     #: The parts of the design whose `defines` and `parameters` become preprocessor macros
     #: (`_macros`).
@@ -880,11 +977,25 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Refuse a design that defines `BSV_POSITIVE_RESET` while `positive_reset` is on.
+        """Refuse a design that bsc would read wrongly.
 
-        bsc defines the macro itself then, and a design's own definition would be overridden
-        without a word."""
+        Two different listed files must not share a file name in one stage folder, and a package
+        must not have both a `.bsv` and a `.bs` file (`_stage_links`). A Bluespec source needs a
+        `.bsv` or `.bs` suffix. A design must not define `BSV_POSITIVE_RESET` while
+        `positive_reset` is on: bsc defines the macro itself then, and a design's own definition
+        would be overridden without a word."""
         super().check_design_supported(design, settings)
+        cls._stage_links(design, tb=cls.compiles_tb)
+        bad = [
+            str(src.file)
+            for src in design._sources_of_type("*", rtl=True, tb=cls.compiles_tb)
+            if src.type is SourceType.Bluespec and src.file.suffix not in _BSC_SOURCE_SUFFIXES
+        ]
+        if bad:
+            raise FlowSettingsException(
+                "bsc compiles BSV from `.bsv` files and BH (Bluespec Classic) from `.bs` files "
+                f"only; rename: {', '.join(bad)}"
+            )
         if settings is None or not getattr(settings, "positive_reset", False):
             return
         for part in cls.macro_parts:
@@ -896,15 +1007,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 )
 
     def _bsc_sources(self, *, tb: bool) -> list[Source]:
-        """Return the design's Bluespec sources, RTL first, after checking their suffixes."""
-        sources = self._sources_of(SourceType.Bluespec, tb=tb)
-        bad = [str(src.file) for src in sources if src.file.suffix not in _BSC_SOURCE_SUFFIXES]
-        if bad:
-            raise FlowSettingsException(
-                "bsc compiles BSV from `.bsv` files and BH (Bluespec Classic) from `.bs` files "
-                f"only; rename: {', '.join(bad)}"
-            )
-        return sources
+        """Return the design's Bluespec sources, RTL first. Planning has checked their suffixes
+        (`check_design_supported`)."""
+        return self._sources_of(SourceType.Bluespec, tb=tb)
 
     def _macros(self, *, tb: bool) -> dict[str, Any]:
         """Return the preprocessor macros.
@@ -940,6 +1045,16 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 ", ".join(bh),
             )
 
+    def _warn_inherited_bsc_options(self) -> None:
+        """Warn once if the environment of the caller sets `BSC_OPTIONS`. Every bsc process of
+        the flow runs with it empty (`BscTool.run`), so bsc ignores the value."""
+        if self.env_view.get(BSC_OPTIONS):
+            log.warning(
+                "The environment sets %s, but bsc runs without it, so that the run depends on "
+                "the settings alone. Put the flags in the `extra_flags` setting.",
+                BSC_OPTIONS,
+            )
+
     def _rel(self, path: str | os.PathLike) -> str:
         """Return `path` as bsc takes it: relative to the run directory, bsc's working directory,
         when `path` lies inside it, else absolute."""
@@ -951,15 +1066,34 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     def _stage_entries(self, *, tb: bool) -> dict[Path, Path]:
         """Return the links of the stage folders: the name of each link, relative to the run
-        directory, and the absolute file it stands for.
+        directory, and the absolute file it stands for (`_stage_links`).
+
+        Planning already refuses a design whose links collide. This check stays, because the
+        design of a run holds the generated sources, which planning only declares."""
+        return self._stage_links(self.design, tb=tb)
+
+    @classmethod
+    def _stage_links(cls, design: Design, *, tb: bool) -> dict[Path, Path]:
+        """Return the links of the stage folders for `design`: the name of each link, relative to
+        the run directory, and the absolute file it stands for.
 
         The links are the listed Bluespec sources and Bluespec headers of the parts the flow
         reads (`tb` selects the testbench's) and the listed Verilog sources of both parts. A file
-        listed twice is one link. Two different files with one name cannot share a folder.
+        listed twice is one link. Two different files with one name cannot share a folder, and
+        a package cannot have two files (`P.bsv` and `P.bs`): bsc could not tell which to read.
         """
         entries: dict[Path, Path] = {}
-        sources = self._sources_of(*_STAGED_SOURCE_TYPES, tb=tb)
-        sources += self._sources_of(*_VERILOG_TYPES, tb=True)
+        packages: dict[str, Path] = {}
+        sources = [
+            src
+            for src in design._sources_of_type("*", rtl=True, tb=tb)
+            if src.type in _STAGED_SOURCE_TYPES
+        ]
+        sources += [
+            src
+            for src in design._sources_of_type("*", rtl=True, tb=True)
+            if src.type in _VERILOG_TYPES
+        ]
         for src in sources:
             link = staged_name(src)
             assert link is not None
@@ -967,8 +1101,16 @@ class BscFlow(Flow, metaclass=ABCMeta):
             if entries.setdefault(link, original) != original:
                 raise FlowSettingsException(
                     f"two listed sources have the file name {src.file.name}: "
-                    f"{entries[link]} and {original}"
+                    f"{entries[link]} and {original}. They would share the stage folder "
+                    f"`{link.parent}`: rename one of them"
                 )
+            if src.type is SourceType.Bluespec:
+                other = packages.setdefault(src.file.stem, original)
+                if other != original:
+                    raise FlowSettingsException(
+                        f"two listed sources define the package {src.file.stem}: {other} and "
+                        f"{original}. bsc could not tell which one to read: list only one"
+                    )
         return entries
 
     def _stage(self, *, tb: bool) -> None:
@@ -1205,10 +1347,59 @@ class BscFlow(Flow, metaclass=ABCMeta):
         return "verilog"
 
     @classmethod
+    def _owned_path_flags(cls) -> dict[str, tuple[str, str]]:
+        """Return the path flags of bsc that `extra_flags` must not hold, by the name in bsc's
+        flag table: what the flag sets, and how to set it instead."""
+        no_setting = "the flow has no setting for it: remove the flag"
+        return {
+            "p": (
+                "the package search path",
+                "use `search_paths` for folders of the design, or `installed_libraries` for "
+                "folders of bsc's installation",
+            ),
+            "vsearch": ("the Verilog search path", "use `verilog_search_paths`"),
+            "bdir": ("the folder of the compiled packages", "use `bobj_dir`"),
+            "info-dir": ("the folder of the informational files", "use `info_dir`"),
+            "fdir": ("the folder that file names resolve in", "use `fdir`"),
+            "vdir": (
+                "the folder of the generated Verilog",
+                f"use `{cls.output_dir_setting}`",
+            ),
+            "simdir": ("the folder of the Bluesim output", no_setting),
+            "i": ("the installation folder of bsc", no_setting),
+        }
+
+    @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse the combinations that bsc refuses, before anything runs, and name the settings."""
+        """Refuse the combinations that bsc refuses, before anything runs, and name the settings.
+
+        Also refuse what would let bsc read or write where the flow does not expect it: a path
+        flag among `extra_flags` (`_owned_path_flags`), `BSC_OPTIONS` in `env`, and an output
+        folder that is the run directory or lies inside a stage folder (`STAGE_FOLDERS`)."""
         super().check_settings_supported(settings)
         assert isinstance(settings, BscFlow.Settings)
+        if BSC_OPTIONS in settings.env:
+            raise FlowSettingsException(
+                f"{cls.name}: `env` sets {BSC_OPTIONS}, which the flow overrides: bsc always runs "
+                f"with an empty {BSC_OPTIONS}. Put the flags in `extra_flags`"
+            )
+        owned = cls._owned_path_flags()
+        for text, name in flags_used(settings.extra_flags):
+            if name in owned:
+                meaning, fix = owned[name]
+                raise FlowSettingsException(
+                    f"{cls.name}: `extra_flags` has `{text}`, which sets {meaning}. The flow "
+                    f"owns it: {fix}"
+                )
+        for setting in ("bobj_dir", "info_dir", cls.output_dir_setting):
+            folder = getattr(settings, setting)
+            problem = None if folder is None else _stage_folder_conflict(Path(folder))
+            if problem:
+                raise FlowSettingsException(
+                    f"{cls.name}: `{setting}` is {str(folder)!r}, which {problem}. The flow "
+                    "fills the stage folders with links, and bsc writes its output elsewhere: "
+                    f"give a folder that is none of {', '.join(STAGE_FOLDERS)}"
+                )
         if settings.unspecified_to in ("X", "Z") and not settings.opt_undetermined_vals:
             raise FlowSettingsException(
                 f"{cls.name}: `unspecified_to: {settings.unspecified_to}` requires "
@@ -1339,6 +1530,7 @@ class Bsc(BscFlow):
     )
 
     output_dir_setting = "verilog_out_dir"
+    compiles_tb = False
 
     class Outputs(Flow.Outputs):
         design: DerivedSources | None = Out(
@@ -1458,6 +1650,7 @@ class Bsc(BscFlow):
         assert isinstance(ss, self.Settings)
         top = self.design.rtl.top
         assert top
+        self._warn_inherited_bsc_options()
         sources = self._bsc_sources(tb=False)
         top_file = self._top_file(sources, "RTL")
         vout_dir = self.run_file(ss.verilog_out_dir)
@@ -1717,6 +1910,7 @@ class BscSim(BscFlow, SimFlow):
     )
 
     output_dir_setting = "sim_dir"
+    compiles_tb = True
 
     cocotb_advice = (
         "bsc_sim runs Bluespec testbenches; for a cocotb testbench, simulate the Verilog that "
@@ -1864,6 +2058,14 @@ class BscSim(BscFlow, SimFlow):
         return "sim" if settings.simulator == "bluesim" else "verilog"
 
     @classmethod
+    def _owned_path_flags(cls) -> dict[str, tuple[str, str]]:
+        flags = super()._owned_path_flags()
+        flags["simdir"] = ("the folder of the Bluesim output", "use `sim_dir`")
+        flags["I"] = ("the include path for the C and C++ sources", "use `include_dirs`")
+        flags["L"] = ("the library path for the link", "use `library_dirs`")
+        return flags
+
+    @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Reject, before anything runs, what bsc or the evidence protocol cannot take.
 
@@ -2007,6 +2209,7 @@ class BscSim(BscFlow, SimFlow):
         assert isinstance(ss, self.Settings)
         tb_top = self._tb_top()
         assert tb_top
+        self._warn_inherited_bsc_options()
         bluesim = ss.simulator == "bluesim"
         backend = "sim" if bluesim else "verilog"
         sources = self._bsc_sources(tb=True)

@@ -400,13 +400,12 @@ def test_bsc_sim_rejects_a_cocotb_testbench(tmp_path, monkeypatch):
         _run(BscSim, design, tmp_path / "run")
 
 
-def test_a_bh_suffix_is_rejected_by_name(tmp_path):
+def test_a_bh_suffix_is_rejected_by_name_at_planning(tmp_path):
     """bsc compiles BH only from `.bs`; xeda also calls `.bh` Bluespec, which bsc refuses."""
     _write(tmp_path, {"Blink.bh": BH_PKG})
     design = Design(name="t", root=tmp_path, rtl={"sources": ["Blink.bh"], "top": "mkBlink"})
-    flow = _flow(Bsc, design, tmp_path / "run")
     with pytest.raises(FlowSettingsException, match=r"rename: .*Blink\.bh"):
-        flow._bsc_sources(tb=False)
+        Bsc.check_design_supported(design, Bsc.Settings())
 
 
 @pytest.mark.parametrize("flow", ["bsc", "bsc_sim"])
@@ -920,17 +919,123 @@ def test_verilog_search_paths_reach_the_verilog_link(simulator, tmp_path, capfd)
     assert "PASS" in out
 
 
-def test_extra_flags_reach_the_verilog_search_path_xeda_reads(tmp_path):
-    """A `-vsearch` among `extra_flags` changes where bsc looks for Verilog, and so where the
-    flow collects it from."""
-    require_bsc()
-    _write(tmp_path, {"vlib/add3.v": OPS_V, "Ops.bsv": OPS_PKG})
-    design = Design(name="ops", root=tmp_path, rtl={"sources": ["Ops.bsv"], "top": "mkOpsTb"})
-    vlib = tmp_path / "vlib"
-    flow = _run(Bsc, design, tmp_path / "run", extra_flags=["-vsearch", f"{vlib}:+"])
-    assert flow is not None and flow.succeeded
-    assert "add3" in flow.results["modules"]
-    assert any(Path(f).name == "add3.v" for f in collected_verilog(flow))
+PATH_FLAG_SETTING = {
+    "-p": "`search_paths`",
+    "--p": None,  # not a flag of bsc: `--` needs a name of two letters or more
+    "-bdir": "`bobj_dir`",
+    "--bdir": "`bobj_dir`",
+    "-vsearch": "`verilog_search_paths`",
+    "--vsearch": "`verilog_search_paths`",
+    "-vdir": "`verilog_out_dir`",
+    "--vdir": "`verilog_out_dir`",
+    "-simdir": "no setting",
+    "-info-dir": "`info_dir`",
+    "--info-dir": "`info_dir`",
+    "-fdir": "`fdir`",
+    "--fdir": "`fdir`",
+    "-i": "no setting",
+}
+
+
+@pytest.mark.parametrize("flag", [f for f, setting in PATH_FLAG_SETTING.items() if setting])
+def test_a_path_flag_in_extra_flags_is_refused_with_its_setting(flag):
+    """The flow owns every path that it reads or writes: a path flag among `extra_flags` would
+    send bsc, or the flow's own reading of the Verilog search path, elsewhere."""
+    settings = Bsc.Settings(extra_flags=["-O", flag, "x"])
+    with pytest.raises(FlowSettingsException) as error:
+        Bsc.check_settings_supported(settings)
+    message = str(error.value)
+    assert f"`{flag}`" in message
+    expected = PATH_FLAG_SETTING[flag]
+    assert expected is not None
+    if expected == "no setting":
+        assert "no setting" in message
+    else:
+        assert expected in message
+
+
+def test_a_flag_that_is_no_alias_of_a_path_flag_passes():
+    Bsc.check_settings_supported(Bsc.Settings(extra_flags=["--p", "x"]))
+
+
+@pytest.mark.parametrize(
+    ("flag", "setting"),
+    [("-I", "`include_dirs`"), ("--I", None), ("-L", "`library_dirs`"), ("-simdir", "`sim_dir`")],
+)
+def test_bsc_sim_refuses_the_link_path_flags_too(flag, setting):
+    settings = BscSim.Settings(extra_flags=[flag, "x"])
+    if setting is None:
+        BscSim.check_settings_supported(settings)
+        return
+    with pytest.raises(FlowSettingsException, match=re.escape(setting)):
+        BscSim.check_settings_supported(settings)
+
+
+def test_bsc_allows_the_link_path_flags_it_never_uses():
+    """`bsc` has no link step, so `-I` and `-L` are harmless to it."""
+    Bsc.check_settings_supported(Bsc.Settings(extra_flags=["-I", "x", "-L", "y"]))
+
+
+@pytest.mark.parametrize(
+    "extra_flags",
+    [
+        ["-Xc", "-I/x"],
+        ["-Xc++", "-I/x", "-Xcpp", "-p", "-Xl", "-L/x", "-Xv", "-vsearch"],
+        ["-I/x", "-L/y"],  # no flag of bsc: it rejects them itself
+    ],
+)
+def test_the_argument_of_a_flag_is_no_path_flag(extra_flags):
+    """A flag that takes an argument takes the next one, whatever it looks like."""
+    BscSim.check_settings_supported(BscSim.Settings(extra_flags=extra_flags))
+
+
+def test_the_argument_of_a_pass_through_flag_is_skipped_but_the_next_flag_is_not():
+    with pytest.raises(FlowSettingsException, match="`-I`"):
+        BscSim.check_settings_supported(BscSim.Settings(extra_flags=["-Xc", "-I/x", "-I", "/x"]))
+
+
+def test_flags_used_follows_bsc_in_naming_flags():
+    assert bsc_module.flags_used(["-O", "--bdir", "x", "-Xc", "-p", "A.bsv", "-no-foo"]) == [
+        ("-O", "O"),
+        ("--bdir", "bdir"),
+        ("-Xc", "Xc"),
+        ("-no-foo", "no-foo"),
+    ]
+    assert bsc_module.flags_used(["--p", "-"]) == [("--p", "-p"), ("-", "")]
+
+
+@pytest.mark.parametrize("flow", [Bsc, BscSim])
+def test_bsc_options_in_env_is_refused(flow):
+    with pytest.raises(FlowSettingsException, match=r"`env` sets BSC_OPTIONS.*`extra_flags`"):
+        flow.check_settings_supported(flow.Settings(env={"BSC_OPTIONS": ""}))
+
+
+@pytest.mark.parametrize(
+    ("flow", "setting"),
+    [(Bsc, "bobj_dir"), (Bsc, "info_dir"), (Bsc, "verilog_out_dir"), (BscSim, "sim_dir")],
+)
+@pytest.mark.parametrize(
+    ("value", "meets"),
+    [
+        (".", "the run directory itself"),
+        ("bsc_sources", "stage folder `bsc_sources`"),
+        ("bsc_search/0", "stage folder `bsc_search`"),
+        ("bsc_verilog/out", "stage folder `bsc_verilog`"),
+        ("bsc_foreign", "stage folder `bsc_foreign`"),
+    ],
+)
+def test_an_output_folder_that_is_or_lies_in_a_stage_folder_is_refused(flow, setting, value, meets):
+    with pytest.raises(FlowSettingsException) as error:
+        flow.check_settings_supported(flow.Settings(**{setting: value}))
+    assert f"`{setting}`" in str(error.value)
+    assert meets in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "value", ["bobjs", "gen_rtl/bsc_sources", "my_bsc_sources", "out/bsc_search"]
+)
+def test_an_output_folder_beside_the_stage_folders_is_accepted(value):
+    Bsc.check_settings_supported(Bsc.Settings(bobj_dir=value, verilog_out_dir=value))
 
 
 def test_a_link_path_with_whitespace_is_rejected_before_compiling(tmp_path):
@@ -2114,6 +2219,43 @@ def test_an_unlisted_package_beside_a_listed_source_is_not_found(tmp_path):
     assert "S0000" in _failure_text(tmp_path / "run", error.value)
 
 
+def test_an_inherited_bsc_options_never_reaches_bsc(tmp_path, monkeypatch, caplog):
+    """bsc reads flags from `BSC_OPTIONS`. The flow runs it with the variable empty, so the
+    environment of the caller cannot add a search path: the unlisted package stays unfound."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"unlisted/Helper.bsv": _helper_pkg(1)})
+    design = Design(name="d", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    monkeypatch.setenv("BSC_OPTIONS", f"-p {root / 'unlisted'}:+")
+    with caplog.at_level(logging.WARNING), pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, tmp_path / "run")
+    assert "S0000" in _failure_text(tmp_path / "run", error.value)
+    warnings = [r.getMessage() for r in caplog.records if "BSC_OPTIONS" in r.getMessage()]
+    assert len(warnings) == 1 and "`extra_flags`" in warnings[0]
+
+
+def test_an_inherited_bsc_options_does_not_change_the_output(tmp_path, monkeypatch, caplog):
+    require_bsc()
+    design = _accum_design(tmp_path / "d")
+    elsewhere = tmp_path / "elsewhere"
+    monkeypatch.setenv("BSC_OPTIONS", f"-vdir {elsewhere}")
+    with caplog.at_level(logging.WARNING):
+        flow = _run_directly(Bsc, design, tmp_path / "run")
+    assert (flow.run_path / "gen_rtl" / "mkTop.v").is_file()
+    assert not elsewhere.exists()
+    assert sum("BSC_OPTIONS" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_an_empty_bsc_options_is_not_reported(tmp_path, monkeypatch, caplog):
+    require_bsc()
+    design = _accum_design(tmp_path / "d")
+    monkeypatch.setenv("BSC_OPTIONS", "")
+    with caplog.at_level(logging.WARNING):
+        _run_directly(Bsc, design, tmp_path / "run")
+    assert "BSC_OPTIONS" not in caplog.text
+
+
 def test_a_compiled_package_without_a_source_beside_a_listed_source_is_not_imported(tmp_path):
     require_bsc()
     root = tmp_path / "d"
@@ -2459,8 +2601,63 @@ def test_two_listed_files_of_one_name_cannot_share_a_stage_folder(tmp_path):
     root = tmp_path / "d"
     _write(root, {"a/P.bsv": "package P; endpackage\n", "b/P.bsv": "package P; endpackage\n"})
     design = Design(name="s", root=root, rtl={"sources": ["a/P.bsv", "b/P.bsv"], "top": "mkP"})
-    with pytest.raises(FlowSettingsException, match="two listed sources have the file name P.bsv"):
+    message = "two listed sources have the file name P.bsv"
+    with pytest.raises(FlowSettingsException, match=message) as error:
+        Bsc.check_design_supported(design, Bsc.Settings())
+    assert str(root / "a" / "P.bsv") in str(error.value)
+    assert str(root / "b" / "P.bsv") in str(error.value)
+    # The run keeps its own check: the design of a run holds the generated sources.
+    with pytest.raises(FlowSettingsException, match=message):
         _flow(Bsc, design, tmp_path / "run")._stage(tb=False)
+
+
+def test_one_file_listed_twice_is_no_conflict(tmp_path):
+    root = tmp_path / "d"
+    _write(root, {"P.bsv": "package P; endpackage\n"})
+    design = Design(name="s", root=root, rtl={"sources": ["P.bsv", "P.bsv"], "top": "mkP"})
+    Bsc.check_design_supported(design, Bsc.Settings())
+
+
+def test_a_testbench_file_clashes_only_where_the_flow_stages_it(tmp_path):
+    """`bsc` stages the Bluespec sources of `rtl` only, `bsc_sim` those of `tb` too. Both stage
+    the Verilog sources of both parts."""
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "P.bsv": "package P; endpackage\n",
+            "tb/P.bsv": "package P; endpackage\n",
+            "m.v": "module m; endmodule\n",
+            "tb/m.v": "module m; endmodule\n",
+        },
+    )
+    bluespec = Design(
+        name="s",
+        root=root,
+        rtl={"sources": ["P.bsv"], "top": "mkP"},
+        tb={"sources": ["tb/P.bsv"], "top": "mkP"},
+    )
+    Bsc.check_design_supported(bluespec, Bsc.Settings())
+    with pytest.raises(FlowSettingsException, match="file name P.bsv"):
+        BscSim.check_design_supported(bluespec, BscSim.Settings())
+    verilog = Design(
+        name="s",
+        root=root,
+        rtl={"sources": ["P.bsv", "m.v"], "top": "mkP"},
+        tb={"sources": ["tb/m.v"], "top": "mkP"},
+    )
+    for flow in (Bsc, BscSim):
+        with pytest.raises(FlowSettingsException, match="file name m.v"):
+            flow.check_design_supported(verilog, flow.Settings())
+
+
+def test_a_bsv_and_a_bs_file_of_one_package_are_refused(tmp_path):
+    root = tmp_path / "d"
+    _write(root, {"P.bsv": "package P; endpackage\n", "P.bs": "package P where\n"})
+    design = Design(name="s", root=root, rtl={"sources": ["P.bsv", "P.bs"], "top": "mkP"})
+    with pytest.raises(FlowSettingsException, match="define the package P") as error:
+        Bsc.check_design_supported(design, Bsc.Settings())
+    assert str(root / "P.bsv") in str(error.value) and str(root / "P.bs") in str(error.value)
 
 
 def test_a_run_root_with_whitespace_fails_with_a_clean_message_or_runs(tmp_path):

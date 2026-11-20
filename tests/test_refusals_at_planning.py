@@ -117,6 +117,18 @@ def _bsv(**sections: Any) -> Callable[[Path], Design]:
     return lambda root: _design(root, "bsv", **sections)
 
 
+def _bsv_files(files: dict[str, str], **sections: Any) -> Callable[[Path], Design]:
+    """A Bluespec design whose root also holds `files`."""
+
+    def make(root: Path) -> Design:
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text)
+        return _design(root, "bsv", **sections)
+
+    return make
+
+
 def _vhdl(root: Path) -> Design:
     return _design(root, "vhdl")
 
@@ -329,6 +341,72 @@ CASES: dict[str, Case] = {
         "through the DPI only",
         {"simulator": "verilator"},
         _bsv(tb={"sources": ["Probe.bsv", "imported.c"], "top": "mkProbe"}),
+    ),
+    "bsc-two-files-of-one-name": Case(
+        Bsc,
+        "two listed sources have the file name Probe.bsv",
+        design=_bsv_files(
+            {"other/Probe.bsv": BSV},
+            rtl={"sources": ["Probe.bsv", "other/Probe.bsv"], "top": "mkProbe"},
+        ),
+    ),
+    "bsc-sim-two-testbench-files-of-one-name": Case(
+        BscSim,
+        "two listed sources have the file name Probe.bsv",
+        design=_bsv_files(
+            {"other/Probe.bsv": BSV},
+            tb={"sources": ["other/Probe.bsv"], "top": "mkProbe"},
+        ),
+    ),
+    "bsc-two-verilog-files-of-one-name": Case(
+        Bsc,
+        "two listed sources have the file name top.v",
+        design=_bsv_files(
+            {"other/top.v": VERILOG},
+            rtl={"sources": ["Probe.bsv", "top.v", "other/top.v"], "top": "mkProbe"},
+        ),
+    ),
+    "bsc-bsv-and-bs-of-one-package": Case(
+        Bsc,
+        r"two listed sources define the package Probe: .*Probe\.bsv and .*Probe\.bs",
+        design=_bsv_files(
+            {"Probe.bs": "package Probe where\n"},
+            rtl={"sources": ["Probe.bsv", "Probe.bs"], "top": "mkProbe"},
+        ),
+    ),
+    "bsc-source-suffix": Case(
+        Bsc,
+        r"rename: .*Probe\.bh",
+        design=_bsv_files(
+            {"Probe.bh": "package Probe where\n"},
+            rtl={"sources": ["Probe.bh"], "top": "mkProbe"},
+        ),
+    ),
+    "bsc-sim-testbench-source-suffix": Case(
+        BscSim,
+        r"rename: .*Tb\.bh",
+        design=_bsv_files(
+            {"Tb.bh": "package Tb where\n"}, tb={"sources": ["Tb.bh"], "top": "mkTb"}
+        ),
+    ),
+    "bsc-path-flag": Case(Bsc, "`-p`.*use `search_paths`", {"extra_flags": ["-p", "x:+"]}, _bsv()),
+    "bsc-env-bsc-options": Case(
+        Bsc, "`env` sets BSC_OPTIONS", {"env": {"BSC_OPTIONS": "-p x"}}, _bsv()
+    ),
+    "bsc-sim-env-bsc-options": Case(
+        BscSim, "`env` sets BSC_OPTIONS", {"env": {"BSC_OPTIONS": ""}}, _bsv()
+    ),
+    "bsc-sim-include-flag": Case(
+        BscSim, "`-I`.*use `include_dirs`", {"extra_flags": ["-I", "x"]}, _bsv()
+    ),
+    "bsc-output-folder-is-the-run-directory": Case(
+        Bsc, "`bobj_dir` is '.'", {"bobj_dir": "."}, _bsv()
+    ),
+    "bsc-sim-output-folder-in-a-stage-folder": Case(
+        BscSim, "`sim_dir` is 'bsc_search/out'", {"sim_dir": "bsc_search/out"}, _bsv()
+    ),
+    "bsc-info-folder-is-a-stage-folder": Case(
+        Bsc, "`info_dir` is 'bsc_verilog'", {"info_dir": "bsc_verilog"}, _bsv()
     ),
     "ise-without-top": Case(IseSynth, "rtl.top", {"fpga": {"part": "xc6slx9"}}, _without_top),
     "synth-clock-without-port": Case(
