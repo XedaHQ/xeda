@@ -11,6 +11,7 @@ at hand; `test_bsc_examples.py` runs the example designs.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -1893,6 +1894,210 @@ def test_the_link_compiles_c_sources_in_the_run_directory(simulator, tmp_path, c
     assert flow is not None and flow.succeeded, run_report(flow, captured)
     assert "PASS" in captured.out
     assert {path: path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
+
+
+def _disposition(runner: DefaultRunner, flow_class: type[Flow], design: Design, settings: dict):
+    result = launch_result(
+        runner,
+        Spec(flow_class.name, design),
+        lambda: runner.run_flow(flow_class, design, settings),
+    )
+    assert result.outcome == "passed", result.error
+    return result.nodes[flow_class.name].disposition
+
+
+#: Two imported functions, one from a C source and one from a C++ source.
+BDPI_HEADERS_TB = """package Dpi;
+import "BDPI" function Bit#(32) xeda_c(Bit#(32) a);
+import "BDPI" function Bit#(32) xeda_cc(Bit#(32) a);
+(* synthesize *)
+module mkDpi(Empty);
+  rule check;
+    if (xeda_c(2) == 11 && xeda_cc(2) == 22) $display("PASS");
+    else $display("FAIL");
+    $finish(0);
+  endrule
+endmodule
+endpackage
+"""
+
+
+def _bdpi_headers_design(root: Path, k2: int = 1, k3: int = 1, kc: int = 20) -> Design:
+    """A C and a C++ source, each including a header beside it. `c_hdr.h` includes `c_hdr2.h`,
+    and `inc_hdr.h` is found through `include_dirs`."""
+    _write(
+        root,
+        {
+            "Dpi.bsv": BDPI_HEADERS_TB,
+            "src/c_hdr2.h": f"#define K2 {k2}\n",
+            "src/c_hdr.h": '#include "c_hdr2.h"\n#define K1 (9 + K2)\n',
+            "inc/inc_hdr.h": f"#define K3 {k3}\n",
+            "src/c_part.c": '#include <stdint.h>\n#include "c_hdr.h"\n#include <inc_hdr.h>\n'
+            "unsigned xeda_c(unsigned a) { return a + K1 + K3 - 1; }\n",
+            "src/cpp_hdr.h": f"#define KC {kc}\n",
+            "src/cpp_part.cpp": '#include <cstdint>\n#include "cpp_hdr.h"\n'
+            'extern "C" unsigned xeda_cc(unsigned a) { return a + KC; }\n',
+        },
+    )
+    return Design(
+        name="dpi_headers",
+        root=root,
+        rtl={"sources": []},
+        tb={"sources": ["src/c_part.c", "src/cpp_part.cpp", "Dpi.bsv"], "top": "mkDpi"},
+    )
+
+
+@pytest.mark.parametrize("simulator", ["bluesim", "iverilog"])
+def test_a_header_of_a_c_source_runs_bsc_sim_again(simulator, tmp_path):
+    """The headers that a C or C++ source includes are inputs of the run, though the design does
+    not list them: a header beside the source, one that it includes, and one in `include_dirs`.
+    The edits keep the testbench passing, so only the trace can run the flow again."""
+    _require_simulator(simulator)
+    require_c_toolchain()
+    root = tmp_path / "d"
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"simulator": simulator, "include_dirs": ["inc"], "timeout": "120 s"}
+    design = _bdpi_headers_design(root)
+    assert _disposition(runner, BscSim, design, settings) == "ran"
+    assert _disposition(runner, BscSim, design, settings) == "reused"
+    edits = [
+        ("src/c_hdr2.h", "#define K2 1\n// edited\n"),
+        ("inc/inc_hdr.h", "#define K3 1\n// edited\n"),
+        ("src/cpp_hdr.h", "#define KC 20\n// edited\n"),
+    ]
+    for name, text in edits:
+        (root / name).write_text(text)
+        assert _disposition(runner, BscSim, design, settings) == "ran", name
+        assert _disposition(runner, BscSim, design, settings) == "reused", name
+
+
+def _foreign_flow(tmp_path: Path) -> Any:
+    flow = _flow(BscSim, _bdpi_headers_design(tmp_path / "d"), tmp_path / "run")
+    flow.run_directory.writable(Path("bsc_foreign", "x", "c_part.d")).parent.mkdir(parents=True)
+    return flow
+
+
+def test_a_c_source_without_a_usable_depfile_fails_the_run(tmp_path):
+    """No depfile, or one that does not name its source, hides the headers of the source: a
+    later edit of one would not run the flow again."""
+    flow = _foreign_flow(tmp_path)
+    source = tmp_path / "d" / "src" / "c_part.c"
+    depfile = flow.run_file("bsc_foreign/x/c_part.d")
+    with pytest.raises(FlowFatalError, match=r"wrote no such file .*c_part\.d"):
+        flow._require_depfiles({depfile: source})
+    depfile.write_text("garbage\n")
+    with pytest.raises(FlowFatalError, match="does not name the source"):
+        flow._require_depfiles({depfile: source})
+    depfile.write_text(f"c_part.o: {source} \\\n  {source.parent}/c_hdr.h\n")
+    flow._require_depfiles({depfile: source})
+
+
+def test_only_headers_in_the_design_a_source_folder_or_include_dirs_are_inputs(tmp_path):
+    """The compiler's own files (the macOS SDK's `SDKSettings.json`) and a header outside the
+    design root, the folders of the listed sources and `include_dirs` are no inputs. A header
+    beside a listed source outside the design root is one."""
+    require_bluesim()
+    require_c_toolchain()
+    _bdpi_headers_design(tmp_path / "d")
+    _write(
+        tmp_path,
+        {
+            "other/o_hdr.h": "#define KO 1\n",
+            "away/away.h": "#define KA 1\n",
+        },
+    )
+    (tmp_path / "other" / "o_part.c").write_text(
+        f'#include "o_hdr.h"\n#include "{tmp_path / "away" / "away.h"}"\n'
+        "unsigned xeda_unused(void) { return KO + KA; }\n"
+    )
+    design = Design(
+        name="dpi_headers",
+        root=tmp_path / "d",
+        rtl={"sources": []},
+        tb={
+            "sources": [
+                "src/c_part.c",
+                "src/cpp_part.cpp",
+                str(tmp_path / "other" / "o_part.c"),
+                "Dpi.bsv",
+            ],
+            "top": "mkDpi",
+        },
+    )
+    flow = _run(BscSim, design, tmp_path / "run", simulator="bluesim", include_dirs=["inc"])
+    assert flow is not None and flow.succeeded
+    assert not flow.depfiles
+    recorded = json.loads((flow.run_path / "trace.json").read_text())
+    implicit = {
+        Path(path).relative_to(tmp_path.resolve()).as_posix()
+        for path in recorded["implicit_inputs"]
+    }
+    assert implicit == {
+        "d/src/c_hdr.h",
+        "d/src/c_hdr2.h",
+        "d/src/cpp_hdr.h",
+        "other/o_hdr.h",
+    }
+    assert not any(path.endswith("SDKSettings.json") for path in recorded["implicit_inputs"])
+
+
+BH_INCLUDE_PKG = """package Knob where
+
+#include "init.h"
+
+interface Knob_IFC =
+    value :: Bit 4
+
+{-# verilog mkKnob #-}
+mkKnob :: Module Knob_IFC
+mkKnob = module
+    r :: Reg (Bit 4) <- mkReg INIT
+    rules
+      "tick": when True ==> r := r + 1
+    interface
+      value = r
+"""
+
+
+def _bh_include_design(root: Path, init: int, *, listed: bool = True) -> Design:
+    _write(root, {"Knob.bs": BH_INCLUDE_PKG, "init.h": f"#define INIT {init}\n"})
+    sources = ["Knob.bs", "init.h"] if listed else ["Knob.bs"]
+    return Design(name="knob", root=root, rtl={"sources": sources, "top": "mkKnob"})
+
+
+def test_a_listed_c_header_is_visible_to_a_bh_source_with_cpp(tmp_path):
+    """The C preprocessor reads `#include "init.h"` in the folder of the source as bsc names it,
+    so a listed header is a link beside the staged source. An edit of it runs the flow again."""
+    require_bsc()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    found = []
+    for init in (5, 5, 6):
+        design = _bh_include_design(tmp_path / "d", init)
+        found.append(_disposition(runner, Bsc, design, {"cpp": True}))
+    assert found == ["ran", "reused", "ran"]
+    (run,) = (tmp_path / "run").rglob("mkKnob.v")
+    assert "4'd6" in run.read_text()
+
+
+def test_a_c_header_is_staged_only_with_cpp(tmp_path):
+    design = _bh_include_design(tmp_path / "d", 5)
+    assert design.rtl.sources[1].type is SourceType.CHeader
+    for flow_class in (Bsc, BscSim):
+        assert SourceType.CHeader in flow_class.reads_sources
+    off = _flow(Bsc, design, tmp_path / "off")._stage_entries(tb=False)
+    on = _flow(Bsc, design, tmp_path / "on", cpp=True)._stage_entries(tb=False)
+    assert [str(link) for link in off] == ["bsc_sources/Knob.bs"]
+    assert [str(link) for link in on] == ["bsc_sources/Knob.bs", "bsc_sources/init.h"]
+
+
+def test_an_unlisted_header_beside_a_bh_source_fails_with_advice(tmp_path):
+    require_bsc()
+    design = _bh_include_design(tmp_path / "d", 5, listed=False)
+    flow = _run(Bsc, design, tmp_path / "run", cpp=True)
+    assert flow is not None and not flow.succeeded
+    message = json.loads((flow.run_path / "results.json").read_text())["error"]["message"]
+    assert "'init.h' file not found" in message
+    assert "list the header in the design's sources" in message
 
 
 def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch):

@@ -127,6 +127,9 @@ _VERILOG_TYPES = (SourceType.Verilog, SourceType.SystemVerilog)
 _FOREIGN_TYPES = (SourceType.C, SourceType.Cpp, SourceType.ObjectFile)
 #: The listed sources that the stage folder `bsc_sources` holds.
 _STAGED_SOURCE_TYPES = (SourceType.Bluespec, SourceType.BluespecHeader)
+#: The listed sources that `bsc_sources` also holds with `cpp`: the C preprocessor looks for a
+#: quoted `#include` in the folder of the BH source as bsc names it.
+_CPP_STAGED_TYPES = (SourceType.CHeader,)
 #: The folder of the run directory that holds a wrapper for each C and C++ source of the link.
 _FOREIGN_DIR = "bsc_foreign"
 #: What separates the entries of a bsc search path, so no entry can contain it.
@@ -326,7 +329,7 @@ def staged_name(src: Source) -> Path | None:
     source `src` in a stage folder, or `None` if no stage folder holds the source.
 
     The name depends only on the source: its type and its file name."""
-    if src.type in _STAGED_SOURCE_TYPES:
+    if src.type in _STAGED_SOURCE_TYPES or src.type in _CPP_STAGED_TYPES:
         return Path(STAGE_SOURCES) / src.file.name
     if src.type in _VERILOG_TYPES:
         return Path(STAGE_VERILOG) / src.file.name
@@ -564,7 +567,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
     #: `tb` stays declared there, a safe over-approximation.
     design_parts = frozenset({"rtl", "tb"})
 
-    reads_sources = frozenset({SourceType.Bluespec, SourceType.BluespecHeader, *_VERILOG_TYPES})
+    reads_sources = frozenset(
+        {SourceType.Bluespec, SourceType.BluespecHeader, SourceType.CHeader, *_VERILOG_TYPES}
+    )
 
     #: Whether the flow compiles the Bluespec sources of the testbench, besides those of `rtl`.
     #: Both flows stage the Verilog sources of `rtl` and `tb`.
@@ -985,7 +990,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         `positive_reset` is on: bsc defines the macro itself then, and a design's own definition
         would be overridden without a word."""
         super().check_design_supported(design, settings)
-        cls._stage_links(design, tb=cls.compiles_tb)
+        cls._stage_links(design, tb=cls.compiles_tb, cpp=bool(getattr(settings, "cpp", False)))
         bad = [
             str(src.file)
             for src in design._sources_of_type("*", rtl=True, tb=cls.compiles_tb)
@@ -1070,15 +1075,19 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
         Planning already refuses a design whose links collide. This check stays, because the
         design of a run holds the generated sources, which planning only declares."""
-        return self._stage_links(self.design, tb=tb)
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        return self._stage_links(self.design, tb=tb, cpp=ss.cpp)
 
     @classmethod
-    def _stage_links(cls, design: Design, *, tb: bool) -> dict[Path, Path]:
+    def _stage_links(cls, design: Design, *, tb: bool, cpp: bool) -> dict[Path, Path]:
         """Return the links of the stage folders for `design`: the name of each link, relative to
         the run directory, and the absolute file it stands for.
 
         The links are the listed Bluespec sources and Bluespec headers of the parts the flow
-        reads (`tb` selects the testbench's) and the listed Verilog sources of both parts. A file
+        reads (`tb` selects the testbench's) and the listed Verilog sources of both parts. With
+        `cpp`, the listed C headers are links too: the C preprocessor reads `#include "x.h"` of
+        a BH source in the folder of the source, which is `bsc_sources`. A file
         listed twice is one link. Two different files with one name cannot share a folder, and
         a package cannot have two files (`P.bsv` and `P.bs`): bsc could not tell which to read.
         """
@@ -1087,7 +1096,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         sources = [
             src
             for src in design._sources_of_type("*", rtl=True, tb=tb)
-            if src.type in _STAGED_SOURCE_TYPES
+            if src.type in _STAGED_SOURCE_TYPES or (cpp and src.type in _CPP_STAGED_TYPES)
         ]
         sources += [
             src
@@ -1483,7 +1492,16 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 if len(found) > len(shown)
                 else ""
             )
-            raise error.with_message(f"bsc reported: {' | '.join(shown)}{more}") from error
+            hint = ""
+            if getattr(self.settings, "cpp", False) and any(
+                "file not found" in line or "No such file" in line for line in shown
+            ):
+                hint = (
+                    f" (with `cpp`, a BH source finds a quoted `#include` only among the listed "
+                    f"sources, which are links in `{STAGE_SOURCES}`: list the header in the "
+                    "design's sources)"
+                )
+            raise error.with_message(f"bsc reported: {' | '.join(shown)}{more}{hint}") from error
 
     def _top_file(self, sources: list[Source], what: str) -> Path:
         """Return the staged name of the file that holds the top module: the last Bluespec
@@ -1872,6 +1890,12 @@ class BscSim(BscFlow, SimFlow):
 
     The design's `defines` and `parameters` are preprocessor macros, and the testbench's go over
     the RTL's. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
+
+    The headers that a C or C++ source includes are inputs of the run: an edit of one runs the
+    flow again. The compiler's depfiles name them. A header counts only when it lies in the design
+    root, in the folder of a listed C or C++ source, or in a folder of `include_dirs`. Xeda does
+    not track any other file, such as a header that an absolute or `../` include reaches outside
+    those folders. With `--remote`, list the headers in the design so they reach the host.
     The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and
     xsim. The legacy simulators cvc, cver, isim, ncverilog and veriwell are rejected before
     compilation. The Linux CI job checks the real Icarus evidence and the registration of the
@@ -1922,7 +1946,13 @@ class BscSim(BscFlow, SimFlow):
     macro_parts = ("rtl", "tb")
 
     reads_sources = frozenset(
-        {SourceType.Bluespec, SourceType.BluespecHeader, *_VERILOG_TYPES, *_FOREIGN_TYPES}
+        {
+            SourceType.Bluespec,
+            SourceType.BluespecHeader,
+            SourceType.CHeader,
+            *_VERILOG_TYPES,
+            *_FOREIGN_TYPES,
+        }
     )
 
     @classmethod
@@ -2043,7 +2073,8 @@ class BscSim(BscFlow, SimFlow):
         include_dirs: list[Path] = Field(
             [],
             description="Include directories for the C/C++ sources of imported functions "
-            "(`-I`), relative to the design root.",
+            "(`-I`), relative to the design root. A header that a C or C++ source includes "
+            "from one of them is an input of the run.",
         )
         library_dirs: list[Path] = Field(
             [],
@@ -2162,9 +2193,10 @@ class BscSim(BscFlow, SimFlow):
         """
         return [src.file for src in self._sources_of(*_FOREIGN_TYPES, tb=True)]
 
-    def _stage_foreign_sources(self) -> list[Path]:
+    def _stage_foreign_sources(self) -> tuple[list[Path], dict[Path, Path]]:
         """Return the files that the link step takes for the design's C and C++ sources,
-        objects and archives, after writing a wrapper for each source.
+        objects and archives, after writing a wrapper for each source. Also return the depfile
+        that the compiler writes for each wrapper, with the listed source it stands for.
 
         bsc compiles a C or C++ source to an object beside the name it is given. So the link names
         a wrapper in the run directory: `bsc_foreign/<digest of the source's path>/<the source's
@@ -2174,9 +2206,13 @@ class BscSim(BscFlow, SimFlow):
         compiler looks for a quoted `#include` first in the folder of the file that holds it, so
         the source finds its headers as before. The link names objects and archives as they are:
         bsc only reads them.
+
+        With `-MMD`, the compiler writes the depfile beside the object. The depfile
+        names the headers that the source includes (`_require_depfiles`).
         """
         self.run_directory.remove(_FOREIGN_DIR)
         files = []
+        depfiles: dict[Path, Path] = {}
         for src in self._sources_of(*_FOREIGN_TYPES, tb=True):
             if src.type is SourceType.ObjectFile:
                 files.append(src.file)
@@ -2188,7 +2224,64 @@ class BscSim(BscFlow, SimFlow):
             with replacing_file(wrapper, encoding="utf-8") as f:
                 f.write(f'#include "{source}"\n')
             files.append(wrapper)
-        return files
+            depfiles[wrapper.with_suffix(".d")] = source
+        return files, depfiles
+
+    def _require_depfiles(self, depfiles: dict[Path, Path]) -> None:
+        """Fail the run if the compiler wrote no usable depfile for a C or C++ source. Register
+        the headers that the depfiles name as inputs of the run (`implicit_inputs`).
+
+        The depfiles are the only record of the headers that the sources include. A missing
+        depfile would hide a header, so a later edit of it would not run the flow again. A
+        depfile is usable when this run wrote it and it names its source.
+
+        A file is an input only when it lies, with symbolic links resolved, in the design root,
+        in the folder of a listed C or C++ source, or in a folder of `include_dirs`. Every other
+        file is not recorded: the compiler's own files (the macOS SDK's `SDKSettings.json`, which
+        clang names in every depfile), and a header that an absolute or `../` include reaches
+        outside those folders. The run directory holds the run's own files and is no input.
+        """
+        from ...flow_runner.trace_inputs import parse_depfile
+
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        roots = [
+            Path(os.path.realpath(root))
+            for root in (
+                self.design.root,
+                *(src.file.parent for src in self._sources_of(*_FOREIGN_TYPES, tb=True)),
+                *(self.normalize_path_to_design_root(d) for d in ss.include_dirs),
+            )
+        ]
+        own = Path(os.path.realpath(self.run_path))
+
+        for depfile, source in depfiles.items():
+            problem = None
+            report = self.report_file(depfile)
+            if report is None:
+                problem = "wrote no such file in this run"
+            else:
+                try:
+                    named = {
+                        Path(os.path.realpath(dep)) for dep in parse_depfile(report, self.run_path)
+                    }
+                except (OSError, UnicodeDecodeError) as error:
+                    problem = f"wrote a file that Xeda cannot read ({error})"
+                else:
+                    if Path(os.path.realpath(source)) not in named:
+                        problem = "wrote a file that does not name the source"
+                    self.implicit_inputs += sorted(
+                        dep
+                        for dep in named
+                        if not dep.is_relative_to(own)
+                        and any(dep.is_relative_to(root) for root in roots)
+                    )
+            if problem:
+                raise FlowFatalError(
+                    f"bsc_sim cannot tell which headers {source} includes: the compiler "
+                    f"{problem} for the dependency file {depfile}. A header edit would not run "
+                    "the flow again."
+                )
 
     @staticmethod
     def _tb_top_of(design: Design) -> str | None:
@@ -2243,10 +2336,15 @@ class BscSim(BscFlow, SimFlow):
         # A Verilog link finds a module on `-vsearch` only in a file named after it. The link
         # therefore names the design's Verilog files, and a file that holds another module, or
         # several, counts too.
-        link_files = self._stage_foreign_sources()
+        link_files, foreign_depfiles = self._stage_foreign_sources()
         if not bluesim:
             link_files += [src.file for src in self._sources_of(*_VERILOG_TYPES, tb=True)]
         link_flags = self._link_flags(bluesim)
+        if foreign_depfiles:
+            # The depfiles of the C and C++ sources name their headers (`_require_depfiles`).
+            # Bluesim's model and Icarus's VPI wrappers write depfiles of their own: only these
+            # count.
+            link_flags += ["-Xc", "-MMD", "-Xc++", "-MMD"]
         link_env: dict[str, str] | None = None
         if bluesim:
             self.copy_from_template("sim_record.h", script_filename="sim_record.h")
@@ -2283,6 +2381,7 @@ class BscSim(BscFlow, SimFlow):
             *link_files,
             env=link_env,
         )
+        self._require_depfiles(foreign_depfiles)
         self.artifacts.executable = str(executable)
         if bluesim:
             self._require_empty_interface(tb_top, sim_dir, bluesim)

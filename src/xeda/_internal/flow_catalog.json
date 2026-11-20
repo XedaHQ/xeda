@@ -1319,7 +1319,7 @@
       "include_dirs": {
         "children": false,
         "assignable": true,
-        "help": "Include directories for the C/C++ sources of imported functions (`-I`), relative to the design root."
+        "help": "Include directories for the C/C++ sources of imported functions (`-I`), relative to the design root. A header that a C or C++ source includes from one of them is an input of the run."
       },
       "library_dirs": {
         "children": false,
