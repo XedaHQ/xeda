@@ -2727,19 +2727,20 @@ see these files of a folder:
 
 - a compiled ``.bo`` file that has a ``.bsv`` or ``.bs`` file of the same name beside it, because
   bsc takes the newer of the two;
-- a ``.bsv``, ``.bs`` or ``.bo`` file that defines a package that the design lists, because the
-  listed source is that package;
+- a ``.bsv``, ``.bs`` or ``.bo`` file named like a package that the design lists, because the
+  listed source is that package (bsc names each package after its file);
 - a folder that holds the run directory, and the metadata of version control.
 
-The log says what each folder hides. A ``search_paths`` or ``verilog_search_paths`` folder that
-does not exist fails the run.
+The log says what each folder hides. A ``search_paths`` folder that does not exist fails the run.
+A missing ``verilog_search_paths`` folder fails it too, unless ``suppress_warnings`` or
+``demote_errors`` names bsc's warning S0091 (or ``ALL``).
 
 ``installed_libraries`` names folders inside the installation of bsc, below its ``Libraries``
 folder. Use it for a library that you installed into bsc. For example, bsc-contrib installed into
 bsc has its Xilinx packages in ``FPGA/Xilinx``, so ``installed_libraries: [FPGA/Xilinx]`` lets a
 design import them. bsc searches these folders after ``search_paths`` and before its own
-libraries. A folder that does not exist fails the run. The files in these folders belong to the
-installation, so the trace of the run does not record them.
+libraries. A folder that does not exist fails the run, with the same exception for S0091. The
+files in these folders belong to the installation, so the trace of the run does not record them.
 
 BDPI headers
 ~~~~~~~~~~~~
@@ -2747,8 +2748,9 @@ BDPI headers
 A C or C++ source of ``bsc_sim`` (``import "BDPI"``) can include headers. The compiler writes a
 depfile, and Xeda records every header in it as an input of the run, so an edit of a header runs
 the flow again. A header counts only when it lies in the design root, beside a listed C or C++
-source, or in a folder of ``include_dirs``. With ``--remote``, list the headers in the design
-(type ``CHeader``), so that they reach the host.
+source, or in a folder of ``include_dirs`` (or links to a file from there). A missing depfile fails
+the run. With ``--remote``, list the headers in the design (type ``CHeader``), so that they reach
+the host.
 
 What is refused
 ~~~~~~~~~~~~~~~
@@ -2798,8 +2800,10 @@ Xeda does not track these files:
 
 - a file that an ``include`` or an ``#include`` names with an absolute path or with ``../``, and
   that lies outside the folders above;
-- a file that the design names in full in ``link_flags``, in ``-Xc`` flags or in a command of
-  ``verilog_filters``;
+- a file that the design names in full in ``link_flags``, ``verilog_link_flags``, ``-Xc``
+  flags or a command of ``verilog_filters``;
+- a header that appears after a run in a folder that the compiler searches before the folder of
+  the header it read: the depfile names only the files that the compiler read;
 - the contents of the ``installed_libraries`` folders.
 
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with

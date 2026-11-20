@@ -686,9 +686,13 @@ def test_an_earlier_runs_output_is_removed_before_compiling(tmp_path):
         },
     )
     _write(run / "bobjs", {"Old.bo": "", "Old.ba": ""})
+    # Verilator also searches its working directory, the run directory, for a module.
+    _write(run, {"add3.v": "module add3(); endmodule\n", "sub3.sv": "", "keep.txt": ""})
     flow._prepare_dirs(out)
     left = {p.name for p in out.iterdir()} | {p.name for p in (run / "bobjs").iterdir()}
     assert left == {"notes.txt"}
+    assert not (run / "add3.v").exists() and not (run / "sub3.sv").exists()
+    assert (run / "keep.txt").exists()
 
 
 def test_a_module_both_generated_and_a_design_source_is_an_error(tmp_path):
@@ -2004,11 +2008,14 @@ def test_only_headers_in_the_design_a_source_folder_or_include_dirs_are_inputs(t
         {
             "other/o_hdr.h": "#define KO 1\n",
             "away/away.h": "#define KA 1\n",
+            "far/far.h": "#define KF 1\n",
         },
     )
+    # A header beside a listed source that links to a file outside those folders counts.
+    (tmp_path / "other" / "o_link.h").symlink_to(tmp_path / "far" / "far.h")
     (tmp_path / "other" / "o_part.c").write_text(
-        f'#include "o_hdr.h"\n#include "{tmp_path / "away" / "away.h"}"\n'
-        "unsigned xeda_unused(void) { return KO + KA; }\n"
+        f'#include "o_hdr.h"\n#include "o_link.h"\n#include "{tmp_path / "away" / "away.h"}"\n'
+        "unsigned xeda_unused(void) { return KO + KA + KF; }\n"
     )
     design = Design(
         name="dpi_headers",
@@ -2032,11 +2039,13 @@ def test_only_headers_in_the_design_a_source_folder_or_include_dirs_are_inputs(t
         Path(path).relative_to(tmp_path.resolve()).as_posix()
         for path in recorded["implicit_inputs"]
     }
+    # The trace records the file that a linked header leads to (`far/far.h`).
     assert implicit == {
         "d/src/c_hdr.h",
         "d/src/c_hdr2.h",
         "d/src/cpp_hdr.h",
         "other/o_hdr.h",
+        "far/far.h",
     }
     assert not any(path.endswith("SDKSettings.json") for path in recorded["implicit_inputs"])
 

@@ -124,12 +124,12 @@
       "search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first directory that holds a package wins."
+        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) named like a package that the design lists. The first directory that holds a package wins."
       },
       "installed_libraries": {
         "children": false,
         "assignable": true,
-        "help": "Folders of bsc's own installation that bsc searches for imported packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc. bsc searches them after `search_paths` and before its own libraries. A folder that does not exist fails the run. These files belong to bsc's installation, so a run does not trace them."
+        "help": "Folders of bsc's own installation that bsc searches for imported packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc. bsc searches them after `search_paths` and before its own libraries. A folder that does not exist fails the run, unless `suppress_warnings` or `demote_errors` names S0091 (or ALL). These files belong to bsc's installation, so a run does not trace them."
       },
       "verilog_search_paths": {
         "children": false,
@@ -811,12 +811,12 @@
       "search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first directory that holds a package wins."
+        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) named like a package that the design lists. The first directory that holds a package wins."
       },
       "installed_libraries": {
         "children": false,
         "assignable": true,
-        "help": "Folders of bsc's own installation that bsc searches for imported packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc. bsc searches them after `search_paths` and before its own libraries. A folder that does not exist fails the run. These files belong to bsc's installation, so a run does not trace them."
+        "help": "Folders of bsc's own installation that bsc searches for imported packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc. bsc searches them after `search_paths` and before its own libraries. A folder that does not exist fails the run, unless `suppress_warnings` or `demote_errors` names S0091 (or ALL). These files belong to bsc's installation, so a run does not trace them."
       },
       "verilog_search_paths": {
         "children": false,

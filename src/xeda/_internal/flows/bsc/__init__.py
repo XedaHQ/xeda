@@ -650,7 +650,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             "libraries such as bsc-contrib's. Relative to the design root. bsc reads a package "
             "of the design only from a listed source or from one of these directories. bsc "
             "does not see a stray compiled `.bo` file that lies beside its source, or any file "
-            "(`.bsv`, `.bs` or `.bo`) that defines a package that the design lists. The first "
+            "(`.bsv`, `.bs` or `.bo`) named like a package that the design lists. The first "
             "directory that holds a package wins.",
         )
         installed_libraries: list[str] = Field(
@@ -658,7 +658,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Folders of bsc's own installation that bsc searches for imported "
             "packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for "
             "bsc-contrib installed into bsc. bsc searches them after `search_paths` and before "
-            "its own libraries. A folder that does not exist fails the run. These files belong "
+            "its own libraries. A folder that does not exist fails the run, unless "
+            "`suppress_warnings` or `demote_errors` names S0091 (or ALL). These files belong "
             "to bsc's installation, so a run does not trace them.",
         )
         verilog_search_paths: list[Path] = Field(
@@ -1470,8 +1471,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     def _prepare_dirs(self, out_dir: Path) -> None:
         """Create the directories bsc writes to, and remove what an earlier run left in them: the
-        packages (`.bo`, `.ba`) in `bobj_dir`, and every Verilog module (`.v`), `.use` file and
-        VPI wrapper in the output directory. bsc then reads and records nothing that an earlier
+        packages (`.bo`, `.ba`) in `bobj_dir`, every Verilog module (`.v`), `.use` file and
+        VPI wrapper in the output directory, and every `.v` and `.sv` file in the run directory
+        itself. bsc then reads and records nothing that an earlier
         run left, so each generated module that the run records is one that this run wrote. Other
         files stay, and the library modules copied in are copied again."""
         assert isinstance(self.settings, BscFlow.Settings)
@@ -1484,6 +1486,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
         stale: list[Path] = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
         for pattern in ("*.v", "*.use", "vpi_wrapper_*"):
             stale += out_dir.glob(pattern)
+        # Verilator also searches its working directory, the run directory, for a module (a
+        # `.v` or `.sv` file named after it), and Xeda writes no Verilog there.
+        stale += [*self.run_path.glob("*.v"), *self.run_path.glob("*.sv")]
         # These are an earlier run's packages and generated files, all in the run directory.
         self.run_directory.remove(
             *(path for path in stale if not path.is_dir() or path.is_symlink())
@@ -2281,8 +2286,9 @@ class BscSim(BscFlow, SimFlow):
         depfile would hide a header, so a later edit of it would not run the flow again. A
         depfile is usable when this run wrote it and it names its source.
 
-        A file is an input only when it lies, with symbolic links resolved, in the design root,
-        in the folder of a listed C or C++ source, or in a folder of `include_dirs`. Every other
+        A file is an input only when its path as the compiler names it, or that path with symbolic
+        links resolved, lies in the design root, in the folder of a listed C or C++ source, or in
+        a folder of `include_dirs`; the input is the path as named. Every other
         file is not recorded: the compiler's own files (the macOS SDK's `SDKSettings.json`, which
         clang names in every depfile), and a header that an absolute or `../` include reaches
         outside those folders. The run directory holds the run's own files and is no input.
@@ -2292,14 +2298,23 @@ class BscSim(BscFlow, SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         roots = [
-            Path(os.path.realpath(root))
+            Path(os.path.abspath(root))
             for root in (
                 self.design.root,
                 *(src.file.parent for src in self._sources_of(*_FOREIGN_TYPES, tb=True)),
                 *(self.normalize_path_to_design_root(d) for d in ss.include_dirs),
             )
         ]
+        real_roots = [Path(os.path.realpath(root)) for root in roots]
         own = Path(os.path.realpath(self.run_path))
+
+        def counts(dep: Path) -> bool:
+            real = Path(os.path.realpath(dep))
+            if real.is_relative_to(own) or dep.is_relative_to(own):
+                return False
+            return any(dep.is_relative_to(root) for root in roots) or any(
+                real.is_relative_to(root) for root in real_roots
+            )
 
         for depfile, source in depfiles.items():
             problem = None
@@ -2309,19 +2324,16 @@ class BscSim(BscFlow, SimFlow):
             else:
                 try:
                     named = {
-                        Path(os.path.realpath(dep)) for dep in parse_depfile(report, self.run_path)
+                        Path(os.path.abspath(self.run_path / dep))
+                        for dep in parse_depfile(report, self.run_path)
                     }
                 except (OSError, UnicodeDecodeError) as error:
                     problem = f"wrote a file that Xeda cannot read ({error})"
                 else:
-                    if Path(os.path.realpath(source)) not in named:
+                    real_named = {Path(os.path.realpath(dep)) for dep in named}
+                    if Path(os.path.realpath(source)) not in real_named:
                         problem = "wrote a file that does not name the source"
-                    self.implicit_inputs += sorted(
-                        dep
-                        for dep in named
-                        if not dep.is_relative_to(own)
-                        and any(dep.is_relative_to(root) for root in roots)
-                    )
+                    self.implicit_inputs += sorted(dep for dep in named if counts(dep))
             if problem:
                 raise FlowFatalError(
                     f"bsc_sim cannot tell which headers {source} includes: the compiler "

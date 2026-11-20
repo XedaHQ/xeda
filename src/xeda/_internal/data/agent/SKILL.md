@@ -346,7 +346,7 @@ folders, `installed_libraries` folders (below bsc's `Libraries`, e.g. `FPGA/Xili
 installed into bsc) and bsc's libraries. An imported package or an included file beside a source
 is invisible unless listed. List an include file as `BluespecHeader` (`.bsvi`, or `type:
 BluespecHeader` for `.defines` and `.bsv` fragments). A `search_paths` folder hides stray `.bo`
-files and files that define a listed package. Refused at planning: `-p`, `-vsearch`, `-bdir`,
+files and files named like a listed package. Refused at planning: `-p`, `-vsearch`, `-bdir`,
 `-info-dir`, `-fdir`, `-vdir`, `-simdir`, `-i`, and in `bsc_sim` `-I`, `-L`, in `extra_flags` (use
 `search_paths`, `installed_libraries`, `verilog_search_paths`, `bobj_dir`, `info_dir`, `fdir`,
 `verilog_out_dir`/`sim_dir`, `include_dirs`, `library_dirs`),
