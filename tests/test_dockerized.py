@@ -8,6 +8,7 @@ Docker can mount.
 """
 
 import shutil
+import subprocess
 from pathlib import Path
 from typing import ClassVar, Optional
 
@@ -19,7 +20,7 @@ from xeda._internal.design import SourceType
 from xeda._internal.dataclass import Field
 from xeda._internal.flow import Flow, In, Out
 from xeda._internal.flow_runner import DefaultRunner
-from xeda._internal.flows import GhdlSim, Modelsim, VivadoSynth, Yosys
+from xeda._internal.flows import Bsc, BscSim, GhdlSim, Modelsim, VivadoSynth, Yosys
 from xeda._internal.flows.ghdl import GhdlTool
 from xeda._internal.flows.vivado import VivadoTool
 from xeda._internal.flows.yosys.common import YOSYS_DOCKER_IMAGE
@@ -371,3 +372,122 @@ def test_a_dockerized_consumer_reads_the_files_of_its_producer_and_its_settings(
 
     assert flow is not None and flow.succeeded
     assert seen == ["made by the producer", "a setting names this file"]
+
+
+#: The image of the Docker tests of the bsc flows. Build it from tests/docker/bsc.Dockerfile; it is
+#: never pulled.
+BSC_TEST_IMAGE = "xeda-test-bsc:2026.07.1"
+
+#: A design that reads every kind of file that the bsc flows stage: a listed testbench that
+#: includes a listed Bluespec header, a package from a `search_paths` folder that also holds a
+#: stray compiled `.bo` of it (bsc must not read that file), and, for `bsc_sim`, a C function
+#: (`import "BDPI"`) whose source includes a header beside it.
+BSC_STAGED_FILES = {
+    "rtl/Tb.bsv": (
+        "package Tb;\n"
+        "import Helper::*;\n"
+        '`include "limit.bsvi"\n'
+        'import "BDPI" function Bit#(32) xeda_mac(Bit#(32) a, Bit#(32) b);\n'
+        "(* synthesize *)\n"
+        "module mkTb(Empty);\n"
+        "  rule check;\n"
+        '    if (bump(1) == `LIMIT && xeda_mac(2, 7) == 13) $display("PASS");\n'
+        '    else $display("FAIL");\n'
+        "    $finish(0);\n"
+        "  endrule\n"
+        "endmodule\n"
+        "endpackage\n"
+    ),
+    "rtl/limit.bsvi": "`define LIMIT 6\n",
+    "lib/Helper.bsv": ("package Helper;\nfunction Bit#(8) bump(Bit#(8) x) = x + 5;\nendpackage\n"),
+    "lib/Helper.bo": "not a compiled package\n",
+    "c/mac.h": "#define MUL 3\n",
+    "c/mac.c": (
+        '#include "mac.h"\n'
+        "unsigned int xeda_mac(unsigned int a, unsigned int b) { return a * MUL + b; }\n"
+    ),
+}
+
+
+def _require_bsc_test_image() -> None:
+    """Skip unless the bsc test image is present, naming the command that builds it."""
+    require_docker()
+    found = subprocess.run(
+        ["docker", "image", "inspect", BSC_TEST_IMAGE],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        check=False,
+    )
+    if found.returncode != 0:
+        pytest.skip(
+            f"{BSC_TEST_IMAGE} is not present: `docker build -t {BSC_TEST_IMAGE} "
+            "-f tests/docker/bsc.Dockerfile tests/docker` to run this test"
+        )
+
+
+def _bsc_staged_design(root: Path) -> Design:
+    for rel, text in BSC_STAGED_FILES.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    return Design(
+        name="staged",
+        root=root,
+        rtl={"sources": [], "top": "mkTb"},
+        tb={"sources": ["c/mac.c", "rtl/limit.bsvi", "rtl/Tb.bsv"], "top": "mkTb"},
+    )
+
+
+@pytest.mark.parametrize("simulator", ["bluesim", "iverilog"])
+def test_bsc_sim_reads_its_staged_files_in_a_container(simulator, work_dir) -> None:
+    """In a container, `bsc_sim` reaches the design through the links of its run directory: the
+    listed sources, the listed header, the filtered `search_paths` folder (whose stray `.bo` bsc
+    must not read) and the wrapper of a C source whose header lies beside it. The links have
+    absolute targets, and the container mounts each folder at its own path."""
+    _require_bsc_test_image()
+    design = _bsc_staged_design(work_dir / "design")
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        BscSim,
+        design,
+        {
+            "simulator": simulator,
+            "search_paths": ["lib"],
+            "docker": True,
+            "docker_image": BSC_TEST_IMAGE,
+        },
+    )
+    assert flow is not None and flow.succeeded
+    assert "PASS" in (flow.run_path / "sim.log").read_text()
+    assert sorted(p.name for p in (work_dir / "design" / "c").iterdir()) == ["mac.c", "mac.h"]
+
+
+def test_bsc_reads_its_staged_files_in_a_container(work_dir) -> None:
+    """In a container, the `bsc` flow compiles a listed source that imports a package from a
+    filtered `search_paths` folder and includes a listed header."""
+    _require_bsc_test_image()
+    root = work_dir / "design"
+    for rel in ("rtl/limit.bsvi", "lib/Helper.bsv", "lib/Helper.bo"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(BSC_STAGED_FILES[rel])
+    (root / "rtl/Top.bsv").write_text(
+        "package Top;\n"
+        "import Helper::*;\n"
+        '`include "limit.bsvi"\n'
+        "(* synthesize *)\n"
+        "module mkTop(Reg#(Bit#(8)));\n"
+        "  Reg#(Bit#(8)) r <- mkReg(bump(`LIMIT));\n"
+        "  return r;\n"
+        "endmodule\n"
+        "endpackage\n"
+    )
+    design = Design(
+        name="staged_rtl",
+        root=root,
+        rtl={"sources": ["rtl/limit.bsvi", "rtl/Top.bsv"], "top": "mkTop"},
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        Bsc,
+        design,
+        {"search_paths": ["lib"], "docker": True, "docker_image": BSC_TEST_IMAGE},
+    )
+    assert flow is not None and flow.succeeded
+    assert "mkTop" in flow.results["modules"]
