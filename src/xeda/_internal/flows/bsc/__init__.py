@@ -8,6 +8,7 @@ Verilog link step of `bsc`.
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import logging
 import os
@@ -204,7 +205,7 @@ class BscTool(Tool):
         """Run bsc with an empty `BSC_OPTIONS`, so that no flag of the caller's environment
         reaches it. bsc treats an empty value as unset. A program that the flow derives from this
         tool (a simulator, a C++ compiler) gets it too, which does it no harm."""
-        return super().run(*args, env={BSC_OPTIONS: "", **(env or {})}, **kwargs)
+        return super().run(*args, env={**(env or {}), BSC_OPTIONS: ""}, **kwargs)
 
 
 #: The number of diagnostic lines that a failed bsc run quotes in the message of the failure.
@@ -1051,23 +1052,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
         """Refuse a design that bsc would read wrongly.
 
         Two different listed files must not share a file name in one stage folder, and a package
-        must not have both a `.bsv` and a `.bs` file (`_stage_links`). A Bluespec source needs a
-        `.bsv` or `.bs` suffix. A design must not define `BSV_POSITIVE_RESET` while
-        `positive_reset` is on: bsc defines the macro itself then, and a design's own definition
-        would be overridden without a word."""
+        must not have both a `.bsv` and a `.bs` file. A Bluespec source needs a `.bsv` or `.bs`
+        suffix (`_stage_links` checks all three). A design must not define `BSV_POSITIVE_RESET`
+        while `positive_reset` is on: bsc defines the macro itself then, and a design's own
+        definition would be overridden without a word."""
         super().check_design_supported(design, settings)
         cls._stage_links(design, tb=cls.compiles_tb, cpp=bool(getattr(settings, "cpp", False)))
-        # A declared generated source has no file yet; its declared name has the suffix.
-        bad = [
-            str(src.path)
-            for src in design._sources_of_type("*", rtl=True, tb=cls.compiles_tb)
-            if src.type is SourceType.Bluespec and src.path.suffix not in _BSC_SOURCE_SUFFIXES
-        ]
-        if bad:
-            raise FlowSettingsException(
-                "bsc compiles BSV from `.bsv` files and BH (Bluespec Classic) from `.bs` files "
-                f"only; rename: {', '.join(bad)}"
-            )
         if settings is None or not getattr(settings, "positive_reset", False):
             return
         for part in cls.macro_parts:
@@ -1160,8 +1150,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
         neither can two names that differ only by letter case (on a file system that ignores
         case they would be one file). A package cannot have two files (`P.bsv` and `P.bs`): bsc
         could not tell which to read.
-        A generated source that is only declared (its generator has not run) names no file yet:
-        the check of `run()`, on the design with the generated files, covers it.
+        A Bluespec source needs a `.bsv` or `.bs` suffix. A generated source that is only declared
+        (its generator has not run) names no file yet. Its declared name has the suffix checked,
+        unless the name is a glob pattern. The check of `run()`, on the design with the generated
+        files, covers the rest.
         """
         entries: dict[Path, Path] = {}
         by_case: dict[Path, Path] = {}  # the link, folded to lower case, and the link itself
@@ -1176,6 +1168,20 @@ class BscFlow(Flow, metaclass=ABCMeta):
             for src in design._sources_of_type("*", rtl=True, tb=True)
             if src.type in _VERILOG_TYPES
         ]
+        bad = [
+            str(src.path)
+            for src in sources
+            if src.type is SourceType.Bluespec
+            # A declared generated source has no file yet: its declared name has the suffix, but
+            # a pattern names no one file. The check of `run()` covers the files of a pattern.
+            and (src.file is not None or not glob.has_magic(str(src.path)))
+            and (src.file or src.path).suffix not in _BSC_SOURCE_SUFFIXES
+        ]
+        if bad:
+            raise FlowSettingsException(
+                "bsc compiles BSV from `.bsv` files and BH (Bluespec Classic) from `.bs` files "
+                f"only; rename: {', '.join(bad)}"
+            )
         for src in sources:
             if src.file is None:
                 continue
@@ -1197,7 +1203,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
                     f"{entries[link]} and {original}. They would share the stage folder "
                     f"`{link.parent}`: rename one of them"
                 )
-            if src.type is SourceType.Bluespec:
+            # bsc reads every `.bsv` and `.bs` file of `bsc_sources` as a package, a header too.
+            if link.parent == Path(STAGE_SOURCES) and src.file.suffix in _BSC_SOURCE_SUFFIXES:
                 other = packages.setdefault(src.file.stem, original)
                 if other != original:
                     raise FlowSettingsException(
@@ -1230,12 +1237,18 @@ class BscFlow(Flow, metaclass=ABCMeta):
         version control at every depth, and the run directory and the run root, however a folder
         reaches them. A subfolder becomes a real folder in the stage, and each file in it a
         link with an absolute target, so bsc finds a package, an include file and a compiled
-        `.bo` of a search folder only through these links. In each folder, left out are:
+        `.bo` of a search folder only through these links. In the top level of each folder, left
+        out are:
 
         - a `.bo` file with a `.bsv` or `.bs` file of the same name beside it, because bsc takes
           the newer of the two, and a stray `.bo` can win;
         - every `.bsv`, `.bs` and `.bo` file named like a listed Bluespec source (`Pkg`): the
           listed source in `bsc_sources` is the package.
+
+        These rules apply to the top level only. bsc looks up a package only there, because a
+        package name has no folder part, and its check of a source compares the source only with
+        the `.bo` beside it. A file in a subfolder is reachable only by an include name with a
+        folder part, so it is linked as it is.
 
         Names compare with letter case ignored (`casefold`), so the result does not depend on
         the file system.
@@ -1267,10 +1280,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
                 for path in directory_files(folder, prune, VCS_METADATA, follow_links=True)
                 if path != top
             ]
-            files = [path for path in entries if not path.is_dir()]
-            names: dict[Path, set[str]] = {}
-            for path in files:
-                names.setdefault(path.parent, set()).add(path.name.casefold())
+            top_names = {
+                path.name.casefold() for path in entries if path.parent == top and not path.is_dir()
+            }
             hidden: list[str] = []
             for path in entries:
                 relative = path.relative_to(top)
@@ -1278,10 +1290,11 @@ class BscFlow(Flow, metaclass=ABCMeta):
                     (target / relative).mkdir(parents=True, exist_ok=True)
                     continue
                 stem = path.stem.casefold()
-                if (
-                    path.suffix.casefold() == ".bo"
-                    and {f"{stem}.bsv", f"{stem}.bs"} & names[path.parent]
-                ) or (path.suffix.casefold() in (".bsv", ".bs", ".bo") and stem in listed):
+                suffix = path.suffix.casefold()
+                if path.parent == top and (
+                    (suffix == ".bo" and {f"{stem}.bsv", f"{stem}.bs"} & top_names)
+                    or (suffix in (".bsv", ".bs", ".bo") and stem in listed)
+                ):
                     hidden.append(str(relative))
                 elif path.is_file():
                     (target / relative).symlink_to(path)

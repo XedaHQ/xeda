@@ -2683,17 +2683,15 @@ What bsc reads
 The ``bsc`` and ``bsc_sim`` flows control the files that bsc finds by name. These are an imported
 package (``.bsv``, ``.bs`` or ``.bo``), a BSV ``include`` (and, with ``cpp``, a ``#include`` of a
 BH source that the C preprocessor resolves), an elaborated module (``.ba``), and a Verilog module
-on the search path of bsc. The flows let bsc find these files only through links in the run
-directory. Each file is one that the design lists, a file in a ``search_paths`` or
-``verilog_search_paths`` folder, or a file of the installation of bsc. A file that the design and
-the settings do not name is not there, so bsc cannot find it by its name. Xeda records every
-listed file and every file of a search folder as an input of the run.
-
-The listed sources and the ``search_paths`` folders reach bsc through links. The
-``verilog_search_paths`` and ``installed_libraries`` folders reach bsc as they are. A
-``verilog_search_paths`` folder that does not exist fails a run with a Verilog backend. Bluesim
-does not use these folders, so it does not check them. ``bsc`` also checks the names of the
-Verilog sources of ``tb``, since it puts them on its Verilog path.
+on the search path of bsc. The flows let bsc find a file only in the places listed below.
+The listed sources and the ``search_paths`` folders reach bsc through links in the run directory.
+The ``verilog_search_paths`` and ``installed_libraries`` folders reach bsc as they are. The output
+folders of bsc itself (``bobj_dir`` and the Verilog output folder) come first on its paths, and
+every run empties them first. A file that the design and the settings do not name is not there, so
+bsc cannot find it by its name. Xeda records every listed file and every file of a search folder as
+an input of the run. A ``verilog_search_paths`` folder that does not exist fails a run with a
+Verilog backend. Bluesim does not use these folders, so it does not check them. ``bsc`` also checks
+the names of the Verilog sources of ``tb``, since it puts them on its Verilog path.
 
 bsc finds a package, an include file or a Verilog module only in these places:
 
@@ -2738,15 +2736,17 @@ Libraries
 ``search_paths`` names folders of the design (relative to the design root) that bsc searches for
 packages, after the listed sources. Xeda lists each folder as the trace does: it leaves out the
 metadata of version control at every depth, and the run root and every folder that holds the run
-directory. The run directory has a real folder for each subfolder and a link for each file. In each
-folder, bsc does not see these files:
+directory. The run directory has a real folder for each subfolder and a link for each file. In the
+top level of each folder, bsc does not see these files:
 
 - a compiled ``.bo`` file that has a ``.bsv`` or ``.bs`` file of the same name beside it, because
   bsc takes the newer of the two;
 - a ``.bsv``, ``.bs`` or ``.bo`` file named like a package that the design lists, because the
   listed source is that package (bsc names each package after its file).
 
-The log says what each folder hides. Letter case does not matter for these rules. bsc takes every
+The rules apply to the top level of a folder only: bsc looks up a package only there. A file in a
+subfolder is linked as it is. The log says what each folder hides. Letter case does not matter for
+these rules. bsc takes every
 ``.bsv`` candidate of a package in all folders before any ``.bs`` candidate, and then follows the
 folder order. A ``search_paths`` folder that does not exist fails the run, and so does a
 ``verilog_search_paths`` folder with a Verilog backend.
@@ -2818,6 +2818,9 @@ These are outside the guarantee above:
   ``link_flags``, ``verilog_link_flags`` and ``verilog_filters``;
 - the header lookup of the C compiler for the C and C++ sources of ``bsc_sim``
   (``import "BDPI"``): an edit of a header does not run ``bsc_sim`` again;
+- with ``cpp``, the own searches of the C preprocessor: its include variables, such as ``CPATH``,
+  and the system folders. A header found there is outside the guarantee, as for the C compiler of
+  BDPI sources;
 - the own searches of a simulator, for example Verilator, which searches its working directory;
 - the contents of the ``installed_libraries`` folders, which belong to the installation of bsc;
 - files that bsc reads while it elaborates a design (``openFile``).
@@ -2873,9 +2876,11 @@ When two flows fit, there is no default, and the plan is an error. It names the 
 suggests the chain and the binding that choose one: ``yosys does not read the design's Bluespec
 sources, and more than one flow converts them``.
 
-* ``bsc`` passes every source of ``rtl`` that is not Bluespec through, once and in the order of the
-  design (Verilog, VHDL and constraint files, for example), before the modules that it generates.
-  The flow that reads the converted design judges these sources as it does for any other design.
+* ``bsc`` passes every source of ``rtl`` that is neither Bluespec nor a ``BluespecHeader`` through,
+  once and in the order of the design (Verilog, VHDL and constraint files, for example), before
+  the modules that it generates. A ``BluespecHeader`` does not pass through: bsc reads it, and the
+  derived design holds none. The flow that reads the converted design judges the sources that
+  pass through as it does for any other design.
 * The rest of the design is carried unchanged, ``tb`` included. A Verilog testbench or a cocotb
   testbench works on a converted design. A Bluespec testbench needs ``bsc_sim``: a Verilog
   simulator refuses it, and the error names ``bsc_sim``.

@@ -1917,6 +1917,7 @@ def test_a_listed_c_header_is_visible_to_a_bh_source_with_cpp(tmp_path):
     """The C preprocessor reads `#include "init.h"` in the folder of the source as bsc names it,
     so a listed header is a link beside the staged source. An edit of it runs the flow again."""
     require_bsc()
+    require_c_toolchain()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     found = []
     for init in (5, 5, 6):
@@ -1929,6 +1930,7 @@ def test_a_listed_c_header_is_visible_to_a_bh_source_with_cpp(tmp_path):
 
 def test_an_unlisted_header_beside_a_bh_source_fails_with_advice(tmp_path):
     require_bsc()
+    require_c_toolchain()
     design = _bh_include_design(tmp_path / "d", 5, listed=False)
     flow = _run(Bsc, design, tmp_path / "run", cpp=True)
     assert flow is not None and not flow.succeeded

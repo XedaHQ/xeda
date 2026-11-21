@@ -828,8 +828,10 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
     impl_module(
         "flows.bsc:BscFlow._stage_links: _sources_of_type"
-    ): "the links of the stage folders: the listed sources of the types it names, for the planning "
-    "check, which has no flow to select with; the flow's links are the same sources",
+    ): "the links of the stage folders: the listed Bluespec sources and headers of the parts the "
+    "flow compiles, and the Verilog sources of both parts. It is for the planning check, which "
+    "has no flow to select with; the flow selects the same sources through `sources_read`, and "
+    "the trace counts both parts (`design_parts`)",
     impl_module(
         "flows.bsc:Bsc._derived_sources: sources"
     ): "which sources of the design pass through "

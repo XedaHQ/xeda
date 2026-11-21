@@ -477,8 +477,9 @@ paths.
    A ``.bsvi`` file is a ``BluespecHeader``: a BSV include file. Other include
    files, such as ``.defines`` files and ``.bsv`` fragments, take ``type: BluespecHeader``. The
    ``bsc`` and ``bsc_sim`` flows never compile a header. They read it through the ``include`` of a
-   Bluespec source, and a change of the header runs the flow again. The derived design of ``bsc``
-   holds no header.
+   Bluespec source, and a change of the header runs the flow again. The ``rtl`` of the derived
+   design of ``bsc`` holds no ``BluespecHeader``: ``bsc`` reads it and does not hand it on. The
+   ``tb`` part is carried unchanged, so a ``BluespecHeader`` of ``tb`` stays in it.
 
 When the suffix is not enough, write a table in place of the string:
 

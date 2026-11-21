@@ -192,7 +192,7 @@ def test_a_search_folder_is_staged_as_file_links_less_what_bsc_must_not_read(tmp
             "lib/Top.bsv": stub,  # defines a listed package
             "lib/Top.bo": "",
             "lib/sub/x.bsvi": "\n",
-            "lib/sub/Pure.bo": "",  # the same rules hold at every folder level
+            "lib/sub/Pure.bo": "",  # the rules hold at the top level only: this one stays
             "lib/sub/Pure.bsv": stub,
             "lib/sub/Top.bs": stub,
             "lib/sub/deep/y.bsvi": "\n",
@@ -212,16 +212,75 @@ def test_a_search_folder_is_staged_as_file_links_less_what_bsc_must_not_read(tmp
         "Pure.bsv -> d/lib/Pure.bsv",
         "notes.txt -> d/lib/notes.txt",
         "sub/",
+        "sub/Pure.bo -> d/lib/sub/Pure.bo",
         "sub/Pure.bsv -> d/lib/sub/Pure.bsv",
+        "sub/Top.bs -> d/lib/sub/Top.bs",
         "sub/deep/",
         "sub/deep/y.bsvi -> d/lib/sub/deep/y.bsvi",
         "sub/x.bsvi -> d/lib/sub/x.bsvi",
     ]
     assert not (stage / "sub").is_symlink()
     (message,) = [r.getMessage() for r in caplog.records if "does not see" in r.getMessage()]
-    for name in ("Pure.bo", "Old.bo", "Top.bsv", "Top.bo", "sub/Pure.bo", "sub/Top.bs"):
+    for name in ("Pure.bo", "Old.bo", "Top.bsv", "Top.bo"):
         assert name in message
-    assert "Lone.bo" not in message
+    assert "Lone.bo" not in message and "sub/" not in message
+
+
+def test_a_listed_header_named_like_a_package_file_is_refused(tmp_path):
+    """bsc reads every `.bsv` and `.bs` file of `bsc_sources` as a package, a header too."""
+    stub = "package Foo; endpackage\n"
+    _write(
+        tmp_path / "d",
+        {"Foo.bs": stub, "inc/Foo.bsv": stub, "Top.bsv": stub, "other/Foo.bsv": stub},
+    )
+    header = {"file": "inc/Foo.bsv", "type": "BluespecHeader"}
+    for listed, message in (
+        ("Foo.bs", "define the package Foo"),  # a `.bs` package and a `.bsv` header
+        ("other/Foo.bsv", "file name Foo.bsv"),  # one link name
+    ):
+        sources = ["Top.bsv", listed, header]
+        design = Design(name="h", root=tmp_path / "d", rtl={"sources": sources, "top": "mkTop"})
+        with pytest.raises(FlowSettingsException, match=message):
+            Bsc.check_design_supported(design, Bsc.Settings())
+
+
+def test_a_written_source_with_a_wrong_suffix_is_refused_at_planning(tmp_path):
+    _write(tmp_path, {"top.txt": ""})
+    design = Design(
+        name="s",
+        root=tmp_path,
+        rtl={"sources": [{"file": "top.txt", "type": "Bluespec"}], "top": "mkTop"},
+    )
+    with pytest.raises(FlowSettingsException, match=r"rename: .*top\.txt"):
+        Bsc.check_design_supported(design, Bsc.Settings())
+
+
+def _declared_design(root: Path, name: str) -> Design:
+    _write(root, {"gen.py": ""})
+    generator = {"executable": "python", "args": ["gen.py"], "sources": ["gen.py"]}
+    sources = [{"path": name, "type": "Bluespec"}]
+    return Design(
+        name="g", root=root, rtl={"sources": sources, "top": "mkTop", "generator": generator}
+    )
+
+
+def test_a_declared_generated_pattern_passes_planning_and_a_declared_name_is_checked(tmp_path):
+    Bsc.check_design_supported(_declared_design(tmp_path / "a", "gen/*"), Bsc.Settings())
+    Bsc.check_design_supported(_declared_design(tmp_path / "b", "gen/x.bsv"), Bsc.Settings())
+    with pytest.raises(FlowSettingsException, match=r"rename: .*x\.txt"):
+        Bsc.check_design_supported(_declared_design(tmp_path / "c", "gen/x.txt"), Bsc.Settings())
+
+
+def test_the_stage_links_of_the_design_with_generated_files_check_the_suffix(tmp_path):
+    """`run()` calls `_stage_links` on the design that holds the generated files."""
+    _write(tmp_path, {"gen/x.txt": "package x; endpackage\n"})
+    design = Design(
+        name="g",
+        root=tmp_path,
+        rtl={"sources": [{"file": "gen/x.txt", "type": "Bluespec"}], "top": "mkTop"},
+    )
+    with pytest.raises(FlowSettingsException, match=r"rename: .*x\.txt"):
+        Bsc._stage_links(design, tb=False, cpp=False)
 
 
 def test_an_include_below_version_control_metadata_of_a_search_folder_is_not_found(tmp_path):

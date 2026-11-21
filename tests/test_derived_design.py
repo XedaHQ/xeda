@@ -120,6 +120,17 @@ def test_a_conversion_is_two_nonempty_sets_of_languages_that_do_not_meet(
         DesignConversion(transforms, produces)
 
 
+@pytest.mark.parametrize(
+    "absorbs",
+    [{SourceType.BluespecHeader}, ["BluespecHeader"], BLUESPEC, VERILOG, frozenset({"x"})],
+)
+def test_a_conversion_absorbs_a_frozenset_of_types_that_it_neither_converts_nor_writes(
+    absorbs,
+) -> None:
+    with pytest.raises(TypeError):
+        DesignConversion(BLUESPEC, VERILOG, absorbs=absorbs)
+
+
 def test_derived_sources_list_each_source_once() -> None:
     first = Generated(Path("/run/a.v"), SourceType.Verilog)
     DerivedSources("top", (first, Passed(0), Passed(1)))
