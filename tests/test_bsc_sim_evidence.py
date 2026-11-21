@@ -191,13 +191,9 @@ def test_bluesim_changed_configuration_rebuilds_objects(tmp_path):
         tmp_path / "design", 'rule done; dynamicAssert(False,"PROBE"); $finish(0); endrule'
     )
     runner = DefaultRunner(tmp_path / "runs", display_results=False, rebuild_all=True)
-    first = runner.run_flow(
-        BscSim, design, {"timeout": "10 s", "check_assert": False, "cleanup_bobjs": False}
-    )
+    first = runner.run_flow(BscSim, design, {"timeout": "10 s", "check_assert": False})
     assert first is not None and first.succeeded
-    second = runner.run_flow(
-        BscSim, design, {"timeout": "10 s", "check_assert": True, "cleanup_bobjs": False}
-    )
+    second = runner.run_flow(BscSim, design, {"timeout": "10 s", "check_assert": True})
     assert second is not None and not second.succeeded
 
 

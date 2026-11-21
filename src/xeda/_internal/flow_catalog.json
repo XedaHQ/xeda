@@ -121,24 +121,20 @@
         "assignable": true,
         "help": "Directory for bsc's informational files (`-info-dir`), such as the schedules of `show_schedule` and the graphs of `sched_dot`, relative to the run directory. Defaults to `bobj_dir`."
       },
-      "cleanup_bobjs": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Before compiling, remove the packages (`.bo`/`.ba`) that an earlier run compiled in `bobj_dir`. bsc recompiles a package (`-u`) only when its source is newer than its `.bo`, so without this a change of flags or macros alone is not compiled. Disable only to reuse the packages of a run with identical settings and sources. The Verilog modules that an earlier run generated are removed in either case, and bsc writes them again."
-      },
       "search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories bsc searches for imported packages (`-p`), after the directories of the design's Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root."
+        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) named like a package that the design lists. bsc takes every `.bsv` candidate of a package in all directories before any `.bs` one, and within one kind, the first directory that holds the package."
+      },
+      "installed_libraries": {
+        "children": false,
+        "assignable": true,
+        "help": "Folders of bsc's own installation that bsc searches for imported packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc. bsc searches them after `search_paths` and before its own libraries. A folder that does not exist fails the run, whatever the warning settings. These files belong to bsc's installation, so a run does not trace them."
       },
       "verilog_search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories searched for the Verilog files of imported (`import \"BVI\"`) and library modules (`-vsearch`), before bsc's own Verilog library. The directories of the design's Verilog sources are always searched. Relative to the design root. Not used by Bluesim, which reads no Verilog."
+        "help": "Additional directories searched for the Verilog files of imported (`import \"BVI\"`) and library modules (`-vsearch`), before bsc's own Verilog library. bsc searches the design's listed Verilog sources first, then these. Relative to the design root. A folder that does not exist fails the run. Not used by Bluesim, which reads no Verilog."
       },
       "fdir": {
         "children": false,
@@ -812,24 +808,20 @@
         "assignable": true,
         "help": "Directory for bsc's informational files (`-info-dir`), such as the schedules of `show_schedule` and the graphs of `sched_dot`, relative to the run directory. Defaults to `bobj_dir`."
       },
-      "cleanup_bobjs": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Before compiling, remove the packages (`.bo`/`.ba`) that an earlier run compiled in `bobj_dir`. bsc recompiles a package (`-u`) only when its source is newer than its `.bo`, so without this a change of flags or macros alone is not compiled. Disable only to reuse the packages of a run with identical settings and sources. The Verilog modules that an earlier run generated are removed in either case, and bsc writes them again."
-      },
       "search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories bsc searches for imported packages (`-p`), after the directories of the design's Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root."
+        "help": "Additional directories bsc searches for imported packages (`-p`), after the design's listed Bluespec sources and before bsc's own libraries, e.g. for libraries such as bsc-contrib's. Relative to the design root. bsc reads a package of the design only from a listed source or from one of these directories. bsc does not see a stray compiled `.bo` file that lies beside its source, or any file (`.bsv`, `.bs` or `.bo`) named like a package that the design lists. bsc takes every `.bsv` candidate of a package in all directories before any `.bs` one, and within one kind, the first directory that holds the package."
+      },
+      "installed_libraries": {
+        "children": false,
+        "assignable": true,
+        "help": "Folders of bsc's own installation that bsc searches for imported packages (`-p`), given below its `Libraries` folder, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc. bsc searches them after `search_paths` and before its own libraries. A folder that does not exist fails the run, whatever the warning settings. These files belong to bsc's installation, so a run does not trace them."
       },
       "verilog_search_paths": {
         "children": false,
         "assignable": true,
-        "help": "Additional directories searched for the Verilog files of imported (`import \"BVI\"`) and library modules (`-vsearch`), before bsc's own Verilog library. The directories of the design's Verilog sources are always searched. Relative to the design root. Not used by Bluesim, which reads no Verilog."
+        "help": "Additional directories searched for the Verilog files of imported (`import \"BVI\"`) and library modules (`-vsearch`), before bsc's own Verilog library. bsc searches the design's listed Verilog sources first, then these. Relative to the design root. A folder that does not exist fails the run. Not used by Bluesim, which reads no Verilog."
       },
       "fdir": {
         "children": false,

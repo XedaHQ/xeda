@@ -258,8 +258,8 @@ PART = "LFE5U-25F-6BG381C"
 IDENTITIES = {
     "source:yosys_fpga": "f99e5e70739aa235f65bf1b4081d9561b8481ac21ec7c973aae6c2535cdeac39",
     "source:nextpnr": "7b1bfe801d0029ac62309f74f52162f65455af34329611ba031ac07a8011578b",
-    "converter:bsc": "5b17d483dc05c2cf0a072a3256405bff74d145d61b5ae0127b847b6a00187cc3",
-    "converter:yosys_fpga": "77370401096016f50da94773986cc96bd61176a0ad47c9050a152be23dcf6676",
+    "converter:bsc": "52b449a406afb858660a8deac5dd5cd681c8d4724893d38865307836aa4b741f",
+    "converter:yosys_fpga": "a8b883ac35d5b5a435c3f99b5980433530824d47dc22874b677c04e6cb3c6488",
     "netlist:nextpnr": "434e88e76aea5be1543890a2135d3a4e3ad464ad9f7930de5e534a29ccf79dc9",
     "generator:yosys_fpga": "c73741aca4ac8c516837cffbc5d94ceac2a661b4ce2b8a6446f76325fe72e46b",
     "dependency:yosys_fpga": "0e3b67585c0cadf1770e15151cb0ed55fa8554ede27534e4e0e39b9a18f34fa3",

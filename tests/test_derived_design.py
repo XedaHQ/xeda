@@ -120,6 +120,17 @@ def test_a_conversion_is_two_nonempty_sets_of_languages_that_do_not_meet(
         DesignConversion(transforms, produces)
 
 
+@pytest.mark.parametrize(
+    "absorbs",
+    [{SourceType.BluespecHeader}, ["BluespecHeader"], BLUESPEC, VERILOG, frozenset({"x"})],
+)
+def test_a_conversion_absorbs_a_frozenset_of_types_that_it_neither_converts_nor_writes(
+    absorbs,
+) -> None:
+    with pytest.raises(TypeError):
+        DesignConversion(BLUESPEC, VERILOG, absorbs=absorbs)
+
+
 def test_derived_sources_list_each_source_once() -> None:
     first = Generated(Path("/run/a.v"), SourceType.Verilog)
     DerivedSources("top", (first, Passed(0), Passed(1)))
@@ -588,11 +599,11 @@ def test_bsc_without_the_reset_macro_has_no_defining_file(tmp_path, capfd) -> No
 
 @pytest.mark.parametrize("positive_reset", [False, True])
 def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, capfd) -> None:
-    """Without `cleanup_bobjs`, bsc keeps the Verilog of a package it finds up to date. A run in
-    the directory of an earlier run still records those modules, with the content they have."""
+    """A run in the directory of an earlier run records the modules bsc writes again, with the
+    content they have."""
     require_bsc()
     design = _design(tmp_path / "d")
-    settings = {"cleanup_bobjs": False, "positive_reset": positive_reset}
+    settings = {"positive_reset": positive_reset}
     first = _bsc(design, tmp_path, **settings)
     assert first.succeeded, run_report(first, capfd.readouterr())
     before = first.results["outputs"]["design"]
@@ -603,18 +614,18 @@ def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, c
 
 
 def test_bsc_never_records_a_generated_module_that_it_did_not_write(tmp_path, capfd) -> None:
-    """Without `cleanup_bobjs`, a module changed in the run directory after a run is written
-    again by bsc. The record holds what bsc wrote, never the changed file."""
+    """A module changed in the run directory after a run is written again by bsc. The record
+    holds what bsc wrote, never the changed file."""
     require_bsc()
     design = _design(tmp_path / "d")
-    first = _bsc(design, tmp_path, cleanup_bobjs=False)
+    first = _bsc(design, tmp_path)
     assert first.succeeded, run_report(first, capfd.readouterr())
     before = first.results["outputs"]["design"]
     generated = [Path(item["generated"]) for item in before["sources"] if "generated" in item]
     module = generated[-1]
     original = module.read_bytes()
     module.write_bytes(original + b"// changed after the run\n")
-    again = _bsc(design, tmp_path, cleanup_bobjs=False)
+    again = _bsc(design, tmp_path)
     assert again.succeeded, run_report(again, capfd.readouterr())
     assert module.read_bytes() == original
     assert again.results["outputs"]["design"] == before
@@ -711,3 +722,16 @@ def test_the_planning_of_bsc_refuses_the_reset_macro(tmp_path) -> None:
         "bsc", design, flow_settings=node_settings("bsc", {"positive_reset": False})
     )
     assert [node.name for node in planned.nodes] == ["bsc"]
+
+
+def test_a_bluespec_header_is_read_by_the_converter_and_not_handed_on(tmp_path) -> None:
+    design = _design(tmp_path / "d")
+    header = tmp_path / "d" / "Limit.bsvi"
+    header.write_text("`define LIMIT 5\n")
+    sources = [*design.rtl.sources, Source(header, SourceType.BluespecHeader)]
+    design = with_updates(design, rtl={"sources": tuple(sources)})
+    conversion = Bsc.design_conversion(Bsc.Settings())
+    assert conversion is not None
+    assert not conversion.passes_through(sources[-1])
+    planned = planned_design(design, conversion, tmp_path / "run")
+    assert SourceType.BluespecHeader not in {src.type for src in planned.rtl.sources}

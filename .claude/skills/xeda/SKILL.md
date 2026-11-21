@@ -341,6 +341,23 @@ for `yosys`. `bsc+openroad` and
 converters are an error that names the chain and the binding to choose one. `bsc` passes the other
 sources of `rtl` through in order and carries `tb`: a Bluespec testbench needs `bsc_sim`. A comment
 edit of a `.bsv` reruns `bsc` only; an edit that changes the Verilog reruns the later flows too.
+`bsc` and `bsc_sim` let bsc find by name only what the design declares: listed sources,
+`search_paths` and `verilog_search_paths` folders, `installed_libraries` folders (below bsc's
+`Libraries`, e.g. `FPGA/Xilinx` for bsc-contrib installed into bsc) and bsc's libraries. An
+imported package or an included file beside a source is invisible unless listed. List an include
+file as `BluespecHeader` (`.bsvi`, or `type: BluespecHeader` for `.defines` and `.bsv` fragments).
+A `search_paths` folder hides, at each folder level, a `.bo` whose `.bsv` or `.bs` lies beside it
+and any file named like a listed package. A missing `search_paths` or
+`installed_libraries` folder fails the run, and so does a missing `verilog_search_paths` folder
+with a Verilog backend. Refused at planning: `-p`, `-vsearch`, `-bdir`,
+`-info-dir`, `-fdir`, `-vdir`, `-simdir`, `-i`, and in `bsc_sim` `-I`, `-L`, in `extra_flags` (a word
+after `-Xc`, `-Xc++`, `-Xcpp`, `-Xl` or `-Xv` is not checked), `BSC_OPTIONS` in `env`, two listed
+files of one name (also by letter case only), and the removed `cleanup_bobjs`. The console and the
+log show bsc's staged names (`bsc_sources/...`); the error text of Xeda names the real files. Not
+covered: absolute or `..` includes, text passed to other programs (`-Xc` flags, `link_flags`,
+`verilog_link_flags`, `verilog_filters`), the header lookup of the C compiler for BDPI sources (an
+edit of a header does not rerun `bsc_sim`), the own searches of a simulator, the contents of
+`installed_libraries` and `openFile` reads.
 `examples/bluespec/gcd/gcd.yaml` holds every configuration of one design: `xeda run bsc_sim`,
 `openroad`, `vivado_synth`, `yosys_fpga+nextpnr --target ecp5` and `yosys_fpga --target artix7` (the
 FPGA ones are estimates without pins; a board build needs an I/O wrapper and constraints).

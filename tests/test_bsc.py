@@ -11,6 +11,7 @@ at hand; `test_bsc_examples.py` runs the example designs.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ from typing import Any
 import pytest
 
 from xeda import Design
+from xeda._internal.design import SourceType
 from xeda._internal.flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException
 from xeda._internal.flow_runner import DefaultRunner
 from xeda._internal.flow_runner.launch_result import launch_result
@@ -399,13 +401,12 @@ def test_bsc_sim_rejects_a_cocotb_testbench(tmp_path, monkeypatch):
         _run(BscSim, design, tmp_path / "run")
 
 
-def test_a_bh_suffix_is_rejected_by_name(tmp_path):
+def test_a_bh_suffix_is_rejected_by_name_at_planning(tmp_path):
     """bsc compiles BH only from `.bs`; xeda also calls `.bh` Bluespec, which bsc refuses."""
     _write(tmp_path, {"Blink.bh": BH_PKG})
     design = Design(name="t", root=tmp_path, rtl={"sources": ["Blink.bh"], "top": "mkBlink"})
-    flow = _flow(Bsc, design, tmp_path / "run")
     with pytest.raises(FlowSettingsException, match=r"rename: .*Blink\.bh"):
-        flow._bsc_sources(tb=False)
+        Bsc.check_design_supported(design, Bsc.Settings())
 
 
 @pytest.mark.parametrize("flow", ["bsc", "bsc_sim"])
@@ -499,13 +500,6 @@ def test_the_foreign_code_bsc_links_is_chosen_by_source_type_not_by_suffix(tmp_p
     )
     flow = _flow(BscSim, design, tmp_path / "run")
     assert [p.name for p in flow._foreign_sources()] == ["mac.cpp", "kernel.cu", "lib.a", "plain.c"]
-
-
-def test_a_search_path_with_a_colon_is_rejected(tmp_path):
-    design = _accum_design(tmp_path / "d")
-    flow = _flow(Bsc, design, tmp_path / "run", search_paths=["/a:b"])
-    with pytest.raises(FlowSettingsException, match="':'"):
-        flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
 
 
 def test_haskell_string_lists():
@@ -648,38 +642,36 @@ def test_collect_verilog_needs_the_top(tmp_path):
         flow._collect_verilog("mkNope", root / "rtl/Top.bsv", tmp_path / "out", [])
 
 
-@pytest.mark.parametrize("cleanup", [True, False])
-def test_an_earlier_runs_output_is_removed_before_compiling(cleanup, tmp_path):
+def test_an_earlier_runs_output_is_removed_before_compiling(tmp_path):
     """Runs of a design share their directory. A module an earlier run generated -- which the
     design may since have replaced by Verilog of its own -- must not be found again, nor a
-    package compiled with other flags; library copies and anything else stay."""
+    package compiled with other flags. Every `.v`, `.use` and VPI wrapper file of the output
+    folder goes, also a bare `.v` that no `.use` file marks; other files stay."""
     design = _accum_design(tmp_path / "d")
     run = tmp_path / "run"
-    flow = _flow(Bsc, design, run, cleanup_bobjs=cleanup)
+    flow = _flow(Bsc, design, run)
     out = run / "gen_rtl"
     _write(
         out,
         {
             "mkOld.v": "module mkOld(); endmodule\n",
             "mkOld.use": "FIFO2\n",
-            # a `verilog_filters` command may have rewritten a generated module beyond
-            # recognition: the `.use` bsc wrote beside it is what marks it as generated
-            "mkFiltered.v": "module mkFiltered(); endmodule\n",
-            "mkFiltered.use": "",
+            "mkBare.v": "module mkBare(); endmodule\n",
             "mkGone.use": "",  # its module removed by hand
             "FIFO2.v": "",
+            "vpi_wrapper_f.c": "",
+            "vpi_wrapper_f.h": "",
             "notes.txt": "the user's\n",
         },
     )
-    _write(run / "bobjs", {"Old.bo": "", "Old.ba": ""})
+    # `bobjs` is emptied wholly: a stray file and a folder go too.
+    _write(run / "bobjs", {"Old.bo": "", "Old.ba": "", "Old.bsvi": "", "sub/Inner.bo": ""})
+    # A Verilog file at the root of the run directory is not the flow's to remove.
+    _write(run, {"add3.v": "module add3(); endmodule\n", "keep.txt": ""})
     flow._prepare_dirs(out)
     left = {p.name for p in out.iterdir()} | {p.name for p in (run / "bobjs").iterdir()}
-    # The generated modules go in either case: bsc writes them again, so every module the run
-    # records is one it wrote. The packages stay without `cleanup_bobjs`.
-    expected = {"FIFO2.v", "notes.txt"}
-    if not cleanup:
-        expected |= {"Old.bo", "Old.ba"}
-    assert left == expected
+    assert left == {"notes.txt"}
+    assert (run / "add3.v").exists() and (run / "keep.txt").exists()
 
 
 def test_a_module_both_generated_and_a_design_source_is_an_error(tmp_path):
@@ -759,7 +751,7 @@ BOOLEAN_SETTINGS = {
 }
 
 #: Boolean settings that are not a bsc flag of their own.
-XEDA_BOOLEANS = {"cleanup_bobjs", "positive_reset"}
+XEDA_BOOLEANS = {"positive_reset"}
 
 
 def _own_boolean_settings(settings_class: type[Flow.Settings]) -> set[str]:
@@ -800,7 +792,11 @@ def test_each_boolean_setting_sets_its_bsc_flag(flow_class, setting, tmp_path):
         ({"steps_warn_interval": 7}, "redStepsWarnInterval", "7"),
         ({"steps_max_intervals": 9}, "redStepsMaxIntervals", "9"),
         ({"reset_prefix": "RST"}, "resetName", '"RST"'),
-        ({"promote_warnings": ["G0010", "G0020"]}, "promoteWarnings", 'SomeMsgs ["G0010","G0020"]'),
+        (
+            {"promote_warnings": ["G0010", "G0020"]},
+            "promoteWarnings",
+            'SomeMsgs ["G0010","G0020"]',
+        ),
         ({"promote_warnings": ["ALL"]}, "promoteWarnings", "AllMsgs"),
         ({"promote_warnings": []}, "promoteWarnings", "SomeMsgs []"),
         ({"suppress_warnings": ["G0021"]}, "suppressWarnings", 'SomeMsgs ["G0021"]'),
@@ -836,18 +832,23 @@ def test_the_path_settings_reach_bsc(tmp_path, monkeypatch):
         info_dir=str(tmp_path / "info"),
         verilog_primitives="vivado",
     )
-    (tmp_path / "run" / "bobjs").mkdir()
+    # bsc leaves a folder that does not exist out of the path it records.
+    for folder in ("bobjs", "bsc_sources", "bsc_verilog", "bsc_search/0"):
+        (tmp_path / "run" / folder).mkdir(parents=True)
     (tmp_path / "out").mkdir()
     record = _bsc_record(
         *flow._path_flags("verilog", tmp_path / "out", design.rtl.sources), cwd=tmp_path / "run"
     )
+    # Neither the source folders nor the run directory (`+`, `.`) is on the package path.
     ifc_path = _parse_haskell_strings(record["ifcPath"])
-    assert ifc_path[1:3] == [str(tmp_path / "d" / "lib"), str(tmp_path / "d" / "rtl")]
-    assert ifc_path[3] == str(tmp_path / "pkgs") and ifc_path[-1].endswith("/Libraries")
+    assert ifc_path[:3] == ["bobjs", "bsc_sources", "bsc_search/0"]
+    assert len(ifc_path) == 4 and ifc_path[3].endswith("/Libraries")
     v_path = _parse_haskell_strings(record["vPath"])
     assert v_path[0] == str(tmp_path / "out")
-    assert v_path[1].endswith("/Verilog.Vivado") and v_path[2] == str(tmp_path / "vlib")
-    assert v_path[-1].endswith("/Verilog")
+    assert v_path[1].endswith("/Verilog.Vivado")
+    assert v_path[2:4] == ["bsc_verilog", str(tmp_path / "vlib")]
+    assert v_path[4].endswith("/Libraries") and v_path[5].endswith("/Verilog")
+    assert len(v_path) == 6
     assert record["fdir"] == f'Just "{tmp_path / "files"}"'
     assert record["infoDir"] == f'Just "{tmp_path / "info"}"'
 
@@ -863,22 +864,6 @@ def test_bluesim_is_handed_no_verilog_search_path(tmp_path, capfd):
     flow = _run(BscSim, design, tmp_path / "run", promote_warnings=["ALL"])
     assert flow.succeeded, run_report(flow, capfd.readouterr())
     assert "-vsearch" not in flow._path_flags("sim", tmp_path / "out", design.rtl.sources)
-
-
-@pytest.mark.parametrize("simulator", ["bluesim", "verilator", "iverilog"])
-def test_the_path_flags_of_each_simulator(simulator, tmp_path):
-    """`-fdir` reaches every compile; `-vsearch` only a Verilog one (Bluesim reads no Verilog);
-    the output directory is `-simdir` for Bluesim and `-vdir` otherwise."""
-    design = _accum_design(tmp_path / "d")
-    (tmp_path / "d" / "files").mkdir()
-    flow = _flow(BscSim, design, tmp_path / "run", simulator=simulator, fdir="files")
-    backend = "sim" if simulator == "bluesim" else "verilog"
-    flags = flow._path_flags(backend, tmp_path / "out", design.rtl.sources)
-    assert flags[flags.index("-fdir") + 1] == str(tmp_path / "d" / "files")
-    assert ("-vsearch" in flags) == (simulator != "bluesim")
-    assert flags[flags.index("-simdir" if backend == "sim" else "-vdir") + 1] == str(
-        tmp_path / "out"
-    )
 
 
 @pytest.mark.parametrize("simulator", ["verilator", "iverilog"])
@@ -901,17 +886,140 @@ def test_verilog_search_paths_reach_the_verilog_link(simulator, tmp_path, capfd)
     assert "PASS" in out
 
 
-def test_extra_flags_reach_the_verilog_search_path_xeda_reads(tmp_path):
-    """A `-vsearch` among `extra_flags` changes where bsc looks for Verilog, and so where the
-    flow collects it from."""
-    require_bsc()
-    _write(tmp_path, {"vlib/add3.v": OPS_V, "Ops.bsv": OPS_PKG})
-    design = Design(name="ops", root=tmp_path, rtl={"sources": ["Ops.bsv"], "top": "mkOpsTb"})
-    vlib = tmp_path / "vlib"
-    flow = _run(Bsc, design, tmp_path / "run", extra_flags=["-vsearch", f"{vlib}:+"])
-    assert flow is not None and flow.succeeded
-    assert "add3" in flow.results["modules"]
-    assert any(Path(f).name == "add3.v" for f in collected_verilog(flow))
+PATH_FLAG_SETTING = {
+    "-p": "`search_paths`",
+    "--p": None,  # not a flag of bsc: `--` needs a name of two letters or more
+    "-bdir": "`bobj_dir`",
+    "--bdir": "`bobj_dir`",
+    "-vsearch": "`verilog_search_paths`",
+    "--vsearch": "`verilog_search_paths`",
+    "-vdir": "`verilog_out_dir`",
+    "--vdir": "`verilog_out_dir`",
+    "-simdir": "no setting",
+    "-info-dir": "`info_dir`",
+    "--info-dir": "`info_dir`",
+    "-fdir": "`fdir`",
+    "--fdir": "`fdir`",
+    "-i": "no setting",
+}
+
+
+@pytest.mark.parametrize("flag", [f for f, setting in PATH_FLAG_SETTING.items() if setting])
+def test_a_path_flag_in_extra_flags_is_refused_with_its_setting(flag):
+    """The flow owns every path that it reads or writes: a path flag among `extra_flags` would
+    send bsc, or the flow's own reading of the Verilog search path, elsewhere."""
+    settings = Bsc.Settings(extra_flags=["-O", flag, "x"])
+    with pytest.raises(FlowSettingsException) as error:
+        Bsc.check_settings_supported(settings)
+    message = str(error.value)
+    assert f"`{flag}`" in message
+    expected = PATH_FLAG_SETTING[flag]
+    assert expected is not None
+    if expected == "no setting":
+        assert "no setting" in message
+    else:
+        assert expected in message
+
+
+def test_a_flag_that_is_no_alias_of_a_path_flag_passes():
+    Bsc.check_settings_supported(Bsc.Settings(extra_flags=["--p", "x"]))
+
+
+@pytest.mark.parametrize(
+    ("flag", "setting"),
+    [("-I", "`include_dirs`"), ("--I", None), ("-L", "`library_dirs`"), ("-simdir", "`sim_dir`")],
+)
+def test_bsc_sim_refuses_the_link_path_flags_too(flag, setting):
+    settings = BscSim.Settings(extra_flags=[flag, "x"])
+    if setting is None:
+        BscSim.check_settings_supported(settings)
+        return
+    with pytest.raises(FlowSettingsException, match=re.escape(setting)):
+        BscSim.check_settings_supported(settings)
+
+
+def test_bsc_allows_the_link_path_flags_it_never_uses():
+    """`bsc` has no link step, so `-I` and `-L` are harmless to it."""
+    Bsc.check_settings_supported(Bsc.Settings(extra_flags=["-I", "x", "-L", "y"]))
+
+
+@pytest.mark.parametrize(
+    "extra_flags",
+    [
+        ["-Xc", "-I/x"],
+        ["-Xc++", "-I/x", "-Xcpp", "-p", "-Xl", "-L/x", "-Xv", "-vsearch"],
+        ["-I/x", "-L/y"],  # no flag of bsc: it rejects them itself
+    ],
+)
+def test_the_argument_of_a_flag_is_no_path_flag(extra_flags):
+    """A flag that takes an argument takes the next one, whatever it looks like."""
+    BscSim.check_settings_supported(BscSim.Settings(extra_flags=extra_flags))
+
+
+def test_the_argument_of_a_pass_through_flag_is_skipped_but_the_next_flag_is_not():
+    with pytest.raises(FlowSettingsException, match="`-I`"):
+        BscSim.check_settings_supported(BscSim.Settings(extra_flags=["-Xc", "-I/x", "-I", "/x"]))
+
+
+def test_one_rule_finds_the_words_that_name_an_owned_flag():
+    """A word that names an owned flag counts, unless a pass-through flag takes it as its
+    argument. bsc refuses a `-` argument of every other flag, so no other word is an argument."""
+    owned = {"p", "bdir"}
+    find = bsc_module.owned_flag_words
+    assert find(["-Xc", "-p"], owned) == []
+    assert find(["-p", "x"], owned) == ["-p"]
+    assert find(["--bdir", "x"], owned) == ["--bdir"]
+    assert find(["-bdir", "x"], owned) == ["-bdir"]
+    assert find(["-Xc", "-Xc", "-p"], owned) == ["-p"]  # the second `-Xc` is the argument
+    assert find(["--p", "-O", "-no-p", "-pfoo", "A.bsv"], owned) == []
+    # bsc reads `--Xc` as `-Xc`, so the word after it is an argument too.
+    for spelling in ("--Xc", "--Xc++", "--Xcpp", "--Xl", "--Xv"):
+        assert find([spelling, "-p"], owned) == []
+    assert find(["--Xc", "-Xc", "-p", "/hidden"], owned) == ["-p"]
+
+
+@pytest.mark.parametrize(
+    ("flag", "message"), [("-p", "`-p`"), ("--bdir", "`--bdir`"), ("-vsearch", "`-vsearch`")]
+)
+def test_a_path_flag_in_extra_flags_is_refused_with_the_setting_to_use(flag, message):
+    with pytest.raises(FlowSettingsException, match=message):
+        Bsc.check_settings_supported(Bsc.Settings(extra_flags=[flag, "x"]))
+    Bsc.check_settings_supported(Bsc.Settings(extra_flags=["-Xc", flag]))
+
+
+@pytest.mark.parametrize("flow", [Bsc, BscSim])
+def test_bsc_options_in_env_is_refused(flow):
+    with pytest.raises(FlowSettingsException, match=r"`env` sets BSC_OPTIONS.*`extra_flags`"):
+        flow.check_settings_supported(flow.Settings(env={"BSC_OPTIONS": ""}))
+
+
+@pytest.mark.parametrize(
+    ("flow", "setting"),
+    [(Bsc, "bobj_dir"), (Bsc, "info_dir"), (Bsc, "verilog_out_dir"), (BscSim, "sim_dir")],
+)
+@pytest.mark.parametrize(
+    ("value", "meets"),
+    [
+        (".", "the run directory itself"),
+        ("bsc_sources", "stage folder `bsc_sources`"),
+        ("bsc_search/0", "stage folder `bsc_search`"),
+        ("bsc_verilog/out", "stage folder `bsc_verilog`"),
+        ("bsc_foreign", "stage folder `bsc_foreign`"),
+        ("BSC_Sources/x", "stage folder `BSC_Sources`"),
+    ],
+)
+def test_an_output_folder_that_is_or_lies_in_a_stage_folder_is_refused(flow, setting, value, meets):
+    with pytest.raises(FlowSettingsException) as error:
+        flow.check_settings_supported(flow.Settings(**{setting: value}))
+    assert f"`{setting}`" in str(error.value)
+    assert meets in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "value", ["bobjs", "gen_rtl/bsc_sources", "my_bsc_sources", "out/bsc_search"]
+)
+def test_an_output_folder_beside_the_stage_folders_is_accepted(value):
+    Bsc.check_settings_supported(Bsc.Settings(bobj_dir=value, verilog_out_dir=value))
 
 
 def test_a_link_path_with_whitespace_is_rejected_before_compiling(tmp_path):
@@ -1039,8 +1147,8 @@ def test_bsc_generates_every_module_the_top_needs(tmp_path):
 
 def test_a_macro_change_is_compiled(tmp_path):
     """bsc's `-u` recompiles only when a source is newer than its `.bo`, so a second run in the
-    same directory with another macro reused the first run's packages. `cleanup_bobjs` (on by
-    default) makes the second run compile what it was given."""
+    same directory with another macro reused the first run's packages. Every run empties `bobjs`,
+    so the second run compiles what it was given."""
     require_bsc()
     design = _accum_design(tmp_path / "d")
     run_paths = set()  # xeda reuses a flow's run directory, whatever the design's hash
@@ -1771,6 +1879,68 @@ def test_the_link_compiles_c_sources_in_the_run_directory(simulator, tmp_path, c
     assert {path: path.read_bytes() for path in root.rglob("*") if path.is_file()} == before
 
 
+def _disposition(runner: DefaultRunner, flow_class: type[Flow], design: Design, settings: dict):
+    result = launch_result(
+        runner,
+        Spec(flow_class.name, design),
+        lambda: runner.run_flow(flow_class, design, settings),
+    )
+    assert result.outcome == "passed", result.error
+    return result.nodes[flow_class.name].disposition
+
+
+BH_INCLUDE_PKG = """package Knob where
+
+#include "init.h"
+
+interface Knob_IFC =
+    value :: Bit 4
+
+{-# verilog mkKnob #-}
+mkKnob :: Module Knob_IFC
+mkKnob = module
+    r :: Reg (Bit 4) <- mkReg INIT
+    rules
+      "tick": when True ==> r := r + 1
+    interface
+      value = r
+"""
+
+
+def _bh_include_design(root: Path, init: int, *, listed: bool = True) -> Design:
+    _write(root, {"Knob.bs": BH_INCLUDE_PKG, "init.h": f"#define INIT {init}\n"})
+    sources = ["Knob.bs", "init.h"] if listed else ["Knob.bs"]
+    return Design(name="knob", root=root, rtl={"sources": sources, "top": "mkKnob"})
+
+
+def test_a_listed_c_header_is_visible_to_a_bh_source_with_cpp(tmp_path):
+    """The C preprocessor reads `#include "init.h"` in the folder of the source as bsc names it,
+    so a listed header is a link beside the staged source. An edit of it runs the flow again."""
+    require_bsc()
+    require_c_toolchain()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    found = []
+    for init in (5, 5, 6):
+        design = _bh_include_design(tmp_path / "d", init)
+        found.append(_disposition(runner, Bsc, design, {"cpp": True}))
+    assert found == ["ran", "reused", "ran"]
+    (run,) = (tmp_path / "run").rglob("mkKnob.v")
+    assert "4'd6" in run.read_text()
+
+
+def test_an_unlisted_header_beside_a_bh_source_fails_with_advice(tmp_path):
+    require_bsc()
+    require_c_toolchain()
+    design = _bh_include_design(tmp_path / "d", 5, listed=False)
+    flow = _run(Bsc, design, tmp_path / "run", cpp=True)
+    assert flow is not None and not flow.succeeded
+    message = json.loads((flow.run_path / "results.json").read_text())["error"]["message"]
+    # The compilers word it differently: clang `'init.h' file not found`, gcc `init.h: No
+    # such file or directory`.
+    assert "init.h" in message
+    assert "list the header in the design's sources" in message
+
+
 def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch):
     """Rejected before anything runs, rather than inside bsc's Verilator link script."""
     monkeypatch.setenv("PATH", "")
@@ -1938,3 +2108,668 @@ def test_a_failed_bsc_run_keeps_its_own_failure_unless_the_log_names_an_error(
     with pytest.raises(NonZeroExitCode) as raised:
         flow._run_bsc(LINK_LOG)
     assert raised.value is error
+
+
+# ---------------------------------------------------------------------------------------------
+# a Bluespec include file is a declared source
+# ---------------------------------------------------------------------------------------------
+
+#: A testbench whose cycle count comes from the include file `Limit.bsvi`.
+INCLUDE_TB = """package IncTb;
+`include "Limit.bsvi"
+(* synthesize *)
+module mkIncTb(Empty);
+  Reg#(UInt#(8)) cycle <- mkReg(0);
+  rule tick; cycle <= cycle + 1; endrule
+  rule check (cycle == `LIMIT);
+    $display("PASS after %0d", cycle);
+    $finish(0);
+  endrule
+endmodule
+endpackage
+"""
+
+
+def _include_design(root: Path, limit: int) -> Design:
+    _write(root, {"IncTb.bsv": INCLUDE_TB, "Limit.bsvi": f"`define LIMIT {limit}\n"})
+    return Design(
+        name="inc",
+        root=root,
+        rtl={"sources": ["IncTb.bsv", "Limit.bsvi"], "top": "mkIncTb"},
+    )
+
+
+def test_a_listed_include_file_is_a_bluespec_header_and_is_never_compiled(tmp_path):
+    design = _include_design(tmp_path, 5)
+    header = design.rtl.sources[1]
+    assert header.type is SourceType.BluespecHeader
+    for flow_class in (Bsc, BscSim):
+        assert SourceType.BluespecHeader in flow_class.reads_sources
+        flow = _flow(flow_class, design, tmp_path / f"run_{flow_class.name}")
+        assert [src.file.name for src in flow._bsc_sources(tb=False)] == ["IncTb.bsv"]
+
+
+def test_an_include_file_runs_the_flow_again_when_it_changes(tmp_path, capfd):
+    require_bluesim()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"simulator": "bluesim", "timeout": "60 s"}
+    dispositions = []
+    for limit in (5, 5, 6):
+        design = _include_design(tmp_path / "d", limit)
+        result = launch_result(
+            runner,
+            Spec(BscSim.name, design),
+            lambda design=design: runner.run_flow(BscSim, design, settings),
+        )
+        captured = capfd.readouterr()
+        assert result.outcome == "passed", captured.out + captured.err
+        dispositions.append(result.nodes[BscSim.name].disposition)
+    assert dispositions == ["ran", "reused", "ran"]
+
+
+def test_the_derived_design_of_bsc_holds_no_bluespec_header(tmp_path, capfd):
+    require_bsc()
+    design = _include_design(tmp_path / "d", 5)
+    flow = _run(Bsc, design, tmp_path / "run")
+    captured = capfd.readouterr()
+    assert flow is not None and flow.succeeded, run_report(flow, captured)
+    record = flow.results["outputs"]["design"]
+    assert {item["type"] for item in record["sources"]} == {"Verilog"}
+    assert not any("source" in item for item in record["sources"]), "nothing passes through"
+
+
+# ---------------------------------------------------------------------------------------------
+# bsc reads only the files that the design lists
+# ---------------------------------------------------------------------------------------------
+
+
+def _compile_package(source: Path, into: Path, *search: Path) -> None:
+    """Compile the package `source` with bsc into `into`: a foreign `.bo` file for a test."""
+    into.mkdir(parents=True, exist_ok=True)
+    path = ":".join([*map(str, search), "+"])
+    subprocess.run(
+        ["bsc", "-u", "-verilog", "-bdir", str(into), "-vdir", str(into), "-p", path, str(source)],
+        check=True,
+        capture_output=True,
+        cwd=into,
+    )
+
+
+def _helper_pkg(constant: int) -> str:
+    return f"""package Helper;
+function Bit#(8) bump(Bit#(8) x) = x + {constant};
+endpackage
+"""
+
+
+def _helper_top(root: Path, helper: str = "Helper") -> None:
+    _write(
+        root,
+        {
+            "Top.bsv": f"""package Top;
+import {helper}::*;
+interface Top_IFC;
+  method Bit#(8) out;
+endinterface
+(* synthesize *)
+module mkTop(Top_IFC);
+  method out = bump(8'd10);
+endmodule
+endpackage
+""",
+        },
+    )
+
+
+def _run_directly(flow_class: type[Flow], design: Design, run: Path, **settings: Any) -> Any:
+    """Run a flow in `run` without the launcher, so a test can plant files there first."""
+    flow = _flow(flow_class, design, run, **settings)
+    flow.init()
+    flow.run()
+    return flow
+
+
+def _failure_text(run: Path, error: BaseException) -> str:
+    log_file = run / bsc_module.COMPILE_LOG
+    return f"{error}\n{log_file.read_text() if log_file.exists() else ''}"
+
+
+def test_a_stray_compiled_package_beside_a_listed_source_is_not_used(tmp_path):
+    """bsc compares a source with a `Helper.bo` beside it and takes the newer. A listed
+    function-only package has no `.bo` of its own, so a foreign one that is newer than the source
+    replaced it on a clean run. The stage folder holds links to the listed sources only."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"Helper.bsv": _helper_pkg(1)})
+    _compile_package(root / "Helper.bsv", root)  # a stray `Helper.bo`, with another body
+    _write(root, {"Helper.bsv": _helper_pkg(3)})
+    old = (root / "Helper.bo").stat().st_mtime - 100
+    os.utime(root / "Helper.bsv", (old, old))
+    design = Design(name="g", root=root, rtl={"sources": ["Helper.bsv", "Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run")
+    verilog = (flow.run_path / "gen_rtl" / "mkTop.v").read_text()
+    assert "8'd13" in verilog and "8'd11" not in verilog
+
+
+def test_an_unlisted_package_beside_a_listed_source_is_not_found(tmp_path):
+    """A package that lies beside a listed source but is not listed is no part of the design:
+    bsc fails with S0000, where it compiled the file through `-u` before."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"Helper.bsv": _helper_pkg(1)})
+    design = Design(name="d", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    with pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, tmp_path / "run")
+    assert "S0000" in _failure_text(tmp_path / "run", error.value)
+
+
+def test_an_inherited_bsc_options_never_reaches_bsc(tmp_path, monkeypatch, caplog):
+    """bsc reads flags from `BSC_OPTIONS`. The flow runs it with the variable empty, so the
+    environment of the caller cannot add a search path: the unlisted package stays unfound."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"unlisted/Helper.bsv": _helper_pkg(1)})
+    design = Design(name="d", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    monkeypatch.setenv("BSC_OPTIONS", f"-p {root / 'unlisted'}:+")
+    with caplog.at_level(logging.WARNING), pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, tmp_path / "run")
+    assert "S0000" in _failure_text(tmp_path / "run", error.value)
+    warnings = [r.getMessage() for r in caplog.records if "BSC_OPTIONS" in r.getMessage()]
+    assert len(warnings) == 1 and "`extra_flags`" in warnings[0]
+
+
+def test_an_inherited_bsc_options_does_not_change_the_output(tmp_path, monkeypatch, caplog):
+    require_bsc()
+    design = _accum_design(tmp_path / "d")
+    elsewhere = tmp_path / "elsewhere"
+    monkeypatch.setenv("BSC_OPTIONS", f"-vdir {elsewhere}")
+    with caplog.at_level(logging.WARNING):
+        flow = _run_directly(Bsc, design, tmp_path / "run")
+    assert (flow.run_path / "gen_rtl" / "mkTop.v").is_file()
+    assert not elsewhere.exists()
+    assert sum("BSC_OPTIONS" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_an_empty_bsc_options_is_not_reported(tmp_path, monkeypatch, caplog):
+    require_bsc()
+    design = _accum_design(tmp_path / "d")
+    monkeypatch.setenv("BSC_OPTIONS", "")
+    with caplog.at_level(logging.WARNING):
+        _run_directly(Bsc, design, tmp_path / "run")
+    assert "BSC_OPTIONS" not in caplog.text
+
+
+def test_a_compiled_package_without_a_source_beside_a_listed_source_is_not_imported(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"scratch/Helper.bsv": _helper_pkg(1)})
+    _compile_package(root / "scratch" / "Helper.bsv", root)  # `Helper.bo` beside `Top.bsv`
+    design = Design(name="c", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    with pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, tmp_path / "run")
+    assert "S0000" in _failure_text(tmp_path / "run", error.value)
+
+
+def test_a_stray_package_in_the_run_directory_is_ignored(tmp_path):
+    """The run directory is not on bsc's package path: a `Helper.bo` or a `mkAccum.ba` that lies
+    in it is never read."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"scratch/Helper.bsv": _helper_pkg(1)})
+    run = tmp_path / "run"
+    run.mkdir()
+    _compile_package(root / "scratch" / "Helper.bsv", run)
+    design = Design(name="p", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    with pytest.raises(NonZeroExitCode) as error:
+        _run_directly(Bsc, design, run)
+    assert "S0000" in _failure_text(run, error.value)
+
+    accum = _accum_design(tmp_path / "e")
+    run = tmp_path / "run2"
+    run.mkdir()
+    (run / "mkAccum.ba").write_text("not a bsc file\n")
+    (run / "Accum.bo").write_text("not a bsc file\n")
+    flow = _run_directly(Bsc, accum, run)
+    assert "mkAccum" in flow.results["modules"]
+
+
+def _search_names(flow: Any, index: int = 0) -> list[str]:
+    folder = flow.run_path / "bsc_search" / str(index)
+    return sorted(p.name for p in folder.iterdir())
+
+
+def _mkTop_verilog(flow: Any) -> str:
+    return (flow.run_path / "gen_rtl" / "mkTop.v").read_text()
+
+
+def test_a_stray_compiled_package_in_a_search_folder_is_not_used(tmp_path):
+    """Helper is only functions, so it has no `.bo` of its own. A foreign `Helper.bo` that is
+    newer than the unlisted `Helper.bsv` beside it won before (bsc takes the newer one)."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"lib/Helper.bsv": _helper_pkg(1)})
+    _compile_package(root / "lib" / "Helper.bsv", root / "lib")  # a stray `Helper.bo`, body 1
+    _write(root, {"lib/Helper.bsv": _helper_pkg(3)})
+    old = (root / "lib" / "Helper.bo").stat().st_mtime - 100
+    os.utime(root / "lib" / "Helper.bsv", (old, old))
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    assert "8'd13" in _mkTop_verilog(flow) and "8'd11" not in _mkTop_verilog(flow)
+
+
+def test_a_listed_source_in_a_search_folder_compiles_once(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"Helper.bsv": _helper_pkg(1)})
+    design = Design(name="g", root=root, rtl={"sources": ["Helper.bsv", "Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["."])
+    assert "8'd11" in _mkTop_verilog(flow)
+    logs = [p.read_text() for p in flow.run_path.rglob("*.log")]
+    assert logs and not any("S0089" in text for text in logs)
+    # The search folder holds no second copy of a listed package.
+    assert _search_names(flow) == []
+
+
+def test_a_listed_bh_source_wins_over_an_unlisted_bsv_package_in_a_search_folder(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(
+        root,
+        {
+            "bh/Helper.bs": "package Helper where\nbump :: Bit 8 -> Bit 8\nbump x = x + 5\n",
+            "lib/Helper.bsv": _helper_pkg(1),
+        },
+    )
+    design = Design(
+        name="g", root=root, rtl={"sources": ["bh/Helper.bs", "Top.bsv"], "top": "mkTop"}
+    )
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    assert "8'd15" in _mkTop_verilog(flow) and "8'd11" not in _mkTop_verilog(flow)
+
+
+def test_an_include_with_a_folder_part_resolves_from_a_search_folder(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "Top.bsv": """package Top;
+`include "sub/k.bsvi"
+interface Top_IFC;
+  method Bit#(8) out;
+endinterface
+(* synthesize *)
+module mkTop(Top_IFC);
+  method out = `K;
+endmodule
+endpackage
+""",
+            "lib/sub/k.bsvi": "`define K 8'd42\n",
+        },
+    )
+    design = Design(name="i", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    assert "8'd42" in _mkTop_verilog(flow)
+
+
+def test_the_first_search_folder_that_defines_a_package_wins(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"a/Helper.bsv": _helper_pkg(1), "b/Helper.bsv": _helper_pkg(2)})
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run_directly(Bsc, design, tmp_path / "run", search_paths=["a", "b"])
+    assert "8'd11" in _mkTop_verilog(flow) and "8'd12" not in _mkTop_verilog(flow)
+
+
+def _dispositions(runner: DefaultRunner, design: Design, settings: dict, times: int) -> list[str]:
+    found = []
+    for _ in range(times):
+        result = launch_result(
+            runner, Spec(Bsc.name, design), lambda: runner.run_flow(Bsc, design, settings)
+        )
+        assert result.outcome == "passed"
+        found.append(result.nodes[Bsc.name].disposition)
+    return found
+
+
+def test_a_stray_compiled_package_added_to_a_search_folder_runs_the_flow_again(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"lib/Helper.bsv": _helper_pkg(1)})
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    settings = {"search_paths": ["lib"]}
+    assert _dispositions(runner, design, settings, 2) == ["ran", "reused"]
+    _write(tmp_path / "scratch", {"Helper.bsv": _helper_pkg(7)})
+    _compile_package(tmp_path / "scratch" / "Helper.bsv", root / "lib")  # a stray, newer `.bo`
+    assert _dispositions(runner, design, settings, 1) == ["ran"]
+    (run,) = (tmp_path / "run").rglob("mkTop.v")
+    assert "8'd11" in run.read_text() and "8'd17" not in run.read_text()
+
+
+def test_the_design_root_as_a_search_folder_with_the_run_root_inside_it(tmp_path):
+    """The stage of a search folder that holds the run root leaves the run root out, and the
+    second launch reuses the first run. The folder is named by its absolute path: the trace looks
+    a relative setting path up under the start directory too, and the start directory of the test
+    process is the checkout, whose files other tests change."""
+    require_bsc()
+    root = tmp_path / "d"
+    _helper_top(root)
+    _write(root, {"Helper.bsv": _helper_pkg(1)})
+    design = Design(name="g", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    runner = DefaultRunner(root / "xeda_run", display_results=False)
+    assert _dispositions(runner, design, {"search_paths": [str(root)]}, 2) == ["ran", "reused"]
+
+
+def test_an_old_package_and_an_old_module_are_gone_before_the_compile(tmp_path):
+    require_bsc()
+    design = _accum_design(tmp_path / "d")
+    run = tmp_path / "run"
+    run.mkdir()
+    _write(
+        run,
+        {"bobjs/Old.bo": "", "bobjs/mkOld.ba": "", "gen_rtl/mkBare.v": "module x(); endmodule\n"},
+    )
+    flow = _run_directly(Bsc, design, run)
+    assert not (run / "bobjs" / "Old.bo").exists() and not (run / "bobjs" / "mkOld.ba").exists()
+    assert not (run / "gen_rtl" / "mkBare.v").exists()
+    assert "mkBare" not in flow.results["modules"]
+
+
+def test_an_unlisted_verilog_module_beside_a_listed_one_fails_the_simulator_link(tmp_path, capfd):
+    """An imported `add3.v` that is not listed is no longer found beside another listed Verilog
+    source, as bsc's `-vsearch` held its folder before."""
+    _require_simulator("iverilog")
+    _write(tmp_path, {"hw/add3.v": OPS_V, "hw/other.v": "module other(); endmodule\n"})
+    _write(tmp_path, {"Ops.bsv": OPS_PKG})
+    design = Design(
+        name="ops",
+        root=tmp_path,
+        rtl={"sources": ["hw/other.v"]},
+        tb={"sources": ["Ops.bsv"], "top": "mkOpsTb"},
+    )
+    flow = _run(BscSim, design, tmp_path / "run", simulator="iverilog")
+    assert flow is not None and not flow.succeeded
+    logs = "".join(path.read_text() for path in sorted((flow.run_path / "logs").glob("*.log")))
+    assert "Unknown module type: add3" in logs
+
+
+def test_one_file_listed_twice_is_no_conflict(tmp_path):
+    root = tmp_path / "d"
+    _write(root, {"P.bsv": "package P; endpackage\n"})
+    design = Design(name="s", root=root, rtl={"sources": ["P.bsv", "P.bsv"], "top": "mkP"})
+    Bsc.check_design_supported(design, Bsc.Settings())
+
+
+def test_a_testbench_file_clashes_only_where_the_flow_stages_it(tmp_path):
+    """`bsc` stages the Bluespec sources of `rtl` only, `bsc_sim` those of `tb` too. Both stage
+    the Verilog sources of both parts."""
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "P.bsv": "package P; endpackage\n",
+            "tb/P.bsv": "package P; endpackage\n",
+            "m.v": "module m; endmodule\n",
+            "tb/m.v": "module m; endmodule\n",
+        },
+    )
+    bluespec = Design(
+        name="s",
+        root=root,
+        rtl={"sources": ["P.bsv"], "top": "mkP"},
+        tb={"sources": ["tb/P.bsv"], "top": "mkP"},
+    )
+    Bsc.check_design_supported(bluespec, Bsc.Settings())
+    with pytest.raises(FlowSettingsException, match="file name P.bsv"):
+        BscSim.check_design_supported(bluespec, BscSim.Settings())
+    verilog = Design(
+        name="s",
+        root=root,
+        rtl={"sources": ["P.bsv", "m.v"], "top": "mkP"},
+        tb={"sources": ["tb/m.v"], "top": "mkP"},
+    )
+    for flow in (Bsc, BscSim):
+        with pytest.raises(FlowSettingsException, match="file name m.v"):
+            flow.check_design_supported(verilog, flow.Settings())
+
+
+def test_a_bsv_and_a_bs_file_of_one_package_are_refused(tmp_path):
+    root = tmp_path / "d"
+    _write(root, {"P.bsv": "package P; endpackage\n", "P.bs": "package P where\n"})
+    design = Design(name="s", root=root, rtl={"sources": ["P.bsv", "P.bs"], "top": "mkP"})
+    with pytest.raises(FlowSettingsException, match="define the package P") as error:
+        Bsc.check_design_supported(design, Bsc.Settings())
+    assert str(root / "P.bsv") in str(error.value) and str(root / "P.bs") in str(error.value)
+
+
+def test_a_run_root_with_whitespace_fails_with_a_clean_message_or_runs(tmp_path):
+    """`bsc` has no link step, so a run directory with whitespace works. `bsc_sim` refuses it
+    before it runs (`check_run_directory`), as its link step needs whitespace-free paths."""
+    require_bsc()
+    design = _accum_design(tmp_path / "d")
+    flow = _run_directly(Bsc, design, tmp_path / "a run root" / "run")
+    assert "mkTop" in flow.results["modules"]
+    with pytest.raises(FlowSettingsException, match="whitespace"):
+        BscSim.check_run_directory(BscSim.Settings(), tmp_path / "a run root" / "run")
+
+
+# ---------------------------------------------------------------------------------------------
+# installed_libraries, and a missing search folder
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry, message",
+    [
+        ("", "is empty"),
+        ("/opt/lib", "is absolute"),
+        ("../Other", 'empty, "." or ".." component'),
+        ("FPGA/../../x", 'empty, "." or ".." component'),
+        ("FPGA//Xilinx", 'empty, "." or ".." component'),
+        ("FPGA/", 'empty, "." or ".." component'),
+        (".", 'empty, "." or ".." component'),
+        ("A:B", 'has a ":"'),
+        ("%/Libraries/A", 'has a "%"'),
+        ("FPGA Xilinx", "has whitespace"),
+        ("A\tB", "has whitespace"),
+    ],
+)
+def test_an_installed_library_must_be_a_folder_below_the_libraries_folder(entry, message):
+    with pytest.raises(FlowSettingsError, match=rf"installed_libraries entry .* {message}"):
+        Bsc.Settings.from_input({"installed_libraries": [entry]})
+
+
+def test_a_nested_installed_library_is_accepted_and_stays_as_given():
+    ss = Bsc.Settings(installed_libraries=["FPGA/Xilinx", "TLM3"])
+    assert ss.installed_libraries == ["FPGA/Xilinx", "TLM3"]
+    assert Bsc.Settings(**ss.model_dump()).installed_libraries == ss.installed_libraries
+
+
+def test_installed_libraries_are_part_of_the_identity():
+    assert Bsc.Settings().model_dump() != Bsc.Settings(installed_libraries=["TLM3"]).model_dump()
+
+
+def _folder_check(tmp_path: Path, name: str = "Top.bsv") -> Design:
+    _write(tmp_path, {"Top.bsv": "package Top;\nmodule mkTop(Empty); endmodule\nendpackage\n"})
+    return Design(name="m", root=tmp_path, rtl={"sources": [name], "top": "mkTop"})
+
+
+@pytest.mark.parametrize("flow_class", [Bsc, BscSim])
+@pytest.mark.parametrize(
+    "warnings", [{}, {"suppress_warnings": ["ALL"]}, {"suppress_warnings": ["S0091"]}]
+)
+def test_a_missing_installed_library_folder_fails_the_run(flow_class, warnings, tmp_path):
+    """Xeda reads the path that bsc resolved, so no warning setting hides the failure."""
+    require_bsc()
+    design = _folder_check(tmp_path)
+    if flow_class is BscSim:
+        design = Design(
+            name="m",
+            root=tmp_path,
+            rtl={"sources": []},
+            tb={"sources": ["Top.bsv"], "top": "mkTop"},
+        )
+    with pytest.raises(FlowSettingsException, match=r"installed_libraries.*No/Such/Folder"):
+        _run_directly(
+            flow_class, design, tmp_path / "run", installed_libraries=["No/Such/Folder"], **warnings
+        )
+    assert not (tmp_path / "run" / bsc_module.COMPILE_LOG).exists()
+
+
+def test_the_check_of_installed_libraries_reads_the_resolved_path(tmp_path, monkeypatch):
+    """An entry counts when the `Libraries` folder, the last entry of the path, holds it."""
+    flow = _flow(
+        Bsc, _accum_design(tmp_path / "d"), tmp_path / "run", installed_libraries=["FPGA/Xilinx"]
+    )
+    resolved = ["bsc_sources", "/b/Libraries/FPGA/Xilinx", "/b/Libraries"]
+    monkeypatch.setattr(flow, "_resolved_path", lambda flags, field: resolved)
+    flow._require_installed_libraries([])
+    monkeypatch.setattr(
+        flow, "_resolved_path", lambda flags, field: ["bsc_sources", "/b/Libraries"]
+    )
+    with pytest.raises(FlowSettingsException, match="FPGA/Xilinx"):
+        flow._require_installed_libraries([])
+    monkeypatch.setattr(flow, "_resolved_path", lambda flags, field: None)
+    with pytest.raises(FlowFatalError, match="print-flags-raw"):
+        flow._require_installed_libraries([])
+
+
+@pytest.mark.parametrize("setting", ["search_paths", "verilog_search_paths"])
+def test_a_missing_search_folder_fails_the_run(setting, tmp_path):
+    require_bsc()
+    design = _folder_check(tmp_path)
+    with pytest.raises(FlowSettingsException, match=rf"`{setting}` names 'nowhere'"):
+        _run_directly(Bsc, design, tmp_path / "run", **{setting: ["nowhere"]})
+
+
+# ---------------------------------------------------------------------------------------------
+# messages: the console and the log show bsc's staged names, the failure text names real files
+# ---------------------------------------------------------------------------------------------
+
+TYPE_ERROR_PKG = "package {name};\nfunction Bit#(8) f(Bit#(8) x) = x + True;\nendpackage\n"
+EMPTY_TOP = "package Top;\n{imports}module mkTop(Empty); endmodule\nendpackage\n"
+
+
+def _failed_message(flow: Any) -> str:
+    assert flow is not None and not flow.succeeded
+    return json.loads((flow.run_path / "results.json").read_text())["error"]["message"]
+
+
+def test_a_type_error_in_a_listed_source_names_the_real_file(tmp_path, capfd):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "rtl/Top.bsv": TYPE_ERROR_PKG.format(name="Top").replace(
+                "endpackage", "module mkTop(Empty); endmodule\nendpackage"
+            )
+        },
+    )
+    design = Design(name="m", root=root, rtl={"sources": ["rtl/Top.bsv"], "top": "mkTop"})
+    flow = _run(Bsc, design, tmp_path / "run")
+    real = str(root / "rtl" / "Top.bsv")
+    message = _failed_message(flow).partition("bsc reported:")[2]
+    assert f'Error: "{real}", line 2' in message and "bsc_sources" not in message
+    # The console and the log keep the text of bsc: its staged name.
+    console = capfd.readouterr()
+    assert '"bsc_sources/Top.bsv", line 2' in console.out + console.err
+    log = (flow.run_path / bsc_module.COMPILE_LOG).read_text()
+    assert 'Error: "bsc_sources/Top.bsv", line 2' in log and real not in log
+
+
+def test_a_type_error_in_a_package_of_a_search_folder_names_the_real_file(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(
+        root,
+        {
+            "lib/P.bsv": TYPE_ERROR_PKG.format(name="P"),
+            "Top.bsv": EMPTY_TOP.format(imports="import P::*;\n"),
+        },
+    )
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    flow = _run(Bsc, design, tmp_path / "run", search_paths=["lib"])
+    real = str(root / "lib" / "P.bsv")
+    message = _failed_message(flow).partition("bsc reported:")[2]
+    assert f'Error: "{real}", line 2' in message and "bsc_search" not in message
+    log = (flow.run_path / bsc_module.COMPILE_LOG).read_text()
+    assert '"bsc_search/0/P.bsv", line 2' in log
+
+
+def test_the_rewrite_of_a_staged_name_changes_only_a_message_position_and_a_progress_line():
+    paths = {"bsc_sources/Top.bsv": "/d/Top.bsv", "bsc_search/0": "/lib"}
+    rewrite = bsc_module.rewrite_paths
+    assert rewrite('Error: "bsc_sources/Top.bsv", line 2, column 3:', paths) == (
+        'Error: "/d/Top.bsv", line 2, column 3:'
+    )
+    assert rewrite('"bsc_search/0/sub/P.bsv", line 1', paths) == '"/lib/sub/P.bsv", line 1'
+    assert rewrite("compiling bsc_sources/Top.bsv\n", paths) == "compiling /d/Top.bsv\n"
+    # Text that merely holds a name stays as it is.
+    assert rewrite('PASS "bsc_sources/Top.bsv" here', paths) == 'PASS "bsc_sources/Top.bsv" here'
+    assert rewrite('"other.bsv", line 3', paths) == '"other.bsv", line 3'
+
+
+def test_the_rewrite_of_a_staged_name_covers_a_compiler_position():
+    paths = {"bsc_sources/Top.bs": "/d/Top.bs"}
+    rewrite = bsc_module.rewrite_paths
+    for staged in (
+        "bsc_sources/Top.bs",
+        "/run/x///bsc_sources/Top.bs",
+        "bsc_sources///Top.bs",
+    ):
+        assert rewrite(f"{staged}:3:5: error: bad", paths) == "/d/Top.bs:3:5: error: bad"
+    assert rewrite("  bsc_sources/Top.bs:3:5: x", paths) == "  /d/Top.bs:3:5: x"
+    assert rewrite("other.bs:3:5: error: bad", paths) == "other.bs:3:5: error: bad"
+    assert rewrite("see bsc_sources/Top.bs:3:5: x", paths) == "see bsc_sources/Top.bs:3:5: x"
+
+
+def test_a_missing_package_names_the_ways_to_provide_it(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": EMPTY_TOP.format(imports="import Lost::*;\n")})
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    message = _failed_message(_run(Bsc, design, tmp_path / "run"))
+    assert "(S0000)" in message
+    for word in ("list the file", "`search_paths`", "`installed_libraries`"):
+        assert word in message
+
+
+def test_a_missing_include_names_the_ways_to_provide_it(tmp_path):
+    require_bsc()
+    root = tmp_path / "d"
+    _write(root, {"Top.bsv": EMPTY_TOP.format(imports='`include "gone.bsvi"\n')})
+    design = Design(name="m", root=root, rtl={"sources": ["Top.bsv"], "top": "mkTop"})
+    message = _failed_message(_run(Bsc, design, tmp_path / "run"))
+    assert "(S0034)" in message
+    assert "`type: BluespecHeader`" in message and "`search_paths`" in message
+
+
+def test_the_hints_follow_the_error_code_only():
+    hint = bsc_module._hint
+    assert hint(['Error: "A.bsv", line 1: (T0080) Type error'], cpp=False) == ""
+    assert "search_paths" in hint(["Error: x: (S0000) Cannot find package `P'"], cpp=False)
+    assert "BluespecHeader" in hint(["Error: x: (S0034) Cannot find the file"], cpp=False)
+
+
+def test_the_hint_for_an_include_with_a_folder_names_the_folder_that_holds_it():
+    hint = bsc_module._hint(
+        ["Error: x: (S0034)", "  Cannot find the file `cfg/x.bsvi' to be included"], cpp=False
+    )
+    assert "folder that holds `cfg` in `search_paths`" in hint
+    assert "list the file" not in hint
+    flat = bsc_module._hint(
+        ["Error: x: (S0034)", "  Cannot find the file `x.bsvi' to be included"], cpp=False
+    )
+    assert "`type: BluespecHeader`" in flat

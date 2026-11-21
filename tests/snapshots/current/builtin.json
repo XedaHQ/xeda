@@ -198,14 +198,6 @@
           "type": "boolean",
           "unit": null
         },
-        "cleanup_bobjs": {
-          "default": true,
-          "schema": {
-            "type": "boolean"
-          },
-          "type": "boolean",
-          "unit": null
-        },
         "continue_after_errors": {
           "default": false,
           "schema": {
@@ -358,6 +350,17 @@
             "type": "boolean"
           },
           "type": "boolean",
+          "unit": null
+        },
+        "installed_libraries": {
+          "default": [],
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array[string]",
           "unit": null
         },
         "keep_fires": {
@@ -1028,14 +1031,6 @@
           "type": "boolean",
           "unit": null
         },
-        "cleanup_bobjs": {
-          "default": true,
-          "schema": {
-            "type": "boolean"
-          },
-          "type": "boolean",
-          "unit": null
-        },
         "cocotb": {
           "default": {
             "coverage": false,
@@ -1241,6 +1236,17 @@
             "type": "boolean"
           },
           "type": "boolean",
+          "unit": null
+        },
+        "installed_libraries": {
+          "default": [],
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array[string]",
           "unit": null
         },
         "keep_fires": {
