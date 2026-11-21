@@ -2675,6 +2675,144 @@ in microseconds would be a time that the model does not have. ``sim.evidence.cyc
 cycle count. ``sim.evidence.time`` and the times of its events are kernel ticks, so
 ``sim.evidence.time_unit`` is null. A ``$finish`` at another tick than the end of the run fails. The Verilog simulators that ``bsc_sim`` links report their own simulated time.
 
+.. _bsc-reads:
+
+What bsc reads
+--------------
+
+The ``bsc`` and ``bsc_sim`` flows control the files that bsc finds by name. These are an imported
+package (``.bsv``, ``.bs`` or ``.bo``), a BSV ``include`` (and, with ``cpp``, a ``#include`` of a
+BH source that the C preprocessor resolves), an elaborated module (``.ba``), and a Verilog module
+on the search path of bsc. The flows let bsc find these files only through links in the run
+directory. Each file is one that the design lists, a file in a ``search_paths`` or
+``verilog_search_paths`` folder, or a file of the installation of bsc. A file that the design and
+the settings do not name is not there, so bsc cannot find it by its name. Xeda records every
+listed file and every file of a search folder as an input of the run.
+
+bsc finds a package, an include file or a Verilog module only in these places:
+
+- the Bluespec sources and the Bluespec headers that the design lists (``bsc_sources/``);
+- the Verilog sources that the design lists, for ``import "BVI"`` (``bsc_verilog/``);
+- the ``search_paths`` folders (``bsc_search/<i>/``) and the ``verilog_search_paths`` folders;
+- the folders of ``installed_libraries`` and the libraries of bsc.
+
+A file that lies beside a listed source is not read unless the design lists it. So a package that
+the design imports must be a listed source or lie in a ``search_paths`` folder. An ``include`` file
+must be a listed source of type ``BluespecHeader``, or lie in a ``search_paths`` folder. If the
+design imports or includes a file that none of these gives, bsc fails, and the error text says how
+to fix it. Every run compiles every package again: it empties ``bobj_dir`` first.
+
+Include files
+~~~~~~~~~~~~~
+
+A file with the suffix ``.bsvi`` has the type ``BluespecHeader``. Give another include file, such
+as a ``.defines`` file or a ``.bsv`` fragment, the source entry ``type: BluespecHeader``. bsc never
+compiles a header. It reads the header through the ``include`` of a Bluespec source. A listed header
+is a link by its file name alone, so an ``include`` with a folder part (``cfg/x.bsvi``) needs a
+``search_paths`` folder. A change of a header runs the flow again. With ``cpp``, a listed ``CHeader``
+is also a link beside the listed sources, where a BH source finds a quoted ``#include``.
+
+.. code-block:: yaml
+
+    # bsc_includes.yaml
+    name: bsc_includes
+    rtl.top: mkTop
+    rtl.sources:
+      - Config.bsvi
+      - file: Widths.defines
+        type: BluespecHeader
+      - Top.bsv
+    flows:
+      bsc:
+        installed_libraries: [FPGA/Xilinx]
+
+Libraries
+~~~~~~~~~
+
+``search_paths`` names folders of the design (relative to the design root) that bsc searches for
+packages, after the listed sources. Xeda lists each folder as the trace does: it leaves out the
+metadata of version control at every depth, and the run root and every folder that holds the run
+directory. The run directory has a real folder for each subfolder and a link for each file. In each
+folder, bsc does not see these files:
+
+- a compiled ``.bo`` file that has a ``.bsv`` or ``.bs`` file of the same name beside it, because
+  bsc takes the newer of the two;
+- a ``.bsv``, ``.bs`` or ``.bo`` file named like a package that the design lists, because the
+  listed source is that package (bsc names each package after its file).
+
+The log says what each folder hides. A ``search_paths`` or ``verilog_search_paths`` folder that
+does not exist fails the run.
+
+``installed_libraries`` names folders inside the installation of bsc, below its ``Libraries``
+folder. Use it for a library that you installed into bsc. For example, bsc-contrib installed into
+bsc has its Xilinx packages in ``FPGA/Xilinx``, so ``installed_libraries: [FPGA/Xilinx]`` lets a
+design import them. bsc searches these folders after ``search_paths`` and before its own
+libraries. A folder that does not exist fails the run, whatever the warning settings: Xeda reads
+the search path that bsc resolved. The files in these folders belong to the installation, so the
+trace of the run does not record them.
+
+What is refused
+~~~~~~~~~~~~~~~
+
+The flows refuse a setting that lets bsc read or write a place that Xeda does not expect. The
+refusal comes when the run is planned, and the message names the setting to use instead.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Refused
+     - Use instead
+   * - ``-p`` in ``extra_flags``
+     - ``search_paths`` for folders of the design, ``installed_libraries`` for folders of bsc
+   * - ``-vsearch`` in ``extra_flags``
+     - ``verilog_search_paths``
+   * - ``-bdir``, ``-info-dir``, ``-fdir`` in ``extra_flags``
+     - ``bobj_dir``, ``info_dir``, ``fdir``
+   * - ``-vdir`` in ``extra_flags``
+     - ``verilog_out_dir`` (``bsc``), ``sim_dir`` (``bsc_sim``)
+   * - ``-simdir`` in ``extra_flags`` of ``bsc_sim``
+     - ``sim_dir``
+   * - ``-I``, ``-L`` in ``extra_flags`` of ``bsc_sim``
+     - ``include_dirs``, ``library_dirs``
+   * - ``-i``, or ``-simdir`` in ``extra_flags`` of ``bsc``
+     - no setting: remove the flag
+   * - ``BSC_OPTIONS`` in ``env``
+     - ``extra_flags``
+   * - two listed files with the same name, or names that differ only by letter case
+     - rename one of them
+   * - ``cleanup_bobjs``
+     - nothing: delete the setting (every run compiles every package again)
+
+A flag in this table is refused when a word of ``extra_flags`` names it, with one dash or, for a
+name of two letters or more, two (``--bdir``). A word that follows ``-Xc``, ``-Xc++``, ``-Xcpp``,
+``-Xl`` or ``-Xv`` is an argument for another program, so it is not checked. bsc itself refuses an
+argument that starts with ``-`` for every other flag.
+
+bsc always runs with an empty ``BSC_OPTIONS``, so a value in your shell has no effect. The flows
+warn when the variable is set.
+
+Messages
+~~~~~~~~
+
+bsc reads the files through the links, so its own text, on the console and in the log, names
+``bsc_sources/Top.bsv`` and not the file of the design. The error text that Xeda adds to a failed
+run names the real file.
+
+Limits
+~~~~~~
+
+These are outside the guarantee above:
+
+- a name that an ``include`` or an ``#include`` writes with an absolute path or with ``..``;
+- text that the design passes to other programs: ``-Xc``, ``-Xc++``, ``-Xcpp``, ``-Xl``, ``-Xv``,
+  ``link_flags``, ``verilog_link_flags`` and ``verilog_filters``;
+- the header lookup of the C compiler for the C and C++ sources of ``bsc_sim``
+  (``import "BDPI"``): an edit of a header does not run ``bsc_sim`` again;
+- the own searches of a simulator, for example Verilator, which searches its working directory;
+- the contents of the ``installed_libraries`` folders, which belong to the installation of bsc;
+- files that bsc reads while it elaborates a design (``openFile``).
+
 See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
 several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
 that mixes BSV and BH. ``examples/bluespec/uart_link`` shows a larger design: a reliable packet
