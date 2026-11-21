@@ -972,6 +972,10 @@ def test_one_rule_finds_the_words_that_name_an_owned_flag():
     assert find(["-bdir", "x"], owned) == ["-bdir"]
     assert find(["-Xc", "-Xc", "-p"], owned) == ["-p"]  # the second `-Xc` is the argument
     assert find(["--p", "-O", "-no-p", "-pfoo", "A.bsv"], owned) == []
+    # bsc reads `--Xc` as `-Xc`, so the word after it is an argument too.
+    for spelling in ("--Xc", "--Xc++", "--Xcpp", "--Xl", "--Xv"):
+        assert find([spelling, "-p"], owned) == []
+    assert find(["--Xc", "-Xc", "-p", "/hidden"], owned) == ["-p"]
 
 
 @pytest.mark.parametrize(
@@ -1001,6 +1005,7 @@ def test_bsc_options_in_env_is_refused(flow):
         ("bsc_search/0", "stage folder `bsc_search`"),
         ("bsc_verilog/out", "stage folder `bsc_verilog`"),
         ("bsc_foreign", "stage folder `bsc_foreign`"),
+        ("BSC_Sources/x", "stage folder `BSC_Sources`"),
     ],
 )
 def test_an_output_folder_that_is_or_lies_in_a_stage_folder_is_refused(flow, setting, value, meets):
@@ -2044,9 +2049,7 @@ class _FailingBsc:
         self.error = error
         self.calls: list[dict[str, Any]] = []
 
-    def run(
-        self, *args: Any, env: Any, tee: Path, merge_stderr: bool, console_paths: Any = None
-    ) -> None:
+    def run(self, *args: Any, env: Any, tee: Path, merge_stderr: bool) -> None:
         self.calls.append({"args": args, "env": env, "tee": tee, "merge_stderr": merge_stderr})
         tee.write_text(self.output)
         raise self.error
@@ -2499,18 +2502,6 @@ def test_an_unlisted_verilog_module_beside_a_listed_one_fails_the_simulator_link
     assert "Unknown module type: add3" in logs
 
 
-def test_a_second_run_removes_a_stale_link(tmp_path):
-    require_bsc()
-    design = _accum_design(tmp_path / "d")
-    run = tmp_path / "run"
-    first = _run_directly(Bsc, design, run)
-    (first.run_path / "bsc_sources" / "Gone.bsv").symlink_to(tmp_path / "nowhere")
-    (first.run_path / "bsc_verilog" / "gone.v").symlink_to(tmp_path / "nowhere")
-    _run_directly(Bsc, design, run)
-    assert sorted(p.name for p in (run / "bsc_sources").iterdir()) == ["Accum.bsv", "Top.bsv"]
-    assert list((run / "bsc_verilog").iterdir()) == []
-
-
 def test_one_file_listed_twice_is_no_conflict(tmp_path):
     root = tmp_path / "d"
     _write(root, {"P.bsv": "package P; endpackage\n"})
@@ -2726,6 +2717,20 @@ def test_the_rewrite_of_a_staged_name_changes_only_a_message_position_and_a_prog
     # Text that merely holds a name stays as it is.
     assert rewrite('PASS "bsc_sources/Top.bsv" here', paths) == 'PASS "bsc_sources/Top.bsv" here'
     assert rewrite('"other.bsv", line 3', paths) == '"other.bsv", line 3'
+
+
+def test_the_rewrite_of_a_staged_name_covers_a_compiler_position():
+    paths = {"bsc_sources/Top.bs": "/d/Top.bs"}
+    rewrite = bsc_module.rewrite_paths
+    for staged in (
+        "bsc_sources/Top.bs",
+        "/run/x///bsc_sources/Top.bs",
+        "bsc_sources///Top.bs",
+    ):
+        assert rewrite(f"{staged}:3:5: error: bad", paths) == "/d/Top.bs:3:5: error: bad"
+    assert rewrite("  bsc_sources/Top.bs:3:5: x", paths) == "  /d/Top.bs:3:5: x"
+    assert rewrite("other.bs:3:5: error: bad", paths) == "other.bs:3:5: error: bad"
+    assert rewrite("see bsc_sources/Top.bs:3:5: x", paths) == "see bsc_sources/Top.bs:3:5: x"
 
 
 def test_a_missing_package_names_the_ways_to_provide_it(tmp_path):

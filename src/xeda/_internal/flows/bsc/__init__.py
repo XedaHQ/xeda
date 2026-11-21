@@ -269,6 +269,7 @@ _MISSING_INCLUDE_NAME = re.compile(r"Cannot find the file `([^']*)' to be includ
 
 
 _QUOTED_POSITION = re.compile(r'"([^"\r\n]+)", line (?=\d)')
+_COMPILER_POSITION = re.compile(r"^(\s*)([^\s:][^:]*?):(?=\d+:\d+:)")
 _PROGRESS_PATH = re.compile(r"^((?:re)?compiling )(\S.*?)(\s*)$")
 
 
@@ -285,20 +286,39 @@ def _real_path(name: str, paths: Mapping[str, str]) -> str | None:
     return None
 
 
+def _positioned_path(name: str, paths: Mapping[str, str]) -> str | None:
+    """Return the real path for `name`, the file name in a compiler position. The compiler may
+    print it with a run-directory prefix and with repeated slashes (`run///bsc_sources/A.bs`),
+    so try the name and then each tail of it that starts after a slash."""
+    name = re.sub(r"/{2,}", "/", name)
+    real = _real_path(name, paths)
+    start = name.find("/")
+    while real is None and start != -1:
+        real = _real_path(name[start + 1 :], paths)
+        start = name.find("/", start + 1)
+    return real
+
+
 def rewrite_paths(line: str, paths: Mapping[str, str]) -> str:
     """Return `line`, a line of bsc output, with the staged file names of a message replaced by
     the real paths in `paths`.
 
-    Only two forms change. A quoted name that a position follows (`"A.bsv", line 3`) is the file
-    of a message. A line that starts with `compiling ` or `recompiling ` and a name is a progress
-    line. Any other text stays as it is. A name is in `paths` itself, or lies in a folder that
-    is."""
+    Only three forms change. A quoted name that a position follows (`"A.bsv", line 3`) is the
+    file of a message. A line that starts with `compiling ` or `recompiling ` and a name is a
+    progress line. A line that starts with a compiler position (`A.bs:3:5:`) names the file of
+    a message from the C preprocessor, which may be absolute. Any other text stays as it is. A
+    name is in `paths` itself, or lies in a folder that is."""
 
     def quoted(match: re.Match[str]) -> str:
         real = _real_path(match[1], paths)
         return match[0] if real is None else f'"{real}", line '
 
     line = _QUOTED_POSITION.sub(quoted, line)
+    position = _COMPILER_POSITION.match(line)
+    if position is not None:
+        real = _positioned_path(position[2], paths)
+        if real is not None:
+            line = f"{position[1]}{real}:{line[position.end() :]}"
     progress = _PROGRESS_PATH.match(line)
     if progress is not None:
         real = _real_path(progress[2], paths)
@@ -375,10 +395,11 @@ def owned_flag_words(flags: Sequence[str], owned: Iterable[str]) -> list[str]:
     """Return the words of `flags` that name a flag of `owned`, in order.
 
     `owned` holds flag names without the dash (`p`, `bdir`). A word names a flag with one dash
-    (`-bdir`), or with two when the name has two letters or more (`--bdir`), as bsc reads it. A
-    word right after a pass-through flag (`-Xc -p`) is an argument for another program, so it
-    names no flag. Any other flag of bsc refuses an argument that starts with `-`, so the rule
-    holds for every word of `flags`."""
+    (`-bdir`), or with two when the name has two letters or more (`--bdir`), as bsc reads it.
+    This holds for the pass-through flags too (`--Xc`). A word right after a pass-through flag
+    (`-Xc -p`) is an argument for another program, so it names no flag. Any other
+    flag of bsc refuses an argument that starts with `-`, so the rule holds for every word of
+    `flags`."""
     names = set(owned)
     found: list[str] = []
     argument = False  # the word is the argument of a pass-through flag
@@ -386,12 +407,12 @@ def owned_flag_words(flags: Sequence[str], owned: Iterable[str]) -> list[str]:
         if argument:
             argument = False
             continue
-        if word in _PASS_THROUGH_FLAGS:
+        # bsc reads `--name` as `-name` when the name has two letters or more.
+        single = word[1:] if word.startswith("--") and len(word) > 3 and word[2] != "-" else word
+        if single in _PASS_THROUGH_FLAGS:
             argument = True
-        elif word.startswith("-"):
-            name = word[2:] if word.startswith("--") and len(word) > 3 else word[1:]
-            if name in names:
-                found.append(word)
+        elif single.startswith("-") and single[1:] in names:
+            found.append(word)
     return found
 
 
@@ -401,17 +422,23 @@ def _stage_folder_conflict(path: Path) -> str | None:
     refuse a working folder that is absolute or has a `..` part."""
     if not path.parts:
         return "is the run directory itself"
-    if path.parts[0] in STAGE_FOLDERS:
+    if path.parts[0].casefold() in {folder.casefold() for folder in STAGE_FOLDERS}:
         return f"is or lies inside the stage folder `{path.parts[0]}`"
     return None
 
 
 def _bsc_path(paths: Iterable[str | Path], what: str, tail: str) -> str:
     """Return a bsc search path: directories separated by `:`, then `tail`, the entries that
-    bsc itself adds."""
+    bsc itself adds. bsc expands a `%` in an entry to its installation. So an entry may hold
+    one only as the flow's own `%/...` entry, and a user directory with `%` is refused."""
     entries = []
     for path in paths:
         text = str(path)
+        if "%" in text and not text.startswith("%/"):
+            raise FlowSettingsException(
+                f"{what}: bsc expands '%' in a search-path entry to its installation, so it "
+                f"cannot use the directory {text!r}"
+            )
         if _PATH_SEPARATOR in text:
             raise FlowSettingsException(
                 f"{what}: bsc separates search-path entries with ':', so it cannot use the "
@@ -646,8 +673,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
             "libraries such as bsc-contrib's. Relative to the design root. bsc reads a package "
             "of the design only from a listed source or from one of these directories. bsc "
             "does not see a stray compiled `.bo` file that lies beside its source, or any file "
-            "(`.bsv`, `.bs` or `.bo`) named like a package that the design lists. The first "
-            "directory that holds a package wins.",
+            "(`.bsv`, `.bs` or `.bo`) named like a package that the design lists. bsc takes "
+            "every `.bsv` candidate of a package in all directories before any `.bs` one, and "
+            "within one kind, the first directory that holds the package.",
         )
         installed_libraries: list[str] = Field(
             [],
@@ -1091,11 +1119,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     def _warn_inherited_bsc_options(self) -> None:
         """Warn once if the environment of the caller sets `BSC_OPTIONS`. Every bsc process of
-        the flow runs with it empty (`BscTool.run`), so bsc ignores the value."""
+        the flow runs with it empty (`BscTool.run`), so bsc ignores the value. The inherited
+        environment is freshness evidence, so a change of the value still runs the flow again."""
         if self.env_view.get(BSC_OPTIONS):
             log.warning(
-                "The environment sets %s, but bsc runs without it, so that the run depends on "
-                "the settings alone. Put the flags in the `extra_flags` setting.",
+                "The environment sets %s. bsc runs without it, but a change of it still runs the "
+                "flow again. Put the flags in the `extra_flags` setting.",
                 BSC_OPTIONS,
             )
 
@@ -1208,6 +1237,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
         - every `.bsv`, `.bs` and `.bo` file named like a listed Bluespec source (`Pkg`): the
           listed source in `bsc_sources` is the package.
 
+        Names compare with letter case ignored (`casefold`), so the result does not depend on
+        the file system.
+
         One INFO line for each folder says what was left out. A folder that does not exist fails
         the run.
 
@@ -1215,7 +1247,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         """
         ss = self.settings
         assert isinstance(ss, BscFlow.Settings)
-        listed = {src.file.stem for src in self._sources_of(SourceType.Bluespec, tb=tb)}
+        listed = {src.file.stem.casefold() for src in self._sources_of(SourceType.Bluespec, tb=tb)}
         prune = [self.run_path]
         if self.run_directory.run_root is not None:
             prune.append(self.run_directory.run_root)
@@ -1238,17 +1270,18 @@ class BscFlow(Flow, metaclass=ABCMeta):
             files = [path for path in entries if not path.is_dir()]
             names: dict[Path, set[str]] = {}
             for path in files:
-                names.setdefault(path.parent, set()).add(path.name)
+                names.setdefault(path.parent, set()).add(path.name.casefold())
             hidden: list[str] = []
             for path in entries:
                 relative = path.relative_to(top)
                 if path.is_dir():
                     (target / relative).mkdir(parents=True, exist_ok=True)
                     continue
+                stem = path.stem.casefold()
                 if (
-                    path.suffix == ".bo"
-                    and {f"{path.stem}.bsv", f"{path.stem}.bs"} & names[path.parent]
-                ) or (path.suffix in (".bsv", ".bs", ".bo") and path.stem in listed):
+                    path.suffix.casefold() == ".bo"
+                    and {f"{stem}.bsv", f"{stem}.bs"} & names[path.parent]
+                ) or (path.suffix.casefold() in (".bsv", ".bs", ".bo") and stem in listed):
                     hidden.append(str(relative))
                 elif path.is_file():
                     (target / relative).symlink_to(path)

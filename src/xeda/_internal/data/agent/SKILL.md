@@ -347,8 +347,9 @@ edit of a `.bsv` reruns `bsc` only; an edit that changes the Verilog reruns the 
 imported package or an included file beside a source is invisible unless listed. List an include
 file as `BluespecHeader` (`.bsvi`, or `type: BluespecHeader` for `.defines` and `.bsv` fragments).
 A `search_paths` folder hides, at each folder level, a `.bo` whose `.bsv` or `.bs` lies beside it
-and any file named like a listed package. A missing `search_paths`, `verilog_search_paths` or
-`installed_libraries` folder fails the run. Refused at planning: `-p`, `-vsearch`, `-bdir`,
+and any file named like a listed package. A missing `search_paths` or
+`installed_libraries` folder fails the run, and so does a missing `verilog_search_paths` folder
+with a Verilog backend. Refused at planning: `-p`, `-vsearch`, `-bdir`,
 `-info-dir`, `-fdir`, `-vdir`, `-simdir`, `-i`, and in `bsc_sim` `-I`, `-L`, in `extra_flags` (a word
 after `-Xc`, `-Xc++`, `-Xcpp`, `-Xl` or `-Xv` is not checked), `BSC_OPTIONS` in `env`, two listed
 files of one name (also by letter case only), and the removed `cleanup_bobjs`. The console and the

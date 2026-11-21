@@ -2689,6 +2689,12 @@ directory. Each file is one that the design lists, a file in a ``search_paths`` 
 the settings do not name is not there, so bsc cannot find it by its name. Xeda records every
 listed file and every file of a search folder as an input of the run.
 
+The listed sources and the ``search_paths`` folders reach bsc through links. The
+``verilog_search_paths`` and ``installed_libraries`` folders reach bsc as they are. A
+``verilog_search_paths`` folder that does not exist fails a run with a Verilog backend. Bluesim
+does not use these folders, so it does not check them. ``bsc`` also checks the names of the
+Verilog sources of ``tb``, since it puts them on its Verilog path.
+
 bsc finds a package, an include file or a Verilog module only in these places:
 
 - the Bluespec sources and the Bluespec headers that the design lists (``bsc_sources/``);
@@ -2740,8 +2746,10 @@ folder, bsc does not see these files:
 - a ``.bsv``, ``.bs`` or ``.bo`` file named like a package that the design lists, because the
   listed source is that package (bsc names each package after its file).
 
-The log says what each folder hides. A ``search_paths`` or ``verilog_search_paths`` folder that
-does not exist fails the run.
+The log says what each folder hides. Letter case does not matter for these rules. bsc takes every
+``.bsv`` candidate of a package in all folders before any ``.bs`` candidate, and then follows the
+folder order. A ``search_paths`` folder that does not exist fails the run, and so does a
+``verilog_search_paths`` folder with a Verilog backend.
 
 ``installed_libraries`` names folders inside the installation of bsc, below its ``Libraries``
 folder. Use it for a library that you installed into bsc. For example, bsc-contrib installed into
@@ -2789,7 +2797,8 @@ name of two letters or more, two (``--bdir``). A word that follows ``-Xc``, ``-X
 ``-Xl`` or ``-Xv`` is an argument for another program, so it is not checked. bsc itself refuses an
 argument that starts with ``-`` for every other flag.
 
-bsc always runs with an empty ``BSC_OPTIONS``, so a value in your shell has no effect. The flows
+bsc runs without ``BSC_OPTIONS``, so a value in your shell has no effect on bsc. A change of the
+value still runs the flow again, because the inherited environment is freshness evidence. The flows
 warn when the variable is set.
 
 Messages

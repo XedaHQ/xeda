@@ -20,7 +20,6 @@ LINKS = re.compile(r"\bsymlink_to\(|\bos\.symlink\(")
 #: joins the job. Never add one: a new file that creates links goes into the job.
 NOT_IN_THE_MACOS_JOB = {
     "test_artifacts.py",
-    "test_bsc.py",
     "test_checkout_guard.py",
     "test_cocotb.py",
     "test_code_digest.py",

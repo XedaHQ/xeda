@@ -69,6 +69,17 @@ def test_a_verilog_search_path_with_a_colon_is_rejected(tmp_path):
         flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
 
 
+def test_a_verilog_search_path_with_a_percent_is_rejected_but_not_the_flows_own(tmp_path):
+    design = _accum_design(tmp_path / "d")
+    (tmp_path / "d" / "a%b").mkdir()
+    flow = _flow(Bsc, design, tmp_path / "run", verilog_search_paths=["a%b"])
+    with pytest.raises(FlowSettingsException, match="'%'"):
+        flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
+    own = _flow(Bsc, design, tmp_path / "run2", verilog_primitives="vivado")
+    flags = own._path_flags("verilog", tmp_path / "out", design.rtl.sources)
+    assert "%/Verilog.Vivado" in _pairs(flags, "-vsearch")[0]
+
+
 def test_a_missing_verilog_search_folder_fails_the_run(tmp_path):
     design = _accum_design(tmp_path / "d")
     flow = _flow(Bsc, design, tmp_path / "run", verilog_search_paths=["nowhere"])
@@ -259,6 +270,39 @@ def test_the_stage_of_the_design_root_leaves_out_the_run_root(tmp_path):
     )
     flow._stage(tb=False)
     assert _search_names(flow) == ["Other.bsv"]
+
+
+def test_a_second_stage_removes_a_stale_link(tmp_path):
+    design = _accum_design(tmp_path / "d")
+    flow = _flow(Bsc, design, tmp_path / "run")
+    flow._stage(tb=False)
+    (flow.run_path / "bsc_sources" / "Gone.bsv").symlink_to(tmp_path / "nowhere")
+    (flow.run_path / "bsc_verilog" / "gone.v").symlink_to(tmp_path / "nowhere")
+    flow._stage(tb=False)
+    assert sorted(p.name for p in (flow.run_path / "bsc_sources").iterdir()) == [
+        "Accum.bsv",
+        "Top.bsv",
+    ]
+    assert list((flow.run_path / "bsc_verilog").iterdir()) == []
+
+
+def test_the_hiding_rules_ignore_letter_case(tmp_path):
+    stub = "package X; endpackage\n"
+    flow = _search_flow(
+        tmp_path,
+        {
+            "Top.bsv": "package Top; endpackage\n",
+            "lib/pkg.bo": "",  # beside Pkg.bsv, which differs only by case
+            "lib/Pkg.bsv": stub,
+            "lib/TOP.bsv": stub,  # named like the listed package Top
+            "lib/top.bo": "",
+            "lib/Lone.bo": "",
+        },
+        ["lib"],
+        rtl={"sources": ["Top.bsv"], "top": "mkTop"},
+    )
+    flow._stage(tb=False)
+    assert _search_names(flow, 0) == ["Lone.bo", "Pkg.bsv"]
 
 
 def test_a_stale_search_stage_is_replaced(tmp_path):
