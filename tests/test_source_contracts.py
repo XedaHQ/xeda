@@ -119,8 +119,8 @@ EXPECTED_READS = {
     "xezim": "Verilog SystemVerilog VerilogHeader SVHeader",
     "vivado_sim": "Verilog SystemVerilog Vhdl",
     "vivado_postsynth_sim": "Verilog SystemVerilog Vhdl",
-    "bsc": "Bluespec BluespecHeader Verilog SystemVerilog",
-    "bsc_sim": "Bluespec BluespecHeader Verilog SystemVerilog C Cpp ObjectFile",
+    "bsc": "Bluespec BluespecHeader CHeader Verilog SystemVerilog",
+    "bsc_sim": "Bluespec BluespecHeader CHeader Verilog SystemVerilog C Cpp ObjectFile",
     "sby": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader MemoryFile",
 }
 #: The flows that read none of the design's sources: each reads only its declared inputs.
@@ -167,6 +167,8 @@ FLOWS_DIR = impl_root() / "flows"
 
 def _suffix(member: SourceType) -> str:
     """A suffix `member` is inferred from, or `dat` for a member given by `type` only."""
+    if member is SourceType.Bluespec:
+        return "bsv"  # bsc reads `.bsv` and `.bs` only, and `.bh` is inferred but refused
     return next((s for s, m in sorted(SOURCE_SUFFIXES.items()) if m is member), "dat")
 
 
@@ -824,6 +826,10 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
         "flows.ghdl:GhdlSynth.synth_args: _sources_of_type"
     ): "the VHDL sources of a one-shot "
     "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
+    impl_module(
+        "flows.bsc:BscFlow._stage_links: _sources_of_type"
+    ): "the links of the stage folders: the listed sources of the types it names, for the planning "
+    "check, which has no flow to select with; the flow's links are the same sources",
     impl_module(
         "flows.bsc:Bsc._derived_sources: sources"
     ): "which sources of the design pass through "

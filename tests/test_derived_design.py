@@ -588,11 +588,11 @@ def test_bsc_without_the_reset_macro_has_no_defining_file(tmp_path, capfd) -> No
 
 @pytest.mark.parametrize("positive_reset", [False, True])
 def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, capfd) -> None:
-    """Without `cleanup_bobjs`, bsc keeps the Verilog of a package it finds up to date. A run in
-    the directory of an earlier run still records those modules, with the content they have."""
+    """A run in the directory of an earlier run records the modules bsc writes again, with the
+    content they have."""
     require_bsc()
     design = _design(tmp_path / "d")
-    settings = {"cleanup_bobjs": False, "positive_reset": positive_reset}
+    settings = {"positive_reset": positive_reset}
     first = _bsc(design, tmp_path, **settings)
     assert first.succeeded, run_report(first, capfd.readouterr())
     before = first.results["outputs"]["design"]
@@ -603,18 +603,18 @@ def test_bsc_records_the_modules_it_found_up_to_date(positive_reset, tmp_path, c
 
 
 def test_bsc_never_records_a_generated_module_that_it_did_not_write(tmp_path, capfd) -> None:
-    """Without `cleanup_bobjs`, a module changed in the run directory after a run is written
-    again by bsc. The record holds what bsc wrote, never the changed file."""
+    """A module changed in the run directory after a run is written again by bsc. The record
+    holds what bsc wrote, never the changed file."""
     require_bsc()
     design = _design(tmp_path / "d")
-    first = _bsc(design, tmp_path, cleanup_bobjs=False)
+    first = _bsc(design, tmp_path)
     assert first.succeeded, run_report(first, capfd.readouterr())
     before = first.results["outputs"]["design"]
     generated = [Path(item["generated"]) for item in before["sources"] if "generated" in item]
     module = generated[-1]
     original = module.read_bytes()
     module.write_bytes(original + b"// changed after the run\n")
-    again = _bsc(design, tmp_path, cleanup_bobjs=False)
+    again = _bsc(design, tmp_path)
     assert again.succeeded, run_report(again, capfd.readouterr())
     assert module.read_bytes() == original
     assert again.results["outputs"]["design"] == before
