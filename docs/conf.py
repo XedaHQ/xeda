@@ -20,7 +20,7 @@ from importlib.metadata import version as release_version
 # -- Project information -----------------------------------------------------
 
 project = "xeda"
-copyright = "2022, Kamyar Mohajerani"
+copyright = "2020-2026, Kamyar Mohajerani"
 author = "Kamyar Mohajerani"
 version = release_version("xeda")
 
