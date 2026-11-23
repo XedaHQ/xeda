@@ -288,7 +288,7 @@ that are the same run (``equal_specs``), two configurations on one run directory
 (``shared_destination``).
 
 Each point has a ``Result`` as a launch has. In the first point that runs a node, the node is
-``ran``. In the others it is ``shared``, with the same outcome, record and error, the time 0.0 and
+``ran``. In the others it is ``shared``, with the same outcome, record and error, the time ``0 s`` and
 the reason ``shared with point N``. A node that an earlier launch left up to date is ``reused`` in
 every point, and a node whose run did not begin is ``not_run`` in every point: a worker that
 refuses a task (for example with ``stale_runtime``) does not run it. A worker process that dies
@@ -802,9 +802,10 @@ Locking
 A durable lock file, ``<run dir>.lock``, lies beside the run directory and never inside it. It
 serializes the writers of one directory. This works on POSIX only, and Windows has no lock. A
 generation storage and a delivery destination have a lock file beside them in the same way. The
-lock files of the destinations lie under the run root. Two spellings of one path, such as names that
-differ only in letter case on a file system that ignores case, or two Unicode forms of one name,
-are one lock.
+lock files of the destinations lie under the run root. Two launches with different run roots that
+deliver to one destination do not share a lock file, so Xeda does not serialize their deliveries.
+Two spellings of one path, such as names that differ only in letter case on a file system that
+ignores case, or two Unicode forms of one name, are one lock.
 
 A launch takes the locks of its whole graph in one step, before it runs anything. It asks for the
 run directory of every node of its plan and for every generation storage and dependency storage.

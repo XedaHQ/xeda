@@ -445,7 +445,8 @@ directory, and the sweep raises ``colliding_run_dirs`` before any point runs.
 
 * A point that is rejected, failed or canceled is still a point, with its result and its row.
   A metric cell is ``None`` when its node has no record in that point or the record has no such
-  metric. A mistyped metric name gives a column of ``None``, not an error.
+  metric. A metric name that no node or no flow knows raises ``KeyError`` (it names the nodes or
+  the metrics that exist).
 * The first point whose launch ran a shared node reports ``ran``. The other points report
   ``shared``.
 * Xeda refuses two equal specs (``equal_specs``), two configurations on one run directory
@@ -607,6 +608,9 @@ A launch that starts returns a ``Result``. These exceptions can come out of a ca
 * the Xeda errors, all subclasses of ``XedaError`` with a stable ``code`` (see :doc:`api/errors`
   and :doc:`machine-readable`);
 * ``KeyError`` from a lookup (``metrics``, ``metric``, ``outputs``, ``artifacts``, ``nodes``);
+* ``ValueError`` for a ``tool_output`` of ``Workspace`` that is not ``"log"`` or ``"terminal"``,
+  for a ``max_workers`` of ``sweep`` that is not a whole number of at least 1, and from
+  ``record.quantity`` for a metric that has no unit;
 * ``TypeError`` for an argument of the wrong Python type;
 * the exception that an assignment to a read-only object raises;
 * ``KeyboardInterrupt``, after cleanup;

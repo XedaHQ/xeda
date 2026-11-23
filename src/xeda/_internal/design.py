@@ -4366,8 +4366,10 @@ class Design(XedaBaseModel):
         added later is not), selects `target` among the `targets` of the design and validates.
         Without `target` the design has no target. It runs no generator and fetches nothing.
 
-        A file that cannot be read as a design raises `DesignFileParseError`. A file whose design
-        does not validate raises `DesignValidationError`. Both errors name the file."""
+        A missing file raises `xeda.errors.DesignError` with the code `design_file_not_found`. A
+        file that cannot be read as a design, or whose design does not validate, raises it with the
+        code `invalid_design`, or with `removed_alias`, `removed_key`, `unknown_target` or
+        `target_required`. The error names the file."""
         return cls._load_file(path, target=target)
 
     @classmethod
