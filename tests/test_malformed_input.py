@@ -119,6 +119,24 @@ def test_a_parameter_list_entry_that_is_not_an_object_is_a_design_error(entry):
         Design(name="d", root=ROOT, rtl={**RTL, "parameters": [entry]})
 
 
+@pytest.mark.parametrize("field", ["parameters", "defines"])
+@pytest.mark.parametrize(
+    "value",
+    [object(), {1, 2}, float("nan"), float("inf"), Path("a"), {"x": object()}, [1, {2}], {1: 2}],
+    ids=["object", "set", "nan", "inf", "path", "table-of-object", "list-of-set", "integer-key"],
+)
+def test_a_parameter_or_define_must_be_a_json_value(field, value):
+    with pytest.raises(DesignValidationError, match=r"JSON value|JSON cannot hold|not text"):
+        Design(name="d", root=ROOT, rtl={**RTL, field: {"W": value}})
+
+
+@pytest.mark.parametrize("field", ["parameters", "defines"])
+def test_a_parameter_or_define_takes_every_json_value(field):
+    value = {"a": [1, 2.5, None, "x", True, {"b": [False]}], "c": 3, "d": "text"}
+    design = Design(name="d", root=ROOT, rtl={**RTL, field: value})
+    assert design.to_dict()["rtl"][field] == value
+
+
 def test_a_missing_verilog_lib_names_the_file(tmp_path):
     missing = tmp_path / "cells.v"
 

@@ -7,6 +7,7 @@ import importlib
 import inspect
 import json
 import logging
+import math
 import os
 import pprint
 import re
@@ -1337,6 +1338,43 @@ def _normalize_parameters(value: Any) -> Any:
     return value
 
 
+def _json_value_problem(value: Any, where: str) -> Optional[str]:
+    """Return what is wrong with `value` as a JSON value, or `None` if it is one.
+
+    A JSON value is `None`, a boolean, an integer, a finite float, a string, or a list or table of
+    JSON values (a table has text keys). `where` names the value in the message."""
+    if value is None or isinstance(value, (bool, int, str)):
+        return None
+    if isinstance(value, float):
+        return None if math.isfinite(value) else f"{where} is {value}, which JSON cannot hold"
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            problem = _json_value_problem(item, f"{where}[{index}]")
+            if problem:
+                return problem
+        return None
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                return f"{where} has the key {key!r}, which is not text"
+            problem = _json_value_problem(item, f"{where}.{key}")
+            if problem:
+                return problem
+        return None
+    return f"{where} is {value!r}, which is not a JSON value"
+
+
+def _check_json_values(value: Any, field: str) -> Any:
+    """Return the table `value` of `field` (`parameters` or `defines`) if every value in it is a
+    JSON value, else raise `ValueError` that names the first one that is not."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            problem = _json_value_problem(item, f"{field} value `{key}`")
+            if problem:
+                raise ValueError(f"{problem}. Use text, a number, a boolean, a list or a table")
+    return value
+
+
 def _parameters_form(value: Any) -> Any:
     """Return the table that a list of `{name, value}` objects stands for (`field_shorthands`)."""
     return _parameters_as_mapping(value) if isinstance(value, list) else None
@@ -1750,7 +1788,12 @@ class DesignPart(XedaBaseModel):
     @field_validator("parameters", mode="before")
     @classmethod
     def _validate_parameters(cls, value):
-        return _normalize_parameters(value)
+        return _check_json_values(_normalize_parameters(value), "parameters")
+
+    @field_validator("defines", mode="before")
+    @classmethod
+    def _validate_defines(cls, value):
+        return _check_json_values(value, "defines")
 
     @field_validator("sources", mode="before")
     @classmethod

@@ -142,10 +142,12 @@ directory of that file.
    * - ``parameters``
      - no
      - Parameters of the top module (Verilog parameters or VHDL generics), as a mapping or a
-       list of ``{name, value}`` objects.
+       list of ``{name, value}`` objects. A value is a boolean, a number, text, a list or a table
+       of these, or a ``file`` or ``path`` table.
    * - ``defines``
      - no
-     - Verilog preprocessor macros, as a mapping.
+     - Verilog preprocessor macros, as a mapping. A value is a boolean, a number, text, a list or a
+       table of these.
    * - ``clock``
      - no
      - One clock: ``clock.port: clk`` or ``clock: clk``.
