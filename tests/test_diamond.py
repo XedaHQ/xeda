@@ -146,3 +146,26 @@ def test_the_dsp_metric_is_zero_when_the_report_lists_zero_counts(tmp_path: Path
         _map_report(tmp_path, "   MULT18X18D          0\n   ALU54B              0\n")
     )
     assert flow.results["dsp"] == 0
+
+
+def test_parsing_without_the_reports_does_not_raise(tmp_path: Path) -> None:
+    """The reports of a run that stopped early are missing: the parse fails the run and does not
+    raise, whatever the reports lack."""
+    design = Design.load(Path(__file__).parent / "resources/design0/design0.toml")
+    flow = DiamondSynth(DiamondSynth.Settings(), design, tmp_path)
+    assert flow.parse_reports() is False
+    assert "clock_period" not in flow.results
+
+
+def test_the_clock_frequency_follows_the_period_in_the_timing_report(tmp_path: Path) -> None:
+    design = Design.load(Path(__file__).parent / "resources/design0/design0.toml")
+    flow = DiamondSynth(DiamondSynth.Settings(), design, tmp_path)
+    reports = tmp_path / flow.settings.impl_folder
+    reports.mkdir()
+    (reports / f"{design.name}_{flow.settings.impl_name}.twr").write_text(
+        'Preference: PERIOD PORT "clk" 10.000000 ns HIGH 5.000000 ns ;\n'
+        "            12 items scored, 0 timing errors\n"
+    )
+    assert flow.parse_reports() is False  # no place and route report, so no status
+    assert flow.results["clock_period"] == 10.0
+    assert flow.results["clock_frequency"] == 100.0

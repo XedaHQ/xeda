@@ -156,15 +156,14 @@ class DiamondSynth(FpgaSynthFlow):
             reports_dir / f"{design_name}_{impl_name}.twr", [period_pat, freq_pat]
         )
 
+        # The timing report gives the period or the frequency of the clock constraint, or neither
+        # if it is missing or has another layout: then both metrics stay unknown.
         if "clock_frequency" in self.results:
-            frequency = self.results["clock_frequency"]
-            period = 1000.0 / frequency
-            self.results["clock_period"] = period
-
+            self.results["clock_period"] = 1000.0 / self.results["clock_frequency"]
+        elif "clock_period" in self.results:
+            self.results["clock_frequency"] = 1000.0 / self.results["clock_period"]
         else:
-            period = self.results["clock_period"]
-            frequency = 1000.0 / period
-            self.results["clock_frequency"] = frequency
+            log.warning("The timing report gives no clock constraint: no clock period.")
 
         slice_pat = r"^Device\s+utilization\s+summary:\s*.*^\s+SLICE\s+(?P<slice>\d+)\/(?P<_slice_avail>\d+).*^Number\s+of\s+Signals"
         time_pat = r"""Level\s*/\s+Number\s+Worst\s+Timing\s+Worst\s+Timing\s+Run\s+NCD\s*
@@ -175,8 +174,11 @@ class DiamondSynth(FpgaSynthFlow):
 
         self.parse_map_report(reports_dir / f"{design_name}_{impl_name}.mrp")
 
-        status = str(self.results["_status"])
-        if status.lower() != "completed":
+        status = self.results.get("_status")
+        if status is None:
+            log.error("The place and route report has no status of the run.")
+            return False
+        if str(status).lower() != "completed":
             log.error("Diamond's place and route status is %s, not completed.", status)
             return False
         return True
