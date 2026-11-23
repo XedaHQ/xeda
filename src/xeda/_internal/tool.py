@@ -78,6 +78,17 @@ class Docker(XedaBaseModel):
     mounts: Dict[str, str] = {}
     default_env: Dict[str, str] = {"DISPLAY": "host.docker.internal:0"}
 
+    @property
+    def reference(self) -> str:
+        """The image as `docker run` names it.
+
+        An image that has a tag or a digest keeps it. The `tag` setting applies only to an image
+        without one. The colon of a registry port (`localhost:5000/image`) is not a tag."""
+        last = self.image.rsplit("/", 1)[-1]
+        if "@" in self.image or ":" in last or not self.tag:
+            return self.image
+        return f"{self.image}:{self.tag}"
+
     # NOTE only works for Linux containers
     @cached_property
     def cpuinfo(self) -> Optional[List[List[str]]]:
@@ -139,7 +150,10 @@ class Docker(XedaBaseModel):
         cwd = Path(os.path.realpath(cwd))
         stdout = _placed(cwd, stdout)
         tee = None if tee is None else cwd / tee
-        note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
+        image = self.reference
+        # An image without a tag or a digest is the `latest` one.
+        recorded = image if "@" in image or ":" in image.rsplit("/", 1)[-1] else f"{image}:latest"
+        note_program(f"{DOCKER_IMAGE_PREFIX}{recorded}")
         # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
         # stay out of `mounts`, because a later run would mount them again. A version probe's
         # temporary directory (`Tool.probe_stdout`) is gone by then, and Docker would create it
@@ -183,10 +197,6 @@ class Docker(XedaBaseModel):
             with replacing_file(env_file) as f:
                 f.write("\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
-        image = self.image
-        image_sp = image.split(":")
-        if len(image_sp) < 2 and self.tag:
-            image = f"{image}:{self.tag}"
         if self.command:
             command = self.command
         else:
@@ -207,6 +217,7 @@ class Docker(XedaBaseModel):
                     check=False,
                     merge_stderr=True,
                     timeout=DOCKER_KILL_TIMEOUT,
+                    env=client_env,
                     cwd=cwd,
                     canceled=never_canceled,  # it runs because the launch was canceled
                 )

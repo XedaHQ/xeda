@@ -670,7 +670,7 @@ def check_trace(
     for name, program in trace.programs.items():
         where = locate(name)
         if program is None or where != program.path:
-            if program is None and where is None:
+            if program is None and where is None and not name.startswith(DOCKER_IMAGE_PREFIX):
                 continue  # not found then, nor now
             return Freshness(False, f"{name} changed")
         if program.file is None:

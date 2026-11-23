@@ -121,6 +121,51 @@ def test_running_in_a_container_records_the_image(monkeypatch, tmp_path):
     assert names == [f"{DOCKER_IMAGE_PREFIX}hdlc/ghdl:yosys", f"{DOCKER_IMAGE_PREFIX}alpine:latest"]
 
 
+def test_an_image_with_a_tag_or_digest_keeps_it_in_the_record_and_the_command(
+    monkeypatch, tmp_path
+):
+    commands = []
+    monkeypatch.setattr(
+        xeda._internal.tool, "run_process", lambda _cli, cmd, **kwargs: commands.append(cmd)
+    )
+    images = [
+        "hdlc/sim:osvb",
+        "localhost:5000/sim",
+        "localhost:5000/sim:v2",
+        "sim@sha256:0123",
+    ]
+    with recording_programs() as names:
+        for image in images:
+            Docker(image=image).run("true", cwd=tmp_path)
+    assert names == [
+        f"{DOCKER_IMAGE_PREFIX}hdlc/sim:osvb",
+        f"{DOCKER_IMAGE_PREFIX}localhost:5000/sim:latest",
+        f"{DOCKER_IMAGE_PREFIX}localhost:5000/sim:v2",
+        f"{DOCKER_IMAGE_PREFIX}sim@sha256:0123",
+    ]
+    assert [cmd[-2] for cmd in commands] == [
+        "hdlc/sim:osvb",
+        "localhost:5000/sim:latest",
+        "localhost:5000/sim:v2",
+        "sim@sha256:0123",
+    ]
+
+
+def test_stopping_a_container_uses_the_environment_of_the_docker_client(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run_process(cli, args, **kwargs):
+        calls.append((args, kwargs))
+        if args[0] == "run":
+            kwargs["on_stop"]()
+
+    monkeypatch.setattr(xeda._internal.tool, "run_process", fake_run_process)
+    client_env = {"DOCKER_HOST": "ssh://elsewhere", "PATH": "/bin"}
+    Docker(image="alpine").run("true", cwd=tmp_path, client_env=client_env)
+    killed = [kwargs for args, kwargs in calls if args[0] == "kill"]
+    assert [k["env"] for k in killed] == [client_env]
+
+
 class TRunsTool(Flow):
     """Runs `probe-tool`, whatever PATH finds."""
 
