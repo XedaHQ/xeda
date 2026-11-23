@@ -183,7 +183,7 @@
           "path": {
             "allow_dash": false,
             "dir_okay": false,
-            "exists": true,
+            "exists": false,
             "file_okay": true,
             "readable": true,
             "resolve_path": false,
@@ -2432,14 +2432,14 @@
             "allow_dash": false,
             "dir_okay": true,
             "exists": false,
-            "file_okay": true,
+            "file_okay": false,
             "readable": true,
             "resolve_path": false,
             "writable": false
           },
           "required": false,
           "secondary_names": [],
-          "type": "path"
+          "type": "directory"
         },
         "version": {
           "default": null,
@@ -2556,14 +2556,14 @@
             "allow_dash": false,
             "dir_okay": true,
             "exists": false,
-            "file_okay": true,
+            "file_okay": false,
             "readable": true,
             "resolve_path": false,
             "writable": false
           },
           "required": false,
           "secondary_names": [],
-          "type": "path"
+          "type": "directory"
         }
       }
     },
@@ -2666,14 +2666,14 @@
             "allow_dash": false,
             "dir_okay": true,
             "exists": false,
-            "file_okay": true,
+            "file_okay": false,
             "readable": true,
             "resolve_path": false,
             "writable": false
           },
           "required": false,
           "secondary_names": [],
-          "type": "path"
+          "type": "directory"
         },
         "version": {
           "default": null,

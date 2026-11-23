@@ -1,0 +1,1 @@
+- `xeda tools --root` and `XEDA_TOOLS_ROOT` refuse a path that is a file, as a usage error.

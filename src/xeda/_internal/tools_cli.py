@@ -40,7 +40,7 @@ def _root_option(func):
     return click.option(
         "--root",
         "root",
-        type=click.Path(path_type=Path),
+        type=click.Path(file_okay=False, path_type=Path),
         envvar=ROOT_VARIABLE,
         show_envvar=True,
         default=None,

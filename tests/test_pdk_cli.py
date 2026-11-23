@@ -1187,6 +1187,18 @@ def test_the_plan_names_the_provider_the_pin_the_size_the_directory_and_the_comm
     assert ".partial-" in text
 
 
+@pytest.mark.parametrize("flag", [["--json"], ["--format", "yaml"]])
+def test_ctrl_c_during_an_install_gives_a_canceled_document(monkeypatch, home, tmp_path, flag):
+    def interrupted(*_arguments, **_keywords):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(impl_module("platforms.providers.install"), interrupted)
+    result = invoke(monkeypatch, NANGATE, "--root", str(tmp_path / "store"), *flag, home=home)
+    assert result.exit_code == 1
+    document = yaml.safe_load(result.stdout)
+    assert document["success"] is False and document["error"]["code"] == "canceled"
+
+
 def test_a_refused_confirmation_installs_nothing(monkeypatch, home, tmp_path, upstream):
     local_orfs(monkeypatch, upstream)
     root = tmp_path / "store"
