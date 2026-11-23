@@ -31,6 +31,7 @@ Clock  Waveform(ns)         Period(ns)      Frequency(MHz)
 clk_a  {0.000 5.000}        10.000          100.000         
 clk_b  {0.000 1.000}        2.000           500.000         
 clk_c  {0.000 2.000}        4.000           250.000         
+  clk_gen  {0.000 2.000}        4.000           250.000         
 
 
 ------------------------------------------------------------------------------------------------
@@ -42,6 +43,7 @@ Clock             WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoin
 -----             -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
 clk_a               5.000        0.000                      0                   60        0.006        0.000                      0                   60        0.616        0.000                       0                    20  
 clk_b              -0.100       -0.400                      4                   40        0.010        0.000                      0                   40        0.300        0.000                       0                    30  
+clk_gen            -4.000      -16.000                      4                   40        0.010        0.000                      0                   40        0.300        0.000                       0                    30  
 
 
 ------------------------------------------------------------------------------------------------
@@ -59,7 +61,9 @@ clk_a         clk_b              -9.000      -90.000                     40     
 def test_each_clock_has_its_own_period_and_slack():
     fmax = fmax_of_each_clock(TWO_CLOCKS)
     # `clk_c` has no intra-clock paths, and the inter-clock table counts for no clock.
-    assert sorted(fmax) == ["clk_a", "clk_b"]
+    # `clk_gen` is a generated clock, which the Clock Summary indents under its master.
+    assert sorted(fmax) == ["clk_a", "clk_b", "clk_gen"]
+    assert fmax["clk_gen"] == pytest.approx(125.0)
     assert fmax["clk_a"] == pytest.approx(200.0)
     assert fmax["clk_b"] == pytest.approx(1000.0 / 2.1)
 
@@ -90,7 +94,8 @@ def test_fmax_is_the_lowest_of_the_clocks(tmp_path: Path):
     assert flow.results["clock_period"] == 10.0
     assert flow.results["fmax_by_clock"]["clk_a"] == pytest.approx(200.0)
     assert flow.results["fmax_by_clock"]["clk_b"] == pytest.approx(476.19, abs=0.01)
-    assert flow.results["fmax"] == pytest.approx(200.0)
+    assert flow.results["fmax_by_clock"]["clk_gen"] == pytest.approx(125.0)
+    assert flow.results["fmax"] == pytest.approx(125.0)
 
 
 def test_the_canned_report_of_the_fake_tool_has_one_clock():
