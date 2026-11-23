@@ -1461,13 +1461,8 @@ def run(
 @click.argument(
     "design",
     metavar="DESIGN",
-    type=click.Path(
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-        exists=True,
-        path_type=Path,
-    ),
+    # A missing file is reported by `_selected_project`, as `run` does.
+    type=click.Path(file_okay=True, dir_okay=False, readable=True, path_type=Path),
     default=None,
     required=False,
 )

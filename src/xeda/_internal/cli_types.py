@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Collection, Iterable
 import re
+import shlex
 from pathlib import Path
 from typing import Any, Optional, Sequence, Tuple, Union
 
@@ -86,6 +87,26 @@ class OptionEatAll(click.Option):
             Callable[[Union[str, Tuple[str, ...]], Any], None]
         ] = None
         self._eat_all_parser = None
+
+    def value_from_envvar(self, ctx: click.Context) -> Optional[Tuple[str, ...]]:
+        """Read the environment variable as the command line gives the option: `KEY=VALUE` items
+        separated by white space, with shell quoting (`max_runtime='6 h'`). Click would split the
+        text into characters."""
+        text = self.resolve_envvar_value(ctx)
+        if text is None:
+            return None
+        try:
+            items = tuple(shlex.split(text))
+        except ValueError as e:
+            raise click.BadParameter(f"{e} in {text!r}", ctx=ctx, param=self) from e
+        for item in items:
+            if not _is_key_value(item):
+                raise click.BadParameter(
+                    f"it takes KEY=VALUE items separated by spaces; got {item!r}",
+                    ctx=ctx,
+                    param=self,
+                )
+        return items
 
     def add_to_parser(self, parser, ctx):
         def parser_process(value: str, state):

@@ -394,7 +394,7 @@ class XedaHelpGroup(ColorizedGroup):
                 outcome=None,
                 error=_usage_error_info(e),
                 flow=text("flow"),
-                design_name=None,
+                design_name=text("design_name"),
                 target=text("target"),
                 optimizer=text("optimizer"),
             )

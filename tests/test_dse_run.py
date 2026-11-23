@@ -423,6 +423,70 @@ def test_a_removed_setting_of_an_exploration_has_no_traceback_without_json(tmp_p
     assert result.exit_code == 2 and isinstance(result.exception, SystemExit), result.exception
 
 
+def test_a_missing_design_file_of_an_exploration_is_the_code_of_a_run(tmp_path, monkeypatch):
+    """`dse` reported a design file that does not exist as `usage_error`, and `run` reports
+    `design_file_not_found`. The document names the design that the command line gave."""
+    monkeypatch.chdir(tmp_path)
+    args = ["dse", "vivado_synth", "nofile.yaml", "--no-config", "--json"]
+    result = CliRunner().invoke(cli, args)
+    document = json.loads(result.stdout)
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "design_file_not_found", document["error"]
+    assert "nofile.yaml" in document["error"]["message"]
+    run = json.loads(
+        CliRunner().invoke(cli, ["run", "vivado_synth", "nofile.yaml", "--json"]).stdout
+    )
+    assert run["error"]["code"] == document["error"]["code"]
+
+
+def test_a_usage_error_of_an_exploration_names_the_design_of_the_command_line(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    args = ["dse", "vivado_synth", "--design-name", "d", "--optimizer", "nope", "--json"]
+    document = json.loads(CliRunner().invoke(cli, args).stdout)
+    assert document["error"]["code"] == "usage_error", document["error"]
+    assert document["design_name"] == "d"
+
+
+@pytest.mark.parametrize(
+    "variable, text",
+    [
+        ("XEDA_DSE_SETTINGS", "debug=true"),
+        ("XEDA_OPTIMIZER_SETTINGS", "initial_frequency_low='100 MHz' bogus_key=1"),
+    ],
+)
+def test_an_exploration_setting_of_the_environment_is_read_as_on_the_command_line(
+    tmp_path, monkeypatch, variable, text
+):
+    """Click split the text into characters, and the command ended in `internal_error`."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bad.toml").write_text(
+        'name = "bad"\n[rtl]\nsources = ["missing.vhdl"]\ntop = "bad"\n'
+    )
+    monkeypatch.setenv(variable, text)
+    result = CliRunner().invoke(cli, ["dse", "vivado_synth", "bad.toml", "--json"])
+    document = json.loads(result.stdout)
+    assert result.exit_code == 2 and document["outcome"] is None
+    code = {"XEDA_DSE_SETTINGS": "removed_setting"}.get(variable, "unknown_setting")
+    assert document["error"]["code"] == code, document["error"]
+    assert document["error"]["message"].startswith(("debug", "bogus_key"))
+
+
+@pytest.mark.parametrize("text", ["junk", "a='b", "a=1 junk"])
+@pytest.mark.parametrize("variable", ["XEDA_DSE_SETTINGS", "XEDA_OPTIMIZER_SETTINGS"])
+def test_a_malformed_exploration_setting_of_the_environment_is_a_usage_error(
+    tmp_path, monkeypatch, variable, text
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(variable, text)
+    result = CliRunner().invoke(cli, ["dse", "vivado_synth", "bad.toml", "--json"])
+    document = json.loads(result.stdout)
+    assert result.exit_code == 2 and document["outcome"] is None
+    assert document["error"]["code"] == "usage_error", document["error"]
+    assert variable in document["error"]["message"]
+
+
 @pytest.mark.parametrize("name", ["round_timeout", "max_runtime"])
 @pytest.mark.parametrize("duration", ["0 s", "-1 s"])
 def test_an_exploration_refuses_a_duration_that_is_not_positive(name, duration):
