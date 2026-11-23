@@ -40,7 +40,7 @@ classifiers = [
 ]
 dependencies = [
     "jinja2              ~= 3.1",
-    "pydantic            >= 2.14.3, < 3",
+    "pydantic            >= 2.14.4, < 3",
     "python-box[]        ~= 7.4.1",
     "attrs               ~= 26.1.0",
     "click               ~= 8.5.1",
