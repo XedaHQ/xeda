@@ -766,6 +766,36 @@ def test_a_generator_failure_is_an_error_of_the_point_as_it_is_of_a_launch(tmp_p
     assert not swept.canceled
 
 
+def test_a_setting_without_a_record_never_gives_the_pint_object_of_the_caller(tmp_path, design):
+    import pint
+
+    from xeda._internal.outcomes import Result
+    from xeda._internal.records import ErrorInfo
+    from xeda._internal.spec import Spec
+    from xeda._internal.sweep import SweepPoint, SweepResult
+
+    given = pint.get_application_registry().Quantity(2, "min")
+    spec = Spec("ghdl_sim", design, settings={"ghdl_sim": {"timeout": given, "vcd": "w.vcd"}})
+    failed = Result(
+        launch_id="id",
+        spec=spec,
+        roots=(),
+        outcome="failed",  # type: ignore[arg-type]
+        error=ErrorInfo(code="invalid_value", message="m", node=None, exit_status=None, log=None),
+        nodes={},
+    )
+    swept = SweepResult(points=(SweepPoint(index=0, spec=spec, result=failed),), canceled=False)
+    (plain,) = swept.rows()
+    assert (
+        plain["settings.ghdl_sim.timeout"] == "2 min" and plain["settings.ghdl_sim.vcd"] == "w.vcd"
+    )
+    (quantities,) = swept.rows(quantities=True)
+    cell = quantities["settings.ghdl_sim.timeout"]
+    assert cell == given and cell is not given and str(cell.units) == "second"
+    cell.ito("ms")
+    assert given.magnitude == 2
+
+
 def test_to_pandas_has_the_columns_of_rows(tmp_path, design):
     pytest.importorskip("pandas")
     result = _workspace(tmp_path).sweep(_seeds(design, 2))

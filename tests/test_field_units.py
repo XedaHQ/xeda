@@ -548,3 +548,58 @@ def test_a_bare_time_on_the_command_line_names_the_field_and_its_unit(tmp_path):
         assert f"`{name}` needs a unit, such as `{example}`: {BARE}" in json.dumps(
             document["error"]
         )
+
+
+def test_a_pint_quantity_of_an_optional_field_comes_back_as_a_new_quantity():
+    import pint
+
+    from xeda._internal.introspect import settings_as_quantities
+
+    given = pint.get_application_registry().Quantity(2, "min")
+    # `timeout` is `Optional[Time]`; `stop_time` too, with another unit
+    converted = settings_as_quantities("ghdl_sim", {"timeout": given, "stop_time": given})
+    assert converted["timeout"] == given and converted["timeout"] is not given
+    assert str(converted["timeout"].units) == "second"
+    assert str(converted["stop_time"].units) == "nanosecond"
+    converted["timeout"].ito("ms")
+    assert given.magnitude == 2 and str(given.units) == "minute"
+
+
+@pytest.mark.parametrize(
+    "settings, shown",
+    [
+        ({"ghdl_sim": {"timeout": "2 min"}}, {"ghdl_sim": {"timeout": "120 s"}}),
+        ({"ghdl_sim.timeout": "2 min"}, {"ghdl_sim.timeout": "120 s"}),
+        ({"nextpnr.clock.period": "0.01 us"}, {"nextpnr.clock.period": "10 ns"}),
+        ({"nextpnr": {"clock.period": "0.01 us"}}, {"nextpnr": {"clock.period": "10 ns"}}),
+        ({"nextpnr.clock": {"period": "0.01 us"}}, {"nextpnr.clock": {"period": "10 ns"}}),
+        (
+            {"nextpnr": {"clock": {"period": "0.01 us"}}},
+            {"nextpnr": {"clock": {"period": "10 ns"}}},
+        ),
+        # an address that names no setting, and a name that is no flow, stay as they are
+        ({"nextpnr.nothing.here": "2 min"}, {"nextpnr.nothing.here": "2 min"}),
+        ({"nothing.timeout": "2 min"}, {"nothing.timeout": "2 min"}),
+    ],
+)
+def test_the_spec_of_a_document_shows_a_dotted_address_in_the_unit_of_its_field(settings, shown):
+    document = spec_document(
+        flow="ghdl_sim", design_name="d", design_file=None, target=None, settings=settings
+    )
+    assert document["settings"] == shown
+
+
+def test_a_quantity_inside_a_union_branch_is_read_even_when_it_equals_its_conversion():
+    import pint
+
+    from xeda._internal.introspect import _in_field_units, _pint_quantity
+    from xeda._internal.units import UNIT_KEY
+
+    given = pint.get_application_registry().Quantity(10, "ns")
+    time = {"type": "string", UNIT_KEY: "ns", "x-xeda-quantity": "time"}
+    optional_table = {"anyOf": [{"type": "object", "properties": {"p": time}}, {"type": "null"}]}
+    optional_list = {"anyOf": [{"type": "array", "items": time}, {"type": "null"}]}
+    table = _in_field_units(optional_table, {}, {"p": given}, _pint_quantity)
+    items = _in_field_units(optional_list, {}, [given], _pint_quantity)
+    for found in (table["p"], items[0]):
+        assert found == given and found is not given

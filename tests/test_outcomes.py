@@ -431,6 +431,20 @@ def test_result_record_raises_for_a_root_without_a_record(tmp_path):
     assert passing.record is passing.nodes[MAY_FAIL].record
 
 
+def test_result_record_raises_for_a_result_without_a_root(tmp_path):
+    result = Result(
+        launch_id="id",
+        spec=Spec("a", _design(tmp_path)),
+        roots=(),
+        outcome="failed",  # type: ignore[arg-type]
+        error=ErrorInfo(code="invalid_value", message="m", node=None, exit_status=None, log=None),
+        nodes={},
+    )
+    with pytest.raises(RecordError) as raised:
+        result.record  # noqa: B018
+    assert raised.value.code == "missing_record" and "no root" in str(raised.value)
+
+
 @pytest.mark.usefixtures("flows")
 def test_values_are_deeply_frozen_and_picklable(tmp_path):
     design = _design(tmp_path)
@@ -465,7 +479,7 @@ def test_values_are_deeply_frozen_and_picklable(tmp_path):
 
 
 def test_a_record_does_not_alias_the_data_it_was_built_from(tmp_path):
-    document = record_document("passed", metrics={"count": 1})
+    document = record_document("passed")
     base = decode_record(document, run_dir=tmp_path, run_root=tmp_path)
     metrics: dict[str, Any] = {"count": 1, "nested": {"values": [1, 2]}}
     artifacts = {"log": "log.txt"}
