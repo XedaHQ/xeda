@@ -197,6 +197,8 @@ ALL_CODES: Final[Mapping[str, frozenset[str]]] = {
             "unsupported_with_remote",
             "tool_not_installed",
             "unguarded_main",
+            "invalid_run_root",
+            "flow_not_importable",
         ]
     ),
     "StalePlanError": frozenset(["stale_plan"]),

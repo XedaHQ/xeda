@@ -77,6 +77,8 @@
       "colliding_run_dirs",
       "delivery_refused",
       "equal_specs",
+      "flow_not_importable",
+      "invalid_run_root",
       "missing_dependency",
       "plan_options",
       "run_root_mismatch",
