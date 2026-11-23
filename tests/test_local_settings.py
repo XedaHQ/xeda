@@ -213,6 +213,20 @@ def test_a_run_root_is_relative_to_the_file_that_names_it(tmp_path, private_home
     assert local_settings().run_root == private_home / "runs"
 
 
+def test_a_run_root_expands_the_home_directory_as_path_does(tmp_path, private_home):
+    user_file(private_home, {"run_root": "~/x"})
+    assert local_settings().run_root == tmp_path / "home" / "x"
+    user_file(private_home, {"run_root": "~"})
+    assert local_settings().run_root == tmp_path / "home"
+
+
+def test_a_run_root_refuses_a_named_user_home(private_home):
+    user_file(private_home, {"run_root": "~bob/x"})
+    with pytest.raises(errors.ProjectError, match="only `~` and `~/` are expanded") as raised:
+        local_settings()
+    assert raised.value.code == "invalid_local_settings"
+
+
 def test_dotted_keys_expand_as_in_a_project_file(tmp_path, private_home):
     user_file(private_home, "flows.vivado_synth.nthreads: 8\nflows.yosys.abc9: true\n")
     assert local_settings().user == {"vivado_synth": {"nthreads": 8}, "yosys": {"abc9": True}}
