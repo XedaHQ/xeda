@@ -352,6 +352,15 @@ def test_a_question_keeps_its_meaning_through_a_copy_and_a_pickle():
         assert again == REMOVAL and (again.removal, again.undone) == (True, REMOVAL.undone)
 
 
+def test_a_question_cannot_change():
+    for name, value in (("removal", False), ("undone", "x"), ("extra", 1)):
+        with pytest.raises(AttributeError):
+            setattr(REMOVAL, name, value)
+    with pytest.raises(AttributeError):
+        del REMOVAL.removal
+    assert REMOVAL.removal is True and REMOVAL.undone == "Not removing 1 run directory"
+
+
 def test_a_question_is_asked_on_a_terminal_and_not_with_json(calls, world, monkeypatch):
     monkeypatch.setattr(cli_module, "_interactive", lambda json_flag: not json_flag)
     asked = []

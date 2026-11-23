@@ -15,7 +15,7 @@ import pint
 from pydantic import BaseModel
 from pydantic_core import core_schema
 
-__all__ = ["Frozen", "FrozenDict", "FrozenModel", "freeze", "thaw"]
+__all__ = ["Frozen", "FrozenDict", "FrozenModel", "freeze", "quantity_texts", "thaw"]
 
 
 _K = TypeVar("_K")
@@ -53,45 +53,125 @@ class FrozenDict(Mapping[_K, _V]):
         return (FrozenDict, (dict(self),))
 
 
+_FROZEN_QUANTITY_CLASSES: dict[type, type] = {}
+_IN_PLACE_METHODS = (
+    "ito",
+    "ito_base_units",
+    "ito_reduced_units",
+    "ito_root_units",
+    "ito_preferred",
+    "ito_unprefixed",
+    "__setitem__",
+)
+_CONVERSIONS = ("to", "to_base_units", "to_reduced_units", "to_root_units", "to_compact")
+_OPERATORS = ("add", "sub", "mul", "truediv", "floordiv", "mod", "pow")
+
+
+def _plain_quantity(quantity: Any) -> Any:
+    """Return a copy of a pint quantity that can change in place, of the class that it came from."""
+    kind = type(quantity)
+    return getattr(kind, "_unfrozen", kind)(copy.copy(quantity.magnitude), quantity.units)
+
+
+def _unpickle_frozen_quantity(magnitude: Any, units: Any) -> Any:
+    """Make a frozen quantity of the application registry again, as a pickle holds it."""
+    return _frozen_quantity(pint._unpickle_quantity(pint.Quantity, magnitude, units))
+
+
+def _frozen_quantity(quantity: Any) -> Any:
+    """Return a quantity equal to `quantity` that has no method that changes it in place.
+
+    Its class derives from the class of `quantity`, so it is a quantity of the same registry and
+    it reads, compares and hashes as one. `ito` and its relatives raise `TypeError`, and `x += y`
+    makes a new quantity. `to` and its relatives return a plain quantity that a caller can
+    change. A copy and the result of other arithmetic are frozen too."""
+    base = getattr(type(quantity), "_unfrozen", type(quantity))  # freezing twice is no change
+    kind = _FROZEN_QUANTITY_CLASSES.get(base)
+    if kind is None:
+        namespace: dict[str, Any] = {
+            "_unfrozen": base,
+            "__reduce__": lambda self: (_unpickle_frozen_quantity, (self.magnitude, self._units)),
+        }
+        for name in _IN_PLACE_METHODS:
+            if hasattr(base, name):
+                namespace[name] = _forbidden(name)
+        for name in _CONVERSIONS:
+            if hasattr(base, name):
+                namespace[name] = _converting(getattr(base, name))
+        for name in _OPERATORS:
+            if hasattr(base, f"__i{name}__"):
+                namespace[f"__i{name}__"] = _operating(getattr(base, f"__{name}__"))
+        kind = type(f"Frozen{base.__name__}", (base,), namespace)
+        _FROZEN_QUANTITY_CLASSES[base] = kind
+    return kind(copy.copy(quantity.magnitude), quantity.units)
+
+
+def _forbidden(name: str) -> Any:
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        raise TypeError(
+            f"a quantity in a frozen value cannot change in place: `{name}` is not allowed. "
+            "Use the method that returns a new quantity, such as `to`"
+        )
+
+    return method
+
+
+def _converting(convert: Any) -> Any:
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        return _plain_quantity(convert(self, *args, **kwargs))
+
+    return method
+
+
+def _operating(operation: Any) -> Any:
+    def method(self: Any, other: Any) -> Any:
+        return operation(self, other)
+
+    return method
+
+
 def freeze(value: Any) -> Any:
     """Return a deep copy of `value` that nothing can change.
 
-    A mapping becomes a `FrozenDict` and a list or tuple becomes a tuple, at every depth. Any
-    other value is returned as it is. The copy shares nothing with `value`, so a later change of
+    A mapping becomes a `FrozenDict` and a list or tuple becomes a tuple, at every depth. A pint
+    quantity becomes a quantity that no method changes in place. Any other value is returned as it
+    is. The copy shares nothing with `value`, so a later change of
     `value` never reaches it."""
     if isinstance(value, Mapping):
         return FrozenDict({key: freeze(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
         return tuple(freeze(item) for item in value)
     if isinstance(value, pint.Quantity):
-        return copy.copy(value)  # `ito` changes a quantity in place
+        return _frozen_quantity(value)  # `ito` changes a quantity in place
     return value
 
 
 def thaw(value: Any) -> Any:
-    """Return a copy of `value` made of plain tables and lists: the inverse of `freeze`."""
+    """Return a copy of `value` made of plain tables, lists and quantities: the inverse of `freeze`."""
     if isinstance(value, Mapping):
         return {key: thaw(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [thaw(item) for item in value]
+    if isinstance(value, pint.Quantity):
+        return _plain_quantity(value)
     return value
 
 
-def _quantity_texts(value: Any) -> Any:
+def quantity_texts(value: Any) -> Any:
     """Return `value` with every pint quantity written as quantity text (`10 ns`)."""
     from .units import pint_quantity_text
 
     if isinstance(value, Mapping):
-        return {key: _quantity_texts(item) for key, item in value.items()}
+        return {key: quantity_texts(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_quantity_texts(item) for item in value]
+        return [quantity_texts(item) for item in value]
     return pint_quantity_text(value) if isinstance(value, pint.Quantity) else value
 
 
 def _dump(value: Any, info: core_schema.SerializationInfo) -> Any:
     """Serialize a frozen value: plain tables and lists. A JSON dump also writes a pint quantity,
     which a raw settings table can hold before validation, as text."""
-    return _quantity_texts(value) if info.mode_is_json() else thaw(value)
+    return quantity_texts(value) if info.mode_is_json() else thaw(value)
 
 
 def _serialization() -> Any:

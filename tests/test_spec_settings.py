@@ -303,3 +303,45 @@ def test_a_binding_of_the_project_makes_its_producer_a_node_of_the_spec(tmp_path
     spec = Spec("vivado_postsynth_sim", design, settings={"vivado_alt_synth.nthreads": 4})
     sections, _layer = spec_sections(spec)
     assert sections["vivado_alt_synth"] == {"nthreads": 4}
+
+
+def test_a_quantity_in_a_spec_cannot_change_in_place(tmp_path):
+    import copy
+    import pickle
+
+    import pint
+
+    from xeda._internal.frozen import thaw
+
+    given = pint.get_application_registry().Quantity(2, "min")
+    spec = _spec(tmp_path, {"ghdl_sim": {"timeout": given}}, "ghdl_sim")
+    stored = spec.settings["ghdl_sim"]["timeout"]
+    assert isinstance(stored, pint.Quantity) and stored == given
+    for change in (
+        lambda: stored.ito("kilosecond"),
+        lambda: stored.ito_base_units(),
+        lambda: stored.ito_reduced_units(),
+    ):
+        with pytest.raises(TypeError, match="cannot change in place"):
+            change()
+    assert (stored.magnitude, str(stored.units)) == (2, "minute")
+    # `+=` makes a new quantity, and a conversion gives a quantity that the caller may change
+    total = stored
+    total += given
+    assert (total.magnitude, stored.magnitude) == (4, 2)
+    seconds = stored.to("s")
+    seconds.ito("ms")
+    assert (stored.magnitude, seconds.magnitude) == (2, 120000)
+    # the value stays frozen through a copy and a pickle, and `thaw` gives a plain quantity
+    for same in (copy.deepcopy(spec), pickle.loads(pickle.dumps(spec))):
+        with pytest.raises(TypeError):
+            same.settings["ghdl_sim"]["timeout"].ito("s")
+        assert same == spec
+    with pytest.raises(AttributeError):
+        stored.magnitude = 3  # type: ignore[misc]
+    # a spec made from the settings of a spec freezes them again without a second layer
+    again = Spec("ghdl_sim", spec.design, settings=spec.settings)
+    assert type(again.settings["ghdl_sim"]["timeout"]) is type(stored)
+    thawed = thaw(again.settings)["ghdl_sim"]["timeout"]
+    thawed.ito("s")
+    assert thawed.magnitude == 120 and stored.magnitude == 2 and given.magnitude == 2
