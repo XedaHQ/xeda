@@ -20,8 +20,7 @@ from xeda._internal.design import (
     source_type_of,
 )
 
-#: Every member, in declaration order. The first 13 are the ordinals old `settings.json` files
-#: record (`SourceType.from_str`), so members are only ever appended.
+#: Every member, in declaration order. Members are only ever appended.
 # fmt: off
 MEMBERS = [
     "Verilog", "VerilogHeader", "SystemVerilog", "SVHeader", "Vhdl", "Bluespec", "Xdc", "Sdc",
@@ -120,9 +119,37 @@ def test_an_explicit_type_types_any_file(tmp_path):
         assert source.type is member
 
 
-def test_a_type_name_in_any_case_or_a_legacy_ordinal_is_its_member():
-    assert source_type_named("jsonnetlist") is SourceType.JsonNetlist
-    assert source_type_named("5") is SourceType.Vhdl  # as an old settings.json recorded it
+def test_a_type_is_named_by_its_exact_member_name():
+    for member in SourceType:
+        assert source_type_named(member.name) is member
+
+
+@pytest.mark.parametrize("text", ["jsonnetlist", "JSONNETLIST", "systemverilog", "vhdl"])
+def test_a_type_in_another_letter_case_is_refused_with_the_right_spelling(text):
+    right = next(m.name for m in SourceType if m.name.lower() == text.lower())
+    with pytest.raises(ValueError, match=f"write `{right}`"):
+        source_type_named(text)
+
+
+@pytest.mark.parametrize("text", ["5", "01", "0", "-1"])
+def test_an_ordinal_is_no_type_name(text):
+    with pytest.raises(ValueError, match="unknown source type"):
+        source_type_named(text)
+
+
+def test_design_input_refuses_a_type_in_another_letter_case_or_an_ordinal(tmp_path):
+    (tmp_path / "f.v").write_text("x\n")
+    for typ in ("vhdl", "5"):
+        with pytest.raises(ValueError, match="unknown source type"):
+            Source({"file": str(tmp_path / "f.v"), "type": typ})
+        with pytest.raises(ValueError, match="unknown source type"):
+            Source(tmp_path / "f.v", typ)
+    with pytest.raises(DesignValidationError, match="write `Vhdl`"):
+        Design(
+            name="d",
+            root=tmp_path,
+            rtl={"sources": [{"file": str(tmp_path / "f.v"), "type": "vhdl"}]},
+        )
 
 
 def test_an_unknown_explicit_type_names_the_closest_members(tmp_path):
@@ -182,11 +209,6 @@ def test_source_construction_and_round_trips_preserve_the_callers_table(tmp_path
     again = Source(source.as_json_value())
     assert again.type is SourceType.SystemVerilog
     assert again.as_json_value() == source.as_json_value()
-
-
-def test_the_original_ordinals_still_name_the_original_members():
-    for ordinal, name in enumerate(MEMBERS[:13], 1):
-        assert source_type_named(str(ordinal)) is SourceType[name]
 
 
 def test_suffix_inference_needs_no_file_to_exist(tmp_path):

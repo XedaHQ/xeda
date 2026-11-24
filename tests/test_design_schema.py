@@ -66,21 +66,6 @@ def test_source_type_values_are_names_not_ordinals():
         assert member.value == member.name
 
 
-def test_source_type_from_str():
-    assert SourceType.from_str("Vhdl") is SourceType.Vhdl
-    assert SourceType.from_str("vhdl") is SourceType.Vhdl
-    assert SourceType.from_str("SystemVerilog") is SourceType.SystemVerilog
-    assert SourceType.from_str("nonesuch") is None
-
-
-def test_source_type_from_str_accepts_legacy_ordinals():
-    """settings.json written by older xeda versions recorded 1-based `auto()` ordinals."""
-    members = list(SourceType)
-    for ordinal, member in enumerate(members, start=1):
-        assert SourceType.from_str(str(ordinal)) is member
-    assert SourceType.from_str(str(len(members) + 1)) is None
-
-
 def test_design_source_type_inferred_from_suffix(tmp_path):
     src = tmp_path / "foo.vhdl"
     src.write_text("entity foo is end;\n")
@@ -600,3 +585,44 @@ def test_the_schema_of_a_generator_lists_its_class():
 
     assert properties["class"]["enum"] == list(GENERATOR_CLASSES)
     assert "chisel" in GENERATOR_CLASSES
+
+
+# ------------------------------------------------ fields that only Xeda sets, and the tb.top size
+
+
+@pytest.mark.parametrize("name", ["generation_units", "resolved_dependencies"])
+@pytest.mark.parametrize("input_syntax", [True, False])
+def test_the_schema_has_no_field_that_only_planning_sets(name, input_syntax):
+    assert name not in design_schema(input_syntax=input_syntax)["properties"]
+
+
+@pytest.mark.parametrize("name", ["generation_units", "resolved_dependencies"])
+def test_design_input_refuses_a_field_that_only_planning_sets(name, tmp_path):
+    design_file = tmp_path / "d.yaml"
+    design_file.write_text(f"name: d\nrtl:\n  sources: []\n{name}: []\n")
+    with pytest.raises(DesignValidationError, match="Extra inputs are not permitted") as raised:
+        Design.load(design_file)
+    assert name in str(raised.value)
+    with pytest.raises(DesignValidationError, match="Extra inputs are not permitted"):
+        design_of({"name": "d", "rtl": {"sources": []}, name: ()}, tmp_path)
+
+
+def test_planning_still_sets_the_fields_that_input_refuses(tmp_path):
+    design = design_of({"name": "d", "rtl": {"sources": []}}, tmp_path)
+    copy = design.model_copy(update={"generation_units": (design,)})
+    assert copy.generation_units == (design,)
+
+
+@pytest.mark.parametrize("top", [["a", "b", "c"], ("a", "b", "c")])
+def test_the_schema_refuses_a_three_item_tb_top_as_the_loader_does(top, tmp_path):
+    data = {"name": "d", "rtl": {"sources": []}, "tb": {"top": top}}
+    assert not validator().is_valid(data)
+    with pytest.raises(Exception, match="At most 2"):
+        Design(root=tmp_path, **data)
+
+
+@pytest.mark.parametrize("top", [[], ["a"], ["a", "b"], "a"])
+def test_the_schema_accepts_a_tb_top_of_at_most_two_items(top, tmp_path):
+    data = {"name": "d", "rtl": {"sources": []}, "tb": {"top": top}}
+    assert validator().is_valid(data)
+    Design(root=tmp_path, **data)
