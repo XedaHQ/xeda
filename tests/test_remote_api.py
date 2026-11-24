@@ -393,6 +393,57 @@ def test_a_dependency_that_moved_makes_a_remote_plan_stale(tmp_path, remote_host
     assert workspace.plan(spec).to_dict()["dependencies"][0]["commit"] == moved
 
 
+def test_a_remote_plan_runs_with_the_commit_that_was_compared(tmp_path, remote_host, remote):
+    """The branch of a Git dependency moves after the host compared its plan with the saved one,
+    and before the launch is prepared. The launch still uses the saved commit, as the plan says."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, f"git+{remote.url}?branch=main#dep.yaml")
+    plan = workspace.plan(spec)
+    first = plan.to_dict()["dependencies"][0]["commit"]
+    assert first == remote.first
+    real, moved = client._plan, []
+
+    def move_before_the_launch(*arguments, **options):
+        if not options["dry_run"] and not moved:  # the comparison is over: the branch moves
+            moved.append(remote.advance())
+        return real(*arguments, **options)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", move_before_the_launch)
+        result = workspace.run(plan)
+    assert moved and moved[0] != first
+    assert result.passed, result.error
+    (launch,) = [r for r in _host_requests(remote_host) if not r["dry_run"]]
+    assert set(launch["dependency_commits"].values()) == {first}
+    assert result.nodes["nextpnr"].record is not None
+    (entry,) = result.nodes["nextpnr"].record.dependencies
+    assert entry["commit"] == first
+    assert workspace.plan(spec).to_dict()["dependencies"][0]["commit"] == moved[0]
+
+
+def test_a_remote_plan_whose_request_changed_before_the_launch_is_stale(tmp_path, remote_host):
+    """A local dependency changes after the comparison and before the launch is prepared. The
+    host runs nothing: the request of the launch is not the plan that the caller saved."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _local_dependency(tmp_path)
+    plan = workspace.plan(spec)
+    real, changed = client._plan, []
+
+    def change_before_the_launch(*arguments, **options):
+        if not options["dry_run"] and not changed:
+            changed.append(_local_dependency(tmp_path, "lib.v", "more.v"))
+        return real(*arguments, **options)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", change_before_the_launch)
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(plan)
+    assert changed and raised.value.difference == "the identity of node yosys_fpga changed"
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True]
+    assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
+
+
 @pytest.mark.parametrize("option", ["prune_variants", "post_cleanup", "post_cleanup_purge"])
 def test_an_option_that_removes_run_directories_is_refused(tmp_path, remote_host, option):
     from xeda.errors import SpecError

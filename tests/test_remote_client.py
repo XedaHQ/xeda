@@ -816,6 +816,66 @@ def test_a_canceled_token_cancels_the_remote_launch(tmp_path, remote_host):
     _assert_mirror_emptied(mirror)
 
 
+def test_a_canceled_token_stops_the_comparison_of_a_saved_plan(tmp_path, remote_host):
+    """`run_remote` with a saved plan asks the host to plan again before it launches. The host
+    waits in its setup, and the token ends that wait: the call returns a canceled result, and the
+    host has no launch and the mirror no directory."""
+    from xeda._internal.cancel import CancelToken
+    from xeda._internal.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from xeda._internal.remote_value import Remote
+    from xeda._internal.spec import Spec
+    from xeda._internal.design import Design
+
+    from .remote_fixtures import host_profile_of
+
+    ready, never, marker = tmp_path / "ready", tmp_path / "never", tmp_path / "block-the-setup"
+    os.mkfifo(ready)
+    os.mkfifo(never)
+    profile = host_profile_of("somewhere").model_copy(
+        update={"setup": [f"if [ -e {marker} ]; then echo $$ > {ready}; read _ < {never}; fi"]}
+    )
+    workspace = WorkspaceOptions(
+        run_root=tmp_path / "local" / "xeda_run",
+        hashed_run_dirs=False,
+        tool_output="log",
+        confirm=None,
+        remote=Remote("somewhere", profile=profile.model_dump(mode="python")),
+        local_settings=None,
+    )
+    options = LaunchOptions()
+    spec = Spec("nextpnr", Design.load(_design(tmp_path)))
+    plan = client.plan_remote(spec, workspace=workspace, options=options)
+    marker.write_text("")  # from now on, the setup of the host waits
+    token, finished, released = CancelToken(), threading.Event(), threading.Event()
+    pids: "queue.Queue[int]" = queue.Queue()
+
+    def cancel_when_the_host_waits() -> None:
+        with open(ready, "rb") as stream:  # blocks until the setup writes its process id
+            pids.put(int(stream.read()))
+        token.cancel()
+        if not finished.wait(TIMEOUT):  # the call did not stop: let the setup go
+            released.set()
+            os.close(os.open(never, os.O_WRONLY))
+
+    thread = threading.Thread(target=cancel_when_the_host_waits, daemon=True)
+    thread.start()
+    try:
+        result = client.run_remote(
+            spec, workspace=workspace, options=options, cancel=token, expected=plan
+        )
+    finally:
+        finished.set()
+    thread.join()
+    assert not released.is_set(), "the token did not end the wait for the host"
+    assert result.outcome.value == "canceled" and result.error is not None
+    assert result.error.code == "canceled" and not result.nodes
+    launches = sorted((remote_host.workspace() / "launches").iterdir())
+    requests = [json.loads((directory / "request.json").read_text()) for directory in launches]
+    assert [request["dry_run"] for request in requests] == [True, True]
+    assert not _mirror(tmp_path).exists()
+    _assert_gone(pids.get_nowait())
+
+
 def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote_host, monkeypatch):
     from xeda._internal.cancel import CancelToken
 

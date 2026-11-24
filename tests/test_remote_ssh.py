@@ -258,6 +258,43 @@ def test_run_times_out(fake_ssh):
             s.run("exec sleep 10", timeout=0.3)
 
 
+def test_run_stops_when_the_launch_is_asked_to_stop(fake_ssh, tmp_path):
+    """The remote command reports through a FIFO that it waits, and then waits for a second FIFO
+    until the test opens it. The request to stop ends the wait of the client, not the command."""
+    from threading import Event, Thread
+
+    from xeda._internal.cancel import CancelToken, observing
+    from xeda._internal.utils import Canceled
+
+    ready, block = tmp_path / "ready", tmp_path / "block"
+    os.mkfifo(ready)
+    os.mkfifo(block)
+    token, done = CancelToken(), Event()
+
+    def cancel_when_it_waits() -> None:
+        with open(ready, "rb") as stream:  # blocks until the remote command writes
+            stream.read()
+        token.cancel()
+        if not done.wait(PATIENCE):  # the client did not stop: let the command go
+            with open(block, "wb"):
+                pass
+
+    thread = Thread(target=cancel_when_it_waits, daemon=True)
+    thread.start()
+    try:
+        with SshSession(resolve_destination("venona")) as s, observing(lambda: token.canceled):
+            with pytest.raises(Canceled):
+                s.run(f"echo up > {ready}; read _ < {block}")
+            done.set()
+    finally:
+        done.set()
+        try:  # the remote command goes on and ends (no reader: it ended already)
+            os.close(os.open(block, os.O_WRONLY | os.O_NONBLOCK))
+        except OSError:
+            pass
+        thread.join(PATIENCE)
+
+
 def test_login_noise_comes_first_on_stdout(fake_ssh, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_SSH_NOISE", "1")
     with SshSession(resolve_destination("venona")) as s:

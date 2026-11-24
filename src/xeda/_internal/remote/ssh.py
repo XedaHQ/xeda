@@ -12,9 +12,12 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any, Optional, Sequence
 
-from ..proc_utils import child_stdout
+from ..cancel import launch_canceled
+from ..proc_utils import CANCEL_POLL, child_stdout
+from ..utils import Canceled
 from .constants import CONTROL_PERSIST, SERVER_ALIVE
 from .errors import RemoteConfigError, RemoteConnectionError
 
@@ -146,6 +149,42 @@ def _message(stderr: bytes) -> str:
     return text or "no message"
 
 
+def _communicate(
+    command: Sequence[str],
+    *,
+    stdin: Any,
+    stdout: Any = None,
+    stderr: Any = None,
+    input: Optional[bytes] = None,
+    timeout: Optional[float] = None,
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run `command` as `subprocess.run` does, and stop it when the launch is asked to stop
+    (`cancel.launch_canceled`): kill it and raise `Canceled`. The request is asked every
+    `CANCEL_POLL` seconds. A `timeout` raises `subprocess.TimeoutExpired`, as `subprocess.run`
+    does. The client is also killed on every other exception, Ctrl-C included."""
+    deadline = None if timeout is None else monotonic() + timeout
+    data = input
+    with subprocess.Popen(command, stdin=stdin, stdout=stdout, stderr=stderr) as process:
+        try:
+            while True:
+                wait = CANCEL_POLL if deadline is None else min(CANCEL_POLL, deadline - monotonic())
+                try:
+                    out, err = process.communicate(data, timeout=max(wait, 0))
+                    return subprocess.CompletedProcess(command, process.returncode, out, err)
+                except subprocess.TimeoutExpired as expired:
+                    data = None  # the input is sent already, or `communicate` keeps sending it
+                    if launch_canceled():
+                        raise Canceled("the launch was canceled while it waited for ssh") from None
+                    if deadline is not None and monotonic() >= deadline:
+                        assert timeout is not None
+                        raise subprocess.TimeoutExpired(
+                            command, timeout, output=expired.output, stderr=expired.stderr
+                        ) from None
+        except BaseException:
+            process.kill()
+            raise
+
+
 class SshSession:
     """One master connection to a host, for the time of a `with` block.
 
@@ -208,7 +247,9 @@ class SshSession:
         # the background process keeps the pipe open, and then nothing sees the end of the data.
         # (OpenSSH asks for passwords and passphrases on the terminal itself.)
         with tempfile.TemporaryFile() as messages:
-            status = subprocess.call(command, stderr=messages, stdout=child_stdout())
+            status = _communicate(
+                command, stdin=None, stderr=messages, stdout=child_stdout()
+            ).returncode
             messages.seek(0)
             text = messages.read()
         if status != 0:
@@ -294,13 +335,13 @@ class SshSession:
         `subprocess.run` kills its client on KeyboardInterrupt, so only the clients of `popen`
         survive Ctrl-C. This is intended: the agent session uses `popen`."""
         self._require_master()
-        result = subprocess.run(
+        result = _communicate(
             self._client_command(command),
             input=stdin,
-            stdin=None if stdin is not None else subprocess.DEVNULL,
-            capture_output=True,
+            stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=timeout,
-            check=False,
         )
         if result.returncode == 255:  # ssh's own failure, or the command's status 255
             self._require_master()
