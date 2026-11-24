@@ -54,8 +54,6 @@ FILES: dict[str, tuple[str, str]] = {
     ),
     "critical_paths.csv": ("The critical paths, one for each endpoint.", _ALWAYS),
     "critical_paths_by_delay.csv": ("The critical paths, sorted by delay.", _ALWAYS),
-    "critpath_report.csv": ("The critical paths, one for each endpoint.", _ALWAYS),
-    "critpath_by_delay_report.csv": ("The critical paths, sorted by delay.", _ALWAYS),
     "drc.rpt": ("Design rule check.", _ALWAYS),
     "route_status.rpt": ("Routing status of the nets.", _ALWAYS),
     "datasheet.rpt": ("Timing of the ports of the design (datasheet).", _ALWAYS),
@@ -67,11 +65,7 @@ FILES: dict[str, tuple[str, str]] = {
     "qor_suggestions.rpt": ("Suggestions to improve the quality of results.", _QOR),
     "qor_suggestions.rqs": ("Suggestions to improve the quality of results, for Vivado.", _QOR),
     "power.xml": ("Power estimate, as XML. The flow reads its power results from it.", _POWER),
-    "power_optimization.rpt": ("Report of the power optimization after synthesis.", _POWER_OPT),
-    "post_place_power_optimization.rpt": (
-        "Report of the power optimization after placement.",
-        _POWER_OPT,
-    ),
+    "power_optimization.rpt": ("Report of the power optimization.", _POWER_OPT),
 }
 
 _COMMON = (
@@ -111,7 +105,7 @@ SCRIPT_REPORTS: dict[str, tuple[str, ...]] = {
     "post_place": (
         "timing_summary.rpt",
         "hierarchical_utilization.rpt",
-        "post_place_power_optimization.rpt",
+        "power_optimization.rpt",
     ),
     "route_design": (
         "timing_summary.rpt",
@@ -120,8 +114,8 @@ SCRIPT_REPORTS: dict[str, tuple[str, ...]] = {
         "utilization.xml",
         "hierarchical_utilization.xml",
         "hierarchical_utilization.json",
-        "critpath_report.csv",
-        "critpath_by_delay_report.csv",
+        "critical_paths.csv",
+        "critical_paths_by_delay.csv",
         "clock_utilization.rpt",
         "power.rpt",
         "drc.rpt",

@@ -19,7 +19,7 @@ showWarningsAndErrors
 {% if settings.impl.steps.power_opt %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 power_opt_design
-report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
+report_power_opt -file ${reports_dir}/post_place/power_optimization.rpt
 showWarningsAndErrors
 {%- endif %}
 
@@ -76,8 +76,8 @@ set timing_summary_file [file join ${rep_dir} timing_summary.rpt]
 set num_max_paths {{settings.num_critical_paths}}
 report_timing_summary -check_timing_verbose -no_header -report_unconstrained -path_type full -input_pins -max_paths 10 -delay_type min_max -file ${timing_summary_file}
 report_timing         -no_header -input_pins  -unique_pins -sort_by group -max_paths ${num_max_paths} -path_type full -delay_type min_max -file [file join ${rep_dir} timing.rpt]
-reportCriticalPaths                [file join ${rep_dir} critpath_report.csv] ${num_max_paths}
-reportCriticalPathsByDelay         [file join ${rep_dir} critpath_by_delay_report.csv] ${num_max_paths}
+reportCriticalPaths                [file join ${rep_dir} critical_paths.csv] ${num_max_paths}
+reportCriticalPathsByDelay         [file join ${rep_dir} critical_paths_by_delay.csv] ${num_max_paths}
 
 report_utilization                 -file [file join ${rep_dir} utilization.rpt]
 report_utilization                 -file [file join ${rep_dir} utilization.xml] -format xml

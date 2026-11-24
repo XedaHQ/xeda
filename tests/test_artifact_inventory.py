@@ -99,7 +99,7 @@ def test_no_artifact_key_is_the_name_of_a_declared_output_of_its_flow():
 
 def test_the_key_of_a_program_log_is_lower_snake_case_without_its_suffix():
     assert log_artifact_key("klayout") == "klayout_log"
-    assert log_artifact_key("c++") == "c_log"
+    assert log_artifact_key("c++") == "cxx_log"
     assert log_artifact_key("fpga-as") == "fpga_as_log"
     assert log_artifact_key("/opt/tools/bin/Vlogan.exe") == "vlogan_log"
     assert log_artifact_key("./simv") == "simv_log"
@@ -109,8 +109,10 @@ def test_the_key_of_a_program_log_is_lower_snake_case_without_its_suffix():
     "program, key",
     [
         ("7z", "tool_7z_log"),
-        ("++", "tool_log"),
-        ("c++", "c_log"),
+        ("-", "tool_log"),
+        ("c++", "cxx_log"),
+        ("g++", "gxx_log"),
+        ("++", "xx_log"),
         ("_x", "x_log"),
         ("3d.exe", "tool_3d_log"),
     ],
@@ -129,7 +131,7 @@ def test_a_description_checks_its_keys_and_values():
         describe_artifacts(**{"Bad-Key": spec})
     with pytest.raises(TypeError, match="ArtifactSpec"):
         describe_artifacts(thing="A thing.")  # type: ignore[arg-type]
-    assert set(program_logs("g++", "klayout", when="never")) == {"g_log", "klayout_log"}
+    assert set(program_logs("g++", "klayout", when="never")) == {"gxx_log", "klayout_log"}
 
 
 @pytest.mark.parametrize("flow_class", FLOWS, ids=FLOW_IDS)
@@ -464,3 +466,36 @@ def test_the_report_keys_of_the_vivado_flows_hold_the_step_and_the_whole_file_na
         step = Path(name).parent.name
         assert key == re.sub(r"[^a-z0-9]+", "_", f"{step}_{Path(name).name}"), (key, name)
     assert "route_design_timing_summary_rpt" in reports
+
+
+def test_the_built_simulation_program_has_one_artifact_key_in_every_flow():
+    """`bsc_sim` and `yosys_sim` build a simulation program, and each registers it as `simulator`."""
+    by_name = {cls.name: cls for cls in FLOWS}
+    assert "simulator" in by_name["bsc_sim"].artifacts_description
+    assert "simulator" in by_name["yosys_sim"].artifacts_description
+    assert not [name for name, cls in by_name.items() if "executable" in cls.artifacts_description]
+
+
+def test_a_vivado_report_key_never_repeats_its_step_and_every_flow_names_a_report_alike():
+    from xeda._internal.flows.vivado.artifacts import (
+        ALT_SYNTH_REPORTS,
+        FILES,
+        PROJECT_REPORTS,
+        SCRIPT_REPORTS,
+        report_key,
+    )
+
+    tables = (PROJECT_REPORTS, SCRIPT_REPORTS, ALT_SYNTH_REPORTS)
+    for table in tables:
+        for step, names in table.items():
+            for name in names:
+                assert not name.startswith(
+                    step
+                ), f"{step}/{name} gives the key {report_key(step, name)}"
+                assert name in FILES, name
+    by_name = {cls.name: cls for cls in FLOWS}
+    for flow in ("vivado_synth", "vivado_alt_synth", "vivado_impl"):
+        keys = by_name[flow].artifacts_description
+        assert "route_design_critical_paths_csv" in keys, flow
+        assert "route_design_critical_paths_by_delay_csv" in keys, flow
+        assert not [key for key in keys if "critpath" in key], flow

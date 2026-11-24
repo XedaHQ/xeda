@@ -2058,7 +2058,7 @@ class BscSim(BscFlow, SimFlow):
         "simulation_log",
         "waveform",
         **program_logs("c++", "cc", when="when the simulator needs the compiler"),
-        executable=ArtifactSpec(
+        simulator=ArtifactSpec(
             "The simulation program that bsc links.", "when the compilation and link succeed"
         ),
     )
@@ -2479,7 +2479,7 @@ class BscSim(BscFlow, SimFlow):
             env=link_env,
         )
         self._record_foreign_depfiles(link_files)
-        self.artifacts.executable = str(executable)
+        self.artifacts.simulator = str(executable)
         if bluesim:
             self._require_empty_interface(tb_top, sim_dir, bluesim)
 
