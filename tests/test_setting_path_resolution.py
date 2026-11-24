@@ -139,7 +139,7 @@ def _flow_for(cls: type[Flow], root: Path, run_path: Path, settings: Flow.Settin
     design = Design(
         name="d",
         root=root,
-        rtl={"sources": [{"file": f"x.{suffix}", "type": kind[0].lower()}], "top": "t"},
+        rtl={"sources": [{"file": f"x.{suffix}", "type": kind[0]}], "top": "t"},
         tb={"top": "t", "uut": "u"},
     )
     return cls(settings, design, run_path)
