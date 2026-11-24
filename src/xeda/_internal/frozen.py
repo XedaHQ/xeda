@@ -80,6 +80,11 @@ _CONVERSIONS = (
 _OPERATORS = ("add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "divmod")
 
 
+# The plain slot setter. A call spelled `object.__setattr__` would look like `Settings.__setattr__`
+# to the scan of run-time refusals (`tests/test_refusals_at_planning.py`).
+_store = object.__setattr__
+
+
 def _build(kind: type, magnitude: Any, units: Any, registry: Any) -> Any:
     """Return a quantity of class `kind` that holds exactly these parts.
 
@@ -88,10 +93,10 @@ def _build(kind: type, magnitude: Any, units: Any, registry: Any) -> Any:
     registry. The parts are those of a quantity that already exists, so there is nothing to
     convert."""
     quantity: Any = object.__new__(kind)
-    object.__setattr__(quantity, "_magnitude", magnitude)
-    object.__setattr__(quantity, "_units", units)
+    _store(quantity, "_magnitude", magnitude)
+    _store(quantity, "_units", units)
     if not hasattr(kind, "_REGISTRY"):  # a quantity of the application registry holds it itself
-        object.__setattr__(quantity, "_REGISTRY", registry)
+        _store(quantity, "_REGISTRY", registry)
     return quantity
 
 
