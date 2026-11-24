@@ -27,6 +27,7 @@ from ...flow.metrics import COCOTB_METRICS
 from ...flow.sim import SimEvidence, whole_femtoseconds
 from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
+from ...units import count
 from ...utils import LOCATION_FORMS, SDF, common_root, replacing_file, setting_flag
 
 log = logging.getLogger(__name__)
@@ -564,9 +565,10 @@ class GhdlSim(Ghdl, SimFlow):
             "without an extension gets `.fst`.",
             json_schema_extra=waveform("fst"),
         )
-        stop_delta: Optional[str] = Field(
+        stop_delta: Optional[int] = Field(
             None,
             description="Stop the simulation after this many delta cycles at the same time.",
+            json_schema_extra=count(),
         )
         disp_tree: Optional[Literal["inst", "proc", "port"]] = Field(
             None,
@@ -774,7 +776,8 @@ class GhdlSim(Ghdl, SimFlow):
         if ss.stop_time is not None:
             stop_fs = whole_femtoseconds(ss.stop_time)
             run_flags.append(f"--stop-time={stop_fs}fs")
-        run_flags += setting_flag(ss.stop_delta, name="stop_delta")
+        if ss.stop_delta is not None:
+            run_flags.append(f"--stop-delta={ss.stop_delta}")
 
         run_flags.extend(ss.generics_flags(tb_generics))
 

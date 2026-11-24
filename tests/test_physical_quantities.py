@@ -707,3 +707,12 @@ def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp
         "5.5 ns"
     )
     assert node["record"]["settings"]["clocks"]["main_clock"]["period"] == "5.5 ns"
+
+
+TIMEOUT_FLOWS = [cls for cls, _ in flow_classes() if "timeout" in cls.Settings.model_fields]
+
+
+@pytest.mark.parametrize("cls", TIMEOUT_FLOWS, ids=[cls.name for cls in TIMEOUT_FLOWS])
+def test_every_timeout_is_a_time_in_seconds(cls):
+    given = {**minimal_settings(cls), "timeout": "2 min"}
+    assert str(cls.Settings(**given).timeout) == "120 s"

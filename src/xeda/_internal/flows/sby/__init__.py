@@ -10,7 +10,7 @@ import shutil
 import zipfile
 from collections import Counter
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Optional
 
 from ...dataclass import Field
 from ...design import Design, Source, SourceType, language_of, storage_name
@@ -25,7 +25,7 @@ from ...flow import (
 )
 from ...flow.sim import record_failure
 from ...tool import Tool
-from ...units import Time, count
+from ...units import Bounds, Time, Unit, count
 from ...utils import ExecutableNotFound, NonZeroExitCode, replacing_copy, replacing_file
 from ..ghdl import GhdlSynth
 from ..yosys.common import process_parameters
@@ -727,7 +727,7 @@ class Sby(Flow):
             "When true, it still fails for logic that reads its own clock as data, or that reads "
             "the state behind a state-driven clock.",
         )
-        timeout: Time | None = Field(
+        timeout: Optional[Annotated[Time, Unit("s"), Bounds(gt="0 s")]] = Field(
             None,
             description="The time limit of the SBY task, a whole number of seconds such as "
             "`10 min`. A task that reaches it ends with the status TIMEOUT, and the run fails. "
