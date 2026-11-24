@@ -230,8 +230,9 @@ def _metric_quantities(record: RunRecord, path: str) -> Any:
     if path in record.metric_info:
         info = record.metric_info[path]
         if has_quantity(info):
-            quantity = record.quantity(path)
-            return dict(quantity) if isinstance(quantity, Mapping) else quantity
+            if info.type == "numbers":
+                return dict(record.quantities(path))
+            return record.quantity(path)
         return thaw(value)
     if isinstance(value, Mapping):
         return {key: _metric_quantities(record, f"{path}.{key}") for key in value}

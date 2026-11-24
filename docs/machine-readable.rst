@@ -288,8 +288,9 @@ description says so. The keys that every flow reports (``runtime``, ...) are no 
 table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
 
 In JSON and YAML, the value of a metric is in ``metrics``, and its unit is in ``metric_info``. In
-Python, ``RunRecord.quantity(path)`` gives a metric that has a unit as a ``pint`` quantity, and a
-metric of the type ``numbers`` as a read-only table of quantities.
+Python, ``RunRecord.quantity(path)`` gives a metric that has a unit as a ``pint`` quantity, and
+``RunRecord.quantities(path)`` gives a metric of the type ``numbers`` as a read-only table of
+quantities.
 
 The tables that ``xeda run`` and ``xeda dse`` print show each metric with its unit. A ``number``
 shows in its unit with six significant digits. An integer quantity such as ``sim.time`` (in
