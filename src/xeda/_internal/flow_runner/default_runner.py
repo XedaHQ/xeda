@@ -70,7 +70,7 @@ from ..flow import flowrun_hash as flow_run_hash
 from .. import log_context
 from ..cancel import CancelToken, launch_canceled, observing
 from ..events import Event
-from ..proc_utils import ImageClient, recording_programs
+from ..proc_utils import recording_programs
 from ..run_dir import (
     DIR_NAME_HASH_LEN,
     RunDirectory,
@@ -173,7 +173,6 @@ from .trace import (
     as_recorded,
     check_trace,
     ran_again_note,
-    image_id,
     locate_program,
     previous_trace,
     remove_trace,
@@ -1997,11 +1996,6 @@ class FlowLauncher:
                             name, path=flow.process_environment().get("PATH", os.defpath)
                         ),
                         refresh=not producer_launch and not shared,
-                        # The image as the daemon that this launch selects has it.
-                        locate_image=lambda reference, client: image_id(
-                            reference,
-                            ImageClient.of(client.cli, flow.process_environment()),
-                        ),
                     )
                     if shared and not producer_launch and freshness.would_refresh:
                         # The trace wants a refresh, which reads the file-system clock in the run
@@ -2127,6 +2121,8 @@ class FlowLauncher:
                                 programs.before[name] = execution_programs.before[name]
                             if name in execution_programs.clients:
                                 programs.clients[name] = execution_programs.clients[name]
+                            if name in execution_programs.image_ids:
+                                programs.image_ids[name] = execution_programs.image_ids[name]
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     flow.results.success = False
                     if isinstance(e, Canceled):

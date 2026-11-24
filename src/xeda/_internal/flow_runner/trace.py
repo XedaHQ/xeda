@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,7 +48,7 @@ from ..digest import (
     record_file,
 )
 from ..listing import directory_files
-from ..proc_utils import DOCKER_IMAGE_PREFIX, ImageClient
+from ..proc_utils import DOCKER_IMAGE_PREFIX, ImageClient, image_id
 from ..utils import json_encodable, with_json_keys
 
 TRACE_FILE = "trace.json"
@@ -436,30 +435,13 @@ def remove_trace(run_dir: Path) -> None:
     (run_dir / TRACE_FILE).unlink(missing_ok=True)
 
 
-def image_id(reference: str, client: ImageClient) -> Optional[str]:
-    """Return the ID of the image `reference` as the daemon of `client` has it, or None."""
-    try:
-        found = subprocess.run(
-            [client.cli, "image", "inspect", "--format", "{{.Id}}", reference],
-            env=client.process_environment(),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return None
-    if found.returncode != 0:
-        return None
-    return found.stdout.strip() or None
-
-
 def locate_program(name: str, path: Optional[str] = None) -> Optional[str]:
     """Return where `name` is now, or None if it cannot be found.
 
     A program is resolved through `path` (the caller's PATH by default), or taken as given if
     absolute. A container image is located by its ID, as `docker` of this process has it."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
-        return image_id(name[len(DOCKER_IMAGE_PREFIX) :], ImageClient())
+        return image_id(name[len(DOCKER_IMAGE_PREFIX) :], ImageClient.of("docker"))
     found = name if os.path.isabs(name) else shutil.which(name, path=path)
     if not found or not os.path.exists(found):
         return None
@@ -676,14 +658,15 @@ def check_trace(
     read: list[FileRecord] = []
     for name, program in trace.programs.items():
         if name.startswith(DOCKER_IMAGE_PREFIX):
-            client = None if program is None else program.client
-            if program is not None and client is None:
+            if program is None:
+                return Freshness(False, f"{name} changed")  # its ID could not be read then
+            if program.client is None:
                 return Freshness(False, f"{name} was recorded without its client")
-            where = locate_image(name[len(DOCKER_IMAGE_PREFIX) :], client or ImageClient())
+            where = locate_image(name[len(DOCKER_IMAGE_PREFIX) :], program.client)
         else:
             where = locate(name)
         if program is None or where != program.path:
-            if program is None and where is None and not name.startswith(DOCKER_IMAGE_PREFIX):
+            if program is None and where is None:
                 continue  # not found then, nor now
             return Freshness(False, f"{name} changed")
         if program.file is None:

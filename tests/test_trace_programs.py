@@ -20,6 +20,7 @@ from xeda._internal.flow_runner import DefaultRunner, trace
 from xeda._internal.flow_runner.trace import locate_program
 from xeda._internal.proc_utils import (
     DOCKER_IMAGE_PREFIX,
+    ImageClient,
     note_program,
     recording_programs,
     run_process,
@@ -96,7 +97,7 @@ def _docker_inspect(monkeypatch, returncode=0, stdout="", raises=None):
             raise raises
         return subprocess.CompletedProcess(args, returncode, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(trace.subprocess, "run", run)
+    monkeypatch.setattr(subprocess, "run", run)
     return asked
 
 
@@ -344,6 +345,21 @@ class TInPodman(TInContainer):
     cli: ClassVar[str] = "fake-podman"
 
 
+class TInOtherDaemon(TInContainer):
+    """Starts the container with a daemon that the environment of the flow does not select."""
+
+    def run(self) -> None:
+        docker = Docker(image="img:tag", cli=self.cli)
+        client_env = {**self.process_environment(), "DOCKER_HOST": "tcp-b"}
+        docker.run("true", cwd=self.run_path, client_env=client_env)
+
+
+class TRetagged(TInContainer):
+    """Runs in a container whose image tag moves to another image while the container runs."""
+
+    cli: ClassVar[str] = "fake-retag-cli"
+
+
 _FAKE_CLI = "fake-container-cli"
 
 
@@ -370,7 +386,7 @@ def container_daemons(tmp_path, monkeypatch):
         (ids / host).write_text(image_id + "\n")
 
     yield set_id
-    for flow_class in (TInContainer, TInPodman):
+    for flow_class in (TInContainer, TInPodman, TInOtherDaemon, TRetagged):
         for name in (flow_class.name, flow_class.__name__):
             registered_flows.pop(name, None)
 
@@ -454,8 +470,6 @@ def test_a_container_image_is_checked_with_the_environment_of_the_node(
 
 
 def test_a_container_client_records_no_credential() -> None:
-    from xeda._internal.proc_utils import ImageClient
-
     client = ImageClient.of(
         "docker",
         {
@@ -467,3 +481,67 @@ def test_a_container_client_records_no_credential() -> None:
     )
     assert client.env == {"DOCKER_HOST": "tcp://builder:2376", "HOME": "/home/u"}
     assert "c2VjcmV0" not in client.model_dump_json()
+
+
+def test_a_container_image_is_checked_on_the_daemon_of_the_call(
+    tmp_path, container_daemons, monkeypatch
+):
+    """A call that starts the container with its own client environment records that client,
+    and the check asks it, not the daemon that the flow environment selects."""
+    container_daemons("tcp-a", "sha256:a1")
+    container_daemons("tcp-b", "sha256:b1")
+    monkeypatch.setenv("DOCKER_HOST", "tcp-a")
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    settings = {"inherit_env": True}
+    first = runner.launch_flow(TInOtherDaemon, design, settings)
+    recorded = trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"]
+    assert (recorded.path, recorded.client.env["DOCKER_HOST"]) == ("sha256:b1", "tcp-b")
+    assert runner.launch_flow(TInOtherDaemon, design, settings).reused
+    container_daemons("tcp-b", "sha256:b2")
+    assert not runner.launch_flow(TInOtherDaemon, design, settings).reused
+
+
+def test_the_image_that_a_container_starts_from_is_the_one_recorded(tmp_path, monkeypatch):
+    """A tag that moves while the container runs does not move the record: the next check sees
+    the new image and runs the node again."""
+    ids = tmp_path / "id"
+    ids.write_text("sha256:old\n")
+    program = tmp_path / "bin" / "fake-retag-cli"
+    program.parent.mkdir()
+    program.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = image ]; then cat "' + str(ids) + '"; exit 0; fi\n'
+        'if [ "$1" = run ]; then echo sha256:new > "' + str(ids) + '"; fi\n'
+    )
+    program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(digest, "RACY_NS", 0)
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    try:
+        first = runner.launch_flow(TRetagged, design, {})
+        recorded = trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"]
+        assert recorded.path == "sha256:old"
+        again = runner.launch_flow(TRetagged, design, {})
+        assert not again.reused and again.stale_reason == "docker-image:img:tag changed"
+    finally:
+        registered_flows.pop(TRetagged.name, None)
+        registered_flows.pop(TRetagged.__name__, None)
+
+
+def test_the_default_client_is_the_docker_of_this_process(tmp_path, monkeypatch):
+    """With no recorded client, the image is asked of `docker` with the client variables and the
+    PATH of this process, not an environment stripped of them."""
+    program = tmp_path / "bin" / "docker"
+    program.parent.mkdir()
+    program.write_text('#!/bin/sh\n[ "$1" = image ] && echo "sha256:$DOCKER_HOST"\nexit 0\n')
+    program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("DOCKER_HOST", "tcp-c")
+    assert locate_program(f"{DOCKER_IMAGE_PREFIX}img:tag") == "sha256:tcp-c"
+
+
+def test_an_unset_client_variable_is_not_recorded() -> None:
+    client = ImageClient.of("docker", {"DOCKER_HOST": None, "HOME": "/home/u"})
+    assert client.env == {"HOME": "/home/u"}
