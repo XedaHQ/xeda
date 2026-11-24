@@ -358,8 +358,8 @@ covered: absolute or `..` includes, text passed to other programs (`-Xc` flags, 
 `verilog_link_flags`, `verilog_filters`), a header added in an earlier folder of the C compiler's search that would shadow the one it read
 (`--clean` after that), the own searches of a simulator, the contents of
 `installed_libraries` and `openFile` reads. `bsc_sim` has the compiler write a depfile for each C or C++
-source that bsc compiles (`import "BDPI"`): every header it read, nested ones too, is an input, so
-a local run needs no listed header; with `--remote` list each header as a `CHeader` source, since only listed
+source that bsc compiles (`import "BDPI"`): every header it read, nested ones too, is an input, except
+the files of the compiler SDK and of the bsc installation, so a local run needs no listed header; with `--remote` list each header as a `CHeader` source, since only listed
 files are copied. A compiled source without a depfile fails the run.
 `examples/bluespec/gcd/gcd.yaml` holds every configuration of one design: `xeda run bsc_sim`,
 `openroad`, `vivado_synth`, `yosys_fpga+nextpnr --target ecp5` and `yosys_fpga --target artix7` (the
