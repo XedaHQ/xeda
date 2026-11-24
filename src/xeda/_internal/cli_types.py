@@ -88,6 +88,10 @@ class OptionEatAll(click.Option):
         ] = None
         self._eat_all_parser = None
 
+    def _envvar_name(self) -> str:
+        names = (self.envvar,) if isinstance(self.envvar, str) else tuple(self.envvar or ())
+        return names[0] if names else "the environment variable"
+
     def value_from_envvar(self, ctx: click.Context) -> Optional[Tuple[str, ...]]:
         """Read the environment variable as the command line gives the option: `KEY=VALUE` items
         separated by white space, with shell quoting (`max_runtime='6 h'`). Click would split the
@@ -98,11 +102,17 @@ class OptionEatAll(click.Option):
         try:
             items = tuple(shlex.split(text))
         except ValueError as e:
-            raise click.BadParameter(f"{e} in {text!r}", ctx=ctx, param=self) from e
+            # The text may hold a secret: the message never repeats it.
+            raise click.BadParameter(
+                f"the text of {self._envvar_name()} is not valid shell quoting ({e})",
+                ctx=ctx,
+                param=self,
+            ) from None
         for item in items:
             if not _is_key_value(item):
                 raise click.BadParameter(
-                    f"it takes KEY=VALUE items separated by spaces; got {item!r}",
+                    f"{self._envvar_name()} takes KEY=VALUE items separated by spaces; "
+                    "an item has no valid KEY=VALUE form",
                     ctx=ctx,
                     param=self,
                 )

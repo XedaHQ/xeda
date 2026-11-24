@@ -372,9 +372,10 @@ class XedaHelpGroup(ColorizedGroup):
         # name) or a check of an option may be what failed.
         ctx.ignore_unknown_options = True
         try:
-            given, _, _ = ctx.command.make_parser(ctx).parse_args(args=arguments)
+            # The parser consumes the list it gets.
+            given, _, _ = ctx.command.make_parser(ctx).parse_args(args=list(arguments))
         except click.UsageError:
-            given = {}
+            given = _scan_text_options(ctx.command, arguments)
 
         def text(name: str) -> Optional[str]:
             value = given.get(name)
@@ -413,6 +414,32 @@ class XedaHelpGroup(ColorizedGroup):
             )
         emit_structured(document, fmt)
         sys.exit(e.exit_code)
+
+
+def _scan_text_options(command: click.Command, arguments: List[str]) -> Dict[str, str]:
+    """Return the single-value text options (`--name VALUE` or `--name=VALUE`) that `arguments`
+    give, found without the option parser, which a bad item of another option may have stopped."""
+    options = {
+        opt: param.name
+        for param in command.params
+        if isinstance(param, click.Option)
+        and param.name is not None
+        and not (param.is_flag or param.multiple or param.count or param.nargs != 1)
+        for opt in param.opts
+        if opt.startswith("--")
+    }
+    found: Dict[str, str] = {}
+    position = 0
+    while position < len(arguments):
+        argument = arguments[position]
+        name, equals, value = argument.partition("=")
+        if name in options and equals:
+            found[options[name]] = value
+        elif name in options and position + 1 < len(arguments):
+            position += 1
+            found[options[name]] = arguments[position]
+        position += 1
+    return found
 
 
 #: The code of a file that a path parameter of `run` names and that does not exist.

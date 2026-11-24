@@ -487,6 +487,26 @@ def test_a_malformed_exploration_setting_of_the_environment_is_a_usage_error(
     assert variable in document["error"]["message"]
 
 
+@pytest.mark.parametrize("text", ["hunter2", "a='hunter2", "a=1 hunter2"])
+@pytest.mark.parametrize("variable", ["XEDA_DSE_SETTINGS", "XEDA_OPTIMIZER_SETTINGS"])
+def test_a_usage_error_of_an_exploration_setting_does_not_repeat_the_text(
+    tmp_path, monkeypatch, variable, text
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(variable, text)
+    result = CliRunner().invoke(cli, ["dse", "vivado_synth", "bad.toml", "--json"])
+    assert "hunter2" not in result.output
+    assert variable in json.loads(result.stdout)["error"]["message"]
+
+
+def test_a_bad_setting_item_of_an_exploration_keeps_the_design_name(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = ["dse", "vivado_synth", "--design-name", "d", "--dse-settings", "bogus", "--json"]
+    document = json.loads(CliRunner().invoke(cli, args).stdout)
+    assert document["error"]["code"] == "usage_error", document["error"]
+    assert document["design_name"] == "d"
+
+
 @pytest.mark.parametrize("name", ["round_timeout", "max_runtime"])
 @pytest.mark.parametrize("duration", ["0 s", "-1 s"])
 def test_an_exploration_refuses_a_duration_that_is_not_positive(name, duration):
