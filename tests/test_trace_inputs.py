@@ -16,6 +16,7 @@ from xeda._internal.flow_runner.trace_inputs import (
     artifact_files,
     design_files,
     implicit_input_files,
+    links_on_the_way,
     parse_depfile,
     setting_files,
 )
@@ -115,6 +116,73 @@ def test_a_depfile_lists_what_the_tool_read(tmp_path):
         tmp_path / "inc/defs.vh",
         Path("/abs/with space.v"),
     ]
+
+
+def test_a_depfile_of_a_c_compiler_has_several_targets_and_continuations(tmp_path):
+    depfile = tmp_path / "ops.d"
+    depfile.write_text(
+        "obj/ops.o obj/ops.d: \\\n"
+        "  /sdk/SDKSettings.json \\\n"
+        "  src/my\\ dir/ops.c \\\n"
+        "  /abs/inner/scale.h\n"
+        "\n"
+        "src/phony.h:\n"
+    )
+    assert parse_depfile(depfile, tmp_path) == [
+        Path("/sdk/SDKSettings.json"),
+        tmp_path / "src/my dir/ops.c",
+        Path("/abs/inner/scale.h"),
+    ]
+
+
+def test_the_files_of_a_compiler_sdk_and_of_a_tool_installation_are_no_implicit_inputs(
+    tmp_path, hooked
+):
+    """A compiler lists the marker file of its SDK (macOS), and a tool lists the headers of its
+    own installation: neither is an input. A header of the design is."""
+    root, run_dir, prefix = tmp_path / "design", tmp_path / "run", tmp_path / "opt"
+    for folder in (root, run_dir, prefix / "bin", prefix / "include"):
+        folder.mkdir(parents=True)
+    sdk = tmp_path / "MacOSX.sdk"
+    (sdk / "usr" / "include").mkdir(parents=True)
+    (sdk / "SDKSettings.json").write_text("{}\n")
+    (sdk / "usr" / "include" / "stdio.h").write_text("\n")
+    (prefix / "include" / "tool.h").write_text("\n")
+    program = prefix / "bin" / "tool"
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o755)
+    own = root / "ops.h"
+    own.write_text("#define K 3\n")
+    depfile = run_dir / "ops.d"
+    names = [
+        sdk / "SDKSettings.json",
+        sdk / "usr" / "include" / "stdio.h",
+        prefix / "include" / "tool.h",
+        own,
+    ]
+    depfile.write_text("ops.o: " + " ".join(str(path) for path in names) + "\n")
+    design = Design(name="d", rtl={"sources": []}, root=root)
+    settings = hooked.Settings.from_input({}, design_root=root, runner_cwd=tmp_path)
+    flow = hooked(settings, design, run_path=run_dir)
+    flow.depfiles = [depfile]
+    assert implicit_input_files(flow, [str(program)]) == [own.resolve()]
+    # Without the program, only the SDK is known as the compiler's own.
+    assert set(implicit_input_files(flow)) == {
+        own.resolve(),
+        (prefix / "include" / "tool.h").resolve(),
+    }
+
+
+def test_the_links_on_the_way_to_a_file_are_named_as_the_tool_spelled_them(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "a.h").write_text("\n")
+    (tmp_path / "dir").symlink_to("real")
+    (tmp_path / "hop").symlink_to("dir/a.h")
+    (tmp_path / "plain.h").write_text("\n")
+    assert links_on_the_way(tmp_path / "plain.h", tmp_path) == []
+    assert links_on_the_way(tmp_path / "dir" / "a.h", tmp_path) == [tmp_path / "dir"]
+    # a link, then the folder link that it leads through; a relative name is under the base
+    assert links_on_the_way(Path("hop"), tmp_path) == [tmp_path / "hop", tmp_path / "dir"]
 
 
 def test_implicit_input_files_are_what_depfiles_and_the_flow_name(tmp_path, hooked):

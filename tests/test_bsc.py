@@ -280,7 +280,9 @@ def test_link_flags(tmp_path):
     bluesim = flow._link_flags(True)
     assert _pairs(bluesim, "-reset-prefix") == ["RST"]
     assert _pairs(bluesim, "-parallel-sim-link") == ["3"]
-    assert _pairs(bluesim, "-Xc++") == ["-O3", "-O1"]
+    # The first of each is the depfile flag; the settings follow.
+    assert _pairs(bluesim, "-Xc++") == ["-MMD", "-O3", "-O1"]
+    assert _pairs(bluesim, "-Xc") == ["-MMD"]
     assert _pairs(bluesim, "-l") == ["m"]
     assert _pairs(bluesim, "-I") == [str(design.root / "inc")]  # an input: the design's
     flow.settings.simulator = "verilator"
@@ -1076,7 +1078,7 @@ def test_the_link_settings_reach_bsc(tmp_path):
     )
     record = _bsc_record(*flow._link_flags(True), cwd=tmp_path)
     assert record["parallelSimLink"] == "4"
-    assert record["cFlags"] == '["-O2"]' and record["cxxFlags"] == '["-g"]'
+    assert record["cFlags"] == '["-MMD","-O2"]' and record["cxxFlags"] == '["-MMD","-g"]'
     assert record["linkFlags"] == '["-s"]' and record["vFlags"] == '["-Wall"]'
     assert record["cLibPath"] == f'["{tmp_path}"]' and record["cLibs"] == '["m"]'
     assert record["useDPI"] == "True" and record["keepFires"] == "True"
@@ -1939,6 +1941,97 @@ def test_an_unlisted_header_beside_a_bh_source_fails_with_advice(tmp_path):
     # such file or directory`.
     assert "init.h" in message
     assert "list the header in the design's sources" in message
+
+
+#: A testbench that calls the function of `ops.c` only, so that `unused.c` is never compiled.
+BDPI_HEADERS_TB = (
+    BDPI_TB.replace("xeda_mac(Bit#(32) a, Bit#(32) b)", "xeda_scale(Bit#(32) a)")
+    .replace("Bit#(32) got = xeda_mac(n, 7);", "Bit#(32) got = xeda_scale(n);")
+    .replace(
+        'n * 3 + 7) $fatal(1, "FAIL: xeda_mac(%0d, 7) = %0d"', 'n * 3) $fatal(1, "FAIL: %0d -> %0d"'
+    )
+)
+
+
+def _bdpi_headers_design(root: Path, *, scale: str = "3") -> Design:
+    """`ops.c` includes `ops.h`, which includes `inner/scale.h`; none of them is listed."""
+    _write(
+        root,
+        {
+            "Dpi.bsv": BDPI_HEADERS_TB,
+            "ops.c": '#include "ops.h"\nunsigned xeda_scale(unsigned a) { return a * SCALE; }\n',
+            "ops.h": '#include "inner/scale.h"\n',
+            "inner/scale.h": f"#define SCALE {scale}\n",
+            "unused.c": "unsigned xeda_unused(unsigned a) { return a; }\n",
+        },
+    )
+    return Design(
+        name="dpi_headers",
+        root=root,
+        rtl={"sources": []},
+        tb={"sources": ["ops.c", "unused.c", "Dpi.bsv"], "top": "mkDpi"},
+    )
+
+
+@pytest.mark.parametrize("simulator", SIMULATORS)
+def test_an_edit_of_a_header_of_a_c_source_runs_the_simulation_again(simulator, tmp_path):
+    """The compiler's depfile lists every header that it read, so an edit of a header that the
+    design does not list, or of one that another header includes, runs the flow again. A source
+    that bsc does not compile (`unused.c`) has no depfile, and the run needs none."""
+    _require_simulator(simulator)
+    require_c_toolchain()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    root = tmp_path / "d"
+    settings = {"simulator": simulator, "use_dpi": simulator == "verilator"}
+    design = _bdpi_headers_design(root)
+    assert _disposition(runner, BscSim, design, settings) == "ran"
+    assert _disposition(runner, BscSim, design, settings) == "reused"
+    (trace_path,) = (tmp_path / "run").rglob("trace.json")
+    recorded = json.loads(trace_path.read_text())["implicit_inputs"]
+    assert {Path(path).relative_to(root.resolve()).as_posix() for path in recorded} == {
+        "ops.h",
+        "inner/scale.h",
+    }
+    for header in ("ops.h", "inner/scale.h"):
+        with (root / header).open("a") as f:
+            f.write("/* edited */\n")
+        assert _disposition(runner, BscSim, design, settings) == "ran", header
+        assert _disposition(runner, BscSim, design, settings) == "reused", header
+
+
+def test_an_edit_that_changes_the_c_function_changes_the_verdict(tmp_path):
+    require_bluesim()
+    require_c_toolchain()
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    design = _bdpi_headers_design(tmp_path / "d")
+    assert _disposition(runner, BscSim, design, {}) == "ran"
+    (tmp_path / "d" / "inner" / "scale.h").write_text("#define SCALE 4\n")
+    flow = runner.run_flow(BscSim, design, {})
+    assert flow is not None and not flow.succeeded
+
+
+def test_a_compiled_c_source_without_a_depfile_fails_the_run(tmp_path):
+    """The headers of that source would go unrecorded, and a stale pass could follow."""
+    design = _bdpi_headers_design(tmp_path / "d")
+    flow = _flow(BscSim, design, tmp_path / "run")
+    wrapper = flow.run_path / "bsc_foreign" / "abc" / "ops.c"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("")
+    skipped = flow.run_path / "bsc_foreign" / "def" / "unused.c"
+    skipped.parent.mkdir(parents=True)
+    skipped.write_text("")
+    prebuilt = flow.run_path / "bsc_foreign" / "ghi" / "ops.o"
+    prebuilt.parent.mkdir(parents=True)
+    prebuilt.write_text("")
+    link_files = [wrapper, skipped, prebuilt]
+    flow._record_foreign_depfiles(link_files)  # no object: bsc compiled none of them
+    assert flow.depfiles == []
+    wrapper.with_suffix(".o").write_text("")
+    with pytest.raises(FlowFatalError, match=r"bsc compiled ops.c but .*ops\.d"):
+        flow._record_foreign_depfiles(link_files)
+    wrapper.with_suffix(".d").write_text("ops.o: ops.c ops.h\n")
+    flow._record_foreign_depfiles(link_files)
+    assert flow.depfiles == [wrapper.with_suffix(".d")]
 
 
 def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch):

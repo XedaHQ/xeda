@@ -544,33 +544,92 @@ def installation_prefixes(programs: Sequence[str], path: Optional[str] = None) -
     return prefixes
 
 
+#: The file that the root folder of a compiler SDK holds (macOS). The compiler lists it in a
+#: depfile, and every file below that folder belongs to the installation of the compiler.
+SDK_MARKER = "SDKSettings.json"
+
+
+def in_sdk(path: Path, known: Optional[Dict[Path, bool]] = None) -> bool:
+    """Return whether `path` is the SDK marker or lies below a folder that holds it.
+
+    `known` caches the answer for each folder."""
+    cache = {} if known is None else known
+    for folder in path.parents:
+        if folder not in cache:
+            cache[folder] = (folder / SDK_MARKER).is_file()
+        if cache[folder]:
+            return True
+    return False
+
+
 def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]:
     """Return every existing file that the flow read and that is known only after its run.
 
-    These are the files that a depfile written by its tools (`yosys -E`, ...) names, except the
-    files of the installation of the tool (under the prefix of a program in `programs`:
-    internal to the tool, and Xeda stays agnostic to how tools are installed). They also
+    These are the files that a depfile written by its tools (`yosys -E`, `cc -MMD`, ...) names,
+    except the files of the installation of the tool (under the prefix of a program in
+    `programs`: internal to the tool, and Xeda stays agnostic to how tools are installed) and
+    the files of a compiler SDK (`in_sdk`). They also
     include the files that the flow registered in `Flow.implicit_inputs` (including those that
     its `init()` registered, which are expected inputs already). Where a file lies decides
     whether it is an input or the run's own (`build_trace`). A file that a producer handed over
-    is neither: the edge records it."""
+    is neither: the edge records it.
+
+    A file is named by its resolved path. The result also holds each symbolic link that the
+    tool went through to read it (`links_on_the_way`), outside the run directory: a link that
+    leads to another file later is a change, even if the old target still exists."""
     prefixes = installation_prefixes(
         programs, path=flow.process_environment().get("PATH", os.defpath)
     )
+    sdk_folders: Dict[Path, bool] = {}
     named = [
         dep
         for depfile in flow.depfiles
         if depfile.is_file()
         for dep in parse_depfile(depfile, flow.run_path)
         if not any(_resolved(dep, flow.run_path).is_relative_to(prefix) for prefix in prefixes)
+        and not in_sdk(_resolved(dep, flow.run_path), sdk_folders)
     ]
     # A file handed over by a producer is no file record of this flow, however it came to be read.
     handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
-    return [
-        path
-        for path in _existing_files([*named, *flow.implicit_inputs], flow.run_path)
-        if path not in handed
-    ]
+    named = [*named, *flow.implicit_inputs]
+    files = {path for path in _existing_files(named, flow.run_path) if path not in handed}
+    # A file is recorded by its resolved path. Each link on the way to it, as the tool named it,
+    # is recorded too, so a link that now leads to another existing file runs the flow again.
+    run_dir = flow.run_path.resolve()
+    links = {
+        link
+        for dep in named
+        if _resolved(dep, flow.run_path) in files
+        for link in links_on_the_way(dep, flow.run_path)
+        if not (link.parent.resolve() / link.name).is_relative_to(run_dir)
+    }
+    return sorted(files | links)
+
+
+def links_on_the_way(path: Path, base: Path, _depth: int = 0) -> list[Path]:
+    """Return the symbolic links that a lookup of `path` goes through, as places that name them.
+
+    A relative `path` is under `base`. The result holds a link in `path` itself, a link that a
+    folder of `path` is, and each link that such a link leads to in turn. A place is not
+    resolved: it is spelled as `path` spells it, so recording it records the link and not the
+    file at its end."""
+    parts = (path if path.is_absolute() else base / path).parts
+    found: list[Path] = []
+    current = Path(parts[0])
+    for part in parts[1:]:
+        if part == "..":
+            current = current.resolve().parent
+            continue
+        current = current / part
+        if _depth < 40 and current.is_symlink():
+            found.append(current)
+            target = Path(os.readlink(current))
+            found += links_on_the_way(
+                target if target.is_absolute() else current.parent.resolve() / target,
+                base,
+                _depth + 1,
+            )
+    return found
 
 
 def _resolved(path: Path, run_path: Path) -> Path:

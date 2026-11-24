@@ -95,6 +95,17 @@ def probes():
             _copy_to_output(self, text)
             _edit_during_run("include")
 
+    class ProbeLinkedDepfile(Flow):
+        """Reads an include file through a symbolic link, and reports the link in a depfile."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        def run(self) -> None:
+            include = self.design.root / "linked.vh"
+            (self.run_path / "deps.d").write_text(f"out.txt: {include}\n")
+            self.depfiles.append(self.run_path / "deps.d")
+            _copy_to_output(self, include.read_text())
+
     class ProbeScript(Flow):
         """Renders a script into its run directory and reports reading it, as yosys -E does."""
 
@@ -226,6 +237,7 @@ def probes():
         ProbeSettingFile,
         ProbeSource,
         ProbeDepfile,
+        ProbeLinkedDepfile,
         ProbeScript,
         ProbeRom,
         ProbeOutputPath,
@@ -309,6 +321,29 @@ def test_an_include_known_from_the_last_run_edited_during_the_run_is_stale(probe
     flow, out = _launch(root, cls)
     assert not flow.reused and out == "`define W 8\n"
     assert flow.stale_reason == f"input modified during the last run: {(root / 'inc.vh').resolve()}"
+
+
+def test_a_link_in_a_depfile_that_leads_to_another_existing_file_is_stale(probes, root):
+    """The trace records a file by its resolved path, and the link that the tool went through
+    too: a link retargeted to another file that exists is a change, though the old target and
+    both contents are unchanged."""
+    cls = probes["ProbeLinkedDepfile"]
+    (root / "w4.vh").write_text("`define W 4\n")
+    (root / "w8.vh").write_text("`define W 8\n")
+    link = root / "linked.vh"
+    link.symlink_to("w4.vh")
+    flow, out = _launch(root, cls)
+    assert out == "`define W 4\n"
+    flow, _ = _launch(root, cls)
+    assert flow.reused
+    link.unlink()
+    link.symlink_to("w8.vh")
+    flow, out = _launch(root, cls)
+    assert not flow.reused and out == "`define W 8\n"
+    assert flow.stale_reason == f"input changed: {link}"
+    flow, _ = _launch(root, cls)
+    assert flow.reused
+    assert (root / "w4.vh").read_text() == "`define W 4\n"  # no write went through a link
 
 
 def test_an_input_recorded_before_the_run_is_judged_by_identity_not_a_clock(
