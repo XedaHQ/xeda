@@ -324,3 +324,104 @@ def test_a_record_of_a_program_that_changed_during_a_run_is_not_carried_forward(
     again = _launch(tmp_path, rebuild_all=True)
     assert _recorded(again)["sha"] == digest.content_digest(probe_tool)
     assert _launch(tmp_path).reused
+
+
+class TInContainer(Flow):
+    """Runs a program in a container of the fake client `fake-container-cli`."""
+
+    results_description: ClassVar[dict[str, MetricSpec]] = {}
+    cli: ClassVar[str] = "fake-container-cli"
+
+    def run(self) -> None:
+        tool = Tool("true", docker=Docker(image="img:tag", cli=self.cli))
+        tool.dockerized = True
+        tool.run(stdout=True)
+
+
+class TInPodman(TInContainer):
+    """Runs the same program with a client that is not `docker`."""
+
+    cli: ClassVar[str] = "fake-podman"
+
+
+_FAKE_CLI = "fake-container-cli"
+
+
+@pytest.fixture
+def container_daemons(tmp_path, monkeypatch):
+    """A fake container client whose image ID depends on `DOCKER_HOST`: the ID of `img:tag` is
+    the content of the file named for the host in `ids/`. Return a function that sets it."""
+    ids = tmp_path / "ids"
+    ids.mkdir()
+    program = tmp_path / "bin" / _FAKE_CLI
+    program.parent.mkdir()
+    program.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = image ]; then\n'
+        f'  cat "{ids}/${{DOCKER_HOST:-local}}" 2>/dev/null || exit 1\n'
+        "fi\n"
+    )
+    program.chmod(0o755)
+    (program.parent / "fake-podman").symlink_to(program)
+    monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(digest, "RACY_NS", 0)
+
+    def set_id(host: str, image_id: str) -> None:
+        (ids / host).write_text(image_id + "\n")
+
+    yield set_id
+    for flow_class in (TInContainer, TInPodman):
+        for name in (flow_class.name, flow_class.__name__):
+            registered_flows.pop(name, None)
+
+
+def test_a_container_image_is_checked_on_the_daemon_the_run_used(
+    tmp_path, container_daemons, monkeypatch
+):
+    """A change of the image on the selected daemon runs the node again. A change on another
+    daemon does not."""
+    container_daemons("tcp-a", "sha256:a1")
+    container_daemons("tcp-b", "sha256:b1")
+    monkeypatch.setenv("DOCKER_HOST", "tcp-a")
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    settings = {"inherit_env": True}
+    first = runner.launch_flow(TInContainer, design, settings)
+    recorded = trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"]
+    assert recorded.path == "sha256:a1"
+    assert (recorded.client.cli, recorded.client.env) == (_FAKE_CLI, {"DOCKER_HOST": "tcp-a"})
+    assert runner.launch_flow(TInContainer, design, settings).reused
+    container_daemons("tcp-b", "sha256:b2")
+    assert runner.launch_flow(TInContainer, design, settings).reused
+    container_daemons("tcp-a", "sha256:a2")
+    again = runner.launch_flow(TInContainer, design, settings)
+    assert not again.reused and again.stale_reason == "docker-image:img:tag changed"
+    assert runner.launch_flow(TInContainer, design, settings).reused
+
+
+def test_a_container_image_of_another_client_is_reused_and_checked(tmp_path, container_daemons):
+    """The image of a `podman` run is read through `podman`, so a run that nothing changed is
+    reused, and a changed image runs again."""
+    container_daemons("local", "sha256:p1")
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    first = runner.launch_flow(TInPodman, design, {})
+    recorded = trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"]
+    assert (recorded.path, recorded.client.cli) == ("sha256:p1", "fake-podman")
+    assert runner.launch_flow(TInPodman, design, {}).reused
+    container_daemons("local", "sha256:p2")
+    assert not runner.launch_flow(TInPodman, design, {}).reused
+
+
+def test_a_trace_of_an_image_without_a_client_runs_the_node_once(tmp_path, container_daemons):
+    container_daemons("local", "sha256:l1")
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    first = runner.launch_flow(TInContainer, design, {})
+    document = json.loads((first.run_path / "trace.json").read_text())
+    del document["programs"]["docker-image:img:tag"]["client"]
+    (first.run_path / "trace.json").write_text(json.dumps(document))
+    again = runner.launch_flow(TInContainer, design, {})
+    assert not again.reused
+    assert again.stale_reason == "docker-image:img:tag was recorded without its client"
+    assert runner.launch_flow(TInContainer, design, {}).reused

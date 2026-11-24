@@ -19,6 +19,7 @@ from .flow import Flow
 from .flow.metrics import log_stem
 from .proc_utils import (
     DOCKER_IMAGE_PREFIX,
+    ImageClient,
     TOOL_OUTPUT,
     ProcessTimeout,
     note_program,
@@ -170,7 +171,9 @@ class Docker(XedaBaseModel):
         image = self.reference
         # An image without a tag or a digest is the `latest` one.
         recorded = image if image_names_version(image) else f"{image}:latest"
-        note_program(f"{DOCKER_IMAGE_PREFIX}{recorded}")
+        note_program(
+            f"{DOCKER_IMAGE_PREFIX}{recorded}", client=ImageClient.of(self.cli, client_env)
+        )
         # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
         # stay out of `mounts`, because a later run would mount them again. A version probe's
         # temporary directory (`Tool.probe_stdout`) is gone by then, and Docker would create it

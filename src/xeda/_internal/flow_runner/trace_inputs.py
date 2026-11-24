@@ -67,7 +67,7 @@ from ..flow.io import declared_inputs
 from ..deliver import ReadInputs
 from ..flow.flow import map_setting_leaves, setting_path_target
 from ..listing import VCS_METADATA, directory_files
-from ..proc_utils import DOCKER_IMAGE_PREFIX, program_state
+from ..proc_utils import DOCKER_IMAGE_PREFIX, ImageClient, program_state
 from ..records import ErrorInfo
 from ..version import __version__
 from .code_digest import CodeDigests
@@ -84,6 +84,7 @@ from .trace import (
     Trace,
     as_recorded,
     expected_inputs,
+    image_id,
     locate_program,
     run_directory_files,
 )
@@ -881,9 +882,14 @@ def _programs(
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
+        if name.startswith(DOCKER_IMAGE_PREFIX):
+            client = getattr(names, "clients", {}).get(name) or ImageClient()
+            where = image_id(name[len(DOCKER_IMAGE_PREFIX) :], client)
+            programs[name] = None if where is None else ProgramRecord(path=where, client=client)
+            continue
         where = locate_program(name, path=search_path)
-        if where is None or name.startswith(DOCKER_IMAGE_PREFIX):
-            programs[name] = None if where is None else ProgramRecord(path=where)
+        if where is None:
+            programs[name] = None
             continue
         path = Path(where)
         prior = before.get(name)

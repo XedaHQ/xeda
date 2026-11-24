@@ -31,8 +31,8 @@ from xeda._internal.design import SourceType
 from xeda._internal.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out
 from xeda._internal.flow_runner import DefaultRunner, plan_freshness
 from xeda._internal.flow_runner.run_lock import run_dir_lock
-from xeda._internal.flow_runner.trace import locate_program
 from xeda._internal.proc_utils import DOCKER_IMAGE_PREFIX
+from xeda._internal.flow_runner.trace import image_id
 
 from .scoping import node_settings
 from .flow_registry import preserved_flow_registry
@@ -663,7 +663,9 @@ def test_a_node_whose_recorded_program_is_a_container_image_is_unknown(tmp_path,
     graph.settle()
     trace_file = graph.run_dir("toy_consumer") / "trace.json"
     trace = json.loads(trace_file.read_text())
-    trace["programs"] = {f"{DOCKER_IMAGE_PREFIX}hdlc/ghdl:yosys": {"path": "sha256:0123"}}
+    trace["programs"] = {
+        f"{DOCKER_IMAGE_PREFIX}hdlc/ghdl:yosys": {"path": "sha256:0123", "client": {}}
+    }
     trace_file.write_text(json.dumps(trace))
     started: list[Any] = []
     real = subprocess.Popen.__init__
@@ -778,9 +780,9 @@ def test_the_read_only_check_finds_each_mistake_that_would_break_it(
     else:
         trace_file = graph.run_dir("toy_consumer") / "trace.json"
         trace = json.loads(trace_file.read_text())
-        trace["programs"] = {f"{DOCKER_IMAGE_PREFIX}img:tag": {"path": "sha256:0123"}}
+        trace["programs"] = {f"{DOCKER_IMAGE_PREFIX}img:tag": {"path": "sha256:0123", "client": {}}}
         trace_file.write_text(json.dumps(trace))
-        monkeypatch.setattr(plan_freshness, "dry_locate", locate_program)
+        monkeypatch.setattr(plan_freshness, "dry_image", image_id)
     problems = _dry_run_problems(graph, monkeypatch)
     assert problems, f"a dry run that {mistake} went unnoticed"
 

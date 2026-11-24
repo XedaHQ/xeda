@@ -517,7 +517,9 @@ def test_a_docker_image_text_follows_the_reference_grammar(
     monkeypatch.setattr(
         xeda._internal.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd])
     )
-    monkeypatch.setattr(xeda._internal.tool, "note_program", noted.append)
+    monkeypatch.setattr(
+        xeda._internal.tool, "note_program", lambda name, path=None, client=None: noted.append(name)
+    )
     tool = Tool(executable="yosys", docker=text)
     assert (tool.docker.image, tool.docker.tag) == (image, tag)
     reference = reference or text

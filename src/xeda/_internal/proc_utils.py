@@ -25,6 +25,7 @@ import colorama
 import psutil
 
 from .cancel import inherited
+from .dataclass import XedaBaseModel
 from .console import console_target
 from .utils import Canceled, ExecutableNotFound, NonZeroExitCode, live_log
 
@@ -55,6 +56,44 @@ PROCESS_STOP_GRACE = 5.0
 ProgramState = Tuple[int, int, int, int, int]
 
 
+#: The environment variables that select the daemon a container client talks to.
+_CLIENT_ENV_PREFIXES = ("DOCKER_", "CONTAINER_")
+_CLIENT_ENV_NAMES = ("XDG_RUNTIME_DIR",)
+
+
+class ImageClient(XedaBaseModel):
+    """The container client that ran an image: its program and the environment variables that
+    select the daemon (`DOCKER_HOST`, `DOCKER_CONTEXT`, ...). Asking the same client again names
+    the same daemon."""
+
+    cli: str = "docker"
+    env: Dict[str, str] = {}
+
+    @classmethod
+    def of(cls, cli: str, environment: Optional[Dict[str, Any]] = None) -> "ImageClient":
+        """Return the client that `cli` is with `environment` (None: the one of this process)."""
+        source = os.environ if environment is None else environment
+        return cls(
+            cli=cli,
+            env={
+                k: str(v)
+                for k, v in sorted(source.items())
+                if k.startswith(_CLIENT_ENV_PREFIXES) or k in _CLIENT_ENV_NAMES
+            },
+        )
+
+    def process_environment(self) -> Dict[str, str]:
+        """Return the environment of a process of this client: that of this process, with the
+        variables that select a daemon replaced by the recorded ones."""
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(_CLIENT_ENV_PREFIXES) and k not in _CLIENT_ENV_NAMES
+        }
+        env.update(self.env)
+        return env
+
+
 class StartedPrograms(List[str]):
     """The programs started while `recording_programs` is active, in order and once each.
     `before` holds the state of the file of each program when it was first started. The trace
@@ -64,6 +103,8 @@ class StartedPrograms(List[str]):
     def __init__(self) -> None:
         super().__init__()
         self.before: Dict[str, Optional[ProgramState]] = {}
+        #: The client that started each container image.
+        self.clients: Dict[str, ImageClient] = {}
 
 
 def program_state(name: str, path: Optional[str] = None) -> Optional[ProgramState]:
@@ -93,14 +134,18 @@ def recording_programs() -> Iterator[StartedPrograms]:
         _programs.reset(token)
 
 
-def note_program(name: str, path: Optional[str] = None) -> None:
+def note_program(
+    name: str, path: Optional[str] = None, client: Optional[ImageClient] = None
+) -> None:
     """Record `name` and the state of its file as it is now, before the program starts, if a
-    recording is active."""
+    recording is active. A container image has the `client` that starts it instead of a file."""
     names = _programs.get()
     if names is not None and name not in names:
         names.append(name)
         if not name.startswith(DOCKER_IMAGE_PREFIX):
             names.before[name] = program_state(name, path=path)
+        elif client is not None:
+            names.clients[name] = client
 
 
 def tool_output_stream() -> TextIO:

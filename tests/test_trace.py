@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from xeda._internal.digest import MODIFIED_DURING_RUN, RACY_NS, FileRecord, record_file
+from xeda._internal.proc_utils import ImageClient
 from xeda._internal.flow_runner.trace import (
     TRACE_FILE,
     TRACE_FORMAT,
@@ -413,9 +414,21 @@ def test_a_program_replaced_during_its_run_or_an_image_is_checked_by_what_it_is(
     reason = check_trace(run_dir, expected, lambda name: "/opt/bin/yosys").reason
     assert reason == "yosys changed during the last run"
     image = "docker-image:hdlc/ghdl:yosys"
-    _record_program(run_dir, image, ProgramRecord(path="sha256:0123"))
-    assert check_trace(run_dir, expected, lambda name: "sha256:0123").fresh
-    reason = check_trace(run_dir, expected, lambda name: "sha256:4567").reason
+    _record_program(run_dir, image, ProgramRecord(path="sha256:0123", client=ImageClient()))
+    asked = []
+
+    def image_is(found):
+        def locate_image(reference, client):
+            asked.append((reference, client))
+            return found
+
+        return locate_image
+
+    fresh = check_trace(run_dir, expected, lambda name: None, locate_image=image_is("sha256:0123"))
+    assert fresh.fresh and asked == [("hdlc/ghdl:yosys", ImageClient())]
+    reason = check_trace(
+        run_dir, expected, lambda name: None, locate_image=image_is("sha256:4567")
+    ).reason
     assert reason == f"{image} changed"
 
 
@@ -424,9 +437,10 @@ def test_an_image_whose_id_cannot_be_read_is_not_fresh(recorded):
     run_dir, _, _, expected = recorded
     image = "docker-image:hdlc/ghdl:yosys"
     _record_program(run_dir, image, None)
-    assert check_trace(run_dir, expected, lambda name: None).reason == f"{image} changed"
-    _record_program(run_dir, image, ProgramRecord(path="sha256:0123"))
-    assert check_trace(run_dir, expected, lambda name: None).reason == f"{image} changed"
+    unread = {"locate_image": lambda reference, client: None}
+    assert check_trace(run_dir, expected, lambda n: None, **unread).reason == f"{image} changed"
+    _record_program(run_dir, image, ProgramRecord(path="sha256:0123", client=ImageClient()))
+    assert check_trace(run_dir, expected, lambda n: None, **unread).reason == f"{image} changed"
 
 
 def test_metadata_only_design_changes_come_last(recorded):
