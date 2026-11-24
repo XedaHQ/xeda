@@ -69,7 +69,7 @@ from typing import ClassVar, Optional
 import pytest
 
 from xeda._internal.dataclass import Field, XedaBaseModel, waveform_fields
-from xeda._internal.flow import Flow, FlowSettingsError, FlowSettingsException
+from xeda._internal.flow import Flow, FlowSettingsException
 from xeda._internal.flow.settings_group import Flag, SettingsGroup
 from xeda._internal.flow_runner.resolver import SHARED_SETTINGS
 
@@ -730,15 +730,6 @@ UNIVERSAL_SETTINGS: dict[str, str] = {
 #: these settings between the nodes that declare them.
 RESOLVER_SETTINGS = frozenset(SHARED_SETTINGS)
 
-#: `(flow, setting)` -> a value that the flow refuses. The setting stays in the model with its
-#: default, and a validator refuses any other value, naming the flow that has the setting.
-REFUSED_WHEN_SET: dict[tuple[str, str], object] = {
-    ("vivado_alt_synth", "tcl_files"): ["hook.tcl"],
-    ("vivado_alt_synth", "show_available_strategies"): True,
-    ("vivado_alt_synth", "set_synth_properties"): {"A.B": 1},
-    ("vivado_alt_synth", "set_impl_properties"): {"A.B": 1},
-}
-
 #: `(flow, setting)` -> why the flow does not read the setting and that is fine.
 REVIEWED: dict[tuple[str, str], str] = {}
 
@@ -756,7 +747,6 @@ def findings(cls: type[Flow], name: str) -> list[str]:
         and setting not in UNIVERSAL_SETTINGS
         and not (setting in RESOLVER_SETTINGS and _declares_io(cls))
         and (name, setting) not in REVIEWED
-        and (name, setting) not in REFUSED_WHEN_SET
         and setting not in getattr(cls, "unsupported_waveforms", {})
     ]
 
@@ -779,16 +769,6 @@ def test_every_reviewed_setting_is_still_unread() -> None:
         assert name in by_name, f"{name} is no product flow"
         assert reason, f"({name}, {setting}) has no reason"
         assert setting in unread_settings(by_name[name]), f"{name} reads {setting} now: drop it"
-
-
-@pytest.mark.parametrize(("name", "setting"), sorted(REFUSED_WHEN_SET))
-def test_a_refused_setting_is_refused_and_its_default_is_not(name: str, setting: str) -> None:
-    cls = dict(PRODUCT_FLOWS_BY_NAME)[name]
-    assert setting in unread_settings(cls), f"{name} reads {setting} now: drop it"
-    base = minimal_settings(cls)
-    cls.Settings.from_input(base)
-    with pytest.raises(FlowSettingsError, match=setting):
-        cls.Settings.from_input({**base, setting: REFUSED_WHEN_SET[(name, setting)]})
 
 
 @pytest.mark.parametrize(("cls", "name"), PRODUCT_FLOWS, ids=[name for _, name in PRODUCT_FLOWS])

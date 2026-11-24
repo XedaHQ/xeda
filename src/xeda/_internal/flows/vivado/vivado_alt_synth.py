@@ -7,6 +7,7 @@ from ...design import SourceType
 from ...flow import (
     Flow,
     FpgaSynthFlow,
+    NoReplacement,
     describe_artifacts,
 )
 from .artifacts import ALT_SYNTH_REPORTS, report_artifacts
@@ -16,6 +17,7 @@ from .vivado_synth import (
     OUT_OF_CONTEXT,
     RunOptions,
     VivadoSynth,
+    _VivadoSynthesis,
     _VivadoSynthOutputs,
     constraint_files,
     out_of_context_conflicts,
@@ -432,7 +434,7 @@ def flatten_options(d) -> str:
     return str(d)
 
 
-class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
+class VivadoAltSynth(_VivadoSynthesis, FpgaSynthFlow):
     """Synthesize and implement a design for an FPGA with Vivado in non-project mode.
 
     A generated Tcl script reads the design and runs the steps from `synth_design` through
@@ -478,7 +480,24 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         """The declared outputs, with one SDF corner and no `sdf_min` (which `VivadoSynth.Outputs`
         adds)."""
 
-    class Settings(VivadoSynth.Settings):
+    class Settings(_VivadoSynthesis.Settings):
+        removed_settings = {
+            **_VivadoSynthesis.Settings.removed_settings,
+            "tcl_files": NoReplacement(
+                "non-project mode has no fileset for Tcl hooks, so only `vivado_synth` takes it"
+            ),
+            "set_synth_properties": NoReplacement(
+                "non-project mode has no runs to set properties on, so only `vivado_synth` takes it"
+            ),
+            "set_impl_properties": NoReplacement(
+                "non-project mode has no runs to set properties on, so only `vivado_synth` takes it"
+            ),
+            "show_available_strategies": NoReplacement(
+                "non-project mode has no runs and no strategies to show, so only `vivado_synth` "
+                "takes it"
+            ),
+        }
+
         synth: RunOptions = Field(
             RunOptions(strategy="Default"),
             description="Strategy and per-step options of the synthesis part of the Tcl script.",
@@ -488,28 +507,6 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             description="Strategy and per-step options of the implementation part of the Tcl "
             "script.",
         )
-
-        @field_validator("tcl_files")
-        @classmethod
-        def _no_tcl_files(cls, value):
-            """Reject project-only Tcl hooks for non-project synthesis."""
-            if value:
-                raise ValueError(
-                    "vivado_alt_synth runs Vivado in non-project mode, which has no fileset for "
-                    "Tcl hooks: `tcl_files` is a setting of vivado_synth"
-                )
-            return value
-
-        @field_validator("set_synth_properties", "set_impl_properties", "show_available_strategies")
-        @classmethod
-        def _no_runs(cls, value, info):
-            """Reject the settings of a project's runs, because non-project mode has none."""
-            if value:
-                raise ValueError(
-                    "vivado_alt_synth runs Vivado in non-project mode, which has no runs to use "
-                    f"`{info.field_name}` on: it is a setting of vivado_synth"
-                )
-            return value
 
         @field_validator("synth", "impl")
         @classmethod

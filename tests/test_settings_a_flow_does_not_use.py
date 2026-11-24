@@ -50,6 +50,15 @@ REFUSED = [
     ("vivado_project", "optimization_flags", ["-O3"], "flows.vivado_sim.optimization_flags"),
     ("vivado_project", "initialize_zeros", True, "delete it"),
     ("vivado_project", "read_oneshot", True, "delete it"),
+    *[
+        ("vivado_alt_synth", name, value, "so only `vivado_synth` takes it; delete it")
+        for name, value in (
+            ("tcl_files", ["hook.tcl"]),
+            ("set_synth_properties", {"A.B": 1}),
+            ("set_impl_properties", {"A.B": 1}),
+            ("show_available_strategies", True),
+        )
+    ],
     ("vivado_sim", "initialize_zeros", True, "delete it"),
     ("vivado_sim", "read_oneshot", True, "delete it"),
     ("vivado_sim", "suppress_msgs", [], "delete it"),
@@ -390,7 +399,10 @@ EARLIER_REMOVALS = {
     "openroad_place": {"clock_period"},
     "quartus": {"clock_period"},
     "verilator": {"clean_before_run"},
-    "vivado_alt_synth": {"clock_period"},
+    "vivado_alt_synth": {
+        *("clock_period", "tcl_files", "set_synth_properties", "set_impl_properties"),
+        "show_available_strategies",
+    },
     "vivado_impl": {"clock_period"},
     "vivado_postsynth_sim": {"clock_period", "synth"},
     "vivado_power": {

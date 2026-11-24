@@ -2,7 +2,7 @@ import itertools
 import json
 import logging
 import re
-from abc import ABCMeta
+from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
 from collections.abc import Mapping
 from copy import deepcopy
@@ -861,7 +861,44 @@ def fmax_of_each_clock(text: str) -> Dict[str, float]:
     return result
 
 
-class VivadoSynth(VivadoImplementation):
+class _VivadoSynthesis(VivadoImplementation, metaclass=ABCMeta):
+    """The base of the Vivado flows that synthesize a design and implement it: it holds the
+    `synth_design` settings that project mode and non-project mode share.
+
+    `VivadoSynth` and `VivadoAltSynth` extend it, and neither extends the other. The settings of
+    a project's runs (`set_synth_properties` and others) belong to `VivadoSynth` alone."""
+
+    class Settings(VivadoImplementation.Settings):
+        """Settings of a Vivado flow that synthesizes and implements a design."""
+
+        out_of_context: bool = Field(
+            False,
+            description="Synthesize out of context: `synth_design` gets `-mode "
+            "out_of_context`. The synthesis options may hold that mode, which the flow keeps "
+            "once, but no other `-mode`. The flow refuses another mode before the run.",
+        )
+        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field(
+            "rebuilt",
+            description="How synthesis flattens the design hierarchy: `full` flattens and does "
+            "not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` "
+            "preserves it throughout.",
+        )
+
+    @classmethod
+    @abstractmethod
+    def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
+        """Return what in the settings gives `synth_design` a mode beside `out_of_context`, as
+        (setting, why) pairs. Each flow reads the options from its own settings."""
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a second `-mode` of `synth_design` beside `out_of_context` before the run."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        refuse_conflicts(cls.Settings, cls.mode_conflicts(settings))
+
+
+class VivadoSynth(_VivadoSynthesis):
     """Synthesize and implement an FPGA design with AMD-Xilinx Vivado, in project mode, in batch.
 
     The flow creates a Vivado project in the run directory, runs its synthesis and implementation,
@@ -979,7 +1016,7 @@ class VivadoSynth(VivadoImplementation):
         }
     )
 
-    class Settings(VivadoImplementation.Settings):
+    class Settings(_VivadoSynthesis.Settings):
         """Vivado synthesis settings."""
 
         # The names of Vivado's run properties contain dots (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`).
@@ -999,12 +1036,6 @@ class VivadoSynth(VivadoImplementation):
             ),
             description="Synthesis run options: a Vivado `strategy` name (empty for the default) "
             "and per-step option overrides. See `show_available_strategies`.",
-        )
-        out_of_context: bool = Field(
-            False,
-            description="Synthesize out of context: `synth_design` gets `-mode "
-            "out_of_context`. The synthesis options may hold that mode, which the flow keeps "
-            "once, but no other `-mode`. The flow refuses another mode before the run.",
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
         impl: RunOptions = Field(
@@ -1032,12 +1063,6 @@ class VivadoSynth(VivadoImplementation):
             ],
             description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
             "messages are not printed and never trigger `fail_critical_warning`.",
-        )
-        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field(
-            "rebuilt",
-            description="How synthesis flattens the design hierarchy: `full` flattens and does "
-            "not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` "
-            "preserves it throughout.",
         )
         show_available_strategies: bool = Field(
             False, description="Show the available synthesis and implementation strategies."
@@ -1068,15 +1093,8 @@ class VivadoSynth(VivadoImplementation):
     @classmethod
     def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
         """Return what in the settings gives `synth_design` a mode beside `out_of_context`, as
-        (setting, why) pairs. A flow with another way to write the options overrides this."""
+        (setting, why) pairs."""
         return step_mode_conflicts(settings) + property_mode_conflicts(settings)
-
-    @classmethod
-    def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a second `-mode` of `synth_design` beside `out_of_context` before the run."""
-        super().check_settings_supported(settings)
-        assert isinstance(settings, cls.Settings)
-        refuse_conflicts(cls.Settings, cls.mode_conflicts(settings))
 
     def init(self):
         super().init()
