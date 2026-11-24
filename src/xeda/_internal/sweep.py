@@ -56,7 +56,7 @@ from .frozen import thaw
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
 from .proc_utils import CANCEL_POLL
-from .records import ErrorInfo, RunRecord, has_quantity, read_record
+from .records import TABLE_METRIC_TYPE, ErrorInfo, RunRecord, has_quantity, read_record
 from .run_dir import RunDirectory
 from .spec import Spec
 from .utils import Canceled, expanding_from
@@ -236,7 +236,7 @@ def _metric_quantities(record: RunRecord, path: str) -> Any:
     if path in record.metric_info:
         info = record.metric_info[path]
         if has_quantity(info):
-            if info.type == "numbers":
+            if info.type == TABLE_METRIC_TYPE:
                 return dict(record.quantities(path))
             return record.quantity(path)
         return thaw(value)

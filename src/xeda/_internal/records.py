@@ -129,6 +129,8 @@ OUTCOMES: Final = ("passed", "rejected", "failed", "canceled")
 #: The types of a metric value (`xeda._internal.flow.metrics.MetricType`).
 #: The metric types that hold numbers, which a unit makes quantities.
 _NUMERIC_METRIC_TYPES: Final = ("number", "integer", "numbers")
+#: The metric type of a table of numbers, which `RunRecord.quantities` reads.
+TABLE_METRIC_TYPE: Final = "numbers"
 _METRIC_TYPES: Final = (
     "number",
     "integer",
@@ -363,12 +365,12 @@ class RunRecord:
                 + ("" if info.unit is None else f" with the unit `{info.unit}`")
                 + " and has no quantity: read it with `metric`"
             )
-        if table and info.type != "numbers":
+        if table and info.type != TABLE_METRIC_TYPE:
             raise ValueError(
                 f"the metric `{path}` is of the type `{info.type}`, not a table of numbers: "
                 "read it with `quantity`"
             )
-        if not table and info.type == "numbers":
+        if not table and info.type == TABLE_METRIC_TYPE:
             raise ValueError(
                 f"the metric `{path}` is a table of numbers, not one number: "
                 "read it with `quantities`"
