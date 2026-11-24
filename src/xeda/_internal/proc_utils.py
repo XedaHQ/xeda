@@ -56,15 +56,17 @@ PROCESS_STOP_GRACE = 5.0
 ProgramState = Tuple[int, int, int, int, int]
 
 
-#: The environment variables that select the daemon a container client talks to.
+#: The environment variables that select the container client and the daemon it talks to: the
+#: daemon and context variables, `HOME` (where the client finds its configuration and context),
+#: and `PATH` (which finds the client).
 _CLIENT_ENV_PREFIXES = ("DOCKER_", "CONTAINER_")
-_CLIENT_ENV_NAMES = ("XDG_RUNTIME_DIR",)
+_CLIENT_ENV_NAMES = ("XDG_RUNTIME_DIR", "HOME", "PATH")
 
 
 class ImageClient(XedaBaseModel):
     """The container client that ran an image: its program and the environment variables that
-    select the daemon (`DOCKER_HOST`, `DOCKER_CONTEXT`, ...). Asking the same client again names
-    the same daemon."""
+    select it and its daemon (`DOCKER_HOST`, `DOCKER_CONTEXT`, `HOME`, `PATH`, ...), as the
+    environment of the run had them. Asking the same client again names the same daemon."""
 
     cli: str = "docker"
     env: Dict[str, str] = {}
@@ -84,7 +86,8 @@ class ImageClient(XedaBaseModel):
 
     def process_environment(self) -> Dict[str, str]:
         """Return the environment of a process of this client: that of this process, with the
-        variables that select a daemon replaced by the recorded ones."""
+        variables that select the client and its daemon replaced by the recorded ones (a variable
+        that the run did not have is absent)."""
         env = {
             k: v
             for k, v in os.environ.items()

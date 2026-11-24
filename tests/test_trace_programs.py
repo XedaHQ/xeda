@@ -389,7 +389,8 @@ def test_a_container_image_is_checked_on_the_daemon_the_run_used(
     first = runner.launch_flow(TInContainer, design, settings)
     recorded = trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"]
     assert recorded.path == "sha256:a1"
-    assert (recorded.client.cli, recorded.client.env) == (_FAKE_CLI, {"DOCKER_HOST": "tcp-a"})
+    assert recorded.client.cli == _FAKE_CLI
+    assert recorded.client.env["DOCKER_HOST"] == "tcp-a"
     assert runner.launch_flow(TInContainer, design, settings).reused
     container_daemons("tcp-b", "sha256:b2")
     assert runner.launch_flow(TInContainer, design, settings).reused
@@ -425,3 +426,28 @@ def test_a_trace_of_an_image_without_a_client_runs_the_node_once(tmp_path, conta
     assert not again.reused
     assert again.stale_reason == "docker-image:img:tag was recorded without its client"
     assert runner.launch_flow(TInContainer, design, {}).reused
+
+
+def test_a_container_image_is_checked_with_the_environment_of_the_node(
+    tmp_path, container_daemons, monkeypatch
+):
+    """The client finds its configuration through `HOME`. The check uses the `HOME` of the node
+    (its `env`), not the one of the process that checks."""
+    for name in ("a", "b"):
+        config = tmp_path / name / ".docker"
+        config.mkdir(parents=True)
+        (config / "config.json").write_text(f"sha256:{name}1\n")
+    program = tmp_path / "bin" / "fake-home-cli"
+    program.write_text('#!/bin/sh\n[ "$1" = image ] && cat "$HOME/.docker/config.json"\nexit 0\n')
+    program.chmod(0o755)
+    monkeypatch.setattr(TInContainer, "cli", "fake-home-cli")
+    monkeypatch.setenv("HOME", str(tmp_path / "b"))
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    settings = {"env": {"HOME": str(tmp_path / "a")}}
+    first = runner.launch_flow(TInContainer, design, settings)
+    recorded = trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"]
+    assert recorded.path == "sha256:a1"
+    assert runner.launch_flow(TInContainer, design, settings).reused
+    (tmp_path / "a" / ".docker" / "config.json").write_text("sha256:a2\n")
+    assert not runner.launch_flow(TInContainer, design, settings).reused
