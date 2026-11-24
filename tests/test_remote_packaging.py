@@ -420,6 +420,24 @@ def test_a_directory_setting_reaches_the_remote_as_it_is(tmp_path):
     assert not (remote_dir / relative / "empty").exists()
 
 
+def test_a_relative_setting_path_ships_from_the_design_root_never_the_start_directory(
+    tmp_path, monkeypatch
+):
+    """A relative path names a place under the design root only. A folder of that name in the
+    start directory is not shipped, as a local run does not read it."""
+    start = tmp_path / "start"
+    (start / "data").mkdir(parents=True)
+    (start / "data" / "only_here.txt").write_text("start\n")
+    monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: start))
+    design = _design(tmp_path)  # its root holds no `data`
+    package = _package(design, {"t_input_maker": {"input_file": "data"}}, tmp_path)
+    (setting,) = _shipped(package)["flows"]["t_input_maker"].values()
+    assert setting == "$DESIGN_ROOT/data"
+    sources = {Path(source).resolve() for source in package.files.values()}
+    assert not any(start.resolve() in source.parents for source in sources)
+    assert not any(path.startswith("data") for path in package.files)
+
+
 def _table(plan, flow: str, *path: str) -> dict:
     """The table of names (a setting in `opaque_key_fields`) that a node of `plan` holds."""
     value = plan.node(flow).settings
