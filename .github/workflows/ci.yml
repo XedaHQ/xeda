@@ -239,6 +239,7 @@ jobs:
           tests/test_code_epoch.py
           tests/test_trace_inputs.py
           tests/test_trace_soundness.py
+          tests/test_bsc.py
           tests/test_utils.py
           tests/test_delivery.py
           tests/test_generator_deliveries.py
