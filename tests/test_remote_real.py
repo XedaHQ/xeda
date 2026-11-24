@@ -269,7 +269,7 @@ def test_first_run_installs_uv_and_python_and_the_second_builds_nothing(
     use_root(tmp_path, monkeypatch, own_token)
     caplog.set_level(logging.INFO, logger=impl_module("remote.client"))
     first = succeeded(run(tmp_path, ADDER, dry_run=True))
-    assert first["remote"] == HOST
+    assert first["schema_version"] == 1 and first["nodes"], first
     steps = log_messages(caplog)
     assert f"Installing uv {UV_VERSION}" in steps
     assert any(step.startswith("Installing Python 3.") for step in steps)

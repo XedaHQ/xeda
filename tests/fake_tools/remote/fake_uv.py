@@ -10,6 +10,10 @@ The `ENV` lines show the variables that a test looks at (`RECORDED_ENV`). Every 
 Settings (all optional):
   python         the program that the Python of an environment runs (default: this Python)
   uv_venv_delay  seconds that `venv` takes
+  uv_venv_wait   `{"once": <file>, "ready": <fifo>, "never": <fifo>}`: if the file `once` exists,
+                 `venv` removes it, writes its process id to the FIFO `ready` and waits until
+                 a writer has opened and closed the FIFO `never` (no time passes)
+  uv_freeze_wait the same for `pip freeze`
   uv_pip_fail    a message: `pip install` prints it on the standard error and fails
   uv_python_fail a message: `python install` prints it on the standard error and fails
 
@@ -111,12 +115,23 @@ def python(args: list, config: dict) -> None:
         fail(f"fake uv: unsupported command python {command}")
 
 
+def wait_if_asked(wait) -> None:
+    """Wait as `uv_venv_wait` and `uv_freeze_wait` describe, if `wait` is set and its file exists."""
+    if wait and os.path.exists(wait["once"]):
+        os.remove(wait["once"])
+        with open(wait["ready"], "w") as handle:
+            handle.write(str(os.getpid()))
+        with open(wait["never"]) as handle:
+            handle.read()
+
+
 def venv(args: list, config: dict) -> None:
     option(args, "--python")
     if len(args) != 1:
         fail("venv needs one directory")
     directory = args[0]
     os.makedirs(directory, exist_ok=True)
+    wait_if_asked(config.get("uv_venv_wait"))
     time.sleep(float(config.get("uv_venv_delay", 0)))
     write_python(os.path.join(directory, "bin", "python"), config)
     with open(os.path.join(directory, "pyvenv.cfg"), "w") as handle:
@@ -142,6 +157,7 @@ def pip(args: list, config: dict) -> None:
         with open(lines_file, "w") as handle:
             handle.write("\n".join(lines) + "\n")
     elif command == "freeze":
+        wait_if_asked(config.get("uv_freeze_wait"))
         with open(lines_file) as handle:
             sys.stdout.write(handle.read())
     else:

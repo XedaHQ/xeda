@@ -6,15 +6,21 @@ Every other `ssh` process of the launch uses that connection through its control
 never asks. Xeda sets no host key option: OpenSSH checks the host keys as the user configured.
 """
 
+import contextvars
 import logging
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from time import monotonic
+from typing import Any, Callable, Iterator, Optional, Sequence
 
-from ..proc_utils import child_stdout
+from ..cancel import launch_canceled
+from ..proc_utils import CANCEL_POLL, child_stdout
+from ..utils import Canceled
 from .constants import CONTROL_PERSIST, SERVER_ALIVE
 from .errors import RemoteConfigError, RemoteConnectionError
 
@@ -146,6 +152,80 @@ def _message(stderr: bytes) -> str:
     return text or "no message"
 
 
+def _communicate(
+    command: Sequence[str],
+    *,
+    stdin: Any,
+    stdout: Any = None,
+    stderr: Any = None,
+    input: Optional[bytes] = None,
+    timeout: Optional[float] = None,
+) -> "subprocess.CompletedProcess[bytes]":
+    """Run `command` as `subprocess.run` does, and stop it when the launch is asked to stop
+    (`cancel.launch_canceled`): kill it and raise `Canceled`. The request is asked every
+    `CANCEL_POLL` seconds. A `timeout` raises `subprocess.TimeoutExpired`, as `subprocess.run`
+    does. The client is also killed on every other exception, Ctrl-C included."""
+    deadline = None if timeout is None else monotonic() + timeout
+    data = input
+    with subprocess.Popen(command, stdin=stdin, stdout=stdout, stderr=stderr) as process:
+        try:
+            while True:
+                wait = CANCEL_POLL if deadline is None else min(CANCEL_POLL, deadline - monotonic())
+                try:
+                    out, err = process.communicate(data, timeout=max(wait, 0))
+                    if launch_canceled():  # it ended between two checks: its result is no result
+                        raise Canceled("the launch was canceled while it waited for ssh")
+                    return subprocess.CompletedProcess(command, process.returncode, out, err)
+                except subprocess.TimeoutExpired as expired:
+                    data = None  # the input is sent already, or `communicate` keeps sending it
+                    if launch_canceled():
+                        raise Canceled("the launch was canceled while it waited for ssh") from None
+                    if deadline is not None and monotonic() >= deadline:
+                        assert timeout is not None
+                        raise subprocess.TimeoutExpired(
+                            command, timeout, output=expired.output, stderr=expired.stderr
+                        ) from None
+        except BaseException:
+            process.kill()
+            raise
+
+
+@contextmanager
+def stop_on_cancel(stop: Callable[[], None], doing: str) -> Iterator[None]:
+    """Call `stop` when the launch is asked to stop (`cancel.launch_canceled`), in any thread,
+    for the time of the block, and then raise `Canceled`.
+
+    `stop` ends what the block waits for: it kills the ssh client of a step, so a read of its
+    output ends. The request is asked every `CANCEL_POLL` seconds. `doing` names the step in the
+    message: "the launch was canceled while <doing>". The block raises `Canceled` also when it
+    ended without noticing the stop, and when the request came after the last check of the
+    watcher. An exception of another kind that a stop did not cause is raised as it is."""
+    done = threading.Event()
+    stopped = threading.Event()
+    message = f"the launch was canceled while {doing}"
+
+    def watch() -> None:
+        while not done.wait(CANCEL_POLL):
+            if launch_canceled():
+                stopped.set()
+                stop()
+                return
+
+    watcher = threading.Thread(target=contextvars.copy_context().run, args=(watch,), daemon=True)
+    watcher.start()
+    try:
+        yield
+    except Exception as error:
+        if stopped.is_set() and not isinstance(error, Canceled):
+            raise Canceled(message) from error
+        raise
+    finally:
+        done.set()
+        watcher.join()
+    if stopped.is_set() or launch_canceled():  # a request after the last check of the watcher
+        raise Canceled(message)
+
+
 class SshSession:
     """One master connection to a host, for the time of a `with` block.
 
@@ -208,7 +288,9 @@ class SshSession:
         # the background process keeps the pipe open, and then nothing sees the end of the data.
         # (OpenSSH asks for passwords and passphrases on the terminal itself.)
         with tempfile.TemporaryFile() as messages:
-            status = subprocess.call(command, stderr=messages, stdout=child_stdout())
+            status = _communicate(
+                command, stdin=None, stderr=messages, stdout=child_stdout()
+            ).returncode
             messages.seek(0)
             text = messages.read()
         if status != 0:
@@ -294,13 +376,13 @@ class SshSession:
         `subprocess.run` kills its client on KeyboardInterrupt, so only the clients of `popen`
         survive Ctrl-C. This is intended: the agent session uses `popen`."""
         self._require_master()
-        result = subprocess.run(
+        result = _communicate(
             self._client_command(command),
             input=stdin,
-            stdin=None if stdin is not None else subprocess.DEVNULL,
-            capture_output=True,
+            stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=timeout,
-            check=False,
         )
         if result.returncode == 255:  # ssh's own failure, or the command's status 255
             self._require_master()

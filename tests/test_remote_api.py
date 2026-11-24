@@ -29,7 +29,7 @@ from xeda._internal.workspace import Workspace
 from .test_schema_baseline import _validate
 from .remote_fixtures import fake_remote, fake_ssh, host_profile_of, remote_host
 from .test_git_dependencies import git_log, remote
-from .test_remote_client import TIMEOUT, _design
+from .test_remote_client import PART, TIMEOUT, _design
 from .test_remote_keep_running import (
     Connections,
     Gate,
@@ -337,6 +337,20 @@ def test_a_remote_plan_runs_when_nothing_changed(tmp_path, remote_host):
     assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True, False]
 
 
+def test_a_remote_plan_and_run_accept_a_dependency_that_lists_a_file_of_the_design(
+    tmp_path, remote_host
+):
+    """`base.yaml` lies beside the design file and lists the same `top.v`. The package holds one
+    file, so the host plans what this side planned, and the plan runs."""
+    spec = _with_dependencies(tmp_path, "base.yaml")
+    (tmp_path / "design" / "base.yaml").write_text("name: base\nrtl:\n  sources: [top.v]\n")
+    workspace = _workspace(tmp_path)
+    plan = workspace.plan(spec)
+    result = workspace.run(plan)
+    assert result.outcome is Outcome.PASSED
+    assert workspace.run(spec).outcome is Outcome.PASSED
+
+
 def test_a_remote_plan_that_the_host_would_plan_differently_is_stale(tmp_path, remote_host):
     workspace = _workspace(tmp_path)
     spec = _with_dependencies(tmp_path, "dep/dep.yaml")
@@ -391,6 +405,197 @@ def test_a_dependency_that_moved_makes_a_remote_plan_stale(tmp_path, remote_host
             workspace.run(stale)
         assert raised.value.code == "stale_plan"
     assert workspace.plan(spec).to_dict()["dependencies"][0]["commit"] == moved
+
+
+def test_a_remote_plan_runs_with_the_commit_that_was_compared(tmp_path, remote_host, remote):
+    """The branch of a Git dependency moves after the host compared its plan with the saved one,
+    and before the launch is prepared. The launch still uses the saved commit, as the plan says."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, f"git+{remote.url}?branch=main#dep.yaml")
+    plan = workspace.plan(spec)
+    first = plan.to_dict()["dependencies"][0]["commit"]
+    assert first == remote.first
+    real, moved = client._plan, []
+
+    def move_before_the_launch(*arguments, **options):
+        if not options["dry_run"] and not moved:  # the comparison is over: the branch moves
+            moved.append(remote.advance())
+        return real(*arguments, **options)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", move_before_the_launch)
+        result = workspace.run(plan)
+    assert moved and moved[0] != first
+    assert result.passed, result.error
+    (launch,) = [r for r in _host_requests(remote_host) if not r["dry_run"]]
+    assert set(launch["dependency_commits"].values()) == {first}
+    assert result.nodes["nextpnr"].record is not None
+    (entry,) = result.nodes["nextpnr"].record.dependencies
+    assert entry["commit"] == first
+    assert workspace.plan(spec).to_dict()["dependencies"][0]["commit"] == moved[0]
+
+
+def test_a_remote_plan_whose_request_changed_before_the_launch_is_stale(tmp_path, remote_host):
+    """A local dependency changes after the comparison and before the launch is prepared. The
+    host runs nothing: the request of the launch is not the plan that the caller saved."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _local_dependency(tmp_path)
+    plan = workspace.plan(spec)
+    real, changed = client._plan, []
+
+    def change_before_the_launch(*arguments, **options):
+        if not options["dry_run"] and not changed:
+            changed.append(_local_dependency(tmp_path, "lib.v", "more.v"))
+        return real(*arguments, **options)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", change_before_the_launch)
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(plan)
+    assert changed and raised.value.difference == "the identity of node yosys_fpga changed"
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True]
+    assert not (tmp_path / "local" / "xeda_run" / "@somewhere").exists()
+
+
+def _dependency_on_commit(tmp_path: Path, repository: Any, commit: str) -> None:
+    """The local dependency file, which lists a Git dependency at the explicit `commit`."""
+    file = _local_dependency(tmp_path)
+    file.write_text(
+        file.read_text() + f"dependencies:\n  - git+{repository.url}?commit={commit}#dep.yaml\n"
+    )
+
+
+def test_a_remote_plan_is_stale_when_a_nested_explicit_commit_changes(
+    tmp_path, remote_host, remote
+):
+    """A local dependency names another explicit commit of a Git dependency after the comparison.
+    No node identity counts a commit, and the names are the same, so only the resolved
+    dependencies show it. The host runs nothing."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _dependency_on_commit(tmp_path, remote, remote.first)
+    plan = workspace.plan(spec)
+    moved = remote.advance()
+    real, edited = client._plan, []
+
+    def edit_before_the_launch(*arguments, **options):
+        if not options["dry_run"] and not edited:  # the comparison is over
+            edited.append(moved)
+            _dependency_on_commit(tmp_path, remote, moved)
+        return real(*arguments, **options)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", edit_before_the_launch)
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(plan)
+    assert edited and raised.value.difference == f"dependency {remote.url} now resolves to {moved}"
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True]
+
+
+def _edit_while_packaging(tmp_path: Path, remote: Any, moved: str | None):
+    """Patch `package_inputs` so that the local dependency file names the explicit commit
+    `moved` (or no Git dependency, for `None`) just before the launch is packaged (not the
+    comparison)."""
+    real_plan, real_package, planned = client._plan, client.package_inputs, []
+
+    def plan(*arguments, **options):
+        result = real_plan(*arguments, **options)
+        if not options["dry_run"]:
+            planned.append(True)
+        return result
+
+    def package(*arguments, **options):
+        if planned:  # the request is planned: the edit comes after it
+            planned.clear()
+            if moved is None:
+                _local_dependency(tmp_path)
+            else:
+                _dependency_on_commit(tmp_path, remote, moved)
+        return real_package(*arguments, **options)
+
+    return plan, package
+
+
+def test_a_remote_plan_is_stale_when_a_dependency_file_changes_while_it_is_packaged(
+    tmp_path, remote_host, remote
+):
+    """The local dependency file changes after the request was planned and before it is
+    packaged. The package would carry the new commit, so the launch is refused."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _dependency_on_commit(tmp_path, remote, remote.first)
+    plan = workspace.plan(spec)
+    moved = remote.advance()
+    planning, packaging = _edit_while_packaging(tmp_path, remote, moved)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", planning)
+        patch.setattr(client, "package_inputs", packaging)
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(plan)
+    assert raised.value.difference == (
+        f"dependency {remote.url} was resolved at {remote.first} and now names {moved}"
+    )
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True]
+
+
+def test_a_remote_plan_is_stale_when_a_git_dependency_leaves_a_file_while_it_is_packaged(
+    tmp_path, remote_host, remote
+):
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _dependency_on_commit(tmp_path, remote, remote.first)
+    plan = workspace.plan(spec)
+    planning, packaging = _edit_while_packaging(tmp_path, remote, None)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", planning)
+        patch.setattr(client, "package_inputs", packaging)
+        with pytest.raises(StalePlanError) as raised:
+            workspace.run(plan)
+    assert raised.value.difference == f"dependency {remote.url} was removed"
+    assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True]
+
+
+def test_a_remote_run_refuses_a_dependency_file_that_changes_while_it_is_packaged(
+    tmp_path, remote_host, remote
+):
+    """The same edit during a run without a plan: no plan is stale, and the host runs nothing."""
+    workspace = _workspace(tmp_path)
+    spec = _with_dependencies(tmp_path, "dep/dep.yaml")
+    _dependency_on_commit(tmp_path, remote, remote.first)
+    moved = remote.advance()
+    planning, packaging = _edit_while_packaging(tmp_path, remote, moved)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(client, "_plan", planning)
+        patch.setattr(client, "package_inputs", packaging)
+        with pytest.raises(RemoteError, match="changed while the request was prepared"):
+            workspace.run(spec)
+    assert not remote_host.workspaces.exists()  # the host got no inputs and no launch
+
+
+def test_a_remote_plan_and_run_accept_a_target_dependency_that_depends_on_the_root_file(
+    tmp_path, remote_host
+):
+    """The file of the root design has a target that depends on `lib.yaml`, and `lib.yaml` depends
+    on the file of the root. The second load of that file takes no target and ends the chain, so
+    the planner accepts it and the packaging does too."""
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "lib.v").write_text("module lib(input clk, output q); assign q = clk; endmodule\n")
+    (root / "lib.yaml").write_text(
+        "name: lib\ndependencies: [top.yaml]\nrtl:\n  sources: [lib.v]\n"
+    )
+    design = _design(tmp_path)
+    design.write_text(
+        "name: top\nrtl:\n  sources: []\n  top: lib\n  clocks: [{port: clk}]\nflows:\n  nextpnr:\n    fpga.part: "
+        + PART
+        + "\n"
+        "    clocks.main_clock.freq: 100 MHz\ntargets:\n  test:\n    dependencies: [lib.yaml]\n"
+    )
+    spec = Spec("nextpnr", Design.load(design, target="test"))
+    workspace = _workspace(tmp_path)
+    plan = workspace.plan(spec)
+    assert workspace.run(plan).outcome == "passed"
 
 
 @pytest.mark.parametrize("option", ["prune_variants", "post_cleanup", "post_cleanup_purge"])

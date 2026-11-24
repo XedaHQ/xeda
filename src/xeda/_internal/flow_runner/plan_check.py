@@ -9,10 +9,12 @@ difference, or `None`. This module never imports `default_runner`.
 
 from __future__ import annotations
 
+from typing import Mapping, Sequence
+
 from ..plan import Plan, PlanNode
 from .launch_options import WorkspaceOptions
 
-__all__ = ["workspace_difference", "plan_difference"]
+__all__ = ["workspace_difference", "plan_difference", "dependency_difference"]
 
 
 def workspace_difference(planned: WorkspaceOptions | None, current: WorkspaceOptions) -> str | None:
@@ -39,14 +41,40 @@ def _graph_difference(expected: PlanNode, fresh: PlanNode) -> str | None:
     return None
 
 
-def _git_dependencies(plan: Plan) -> dict[int, tuple[str | None, str | None]]:
-    """The `(repository, commit)` of each Git dependency of `plan`, by its index in the entries.
-    Two entries of one repository at different commits have different indexes."""
+Dependencies = Sequence[Mapping[str, str | None]]
+
+
+def _git_dependencies(
+    entries: Dependencies,
+) -> dict[int, tuple[str | None, str | None, str | None, str | None]]:
+    """The `(repository, commit, reference, design_file)` of each Git dependency in `entries`, by
+    its index.
+    Two entries of one repository at different commits have different indexes. An explicit commit
+    and a resolved branch count alike: the commit is what a launch fetches."""
     return {
-        index: (entry["repository"], entry["commit"])
-        for index, entry in enumerate(plan._dependencies)
+        index: (entry["repository"], entry["commit"], entry["reference"], entry["design_file"])
+        for index, entry in enumerate(entries)
         if entry["commit"] is not None
     }
+
+
+def dependency_difference(expected: Dependencies, fresh: Dependencies) -> str | None:
+    """Return the first difference between the dependencies of a plan, as `RunRecord.dependencies`
+    lists them, and those that a new resolution found, or `None`."""
+    resolved = _git_dependencies(fresh)
+    for index, (repository, commit, reference, design_file) in _git_dependencies(expected).items():
+        current = resolved.pop(index, None)
+        if current is None:
+            return f"dependency {repository} was removed"
+        if current[:2] != (repository, commit):
+            return f"dependency {current[0]} now resolves to {current[1]}"
+        if current[2] != reference:
+            return f"dependency {repository} now names the reference {current[2]}"
+        if current[3] != design_file:
+            return f"the design file of dependency {repository} is now {current[3]}"
+    for repository, *_rest in resolved.values():
+        return f"dependency {repository} was added"
+    return None
 
 
 def plan_difference(expected: Plan, fresh: Plan) -> str | None:
@@ -72,13 +100,4 @@ def plan_difference(expected: Plan, fresh: Plan) -> str | None:
     for name, node in expected.nodes.items():
         if node.settings != fresh.nodes[name].settings:
             return f"the settings of node {name} changed"
-    resolved = _git_dependencies(fresh)
-    for index, (repository, commit) in _git_dependencies(expected).items():
-        current = resolved.pop(index, None)
-        if current is None:
-            return f"dependency {repository} was removed"
-        if current != (repository, commit):
-            return f"dependency {current[0]} now resolves to {current[1]}"
-    for repository, _commit in resolved.values():
-        return f"dependency {repository} was added"
-    return None
+    return dependency_difference(expected._dependencies, fresh._dependencies)

@@ -1,6 +1,7 @@
 """The OpenSSH transport of remote runs (`xeda._internal.remote.ssh`), against the fake `ssh`
 (`tests/fake_tools/remote/fake_ssh.py`). A real master connection is not tested here."""
 
+import errno
 import os
 import select
 import signal
@@ -10,11 +11,18 @@ import tempfile
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 
 from xeda._internal.remote.errors import RemoteConfigError, RemoteConnectionError
 from xeda._internal.remote import ssh
-from xeda._internal.remote.ssh import Destination, SshSession, resolve_destination, sh_command
+from xeda._internal.remote.ssh import (
+    Destination,
+    SshSession,
+    resolve_destination,
+    sh_command,
+    stop_on_cancel,
+)
 
 from .remote_fixtures import fake_ssh, ssh_calls
 from .tool_utils import terminal_output
@@ -256,6 +264,101 @@ def test_run_times_out(fake_ssh):
         # The remote command ends by itself after 10 s, so it cannot outlive the test for long.
         with pytest.raises(subprocess.TimeoutExpired):
             s.run("exec sleep 10", timeout=0.3)
+
+
+def _is_running(pid: int) -> bool:
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+def _let_go_and_wait_for_the_end(block: Path, pid: int) -> None:
+    """Let the process `pid`, which reads the FIFO `block`, go, and wait until it ends.
+
+    The process may not have opened the FIFO yet: a writer without a reader fails at once, so
+    the writer tries again until the reader is there or the process is gone. A process that does
+    not end is killed, and the test fails."""
+    deadline = time.monotonic() + PATIENCE
+    while _is_running(pid):
+        try:
+            os.close(os.open(block, os.O_WRONLY | os.O_NONBLOCK))
+            break  # the reader had the FIFO open: it reads the end of file
+        except OSError as error:
+            assert error.errno == errno.ENXIO, error  # only "no reader yet"
+        if time.monotonic() > deadline:
+            break
+        select.select([], [], [], 0.01)
+    while _is_running(pid) and time.monotonic() < deadline:
+        select.select([], [], [], 0.01)
+    still_running = _is_running(pid)
+    if still_running:
+        os.kill(pid, signal.SIGKILL)  # no process stays: the test fails below
+    assert not still_running, "the remote command did not end"
+
+
+def test_run_stops_when_the_launch_is_asked_to_stop(fake_ssh, tmp_path):
+    """The remote command reports its process id through a FIFO, and then waits for a second FIFO
+    until the test opens it. The request to stop ends the wait of the client, not the command."""
+    from threading import Event, Thread
+
+    from xeda._internal.cancel import CancelToken, observing
+    from xeda._internal.utils import Canceled
+
+    ready, block = tmp_path / "ready", tmp_path / "block"
+    os.mkfifo(ready)
+    os.mkfifo(block)
+    token, done = CancelToken(), Event()
+    pids: list[int] = []
+
+    def cancel_when_it_waits() -> None:
+        with open(ready, "rb") as stream:  # blocks until the remote command writes
+            pids.append(int(stream.read()))
+        token.cancel()
+        if not done.wait(PATIENCE):  # the client did not stop: let the command go
+            with open(block, "wb"):
+                pass
+
+    thread = Thread(target=cancel_when_it_waits, daemon=True)
+    thread.start()
+    try:
+        with SshSession(resolve_destination("venona")) as s, observing(lambda: token.canceled):
+            with pytest.raises(Canceled):
+                s.run(f"echo $$ > {ready}; read _ < {block}")
+            done.set()
+    finally:
+        done.set()
+        thread.join(PATIENCE)
+        if pids:  # the remote command goes on until the test lets it go
+            _let_go_and_wait_for_the_end(block, pids[0])
+
+
+def test_a_client_that_ends_at_the_request_to_stop_gives_no_result(fake_ssh, monkeypatch):
+    """The first check of the request comes after `CANCEL_POLL` seconds. A client that ended
+    before then must not give a result to a launch that is asked to stop."""
+    from xeda._internal.cancel import observing
+    from xeda._internal.utils import Canceled
+
+    monkeypatch.setattr(ssh, "CANCEL_POLL", 60)  # the poll never comes
+    with SshSession(resolve_destination("venona")) as s:
+        assert s.run("true").returncode == 0
+        with observing(lambda: True), pytest.raises(Canceled):
+            s.run("true")
+
+
+def test_a_block_that_ends_after_the_request_to_stop_raises_canceled(monkeypatch):
+    from xeda._internal.cancel import CancelToken, observing
+    from xeda._internal.utils import Canceled
+
+    monkeypatch.setattr(ssh, "CANCEL_POLL", 60)  # the watcher never asks
+    token, stopped = CancelToken(), []
+    with observing(lambda: token.canceled):
+        with stop_on_cancel(lambda: stopped.append(True), "the test ran"):
+            pass  # no request: the block ends normally
+        with pytest.raises(Canceled, match="canceled while the test ran"):
+            with stop_on_cancel(lambda: stopped.append(True), "the test ran"):
+                token.cancel()  # after the last check of the watcher, before the block ends
+    assert stopped == []
 
 
 def test_login_noise_comes_first_on_stdout(fake_ssh, monkeypatch):

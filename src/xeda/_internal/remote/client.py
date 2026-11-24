@@ -63,12 +63,20 @@ from ..deliver import (
     split_deliveries,
 )
 from ..design import generator_of
-from ..plan import Plan, PlanDelivery, delivery_key, plan_from_dict, planned_destination
+from ..plan import (
+    Plan,
+    PlanDelivery,
+    dependency_entries,
+    delivery_key,
+    plan_from_dict,
+    planned_destination,
+)
 from ..flow_runner import DefaultRunner, launch_generation
-from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY
+from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY, using_pinned_commits
 from ..flow_runner.chains import parse_request
 from ..flow_runner.code_digest import code_fingerprint
 from xeda.errors import RecordError, SettingsError, SpecError, StaleRuntimeError
+from xeda.errors import StalePlanError
 from xeda.errors import RemoteError as PublicRemoteError
 from ..events import Event
 from ..flow_runner.default_runner import PreparedRequest
@@ -141,6 +149,7 @@ from .launch_entry import LaunchRequest
 from .launch_record import LaunchRecord, write_record
 from .manifest import Entry, build_manifest, write_tar
 from .packaging import (
+    DependencyChangedError,
     InputPackage,
     package_inputs,
     refuse_unsendable_declared,
@@ -148,7 +157,7 @@ from .packaging import (
 )
 from .profile import HostProfile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
-from .ssh import Destination, SshSession, resolve_destination
+from .ssh import Destination, SshSession, resolve_destination, stop_on_cancel
 
 log = logging.getLogger(__name__)
 
@@ -639,6 +648,9 @@ class _Run:
     #: Makes the document of the result of the remote launch, with the paths of the mirror, or
     #: `None` before the launch ended. A failure after the launch builds its document from it.
     localize: Optional[Callable[[], Dict[str, Any]]] = None
+    #: The commit of each Git dependency that the request sent to the host, by the path of the
+    #: entry (`InputPackage.dependency_commits`), once the request was packaged.
+    dependency_commits: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -732,8 +744,10 @@ def _plan(
     profile: HostProfile,
     confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]],
     dry_run: bool = False,
+    pins: Optional[Dict[str, str]] = None,
 ) -> _Prepared:
-    """Step 1: the checks that need no connection. A dry run asks no question."""
+    """Step 1: the checks that need no connection. A dry run asks no question. The Git
+    dependencies that `pins` names (by `DependencyRecord.path`) are fetched at those commits."""
     destination_text = destination.text
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -744,16 +758,17 @@ def _plan(
         display_results=False,
     )
     run.launcher = launcher
-    prepared = launcher.prepare_request(
-        spec.flow,
-        design=spec.design,
-        flow_settings=thaw(spec.settings),
-        host_flows=profile.flows,
-        host=destination_text,
-        local_settings=workspace.local_settings,
-        # Refused before a Git dependency is fetched: it needs nothing that one supplies.
-        before_fetch=refuse_unsendable_declared,
-    )
+    with using_pinned_commits(pins or {}):
+        prepared = launcher.prepare_request(
+            spec.flow,
+            design=spec.design,
+            flow_settings=thaw(spec.settings),
+            host_flows=profile.flows,
+            host=destination_text,
+            local_settings=workspace.local_settings,
+            # Refused before a Git dependency is fetched: it needs nothing that one supplies.
+            before_fetch=refuse_unsendable_declared,
+        )
     run.target = prepared.target
     run.design_name = prepared.design.name
     run.local_root = local_root
@@ -883,19 +898,27 @@ def _start_agent(
             f"The remote root {provisioned.root!r} has a character that xeda cannot put in a "
             "remote command line. Set `root` in the host profile to another path."
         ) from None
+    if launch_canceled():
+        raise Canceled("the launch was canceled before the agent started")
     with _during(step):
         agent = _Agent(session, command)
     try:
-        try:
-            noise = skip_to_magic(agent.stdout)
-        except RemoteProtocolError as error:
-            detail = f"\nOutput of the remote host:\n{agent.stderr_text()}" if agent._stderr else ""
-            raise RemoteProtocolError(
-                f"The agent did not start on {host}: {error}.{detail}"
-            ) from None
-        if noise:
-            log.debug("The login shell of %s printed %d bytes before the agent", host, len(noise))
-        agent.expect("hello", step)
+        # A request to stop closes the connection, so the wait for the greeting ends.
+        with stop_on_cancel(agent.drop, "the agent started"):
+            try:
+                noise = skip_to_magic(agent.stdout)
+            except RemoteProtocolError as error:
+                detail = (
+                    f"\nOutput of the remote host:\n{agent.stderr_text()}" if agent._stderr else ""
+                )
+                raise RemoteProtocolError(
+                    f"The agent did not start on {host}: {error}.{detail}"
+                ) from None
+            if noise:
+                log.debug(
+                    "The login shell of %s printed %d bytes before the agent", host, len(noise)
+                )
+            agent.expect("hello", step)
         agent.start_heartbeat()
     except BaseException:
         agent.close(wait=5)
@@ -1465,6 +1488,7 @@ def run_remote(
     on_event: Optional[Callable[[Event], None]] = None,
     log_level: Optional[int] = None,
     detailed_logs: Optional[bool] = None,
+    expected: Optional[Plan] = None,
 ) -> Result:
     """Run `spec` on the host of `workspace.remote` and return what the launch did to every node.
 
@@ -1481,7 +1505,13 @@ def run_remote(
     events of the nodes come when the launch ends. `launch_started` comes once the host has
     accepted the launch, with the id of the launch that runs there: the one that this call sent, or
     an identical one that keeps running, which this call then follows. An exception of `on_event`
-    cancels the launch and is raised again."""
+    cancels the launch and is raised again.
+
+    With `expected`, a plan that the caller made earlier, the host plans `spec` again first, and
+    a difference from `expected` raises `StalePlanError` before any launch starts. The launch
+    then fetches the Git dependencies at the commits that this comparison saw, and a request that
+    no longer has the identities of `expected` raises `StalePlanError` too. So the host runs what
+    the comparison judged. The comparison observes `cancel` as the launch does."""
     level = _log_level(log_level)
     detailed = _detailed_logs(detailed_logs)
     remote = _remote_of(workspace)
@@ -1490,6 +1520,16 @@ def run_remote(
     with observing(progress.canceled):
         try:
             _refuse_unsupported(options)
+            pins: Dict[str, str] = {}
+            if expected is not None:
+                pins = _verify_plan(
+                    expected,
+                    spec,
+                    workspace=workspace,
+                    options=options,
+                    log_level=level,
+                    detailed_logs=detailed,
+                )
             request = parse_request(spec.flow)
             run.flow = request.requested.name
             run.request = request.as_elements()
@@ -1505,6 +1545,8 @@ def run_remote(
                     detailed_logs=detailed,
                     dry_run=False,
                     progress=progress,
+                    expected=expected,
+                    pins=pins,
                 ),
             )
         except Exception as error:  # pylint: disable=broad-except
@@ -1531,30 +1573,115 @@ def plan_remote(
     started does."""
     level = _log_level(log_level)
     detailed = _detailed_logs(detailed_logs)
-    remote = _remote_of(workspace)
-    run = _request_run(spec, remote.host)
+    run = _request_run(spec, _remote_of(workspace).host)
     try:
-        _refuse_unsupported(options)
-        run.request = parse_request(spec.flow).as_elements()
-        document = _run(
+        return _host_plan(
+            run, spec, workspace=workspace, options=options, log_level=level, detailed_logs=detailed
+        )
+    except Exception as error:  # pylint: disable=broad-except
+        raise _not_started(run, error) from error
+
+
+def _host_plan(
+    run: _Run,
+    spec: Spec,
+    *,
+    workspace: WorkspaceOptions,
+    options: LaunchOptions,
+    log_level: int,
+    detailed_logs: bool,
+) -> Plan:
+    """Ask the host to plan `spec`. A failure raises as it is, not yet as a public error."""
+    remote = _remote_of(workspace)
+    _refuse_unsupported(options)
+    run.request = parse_request(spec.flow).as_elements()
+    document = _run(
+        run,
+        spec,
+        workspace=workspace,
+        options=options,
+        remote=remote,
+        log_level=log_level,
+        detailed_logs=detailed_logs,
+        dry_run=True,
+        progress=None,
+    )
+    try:
+        return plan_from_dict(cast(Dict[str, Any], document), spec=spec, workspace=workspace)
+    except ValueError as error:
+        raise RemoteProtocolError(
+            f"The host {remote.host} sent a plan that cannot be read: {error}"
+        ) from None
+
+
+def _stale(difference: str) -> StalePlanError:
+    return StalePlanError(
+        f"The plan is stale: {difference}. Plan again.", code="stale_plan", difference=difference
+    )
+
+
+def _verify_plan(
+    expected: Plan,
+    spec: Spec,
+    *,
+    workspace: WorkspaceOptions,
+    options: LaunchOptions,
+    log_level: int,
+    detailed_logs: bool,
+) -> Dict[str, str]:
+    """Let the host plan `spec` again and compare its plan with `expected`.
+
+    Raise `StalePlanError` on a difference. A request that the host or this side refuses now is a
+    difference too. Any other failure (a host that cannot be reached) is no statement about the
+    plan. A request to stop (`cancel.launch_canceled`) raises `Canceled`, as the launch does
+    before it connects. Return the commit of each Git dependency of the request that was
+    compared (`InputPackage.dependency_commits`): the launch fetches those."""
+    from ..flow_runner.error_codes import plain_message, public_error
+    from ..flow_runner.plan_check import plan_difference
+
+    run = _request_run(spec, _remote_of(workspace).host)
+    try:
+        fresh = _host_plan(
             run,
             spec,
             workspace=workspace,
             options=options,
-            remote=remote,
-            log_level=level,
-            detailed_logs=detailed,
-            dry_run=True,
-            progress=None,
+            log_level=log_level,
+            detailed_logs=detailed_logs,
         )
-        try:
-            return plan_from_dict(cast(Dict[str, Any], document), spec=spec, workspace=workspace)
-        except ValueError as error:
-            raise RemoteProtocolError(
-                f"The host {remote.host} sent a plan that cannot be read: {error}"
-            ) from None
-    except Exception as error:  # pylint: disable=broad-except
+    except (Canceled, RemoteCanceled) as error:
+        if launch_canceled():
+            raise Canceled("the launch was canceled while the plan was compared") from error
         raise _not_started(run, error) from error
+    except Exception as error:  # pylint: disable=broad-except
+        failure = _not_started(run, error)
+        if not isinstance(public_error(failure), SpecError):
+            raise failure from error
+        raise _stale(f"planning is refused now: {plain_message(failure)}") from failure
+    difference = plan_difference(expected, fresh)
+    if difference is not None:
+        raise _stale(difference)
+    return run.dependency_commits
+
+
+def _check_request(expected: Plan, prepared: Any) -> None:
+    """Raise `StalePlanError` if the request that this side prepared for the launch differs from
+    `expected`: a node with another name or identity, or Git dependencies that resolve to other
+    commits than those of the plan (the explicit commits too, which no identity counts). It is
+    the rule of a local `run(plan)` (`plan_check.dependency_difference`)."""
+    from ..flow_runner.plan_check import dependency_difference
+
+    now = {node.name: node.flowrun_hash for node in prepared.plan.nodes}
+    if list(now) != list(expected.nodes):
+        raise _stale(
+            f"the graph changed: the nodes were {list(expected.nodes)}, they are now {list(now)}"
+        )
+    for name, node in expected.nodes.items():
+        if node.identity != now[name]:
+            raise _stale(f"the identity of node {name} changed")
+    difference = dependency_difference(expected._dependencies, dependency_entries(prepared.design))
+    if difference is not None:
+        raise _stale(difference)
 
 
 def _tell(progress: _Progress, result: Result) -> None:
@@ -1718,9 +1845,15 @@ def _run(
     detailed_logs: bool,
     dry_run: bool,
     progress: Optional[_Progress],
+    expected: Optional[Plan] = None,
+    pins: Optional[Dict[str, str]] = None,
 ) -> Result | Dict[str, Any]:
     """Run the request, or only plan it (`dry_run`). A run returns its `Result`, and a dry run the
-    document of the plan, with the paths of this side."""
+    document of the plan, with the paths of this side.
+
+    With `expected`, the request must have the nodes and the identities of that plan, or the call
+    raises `StalePlanError` before it connects. It fetches the Git dependencies that `pins`
+    names at those commits."""
     code_epoch.verify()
     if _is_windows():
         raise RemoteError(
@@ -1741,7 +1874,10 @@ def _run(
         profile=profile,
         confirm_overwrite=_asked(workspace),
         dry_run=dry_run,
+        pins=pins,
     )
+    if expected is not None:
+        _check_request(expected, prepared.prepared)
     mirror_root = local_root / f"@{destination.label()}"
     design = prepared.prepared.design
     plan = prepared.prepared.plan
@@ -1769,17 +1905,29 @@ def _run(
             # The host plans too, and merges the dependencies at the same point: the package holds
             # the design as it was given, a Git dependency as its reference (the host fetches it
             # into its own run root) and a local dependency as a design document with its files.
-            package = package_inputs(
-                prepared.prepared.declared,
-                prepared.prepared.sections,
-                {node.name for node in plan.nodes},
-                run_root=local_root,
-                remote_inputs=inputs_dir,
-                host_flows=profile.flows,
-                bindings=plan.bindings,
-                request=plan.request,
-                resolved=prepared.prepared.design.resolved_dependencies,
-            )
+            try:
+                package = package_inputs(
+                    prepared.prepared.declared,
+                    prepared.prepared.sections,
+                    {node.name for node in plan.nodes},
+                    run_root=local_root,
+                    remote_inputs=inputs_dir,
+                    host_flows=profile.flows,
+                    bindings=plan.bindings,
+                    request=plan.request,
+                    resolved=prepared.prepared.design.resolved_dependencies,
+                )
+            except DependencyChangedError as error:
+                # The documents are packaged from one read, which must be the one that planning
+                # resolved the dependencies from: a design file that changed in between is a
+                # request that is not the one that was compared.
+                if expected is not None:
+                    raise _stale(error.difference) from None
+                raise RemoteError(
+                    f"A design file changed while the request was prepared: {error.difference}. "
+                    "Run the request again."
+                ) from None
+            run.dependency_commits = dict(package.dependency_commits)
             launch = LaunchRequest(
                 chain=run.chain,
                 design_file=package.design_file,
@@ -1797,6 +1945,8 @@ def _run(
                 expected={node.name: node.flowrun_hash for node in plan.nodes},
                 code=code_fingerprint({node.flow_class for node in plan.nodes}),
             )
+            if launch_canceled():
+                raise Canceled("the launch was canceled before it was sent to the host")
             agent = _start_agent(session, provisioned, key)
             # A dry run has no launch to keep: it announces nothing and writes no record.
             keep_running = remote.keep_running and not dry_run
@@ -1804,9 +1954,10 @@ def _run(
             if local_root != _local_run_root(Path.cwd() / "xeda_run"):
                 agent.attach_options = f" --run-root {shlex.quote(str(local_root))}"
             try:
-                uploaded, running = _sync(
-                    agent, package, design.name, key, launch_id, None if dry_run else launch
-                )
+                with stop_on_cancel(agent.drop, "the inputs were synced"):
+                    uploaded, running = _sync(
+                        agent, package, design.name, key, launch_id, None if dry_run else launch
+                    )
                 try:
                     if progress is not None:
                         # An identical launch that keeps running has the id of that launch.

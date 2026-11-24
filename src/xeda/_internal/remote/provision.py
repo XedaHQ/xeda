@@ -53,7 +53,7 @@ from .errors import (
     RemoteProvisionError,
 )
 from .profile import HostProfile, env_name_problem
-from .ssh import SshSession, sh_command
+from .ssh import SshSession, sh_command, stop_on_cancel
 
 log = logging.getLogger(__name__)
 
@@ -347,9 +347,14 @@ def _execute(
     command: str,
     stdin: bytes,
     report: Optional[Callable[[str], None]],
+    hold_stdin: bool = False,
 ) -> _Reply:
     """Run `command` on the host with `stdin` as its input. Pass each step to `report` as it
-    starts. Only the lines of the protocol count; every other line goes to the DEBUG log."""
+    starts. Only the lines of the protocol count; every other line goes to the DEBUG log.
+
+    A command that holds its input (`hold_stdin`) gets no end of input while it runs: the client
+    closes it when the command has ended. The host sees the end of input when this process goes
+    away too (it is canceled or killed, or the connection is lost), and stops the command."""
     process = session.popen(command)
     assert process.stdin is not None and process.stdout is not None
     assert process.stderr is not None
@@ -358,7 +363,9 @@ def _execute(
     def feed() -> None:
         try:
             process.stdin.write(stdin)  # type: ignore[union-attr]
-            process.stdin.close()  # type: ignore[union-attr]
+            process.stdin.flush()  # type: ignore[union-attr]
+            if not hold_stdin:
+                process.stdin.close()  # type: ignore[union-attr]
         except OSError:  # the client ended before it read everything
             pass
 
@@ -378,32 +385,40 @@ def _execute(
         thread.start()
     reply = _Reply()
     try:
-        for raw in process.stdout:
-            line = raw.decode("utf-8", "replace").rstrip("\r\n")
-            if not line.startswith("XEDA-"):
-                if line:
-                    log.debug("remote: %s", line)
-                continue
-            kind, _, rest = line[len("XEDA-") :].partition(" ")
-            if kind == "STEP":
-                log.debug("remote step: %s", rest)
-                if report is not None:
-                    report(rest)
-            elif kind == "PROBE":
-                key, _, value = rest.partition("=")
-                reply.probes[key] = value
-            elif kind == "STATUS":
-                reply.status = dict(item.partition("=")[::2] for item in rest.split())
-            elif kind == "ERROR":
-                reply.errors.append(rest)
-            else:
-                log.debug("remote: unknown protocol line %r", line)
-        reply.returncode = process.wait()
+        # A request to stop kills the client, so the read of its output ends and the block
+        # raises `Canceled`. The host gets the hangup, as it does on Ctrl-C.
+        with stop_on_cancel(process.kill, "the host was prepared"):
+            for raw in process.stdout:
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if not line.startswith("XEDA-"):
+                    if line:
+                        log.debug("remote: %s", line)
+                    continue
+                kind, _, rest = line[len("XEDA-") :].partition(" ")
+                if kind == "STEP":
+                    log.debug("remote step: %s", rest)
+                    if report is not None:
+                        report(rest)
+                elif kind == "PROBE":
+                    key, _, value = rest.partition("=")
+                    reply.probes[key] = value
+                elif kind == "STATUS":
+                    reply.status = dict(item.partition("=")[::2] for item in rest.split())
+                elif kind == "ERROR":
+                    reply.errors.append(rest)
+                else:
+                    log.debug("remote: unknown protocol line %r", line)
+            reply.returncode = process.wait()
     except BaseException:
         process.kill()
         process.wait()
         raise
     finally:
+        if hold_stdin:
+            try:
+                process.stdin.close()
+            except OSError:  # the client ended before it read everything
+                pass
         for thread in threads:
             thread.join(timeout=10)
     reply.stderr = "\n".join(tail)
@@ -437,8 +452,9 @@ def _call(
     stdin: bytes,
     what: str,
     report: Optional[Callable[[str], None]] = None,
+    hold_stdin: bool = False,
 ) -> _Reply:
-    reply = _execute(session, command, stdin, report)
+    reply = _execute(session, command, stdin, report, hold_stdin)
     _raise_failure(session, reply, what)
     return reply
 
@@ -549,9 +565,10 @@ def ensure_environment(
                 uv_sha256,
                 script_path=probe.boot,
             ),
-            "".join(lines).encode("utf-8"),
+            "".join(lines + ["END\n"]).encode("utf-8"),
             "making the environment",
             report,
+            hold_stdin=True,
         )
     if state["code"] != "present":
         archive = io.BytesIO()

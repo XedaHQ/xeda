@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
+from xeda.errors import DesignError
+
 from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of, written_role
 from ..design import (
     Design,
@@ -24,9 +26,11 @@ from ..design import (
     FileResource,
     Generator,
     GitReference,
+    MergedDependency,
     Source,
     generator_cwd,
     generator_of,
+    redacted_url,
     tree_declarations,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
@@ -35,10 +39,19 @@ from ..flow.flow import map_keyed_path_leaves
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
-from ..flow_runner.dependencies import declared_designs
+from ..flow_runner.dependencies import DependencyChain, _extend_chain, declared_designs
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
+
+
+class DependencyChangedError(ValueError):
+    """A design document that lists a dependency changed after planning resolved the dependencies:
+    `difference` says how its entry differs from the one that planning resolved."""
+
+    def __init__(self, difference: str) -> None:
+        super().__init__(difference)
+        self.difference = difference
 
 
 @dataclass(frozen=True)
@@ -162,7 +175,7 @@ def package_inputs(
     host_flows: Mapping[str, Mapping[str, Any]] | None = None,
     bindings: Sequence[BindingLayer] = (),
     request: FlowRequest | None = None,
-    resolved: Sequence[DependencyRecord] = (),
+    resolved: Sequence[DependencyRecord] | None = None,
 ) -> InputPackage:
     """Return the files and the design document that the remote needs for this request.
 
@@ -194,15 +207,22 @@ def package_inputs(
     merges them once, as this side does, so the package lists them in the order they are listed.
     A Git dependency travels as its reference, and the host fetches it. A local dependency is a
     file on this side only: it travels as a design document of its own, with the files and the
-    generator recipe it declares, below `_dependencies/<n>` of the inputs. The host reads that
-    document where it would read the local file.
+    generator recipe it declares. Its root on the host is the place of its root below the root of
+    the request, or `_dependencies/<n>` when its root lies outside that root (`place_dependency_roots`).
+    The host reads that document where it would read the local file. A file that several designs
+    list has one place, so the host lists it once, as this side does.
 
     `resolved` are the dependencies as this side resolved them (`Design.resolved_dependencies` of
     the planned design). The package holds, beside the design document, the commit that this side
     resolved each Git entry to that gave no `commit` of its own (`InputPackage.dependency_commits`),
     also for the entries of a Git dependency, which the document does not list. The host fetches
     those commits, so a branch that moves between the two plans changes nothing. The branch of an
-    entry stays as written (the provenance)."""
+    entry stays as written (the provenance).
+
+    The package holds each local dependency document as one read of its file. When `resolved` is
+    given, every Git entry of those documents, and of the design, must be the entry that planning
+    resolved at its place: a design file that was edited after planning raises
+    `DependencyChangedError`, also when the edit names another explicit commit."""
     host_flows = host_flows or {}
     path_identities: dict[str, dict[str, str]] = {}
     # `mode="json"`: a field kept as it is may hold a `Path`, which a python-mode dump leaves as an
@@ -221,6 +241,14 @@ def package_inputs(
     # document takes its place first.
     places: Dict[Path, Path | bytes] = {Path(design_file): b""}
     flat_places: Dict[tuple[Path, Path], Path] = {}
+    # The place of every local file that a design lists as a source: one file has one place,
+    # whichever design lists it (`place_of_source`). The sources of the host are then one list, as
+    # they are here.
+    source_places: Dict[Path, Path] = {}
+    # The root of each local dependency that the walk of `merged_sources` meets, by its index in
+    # the merge that the walk makes: it is the owner that `Source._dependency` names.
+    merged_owners: Dict[int, Path] = {}
+    documents: Dict[Path, Dict[str, Any]] = {}
     directories: set[str] = set()  # the directories of directory settings
 
     def identified(remote: str | Path, role: str, text: str) -> None:
@@ -275,33 +303,16 @@ def package_inputs(
         relative to the root of that document."""
         return Path(os.path.relpath(place, base)).as_posix()
 
-    def packaged_sources(
-        sources: Iterable[Source], unit: Design, base: Path
-    ) -> list[Dict[str, Any]]:
-        """Return the sources of `unit` as the remote has to see them, in the document at `base`.
-
-        A source under the root of the unit keeps its own place relative to the root, as it has
-        here. A Verilog `include` finds the header beside the including file first, so a
-        flattened layout could build another design, and it would hash as another
-        (`Design._source_fingerprint`). A source outside the root has no place there, and
-        travels among the flat sources. This side counts every source by its place from the root
-        of the requested design."""
+    def packaged_sources(sources: Iterable[Source], base: Path) -> list[Dict[str, Any]]:
+        """Return `sources`, the sources of a design, as the remote has to see them in the document
+        at `base`: each one names the place of its file (`place_of_source`), relative to `base`."""
         packaged: list[Dict[str, Any]] = []
         for src in sources:
             if src.generated and not src._located:
                 # The generator of the host writes it: no file travels, the declaration does.
                 packaged.append({"path": src.output_name, "type": str(src.type)})
                 continue
-            relative = unit._relative_to_root(src.file)
-            if relative is not None and archived_in_place(src.file, base / relative):
-                # The host counts it as this side does: by its place in the root of the unit.
-                place = base / relative
-            else:
-                # A source outside the root of its unit has a place of its own, below the root of
-                # the request, and the host counts it by the text this side counts for it.
-                place = archived(src, design, Path("."))
-                identified(place, "source", design._source_place(src))
-            packaged.append({"file": inside(place, base), "type": str(src.type)})
+            packaged.append({"file": inside(place_of_source(src), base), "type": str(src.type)})
         return packaged
 
     def packaged_parameters(dv: DesignPart, unit: Design, base: Path) -> Dict[str, Any]:
@@ -338,6 +349,10 @@ def package_inputs(
             if relative is not None and not os.path.exists(path):
                 parameters[name] = {"path": relative.as_posix()}
                 seen = base / relative
+            elif os.path.isfile(path) and path.resolve() in source_places:
+                # a file that a design lists as a source has the place of that source
+                seen = source_places[path.resolve()]
+                parameters[name] = {"file": inside(seen, base)}
             elif (
                 relative is not None
                 and os.path.isfile(path)
@@ -373,6 +388,159 @@ def package_inputs(
 
     dependency_bases: Dict[Path, Path] = {}
     dependency_documents: Dict[str, str] = {}
+    # The design of each local dependency file as it was read for the package: the documents and
+    # the check against `resolved` use this one read.
+    dependency_designs: Dict[str, Design] = {}
+
+    def dependency_design(unit: Design, ref: Any) -> Design:
+        file = unit.root / ref.uri
+        key = os.path.realpath(file)
+        if key not in dependency_designs:
+            dependency_designs[key] = Design.load(file)
+        return dependency_designs[key]
+
+    def place_dependency_roots() -> None:
+        """Give the root of every local dependency design its place on the host.
+
+        A root that lies in the root of the requested design (that root itself, or a directory
+        below it) is at the same place on the host. A root outside it that lies below another
+        dependency root is at the same place below that root. In both cases a file has the same
+        place whether the design or the dependency lists it, and the places do not depend on the
+        order of the dependencies. Any other root, one that holds the root of the request too,
+        has a directory of its own, `_dependencies/<n>`, numbered in the order of the walk. A file
+        of the request root that such a root lists has one place all the same
+        (`place_of_source`)."""
+        roots: list[Path] = []
+        walked: set[str] = set()
+
+        def walk(unit: Design) -> None:
+            for ref in unit._dependency_references:
+                if isinstance(ref, GitReference):
+                    continue
+                key = os.path.realpath(unit.root / ref.uri)
+                if key in walked:
+                    continue
+                walked.add(key)
+                dependency = dependency_design(unit, ref)
+                if dependency.root not in roots:
+                    roots.append(dependency.root)
+                walk(dependency)
+
+        walk(design)
+        outside = [root for root in roots if not root.is_relative_to(design.root)]
+        tops = [r for r in outside if not any(o != r and r.is_relative_to(o) for o in outside)]
+        for root in roots:
+            if root in tops:
+                dependency_bases[root] = Path("_dependencies") / str(tops.index(root))
+            elif root in outside:
+                top = next(other for other in tops if root.is_relative_to(other))
+                dependency_bases[root] = Path("_dependencies") / str(tops.index(top))
+                dependency_bases[root] /= root.relative_to(top)
+            else:
+                dependency_bases[root] = root.relative_to(design.root)
+
+    def merged_sources() -> Design:
+        """Return the design merged with its local dependencies, as planning merges them.
+
+        It tells which entry of a file that several designs list is the one the merge keeps
+        (the first in the merged order), whether it is marked as the file of a dependency
+        (`Source._dependency`), and its place in the root of that dependency. The host merges
+        the same designs in the same order, so its merge keeps the same entry. A Git dependency
+        has no file on this side that another design could list, so it is left out."""
+
+        def merge(unit: Design, active: frozenset[str]) -> Design:
+            merged: list[MergedDependency] = []
+            for ref in unit._dependency_references:
+                key = (
+                    None if isinstance(ref, GitReference) else os.path.realpath(unit.root / ref.uri)
+                )
+                if key is None or key in active:  # a cycle is reported by `check_dependencies`
+                    continue
+                dependency = dependency_design(unit, ref)
+                index = len(merged_owners)
+                merged_owners[index] = dependency.root
+                merged.append(
+                    MergedDependency(ref, merge(dependency, active | {key}), index, dependency.root)
+                )
+            return unit._merged_with(merged) if merged else unit
+
+        return merge(design, frozenset({os.path.realpath(design.root)}))
+
+    def place_of_source(src: Source) -> Path:
+        """Return the place on the host of the file of `src`, below the inputs directory.
+
+        This is the one rule for the place of a source file: one local file has one place,
+        whichever design lists it, so that the host merges one source where this side merges one.
+        Each file is placed once, by the entry that the merge keeps (`merged_sources`):
+
+        - A file in the root of the dependency that lists it is below that root on the host, so
+          the host marks it as the file of that dependency, with the place this side counts.
+        - Any other file keeps its place below the root of the request when it lies there. Else
+          it keeps its place below a dependency root that holds it, else it goes among the flat
+          sources. The host counts such a file by the text that this side counts for it
+          (`identified`)."""
+        local = src.file.resolve()
+        place = source_places.get(local)
+        if place is not None:
+            return place
+        candidates: list[tuple[Path, bool]] = []
+        if src._dependency is not None and src._dependency_place is not None:
+            owner = dependency_bases[merged_owners[src._dependency]]
+            candidates.append((owner / src._dependency_place, False))
+        else:
+            relative = design._relative_to_root(src.file)
+            if relative is not None:
+                candidates.append((relative, False))
+            for root, root_base in dependency_bases.items():
+                if src.file.is_relative_to(root):
+                    candidates.append((root_base / src.file.relative_to(root), True))
+        for candidate, named in candidates:
+            if places.setdefault(candidate, local) == local:
+                place = candidate
+                break
+        else:
+            named = True
+            place = archived(src, design, Path("."))
+        source_places[local] = place
+        if named:
+            identified(place, "source", design._source_place(src))
+        return place
+
+    def check_dependencies(
+        unit: Design, where: tuple[int, ...], chain: DependencyChain, unmet: set[str]
+    ) -> None:
+        """Check the Git entries of `unit` and of its local dependencies against `resolved`, by
+        their path in the tree of dependencies. The entries below a Git dependency come from its
+        checkout at a commit, so they cannot change."""
+        assert resolved is not None
+        by_path = {record.path: record for record in resolved if record.repository is not None}
+        for position, ref in enumerate(unit._dependency_references):
+            path = (*where, position)
+            if not isinstance(ref, GitReference):
+                dependency = dependency_design(unit, ref)
+                try:
+                    deeper = _extend_chain(dependency, chain, "dependencies")
+                except DesignError as error:
+                    raise DependencyChangedError(
+                        f"a dependency design file now has a cycle: {error}"
+                    )
+                check_dependencies(dependency, path, deeper, unmet)
+                continue
+            name = "-".join(str(number) for number in path)
+            unmet.discard(name)
+            record = by_path.get(name)
+            if record is None:
+                raise DependencyChangedError(f"dependency {redacted_url(ref.repo_url)} was added")
+            if (record.repository, record.reference, record.design_file, record.given) != (
+                redacted_url(ref.repo_url),
+                ref.branch,
+                ref.design_file,
+                bool(ref.commit),
+            ) or (ref.commit and record.commit != ref.commit):
+                raise DependencyChangedError(
+                    f"dependency {record.repository} was resolved at {record.commit} and now "
+                    f"names {ref.commit or ref.branch or 'its HEAD'}"
+                )
 
     def packaged_dependencies(unit: Design, base: Path) -> list[Any]:
         """Return the `dependencies` of `unit` as the remote has to see them, in the order they
@@ -381,29 +549,26 @@ def package_inputs(
 
         A Git dependency travels as its reference: the host fetches it into its own run root. A
         local dependency is a design file on this side only, so it travels as a design document of
-        its own, with the files it declares, and its entry names that document. Its root is
-        `_dependencies/<n>` in the inputs of the host: dependency designs in one directory share
-        one root there, so a file that lies in the roots of several of them is one file on the
-        host, listed once, as it is on this side."""
+        its own, with the files it declares, and its entry names that document. Its root is given
+        by `place_dependency_roots`: dependency designs in one directory share one root there, so a file
+        that lies in the roots of several of them is one file on the host, listed once, as it is
+        on this side."""
         entries: list[Any] = []
         dumped = unit.model_dump(mode="json")["dependencies"]
         for ref, entry in zip(unit._dependency_references, dumped):
             if isinstance(ref, GitReference):
                 entries.append(entry)
                 continue
-            dependency = Design.load(unit.root / ref.uri)
+            dependency = dependency_design(unit, ref)
             file = dependency._generation_label
             if file not in dependency_documents:
-                root = dependency_bases.setdefault(
-                    dependency.root, Path("_dependencies") / str(len(dependency_bases))
-                )
+                root = dependency_bases[dependency.root]
                 document_file = root / f"{Path(file).stem}.xeda.json"
                 while document_file in places:
                     document_file = document_file.with_name(document_file.stem + "_2.json")
                 places[document_file] = b""
                 dependency_documents[file] = document_file.as_posix()
-                document = packaged_document(dependency, root)
-                places[document_file] = json.dumps(document, default=json_encodable).encode("utf-8")
+                documents[document_file] = packaged_document(dependency, root)
             entries.append({**entry, "uri": inside(Path(dependency_documents[file]), base)})
         return entries
 
@@ -412,7 +577,7 @@ def package_inputs(
         clocks, testbench and generator, and its own dependencies. Its files are packaged below
         `base`, which is its root on the host."""
         generator = refuse_unsendable_generator(unit)
-        rtl: Dict[str, Any] = {"sources": packaged_sources(unit.rtl.sources, unit, base)}
+        rtl: Dict[str, Any] = {"sources": packaged_sources(unit.rtl.sources, base)}
         rtl["defines"] = thaw(unit.rtl.defines)
         rtl["attributes"] = thaw(unit.rtl.attributes)
         rtl["parameters"] = packaged_parameters(unit.rtl, unit, base)
@@ -435,7 +600,7 @@ def package_inputs(
         for name in tree_declarations(unit):
             if (parent := tree_parent(unit.root, name)) is not None:
                 directories.add((base / parent).as_posix())
-        tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, unit, base)}
+        tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, base)}
         tb["top"] = unit.tb.top
         tb["cocotb"] = thaw(unit.tb.cocotb)
         if unit.tb.uut:
@@ -454,9 +619,28 @@ def package_inputs(
             "dependencies": packaged_dependencies(unit, base),
         }
 
+    place_dependency_roots()
+    for src in (*(merged := merged_sources()).rtl.sources, *merged.tb.sources):
+        if not (src.generated and not src._located):
+            place_of_source(src)
     new_design.update(packaged_document(design, Path(".")))
+    for document_file, dependency_document in documents.items():
+        places[document_file] = json.dumps(dependency_document, default=json_encodable).encode(
+            "utf-8"
+        )
+    if resolved is not None:
+        # The Git entries that planning resolved and that the walk must meet: those with no Git
+        # dependency above them (the entries of a Git dependency come from its checkout).
+        paths = {record.path for record in resolved if record.repository is not None}
+        unmet = {name for name in paths if not any(name.startswith(other + "-") for other in paths)}
+        check_dependencies(design, (), _extend_chain(design, (), "dependencies"), unmet)
+        for name in sorted(unmet):
+            record = next(r for r in resolved if r.path == name and r.repository is not None)
+            raise DependencyChangedError(f"dependency {record.repository} was removed")
     commits = {
-        d.path: d.commit for d in resolved if d.repository is not None and d.commit and not d.given
+        d.path: d.commit
+        for d in resolved or ()
+        if d.repository is not None and d.commit and not d.given
     }
 
     def packaged_path(value: Any) -> Any:
