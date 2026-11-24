@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 
+from xeda.errors import DesignError
+
 from ..dataclass import AtomicName, BaseModel, is_locator, opaque_key_fields_of, written_role
 from ..design import (
     Design,
@@ -36,7 +38,7 @@ from ..flow.flow import map_keyed_path_leaves
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
-from ..flow_runner.dependencies import declared_designs
+from ..flow_runner.dependencies import DependencyChain, _extend_chain, declared_designs
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
@@ -400,7 +402,7 @@ def package_inputs(
         return dependency_designs[key]
 
     def check_dependencies(
-        unit: Design, where: tuple[int, ...], chain: tuple[str, ...], unmet: set[str]
+        unit: Design, where: tuple[int, ...], chain: DependencyChain, unmet: set[str]
     ) -> None:
         """Check the Git entries of `unit` and of its local dependencies against `resolved`, by
         their path in the tree of dependencies. The entries below a Git dependency come from its
@@ -411,10 +413,13 @@ def package_inputs(
             path = (*where, position)
             if not isinstance(ref, GitReference):
                 dependency = dependency_design(unit, ref)
-                key = os.path.realpath(dependency._generation_label)
-                if key in chain:
-                    raise DependencyChangedError("a dependency design file now has a cycle")
-                check_dependencies(dependency, path, (*chain, key), unmet)
+                try:
+                    deeper = _extend_chain(dependency, chain, "dependencies")
+                except DesignError as error:
+                    raise DependencyChangedError(
+                        f"a dependency design file now has a cycle: {error}"
+                    )
+                check_dependencies(dependency, path, deeper, unmet)
                 continue
             name = "-".join(str(number) for number in path)
             unmet.discard(name)
@@ -518,7 +523,7 @@ def package_inputs(
         # dependency above them (the entries of a Git dependency come from its checkout).
         paths = {record.path for record in resolved if record.repository is not None}
         unmet = {name for name in paths if not any(name.startswith(other + "-") for other in paths)}
-        check_dependencies(design, (), (os.path.realpath(design._generation_label),), unmet)
+        check_dependencies(design, (), _extend_chain(design, (), "dependencies"), unmet)
         for name in sorted(unmet):
             record = next(r for r in resolved if r.path == name and r.repository is not None)
             raise DependencyChangedError(f"dependency {record.repository} was removed")

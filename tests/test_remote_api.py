@@ -29,7 +29,7 @@ from xeda._internal.workspace import Workspace
 from .test_schema_baseline import _validate
 from .remote_fixtures import fake_remote, fake_ssh, host_profile_of, remote_host
 from .test_git_dependencies import git_log, remote
-from .test_remote_client import TIMEOUT, _design
+from .test_remote_client import PART, TIMEOUT, _design
 from .test_remote_keep_running import (
     Connections,
     Gate,
@@ -557,6 +557,31 @@ def test_a_remote_run_refuses_a_dependency_file_that_changes_while_it_is_package
         with pytest.raises(RemoteError, match="changed while the request was prepared"):
             workspace.run(spec)
     assert not remote_host.workspaces.exists()  # the host got no inputs and no launch
+
+
+def test_a_remote_plan_and_run_accept_a_target_dependency_that_depends_on_the_root_file(
+    tmp_path, remote_host
+):
+    """The file of the root design has a target that depends on `lib.yaml`, and `lib.yaml` depends
+    on the file of the root. The second load of that file takes no target and ends the chain, so
+    the planner accepts it and the packaging does too."""
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "lib.v").write_text("module lib(input clk, output q); assign q = clk; endmodule\n")
+    (root / "lib.yaml").write_text(
+        "name: lib\ndependencies: [top.yaml]\nrtl:\n  sources: [lib.v]\n"
+    )
+    design = _design(tmp_path)
+    design.write_text(
+        "name: top\nrtl:\n  sources: []\n  top: lib\n  clocks: [{port: clk}]\nflows:\n  nextpnr:\n    fpga.part: "
+        + PART
+        + "\n"
+        "    clocks.main_clock.freq: 100 MHz\ntargets:\n  test:\n    dependencies: [lib.yaml]\n"
+    )
+    spec = Spec("nextpnr", Design.load(design, target="test"))
+    workspace = _workspace(tmp_path)
+    plan = workspace.plan(spec)
+    assert workspace.run(plan).outcome == "passed"
 
 
 @pytest.mark.parametrize("option", ["prune_variants", "post_cleanup", "post_cleanup_purge"])
