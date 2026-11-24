@@ -63,14 +63,38 @@ _IN_PLACE_METHODS = (
     "ito_unprefixed",
     "__setitem__",
 )
-_CONVERSIONS = ("to", "to_base_units", "to_reduced_units", "to_root_units", "to_compact")
-_OPERATORS = ("add", "sub", "mul", "truediv", "floordiv", "mod", "pow")
+_CONVERSIONS = (
+    "to",
+    "to_base_units",
+    "to_reduced_units",
+    "to_root_units",
+    "to_compact",
+    "to_preferred",
+    "to_unprefixed",
+    "__neg__",
+    "__pos__",
+    "__abs__",
+    "__round__",
+)
+_OPERATORS = ("add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "divmod")
+
+
+def _with_registry_of(copy_: Any, quantity: Any) -> Any:
+    """Attach `copy_` to the registry of `quantity`.
+
+    A quantity of the application registry holds its registry as an attribute that the
+    constructor sets from the current application registry, which can be another one."""
+    if not hasattr(type(copy_), "_REGISTRY") and copy_._REGISTRY is not quantity._REGISTRY:
+        copy_._REGISTRY = quantity._REGISTRY
+    return copy_
 
 
 def _plain_quantity(quantity: Any) -> Any:
-    """Return a copy of a pint quantity that can change in place, of the class that it came from."""
+    """Return a copy of a pint quantity that can change in place, of the class and the registry
+    that it came from."""
     kind = type(quantity)
-    return getattr(kind, "_unfrozen", kind)(copy.copy(quantity.magnitude), quantity.units)
+    kind = getattr(kind, "_unfrozen", kind)
+    return _with_registry_of(kind(copy.copy(quantity.magnitude), quantity._units), quantity)
 
 
 def _unpickle_frozen_quantity(magnitude: Any, units: Any) -> Any:
@@ -78,32 +102,42 @@ def _unpickle_frozen_quantity(magnitude: Any, units: Any) -> Any:
     return _frozen_quantity(pint._unpickle_quantity(pint.Quantity, magnitude, units))
 
 
-def _frozen_quantity(quantity: Any) -> Any:
+def _frozen_quantity(quantity: Any, magnitude: Any = None) -> Any:
     """Return a quantity equal to `quantity` that has no method that changes it in place.
 
     Its class derives from the class of `quantity`, so it is a quantity of the same registry and
-    it reads, compares and hashes as one. `ito` and its relatives raise `TypeError`, and `x += y`
-    makes a new quantity. `to` and its relatives return a plain quantity that a caller can
-    change. A copy and the result of other arithmetic are frozen too."""
+    it reads, compares and hashes as one. `ito` and its relatives raise `TypeError`. Every
+    operator and conversion works on a plain copy and returns a plain quantity, which the caller
+    may change: it is a new value, and the stored one stays as it is. A copy is frozen too."""
     base = getattr(type(quantity), "_unfrozen", type(quantity))  # freezing twice is no change
     kind = _FROZEN_QUANTITY_CLASSES.get(base)
     if kind is None:
         namespace: dict[str, Any] = {
             "_unfrozen": base,
             "__reduce__": lambda self: (_unpickle_frozen_quantity, (self.magnitude, self._units)),
+            "__copy__": lambda self: _frozen_quantity(self),
+            "__deepcopy__": lambda self, memo: _frozen_quantity(
+                self, copy.deepcopy(self.magnitude, memo)
+            ),
         }
         for name in _IN_PLACE_METHODS:
             if hasattr(base, name):
                 namespace[name] = _forbidden(name)
         for name in _CONVERSIONS:
             if hasattr(base, name):
-                namespace[name] = _converting(getattr(base, name))
+                namespace[name] = _on_plain(getattr(base, name))
         for name in _OPERATORS:
-            if hasattr(base, f"__i{name}__"):
-                namespace[f"__i{name}__"] = _operating(getattr(base, f"__{name}__"))
+            if hasattr(base, f"__{name}__"):
+                namespace[f"__{name}__"] = _on_plain(getattr(base, f"__{name}__"))
+            if hasattr(base, f"__r{name}__"):  # `2 * x` and `y * x` reach `x` first
+                namespace[f"__r{name}__"] = _reflected(name, getattr(base, f"__r{name}__"))
+            if hasattr(base, f"__i{name}__"):  # `x += y` makes a new quantity
+                namespace[f"__i{name}__"] = _on_plain(getattr(base, f"__{name}__"))
         kind = type(f"Frozen{base.__name__}", (base,), namespace)
         _FROZEN_QUANTITY_CLASSES[base] = kind
-    return kind(copy.copy(quantity.magnitude), quantity.units)
+    if magnitude is None:
+        magnitude = copy.copy(quantity.magnitude)
+    return _with_registry_of(kind(magnitude, quantity._units), quantity)
 
 
 def _forbidden(name: str) -> Any:
@@ -116,16 +150,29 @@ def _forbidden(name: str) -> Any:
     return method
 
 
-def _converting(convert: Any) -> Any:
-    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
-        return _plain_quantity(convert(self, *args, **kwargs))
+def _reflected(name: str, operation: Any) -> Any:
+    """Return the reflected method `__r<name>__` of a frozen quantity.
+
+    Python tries it before the method of a left operand of the base class, so it does what that
+    method does, on plain copies."""
+
+    def method(self: Any, other: Any, *args: Any) -> Any:
+        if isinstance(other, pint.Quantity):
+            plain = _plain_quantity(other)
+            return getattr(type(plain), f"__{name}__")(plain, _plain_quantity(self), *args)
+        return operation(_plain_quantity(self), other, *args)
 
     return method
 
 
-def _operating(operation: Any) -> Any:
-    def method(self: Any, other: Any) -> Any:
-        return operation(self, other)
+def _on_plain(operation: Any) -> Any:
+    """Return a method that runs `operation` on plain copies of the quantity and of a frozen
+    argument. Pint changes a quantity in place inside some operators (`auto_reduce_dimensions`,
+    offset units), and a frozen quantity must neither raise there nor change."""
+
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        plain = [_plain_quantity(arg) if hasattr(type(arg), "_unfrozen") else arg for arg in args]
+        return operation(_plain_quantity(self), *plain, **kwargs)
 
     return method
 
