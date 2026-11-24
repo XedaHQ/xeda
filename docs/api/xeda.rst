@@ -90,6 +90,7 @@ Run a launch
 
 .. autoclass:: xeda.ScrubResult
    :members:
+   :undoc-members:
 
 .. autofunction:: xeda.run
 

@@ -295,7 +295,7 @@ def test_a_mixed_row_has_quantities_where_a_metric_has_a_unit(tmp_path, design):
     )
     assert row["nextpnr.timing_met"] is plain["nextpnr.timing_met"]
     assert result.rows(metrics=metrics) == result.rows(metrics=metrics, quantities=False)
-    for key in ("index", "flow", "design", "outcome", "settings.nextpnr.seed", "run_dir"):
+    for key in ("index", "flow", "design_name", "outcome", "settings.nextpnr.seed", "run_dir"):
         assert row[key] == plain[key]
     # the setting is the value of the field, not text and not a float of another unit
     period = row["settings.nextpnr.clocks.main_clock.period"]

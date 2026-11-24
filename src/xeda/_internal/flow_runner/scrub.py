@@ -88,6 +88,7 @@ class ScrubResult:
     kept: tuple[Path, ...]
     gone: tuple[Path, ...]
     skipped: tuple[Path, ...]
+    #: Why each skipped link was skipped (read-only).
     reasons: Mapping[Path, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
