@@ -569,11 +569,11 @@ A call of the API is a library call. It does not change the state of your progra
 
   - While a tool runs, Xeda replaces the handlers of ``SIGTERM`` and ``SIGHUP`` (POSIX only).
     The new handler raises ``KeyboardInterrupt``, so that the stop ends the whole process group of
-    the tool, as Ctrl-C does. A signal that your process ignores (for example, under ``nohup``)
-    stays ignored.
+    the tool, as Ctrl-C does.
   - While a remote launch runs (``Workspace(remote=...)``), Xeda replaces the handler of
     ``SIGINT``. The new handler sends the Ctrl-C to the launch on the host (see :doc:`remote`).
-    Here, a ``SIGINT`` that your process ignores is replaced too.
+
+  In both cases, a signal that your process ignores (for example, under ``nohup``) stays ignored.
 
   A sweep also starts worker processes. A worker ignores ``SIGINT`` in its own process and leaves
   it to your process. This does not change your handlers.
