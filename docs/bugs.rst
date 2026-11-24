@@ -41,7 +41,8 @@ Rejected settings
 =================
 
 Xeda rejects an unknown setting, so a typo is a ``SettingsError`` with the code
-``unknown_setting``. A removed setting is rejected too (``removed_setting``). Its error names the
+``unknown_setting``. A removed setting is rejected too (``removed_setting``, or ``removed_alias``
+for a second spelling of a setting). Its error names the
 setting to use, or, when nothing replaces it, says why and to delete it. If Xeda rejects a setting
 that you expected to work, compare the spelling with the
 output of::

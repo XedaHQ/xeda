@@ -4368,8 +4368,8 @@ class Design(XedaBaseModel):
 
         A missing file raises `xeda.errors.DesignError` with the code `design_file_not_found`. A
         file that cannot be read as a design, or whose design does not validate, raises it with the
-        code `invalid_design`, or with `removed_alias`, `removed_key`, `unknown_target` or
-        `target_required`. The error names the file."""
+        code `invalid_design`, or with `removed_alias`, `removed_key` or `unknown_target`. The error
+        names the file."""
         return cls._load_file(path, target=target)
 
     @classmethod

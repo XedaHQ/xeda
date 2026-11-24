@@ -572,14 +572,16 @@ Errors
 ------
 
 A failure of the remote step has an error code (see :doc:`machine-readable`). Before Xeda sends the
-launch, the failure raises ``RemoteError`` in Python, with the code and the host in ``.host``, and
-``xeda run`` exits with status 2. After it, the failure is the launch-level error of the result.
-The message names the step and the cause. This section lists the causes by code. The commands
+launch, a failure of the host or of the setup raises ``RemoteError`` in Python, with the code and
+the host in ``.host``, and ``xeda run`` exits with status 2. A request that Xeda refuses at planning
+raises ``SpecError`` with the code ``unsupported_with_remote``, also with exit status 2. After
+Xeda sends the launch, the failure is the launch-level error of the result. The message names the
+step and the cause. This section lists the causes by code. The commands
 ``xeda remote check``, ``clean``, ``attach`` and ``cancel`` use the same codes, with these
 differences: a step on the host that does not finish in time has the code ``timeout``, a local
 file system error has the code ``storage_error``, an interrupt has the code ``canceled``, and any
 other cause that is not listed under ``remote_unreachable`` or ``remote_setup_failed`` has the code
-``remote_failed``.
+``remote_failed``. An exception of another kind has the code ``internal_error``.
 
 ``remote_unreachable``
     OpenSSH could not connect or authenticate, or the connection ended. The message has the OpenSSH
@@ -653,8 +655,14 @@ other cause that is not listed under ``remote_unreachable`` or ``remote_setup_fa
     host, which tells why the agent did not start. When this happens after Xeda sent the launch,
     the code is ``remote_failed``.
 
-    Another failure has a message that says what to do. Examples are a host without ``bash``, a
-    chain with a programmer flow, and a native Windows machine.
+    Another failure has a message that says what to do. Examples are a host without ``bash`` and a
+    native Windows machine.
+
+``unsupported_with_remote``
+    The chain has a programmer flow, such as ``openfpgaloader``. Its device is attached to your
+    machine, not to the host. Xeda refuses it at planning, before any remote step. Run the earlier
+    flows with ``--remote``, then run the programmer flow locally with a binding to the fetched
+    file.
 
 ``remote_failed``
     The launch failed on the host, or this side failed after it sent the launch. The message names
@@ -669,6 +677,12 @@ other cause that is not listed under ``remote_unreachable`` or ``remote_setup_fa
     A file of the run was not fetched, or it did not match its digest, or a declared output is
     missing or is not a regular file. Run the command again: the finished run is reused and only
     the fetch repeats.
+
+``delivery_failed``
+    Xeda could not deliver an output to the destination that a setting, ``--outputs-to`` or the
+    ``outputs_to`` of a generator named, after it fetched the results. The message names the
+    destination and the cause. Fix the destination, then run the command again: the finished run
+    is reused and only the fetch and the delivery repeat.
 
 ``canceled``
     The launch was canceled: by Ctrl-C, by ``xeda remote cancel`` or because the connection was

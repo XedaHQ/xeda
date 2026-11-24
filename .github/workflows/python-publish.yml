@@ -24,9 +24,22 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        # The commit of the event, not the ref: a release tag that moves after the event must
+        # not change what this run builds.
+        ref: ${{ github.sha }}
         # setuptools_scm derives the version from the tags: a shallow clone has none
         fetch-depth: 0
         persist-credentials: false
+    - name: Check that the release tag names the commit of the event
+      if: github.event_name == 'release'
+      env:
+        TAG: ${{ github.event.release.tag_name }}
+      run: |
+        tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+        if [ "$tagged" != "$GITHUB_SHA" ]; then
+          echo "the release tag ${TAG} is at ${tagged}, not at the release commit ${GITHUB_SHA}" >&2
+          exit 1
+        fi
     - name: Set up 🐍
       uses: actions/setup-python@v7
       with:
