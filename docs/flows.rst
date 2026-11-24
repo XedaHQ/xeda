@@ -2801,6 +2801,30 @@ bsc runs without ``BSC_OPTIONS``, so a value in your shell has no effect on bsc.
 value still runs the flow again, because the inherited environment is freshness evidence. The flows
 warn when the variable is set.
 
+.. _bsc-c-headers:
+
+Headers of C and C++ sources
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``bsc_sim`` compiles the C and C++ sources of the design when the testbench imports a function
+from them (``import "BDPI"``). Xeda asks the compiler to write a depfile for each source that bsc
+compiles, and reads it after the run. Every header that the compiler read is then an input of the
+run, with the headers that other headers include. An edit of one of them runs ``bsc_sim`` again,
+even if the design does not list it.
+
+Xeda leaves out the system headers, which the compiler does not list, the files of the SDK of the
+compiler (a folder with a ``SDKSettings.json`` file, on macOS), and the files of the installation
+of bsc. A source that bsc does not compile has no depfile and needs none. If bsc compiled a source
+and its compiler wrote no depfile, the run fails, because the headers of that source would go
+unrecorded. An option in ``c_flags`` or ``cxx_flags`` that moves the depfile (``-MF``) causes this.
+
+Two limits remain:
+
+- A header that the design adds later in a folder that the compiler searches earlier than the one
+  it read from is not noticed. Run with ``--clean`` after you add such a header.
+- ``--remote`` copies only the files that the design lists. List every header that a C or C++
+  source includes as a ``CHeader`` source of the design. A listed header is an input, as before.
+
 Messages
 ~~~~~~~~
 
@@ -2816,8 +2840,11 @@ These are outside the guarantee above:
 - a name that an ``include`` or an ``#include`` writes with an absolute path or with ``..``;
 - text that the design passes to other programs: ``-Xc``, ``-Xc++``, ``-Xcpp``, ``-Xl``, ``-Xv``,
   ``link_flags``, ``verilog_link_flags`` and ``verilog_filters``;
-- the header lookup of the C compiler for the C and C++ sources of ``bsc_sim``
-  (``import "BDPI"``): an edit of a header does not run ``bsc_sim`` again;
+- a header that is added later in a folder that the C compiler searches before the one it read
+  from, so that it would shadow that header: Xeda does not notice it (see
+  :ref:`bsc-c-headers`);
+- with ``--remote``, a header of a C or C++ source that the design does not list as a ``CHeader``
+  (see :ref:`bsc-c-headers`);
 - with ``cpp``, the own searches of the C preprocessor: its include variables, such as ``CPATH``,
   and the system folders. A header found there is outside the guarantee, as for the C compiler of
   BDPI sources;

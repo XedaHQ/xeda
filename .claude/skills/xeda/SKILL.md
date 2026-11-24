@@ -355,9 +355,12 @@ after `-Xc`, `-Xc++`, `-Xcpp`, `-Xl` or `-Xv` is not checked), `BSC_OPTIONS` in 
 files of one name (also by letter case only), and the removed `cleanup_bobjs`. The console and the
 log show bsc's staged names (`bsc_sources/...`); the error text of Xeda names the real files. Not
 covered: absolute or `..` includes, text passed to other programs (`-Xc` flags, `link_flags`,
-`verilog_link_flags`, `verilog_filters`), the header lookup of the C compiler for BDPI sources (an
-edit of a header does not rerun `bsc_sim`), the own searches of a simulator, the contents of
-`installed_libraries` and `openFile` reads.
+`verilog_link_flags`, `verilog_filters`), a header added in an earlier folder of the C compiler's search that would shadow the one it read
+(`--clean` after that), the own searches of a simulator, the contents of
+`installed_libraries` and `openFile` reads. `bsc_sim` has the compiler write a depfile for each C or C++
+source that bsc compiles (`import "BDPI"`): every header it read, nested ones too, is an input, so
+a local run needs no listed header; with `--remote` list each header as a `CHeader` source, since only listed
+files are copied. A compiled source without a depfile fails the run.
 `examples/bluespec/gcd/gcd.yaml` holds every configuration of one design: `xeda run bsc_sim`,
 `openroad`, `vivado_synth`, `yosys_fpga+nextpnr --target ecp5` and `yosys_fpga --target artix7` (the
 FPGA ones are estimates without pins; a board build needs an I/O wrapper and constraints).

@@ -134,6 +134,10 @@ _STAGED_SOURCE_TYPES = (SourceType.Bluespec, SourceType.BluespecHeader)
 _CPP_STAGED_TYPES = (SourceType.CHeader,)
 #: The folder of the run directory that holds a wrapper for each C and C++ source of the link.
 _FOREIGN_DIR = "bsc_foreign"
+
+#: The flags that make the C and the C++ compiler write a depfile of the headers a source read,
+#: leaving out the system headers, beside the object of the source.
+_DEPFILE_FLAGS = ("-Xc", "-MMD", "-Xc++", "-MMD")
 #: What separates the entries of a bsc search path, so no entry can contain it.
 _PATH_SEPARATOR = ":"
 #: The folder of the run directory that holds a link to each listed Bluespec source and Bluespec
@@ -2352,6 +2356,32 @@ class BscSim(BscFlow, SimFlow):
             files.append(wrapper)
         return files
 
+    def _record_foreign_depfiles(self, link_files: Sequence[Path]) -> None:
+        """Register the depfile of each C and C++ source that the link compiled.
+
+        The compiler writes the depfile beside the object (`ops.o`, `ops.d`) and lists every
+        header that it read, including a header that another header includes. The launcher
+        reads the depfiles after the run, so an edit of any of these headers runs the flow
+        again. bsc compiles a source only if the design imports a function from it, so a source
+        with no object has no depfile and needs none. An object with no depfile from this run
+        fails the run: the headers of that source would go unrecorded.
+        """
+        foreign = self.run_path / _FOREIGN_DIR
+        for wrapper in link_files:
+            if not wrapper.is_relative_to(foreign) or wrapper.suffix == ".o":
+                continue
+            if not wrapper.with_suffix(".o").is_file():
+                continue
+            depfile = self.report_file(wrapper.with_suffix(".d"))
+            if depfile is None:
+                raise FlowFatalError(
+                    f"bsc compiled {wrapper.name} but its compiler wrote no depfile "
+                    f"{self.run_file(wrapper.with_suffix('.d'))} in this run, so the headers that "
+                    "the source includes cannot be tracked. An option in `c_flags` or `cxx_flags` "
+                    "(for example `-MF`) may have written the depfile elsewhere."
+                )
+            self.depfiles.append(depfile)
+
     @staticmethod
     def _tb_top_of(design: Design) -> str | None:
         """Return the module to simulate: `tb.top`, or `rtl.top` if the design has no testbench."""
@@ -2445,6 +2475,7 @@ class BscSim(BscFlow, SimFlow):
             *link_files,
             env=link_env,
         )
+        self._record_foreign_depfiles(link_files)
         self.artifacts.executable = str(executable)
         if bluesim:
             self._require_empty_interface(tb_top, sim_dir, bluesim)
@@ -2757,6 +2788,9 @@ class BscSim(BscFlow, SimFlow):
         flags = [
             _toggle("keep-fires", ss.keep_fires),
             _toggle("use-dpi", ss.use_dpi),
+            # Each C and C++ source of the design then gets a depfile of the headers it read
+            # (`_record_foreign_depfiles`).
+            *_DEPFILE_FLAGS,
         ]
         if ss.reset_prefix:
             # This also defines `BSV_RESET_NAME`, the port that bsc's clock and reset driver resets.
