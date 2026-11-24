@@ -9,8 +9,9 @@ difference, or `None`. This module never imports `default_runner`.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Sequence
 
+from ..mapping_types import DependencyInfo
 from ..plan import Plan, PlanNode
 from .launch_options import WorkspaceOptions
 
@@ -41,12 +42,12 @@ def _graph_difference(expected: PlanNode, fresh: PlanNode) -> str | None:
     return None
 
 
-Dependencies = Sequence[Mapping[str, str | None]]
+Dependencies = Sequence[DependencyInfo]
 
 
 def _git_dependencies(
     entries: Dependencies,
-) -> dict[int, tuple[str | None, str | None, str | None, str | None]]:
+) -> dict[int, tuple[str | None, str | None, str | None, str]]:
     """The `(repository, commit, reference, design_file)` of each Git dependency in `entries`, by
     its index.
     Two entries of one repository at different commits have different indexes. An explicit commit
