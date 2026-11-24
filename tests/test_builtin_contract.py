@@ -1282,3 +1282,12 @@ def test_the_keys_of_an_object_metric_of_an_experimental_flow_are_not_judged(
         del _evidence(c, "xezim")["properties"]["cycles"]
 
     assert _judged(current, change) == ([], [])
+
+
+def test_a_model_default_equal_to_its_bare_call_is_snapshotted_as_the_call() -> None:
+    """A new optional field of `Testbench` must not read as a changed default of `Design.tb`."""
+    from xeda import Testbench
+
+    assert tool._render_default(Testbench()) == "Testbench()"
+    assert tool._render_default(Testbench(top=("tb",))).startswith("Testbench(")
+    assert tool._render_default(Testbench(top=("tb",))) != "Testbench()"

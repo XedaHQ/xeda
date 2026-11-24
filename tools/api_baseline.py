@@ -36,6 +36,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+from pydantic import BaseModel
+
 from xeda._internal.package_paths import IMPL, impl_module, schemas_dir, source_root
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,6 +147,15 @@ def render_annotation(tp: Any) -> str:
 
 
 def _render_default(value: Any) -> str:
+    """The default as text. A model default that equals the model with no arguments is its call
+    (`Testbench()`): its repr lists every field, so a new optional field would read as a changed
+    default."""
+    if isinstance(value, BaseModel):
+        try:
+            if value == type(value)():
+                return f"{type(value).__name__}()"
+        except Exception:  # a model with required fields has no such call
+            pass
     text = repr(value)
     return f"<{type(value).__name__}>" if " at 0x" in text else text
 
