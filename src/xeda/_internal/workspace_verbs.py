@@ -145,7 +145,6 @@ def sweep(
     run_root: PathLike | Unset = UNSET,
     hashed_run_dirs: bool = False,
     tool_output: Literal["log", "terminal"] = "log",
-    remote: Remote | None = None,
     local_settings: LocalSettings | None = None,
     max_workers: int = 1,
     rebuild_all: bool = False,
@@ -195,14 +194,13 @@ def sweep(
     run, and the sweep returns when every worker has released its locks. A thread that holds a lock of Xeda cannot start a
     sweep (`LeaseHeldError`).
 
-    The keyword-only parameters `run_root`, `hashed_run_dirs`, `tool_output`, `remote`,
-    `local_settings` configure the `Workspace` that this call makes. They have the same meaning
-    and defaults as the parameters of `Workspace`."""
+    The keyword-only parameters `run_root`, `hashed_run_dirs`, `tool_output`, `local_settings`
+    configure the `Workspace` that this call makes. They have the same meaning and defaults as
+    the parameters of `Workspace`."""
     return Workspace(
         run_root=run_root,
         hashed_run_dirs=hashed_run_dirs,
         tool_output=tool_output,
-        remote=remote,
         local_settings=local_settings,
     ).sweep(
         specs,

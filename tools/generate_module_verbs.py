@@ -69,12 +69,8 @@ VERBS: dict[str, tuple[tuple[str, ...], bool, Mapping[str, str], str | None]] = 
         RUN_OVERRIDES,
         "request",
     ),
-    "sweep": (
-        ("run_root", "hashed_run_dirs", "tool_output", "remote", "local_settings"),
-        True,
-        {},
-        None,
-    ),
+    # a sweep never runs on a remote host (`Workspace.sweep` refuses it), so it takes no `remote`
+    "sweep": (("run_root", "hashed_run_dirs", "tool_output", "local_settings"), True, {}, None),
     "load_record": ((), True, {}, None),
     "records": (("run_root",), True, {}, None),
     "scrub": (("run_root", "confirm"), False, {}, None),
