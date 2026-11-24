@@ -58,9 +58,22 @@ ProgramState = Tuple[int, int, int, int, int]
 
 #: The environment variables that select the container client and the daemon it talks to: the
 #: daemon and context variables, `HOME` (where the client finds its configuration and context),
-#: and `PATH` (which finds the client).
-_CLIENT_ENV_PREFIXES = ("DOCKER_", "CONTAINER_")
-_CLIENT_ENV_NAMES = ("XDG_RUNTIME_DIR", "HOME", "PATH")
+#: and `PATH` (which finds the client). Only names that choose a client or a daemon: a credential (`DOCKER_AUTH_CONFIG`) is never
+#: recorded, because the trace keeps these values in the run directory.
+_CLIENT_ENV_NAMES = (
+    "DOCKER_HOST",
+    "DOCKER_CONTEXT",
+    "DOCKER_CONFIG",
+    "DOCKER_CERT_PATH",
+    "DOCKER_TLS_VERIFY",
+    "DOCKER_API_VERSION",
+    "CONTAINER_HOST",
+    "CONTAINER_CONNECTION",
+    "CONTAINERS_CONF",
+    "XDG_RUNTIME_DIR",
+    "HOME",
+    "PATH",
+)
 
 
 class ImageClient(XedaBaseModel):
@@ -77,22 +90,14 @@ class ImageClient(XedaBaseModel):
         source = os.environ if environment is None else environment
         return cls(
             cli=cli,
-            env={
-                k: str(v)
-                for k, v in sorted(source.items())
-                if k.startswith(_CLIENT_ENV_PREFIXES) or k in _CLIENT_ENV_NAMES
-            },
+            env={k: str(v) for k, v in sorted(source.items()) if k in _CLIENT_ENV_NAMES},
         )
 
     def process_environment(self) -> Dict[str, str]:
         """Return the environment of a process of this client: that of this process, with the
         variables that select the client and its daemon replaced by the recorded ones (a variable
         that the run did not have is absent)."""
-        env = {
-            k: v
-            for k, v in os.environ.items()
-            if not k.startswith(_CLIENT_ENV_PREFIXES) and k not in _CLIENT_ENV_NAMES
-        }
+        env = {k: v for k, v in os.environ.items() if k not in _CLIENT_ENV_NAMES}
         env.update(self.env)
         return env
 

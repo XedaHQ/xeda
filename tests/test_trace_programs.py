@@ -451,3 +451,19 @@ def test_a_container_image_is_checked_with_the_environment_of_the_node(
     assert runner.launch_flow(TInContainer, design, settings).reused
     (tmp_path / "a" / ".docker" / "config.json").write_text("sha256:a2\n")
     assert not runner.launch_flow(TInContainer, design, settings).reused
+
+
+def test_a_container_client_records_no_credential() -> None:
+    from xeda._internal.proc_utils import ImageClient
+
+    client = ImageClient.of(
+        "docker",
+        {
+            "DOCKER_HOST": "tcp://builder:2376",
+            "DOCKER_AUTH_CONFIG": '{"auths": {"r.example": {"auth": "c2VjcmV0"}}}',
+            "HOME": "/home/u",
+            "UNRELATED": "x",
+        },
+    )
+    assert client.env == {"DOCKER_HOST": "tcp://builder:2376", "HOME": "/home/u"}
+    assert "c2VjcmV0" not in client.model_dump_json()
