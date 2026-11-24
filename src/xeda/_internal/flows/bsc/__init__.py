@@ -2028,8 +2028,10 @@ class BscSim(BscFlow, SimFlow):
     The design's `defines` and `parameters` are preprocessor macros, and the testbench's go over
     the RTL's. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
 
-    The flow does not track the headers that a C or C++ source includes. An edit of one does not
-    run the flow again. The console shows the names that bsc uses for the staged sources
+    The C compiler writes a depfile for each C or C++ source that bsc compiles
+    (`import "BDPI"`). Every header it read, nested ones too, is an input of the run, so an edit
+    of one runs the flow again. With `--remote`, list the headers as `CHeader` sources. The
+    console shows the names that bsc uses for the staged sources
     (`bsc_sources/Tb.bsv`), and the failure text of Xeda names the real files.
 
     The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and
