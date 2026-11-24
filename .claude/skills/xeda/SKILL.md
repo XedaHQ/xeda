@@ -697,9 +697,10 @@ else:
   directory). `result.to_dict()` is the document of `xeda run --json`.
 - `record.metric(path)` returns the stored value; for the path of a group (`sim`) it returns the
   table below it. `record.quantity(path)` returns a metric as a `pint` quantity with the unit
-  `record.metric_info[path].unit`; a metric of the type `numbers` gives a read-only table with a
-  quantity for each key. A group path raises `KeyError`, and a metric without a unit raises
-  `ValueError`: read it with `metric`.
+  `record.metric_info[path].unit`. `record.quantities(path)` does the same for a metric of the type
+  `numbers`: a read-only table with a quantity for each key (`quantity` raises `ValueError` for such
+  a metric). A group path raises `KeyError`, and a metric without a unit raises `ValueError`: read
+  it with `metric`.
 - `Workspace.plan(spec)` returns the `Plan` without a run. `Workspace.records()` lists the records
   of earlier runs, and `Workspace.load_record(run_dir)` reads one.
 - A `Design`, a `Spec` and everything in them is read-only (assigning raises an error). Make a
