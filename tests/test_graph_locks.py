@@ -19,7 +19,14 @@ import pytest
 from xeda import Design
 from xeda._internal.deliver import Deliveries, DeliveryError
 from xeda.errors import LeaseHeldError
-from xeda._internal.flow_runner import DefaultRunner, launch_generation, launch_locks, run_lock
+from xeda._internal.digest import RACY_NS
+from xeda._internal.flow_runner import (
+    DefaultRunner,
+    launch_generation,
+    launch_locks,
+    run_lock,
+    trace,
+)
 from xeda._internal.flow_runner.dse.dse_runner import Dse
 from xeda._internal.flow_runner.dse.fmax import FmaxOptimizer
 from xeda._internal.flow_runner.scrub import scrub_design, scrub_generations, scrub_runs
@@ -1004,7 +1011,14 @@ def test_a_delivery_keeps_the_node_locks_and_holds_each_destination_in_one_order
 
 
 def _delivering_after_both_read_the_record(monkeypatch) -> None:
-    """Make two launches read the delivery record before either one writes it."""
+    """Make two launches read the delivery record before either one writes it.
+
+    Both launches must hold the lock of the node shared, so that both reach the barrier. A node
+    whose trace has settled since the run (`trace.Freshness.would_refresh`: the wall clock is more
+    than `RACY_NS` past its files) is held exclusive instead, and the second launch waits for the
+    whole delivery of the first: it never reaches the barrier. A slow machine does that between
+    two launches by itself, so the clock of that check stands still."""
+    monkeypatch.setattr(trace, "wall_clock_ns", lambda: 0)
     barrier = threading.Barrier(2, timeout=HANG_GUARD)
     original = Deliveries.lock_requests
     seen = set()
@@ -1018,12 +1032,16 @@ def _delivering_after_both_read_the_record(monkeypatch) -> None:
     monkeypatch.setattr(Deliveries, "lock_requests", requests)
 
 
+@pytest.mark.parametrize("slow_machine", [False, True])
 def test_two_launches_that_reuse_one_node_write_both_deliveries_in_its_record(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, slow_machine
 ):
     root = ensure_run_root(tmp_path / "xeda_run")
     design = _design(tmp_path)
     assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
+    if slow_machine:
+        real = trace.wall_clock_ns
+        monkeypatch.setattr(trace, "wall_clock_ns", lambda: real() + 100 * RACY_NS)
     users = [tmp_path / "one", tmp_path / "two"]
     for user in users:
         user.mkdir()
@@ -1038,6 +1056,36 @@ def test_two_launches_that_reuse_one_node_write_both_deliveries_in_its_record(
     for thread, _outcome in threads:
         _join(thread)
     assert [out[0].succeeded for _thread, out in threads] == [True, True]
+    record = json.loads((root / "d" / "t_maker.delivered.json").read_text())
+    assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
+
+
+def test_two_launches_that_find_the_trace_settled_deliver_one_after_the_other(
+    tmp_path, monkeypatch
+):
+    """On a slow machine the second launch comes more than the racy window after the run. Each
+    launch then takes the node exclusive to refresh its trace, so the launches take turns. Both
+    complete, and the delivery record holds both deliveries."""
+    root = ensure_run_root(tmp_path / "xeda_run")
+    design = _design(tmp_path)
+    assert DefaultRunner(root, display_results=False).launch_flow(TMaker, design, {}).succeeded
+    real = trace.wall_clock_ns
+    monkeypatch.setattr(trace, "wall_clock_ns", lambda: real() + 100 * RACY_NS)
+    users = [tmp_path / "out" / "one", tmp_path / "out" / "two"]
+    restarts: list[int] = []
+
+    def deliver(user: Path):
+        runner = DefaultRunner(root, display_results=False, outputs_to=user)
+        try:
+            return runner.launch_flow(TMaker, design, {})
+        finally:
+            restarts.append(runner._restarts)
+
+    threads = [_in_thread(lambda user=user: deliver(user)) for user in users]
+    for thread, _outcome in threads:
+        _join(thread)
+    assert [out[0].succeeded for _thread, out in threads] == [True, True]
+    assert sum(restarts) > 0, "the settled trace made the launches start again, exclusive"
     record = json.loads((root / "d" / "t_maker.delivered.json").read_text())
     assert sorted(Path(name).parent.name for name in record["files"]) == ["one", "two"]
 
