@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from types import MappingProxyType
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
@@ -26,6 +26,7 @@ from ..run_dir import (
     run_directory_problem,
 )
 from ..cancel import launch_canceled
+from ..frozen import FrozenDict
 from ..generation import GENERATION_DIRECTORY
 from ..types import UNSET, Unset
 from ..utils import Canceled, unique
@@ -66,24 +67,33 @@ LAUNCH_DOCUMENTS = ("settings.json", "results.json", "trace.json")
 COMPLETION_DOCUMENTS = ("results.json", "trace.json")
 
 
-class ScrubResult(NamedTuple):
+@dataclass(frozen=True, kw_only=True)
+class ScrubResult:
     """What `scrub_design` did.
 
     `scanned` lists the directories it searched. `removed` lists the run directories it removed
     (none if it found none or the removal was not confirmed). `kept` lists those it kept because
     their run records changed after the listing. `gone` lists those that were gone already when
-    their turn came. `skipped` lists the links it did not list because they are no run directory
-    (`run_directory_problem`). The removed, kept and gone directories are three separate lists:
-    none is in another, and no skipped link is in any of them. A directory that has several
-    names (links to it) is listed once, under the first name, and removed under all of them."""
+    their turn came. `skipped` lists the links it did not list because they are no run directory.
+    `reasons` says why, for each skipped link. The removed, kept and gone directories are three
+    separate lists: none is in another, and no skipped link is in any of them. A directory that has
+    several names (links to it) is listed once, under the first name, and removed under all of
+    them.
+
+    Each list is a tuple, and `reasons` is a read-only mapping that the constructor copies, so a
+    later change of the table that the caller passed never reaches the result."""
 
     scanned: tuple[Path, ...]
     removed: tuple[Path, ...]
     kept: tuple[Path, ...]
     gone: tuple[Path, ...]
     skipped: tuple[Path, ...]
-    #: Why each skipped link was skipped (read-only).
-    reasons: Mapping[Path, str] = MappingProxyType({})
+    reasons: Mapping[Path, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("scanned", "removed", "kept", "gone", "skipped"):
+            object.__setattr__(self, name, tuple(getattr(self, name)))
+        object.__setattr__(self, "reasons", FrozenDict(self.reasons))
 
 
 def removed_summary(count: int) -> str:
@@ -508,12 +518,12 @@ def scrub_runs(
     if on_result is not None:
         on_result(
             ScrubResult(
-                (dir,),
-                tuple(done.removed),
-                tuple(done.kept),
-                tuple(done.gone),
-                tuple(s.link for s in scan.skipped),
-                MappingProxyType({s.link: s.problem for s in scan.skipped}),
+                scanned=(dir,),
+                removed=tuple(done.removed),
+                kept=tuple(done.kept),
+                gone=tuple(done.gone),
+                skipped=tuple(s.link for s in scan.skipped),
+                reasons={s.link: s.problem for s in scan.skipped},
             )
         )
     return bool(done.removed)
@@ -584,12 +594,12 @@ def scrub_design(
     done = _remove_confirmed(listed, run_root, confirm, storages)
     base = run_root / GENERATION_DIRECTORY / design_dir.name
     return ScrubResult(
-        (*parents, base) if whole_design and base.is_dir() else tuple(parents),
-        tuple(done.removed),
-        tuple(done.kept),
-        tuple(done.gone),
-        tuple(s.link for s in skipped),
-        MappingProxyType({s.link: s.problem for s in skipped}),
+        scanned=(*parents, base) if whole_design and base.is_dir() else tuple(parents),
+        removed=tuple(done.removed),
+        kept=tuple(done.kept),
+        gone=tuple(done.gone),
+        skipped=tuple(s.link for s in skipped),
+        reasons={s.link: s.problem for s in skipped},
     )
 
 
@@ -656,7 +666,7 @@ def scrub_generations(
     base = run_root / GENERATION_DIRECTORY / design_name
     found = _generation_storages(design_name, run_root)
     if not found:
-        return ScrubResult((base,), (), (), (), ())
+        return ScrubResult(scanned=(base,), removed=(), kept=(), gone=(), skipped=())
     if confirm is None:
         log.warning(
             "Not removing %d generation storage(s) of %s: nothing confirmed the removal, and only "
@@ -664,11 +674,13 @@ def scrub_generations(
             len(found),
             design_name,
         )
-        return ScrubResult((base,), (), (), (), ())
+        return ScrubResult(scanned=(base,), removed=(), kept=(), gone=(), skipped=())
     if not confirm([ScrubCandidate(path, ()) for path in found]):
-        return ScrubResult((base,), (), (), (), ())
+        return ScrubResult(scanned=(base,), removed=(), kept=(), gone=(), skipped=())
     removed, gone = _remove_storages(found, run_root)
-    return ScrubResult((base,), tuple(removed), (), tuple(gone), ())
+    return ScrubResult(
+        scanned=(base,), removed=tuple(removed), kept=(), gone=tuple(gone), skipped=()
+    )
 
 
 def list_run_directories(
