@@ -3271,6 +3271,9 @@ class FlowLauncher:
                 request.design,
                 design_root=request.design.root,
                 runner_cwd=self._start,
+                origins=request.origins,
+                command_line=request.command_line,
+                api_overrides=request.api_overrides,
             )
         if before_fetch is not None:
             before_fetch(request.design)
@@ -3292,7 +3295,8 @@ class FlowLauncher:
         and checks them in `_judged_request`."""
         if not design.dependencies:
             return
-        own, _ = split_bindings(thaw(design.flows), location=f"the design {design.name}")
+        own_label = f"the design {design.name}"
+        own, _ = split_bindings(thaw(design.flows), location=own_label)
         given, _ = split_bindings(sections or {}, location=SUPPLIED_SECTIONS_ORIGIN)
         requested: Mapping[str, Any] | Flow.Settings = (
             flow_settings
@@ -3306,6 +3310,7 @@ class FlowLauncher:
             design,
             design_root=design.root,
             runner_cwd=self._start,
+            origins=((own_label, own), (SUPPLIED_SECTIONS_ORIGIN, given)),
         )
 
     def _merged(self, design: Design) -> Design:

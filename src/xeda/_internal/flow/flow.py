@@ -2104,6 +2104,9 @@ class FlowSettingsError(FlowSettingsException):
         super().__init__(*args)
         self.errors = errors
         self.model = model
+        #: The layer that gave the value of a finding, by the location of the finding (the first
+        #: item of its entry in `errors`). A finding whose value no layer gave has no entry.
+        self.origins: dict[str, str] = {}
         #: True for the refusal of settings that the flow cannot support
         #: (`Flow.check_settings_supported`): its findings that name no other kind are
         #: unsupported settings, not invalid values.

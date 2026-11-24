@@ -89,7 +89,13 @@ class SettingsError(SpecError):
     and `suggestions` are addresses below `node`, dotted for the leaf of a group. When `node` is
     `None`, they are full addresses. `errors` holds every finding of one validation, in address
     order. This exception is the first of them, so a script that reads only the exception sees
-    the first mistake. `origin` names the layer that gave the setting."""
+    the first mistake.
+
+    `origin` names the layer that gave the refused value, as the text that the message of a
+    layer uses: the path of the design file or of another settings file, the text of a user or
+    project-local file, or `the command line (`-s`) or `flow_settings`` for the settings of a
+    `Spec`. It is `None` when no layer gave the value: a default, a rule over several settings,
+    a value that two layers give, or a refusal that is about no setting."""
 
     #: The node that the setting addresses, or `None` when the key addresses none.
     node: str | None
@@ -99,7 +105,7 @@ class SettingsError(SpecError):
     problem: str
     #: Close addresses, below `node`.
     suggestions: tuple[str, ...]
-    #: The layer that gave the setting, or `None`.
+    #: The layer that gave the refused value, or `None` when no layer did.
     origin: str | None
     #: Every finding of one validation, in address order. This error is the first of them.
     errors: tuple[SettingsError, ...]

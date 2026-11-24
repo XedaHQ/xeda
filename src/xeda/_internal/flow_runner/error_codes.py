@@ -397,6 +397,7 @@ def _settings_error(exc: FlowSettingsError | ValidationError) -> errors.Settings
         codes = ["invalid_value"]
         findings = [(None, str(exc), None, None)]
     built: list[errors.SettingsError] = []
+    origins = getattr(exc, "origins", {})
     for (location, problem, context, _), code in zip(findings, codes):
         setting = ".".join(location.split(" -> ")) if location else None
         problem = problem or ""
@@ -416,6 +417,7 @@ def _settings_error(exc: FlowSettingsError | ValidationError) -> errors.Settings
                 setting=setting,
                 problem=problem,
                 suggestions=suggestions,
+                origin=origins.get(location) if location else None,
             )
         )
     built.sort(key=lambda finding: finding.setting or "")

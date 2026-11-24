@@ -97,6 +97,7 @@ __all__ = [
     "merge_layers",
     "read_command_line_text",
     "check_run_flows",
+    "command_line_error",
     "command_line_sections",
     "split_flow_sections",
     "transitive_dependencies",
@@ -475,13 +476,18 @@ def read_command_line_text(
     except SettingTextError as error:
         if not settings_error:
             raise
-        raise FlowSettingsError(
+        refusal = FlowSettingsError(
             [
                 (address.replace(".", " -> "), message, None, kind)
                 for address, message, kind in error.problems
             ],
             settings_cls,
-        ) from error
+        )
+        # Only the text of a `KEY=VALUE` item is read, and only the command line gives it.
+        refusal.origins = {
+            location: COMMAND_LINE_ORIGIN for location, *_ in refusal.errors if location
+        }
+        raise refusal from error
 
 
 def merge_layers(
@@ -720,8 +726,16 @@ def command_line_settings(items: Sequence[str], requested: str) -> dict[str, Any
     table = command_line_table(items)
     problems = _repeated_leaves(_given_leaves(items, requested, registered_flow, scoped=True))
     if problems:
-        raise FlowSettingsError(problems, "flows")
+        raise command_line_error(problems, "flows")
     return table
+
+
+def command_line_error(problems: Any, model: Any) -> FlowSettingsError:
+    """Return the `FlowSettingsError` for `problems` that the command line gave: every finding
+    has the command-line layer as its origin."""
+    error = FlowSettingsError(problems, model)
+    error.origins = {location: COMMAND_LINE_ORIGIN for location, *_ in error.errors if location}
+    return error
 
 
 def check_run_flows(
@@ -739,7 +753,7 @@ def check_run_flows(
     run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls, design))})
     unknown = [name for name in sections if name not in run_flows]
     if unknown:
-        raise FlowSettingsError(
+        raise command_line_error(
             [
                 (
                     name,
@@ -822,9 +836,12 @@ def _flows_error(
     Each problem is a `(key path, problem)` pair, and all are reported at once. `location` names
     the origin. `kind` is the type of the error."""
     where = f"{location}: " if location else ""
-    return FlowSettingsError(
+    error = FlowSettingsError(
         [(path, f"{where}`{path}` {problem}", None, kind) for path, problem in problems], "flows"
     )
+    if location:
+        error.origins = {path: location for path, _ in problems}
+    return error
 
 
 def merge_flow_sections(

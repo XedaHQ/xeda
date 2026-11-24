@@ -207,7 +207,10 @@ raises ``SettingsError`` with the code ``shared_setting_conflict``.
 
 Settings come from layers, and the last layer wins: the defaults of the flow, the user file, the
 host profile, the project, the design, the target, the project-local file and ``Spec.settings``
-(see :doc:`flows`). Every value remembers its layer, and ``SettingsError.origin`` names it.
+(see :doc:`flows`). ``SettingsError.origin`` names the layer that gave the refused value: the path
+of the design file, the user config file or the project-local file, or the text that names the
+settings of the ``Spec`` (they are the layer of the command line). It is ``None`` when no layer
+gave the value: a default, or a rule that covers several settings.
 
 Xeda checks all settings when you plan or run. An error raises a subclass of ``SpecError`` before
 anything runs. ``SettingsError`` has the attributes ``code``, ``message``, ``node``, ``setting``,
