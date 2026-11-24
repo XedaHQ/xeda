@@ -157,7 +157,7 @@ def test_a_declaration_is_equal_to_the_same_name_and_type_only() -> None:
     assert verilog == Source._declaration("gen/*.v", SourceType.Verilog)
     assert verilog != Source._declaration("gen/*.v", SourceType.SystemVerilog)
     assert verilog != Source._declaration("gen/*.sv", SourceType.Verilog)
-    assert verilog != Source({"path": "/x/gen/*.v"}, SourceType.Verilog)
+    assert verilog != Source({"path": "/x/gen/*.v"}, type=SourceType.Verilog)
 
 
 def test_a_declaration_is_written_as_a_name_or_a_table_with_its_stated_type() -> None:

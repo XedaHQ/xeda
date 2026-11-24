@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from xeda import Design, LocalSettings, Spec, Workspace
+from xeda import Design, LocalSettings, Project, Spec, Workspace
+from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow import FlowSettingsError
 from xeda.errors import SettingsError
 
 FLOW = "ghdl_sim"
@@ -90,3 +92,35 @@ def test_a_finding_that_no_layer_gave_has_no_origin(tmp_path):
     with pytest.raises(SettingsError) as raised:
         workspace.plan(Spec("vivado_synth", design))  # a required setting is missing
     assert [item.origin for item in raised.value.errors] == [None] * len(raised.value.errors)
+
+
+def test_a_value_of_the_project_file_names_the_project_file(tmp_path):
+    (tmp_path / "t.v").write_text("module t; endmodule\n")
+    project_file = tmp_path / "xedaproject.yaml"
+    project_file.write_text(
+        "designs:\n  - name: d\n    rtl: {sources: [t.v], top: t}\n"
+        f"flows:\n  {FLOW}:\n    nosuch: 1\n"
+    )
+    design = Project.load(project_file).design("d")
+    found = _findings(tmp_path, design)
+    assert found == {"nosuch": str(project_file)}
+
+
+def test_a_value_of_a_target_names_the_design_file(tmp_path):
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "t.v").write_text("module t; endmodule\n")
+    (root / "d.yaml").write_text(
+        "name: d\nrtl:\n  sources: [t.v]\n  top: t\n"
+        f"targets:\n  board:\n    flows:\n      {FLOW}:\n        nosuch: 1\n"
+    )
+    design = Design.load(root / "d.yaml", target="board")
+    assert _findings(tmp_path, design) == {"nosuch": str(root / "d.yaml")}
+
+
+def test_a_value_of_the_host_profile_names_the_host(tmp_path):
+    design = _design(tmp_path / "d")
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowSettingsError) as raised:
+        runner.prepare_request(FLOW, design, host_flows={FLOW: {"nosuch": 1}}, host="venona")
+    assert set(raised.value.origins.values()) == {"the host profile of venona"}
