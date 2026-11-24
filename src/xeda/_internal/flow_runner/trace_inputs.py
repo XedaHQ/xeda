@@ -544,12 +544,31 @@ def installation_prefixes(programs: Sequence[str], path: Optional[str] = None) -
     return prefixes
 
 
+#: The file that the root folder of a compiler SDK holds (macOS). The compiler lists it in a
+#: depfile, and every file below that folder belongs to the installation of the compiler.
+SDK_MARKER = "SDKSettings.json"
+
+
+def in_sdk(path: Path, known: Optional[Dict[Path, bool]] = None) -> bool:
+    """Return whether `path` is the SDK marker or lies below a folder that holds it.
+
+    `known` caches the answer for each folder."""
+    cache = {} if known is None else known
+    for folder in path.parents:
+        if folder not in cache:
+            cache[folder] = (folder / SDK_MARKER).is_file()
+        if cache[folder]:
+            return True
+    return False
+
+
 def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]:
     """Return every existing file that the flow read and that is known only after its run.
 
-    These are the files that a depfile written by its tools (`yosys -E`, ...) names, except the
-    files of the installation of the tool (under the prefix of a program in `programs`:
-    internal to the tool, and Xeda stays agnostic to how tools are installed). They also
+    These are the files that a depfile written by its tools (`yosys -E`, `cc -MMD`, ...) names,
+    except the files of the installation of the tool (under the prefix of a program in
+    `programs`: internal to the tool, and Xeda stays agnostic to how tools are installed) and
+    the files of a compiler SDK (`in_sdk`). They also
     include the files that the flow registered in `Flow.implicit_inputs` (including those that
     its `init()` registered, which are expected inputs already). Where a file lies decides
     whether it is an input or the run's own (`build_trace`). A file that a producer handed over
@@ -557,12 +576,14 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
     prefixes = installation_prefixes(
         programs, path=flow.process_environment().get("PATH", os.defpath)
     )
+    sdk_folders: Dict[Path, bool] = {}
     named = [
         dep
         for depfile in flow.depfiles
         if depfile.is_file()
         for dep in parse_depfile(depfile, flow.run_path)
         if not any(_resolved(dep, flow.run_path).is_relative_to(prefix) for prefix in prefixes)
+        and not in_sdk(_resolved(dep, flow.run_path), sdk_folders)
     ]
     # A file handed over by a producer is no file record of this flow, however it came to be read.
     handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
