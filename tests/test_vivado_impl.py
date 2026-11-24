@@ -683,7 +683,7 @@ def test_every_step_of_the_shared_implementation_script_writes_into_a_directory_
     for command in ("power_opt_design", "report_power_opt", "phys_opt_design", "write_bitstream"):
         assert command in commands
     reported = [call[2] for call in fake_calls(run.run_path) if call[0] == "report_power_opt"]
-    assert any(path.endswith("post_place/power_optimization.rpt") for path in reported)
+    assert any(path.endswith("post_place/post_place_power_optimization.rpt") for path in reported)
 
 
 def test_a_second_launch_runs_nothing_and_an_edited_constraint_file_runs_vivado_again(

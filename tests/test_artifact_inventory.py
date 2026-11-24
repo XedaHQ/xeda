@@ -476,7 +476,7 @@ def test_the_built_simulation_program_has_one_artifact_key_in_every_flow():
     assert not [name for name, cls in by_name.items() if "executable" in cls.artifacts_description]
 
 
-def test_a_vivado_report_key_never_repeats_its_step_and_every_flow_names_a_report_alike():
+def test_a_vivado_report_key_never_repeats_its_step():
     from xeda._internal.flows.vivado.artifacts import (
         ALT_SYNTH_REPORTS,
         FILES,
@@ -485,14 +485,18 @@ def test_a_vivado_report_key_never_repeats_its_step_and_every_flow_names_a_repor
         report_key,
     )
 
-    tables = (PROJECT_REPORTS, SCRIPT_REPORTS, ALT_SYNTH_REPORTS)
-    for table in tables:
+    assert report_key("post_place", "post_place_power_optimization.rpt") == (
+        "post_place_power_optimization_rpt"
+    )
+    assert report_key("route_design", "design_analysis.rpt") == "route_design_design_analysis_rpt"
+    for table in (PROJECT_REPORTS, SCRIPT_REPORTS, ALT_SYNTH_REPORTS):
         for step, names in table.items():
             for name in names:
-                assert not name.startswith(
-                    step
-                ), f"{step}/{name} gives the key {report_key(step, name)}"
                 assert name in FILES, name
+                assert not report_key(step, name).startswith(f"{step}_{step}_"), (step, name)
+
+
+def test_the_vivado_flows_name_the_critical_path_reports_alike():
     by_name = {cls.name: cls for cls in FLOWS}
     for flow in ("vivado_synth", "vivado_alt_synth", "vivado_impl"):
         keys = by_name[flow].artifacts_description

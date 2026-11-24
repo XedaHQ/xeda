@@ -19,7 +19,7 @@ showWarningsAndErrors
 {% if settings.impl.steps.power_opt %}
 puts "\n===============================( Post-placement Power Optimization )================================"
 power_opt_design
-report_power_opt -file ${reports_dir}/post_place/power_optimization.rpt
+report_power_opt -file ${reports_dir}/post_place/post_place_power_optimization.rpt
 showWarningsAndErrors
 {%- endif %}
 

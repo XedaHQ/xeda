@@ -51,7 +51,7 @@ REFUSED = [
     ("vivado_project", "initialize_zeros", True, "delete it"),
     ("vivado_project", "read_oneshot", True, "delete it"),
     *[
-        ("vivado_alt_synth", name, value, "so only `vivado_synth` takes it; delete it")
+        ("vivado_alt_synth", name, value, "non-project mode has no")
         for name, value in (
             ("tcl_files", ["hook.tcl"]),
             ("set_synth_properties", {"A.B": 1}),

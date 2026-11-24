@@ -483,18 +483,15 @@ class VivadoAltSynth(_VivadoSynthesis, FpgaSynthFlow):
     class Settings(_VivadoSynthesis.Settings):
         removed_settings = {
             **_VivadoSynthesis.Settings.removed_settings,
-            "tcl_files": NoReplacement(
-                "non-project mode has no fileset for Tcl hooks, so only `vivado_synth` takes it"
-            ),
+            "tcl_files": NoReplacement("non-project mode has no fileset for Tcl hooks"),
             "set_synth_properties": NoReplacement(
-                "non-project mode has no runs to set properties on, so only `vivado_synth` takes it"
+                "non-project mode has no synthesis run to set properties on"
             ),
             "set_impl_properties": NoReplacement(
-                "non-project mode has no runs to set properties on, so only `vivado_synth` takes it"
+                "non-project mode has no implementation run to set properties on"
             ),
             "show_available_strategies": NoReplacement(
-                "non-project mode has no runs and no strategies to show, so only `vivado_synth` "
-                "takes it"
+                "non-project mode has no run whose strategies it could show"
             ),
         }
 

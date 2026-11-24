@@ -496,7 +496,7 @@ def test_vivado_impl_runs_the_power_optimization_steps_it_is_asked_for(work_dir)
         {**IMPL_SETTINGS, "impl": {"steps": steps}},
     )
     assert flow is not None and flow.succeeded
-    report = flow.run_path / "reports" / "post_place" / "power_optimization.rpt"
+    report = flow.run_path / "reports" / "post_place" / "post_place_power_optimization.rpt"
     assert report.is_file() and "Power optimization report" in report.read_text()
     assert flow.results["ff"] == 27 and flow.results["wns"] > 0
 

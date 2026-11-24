@@ -220,7 +220,7 @@ xeda run nextpnr blinky.yaml -s yosys_fpga.flatten=true
   - The message says to delete it: `yosys_sim` refuses the synthesis settings of `yosys`
     (`splitnets` was removed: "CXXRTL simulation does not synthesize; delete it");
     `vivado_alt_synth` refuses `tcl_files`, `set_synth_properties`, `set_impl_properties` and
-    `show_available_strategies` (non-project mode has no runs; only `vivado_synth` takes them).
+    `show_available_strategies` (non-project mode has no runs; use `vivado_synth`, in project mode, for them).
   - A removed setting fails with "`<name>` was removed: ...". If nothing replaces it, the message
     says to delete it. On the simulator flows, `timeout` replaces `timeout_seconds`; no other flow
     limits a tool's run time. `no_console` has no replacement.

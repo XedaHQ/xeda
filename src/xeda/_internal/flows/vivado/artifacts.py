@@ -65,7 +65,11 @@ FILES: dict[str, tuple[str, str]] = {
     "qor_suggestions.rpt": ("Suggestions to improve the quality of results.", _QOR),
     "qor_suggestions.rqs": ("Suggestions to improve the quality of results, for Vivado.", _QOR),
     "power.xml": ("Power estimate, as XML. The flow reads its power results from it.", _POWER),
-    "power_optimization.rpt": ("Report of the power optimization.", _POWER_OPT),
+    "power_optimization.rpt": ("Report of the power optimization after synthesis.", _POWER_OPT),
+    "post_place_power_optimization.rpt": (
+        "Report of the power optimization after placement.",
+        _POWER_OPT,
+    ),
 }
 
 _COMMON = (
@@ -105,7 +109,7 @@ SCRIPT_REPORTS: dict[str, tuple[str, ...]] = {
     "post_place": (
         "timing_summary.rpt",
         "hierarchical_utilization.rpt",
-        "power_optimization.rpt",
+        "post_place_power_optimization.rpt",
     ),
     "route_design": (
         "timing_summary.rpt",
@@ -137,8 +141,13 @@ ALT_SYNTH_REPORTS: dict[str, tuple[str, ...]] = {
 
 
 def report_key(step: str, name: str) -> str:
-    """Return the artifact key of the report with the file name `name` of the step `step`."""
-    return re.sub(r"[^a-z0-9]+", "_", f"{step}_{name}".lower()).strip("_")
+    """Return the artifact key of the report with the file name `name` of the step `step`: the
+    lower snake case of both. A file name that starts with the step does not repeat it, so the step
+    `post_place` and the file `post_place_power_optimization.rpt` give
+    `post_place_power_optimization_rpt`."""
+    words = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    stem = re.sub(r"[^a-z0-9]+", "_", step.lower()).strip("_")
+    return words if words.startswith(f"{stem}_") else f"{stem}_{words}"
 
 
 def _condition(step: str, name: str) -> str:

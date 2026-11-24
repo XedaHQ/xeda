@@ -7,8 +7,9 @@ import pytest
 
 from xeda import Design
 from xeda._internal.design import VhdlSettings
-from xeda._internal.flow import FlowException, FlowSettingsException
+from xeda._internal.flow import FlowException, FlowSettingsError, FlowSettingsException
 from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.settings_layers import merge_layers
 from xeda._internal.flows import GhdlSim, GhdlSynth
 from xeda._internal.flows.ghdl import GhdlTool
 
@@ -620,6 +621,9 @@ def test_stop_delta_is_a_count_that_stops_a_delta_loop(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="stop_delta"):
         GhdlSim.Settings(stop_delta="many")
     assert GhdlSim.Settings(stop_delta=20).stop_delta == 20
+    with pytest.raises(FlowSettingsError, match="stop_delta"):
+        GhdlSim.Settings.from_input({"stop_delta": "20"})
+    assert merge_layers(["stop_delta=20"], settings_cls=GhdlSim.Settings)["stop_delta"] == 20
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;", clock="clk <= not clk;\n")
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
         GhdlSim, design, {"timeout": "20 s", "stop_delta": 20}
