@@ -1372,8 +1372,8 @@ is an error: a private file never declares a design.
   Environment variables, as text. A name in both files takes the value of the project-local file.
   Xeda reads this table and keeps it with the other private settings.
 ``run_root``
-  Where the runs go, relative to the directory of the file. The project-local file wins over the
-  user file.
+  Where the runs go, relative to the directory of the file. A leading ``~`` or ``~/`` is your home
+  directory, and Xeda expands no ``~user``. The project-local file wins over the user file.
 ``path``
   A list of directories that go in front of ``PATH`` for the programs of every run. A relative entry
   is relative to the directory of the file. A leading ``~`` or ``~/`` is your home directory. Xeda

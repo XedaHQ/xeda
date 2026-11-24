@@ -102,7 +102,7 @@ def _private_settings(config: Optional[Path], no_config: bool, fmt: str) -> Loca
 def _store(root: Optional[Path], local: LocalSettings) -> Path:
     """Return the store of this command: `--root` on the command line, else `XEDA_TOOLS_ROOT` in
     the private `env` or the environment, else the default. A relative root of the variable is an
-    error."""
+    error, and so is a root that is a file."""
     import os
 
     from xeda.errors import SettingsError
@@ -112,11 +112,18 @@ def _store(root: Optional[Path], local: LocalSettings) -> Path:
     context = click.get_current_context()
     if context.get_parameter_source("root") is click.core.ParameterSource.COMMANDLINE:
         assert root is not None
-        return Path(os.path.abspath(root))
-    try:
-        return default_root({**os.environ, **local.env})
-    except SettingsError as error:
-        raise click.BadParameter(str(error), param_hint=ROOT_VARIABLE) from None
+        store = Path(os.path.abspath(root))
+        hint = "--root"
+    else:
+        try:
+            store = default_root({**os.environ, **local.env})
+        except SettingsError as error:
+            raise click.BadParameter(str(error), param_hint=ROOT_VARIABLE) from None
+        hint = ROOT_VARIABLE
+    # Only the root in use is judged: a variable that a private `env` overrides is not.
+    if store.is_file():
+        raise click.BadParameter(f"{store} is a file, not a directory", param_hint=hint)
+    return store
 
 
 def _install_command(store: Path) -> str:

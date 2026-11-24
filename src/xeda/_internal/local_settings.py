@@ -7,7 +7,8 @@ and the project-local file beside a project file (`xedaproject.local.yaml` besid
 - `flows`: a `flows` table, as a project file has it. The user file gives defaults for every run
   of this user. The project-local file overrides the checked-in files of one checkout.
 - `env`: environment variables, as text.
-- `run_root`: the directory of the run directories. A relative path is relative to the file.
+- `run_root`: the directory of the run directories. A relative path is relative to the file. A
+  leading `~` or `~/` is the home directory, as in `path`.
 - `path`: directories that go in front of `PATH` for the tools of every run. A relative entry is
   relative to the file.
 - `tools`: the OSS CAD Suite of the tool store, as `{oss-cad-suite: off}` or
@@ -255,7 +256,10 @@ def _run_root(kind: str, path: Path, given: Any) -> Path | None:
         return None
     if not isinstance(given, str) or not given:
         raise _invalid(kind, path, f"`run_root` is a path, not {given!r:.60}")
-    return Path(os.path.normpath(path.parent / given))
+    text = _expand_home(given)
+    if text.startswith("~"):
+        raise _invalid(kind, path, f"`run_root` is {given!r}: only `~` and `~/` are expanded")
+    return Path(os.path.normpath(path.parent / text))
 
 
 def _path_problem(entry: object) -> str | None:

@@ -711,6 +711,34 @@ def test_tools_documents_and_exit_statuses(github, root, tmp_path):
     assert run_tools("list", env={"XEDA_TOOLS_ROOT": "relative"}).exit_code == 2
 
 
+@pytest.mark.parametrize(
+    "arguments", [["list"], ["path", "oss-cad-suite"], ["install", "oss-cad-suite"]]
+)
+def test_a_root_that_is_a_file_is_a_usage_error(github, tmp_path, arguments):
+    github.add(PIN)
+    file = tmp_path / "file"
+    file.write_text("")
+    result = run_tools(*arguments, "--root", str(file), "--json")
+    assert result.exit_code == 2, result.output
+    assert failure(result)["code"] == "usage_error"
+    assert run_tools(*arguments, "--json", env={"XEDA_TOOLS_ROOT": str(file)}).exit_code == 2
+
+
+@pytest.mark.parametrize("flag", [["--json"], ["--format", "yaml"]])
+def test_ctrl_c_during_an_install_gives_a_canceled_document(github, root, monkeypatch, flag):
+    github.add(PIN)
+
+    def interrupted(*_arguments, **_keywords):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(tool_store, "_download", interrupted)
+    result = run_tools("install", "oss-cad-suite", "--root", str(root), *flag)
+    assert result.exit_code == 1
+    document = yaml.safe_load(result.stdout)
+    assert document["success"] is False
+    assert document["error"]["code"] == "canceled"
+
+
 def test_the_root_comes_from_the_option_then_the_variable_then_the_private_env(
     github, tmp_path, monkeypatch
 ):

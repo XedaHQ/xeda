@@ -53,6 +53,7 @@ from .flow_runner.launch_result import (
 )
 from .flow_runner.run_lock import LockRequest, acquire_all
 from .frozen import thaw
+from .local_settings import check_launch_settings
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
 from .proc_utils import CANCEL_POLL
@@ -1527,6 +1528,10 @@ def run_sweep(
     See `Workspace.sweep`."""
     given = list(specs)
     local = workspace.local_settings
+    if local is not None:
+        # A wrong `path` or `tools` is the error of the settings, as in a single run, and not a
+        # missing installation that the snapshot finds first.
+        check_launch_settings(local)
     snapshot = (
         snapshot_with_tools(local.env, local.path, local.tools)
         if local is not None

@@ -18,6 +18,7 @@ from xeda.introspect import results_info
 from xeda._internal.cancel import CancelToken
 from xeda.errors import (
     LeaseHeldError,
+    ProjectError,
     RecordError,
     RunReplacedError,
     SpecError,
@@ -36,6 +37,7 @@ from xeda._internal.spec import Spec
 from xeda._internal import sweep as sweep_module
 from xeda._internal.sweep import CompletedNode, NodeTask, SweepResult, node_key, run_node
 from xeda._internal.frozen import thaw
+from xeda._internal.local_settings import LocalSettings
 from xeda._internal.utils import dump_json
 from xeda._internal.workspace import Workspace
 
@@ -126,6 +128,19 @@ def test_a_failure_that_leaves_the_launch_of_a_node_in_the_sweeping_process_is_r
     monkeypatch.setattr(sweep_module, "run_node", broken)
     result = _workspace(tmp_path).sweep(_seeds(design), max_workers=1)
     assert _dispositions(result, "yosys_fpga") == ["ran", "shared", "shared", "shared"]
+
+
+@pytest.mark.parametrize("method", ["run", "sweep"])
+def test_a_wrong_tools_date_is_the_same_error_of_a_run_and_a_sweep(tmp_path, design, method):
+    local = LocalSettings(tools={"oss-cad-suite": "tomorrow"})
+    workspace = _workspace(tmp_path, local_settings=local)
+    with pytest.raises(ProjectError) as raised:
+        if method == "run":
+            workspace.run(_spec(design, 1))
+        else:
+            workspace.sweep(_seeds(design))
+    assert raised.value.code == "invalid_local_settings"
+    assert "tomorrow" in str(raised.value)
 
 
 def test_a_seed_sweep_runs_one_shared_producer(tmp_path, design):
