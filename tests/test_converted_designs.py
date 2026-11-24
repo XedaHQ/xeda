@@ -819,9 +819,9 @@ def test_the_converter_of_a_design_is_launched_as_a_producer(tmp_path, monkeypat
     refreshes: dict[str, bool] = {}
     real = default_runner_module.check_trace
 
-    def spying(run_path, expected, locate, *, refresh):
+    def spying(run_path, expected, locate, *, refresh, **keywords):
         refreshes[expected.flow] = refresh
-        return real(run_path, expected, locate, refresh=refresh)
+        return real(run_path, expected, locate, refresh=refresh, **keywords)
 
     monkeypatch.setattr(default_runner_module, "check_trace", spying)
     launch(tmp_path, classes)  # the first launch judges nothing: no trace yet
