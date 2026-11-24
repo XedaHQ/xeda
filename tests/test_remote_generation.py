@@ -249,10 +249,10 @@ def test_the_package_says_what_is_written_and_what_is_generated(tmp_path):
     # design document of its own with the file it declares
     assert document["rtl"]["sources"] == [{"path": "$XEDA_GENERATED/gen/top.v", "type": "Verilog"}]
     (entry,) = document["dependencies"]
-    assert entry["uri"] == "_dependencies/0/dep.xeda.json"
+    assert entry["uri"] == "dep/dep.xeda.json"
     dependency = json.loads(package.generated[entry["uri"]])
     assert dependency["rtl"]["sources"] == [{"file": "lib.v", "type": "Verilog"}]
-    assert "_dependencies/0/lib.v" in package.files
+    assert "dep/lib.v" in package.files
 
 
 def test_a_written_source_of_a_dependency_travels_beside_a_generated_one(tmp_path, remote_host):

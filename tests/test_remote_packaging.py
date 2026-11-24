@@ -1067,6 +1067,106 @@ def test_the_host_merges_local_and_git_dependencies_as_the_client_does(
     ]
 
 
+# The sources of the design, and the local dependency files with their sources, in the layouts
+# where the design and a local dependency list one file. Paths are relative to the root of the
+# design (`<tmp>/design`) and to the directory of each dependency file.
+SHARED_LAYOUTS = {
+    "same directory": (["top.v"], {"base.yaml": ["top.v"]}),
+    "subdirectory": (["dep/lib.v"], {"dep/dep.yaml": ["lib.v", "more.v"]}),
+    "dependency names a file above its root": (["top.v"], {"dep/dep.yaml": ["../top.v", "a.v"]}),
+    "dependency in another tree names a file of the design": (
+        ["top.v"],
+        {"../shared/dep.yaml": ["../design/top.v", "more.v"]},
+    ),
+    "design names a file of a dependency in another tree": (
+        ["../shared/lib.v"],
+        {"../shared/dep.yaml": ["lib.v", "more.v"]},
+    ),
+    "dependencies in nested trees": (
+        ["top.v"],
+        {"../a/dep.yaml": ["sub/x.v", "a.v"], "../a/sub/dep.yaml": ["x.v", "b.v"]},
+    ),
+    "dependency in a nested tree and the design": (
+        ["../a/sub/x.v"],
+        {"../a/dep.yaml": ["sub/x.v", "a.v"], "../a/sub/dep.yaml": ["x.v", "b.v"]},
+    ),
+    "nested trees, the inner dependency first": (
+        ["top.v"],
+        {"../a/sub/dep.yaml": ["x.v", "b.v"], "../a/dep.yaml": ["sub/x.v", "a.v"]},
+    ),
+}
+
+
+def _shared_design(tmp_path: Path, design_sources, dependencies, pos: int = 0) -> Path:
+    """Write the design file `d.yaml` that depends on the files of `dependencies` (each with its
+    sources), and every source file. Return the design file."""
+    root = tmp_path / "design"
+    root.mkdir()
+    files = {root / name: root for name in design_sources}
+    for file, sources in dependencies.items():
+        for name in sources:
+            files[(root / file).parent / name] = root
+        (root / file).parent.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        file = file.resolve()
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(f"module {file.stem}_{file.parent.name}(input clk); endmodule\n")
+    for number, (file, sources) in enumerate(dependencies.items()):
+        (root / file).write_text(f"name: dep{number}\nrtl:\n  sources: {sources}\n")
+    design = root / "d.yaml"
+    design.write_text(
+        f"name: d\ndependencies: {[{'uri': file, 'rtl': {'pos': pos}} for file in dependencies]}\n"
+        f"rtl:\n  sources: {design_sources}\n"
+        "  clocks: [clk]\n"
+    )
+    return design
+
+
+# The design lists a file that lies in the root of a dependency outside its own root, and the
+# listing of the design is the one the merge keeps: its text is a path from the design root, and
+# the package does not send it for a file that has its place in the root of that dependency.
+NOT_SUPPORTED_LAST = {
+    "design names a file of a dependency in another tree",
+    "dependency in a nested tree and the design",
+}
+
+
+def _shared_cases():
+    for layout in SHARED_LAYOUTS:
+        for pos in (0, -1):
+            marks = []
+            if pos == -1 and layout in NOT_SUPPORTED_LAST:
+                marks.append(pytest.mark.xfail(strict=True, reason="a listing of the design wins"))
+            yield pytest.param(layout, pos, id=f"{layout}-{pos}", marks=marks)
+
+
+@pytest.mark.parametrize(("layout", "pos"), _shared_cases())
+def test_a_source_that_the_design_and_its_local_dependency_both_list_has_one_place(
+    tmp_path, layout, pos
+):
+    """A file that the design and a local dependency both list is one file on this side, so it
+    travels once, and the host counts it as this side does."""
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.frozen import thaw
+
+    design = _shared_design(tmp_path, *SHARED_LAYOUTS[layout], pos=pos)
+    local_root = tmp_path / "local" / "xeda_run"
+    runner = DefaultRunner(local_root, display_results=False)
+    prepared = runner.prepare_request("yosys", design=design)
+
+    package, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys", False
+    )
+
+    listed = [file.resolve() for file in package.files.values()]
+    assert len(listed) == len(set(listed)), "no file travels twice"
+    assert len({file.read_bytes() for file in listed}) == len(listed), "one place for one file"
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    assert thaw(remote_plan.node("yosys").configuration) == thaw(
+        prepared.plan.node("yosys").configuration
+    )
+
+
 # --- A generator's recipe counts the same on both ends -----------------------------------------
 
 
@@ -1112,6 +1212,38 @@ def test_a_generator_recipe_has_the_same_identity_on_the_remote(tmp_path, recipe
         tmp_path, prepared, local_root, "yosys", True
     )
 
+    assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
+    assert thaw(remote_plan.node("yosys").configuration) == thaw(
+        prepared.plan.node("yosys").configuration
+    )
+
+
+def test_a_generator_directory_that_holds_a_dependency_file_has_the_same_identity(tmp_path):
+    """The generator reads `gen`, and a local dependency lies in that directory too: its document
+    travels into the directory of the generator, and the identities stay the client's."""
+    from xeda._internal.flow_runner import DefaultRunner
+    from xeda._internal.frozen import thaw
+
+    root = tmp_path / "design"
+    (root / "gen").mkdir(parents=True)
+    (root / "gen" / "gen.py").write_text("print('gen')\n")
+    (root / "gen" / "lib.v").write_text("module lib; endmodule\n")
+    (root / "gen" / "dep.yaml").write_text("name: dep\nrtl:\n  sources: [lib.v]\n")
+    (root / "d.yaml").write_text(
+        "name: d\ndependencies: [gen/dep.yaml]\nrtl:\n  top: top\n"
+        "  sources: ['$XEDA_GENERATED/gen/top.v']\n"
+        "  generator: {executable: python3, args: ['$DESIGN_ROOT/gen/gen.py'], sources: [gen]}\n"
+    )
+    local_root = tmp_path / "local" / "xeda_run"
+    prepared = DefaultRunner(
+        local_root, display_results=False, hashed_run_dirs=True
+    ).prepare_request("yosys", design=root / "d.yaml")
+
+    package, remote_plan, remote_root, _remote_dir = _remote_plan(
+        tmp_path, prepared, local_root, "yosys", True
+    )
+
+    assert "gen/dep.xeda.json" in package.generated and "gen/lib.v" in package.files
     assert _nodes(remote_plan, remote_root) == _nodes(prepared.plan, local_root)
     assert thaw(remote_plan.node("yosys").configuration) == thaw(
         prepared.plan.node("yosys").configuration

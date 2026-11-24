@@ -337,6 +337,20 @@ def test_a_remote_plan_runs_when_nothing_changed(tmp_path, remote_host):
     assert [request["dry_run"] for request in _host_requests(remote_host)] == [True, True, False]
 
 
+def test_a_remote_plan_and_run_accept_a_dependency_that_lists_a_file_of_the_design(
+    tmp_path, remote_host
+):
+    """`base.yaml` lies beside the design file and lists the same `top.v`. The package holds one
+    file, so the host plans what this side planned, and the plan runs."""
+    spec = _with_dependencies(tmp_path, "base.yaml")
+    (tmp_path / "design" / "base.yaml").write_text("name: base\nrtl:\n  sources: [top.v]\n")
+    workspace = _workspace(tmp_path)
+    plan = workspace.plan(spec)
+    result = workspace.run(plan)
+    assert result.outcome is Outcome.PASSED
+    assert workspace.run(spec).outcome is Outcome.PASSED
+
+
 def test_a_remote_plan_that_the_host_would_plan_differently_is_stale(tmp_path, remote_host):
     workspace = _workspace(tmp_path)
     spec = _with_dependencies(tmp_path, "dep/dep.yaml")
