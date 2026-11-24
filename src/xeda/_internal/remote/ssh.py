@@ -6,14 +6,17 @@ Every other `ssh` process of the launch uses that connection through its control
 never asks. Xeda sets no host key option: OpenSSH checks the host keys as the user configured.
 """
 
+import contextvars
 import logging
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from time import monotonic
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Iterator, Optional, Sequence
 
 from ..cancel import launch_canceled
 from ..proc_utils import CANCEL_POLL, child_stdout
@@ -183,6 +186,42 @@ def _communicate(
         except BaseException:
             process.kill()
             raise
+
+
+@contextmanager
+def stop_on_cancel(stop: Callable[[], None], doing: str) -> Iterator[None]:
+    """Call `stop` when the launch is asked to stop (`cancel.launch_canceled`), in any thread,
+    for the time of the block, and then raise `Canceled`.
+
+    `stop` ends what the block waits for: it kills the ssh client of a step, so a read of its
+    output ends. The request is asked every `CANCEL_POLL` seconds. `doing` names the step in the
+    message: "the launch was canceled while <doing>". The block raises `Canceled` also when it
+    ended without noticing the stop. An exception of another kind that a stop did not cause is
+    raised as it is."""
+    done = threading.Event()
+    stopped = threading.Event()
+    message = f"the launch was canceled while {doing}"
+
+    def watch() -> None:
+        while not done.wait(CANCEL_POLL):
+            if launch_canceled():
+                stopped.set()
+                stop()
+                return
+
+    watcher = threading.Thread(target=contextvars.copy_context().run, args=(watch,), daemon=True)
+    watcher.start()
+    try:
+        yield
+    except Exception as error:
+        if stopped.is_set() and not isinstance(error, Canceled):
+            raise Canceled(message) from error
+        raise
+    finally:
+        done.set()
+        watcher.join()
+    if stopped.is_set():
+        raise Canceled(message)
 
 
 class SshSession:

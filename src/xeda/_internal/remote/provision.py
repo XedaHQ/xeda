@@ -53,7 +53,7 @@ from .errors import (
     RemoteProvisionError,
 )
 from .profile import HostProfile, env_name_problem
-from .ssh import SshSession, sh_command
+from .ssh import SshSession, sh_command, stop_on_cancel
 
 log = logging.getLogger(__name__)
 
@@ -378,27 +378,30 @@ def _execute(
         thread.start()
     reply = _Reply()
     try:
-        for raw in process.stdout:
-            line = raw.decode("utf-8", "replace").rstrip("\r\n")
-            if not line.startswith("XEDA-"):
-                if line:
-                    log.debug("remote: %s", line)
-                continue
-            kind, _, rest = line[len("XEDA-") :].partition(" ")
-            if kind == "STEP":
-                log.debug("remote step: %s", rest)
-                if report is not None:
-                    report(rest)
-            elif kind == "PROBE":
-                key, _, value = rest.partition("=")
-                reply.probes[key] = value
-            elif kind == "STATUS":
-                reply.status = dict(item.partition("=")[::2] for item in rest.split())
-            elif kind == "ERROR":
-                reply.errors.append(rest)
-            else:
-                log.debug("remote: unknown protocol line %r", line)
-        reply.returncode = process.wait()
+        # A request to stop kills the client, so the read of its output ends and the block
+        # raises `Canceled`. The host gets the hangup, as it does on Ctrl-C.
+        with stop_on_cancel(process.kill, "the host was prepared"):
+            for raw in process.stdout:
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if not line.startswith("XEDA-"):
+                    if line:
+                        log.debug("remote: %s", line)
+                    continue
+                kind, _, rest = line[len("XEDA-") :].partition(" ")
+                if kind == "STEP":
+                    log.debug("remote step: %s", rest)
+                    if report is not None:
+                        report(rest)
+                elif kind == "PROBE":
+                    key, _, value = rest.partition("=")
+                    reply.probes[key] = value
+                elif kind == "STATUS":
+                    reply.status = dict(item.partition("=")[::2] for item in rest.split())
+                elif kind == "ERROR":
+                    reply.errors.append(rest)
+                else:
+                    log.debug("remote: unknown protocol line %r", line)
+            reply.returncode = process.wait()
     except BaseException:
         process.kill()
         process.wait()

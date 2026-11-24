@@ -876,6 +876,115 @@ def test_a_canceled_token_stops_the_comparison_of_a_saved_plan(tmp_path, remote_
     _assert_gone(pids.get_nowait())
 
 
+def _blocked_start(tmp_path, remote_host, block, on_ready=lambda pid: None):
+    """Make a step of the start of a remote run wait on a FIFO until the test lets it go.
+
+    `block(ready, never)` installs the wait: the step writes its process id to the FIFO `ready` and
+    then waits for a writer on the FIFO `never`. Return the call that runs a remote request with
+    a `CancelToken` that the test cancels when the step reports that it waits. `on_ready(pid)` runs
+    first, while the step waits. The call lets the step go when the run has ended, and checks that
+    the step ends."""
+    from xeda._internal.cancel import CancelToken
+    from xeda._internal.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
+    from xeda._internal.remote_value import Remote
+    from xeda._internal.spec import Spec
+    from xeda._internal.design import Design
+
+    from .remote_fixtures import host_profile_of
+
+    ready, never = tmp_path / "ready", tmp_path / "never"
+    os.mkfifo(ready)
+    os.mkfifo(never)
+    block(ready, never)
+    workspace = WorkspaceOptions(
+        run_root=tmp_path / "local" / "xeda_run",
+        hashed_run_dirs=False,
+        tool_output="log",
+        confirm=None,
+        remote=Remote("somewhere", profile=host_profile_of("somewhere").model_dump(mode="python")),
+        local_settings=None,
+    )
+    spec = Spec("nextpnr", Design.load(_design(tmp_path)))
+    token, finished, released = CancelToken(), threading.Event(), threading.Event()
+    pids: "queue.Queue[int]" = queue.Queue()
+
+    def cancel_when_the_step_waits() -> None:
+        with open(ready, "rb") as stream:  # blocks until the step writes its process id
+            pid = int(stream.read())
+        pids.put(pid)
+        on_ready(pid)
+        token.cancel()
+        if not finished.wait(TIMEOUT):  # the call did not stop: let the step go
+            released.set()
+            os.close(os.open(never, os.O_WRONLY))
+
+    def call():
+        thread = threading.Thread(target=cancel_when_the_step_waits, daemon=True)
+        thread.start()
+        try:
+            result = client.run_remote(
+                spec, workspace=workspace, options=LaunchOptions(), cancel=token
+            )
+        finally:
+            finished.set()
+        assert not released.is_set(), "the token did not end the wait for the host"
+        os.close(os.open(never, os.O_WRONLY))  # the step still waits: let it go
+        thread.join()
+        _assert_gone(pids.get_nowait())
+        return result
+
+    return call
+
+
+def _assert_canceled_before_the_launch(tmp_path, remote_host, result):
+    assert result.outcome.value == "canceled" and result.error is not None
+    assert result.error.code == "canceled" and not result.nodes
+    assert not (remote_host.workspaces.exists() and list(remote_host.workspaces.iterdir()))
+    assert not _mirror(tmp_path).exists()
+
+
+def test_a_canceled_token_stops_the_provisioning_of_the_host(tmp_path, remote_host):
+    """The host builds the environment of xeda under a lock, and `uv` waits there. The token ends
+    the wait: the ssh client is killed and the call returns a canceled result. The script on the
+    host holds the lock while it waits. When `uv` goes on, the script ends and leaves no lock."""
+    holders: list[int] = []
+    locks = remote_host.remote.layout / "locks"
+
+    def block(ready, never):
+        once = tmp_path / "once"
+        once.write_text("")
+        remote_host.remote.configure(
+            uv_venv_wait={"once": str(once), "ready": str(ready), "never": str(never)}
+        )
+
+    def note_the_lock_holders(_pid):
+        for owner in locks.glob("*.lock/owner"):  # `<host> <process id> <time>`
+            holders.append(int(owner.read_text().split()[1]))
+
+    result = _blocked_start(tmp_path, remote_host, block, note_the_lock_holders)()
+    _assert_canceled_before_the_launch(tmp_path, remote_host, result)
+    assert holders, "the script of the host held no lock while it waited"
+    for holder in holders:
+        _assert_gone(holder)
+    assert not list(locks.iterdir())
+
+
+def test_a_canceled_token_stops_the_start_of_the_agent(tmp_path, remote_host, monkeypatch):
+    """The agent on the host does not greet until the test lets it start. The token ends the wait
+    for the greeting: the call returns a canceled result and the host has no launch."""
+
+    def block(ready, never):
+        real = client.agent_command
+
+        def waiting(*arguments, **options):
+            return f"echo $$ > {ready}; read _ < {never}; {real(*arguments, **options)}"
+
+        monkeypatch.setattr(client, "agent_command", waiting)
+
+    result = _blocked_start(tmp_path, remote_host, block)()
+    _assert_canceled_before_the_launch(tmp_path, remote_host, result)
+
+
 def test_a_canceled_token_stops_a_fetch_that_waits_for_the_host(tmp_path, remote_host, monkeypatch):
     from xeda._internal.cancel import CancelToken
 

@@ -10,6 +10,9 @@ The `ENV` lines show the variables that a test looks at (`RECORDED_ENV`). Every 
 Settings (all optional):
   python         the program that the Python of an environment runs (default: this Python)
   uv_venv_delay  seconds that `venv` takes
+  uv_venv_wait   `{"once": <file>, "ready": <fifo>, "never": <fifo>}`: if the file `once` exists,
+                 `venv` removes it, writes its process id to the FIFO `ready` and waits until
+                 a writer has opened and closed the FIFO `never` (no time passes)
   uv_pip_fail    a message: `pip install` prints it on the standard error and fails
   uv_python_fail a message: `python install` prints it on the standard error and fails
 
@@ -117,6 +120,13 @@ def venv(args: list, config: dict) -> None:
         fail("venv needs one directory")
     directory = args[0]
     os.makedirs(directory, exist_ok=True)
+    wait = config.get("uv_venv_wait")
+    if wait and os.path.exists(wait["once"]):
+        os.remove(wait["once"])
+        with open(wait["ready"], "w") as handle:
+            handle.write(str(os.getpid()))
+        with open(wait["never"]) as handle:
+            handle.read()
     time.sleep(float(config.get("uv_venv_delay", 0)))
     write_python(os.path.join(directory, "bin", "python"), config)
     with open(os.path.join(directory, "pyvenv.cfg"), "w") as handle:

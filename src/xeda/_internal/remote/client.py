@@ -63,7 +63,13 @@ from ..deliver import (
     split_deliveries,
 )
 from ..design import generator_of
-from ..plan import Plan, PlanDelivery, delivery_key, plan_from_dict, planned_destination
+from ..plan import (
+    Plan,
+    PlanDelivery,
+    delivery_key,
+    plan_from_dict,
+    planned_destination,
+)
 from ..flow_runner import DefaultRunner, launch_generation
 from ..flow_runner.dependencies import DEPENDENCIES_DIRECTORY, using_pinned_commits
 from ..flow_runner.chains import parse_request
@@ -149,7 +155,7 @@ from .packaging import (
 )
 from .profile import HostProfile
 from .provision import Probe, Provisioned, agent_command, ensure_environment, probe
-from .ssh import Destination, SshSession, resolve_destination
+from .ssh import Destination, SshSession, resolve_destination, stop_on_cancel
 
 log = logging.getLogger(__name__)
 
@@ -283,7 +289,10 @@ class _Agent:
 
     def start_heartbeat(self) -> None:
         self._beats = threading.Thread(
-            target=contextvars.copy_context().run, args=(self._beat,), name="heartbeat", daemon=True
+            target=contextvars.copy_context().run,
+            args=(self._beat,),
+            name="heartbeat",
+            daemon=True,
         )
         self._beats.start()
 
@@ -504,7 +513,8 @@ class _Agent:
 def _cancel_on_interrupt(agent: _Agent) -> Iterator[None]:
     """Send a cancel request to the agent on Ctrl-C, for the time of the block. A second Ctrl-C
     closes the connection. Outside the main thread no handler is installed. The request of the
-    launch to stop (`cancel.launch_canceled`) does the same as the first Ctrl-C, in any thread."""
+    launch to stop (`cancel.launch_canceled`) does the same as the first Ctrl-C, in any thread.
+    """
     done = threading.Event()
 
     def watch() -> None:
@@ -521,36 +531,6 @@ def _cancel_on_interrupt(agent: _Agent) -> Iterator[None]:
     finally:
         done.set()
         watcher.join()
-
-
-@contextmanager
-def _cancel_while_syncing(agent: _Agent) -> Iterator[None]:
-    """Stop the sync of the inputs when the launch is asked to stop (`cancel.launch_canceled`), in
-    any thread, for the time of the block. The launch has not started, so the watch closes the
-    connection: a read that waits for the agent ends. Either way the block raises `Canceled`."""
-    done = threading.Event()
-    closed = threading.Event()
-
-    def watch() -> None:
-        while not done.wait(CANCEL_POLL):
-            if launch_canceled():
-                closed.set()
-                agent.drop()
-                return
-
-    watcher = threading.Thread(target=contextvars.copy_context().run, args=(watch,), daemon=True)
-    watcher.start()
-    try:
-        yield
-    except Exception as error:
-        if closed.is_set():
-            raise Canceled("the launch was canceled while the inputs were synced") from error
-        raise
-    finally:
-        done.set()
-        watcher.join()
-    if closed.is_set():
-        raise Canceled("the launch was canceled while the inputs were synced")
 
 
 @contextmanager
@@ -618,7 +598,8 @@ def _interrupt_handler(agent: _Agent) -> Iterator[None]:
         yield
     finally:
         signal.signal(
-            signal.SIGINT, previous if previous is not None else signal.default_int_handler
+            signal.SIGINT,
+            previous if previous is not None else signal.default_int_handler,
         )
 
 
@@ -724,7 +705,8 @@ def _refuse_programmers(prepared: PreparedRequest, host: str) -> None:
 
 def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
     """Refuse a deliverable setting with a location, as the old remote runner did: the remote
-    would deliver to a place on the remote. The user receives the outputs with `--outputs-to`."""
+    would deliver to a place on the remote. The user receives the outputs with `--outputs-to`.
+    """
     plan = prepared.plan
     for node in plan.nodes:
         located = deliverable_locations(node.settings)
@@ -769,7 +751,8 @@ def _plan(
     pins: Optional[Dict[str, str]] = None,
 ) -> _Prepared:
     """Step 1: the checks that need no connection. A dry run asks no question. The Git
-    dependencies that `pins` names (by `DependencyRecord.path`) are fetched at those commits."""
+    dependencies that `pins` names (by `DependencyRecord.path`) are fetched at those commits.
+    """
     destination_text = destination.text
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -910,7 +893,10 @@ def _provision(
 
 
 def _start_agent(
-    session: SshSession, provisioned: Provisioned, key: str, step: str = "starting the agent"
+    session: SshSession,
+    provisioned: Provisioned,
+    key: str,
+    step: str = "starting the agent",
 ) -> _Agent:
     host = session.destination.text
     try:
@@ -920,19 +906,29 @@ def _start_agent(
             f"The remote root {provisioned.root!r} has a character that xeda cannot put in a "
             "remote command line. Set `root` in the host profile to another path."
         ) from None
+    if launch_canceled():
+        raise Canceled("the launch was canceled before the agent started")
     with _during(step):
         agent = _Agent(session, command)
     try:
-        try:
-            noise = skip_to_magic(agent.stdout)
-        except RemoteProtocolError as error:
-            detail = f"\nOutput of the remote host:\n{agent.stderr_text()}" if agent._stderr else ""
-            raise RemoteProtocolError(
-                f"The agent did not start on {host}: {error}.{detail}"
-            ) from None
-        if noise:
-            log.debug("The login shell of %s printed %d bytes before the agent", host, len(noise))
-        agent.expect("hello", step)
+        # A request to stop closes the connection, so the wait for the greeting ends.
+        with stop_on_cancel(agent.drop, "the agent started"):
+            try:
+                noise = skip_to_magic(agent.stdout)
+            except RemoteProtocolError as error:
+                detail = (
+                    f"\nOutput of the remote host:\n{agent.stderr_text()}" if agent._stderr else ""
+                )
+                raise RemoteProtocolError(
+                    f"The agent did not start on {host}: {error}.{detail}"
+                ) from None
+            if noise:
+                log.debug(
+                    "The login shell of %s printed %d bytes before the agent",
+                    host,
+                    len(noise),
+                )
+            agent.expect("hello", step)
         agent.start_heartbeat()
     except BaseException:
         agent.close(wait=5)
@@ -1039,7 +1035,8 @@ def _launch(
 
 def _follow(agent: _Agent, launch_id: str) -> Dict[str, Any]:
     """Show the log of a launch that runs on the host (or ran), from its start, and return its
-    result document. Ctrl-C and a lost connection stop the follow and leave the launch running."""
+    result document. Ctrl-C and a lost connection stop the follow and leave the launch running.
+    """
     step = "following the launch"
     agent.keep_running = True
     with _cancel_on_interrupt(agent):
@@ -1368,7 +1365,8 @@ def _translation(
     the design root: a place that the remote makes for an output (`{path: out/trace.txt}`) has
     the same name there. The inputs directory itself goes to the design root. A file that xeda
     made for the remote (the design document, a Liberty file with renamed includes) has no such
-    file here, and its path stays. So does a path elsewhere (a tool, a store of the remote)."""
+    file here, and its path stays. So does a path elsewhere (a tool, a store of the remote).
+    """
     sent = {(inputs_dir / name).as_posix(): local for name, local in files.items()}
     made = {(inputs_dir / name).as_posix() for name in generated}
     checkouts = remote_run_root / DEPENDENCIES_DIRECTORY
@@ -1413,7 +1411,11 @@ def _plan_deliveries(document: Dict[str, Any], planned: Sequence[PlanDelivery]) 
     for node in document.get("nodes") or []:
         if node.get("name") in roots:
             node["deliveries"] = [
-                {"key": d.key, "destination": str(d.destination), "replaces": d.replaces}
+                {
+                    "key": d.key,
+                    "destination": str(d.destination),
+                    "replaces": d.replaces,
+                }
                 for d in planned
             ]
 
@@ -1421,7 +1423,12 @@ def _plan_deliveries(document: Dict[str, Any], planned: Sequence[PlanDelivery]) 
 def _print_dry_run(host: str, uploaded: Sequence[str]) -> None:
     """The report of a dry run on the log: what was uploaded."""
     if uploaded:
-        log.info("Uploaded %d input file(s) to %s: %s", len(uploaded), host, ", ".join(uploaded))
+        log.info(
+            "Uploaded %d input file(s) to %s: %s",
+            len(uploaded),
+            host,
+            ", ".join(uploaded),
+        )
     else:
         log.info("Uploaded no input file to %s: it had them all", host)
 
@@ -1485,7 +1492,9 @@ def _detailed_logs(detailed_logs: Optional[bool]) -> bool:
     return logs_are_detailed() if detailed_logs is None else detailed_logs
 
 
-def _asked(workspace: WorkspaceOptions) -> Optional[Callable[[Sequence[Conflict]], bool]]:
+def _asked(
+    workspace: WorkspaceOptions,
+) -> Optional[Callable[[Sequence[Conflict]], bool]]:
     """The question about the files in the way of `outputs_to`, as the workspace answers it."""
     answer = workspace.confirm
     if answer is None:
@@ -1590,7 +1599,12 @@ def plan_remote(
     run = _request_run(spec, _remote_of(workspace).host)
     try:
         return _host_plan(
-            run, spec, workspace=workspace, options=options, log_level=level, detailed_logs=detailed
+            run,
+            spec,
+            workspace=workspace,
+            options=options,
+            log_level=level,
+            detailed_logs=detailed,
         )
     except Exception as error:  # pylint: disable=broad-except
         raise _not_started(run, error) from error
@@ -1630,7 +1644,9 @@ def _host_plan(
 
 def _stale(difference: str) -> StalePlanError:
     return StalePlanError(
-        f"The plan is stale: {difference}. Plan again.", code="stale_plan", difference=difference
+        f"The plan is stale: {difference}. Plan again.",
+        code="stale_plan",
+        difference=difference,
     )
 
 
@@ -1825,7 +1841,8 @@ def _failed(run: _Run, error: Exception) -> Result:
         node_documents = remote["nodes"]
     else:
         unreached = _unreached(
-            run, Outcome.DETACHED if isinstance(error, RemoteDetached) else Outcome.SKIPPED
+            run,
+            Outcome.DETACHED if isinstance(error, RemoteDetached) else Outcome.SKIPPED,
         )
         nodes, roots = unreached, (tuple(unreached)[-1:] if unreached else ())
         node_documents = [node_document(node) for node in unreached.values()]
@@ -1950,9 +1967,14 @@ def _run(
             if local_root != _local_run_root(Path.cwd() / "xeda_run"):
                 agent.attach_options = f" --run-root {shlex.quote(str(local_root))}"
             try:
-                with _cancel_while_syncing(agent):
+                with stop_on_cancel(agent.drop, "the inputs were synced"):
                     uploaded, running = _sync(
-                        agent, package, design.name, key, launch_id, None if dry_run else launch
+                        agent,
+                        package,
+                        design.name,
+                        key,
+                        launch_id,
+                        None if dry_run else launch,
                     )
                 try:
                     if progress is not None:
