@@ -1532,15 +1532,17 @@ def _classify_metric(
 def _classify_artifacts(
     name: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
-    """Compare the artifacts of a flow: a new key is an addition. A removed key, and a changed
-    condition under which a run has the key, break a reader of the record."""
+    """Compare the artifacts of a flow: a new key is an addition, and a removed key breaks. The
+    condition `when` is prose, so only its one checkable promise is judged: a key that a run
+    always has (`always`) and that becomes conditional breaks a reader of the record; a
+    conditional key that becomes `always` is an addition; a reworded condition is neither."""
     _diff_names(f"{name}.artifacts", "artifact", old.keys(), new.keys(), add, brk)
     for key in sorted(old.keys() & new.keys()):
-        if old[key]["when"] != new[key]["when"]:
-            brk.append(
-                f"{name}.artifacts.{key}: condition changed from {old[key]['when']!r} "
-                f"to {new[key]['when']!r}"
-            )
+        was, now = old[key]["when"], new[key]["when"]
+        if was == "always" and now != "always":
+            brk.append(f"{name}.artifacts.{key}: no longer always written ({now!r})")
+        elif was != "always" and now == "always":
+            add.append(f"{name}.artifacts.{key}: now always written")
 
 
 def _classify_contract(

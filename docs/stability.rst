@@ -18,7 +18,7 @@ What is public
 - The built-in flows: their names, the names, types and defaults of their settings, the names,
   kinds and cardinality of their outputs and the setting that switches an output on, the paths,
   types and units of their metrics and the keys of a metric that is an object, and their artifact
-  keys with the condition of each. A flow or setting marked ``experimental`` is the exception (see
+  keys, with whether a run always writes each. A flow or setting marked ``experimental`` is the exception (see
   :ref:`experimental`).
 - The error codes.
 - Quantities: ``MetricInfo.unit`` in every record, ``RunRecord.quantity(path)``, and the input of a

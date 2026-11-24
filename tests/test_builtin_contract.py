@@ -1091,13 +1091,36 @@ def test_the_snapshot_records_every_artifact_with_its_condition(current: dict) -
             assert artifact["when"].strip(), f"{name}.{key}"
 
 
-def test_a_changed_condition_of_an_artifact_breaks_and_keeps_the_names(current: dict) -> None:
-    def change(c: dict) -> None:
-        c["flows"]["ghdl_sim"]["artifacts"]["log"]["when"] = "always"
+def test_an_artifact_that_is_no_longer_always_written_breaks(current: dict) -> None:
+    always = next(
+        (name, key)
+        for name, entry in sorted(current["flows"].items())
+        if not entry.get("experimental")
+        for key, artifact in sorted(entry["artifacts"].items())
+        if artifact["when"] == "always"
+    )
 
-    additive, breaking = _judged(current, change)
+    def narrow(c: dict) -> None:
+        c["flows"][always[0]]["artifacts"][always[1]]["when"] = "when the design compiled"
+
+    additive, breaking = _judged(current, narrow)
     assert not additive
-    assert len(breaking) == 1 and breaking[0].startswith("ghdl_sim.artifacts.log: condition")
+    assert breaking == [
+        f"{always[0]}.artifacts.{always[1]}: no longer always written ('when the design compiled')"
+    ]
+    narrowed = copy.deepcopy(current)
+    narrow(narrowed)
+    assert tool.classify(narrowed, current, kind="contract") == (
+        [f"{always[0]}.artifacts.{always[1]}: now always written"],
+        [],
+    )
+
+
+def test_a_reworded_condition_of_an_artifact_is_not_judged(current: dict) -> None:
+    def reword(c: dict) -> None:
+        c["flows"]["ghdl_sim"]["artifacts"]["log"]["when"] = "when the flow runs its main tool"
+
+    assert _judged(current, reword) == ([], [])
 
 
 def test_a_new_artifact_is_additive_and_a_removed_one_breaks(current: dict) -> None:
