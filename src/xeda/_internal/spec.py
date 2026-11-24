@@ -51,6 +51,8 @@ class Spec:
     _: KW_ONLY
     settings: Mapping[str, Any] = field(default_factory=dict)
 
+    __hash__ = None  # type: ignore[assignment]
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "design", self.design.model_copy(deep=True))
         object.__setattr__(self, "settings", freeze(_with_pwd(self.settings, os.getcwd())))

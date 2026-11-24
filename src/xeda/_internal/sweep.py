@@ -84,11 +84,14 @@ __all__ = [
 
 @dataclass(frozen=True, kw_only=True)
 class SweepPoint:
-    """One spec of a sweep: its position in the input, the spec and what its launch did."""
+    """One spec of a sweep: its position in the input, the spec and what its launch did. A point
+    is not hashable, as its spec is not."""
 
     index: int
     spec: Spec = field(repr=False)
     result: Result
+
+    __hash__ = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -96,10 +99,13 @@ class SweepResult:
     """What a sweep did: one `SweepPoint` for each spec, in input order.
 
     `canceled` is true when the sweep stopped before every point finished. A point that did not
-    start has the outcome `canceled`, the error `canceled` and only `skipped` nodes."""
+    start has the outcome `canceled`, the error `canceled` and only `skipped` nodes. A sweep result is
+    not hashable, as its points are not."""
 
     points: tuple[SweepPoint, ...]
     canceled: bool
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "points", tuple(self.points))
