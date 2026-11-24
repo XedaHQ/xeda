@@ -124,8 +124,8 @@ column are not breaking changes.
      - An action precedes another element only through a declared output.
      - a programming receipt output of ``openfpgaloader`` and a tester flow that reads it
    * - Report channel
-     - Reports are artifacts. Artifact keys and their conditions are documented and fixed for each
-       flow. A record lists the artifacts that a run wrote.
+     - Reports are artifacts. Artifact keys, and whether a run always writes each, are documented
+       and fixed for each flow. A record lists the artifacts that a run wrote.
      - a flow declares the reports that it reads, each by producer node and artifact key
    * - DSE strategies
      - the internal optimizer loop over ``sweep``
@@ -179,8 +179,9 @@ changed type, and a key that gains or loses ``NotRequired``, are breaks. A new k
 For a document that Xeda writes, a removed key, a wider or unrelated type, any change of an enum or
 a key that is no longer required is a break. A new optional key and a narrower type are additions. The same rules judge the keys of a metric
 that is an object, such as ``sim.evidence`` and ``platform``, and the nested keys of each. A flow
-also keeps the type and unit of each metric and the condition of each artifact (a changed
-condition is a break and a new artifact is an addition), and the setting that switches an output
+also keeps the type and unit of each metric and whether a run always writes each artifact (an
+artifact that a run always wrote and that becomes conditional is a break, and a new artifact is an
+addition; the text of a condition is documentation), and the setting that switches an output
 on (any change is a break). Other tests check the
 rules on this page that a snapshot cannot hold, such as the order of the settings layers and the
 exit statuses.
