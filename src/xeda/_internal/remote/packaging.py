@@ -27,6 +27,7 @@ from ..design import (
     Source,
     generator_cwd,
     generator_of,
+    redacted_url,
     tree_declarations,
 )
 from ..flow import FlowSettingsError, FlowSettingsException
@@ -39,6 +40,15 @@ from ..flow_runner.dependencies import declared_designs
 from ..listing import VCS_METADATA, directory_files
 from ..frozen import thaw
 from ..utils import json_encodable, location_free, location_roots
+
+
+class DependencyChangedError(ValueError):
+    """A design document that lists a dependency changed after planning resolved the dependencies:
+    `difference` says how its entry differs from the one that planning resolved."""
+
+    def __init__(self, difference: str) -> None:
+        super().__init__(difference)
+        self.difference = difference
 
 
 @dataclass(frozen=True)
@@ -162,7 +172,7 @@ def package_inputs(
     host_flows: Mapping[str, Mapping[str, Any]] | None = None,
     bindings: Sequence[BindingLayer] = (),
     request: FlowRequest | None = None,
-    resolved: Sequence[DependencyRecord] = (),
+    resolved: Sequence[DependencyRecord] | None = None,
 ) -> InputPackage:
     """Return the files and the design document that the remote needs for this request.
 
@@ -202,7 +212,12 @@ def package_inputs(
     resolved each Git entry to that gave no `commit` of its own (`InputPackage.dependency_commits`),
     also for the entries of a Git dependency, which the document does not list. The host fetches
     those commits, so a branch that moves between the two plans changes nothing. The branch of an
-    entry stays as written (the provenance)."""
+    entry stays as written (the provenance).
+
+    The package holds each local dependency document as one read of its file. When `resolved` is
+    given, every Git entry of those documents, and of the design, must be the entry that planning
+    resolved at its place: a design file that was edited after planning raises
+    `DependencyChangedError`, also when the edit names another explicit commit."""
     host_flows = host_flows or {}
     path_identities: dict[str, dict[str, str]] = {}
     # `mode="json"`: a field kept as it is may hold a `Path`, which a python-mode dump leaves as an
@@ -373,6 +388,49 @@ def package_inputs(
 
     dependency_bases: Dict[Path, Path] = {}
     dependency_documents: Dict[str, str] = {}
+    # The design of each local dependency file as it was read for the package: the documents and
+    # the check against `resolved` use this one read.
+    dependency_designs: Dict[str, Design] = {}
+
+    def dependency_design(unit: Design, ref: Any) -> Design:
+        file = unit.root / ref.uri
+        key = os.path.realpath(file)
+        if key not in dependency_designs:
+            dependency_designs[key] = Design.load(file)
+        return dependency_designs[key]
+
+    def check_dependencies(
+        unit: Design, where: tuple[int, ...], chain: tuple[str, ...], unmet: set[str]
+    ) -> None:
+        """Check the Git entries of `unit` and of its local dependencies against `resolved`, by
+        their path in the tree of dependencies. The entries below a Git dependency come from its
+        checkout at a commit, so they cannot change."""
+        assert resolved is not None
+        by_path = {record.path: record for record in resolved if record.repository is not None}
+        for position, ref in enumerate(unit._dependency_references):
+            path = (*where, position)
+            if not isinstance(ref, GitReference):
+                dependency = dependency_design(unit, ref)
+                key = os.path.realpath(dependency._generation_label)
+                if key in chain:
+                    raise DependencyChangedError("a dependency design file now has a cycle")
+                check_dependencies(dependency, path, (*chain, key), unmet)
+                continue
+            name = "-".join(str(number) for number in path)
+            unmet.discard(name)
+            record = by_path.get(name)
+            if record is None:
+                raise DependencyChangedError(f"dependency {redacted_url(ref.repo_url)} was added")
+            if (record.repository, record.reference, record.design_file, record.given) != (
+                redacted_url(ref.repo_url),
+                ref.branch,
+                ref.design_file,
+                bool(ref.commit),
+            ) or (ref.commit and record.commit != ref.commit):
+                raise DependencyChangedError(
+                    f"dependency {record.repository} was resolved at {record.commit} and now "
+                    f"names {ref.commit or ref.branch or 'its HEAD'}"
+                )
 
     def packaged_dependencies(unit: Design, base: Path) -> list[Any]:
         """Return the `dependencies` of `unit` as the remote has to see them, in the order they
@@ -391,7 +449,7 @@ def package_inputs(
             if isinstance(ref, GitReference):
                 entries.append(entry)
                 continue
-            dependency = Design.load(unit.root / ref.uri)
+            dependency = dependency_design(unit, ref)
             file = dependency._generation_label
             if file not in dependency_documents:
                 root = dependency_bases.setdefault(
@@ -455,8 +513,19 @@ def package_inputs(
         }
 
     new_design.update(packaged_document(design, Path(".")))
+    if resolved is not None:
+        # The Git entries that planning resolved and that the walk must meet: those with no Git
+        # dependency above them (the entries of a Git dependency come from its checkout).
+        paths = {record.path for record in resolved if record.repository is not None}
+        unmet = {name for name in paths if not any(name.startswith(other + "-") for other in paths)}
+        check_dependencies(design, (), (os.path.realpath(design._generation_label),), unmet)
+        for name in sorted(unmet):
+            record = next(r for r in resolved if r.path == name and r.repository is not None)
+            raise DependencyChangedError(f"dependency {record.repository} was removed")
     commits = {
-        d.path: d.commit for d in resolved if d.repository is not None and d.commit and not d.given
+        d.path: d.commit
+        for d in resolved or ()
+        if d.repository is not None and d.commit and not d.given
     }
 
     def packaged_path(value: Any) -> Any:

@@ -66,6 +66,7 @@ from ..design import generator_of
 from ..plan import (
     Plan,
     PlanDelivery,
+    dependency_entries,
     delivery_key,
     plan_from_dict,
     planned_destination,
@@ -148,6 +149,7 @@ from .launch_entry import LaunchRequest
 from .launch_record import LaunchRecord, write_record
 from .manifest import Entry, build_manifest, write_tar
 from .packaging import (
+    DependencyChangedError,
     InputPackage,
     package_inputs,
     refuse_unsendable_declared,
@@ -289,10 +291,7 @@ class _Agent:
 
     def start_heartbeat(self) -> None:
         self._beats = threading.Thread(
-            target=contextvars.copy_context().run,
-            args=(self._beat,),
-            name="heartbeat",
-            daemon=True,
+            target=contextvars.copy_context().run, args=(self._beat,), name="heartbeat", daemon=True
         )
         self._beats.start()
 
@@ -513,8 +512,7 @@ class _Agent:
 def _cancel_on_interrupt(agent: _Agent) -> Iterator[None]:
     """Send a cancel request to the agent on Ctrl-C, for the time of the block. A second Ctrl-C
     closes the connection. Outside the main thread no handler is installed. The request of the
-    launch to stop (`cancel.launch_canceled`) does the same as the first Ctrl-C, in any thread.
-    """
+    launch to stop (`cancel.launch_canceled`) does the same as the first Ctrl-C, in any thread."""
     done = threading.Event()
 
     def watch() -> None:
@@ -598,8 +596,7 @@ def _interrupt_handler(agent: _Agent) -> Iterator[None]:
         yield
     finally:
         signal.signal(
-            signal.SIGINT,
-            previous if previous is not None else signal.default_int_handler,
+            signal.SIGINT, previous if previous is not None else signal.default_int_handler
         )
 
 
@@ -705,8 +702,7 @@ def _refuse_programmers(prepared: PreparedRequest, host: str) -> None:
 
 def _check_deliverables(prepared: PreparedRequest, design_name: str) -> None:
     """Refuse a deliverable setting with a location, as the old remote runner did: the remote
-    would deliver to a place on the remote. The user receives the outputs with `--outputs-to`.
-    """
+    would deliver to a place on the remote. The user receives the outputs with `--outputs-to`."""
     plan = prepared.plan
     for node in plan.nodes:
         located = deliverable_locations(node.settings)
@@ -751,8 +747,7 @@ def _plan(
     pins: Optional[Dict[str, str]] = None,
 ) -> _Prepared:
     """Step 1: the checks that need no connection. A dry run asks no question. The Git
-    dependencies that `pins` names (by `DependencyRecord.path`) are fetched at those commits.
-    """
+    dependencies that `pins` names (by `DependencyRecord.path`) are fetched at those commits."""
     destination_text = destination.text
     run.mirror_root = local_root / f"@{destination.label()}"
     launcher = DefaultRunner(
@@ -893,10 +888,7 @@ def _provision(
 
 
 def _start_agent(
-    session: SshSession,
-    provisioned: Provisioned,
-    key: str,
-    step: str = "starting the agent",
+    session: SshSession, provisioned: Provisioned, key: str, step: str = "starting the agent"
 ) -> _Agent:
     host = session.destination.text
     try:
@@ -924,9 +916,7 @@ def _start_agent(
                 ) from None
             if noise:
                 log.debug(
-                    "The login shell of %s printed %d bytes before the agent",
-                    host,
-                    len(noise),
+                    "The login shell of %s printed %d bytes before the agent", host, len(noise)
                 )
             agent.expect("hello", step)
         agent.start_heartbeat()
@@ -1035,8 +1025,7 @@ def _launch(
 
 def _follow(agent: _Agent, launch_id: str) -> Dict[str, Any]:
     """Show the log of a launch that runs on the host (or ran), from its start, and return its
-    result document. Ctrl-C and a lost connection stop the follow and leave the launch running.
-    """
+    result document. Ctrl-C and a lost connection stop the follow and leave the launch running."""
     step = "following the launch"
     agent.keep_running = True
     with _cancel_on_interrupt(agent):
@@ -1365,8 +1354,7 @@ def _translation(
     the design root: a place that the remote makes for an output (`{path: out/trace.txt}`) has
     the same name there. The inputs directory itself goes to the design root. A file that xeda
     made for the remote (the design document, a Liberty file with renamed includes) has no such
-    file here, and its path stays. So does a path elsewhere (a tool, a store of the remote).
-    """
+    file here, and its path stays. So does a path elsewhere (a tool, a store of the remote)."""
     sent = {(inputs_dir / name).as_posix(): local for name, local in files.items()}
     made = {(inputs_dir / name).as_posix() for name in generated}
     checkouts = remote_run_root / DEPENDENCIES_DIRECTORY
@@ -1411,11 +1399,7 @@ def _plan_deliveries(document: Dict[str, Any], planned: Sequence[PlanDelivery]) 
     for node in document.get("nodes") or []:
         if node.get("name") in roots:
             node["deliveries"] = [
-                {
-                    "key": d.key,
-                    "destination": str(d.destination),
-                    "replaces": d.replaces,
-                }
+                {"key": d.key, "destination": str(d.destination), "replaces": d.replaces}
                 for d in planned
             ]
 
@@ -1423,12 +1407,7 @@ def _plan_deliveries(document: Dict[str, Any], planned: Sequence[PlanDelivery]) 
 def _print_dry_run(host: str, uploaded: Sequence[str]) -> None:
     """The report of a dry run on the log: what was uploaded."""
     if uploaded:
-        log.info(
-            "Uploaded %d input file(s) to %s: %s",
-            len(uploaded),
-            host,
-            ", ".join(uploaded),
-        )
+        log.info("Uploaded %d input file(s) to %s: %s", len(uploaded), host, ", ".join(uploaded))
     else:
         log.info("Uploaded no input file to %s: it had them all", host)
 
@@ -1492,9 +1471,7 @@ def _detailed_logs(detailed_logs: Optional[bool]) -> bool:
     return logs_are_detailed() if detailed_logs is None else detailed_logs
 
 
-def _asked(
-    workspace: WorkspaceOptions,
-) -> Optional[Callable[[Sequence[Conflict]], bool]]:
+def _asked(workspace: WorkspaceOptions) -> Optional[Callable[[Sequence[Conflict]], bool]]:
     """The question about the files in the way of `outputs_to`, as the workspace answers it."""
     answer = workspace.confirm
     if answer is None:
@@ -1599,12 +1576,7 @@ def plan_remote(
     run = _request_run(spec, _remote_of(workspace).host)
     try:
         return _host_plan(
-            run,
-            spec,
-            workspace=workspace,
-            options=options,
-            log_level=level,
-            detailed_logs=detailed,
+            run, spec, workspace=workspace, options=options, log_level=level, detailed_logs=detailed
         )
     except Exception as error:  # pylint: disable=broad-except
         raise _not_started(run, error) from error
@@ -1644,9 +1616,7 @@ def _host_plan(
 
 def _stale(difference: str) -> StalePlanError:
     return StalePlanError(
-        f"The plan is stale: {difference}. Plan again.",
-        code="stale_plan",
-        difference=difference,
+        f"The plan is stale: {difference}. Plan again.", code="stale_plan", difference=difference
     )
 
 
@@ -1694,10 +1664,14 @@ def _verify_plan(
     return run.dependency_commits
 
 
-def _check_identities(expected: Plan, plan: Any) -> None:
-    """Raise `StalePlanError` if the nodes of `plan`, the request that this side prepared for
-    the launch, differ from those of `expected` in name or identity."""
-    now = {node.name: node.flowrun_hash for node in plan.nodes}
+def _check_request(expected: Plan, prepared: Any) -> None:
+    """Raise `StalePlanError` if the request that this side prepared for the launch differs from
+    `expected`: a node with another name or identity, or Git dependencies that resolve to other
+    commits than those of the plan (the explicit commits too, which no identity counts). It is
+    the rule of a local `run(plan)` (`plan_check.dependency_difference`)."""
+    from ..flow_runner.plan_check import dependency_difference
+
+    now = {node.name: node.flowrun_hash for node in prepared.plan.nodes}
     if list(now) != list(expected.nodes):
         raise _stale(
             f"the graph changed: the nodes were {list(expected.nodes)}, they are now {list(now)}"
@@ -1705,6 +1679,9 @@ def _check_identities(expected: Plan, plan: Any) -> None:
     for name, node in expected.nodes.items():
         if node.identity != now[name]:
             raise _stale(f"the identity of node {name} changed")
+    difference = dependency_difference(expected._dependencies, dependency_entries(prepared.design))
+    if difference is not None:
+        raise _stale(difference)
 
 
 def _tell(progress: _Progress, result: Result) -> None:
@@ -1841,8 +1818,7 @@ def _failed(run: _Run, error: Exception) -> Result:
         node_documents = remote["nodes"]
     else:
         unreached = _unreached(
-            run,
-            Outcome.DETACHED if isinstance(error, RemoteDetached) else Outcome.SKIPPED,
+            run, Outcome.DETACHED if isinstance(error, RemoteDetached) else Outcome.SKIPPED
         )
         nodes, roots = unreached, (tuple(unreached)[-1:] if unreached else ())
         node_documents = [node_document(node) for node in unreached.values()]
@@ -1901,7 +1877,7 @@ def _run(
         pins=pins,
     )
     if expected is not None:
-        _check_identities(expected, prepared.prepared.plan)
+        _check_request(expected, prepared.prepared)
     mirror_root = local_root / f"@{destination.label()}"
     design = prepared.prepared.design
     plan = prepared.prepared.plan
@@ -1929,17 +1905,28 @@ def _run(
             # The host plans too, and merges the dependencies at the same point: the package holds
             # the design as it was given, a Git dependency as its reference (the host fetches it
             # into its own run root) and a local dependency as a design document with its files.
-            package = package_inputs(
-                prepared.prepared.declared,
-                prepared.prepared.sections,
-                {node.name for node in plan.nodes},
-                run_root=local_root,
-                remote_inputs=inputs_dir,
-                host_flows=profile.flows,
-                bindings=plan.bindings,
-                request=plan.request,
-                resolved=prepared.prepared.design.resolved_dependencies,
-            )
+            try:
+                package = package_inputs(
+                    prepared.prepared.declared,
+                    prepared.prepared.sections,
+                    {node.name for node in plan.nodes},
+                    run_root=local_root,
+                    remote_inputs=inputs_dir,
+                    host_flows=profile.flows,
+                    bindings=plan.bindings,
+                    request=plan.request,
+                    resolved=prepared.prepared.design.resolved_dependencies,
+                )
+            except DependencyChangedError as error:
+                # The documents are packaged from one read, which must be the one that planning
+                # resolved the dependencies from: a design file that changed in between is a
+                # request that is not the one that was compared.
+                if expected is not None:
+                    raise _stale(error.difference) from None
+                raise RemoteError(
+                    f"A design file changed while the request was prepared: {error.difference}. "
+                    "Run the request again."
+                ) from None
             run.dependency_commits = dict(package.dependency_commits)
             launch = LaunchRequest(
                 chain=run.chain,
@@ -1969,12 +1956,7 @@ def _run(
             try:
                 with stop_on_cancel(agent.drop, "the inputs were synced"):
                     uploaded, running = _sync(
-                        agent,
-                        package,
-                        design.name,
-                        key,
-                        launch_id,
-                        None if dry_run else launch,
+                        agent, package, design.name, key, launch_id, None if dry_run else launch
                     )
                 try:
                     if progress is not None:
