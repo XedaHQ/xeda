@@ -530,6 +530,35 @@ def test_the_image_that_a_container_starts_from_is_the_one_recorded(tmp_path, mo
         registered_flows.pop(TRetagged.__name__, None)
 
 
+def test_an_image_with_no_id_when_the_container_started_is_not_recorded(tmp_path, monkeypatch):
+    """An image that had no ID when its container started is no evidence, even when the image
+    exists after the run: the record holds no ID, so the next launch runs the node again."""
+    ids = tmp_path / "id"
+    ids.write_text("")
+    program = tmp_path / "bin" / "fake-retag-cli"
+    program.parent.mkdir()
+    program.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = image ]; then [ -s "' + str(ids) + '" ] || exit 1; cat "' + str(ids) + '";'
+        " exit 0; fi\n"
+        'if [ "$1" = run ]; then echo sha256:late > "' + str(ids) + '"; fi\n'
+    )
+    program.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{program.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(digest, "RACY_NS", 0)
+    design = Design(name="d", root=tmp_path, rtl={"sources": []})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    try:
+        first = runner.launch_flow(TRetagged, design, {})
+        assert first.succeeded
+        assert trace.read_trace(first.run_path)[0].programs["docker-image:img:tag"] is None
+        again = runner.launch_flow(TRetagged, design, {})
+        assert not again.reused
+    finally:
+        registered_flows.pop(TRetagged.name, None)
+        registered_flows.pop(TRetagged.__name__, None)
+
+
 def test_the_default_client_is_the_docker_of_this_process(tmp_path, monkeypatch):
     """With no recorded client, the image is asked of `docker` with the client variables and the
     PATH of this process, not an environment stripped of them."""

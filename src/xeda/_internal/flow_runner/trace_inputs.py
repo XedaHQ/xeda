@@ -883,9 +883,13 @@ def _programs(
     for name in names:
         if name.startswith(DOCKER_IMAGE_PREFIX):
             client = getattr(names, "clients", {}).get(name) or ImageClient.of("docker")
-            # The ID before the container started; the tag may have moved since.
-            where = getattr(names, "image_ids", {}).get(name) or image_id(
-                name[len(DOCKER_IMAGE_PREFIX) :], client
+            # The ID before the container started, also when that lookup found none: the tag
+            # may have moved since. Only a name that no start recorded is looked up now.
+            started = getattr(names, "image_ids", {})
+            where = (
+                started[name]
+                if name in started
+                else image_id(name[len(DOCKER_IMAGE_PREFIX) :], client)
             )
             programs[name] = None if where is None else ProgramRecord(path=where, client=client)
             continue
