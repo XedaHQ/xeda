@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from ...dataclass import Field, input_names
 from ...design import SourceType
@@ -122,7 +123,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         # Repeat the check of planning, because a flow built directly is not planned.
         refuse_conflicts(type(settings), property_mode_conflicts(settings))
         # The hooks write the reports after each major step, as `vivado_synth` does.
-        tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
+        tcl_files = [Path(p) for p in settings.tcl_files]
         tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)
 
         script_path = self.copy_from_template(

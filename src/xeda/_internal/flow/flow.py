@@ -361,6 +361,75 @@ def map_written_leaves(
             map_written_leaves(nested, fn, prefix=key + ".")
 
 
+def map_setting_leaves(
+    model: BaseModel,
+    fn: Callable[[str, Any], Any],
+    *,
+    written: Optional[bool] = None,
+    prefix: str = "",
+) -> None:
+    """Call `fn(key path, leaf)` at every path leaf of `model` and of the models nested in it.
+
+    This is the one reading of "the paths a setting holds". The trace, the mounts of a container
+    and the resolution of a relative path (`resolve_setting_paths`) all use it. A leaf is found by
+    the declared shape of its field (`map_keyed_path_leaves`). With `written`, only the fields
+    that the flow writes (True: a role, `written_role`) or reads (False) count. A locator
+    (`LOCATOR`) is never walked. A field whose leaves `fn` changed is assigned back."""
+    for name, info in type(model).model_fields.items():
+        if is_locator(type(model), name):
+            continue
+        value = getattr(model, name)
+        role = written_role(type(model), name)
+        if (
+            value is not None
+            and _annotation_contains_path(info.annotation)
+            and (written is None or written is (role is not None))
+        ):
+            changed = map_keyed_path_leaves(value, info.annotation, fn, prefix + name)
+            if changed != value:
+                setattr(model, name, changed)
+                value = changed
+        for key, nested in _nested_models(value, prefix + name):
+            map_setting_leaves(nested, fn, written=written, prefix=key + ".")
+
+
+def setting_path_target(leaf: Any, root: Optional[Path]) -> Optional[Path]:
+    """Return the place that the path `leaf` of a setting names, or None for no place.
+
+    An absolute path is its own place. A relative path is relative to the design root `root`, and
+    to nothing else: a path under the start directory is written `$PWD/...`, which is absolute
+    once expanded. A path that still starts with `$` holds a variable that nothing expanded, and
+    a path that starts with `+/` is in the data directory of yosys (`verilog_lib`): neither names
+    a place of the design. The trace, the mounts of a container and the tool read a path by this
+    rule."""
+    path = Path(leaf)
+    if path.is_absolute():
+        return path
+    if root is None or str(path).startswith(("$", "+/")):
+        return None
+    return root / path
+
+
+def resolve_setting_paths(settings: "Flow.Settings", root: Path) -> None:
+    """Replace, in place, each relative path that `settings` reads by its place under `root`.
+
+    The tool runs in the run directory, so a relative path would name a file there. A path that
+    the flow writes (a role) and a locator stay as given."""
+
+    def resolve(_key: str, leaf: Any) -> Any:
+        if (
+            isinstance(leaf, (str, os.PathLike))
+            and os.fspath(leaf)
+            and not Path(leaf).is_absolute()
+        ):
+            target = setting_path_target(leaf, root)
+            if target is not None:
+                return target
+        return leaf
+
+    map_setting_leaves(settings, resolve, written=False)
+
+
 def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
     """Return the conventional name of the deliverable that `leaf` belongs to, for `design`.
 
@@ -1654,6 +1723,9 @@ class Flow(metaclass=ABCMeta):
         settings.reports_dir = self.process_path(settings.reports_dir)
         settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)
         resolve_conventional_templates(settings, design.name)
+        # The tool runs in the run directory: a relative path that the flow reads is made absolute,
+        # by the rule of the trace and of the mounts of a container (`resolve_setting_paths`).
+        resolve_setting_paths(settings, design.root)
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
 
@@ -2002,28 +2074,11 @@ class Flow(metaclass=ABCMeta):
             sequential=sequential,
         )
 
-    def resolve_paths_to_design_or_cwd(self, paths: list) -> List[Path]:
-        """Expand the variables in `paths` and resolve the relative ones against the design root."""
-        return [
-            self.process_path(path, subs_vars=True, resolve_to=self.design.root) for path in paths
-        ]
-
-    def resolve_lib_paths(self) -> None:
-        """Resolve each relative path of `lib_paths` against the design root, as other path
-        settings are. A flow whose tool takes these paths calls this in `init()`, because the tool
-        runs in the run directory."""
-        resolved: List[Any] = [
-            (name, None if path is None else self.normalize_path_to_design_root(path))
-            for name, path in self.settings.lib_paths
-        ]
-        self.settings.lib_paths = resolved
-
     def process_path(
         self,
         path: Union[str, Path],
         *,
         subs_vars: bool = True,
-        resolve_to: Optional[Path] = None,
     ) -> Path:
         if subs_vars and isinstance(path, (str, Path)):
             path = expand_env_vars(
@@ -2034,16 +2089,7 @@ class Flow(metaclass=ABCMeta):
             )
         if not isinstance(path, Path):
             path = Path(path)
-        if resolve_to is not None and not path.is_absolute() and not str(path).startswith("$"):
-            return resolve_to / path
         return path
-
-    def normalize_path_to_design_root(self, path: Union[str, Path]) -> Path:
-        return self.process_path(
-            path,
-            subs_vars=False,
-            resolve_to=self.design.root,
-        )
 
 
 class FlowException(XedaException):

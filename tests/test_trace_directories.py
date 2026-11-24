@@ -46,7 +46,7 @@ class TProbeLibraries(Flow):
         _name, directory = self.settings.lib_paths[0]
         out = self.run_path / "outputs" / "out.txt"
         out.parent.mkdir(exist_ok=True)
-        library = self.normalize_path_to_design_root(directory)  # a relative one: under it
+        library = directory  # a relative one: under the design root
         out.write_text((library / "pkg.txt").read_text())
         self.artifacts.out = out
 

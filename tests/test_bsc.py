@@ -2647,7 +2647,7 @@ def test_the_check_of_installed_libraries_reads_the_resolved_path(tmp_path, monk
 def test_a_missing_search_folder_fails_the_run(setting, tmp_path):
     require_bsc()
     design = _folder_check(tmp_path)
-    with pytest.raises(FlowSettingsException, match=rf"`{setting}` names 'nowhere'"):
+    with pytest.raises(FlowSettingsException, match=rf"`{setting}` names '[^']*nowhere'"):
         _run_directly(Bsc, design, tmp_path / "run", **{setting: ["nowhere"]})
 
 

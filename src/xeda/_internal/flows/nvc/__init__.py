@@ -282,7 +282,6 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         # a flow built directly skips planning, so check here
         self.check_settings_supported(ss)
-        self.resolve_lib_paths()
         if ss.fst is not None:
             ss.fst = self.process_path(ss.fst)
 
@@ -499,7 +498,7 @@ class Nvc(SimFlow):
         if ss.shuffle:
             run_flags.append("--shuffle")
 
-        vhpi = self.resolve_paths_to_design_or_cwd(ss.vhpi)
+        vhpi = list(ss.vhpi)
         # TODO factor out cocotb handling
         if self.design.tb.cocotb is not None and self.cocotb:
             vpi_path = self.cocotb.lib_path(interface="vhpi")

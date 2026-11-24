@@ -325,8 +325,6 @@ class Vcs(SimFlow):
         ss = self.settings
         # a flow built directly is not planned, so check here
         self.check_settings_supported(ss)
-        if ss.sdf_file:
-            ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.root)
         rules = self.highlight_rules
         # No tool is asked for its version. VCS is not verified on a licensed release, and this
         # adapter has not checked a `vcs --version` query.
@@ -341,8 +339,6 @@ class Vcs(SimFlow):
             version_flag=None,
             highlight_rules=rules,
         )
-        if ss.ucli_script:
-            ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.root)
         # a user's script drives simv, so its output is the script's and stays uncolored
         driven_by_user = ss.ucli_script is not None
         self.simv = Tool(

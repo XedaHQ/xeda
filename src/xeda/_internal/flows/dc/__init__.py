@@ -410,17 +410,8 @@ class Dc(AsicSynthFlow):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.check_settings_supported(ss)
-        ss.sdc_files = self.resolve_paths_to_design_or_cwd(ss.sdc_files)
 
-        ss.hooks = {
-            stage: self.process_path(p, subs_vars=True, resolve_to=self.design.root)
-            for stage, p in ss.hooks.items()
-            if p is not None
-        }
-        ss.target_libraries = [
-            self.process_path(p, subs_vars=True, resolve_to=self.design.root)
-            for p in ss.target_libraries
-        ]
+        ss.hooks = {stage: p for stage, p in ss.hooks.items() if p is not None}
         if ss.infer_multibit:
             ss.hdlin["infer_multibit"] = ss.infer_multibit
         if "enable_hier_map" not in ss.hdlin:

@@ -379,11 +379,8 @@ class GhdlSynth(Ghdl, SynthFlow):
     def init(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        self.resolve_lib_paths()
         if ss.verilog_output is not None:
-            ss.verilog_output = self.process_path(
-                ss.verilog_output, subs_vars=True, resolve_to=None
-            )
+            ss.verilog_output = self.process_path(ss.verilog_output, subs_vars=True)
 
     def run(self) -> None:
         """Synthesize VHDL sources into Verilog files."""
@@ -676,7 +673,6 @@ class GhdlSim(Ghdl, SimFlow):
         assert isinstance(ss, self.Settings)
         # a flow built directly skips planning, so check here
         self.check_settings_supported(ss)
-        self.resolve_lib_paths()
 
     def has_evidence_adapter(self) -> bool:
         return not self.cocotb
@@ -698,18 +694,18 @@ class GhdlSim(Ghdl, SimFlow):
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
         if ss.wave:
-            ss.wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
+            ss.wave = self.process_path(ss.wave, subs_vars=True)
 
         if ss.vcd:
-            ss.vcd = self.process_path(ss.vcd, subs_vars=True, resolve_to=None)
+            ss.vcd = self.process_path(ss.vcd, subs_vars=True)
             run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", ss.vcd)
         elif ss.vcdgz:
-            ss.vcdgz = self.process_path(ss.vcdgz, subs_vars=True, resolve_to=None)
+            ss.vcdgz = self.process_path(ss.vcdgz, subs_vars=True)
             run_flags.append(f"--vcdgz={ss.vcdgz}")
             log.warning("Dumping compressed VCD to %s", ss.vcdgz)
         elif ss.fst:
-            ss.fst = self.process_path(ss.fst, subs_vars=True, resolve_to=None)
+            ss.fst = self.process_path(ss.fst, subs_vars=True)
             run_flags += setting_flag(ss.fst, name="fst")
             log.warning("Dumping fst to %s", ss.fst)
         elif ss.wave:

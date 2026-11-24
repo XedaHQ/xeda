@@ -121,6 +121,3 @@ def test_lib_paths_resolve_for_each_flow_against_its_own_design_root(flow_class,
             ("vendor", tmp_path / name / "libs"),
             (None, tmp_path / name / "more"),
         ]
-        resolved = list(flow.settings.lib_paths)
-        flow.resolve_lib_paths()
-        assert flow.settings.lib_paths == resolved

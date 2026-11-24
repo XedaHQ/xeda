@@ -64,9 +64,8 @@ from ..flow import Flow
 from ..flow.derived import recorded_files
 from ..records import name_in
 from ..flow.io import declared_inputs
-from ..dataclass import is_locator, written_role
 from ..deliver import ReadInputs
-from ..flow.flow import _annotation_contains_path, map_keyed_path_leaves
+from ..flow.flow import map_setting_leaves, setting_path_target
 from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import DOCKER_IMAGE_PREFIX, program_state
 from ..records import ErrorInfo
@@ -193,29 +192,7 @@ def setting_path_leaves(
             leaves.append((key, leaf))
         return leaf
 
-    def walk(model: BaseModel, prefix: str) -> None:
-        for name, field in type(model).model_fields.items():
-            if is_locator(type(model), name):
-                continue
-            value = getattr(model, name)
-            role = written_role(type(model), name)
-            if _annotation_contains_path(field.annotation) and (
-                written is None or written is (role is not None)
-            ):
-                map_keyed_path_leaves(value, field.annotation, collect, prefix + name)
-            nested(value, prefix + name)
-
-    def nested(value: Any, key: str) -> None:
-        if isinstance(value, BaseModel):
-            walk(value, key + ".")
-        elif isinstance(value, Mapping):
-            for name, item in value.items():
-                nested(item, f"{key}[{name}]")
-        elif isinstance(value, (list, tuple)):
-            for index, item in enumerate(value):
-                nested(item, f"{key}[{index}]")
-
-    walk(settings, "")
+    map_setting_leaves(settings, collect, written=written)
     return leaves
 
 
@@ -229,11 +206,9 @@ def _setting_root(settings: Flow.Settings) -> Path | None:
 
 
 def _candidate(leaf: Any, root: Path | None) -> Path | None:
-    """Return the place that `leaf` names, or None for a relative path with no design root."""
-    path = Path(leaf)
-    if path.is_absolute():
-        return path
-    return None if root is None else root / path
+    """Return the place that `leaf` names, or None for a path with no place
+    (`setting_path_target`)."""
+    return setting_path_target(leaf, root)
 
 
 def setting_candidates(settings: Flow.Settings) -> list[tuple[str, Path]]:

@@ -603,8 +603,7 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
         relative to the design root."""
         settings = self.settings
         assert isinstance(settings, self.Settings)
-        given = settings.floorplan.def_file
-        return None if given is None else self.normalize_path_to_design_root(given)
+        return settings.floorplan.def_file
 
     def prepare_inputs(self) -> None:
         """Find the files of the platform, and check the DEF file of the floorplan.
@@ -625,8 +624,7 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
         that the flow writes from `clocks`, and `sdc_files`."""
         settings = self.settings
         assert isinstance(settings, self.Settings)
-        given = [self.normalize_path_to_design_root(path) for path in settings.sdc_files]
-        return [*(self.inputs.sdc or []), Path(CLOCKS_SDC), *given]  # type: ignore[attr-defined]
+        return [*(self.inputs.sdc or []), Path(CLOCKS_SDC), *settings.sdc_files]  # type: ignore[attr-defined]
 
     # --- the values of the templates ----------------------------------------------------------
 

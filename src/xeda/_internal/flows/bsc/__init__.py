@@ -1268,10 +1268,10 @@ class BscFlow(Flow, metaclass=ABCMeta):
         for index, entry in enumerate(ss.search_paths):
             target = self.run_file(f"{STAGE_SEARCH}/{index}")
             target.mkdir(parents=True, exist_ok=True)
-            folder = Path(os.path.abspath(self.normalize_path_to_design_root(entry)))
+            folder = Path(os.path.abspath(entry))
             if not folder.is_dir():
                 raise FlowSettingsException(
-                    f"`search_paths` names {str(entry)!r} ({folder}), which is no folder"
+                    f"`search_paths` names {str(folder)!r}, which is no folder"
                 )
             folders[f"{STAGE_SEARCH}/{index}"] = str(folder)
             top = folder.resolve()
@@ -1332,12 +1332,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
             return flags + self._fdir_flags()
         verilog_dirs: list[str | Path] = [STAGE_VERILOG]
         for entry in ss.verilog_search_paths:
-            folder = self.normalize_path_to_design_root(entry)
-            if not Path(os.path.abspath(folder)).is_dir():
+            folder = Path(os.path.abspath(entry))
+            if not folder.is_dir():
                 raise FlowSettingsException(
-                    f"`verilog_search_paths` names {str(entry)!r} ({folder}), which is no folder"
+                    f"`verilog_search_paths` names {str(folder)!r}, which is no folder"
                 )
-            verilog_dirs.append(folder)
+            verilog_dirs.append(entry)
         flags += [
             "-vsearch",
             _bsc_path(
@@ -1386,7 +1386,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         assert isinstance(self.settings, BscFlow.Settings)
         if not self.settings.fdir:
             return []
-        return ["-fdir", str(self.normalize_path_to_design_root(self.settings.fdir))]
+        return ["-fdir", str(self.settings.fdir)]
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
         """Return the directories of bsc's vendor-specific Verilog primitives, searched first."""
@@ -2782,5 +2782,5 @@ class BscSim(BscFlow, SimFlow):
                 flags += [option, value]
         for option, dirs in (("-I", ss.include_dirs), ("-L", ss.library_dirs)):
             for d in dirs:
-                flags += [option, str(self.normalize_path_to_design_root(d))]
+                flags += [option, str(d)]
         return flags

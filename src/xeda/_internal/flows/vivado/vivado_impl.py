@@ -174,7 +174,7 @@ class VivadoImpl(VivadoImplementation):
         xdc_files = [
             self.copy_from_template("clock.xdc"),
             *inputs.constraints,
-            *(self.normalize_path_to_design_root(p) for p in ss.xdc_files),
+            *(Path(p) for p in ss.xdc_files),
         ]
         script_path = self.copy_from_template(
             "vivado_impl.tcl",
