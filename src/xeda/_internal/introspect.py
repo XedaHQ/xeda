@@ -435,6 +435,24 @@ def _schema_at(schema: Any, definitions: Mapping[str, Any], address: str) -> Any
     return _schema_at(values, definitions, rest) if isinstance(values, dict) else None
 
 
+def _schema_of_key(
+    schema: Any,
+    definitions: Mapping[str, Any],
+    properties: Mapping[str, Any],
+    values: Any,
+    key: Any,
+) -> Any:
+    """Return the schema of the entry `key` of a table whose own schema is `schema`.
+
+    A declared property comes first. A dotted key that names a setting below the table comes next.
+    Any other key is an entry of the table, which `values` (`additionalProperties`) describes: a
+    table of quantities may have a dot in the name of an entry."""
+    if key in properties:
+        return properties[key]
+    found = _schema_at(schema, definitions, key) if "." in str(key) else None
+    return values if found is None else found
+
+
 def _unchanged(changed: Any, value: Any) -> bool:
     """Whether a branch of a union left `value` as it is. A quantity equals its own conversion
     to another unit, so a quantity counts as unchanged only when it is the same object: the
@@ -487,11 +505,7 @@ def _in_field_units(
         values = schema.get("additionalProperties")
         return {
             key: _in_field_units(
-                (
-                    properties[key]
-                    if key in properties
-                    else _schema_at(schema, definitions, key) if "." in str(key) else values
-                ),
+                _schema_of_key(schema, definitions, properties, values, key),
                 definitions,
                 item,
                 render,

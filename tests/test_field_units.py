@@ -603,3 +603,16 @@ def test_a_quantity_inside_a_union_branch_is_read_even_when_it_equals_its_conver
     items = _in_field_units(optional_list, {}, [given], _pint_quantity)
     for found in (table["p"], items[0]):
         assert found == given and found is not given
+
+
+def test_a_dotted_entry_of_a_table_of_quantities_is_shown_in_the_unit_of_the_field():
+    from xeda._internal.introspect import _in_field_units, _pint_quantity
+    from xeda._internal.units import UNIT_KEY
+
+    time = {"type": "string", UNIT_KEY: "ns", "x-xeda-quantity": "time"}
+    table = {"type": "object", "additionalProperties": time}
+    shown = _in_field_units(table, {}, {"a.b": "0.01 us", "c": "0.02 us"}, _pint_quantity)
+    assert {key: (item.magnitude, str(item.units)) for key, item in shown.items()} == {
+        "a.b": (10, "nanosecond"),
+        "c": (20, "nanosecond"),
+    }
