@@ -26,6 +26,7 @@ from ..design import (
     FileResource,
     Generator,
     GitReference,
+    MergedDependency,
     Source,
     generator_cwd,
     generator_of,
@@ -241,9 +242,12 @@ def package_inputs(
     places: Dict[Path, Path | bytes] = {Path(design_file): b""}
     flat_places: Dict[tuple[Path, Path], Path] = {}
     # The place of every local file that a design lists as a source: one file has one place,
-    # whichever design lists it. The sources of the host are then one list, as they are here.
+    # whichever design lists it (`place_of_source`). The sources of the host are then one list, as
+    # they are here.
     source_places: Dict[Path, Path] = {}
-    flat_sources: list[tuple[Dict[str, Any], Source, Path]] = []
+    # The root of each local dependency that the walk of `merged_sources` meets, by its index in
+    # the merge that the walk makes: it is the owner that `Source._dependency` names.
+    merged_owners: Dict[int, Path] = {}
     documents: Dict[Path, Dict[str, Any]] = {}
     directories: set[str] = set()  # the directories of directory settings
 
@@ -299,51 +303,17 @@ def package_inputs(
         relative to the root of that document."""
         return Path(os.path.relpath(place, base)).as_posix()
 
-    def packaged_sources(
-        sources: Iterable[Source], unit: Design, base: Path
-    ) -> list[Dict[str, Any]]:
-        """Return the sources of `unit` as the remote has to see them, in the document at `base`.
-
-        A source under the root of the unit keeps its own place relative to the root, as it has
-        here. A Verilog `include` finds the header beside the including file first, so a
-        flattened layout could build another design, and it would hash as another
-        (`Design._source_fingerprint`). A source outside the root has no place there, and
-        travels among the flat sources. This side counts every source by its place from the root
-        of the requested design."""
+    def packaged_sources(sources: Iterable[Source], base: Path) -> list[Dict[str, Any]]:
+        """Return `sources`, the sources of a design, as the remote has to see them in the document
+        at `base`: each one names the place of its file (`place_of_source`), relative to `base`."""
         packaged: list[Dict[str, Any]] = []
         for src in sources:
             if src.generated and not src._located:
                 # The generator of the host writes it: no file travels, the declaration does.
                 packaged.append({"path": src.output_name, "type": str(src.type)})
                 continue
-            relative = unit._relative_to_root(src.file)
-            entry: Dict[str, Any] = {"type": str(src.type)}
-            local = src.file.resolve()
-            if relative is not None and archived_in_place(src.file, base / relative):
-                # The host counts it as this side does: by its place in the root of the unit.
-                entry["file"] = inside(base / relative, base)
-                source_places.setdefault(local, base / relative)
-            else:
-                # A source outside the root of its unit has a place of its own, below the root of
-                # the request, unless a root holds it (`flat_sources`).
-                flat_sources.append((entry, src, base))
-            packaged.append(entry)
+            packaged.append({"file": inside(place_of_source(src), base), "type": str(src.type)})
         return packaged
-
-    def place_flat_sources() -> None:
-        """Give every source that lies outside the root of its unit its place.
-
-        This runs after all designs have placed the sources in their roots: a file that some
-        design lists under its root has that place for every design that lists it, so the host
-        reads one file where this side reads one. Any other file is flat, below the root of the
-        request, and the host counts it by the text this side counts for it."""
-        for entry, src, base in flat_sources:
-            local = src.file.resolve()
-            place = source_places.get(local)
-            if place is None:
-                place = source_places[local] = archived(src, design, Path("."))
-                identified(place, "source", design._source_place(src))
-            entry["file"] = inside(place, base)
 
     def packaged_parameters(dv: DesignPart, unit: Design, base: Path) -> Dict[str, Any]:
         """Return the parameters of `dv`, a part of `unit`, as the remote has to see them.
@@ -379,6 +349,10 @@ def package_inputs(
             if relative is not None and not os.path.exists(path):
                 parameters[name] = {"path": relative.as_posix()}
                 seen = base / relative
+            elif os.path.isfile(path) and path.resolve() in source_places:
+                # a file that a design lists as a source has the place of that source
+                seen = source_places[path.resolve()]
+                parameters[name] = {"file": inside(seen, base)}
             elif (
                 relative is not None
                 and os.path.isfile(path)
@@ -432,8 +406,10 @@ def package_inputs(
         below it) is at the same place on the host. A root outside it that lies below another
         dependency root is at the same place below that root. In both cases a file has the same
         place whether the design or the dependency lists it, and the places do not depend on the
-        order of the dependencies. Any other root has a directory of its own,
-        `_dependencies/<n>`, numbered in the order of the walk."""
+        order of the dependencies. Any other root, one that holds the root of the request too,
+        has a directory of its own, `_dependencies/<n>`, numbered in the order of the walk. A file
+        of the request root that such a root lists has one place all the same
+        (`place_of_source`)."""
         roots: list[Path] = []
         walked: set[str] = set()
 
@@ -462,6 +438,73 @@ def package_inputs(
                 dependency_bases[root] /= root.relative_to(top)
             else:
                 dependency_bases[root] = root.relative_to(design.root)
+
+    def merged_sources() -> Design:
+        """Return the design merged with its local dependencies, as planning merges them.
+
+        It tells which entry of a file that several designs list is the one the merge keeps
+        (the first in the merged order), whether it is marked as the file of a dependency
+        (`Source._dependency`), and its place in the root of that dependency. The host merges
+        the same designs in the same order, so its merge keeps the same entry. A Git dependency
+        has no file on this side that another design could list, so it is left out."""
+
+        def merge(unit: Design, active: frozenset[str]) -> Design:
+            merged: list[MergedDependency] = []
+            for ref in unit._dependency_references:
+                key = (
+                    None if isinstance(ref, GitReference) else os.path.realpath(unit.root / ref.uri)
+                )
+                if key is None or key in active:  # a cycle is reported by `check_dependencies`
+                    continue
+                dependency = dependency_design(unit, ref)
+                index = len(merged_owners)
+                merged_owners[index] = dependency.root
+                merged.append(
+                    MergedDependency(ref, merge(dependency, active | {key}), index, dependency.root)
+                )
+            return unit._merged_with(merged) if merged else unit
+
+        return merge(design, frozenset({os.path.realpath(design.root)}))
+
+    def place_of_source(src: Source) -> Path:
+        """Return the place on the host of the file of `src`, below the inputs directory.
+
+        This is the one rule for the place of a source file: one local file has one place,
+        whichever design lists it, so that the host merges one source where this side merges one.
+        Each file is placed once, by the entry that the merge keeps (`merged_sources`):
+
+        - A file in the root of the dependency that lists it is below that root on the host, so
+          the host marks it as the file of that dependency, with the place this side counts.
+        - Any other file keeps its place below the root of the request when it lies there. Else
+          it keeps its place below a dependency root that holds it, else it goes among the flat
+          sources. The host counts such a file by the text that this side counts for it
+          (`identified`)."""
+        local = src.file.resolve()
+        place = source_places.get(local)
+        if place is not None:
+            return place
+        candidates: list[tuple[Path, bool]] = []
+        if src._dependency is not None and src._dependency_place is not None:
+            owner = dependency_bases[merged_owners[src._dependency]]
+            candidates.append((owner / src._dependency_place, False))
+        else:
+            relative = design._relative_to_root(src.file)
+            if relative is not None:
+                candidates.append((relative, False))
+            for root, root_base in dependency_bases.items():
+                if src.file.is_relative_to(root):
+                    candidates.append((root_base / src.file.relative_to(root), True))
+        for candidate, named in candidates:
+            if places.setdefault(candidate, local) == local:
+                place = candidate
+                break
+        else:
+            named = True
+            place = archived(src, design, Path("."))
+        source_places[local] = place
+        if named:
+            identified(place, "source", design._source_place(src))
+        return place
 
     def check_dependencies(
         unit: Design, where: tuple[int, ...], chain: DependencyChain, unmet: set[str]
@@ -534,7 +577,7 @@ def package_inputs(
         clocks, testbench and generator, and its own dependencies. Its files are packaged below
         `base`, which is its root on the host."""
         generator = refuse_unsendable_generator(unit)
-        rtl: Dict[str, Any] = {"sources": packaged_sources(unit.rtl.sources, unit, base)}
+        rtl: Dict[str, Any] = {"sources": packaged_sources(unit.rtl.sources, base)}
         rtl["defines"] = thaw(unit.rtl.defines)
         rtl["attributes"] = thaw(unit.rtl.attributes)
         rtl["parameters"] = packaged_parameters(unit.rtl, unit, base)
@@ -557,7 +600,7 @@ def package_inputs(
         for name in tree_declarations(unit):
             if (parent := tree_parent(unit.root, name)) is not None:
                 directories.add((base / parent).as_posix())
-        tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, unit, base)}
+        tb: Dict[str, Any] = {"sources": packaged_sources(unit.tb.sources, base)}
         tb["top"] = unit.tb.top
         tb["cocotb"] = thaw(unit.tb.cocotb)
         if unit.tb.uut:
@@ -577,8 +620,10 @@ def package_inputs(
         }
 
     place_dependency_roots()
+    for src in (*(merged := merged_sources()).rtl.sources, *merged.tb.sources):
+        if not (src.generated and not src._located):
+            place_of_source(src)
     new_design.update(packaged_document(design, Path(".")))
-    place_flat_sources()
     for document_file, dependency_document in documents.items():
         places[document_file] = json.dumps(dependency_document, default=json_encodable).encode(
             "utf-8"

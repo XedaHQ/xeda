@@ -1094,6 +1094,11 @@ SHARED_LAYOUTS = {
         ["top.v"],
         {"../a/sub/dep.yaml": ["x.v", "b.v"], "../a/dep.yaml": ["sub/x.v", "a.v"]},
     ),
+    "dependency root above the design root": (["top.v"], {"../base.yaml": ["design/top.v", "a.v"]}),
+    "dependency root above the design root, a file of its own": (
+        ["top.v", "../lib.v"],
+        {"../base.yaml": ["design/top.v", "lib.v"]},
+    ),
 }
 
 
@@ -1122,25 +1127,13 @@ def _shared_design(tmp_path: Path, design_sources, dependencies, pos: int = 0) -
     return design
 
 
-# The design lists a file that lies in the root of a dependency outside its own root, and the
-# listing of the design is the one the merge keeps: its text is a path from the design root, and
-# the package does not send it for a file that has its place in the root of that dependency.
-NOT_SUPPORTED_LAST = {
-    "design names a file of a dependency in another tree",
-    "dependency in a nested tree and the design",
-}
-
-
 def _shared_cases():
     for layout in SHARED_LAYOUTS:
         for pos in (0, -1):
-            marks = []
-            if pos == -1 and layout in NOT_SUPPORTED_LAST:
-                marks.append(pytest.mark.xfail(strict=True, reason="a listing of the design wins"))
-            yield pytest.param(layout, pos, id=f"{layout}-{pos}", marks=marks)
+            yield pytest.param(layout, pos, id=f"{layout}-{pos}")
 
 
-@pytest.mark.parametrize(("layout", "pos"), _shared_cases())
+@pytest.mark.parametrize(("layout", "pos"), list(_shared_cases()))
 def test_a_source_that_the_design_and_its_local_dependency_both_list_has_one_place(
     tmp_path, layout, pos
 ):
