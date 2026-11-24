@@ -243,9 +243,7 @@ def test_a_tcl_hook_reaches_vivado_from_the_design_root(tmp_path, monkeypatch):
     arguments = [arg for call in calls for arg in call]
     # A relative path is the design root's; a variable is expanded, as it was before.
     assert arguments.count(str(design.root / "hooks" / "after.tcl")) >= 2
-    assert str(tmp_path.resolve() / "start" / "here.tcl") in arguments or any(
-        arg.endswith("/start/here.tcl") for arg in arguments
-    )
+    assert str(tmp_path.resolve() / "start" / "here.tcl") in arguments
 
 
 def test_the_rules_file_of_openroad_is_read_from_the_design_root(tmp_path):

@@ -452,7 +452,7 @@ The trace records:
     (``reports``, ``outputs``, ``checkpoints`` and similar), and the
     run directory and run root where a named directory holds them;
   - every file that a flow resolves before it runs, such as the ``abc_script`` of Yosys, expanded
-    against the start directory or the environment;
+    against the design root (``$PWD/...`` names the start directory) or the environment;
   - the design sources that its declared inputs take.
 
 - The implicit inputs, which are known only after the run. These are the files that a tool reported
