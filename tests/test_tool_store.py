@@ -589,6 +589,9 @@ def damage(location: Path, how: str) -> None:
     elif how == "wrong schema":
         document = json.loads((location / "receipt.json").read_text())
         (location / "receipt.json").write_text(json.dumps({**document, "schema_version": 2}))
+    elif how == "boolean schema":
+        document = json.loads((location / "receipt.json").read_text())
+        (location / "receipt.json").write_text(json.dumps({**document, "schema_version": True}))
     elif how == "missing key":
         document = json.loads((location / "receipt.json").read_text())
         del document["sha256"]
@@ -598,7 +601,16 @@ def damage(location: Path, how: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "how", ["no receipt", "bad json", "wrong version", "wrong schema", "missing key", "no yosys"]
+    "how",
+    [
+        "no receipt",
+        "bad json",
+        "wrong version",
+        "wrong schema",
+        "boolean schema",
+        "missing key",
+        "no yosys",
+    ],
 )
 def test_only_a_complete_installation_counts(github, root, how):
     github.add(PIN)

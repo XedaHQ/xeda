@@ -22,7 +22,8 @@
           "type": "string"
         },
         "schema_version": {
-          "const": 1
+          "const": 1,
+          "type": "integer"
         },
         "sha256": {
           "type": "string"
@@ -53,6 +54,7 @@
       "type": "string"
     },
     "schema_version": {
+      "const": 1,
       "type": "integer"
     },
     "tool": {

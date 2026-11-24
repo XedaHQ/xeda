@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from xeda.errors import RecordError, RunFailedError
 from .frozen import FrozenDict, thaw
+from .schema_version import is_version
 from .units import duration_text
 
 if TYPE_CHECKING:
@@ -550,7 +551,7 @@ def result_from_dict(document: Mapping[str, Any]) -> Result:
     if not isinstance(document, Mapping):
         raise ValueError("a run document is an object")
     version = document.get("schema_version")
-    if version != RUN_DOCUMENT_VERSION:
+    if not is_version(version, RUN_DOCUMENT_VERSION):
         raise ValueError(f"the run document has the schema version {version!r}, not 1")
     if document.get("outcome") is None:
         raise ValueError("the document is of a request that never started a launch")

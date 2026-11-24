@@ -3612,8 +3612,8 @@ class Design(XedaBaseModel):
         `target` the result is the design itself, with no overlay, and `target` stays unset.
 
         A target is an overlay: it takes the keys of the design file itself (all but
-        `TARGET_FORBIDDEN_KEYS`), checked as the design's own are and
-        merged over them. Mappings merge key by key at every depth; `rtl.sources` and
+        `TARGET_FORBIDDEN_KEYS` and the fields that only planning sets), checked as the design's
+        own are and merged over them. Mappings merge key by key at every depth; `rtl.sources` and
         `tb.sources` are appended after the design's; any other list replaces the design's.
 
         Targets are optional: with no `target` given, no target is selected, whatever the number
@@ -3753,7 +3753,7 @@ class Design(XedaBaseModel):
             overlay = expand_hierarchy(dict(overlay))
         except ConflictingKeys as e:
             raise invalid(None, str(e)) from e
-        known = {*input_names(cls)} - TARGET_FORBIDDEN_KEYS
+        known = {*input_names(cls)} - TARGET_FORBIDDEN_KEYS - set(cls._INTERNAL_FIELDS)
         for path, message, kind in removed_inputs_in(cls, overlay):
             raise invalid(".".join(path), message, kind)
         for key in overlay:

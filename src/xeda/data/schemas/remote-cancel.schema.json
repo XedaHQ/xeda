@@ -8,6 +8,7 @@
       "type": "string"
     },
     "schema_version": {
+      "const": 1,
       "type": "integer"
     },
     "success": {

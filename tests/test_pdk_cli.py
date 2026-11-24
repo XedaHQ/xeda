@@ -2081,6 +2081,21 @@ def test_pdk_path_gives_the_receipt_object_or_null(home, store, tmp_path):
     assert again["receipt"] is None
 
 
+@pytest.mark.parametrize("version", [True, 2, 1.0, "1"])
+def test_a_receipt_of_another_schema_version_is_no_receipt(home, tmp_path, version):
+    """Only the integer 1 is the version of a receipt: `true` equals 1 in Python and is no
+    version, and a later version is unknown."""
+    root = tmp_path / "ciel"
+    install_sky130(root)
+    entry = load_residue("sky130hd").providers.ciel
+    assert entry is not None
+    written = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
+    written.write_text(json.dumps({**json.loads(written.read_text()), "schema_version": version}))
+    answer = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert answer["receipt"] is None
+    _validate(answer, "pdk-path")
+
+
 def test_a_receipt_of_an_earlier_xeda_reads_in_the_current_shape(home, tmp_path):
     """An earlier receipt has no `schema_version` and calls `installed_at` `time`. Both commands
     show it in the current shape, and the file on disk stays as it was."""

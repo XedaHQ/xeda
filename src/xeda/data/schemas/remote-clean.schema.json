@@ -45,6 +45,7 @@
       "type": "array"
     },
     "schema_version": {
+      "const": 1,
       "type": "integer"
     },
     "success": {

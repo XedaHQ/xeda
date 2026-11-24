@@ -38,6 +38,7 @@ from typing import Any, Optional
 
 from ..flow import FlowFatalError
 from ..proc_utils import run_process
+from ..schema_version import is_version
 from ..utils import NonZeroExitCode, replacing_file
 from ..version import __version__
 from .model import Located
@@ -717,7 +718,7 @@ def _current_receipt(document: Any) -> Optional[dict[str, Any]]:
         receipt["schema_version"] = 1
     commands = receipt.get("commands")
     if (
-        receipt.get("schema_version") != 1
+        not is_version(receipt.get("schema_version"), 1)
         or not isinstance(receipt.get("installed_at"), str)
         or not all(isinstance(receipt.get(key), str) for key in _RECEIPT_TEXT_KEYS)
         or not isinstance(commands, list)

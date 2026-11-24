@@ -607,6 +607,16 @@ def test_design_input_refuses_a_field_that_only_planning_sets(name, tmp_path):
         design_of({"name": "d", "rtl": {"sources": []}, name: ()}, tmp_path)
 
 
+@pytest.mark.parametrize("name", ["generation_units", "resolved_dependencies"])
+@pytest.mark.parametrize("selected", [True, False])
+def test_a_target_refuses_a_field_that_only_planning_sets(name, selected, tmp_path):
+    design_file = tmp_path / "d.yaml"
+    design_file.write_text(f"name: d\nrtl:\n  sources: []\ntargets:\n  board:\n    {name}: []\n")
+    with pytest.raises(DesignValidationError, match="not a key of a design") as raised:
+        Design.load(design_file, target="board" if selected else None)
+    assert f"targets.board.{name}" in str(raised.value)
+
+
 def test_planning_still_sets_the_fields_that_input_refuses(tmp_path):
     design = design_of({"name": "d", "rtl": {"sources": []}}, tmp_path)
     copy = design.model_copy(update={"generation_units": (design,)})

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from .frozen import FrozenDict, freeze, thaw
+from .schema_version import is_version
 
 if TYPE_CHECKING:
     from .flow_runner.launch_options import LaunchOptions, WorkspaceOptions
@@ -412,7 +413,9 @@ def plan_from_dict(
     document, which names the design of another machine. Raise `ValueError` if the document has
     another schema version or lacks a part. A document without `code` is read with an empty
     fingerprint: running it refuses it (`stale_runtime`), as a plan that other code made."""
-    if not isinstance(document, Mapping) or document.get("schema_version") != PLAN_DOCUMENT_VERSION:
+    if not isinstance(document, Mapping) or not is_version(
+        document.get("schema_version"), PLAN_DOCUMENT_VERSION
+    ):
         raise ValueError(f"not a plan document of schema version {PLAN_DOCUMENT_VERSION}")
     try:
         options = dict(document["options"])
