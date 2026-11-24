@@ -25,7 +25,10 @@ def check_shape(shape: type, value: Any) -> None:
     with warnings.catch_warnings():
         # Pydantic cannot enforce `ReadOnly`, and the check changes no value.
         warnings.filterwarnings("ignore", message=".*using the `ReadOnly` qualifier")
-        adapter = TypeAdapter(list[shape], config=ConfigDict(extra="forbid", strict=True))  # type: ignore[valid-type]
+        adapter = TypeAdapter(
+            list[shape],  # type: ignore[valid-type]
+            config=ConfigDict(extra="forbid", strict=True),
+        )
         adapter.validate_python([_plain(value)], strict=True)
 
 
