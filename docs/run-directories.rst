@@ -441,8 +441,8 @@ The trace records:
     reads it, ``tb``): the sources, and a parameter or define given as a file, such as ``$readmemh``
     data;
   - every existing file that a path-typed setting names. A relative path is looked up under the
-    design root and under the start directory. Nested settings count too, such as the GHDL plugin
-    setting inside the Yosys settings;
+    design root only. A path under the start directory is written ``$PWD/...``. Nested settings
+    count too, such as the GHDL plugin setting inside the Yosys settings;
   - every entry under a directory that a path-typed setting names, such as a compiled library in
     ``lib_paths``, the ``include_dirs`` of Verilator or a PDK directory. Xeda lists the directory
     recursively and follows symbolic links. It breaks cycles by device and inode, and does not enter
@@ -452,7 +452,7 @@ The trace records:
     (``reports``, ``outputs``, ``checkpoints`` and similar), and the
     run directory and run root where a named directory holds them;
   - every file that a flow resolves before it runs, such as the ``abc_script`` of Yosys, expanded
-    against the start directory or the environment;
+    against the design root (``$PWD/...`` names the start directory) or the environment;
   - the design sources that its declared inputs take.
 
 - The implicit inputs, which are known only after the run. These are the files that a tool reported
@@ -481,8 +481,7 @@ The trace records:
 - A file record for each file above: ``(size, mtime, inode change time, inode, content hash)``.
 - Where each path-typed setting points, by its name (such as ``lib_paths[0][1]``). An absolute path
   is recorded as it is, after Xeda has expanded ``$PWD``, ``$DESIGN_ROOT`` and ``$DESIGN_DIR``. A
-  relative path is recorded as each existing path that it is found at, under the design root and
-  under the start directory. The identity of a run counts ``$PWD/libs`` as written, so a launch from
+  relative path is recorded as the existing path that it names under the design root. The identity of a run counts ``$PWD/libs`` as written, so a launch from
   another start directory, or for another design tree with a design file that reads the same, has
   the same identity. A setting that names a directory, such as a compiled library, is bound by
   nothing else. If it points elsewhere, the run is stale (``lib_paths[0][1]`` now names ``<B>/libs``
@@ -1039,7 +1038,8 @@ is writable, and these directories, which are read-only:
   files that the flow itself registered as inputs, such as the chip database of nextpnr;
 - the directory of each existing file that a setting names (for example ``custom_boards_file`` or a
   platform file), and each existing directory that a setting names (for example a library path).
-  These are the same files and directories that the trace records as inputs. A setting that names
+  These are the same files and directories that the trace records as inputs, so a relative path
+  counts under the design root only. A setting that names
   what the flow writes, such as a working location or a deliverable, mounts nothing.
 
 A dockerized flow therefore reads the files of its producers and the files that its settings name

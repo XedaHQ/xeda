@@ -398,8 +398,6 @@ class Xezim(SimFlow):
         ss = self.settings
         # a flow built directly is not planned, so check here
         self.check_settings_supported(ss)
-        if ss.sdf_file:
-            ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.root)
 
     def _simulated_tops(self) -> List[str]:
         """Return the top modules: the one that cocotb drives, or else those of the design."""

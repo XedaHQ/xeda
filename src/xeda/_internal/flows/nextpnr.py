@@ -832,16 +832,8 @@ class Nextpnr(FpgaSynthFlow):
             raise FlowFatalError("nextpnr-himbaechel is missing on PATH; install openXC7 1.0.")
         layout = find_xilinx_layout(
             Path(executable),
-            prjxray_db=(
-                self.normalize_path_to_design_root(self.settings.prjxray_db)
-                if self.settings.prjxray_db is not None
-                else None
-            ),
-            chipdb=(
-                self.normalize_path_to_design_root(self.settings.chipdb)
-                if self.settings.chipdb is not None
-                else None
-            ),
+            prjxray_db=self.settings.prjxray_db,
+            chipdb=self.settings.chipdb,
         )
         return layout, select_xilinx(self.settings.fpga.part or "", layout)
 
@@ -981,7 +973,7 @@ class Nextpnr(FpgaSynthFlow):
             pins = Constraints().append(pins.text, self._board_url)
         timing_paths = list(self.inputs.sdc or [])
         if self.settings.sdc:
-            timing_paths.append(self.normalize_path_to_design_root(self.settings.sdc))
+            timing_paths.append(self.settings.sdc)
         sdc = merge_constraints(timing_paths)
         uses: list[ClockUse] = []
         pins, frequency, timed = reconcile_clocks(
@@ -1247,10 +1239,7 @@ class Nextpnr(FpgaSynthFlow):
         for name in FAMILY_SETTINGS:
             if name in XILINX_SETTINGS:
                 continue
-            value = getattr(ss, name)
-            if isinstance(value, Path):
-                value = self.normalize_path_to_design_root(value)
-            args += setting_flag(value, name=name)
+            args += setting_flag(getattr(ss, name), name=name)
         args += setting_flag(ss.verbosity == "debug", name="debug")
         args += setting_flag(ss.verbosity == "verbose", name="verbose")
         args += setting_flag(ss.verbosity == "quiet", name="quiet")
@@ -1276,12 +1265,11 @@ class Nextpnr(FpgaSynthFlow):
             "placer_heap_timingweight",
         ):
             args += setting_flag(getattr(ss, name), name=name)
-        # Input files are named relative to the design root.
         for name in ("pre_pack", "pre_place", "pre_route", "post_route", "py_script"):
             value = getattr(ss, name)
             if value:
                 flag = "run" if name == "py_script" else name
-                args += setting_flag(self.normalize_path_to_design_root(value), name=flag)
+                args += setting_flag(value, name=flag)
         args += setting_flag(ss.tmg_ripup, name="tmg_ripup")
         args += setting_flag(ss.no_tmdriv, name="no_tmdriv")
         args += setting_flag(ss.ignore_rel_clk, name="ignore_rel_clk")

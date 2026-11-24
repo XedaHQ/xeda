@@ -148,10 +148,7 @@ class FpgaPack(FpgaSynthFlow):
         resolved = which(PACKERS["xilinx"][0], path=self.process_environment().get("PATH"))
         if resolved is None:
             raise FlowFatalError("fpga-as is missing on PATH; install openXC7 1.0.")
-        prjxray_db = self.settings.prjxray_db
-        database = find_prjxray_database(
-            Path(resolved), self.normalize_path_to_design_root(prjxray_db) if prjxray_db else None
-        )
+        database = find_prjxray_database(Path(resolved), self.settings.prjxray_db)
         selection = select_xilinx_part(self.settings.fpga.part or "", database)
         data = locate_part_data(selection)
         self._selection, self._part_data = selection, data

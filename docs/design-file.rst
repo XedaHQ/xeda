@@ -66,7 +66,9 @@ Top level
 =========
 
 The design root is the directory of the design file. Every relative path in the file resolves
-against it, wherever you run Xeda. A design file has no key for the root: Xeda refuses
+against it, wherever you run Xeda. A relative path in a flow setting is relative to the design root too, whether it
+comes from the design file, ``-s`` or the Python API. For a path under the directory where you
+started Xeda, write ``$PWD/...``. A design file has no key for the root: Xeda refuses
 ``design_root`` there and in a design entry of a project file. The root of a design entry is the
 directory of the project file. A design with another root is a ``file`` entry, and its root is the
 directory of that file.

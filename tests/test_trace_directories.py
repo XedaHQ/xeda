@@ -23,6 +23,7 @@ from xeda import Design
 from xeda._internal.cli import cli
 from xeda._internal.flow import Flow, registered_flows
 from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.trace_inputs import setting_directories, setting_locations
 
 from .tool_utils import require_ghdl
 from xeda._internal.package_paths import impl_module
@@ -45,7 +46,7 @@ class TProbeLibraries(Flow):
         _name, directory = self.settings.lib_paths[0]
         out = self.run_path / "outputs" / "out.txt"
         out.parent.mkdir(exist_ok=True)
-        library = self.normalize_path_to_design_root(directory)  # a relative one: under it
+        library = directory  # a relative one: under the design root
         out.write_text((library / "pkg.txt").read_text())
         self.artifacts.out = out
 
@@ -105,9 +106,8 @@ def test_a_library_of_another_design_tree_with_the_same_text_is_stale(tmp_path):
 
 
 def test_a_relative_library_of_another_design_tree_is_stale(tmp_path, monkeypatch):
-    """A relative path is looked up under the design root and the start directory: where it
-    exists there is where it points -- another tree's, another place; another start directory
-    without such a path, the same place."""
+    """A relative path is looked up under the design root only: where it exists there is where
+    it points -- another tree's, another place; another start directory, the same place."""
     trees = [_library(tmp_path / "v" / name, k) for name, k in (("a", 1), ("b", 2))]
     settings = {"lib_paths": [["mylib", "libs"]]}
     for start in ("A", "B"):
@@ -121,6 +121,42 @@ def test_a_relative_library_of_another_design_tree_is_stale(tmp_path, monkeypatc
     was, now = (trees[0] / "libs").resolve(), (trees[1] / "libs").resolve()
     assert not flow.reused and flow.stale_reason == f"lib_paths[0][1] now names {now} (was {was})"
     assert out == "K = 2\n"
+
+
+def test_a_relative_library_is_not_looked_up_under_the_start_directory(tmp_path, monkeypatch):
+    """The start directory holds a `libs` of its own: the flow reads the one of the design root,
+    so a change in the other is no change of the run."""
+    start = _library(tmp_path / "start", 9)
+    design_root = _library(tmp_path / "design", 1)
+    design = Design(name="t", root=design_root, rtl={"sources": [], "top": "t"})
+    settings = {"lib_paths": [["mylib", "libs"]]}
+    monkeypatch.chdir(start)
+    flow, out = _launch(tmp_path / "run", design, settings)
+    assert out == "K = 1\n"
+    (start / "libs" / "pkg.txt").write_text("K = 10\n")
+    (start / "libs" / "more.txt").write_text("a new file\n")
+    flow, _ = _launch(tmp_path / "run", design, settings)
+    assert flow.reused, flow.stale_reason
+    assert str(start) not in (flow.run_path / "trace.json").read_text()
+
+
+def test_a_library_only_the_start_directory_holds_is_no_input(tmp_path):
+    """A relative path that exists only under the start directory names nothing that the trace
+    binds: the start directory is reached as `$PWD/...`."""
+    start = _library(tmp_path / "start", 1)
+    (tmp_path / "design").mkdir()
+    for name in ("libs", "$PWD/libs"):
+        settings = TProbeLibraries.Settings.from_input(
+            {"lib_paths": [["mylib", name]]}, design_root=tmp_path / "design", runner_cwd=start
+        )
+        bound = name != "libs"
+        run_path = tmp_path / "run"
+        assert setting_locations(settings, run_path) == {
+            "lib_paths[0][1]": [str((start / "libs").resolve())] if bound else []
+        }
+        assert [d for _key, d in setting_directories(settings, run_path)] == (
+            [(start / "libs").resolve()] if bound else []
+        )
 
 
 def test_a_setting_that_names_a_file_is_bound_by_the_file(tmp_path, monkeypatch):

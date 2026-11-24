@@ -35,7 +35,7 @@ from ..design import (
 )
 from ..flow import FlowSettingsError, FlowSettingsException
 from ..flow.asic import AsicPlatformSettings
-from ..flow.flow import map_keyed_path_leaves
+from ..flow.flow import map_keyed_path_leaves, setting_path_target
 from ..flow_runner.bindings import INPUTS_KEY, BindingLayer, written_bindings
 from ..flow_runner.chains import FlowRequest
 from ..flow_runner.default_runner import _get_flow_class_if_known
@@ -646,10 +646,10 @@ def package_inputs(
     def packaged_path(value: Any) -> Any:
         if not isinstance(value, (str, os.PathLike)) or not os.fspath(value):
             return value
-        path = Path(value)
-        if not path.is_absolute():
-            choices = [design.root / path, Path.cwd() / path]
-            path = next((p for p in choices if p.exists()), choices[0])
+        target = setting_path_target(value, design.root)
+        if target is None:  # a `$` variable that nothing expanded, or a yosys `+/` path
+            return value
+        path = target
         local = path.resolve()
         relative = design._relative_to_root(path)
         if relative is None:
@@ -689,10 +689,9 @@ def package_inputs(
 
         if not in_plan[0]:
             return packaged_path(value)
-        path = Path(value)
-        if not path.is_absolute():
-            choices = [design.root / path, Path.cwd() / path]
-            path = next((p for p in choices if p.exists()), choices[0])
+        path = setting_path_target(value, design.root)
+        if path is None:
+            return packaged_path(value)
         try:
             included = liberty_included_files(path) if path.is_file() else []
         except ValueError as error:

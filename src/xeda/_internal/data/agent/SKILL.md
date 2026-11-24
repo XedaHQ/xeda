@@ -209,6 +209,10 @@ xeda run nextpnr blinky.yaml -s yosys_fpga.flatten=true
   (a directory that holds library directories) and refuses an entry that has a name and no path.
   `iverilog` passes the path as `-y path` (a directory of `<module>.v` files) and refuses a name
   without a path.
+- A relative path in a setting that a flow reads is relative to the design root, never to the start
+  directory (the directory where Xeda starts). Write `$PWD/...` for a path under the start
+  directory. A path the flow writes, a locator, an unexpanded `$VAR` path and a Yosys `+/` path
+  keep their written meaning.
 - A flow uses every other setting it lists, and refuses a setting of a related flow:
   - The message names the flow that has it: `vivado_project` refuses `elab_debug`, `stop_time` and
     the other `vivado_sim` settings ("use `flows.vivado_sim.<name>`"); `ghdl_synth` refuses

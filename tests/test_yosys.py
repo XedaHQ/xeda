@@ -1059,8 +1059,8 @@ def test_the_shared_bases_read_no_setting_that_only_yosys_declares():
 def test_the_map_files_resolve_against_the_design_root(tmp_path):
     """A relative map file of `yosys` (`arithmetic.adder_map_file`, `sequential.clockgate_map_file`,
     `sequential.latch_map_file` and `techmap_files`) names a file in the design root, and so does the
-    `clockgate_map` of `yosys_fpga`. The settings of `yosys` keep the path as the user wrote it:
-    `asic_values` gives the resolved path."""
+    `clockgate_map` of `yosys_fpga`. The flow's own copy of the settings holds the resolved path,
+    as for every relative path setting."""
     design = Design.load(TESTS_DIR / "resources" / "design0" / "design0.toml")
     root = design.root
     flow = Yosys(
@@ -1081,10 +1081,10 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     assert values.clockgate_map == root / "maps/cg.v"
     assert values.latch_map == root / "maps/latch.v"
     assert values.techmap_files == (("pre_dff", root / "maps/a.v"), ("pre_dff", root / "maps/b.v"))
-    assert flow.settings.sequential.clockgate_map_file == Path("maps/cg.v")
+    assert flow.settings.sequential.clockgate_map_file == root / "maps/cg.v"
     assert [item.path for item in flow.settings.techmap_files] == [
-        Path("maps/a.v"),
-        Path("maps/b.v"),
+        root / "maps/a.v",
+        root / "maps/b.v",
     ]
     fpga = YosysFpga(
         YosysFpga.Settings(

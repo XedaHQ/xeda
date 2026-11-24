@@ -370,7 +370,6 @@ class Iverilog(SimFlow):
         assert isinstance(self.settings, self.Settings)
         # a flow built directly skips planning, so check here
         self.check_settings_supported(self.settings)
-        self.resolve_lib_paths()
 
     def has_evidence_adapter(self) -> bool:
         """Return whether Xeda's monitor records how the simulation ended.
@@ -424,9 +423,9 @@ class Iverilog(SimFlow):
         defines = {**design.rtl.defines, **design.tb.defines}
         flags += [f"-D{k}=" if v is None else f"-D{k}={v}" for k, v in defines.items()]
         include_dirs = [*ss.include_dirs, *design._header_dirs(tb=True)]
-        flags += [f"-I{d}" for d in unique(self.resolve_paths_to_design_or_cwd(include_dirs))]
+        flags += [f"-I{d}" for d in unique(include_dirs)]
         flags += [f"-y{path}" for _, path in ss.lib_paths]
-        for library in self.resolve_paths_to_design_or_cwd(ss.verilog_libs):
+        for library in ss.verilog_libs:
             flags += ["-l", str(library)]
         # `rtl.parameters` are the RTL top's: they apply only when it is the simulated top
         top = tops[0]
@@ -494,11 +493,7 @@ class Iverilog(SimFlow):
         self.compile_design(tops, dump_file if self.cocotb else None)
 
         args = ["-i", "-n", *ss.run_flags]
-        args += [
-            arg
-            for module in self.resolve_paths_to_design_or_cwd(ss.vpi_modules)
-            for arg in ("-m", str(module))
-        ]
+        args += [arg for module in ss.vpi_modules for arg in ("-m", str(module))]
         if self.cocotb:
             library = self.cocotb.lib_path("vpi")
             if library is None:

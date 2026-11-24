@@ -234,6 +234,12 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 - A field holding a subclass needs `SerializeAsAny[...]`. Read state with `utils.model_state()`,
   not `__dict__`. Write JSON through `utils.json_encodable`; a non-pydantic type defines
   `as_json_value()`. Call `invalidate_cached_properties()` after `model_copy(update=...)`.
+- A relative path in a setting that a flow reads is relative to the design root. `Flow.__init__`
+  makes each such path absolute once, in the flow's own copy of the settings
+  (`resolve_setting_paths`), by the reader that the trace and the container mounts use; a flow
+  never resolves a path of its own (`tests/test_setting_path_resolution.py`). A path that the
+  flow writes or a locator stays as given, and so do an unexpanded `$VAR` path and a Yosys `+/`
+  path; `$PWD/...` names a path under the start directory.
 - Settings layers merge in one place (`settings_layers.merge_layers`), and every entry point
   takes the same layers (`tests/test_launch_origins.py`); precedence: `docs/flows.rst`.
 

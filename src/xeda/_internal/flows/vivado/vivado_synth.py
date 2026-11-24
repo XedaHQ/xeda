@@ -413,7 +413,7 @@ def constraint_files(flow: Any, settings: Any) -> List[Path]:
         for p in flow.design.rtl.sources
         if p.type is SourceType.Xdc or p.type is SourceType.Sdc
     )
-    xdc_files += (flow.normalize_path_to_design_root(p) for p in settings.xdc_files)
+    xdc_files += (Path(p) for p in settings.xdc_files)
     return xdc_files
 
 
@@ -1097,7 +1097,7 @@ class VivadoSynth(VivadoImplementation):
         if not self.design.rtl.clocks:
             log.warning("No clocks specified for top RTL design.")
 
-        tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
+        tcl_files = [Path(p) for p in settings.tcl_files]
 
         if self.settings.bitstream:
             bs_str = str(self.settings.bitstream)

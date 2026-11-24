@@ -711,7 +711,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         if ss.abc_dff is None:
             ss.abc_dff = not ss.maps_to_liberty()
         super().init()
-        ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
         if ss.netlist_json:  # the Verilog netlist is the declared output
             self.artifacts.netlist_json = ss.netlist_json
 
@@ -730,7 +729,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         files = ss.liberty_files() or list((platform_files or {}).get("liberty", []))
         dff = ss.sequential.dff_liberty
         if dff is not None and ss.maps_to_liberty():
-            files.append(self.normalize_path_to_design_root(dff))
+            files.append(dff)
         return files
 
     def _refuse_liberty_includes(self, platform_files: Optional[Mapping[str, List[Path]]]) -> None:
@@ -829,26 +828,23 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         model = self.platform_model
         files = model.files if model else {}
 
-        def given(path: Optional[Path]) -> Optional[Path]:
-            return None if path is None else self.normalize_path_to_design_root(path)
-
         def platform_file(role: str) -> Optional[Path]:
             return files[role][0] if files.get(role) else None
 
         latch_map = None
         if ss.sequential.latch_map == "platform":
-            latch_map = given(ss.sequential.latch_map_file)
+            latch_map = ss.sequential.latch_map_file
             if latch_map is None:
                 latch_map = platform_file("latch_map")
         clockgate_map = None
         if ss.sequential.clockgate_map == "platform":
-            clockgate_map = given(ss.sequential.clockgate_map_file)
+            clockgate_map = ss.sequential.clockgate_map_file
             if clockgate_map is None:
                 clockgate_map = platform_file("clkgate_map")
-        dff_map = given(ss.sequential.dff_map)
+        dff_map = ss.sequential.dff_map
         adder_map = None
         if ss.arithmetic.adder_map == "platform":
-            adder_map = given(ss.arithmetic.adder_map_file)
+            adder_map = ss.arithmetic.adder_map_file
             if adder_map is None:
                 adder_map = platform_file("adder_map")
         tie_cells = ss.finish.tie_cells
@@ -889,11 +885,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             latch_map=latch_map,
             clockgate_map=clockgate_map,
             adder_map=adder_map,
-            techmap_files=tuple(
-                (item.when, self.normalize_path_to_design_root(item.path))
-                for item in ss.techmap_files
-            ),
-            dff_liberty=given(ss.sequential.dff_liberty),
+            techmap_files=tuple((item.when, item.path) for item in ss.techmap_files),
+            dff_liberty=ss.sequential.dff_liberty,
             dff_map=dff_map,
             dff_map_cells=dff_map_cells(dff_map) if dff_map is not None else (),
             legalize_any=LEGALIZE_ANY_FLIP_FLOP,
@@ -927,8 +920,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             booth_map=BOOTH_MAP if ss.arithmetic.wrap_operators else None,
             wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),
             wrapped_multipliers=tuple(name.upper() for name in ss.arithmetic.wrapped_multipliers),
-            memory_libmap=tuple(self.normalize_path_to_design_root(f) for f in ss.memory.libmap),
-            memory_techmap=given(ss.memory.techmap),
+            memory_libmap=tuple(ss.memory.libmap),
+            memory_techmap=ss.memory.techmap,
             delay_target_ps=delay_target_ps,
             constraints=tuple(constraints),
         )

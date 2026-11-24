@@ -155,7 +155,9 @@ def test_a_required_typed_setting_is_given_to_its_validators_as_its_type(
     every way a setting can be given."""
     flow = _launch(how, runner, design, tmp_path)
     assert flow is not None and flow.succeeded
-    assert Path(flow.results["where"]) == Path("a/b") and flow.results["label"] == "ok"
+    # a relative path in a setting reaches the flow under the design root
+    assert Path(flow.results["where"]) == flow.design.root / "a/b"
+    assert flow.results["label"] == "ok"
 
 
 @pytest.mark.parametrize("how", ["API dict", "sections", "design file"])

@@ -20,6 +20,7 @@ from ...flow import (
     FlowSettingsException,
     NoReplacement,
 )
+from ...flow.flow import setting_path_target
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...frozen import thaw
@@ -965,7 +966,8 @@ class YosysSynthesisBase(YosysBase):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if ss.abc_script and not ss.abc_script.startswith("+"):
-            return self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.root)
+            path = self.process_path(ss.abc_script, subs_vars=True)
+            return setting_path_target(path, self.design.root) or path
         return None
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:

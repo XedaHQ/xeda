@@ -1170,10 +1170,6 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         # of the design into `set_attribute`, and the run writes what the plan declared.
         problem = self.settings.edif_problem()
         super().init()
-        if self.settings.clockgate_map:
-            self.settings.clockgate_map = self.normalize_path_to_design_root(
-                self.settings.clockgate_map
-            )
         if problem is None:
             self.netlist_files["netlist_edif"] = self.settings.netlist_edif
         if self.settings.netlist_verilog:

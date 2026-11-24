@@ -83,7 +83,7 @@ def test_a_verilog_search_path_with_a_percent_is_rejected_but_not_the_flows_own(
 def test_a_missing_verilog_search_folder_fails_the_run(tmp_path):
     design = _accum_design(tmp_path / "d")
     flow = _flow(Bsc, design, tmp_path / "run", verilog_search_paths=["nowhere"])
-    with pytest.raises(FlowSettingsException, match="`verilog_search_paths` names 'nowhere'"):
+    with pytest.raises(FlowSettingsException, match="`verilog_search_paths` names '[^']*nowhere'"):
         flow._path_flags("verilog", tmp_path / "out", design.rtl.sources)
 
 
@@ -392,7 +392,7 @@ def test_a_search_path_that_is_no_folder_fails_the_run(tmp_path):
         ["lib", "libz"],
         rtl={"sources": ["Top.bsv"], "top": "mkTop"},
     )
-    with pytest.raises(FlowSettingsException, match="`search_paths` names 'libz'"):
+    with pytest.raises(FlowSettingsException, match="`search_paths` names '[^']*libz'"):
         flow._stage(tb=False)
 
 
