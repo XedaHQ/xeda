@@ -13,8 +13,8 @@ from tests.test_bsc import (
 
 
 def test_a_header_link_that_leads_to_another_file_runs_the_simulation_again(tmp_path):
-    """`ops.h` is a link to `scale_3.h`. A link that leads to `scale_3.h` and later to
-    `scale_4.h`, which both exist, is a change, whatever the old target holds."""
+    """`inner/scale.h` is a link to `scale_3.h`. A link that leads to `scale_3.h` and later to
+    `scale_3_copy.h`, which both exist, is a change, whatever the old target holds."""
     require_bluesim()
     require_c_toolchain()
     runner = DefaultRunner(tmp_path / "run", display_results=False)
