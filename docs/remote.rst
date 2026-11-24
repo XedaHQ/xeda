@@ -575,9 +575,11 @@ A failure of the remote step has an error code (see :doc:`machine-readable`). Be
 launch, the failure raises ``RemoteError`` in Python, with the code and the host in ``.host``, and
 ``xeda run`` exits with status 2. After it, the failure is the launch-level error of the result.
 The message names the step and the cause. This section lists the causes by code. The commands
-``xeda remote check``, ``clean``, ``attach`` and ``cancel`` use the same codes, with one
-difference: a cause that is not listed under ``remote_unreachable`` or ``remote_setup_failed``
-has the code ``remote_failed`` there.
+``xeda remote check``, ``clean``, ``attach`` and ``cancel`` use the same codes, with these
+differences: a step on the host that does not finish in time has the code ``timeout``, a local
+file system error has the code ``storage_error``, an interrupt has the code ``canceled``, and any
+other cause that is not listed under ``remote_unreachable`` or ``remote_setup_failed`` has the code
+``remote_failed``.
 
 ``remote_unreachable``
     OpenSSH could not connect or authenticate, or the connection ended. The message has the OpenSSH
