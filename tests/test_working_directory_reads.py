@@ -111,11 +111,10 @@ REVIEWED_PROCESS_STARTS: dict[tuple[str, str], str] = {
     ("remote/agent.py", "_kill_user_processes"): "names processes, not files",
     ("remote/agent.py", "_where_found"): "names processes, not files",
     ("remote/client.py", "machine_id"): "names no file",
+    ("remote/ssh.py", "_communicate"): "a relative `-F` file is the caller's",
     ("remote/ssh.py", "SshSession._close"): "a relative `-F` file is the caller's",
-    ("remote/ssh.py", "SshSession._start_master"): "a relative `-F` file is the caller's",
     ("remote/ssh.py", "SshSession.check"): "a relative `-F` file is the caller's",
     ("remote/ssh.py", "SshSession.popen"): "a relative `-F` file is the caller's",
-    ("remote/ssh.py", "SshSession.run"): "a relative `-F` file is the caller's",
     ("remote/ssh.py", "resolve_destination"): "a relative `-F` file is the caller's",
     ("sweep.py", "_Sweep._run_in_workers"): "a worker runs one node of the sweep, whose paths are "
     "absolute and whose run root is the one the workspace resolved",
