@@ -377,13 +377,17 @@ def test_rows_have_the_contract_columns(tmp_path, design):
     assert list(rows[0])[:7] == [
         "index",
         "flow",
-        "design",
+        "design_name",
         "target",
         "outcome",
         "error_code",
         "run_dir",
     ]
-    assert [row["index"] for row in rows] == [0, 1] and rows[0]["design"] == "top"
+    assert (
+        [row["index"] for row in rows] == [0, 1]
+        and rows[0]["design_name"] == "top"
+        and "design" not in rows[0]
+    )
     assert rows[0]["flow"] == "yosys_fpga+nextpnr" and rows[0]["outcome"] == "passed"
     assert rows[0]["error_code"] is None and rows[0]["target"] is None
     assert rows[0]["run_dir"] == result.points[0].result.nodes["nextpnr"].run_dir

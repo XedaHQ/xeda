@@ -311,7 +311,7 @@ A file at a destination that Xeda did not deliver is never replaced: the sweep r
 ``SpecError`` with the code ``delivery_refused`` before anything runs. A failure of the delivery is
 the error of the point, as it is of a launch. A failure of the generator of the design is too.
 
-``rows`` returns one dict for each point. The keys are ``index``, ``flow``, ``design``,
+``rows`` returns one dict for each point. The keys are ``index``, ``flow``, ``design_name``,
 ``target``, ``outcome``, ``error_code`` and ``run_dir``, then ``design.<path>`` for each setting
 that the updates of the design changed, ``settings.<node>.<path>`` for each setting of the specs,
 and the metrics that you ask for as ``<node>.<metric>``. A metric is ``None`` for a node that has

@@ -126,7 +126,7 @@ class SweepResult:
     ) -> list[dict[str, Any]]:
         """Return one table row for each point, as a dict.
 
-        The keys are `index`, `flow` (the flow or chain of the spec), `design`, `target`,
+        The keys are `index`, `flow` (the flow or chain of the spec), `design_name`, `target`,
         `outcome`, `error_code` and `run_dir` (of the root node); then `design.<path>` for each
         leaf of the updates of the design (`Design.updates`, merged), then `settings.<node>.<path>`
         for each leaf of the settings of the spec, then one key for each of `metrics`. A metric is
@@ -178,7 +178,7 @@ class SweepResult:
         row: dict[str, Any] = {
             "index": point.index,
             "flow": spec.flow,
-            "design": spec.design.name,
+            "design_name": spec.design.name,
             "target": spec.design.target,
             "outcome": str(result.outcome),
             "error_code": None if result.error is None else result.error.code,
