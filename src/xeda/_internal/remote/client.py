@@ -1392,7 +1392,7 @@ def _translation(
 def _plan_options(options: LaunchOptions) -> Dict[str, Any]:
     """The `options` of a plan document: the options of the caller. The host knows only some of
     them, since it delivers nothing."""
-    document = options.as_dict()
+    document: Dict[str, Any] = dict(options.as_dict())
     if options.outputs_to is not None:
         document["outputs_to"] = str(options.outputs_to)
     return document

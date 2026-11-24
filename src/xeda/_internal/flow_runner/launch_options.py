@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..local_settings import LocalSettings
+from ..mapping_types import PlanOptions
 from ..types import Question
 
 __all__ = ["LaunchOptions", "WorkspaceOptions"]
@@ -36,7 +37,7 @@ class LaunchOptions:
         if self.outputs_to is not None:
             object.__setattr__(self, "outputs_to", Path(os.path.abspath(self.outputs_to)))
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self) -> PlanOptions:
         """Return the seven options by name, as `Plan.options` holds them."""
         return {
             "rebuild_all": self.rebuild_all,

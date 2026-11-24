@@ -35,6 +35,21 @@ assert_type(record.outcome, xeda.Outcome)
 assert_type(record.metrics, Mapping[str, Any])
 assert_type(record.run_dir, Path)
 assert_type(record.runtime, str)
+assert_type(record.dependencies, tuple[xeda.DependencyInfo, ...])
+for dependency in record.dependencies:
+    assert_type(dependency["repository"], str | None)
+    assert_type(dependency["design_file"], str)
+for output in record.outputs.values():
+    derived = output.design
+    assert_type(derived, xeda.DerivedDesign | None)
+    if derived is not None:
+        assert_type(derived["top"], str | None)
+        for source in derived["sources"]:
+            if "generated" in source:
+                assert_type(source, xeda.DerivedGeneratedSource)
+            else:
+                assert_type(source, xeda.DerivedPassedSource)
+                assert_type(source["source"], int)
 
 same = xeda.load_record(record.run_dir)
 assert_type(same, xeda.RunRecord)

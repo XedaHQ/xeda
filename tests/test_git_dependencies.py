@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 import xeda._internal.design
 import xeda._internal.flow_runner.dependencies
-from xeda import Design
+from xeda import DependencyInfo, Design
 from xeda._internal.design import (
     DesignReference,
     DesignValidationError,
@@ -45,6 +45,7 @@ from xeda._internal.records import read_record
 from .flow_registry import preserved_flow_registry
 from .tool_utils import require_git
 from .scoping import node_settings
+from .typed_shapes import check_shape
 
 SECRET = "s3cr3t-sentinel"
 XILINX = {"fpga": {"part": "xc7a12tcsg325-1"}, "clocks": {"main_clock": {"period": "10 ns"}}}
@@ -401,6 +402,7 @@ def test_the_record_lists_the_dependency_and_its_commit(tmp_path, remote, toy):
             "design_file": "dep.yaml",
         }
     ]
+    check_shape(DependencyInfo, record.dependencies[0])
     sources = {s.path: s.dependency for item in record.inputs for s in item.sources}
     assert sources == {"top.v": None, "src/a.v": 0}
 

@@ -35,6 +35,7 @@ from typing import (
 from ..dataclass import XedaBaseModel, model_validator
 from ..frozen import freeze, thaw
 from ..local_settings import LocalSettings, check_launch_settings
+from ..mapping_types import ExecutableCheck
 from ..plan import Plan as PublicPlan
 from ..plan import PlanDelivery, dependency_entries, delivery_key, planned_destination, plan_of
 from ..spec import Spec
@@ -347,7 +348,7 @@ class PlannedLaunch:
     states: dict[str, NodeFreshness]
     deliveries: dict[str, tuple[PlanDelivery, ...]]
     #: The `executable_check` of each node by name (`plan_freshness.executable_checks`).
-    executable_checks: dict[str, dict[str, str | None] | None] = field(default_factory=dict)
+    executable_checks: dict[str, ExecutableCheck | None] = field(default_factory=dict)
 
 
 def _design_origin(design: Design, given_file: Path | None = None) -> str:

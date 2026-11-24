@@ -64,6 +64,14 @@ Plan a launch
    :members:
    :undoc-members:
 
+.. autoclass:: xeda.PlanOptions
+   :members:
+   :undoc-members:
+
+.. autoclass:: xeda.ExecutableCheck
+   :members:
+   :undoc-members:
+
 .. autofunction:: xeda.plan
 
 Run a launch
@@ -152,7 +160,23 @@ Records of earlier runs
    :members:
    :undoc-members:
 
+.. autoclass:: xeda.DependencyInfo
+   :members:
+   :undoc-members:
+
 .. autoclass:: xeda.OutputRecord
+   :members:
+   :undoc-members:
+
+.. autoclass:: xeda.DerivedDesign
+   :members:
+   :undoc-members:
+
+.. autoclass:: xeda.DerivedGeneratedSource
+   :members:
+   :undoc-members:
+
+.. autoclass:: xeda.DerivedPassedSource
    :members:
    :undoc-members:
 
