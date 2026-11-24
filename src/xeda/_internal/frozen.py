@@ -8,6 +8,7 @@ into a form that nothing can change: a table becomes a `FrozenDict` and a list b
 from __future__ import annotations
 
 import copy
+import numbers
 from collections.abc import Iterator, Mapping
 from typing import Any, TypeVar
 
@@ -79,14 +80,19 @@ _CONVERSIONS = (
 _OPERATORS = ("add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "divmod")
 
 
-def _with_registry_of(copy_: Any, quantity: Any) -> Any:
-    """Attach `copy_` to the registry of `quantity`.
+def _build(kind: type, magnitude: Any, units: Any, registry: Any) -> Any:
+    """Return a quantity of class `kind` that holds exactly these parts.
 
-    A quantity of the application registry holds its registry as an attribute that the
-    constructor sets from the current application registry, which can be another one."""
-    if not hasattr(type(copy_), "_REGISTRY") and copy_._REGISTRY is not quantity._REGISTRY:
-        copy_._REGISTRY = quantity._REGISTRY
-    return copy_
+    It does not run the constructor of the class, which converts the magnitude as the current
+    application registry says (`force_ndarray` makes an array) and attaches the quantity to that
+    registry. The parts are those of a quantity that already exists, so there is nothing to
+    convert."""
+    quantity: Any = object.__new__(kind)
+    object.__setattr__(quantity, "_magnitude", magnitude)
+    object.__setattr__(quantity, "_units", units)
+    if not hasattr(kind, "_REGISTRY"):  # a quantity of the application registry holds it itself
+        object.__setattr__(quantity, "_REGISTRY", registry)
+    return quantity
 
 
 def _plain_quantity(quantity: Any) -> Any:
@@ -94,22 +100,17 @@ def _plain_quantity(quantity: Any) -> Any:
     that it came from."""
     kind = type(quantity)
     kind = getattr(kind, "_unfrozen", kind)
-    return _with_registry_of(kind(copy.copy(quantity.magnitude), quantity._units), quantity)
+    return _build(kind, copy.copy(quantity.magnitude), quantity._units, quantity._REGISTRY)
 
 
 def _unpickle_frozen_quantity(magnitude: Any, units: Any) -> Any:
     """Make a frozen quantity of the application registry again, as a pickle holds it."""
-    return _frozen_quantity(pint._unpickle_quantity(pint.Quantity, magnitude, units))
+    registry = pint.get_application_registry().get()
+    return _build(_frozen_class(pint.Quantity), magnitude, units, registry)
 
 
-def _frozen_quantity(quantity: Any, magnitude: Any = None) -> Any:
-    """Return a quantity equal to `quantity` that has no method that changes it in place.
-
-    Its class derives from the class of `quantity`, so it is a quantity of the same registry and
-    it reads, compares and hashes as one. `ito` and its relatives raise `TypeError`. Every
-    operator and conversion works on a plain copy and returns a plain quantity, which the caller
-    may change: it is a new value, and the stored one stays as it is. A copy is frozen too."""
-    base = getattr(type(quantity), "_unfrozen", type(quantity))  # freezing twice is no change
+def _frozen_class(base: type) -> type:
+    """Return the class of the frozen quantities that derive from `base`."""
     kind = _FROZEN_QUANTITY_CLASSES.get(base)
     if kind is None:
         namespace: dict[str, Any] = {
@@ -119,6 +120,13 @@ def _frozen_quantity(quantity: Any, magnitude: Any = None) -> Any:
             "__deepcopy__": lambda self, memo: _frozen_quantity(
                 self, copy.deepcopy(self.magnitude, memo)
             ),
+            # pint builds a new quantity with `self.__class__(...)` (`real`, `imag`, `T`, ...): a
+            # new quantity is a plain one
+            "__new__": lambda cls, *args, **kwargs: base.__new__(base, *args, **kwargs),
+            "__setattr__": _refuse_assignment,
+            "__delattr__": _refuse_assignment,
+            # pint caches the dimensionality in the quantity on first use
+            "dimensionality": property(lambda self: _plain_quantity(self).dimensionality),
         }
         for name in _IN_PLACE_METHODS:
             if hasattr(base, name):
@@ -135,9 +143,36 @@ def _frozen_quantity(quantity: Any, magnitude: Any = None) -> Any:
                 namespace[f"__i{name}__"] = _on_plain(getattr(base, f"__{name}__"))
         kind = type(f"Frozen{base.__name__}", (base,), namespace)
         _FROZEN_QUANTITY_CLASSES[base] = kind
+    return kind
+
+
+def _frozen_quantity(quantity: Any, magnitude: Any = None) -> Any:
+    """Return a quantity equal to `quantity` that nothing changes in place.
+
+    Its class derives from the class of `quantity`, so it is a quantity of the same registry and
+    it reads, compares and hashes as one. It refuses every assignment to and deletion of an
+    attribute, so no method of pint, present or future, can change it: `ito` and its relatives
+    raise `TypeError` with a message that says what to use. Every operator and conversion works
+    on a plain copy and returns a plain quantity, which the caller may change: it is a new value,
+    and the stored one stays as it is. A copy is frozen too. The magnitude must be a number: a
+    setting is a scalar, and an array could change inside the quantity."""
+    base = getattr(type(quantity), "_unfrozen", type(quantity))  # freezing twice is no change
     if magnitude is None:
-        magnitude = copy.copy(quantity.magnitude)
-    return _with_registry_of(kind(magnitude, quantity._units), quantity)
+        magnitude = quantity.magnitude
+        if not isinstance(magnitude, numbers.Number):
+            raise ValueError(
+                f"a quantity must hold a number, not {type(magnitude).__name__}: "
+                f"{quantity!r} is not allowed"
+            )
+        magnitude = copy.copy(magnitude)
+    return _build(_frozen_class(base), magnitude, quantity._units, quantity._REGISTRY)
+
+
+def _refuse_assignment(self: Any, name: str, *value: Any) -> None:
+    raise TypeError(
+        f"a quantity in a frozen value cannot change: `{name}` is not allowed. "
+        "Use a method that returns a new quantity, such as `to`"
+    )
 
 
 def _forbidden(name: str) -> Any:

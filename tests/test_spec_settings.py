@@ -337,7 +337,7 @@ def test_a_quantity_in_a_spec_cannot_change_in_place(tmp_path):
         with pytest.raises(TypeError):
             same.settings["ghdl_sim"]["timeout"].ito("s")
         assert same == spec
-    with pytest.raises(AttributeError):
+    with pytest.raises(TypeError):
         stored.magnitude = 3  # type: ignore[misc]
     # a spec made from the settings of a spec freezes them again without a second layer
     again = Spec("ghdl_sim", spec.design, settings=spec.settings)
@@ -416,3 +416,87 @@ def test_the_operators_work_on_a_frozen_quantity_and_leave_it_as_it_is(options):
     assert total == plain + other and total is not stored
     assert (stored.magnitude, str(stored.units)) == (3, "nanosecond")
     assert hash(stored) == hash(plain) and stored == plain
+
+
+def _state(quantity):
+    return (type(quantity), quantity.magnitude, str(quantity.units), dict(vars(quantity)))
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_no_attribute_of_a_stored_quantity_can_change(application):
+    import pint
+
+    from xeda._internal.frozen import freeze
+
+    stored = freeze({"x": pint.Quantity(2, "min")})["x"]
+    before = _state(stored)
+    for name in (*vars(stored), "_magnitude", "_units", "_REGISTRY", "magnitude", "other"):
+        with pytest.raises(TypeError):
+            setattr(stored, name, 1)
+        with pytest.raises(TypeError):
+            delattr(stored, name)
+    # every method, called with the arguments that the in-place ones take, leaves it as it is
+    arguments = [(), (pint.Quantity(1, "s"),), ("s",), (1,), (pint.Quantity(1, "s"), "s")]
+    skipped = {"dump", "dumps", "tofile", "to_file"}  # these write files
+    for name in dir(stored):
+        method = getattr(stored, name, None)
+        if name.startswith("_") or name in skipped or not callable(method):
+            continue
+        for call_arguments in arguments:
+            try:
+                method(*call_arguments)
+            except Exception:  # pylint: disable=broad-except
+                pass
+            assert _state(stored) == before, f"{name}{call_arguments!r} changed the quantity"
+    for name in ("__setitem__", "__iadd__", "__imul__", "__ipow__"):
+        try:
+            getattr(stored, name)(*arguments[1])
+        except Exception:  # pylint: disable=broad-except
+            pass
+        assert _state(stored) == before
+
+
+def test_fill_cannot_change_a_stored_quantity(application):
+    import pint
+
+    from xeda._internal.frozen import freeze
+
+    stored = freeze({"x": pint.Quantity(2, "min")})["x"]
+    with pytest.raises((TypeError, AttributeError)):
+        stored.fill(pint.Quantity(1, "s"))
+    assert (stored.magnitude, str(stored.units)) == (2, "minute")
+
+
+def test_a_quantity_that_holds_an_array_is_refused_when_frozen(application):
+    np = pytest.importorskip("numpy")
+    import pint
+
+    from xeda._internal.frozen import freeze
+
+    with pytest.raises(ValueError, match="must hold a number, not ndarray"):
+        freeze({"x": pint.Quantity(np.array([1.0, 2.0]), "ns")})
+
+
+def test_a_forced_array_registry_does_not_turn_a_scalar_into_an_array(tmp_path, application):
+    pytest.importorskip("numpy")
+    import copy
+    import pickle
+
+    import pint
+
+    from xeda._internal.frozen import freeze, thaw
+
+    spec = _spec(tmp_path, {"ghdl_sim": {"timeout": pint.Quantity(10, "ns")}}, "ghdl_sim")
+    pint.set_application_registry(pint.UnitRegistry(force_ndarray=True))
+    stored = spec.settings["ghdl_sim"]["timeout"]
+    plain = thaw(spec.settings)["ghdl_sim"]["timeout"]
+    for same in (
+        stored,
+        plain,
+        freeze(spec.settings)["ghdl_sim"]["timeout"],
+        copy.copy(stored),
+        copy.deepcopy(stored),
+        pickle.loads(pickle.dumps(stored)),
+    ):
+        assert same.magnitude == 10 and isinstance(same.magnitude, int)
+    assert Spec("ghdl_sim", spec.design, settings=spec.settings) == spec
