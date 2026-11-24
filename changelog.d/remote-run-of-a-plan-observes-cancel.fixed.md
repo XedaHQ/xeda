@@ -1,2 +1,3 @@
-- A `CancelToken` now stops a remote run during its first steps, while it connects, provisions,
-  starts the agent, syncs and compares the plan with the host. The run returns a `canceled` result.
+- A `CancelToken` now stops a remote run during its first steps (connect, provision, agent start,
+  sync, plan comparison) and returns a `canceled` result. A canceled or interrupted provisioning
+  also stops on the host and frees its lock.

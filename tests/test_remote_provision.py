@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -482,9 +483,12 @@ def test_put_code_refuses_unsafe_archives(fake_remote, snapshot, tmp_path):
     assert [p.name for p in (fake_remote.layout / "code").iterdir()] == [snapshot.key]
 
 
+@pytest.mark.parametrize("ending", ["signal", "input"])
 def test_terminated_script_releases_its_lock_and_removes_its_directories(
-    fake_remote, snapshot, tmp_path
+    fake_remote, snapshot, tmp_path, ending
 ):
+    """A TERM signal, and the end of the input (the client went away: it was canceled or killed,
+    or the connection is lost), stop the script in the same way."""
     result, _ = provision_once(snapshot)
     fake_remote.configure(uv_venv_delay=60.0)
     other = DependencySpec(requirements=("pydantic>=3",), constraints=())
@@ -513,15 +517,18 @@ def test_terminated_script_releases_its_lock_and_removes_its_directories(
         env=environment,
     )
     assert script.stdin is not None
-    script.stdin.write(b"R pydantic>=3\n")
-    script.stdin.close()
+    script.stdin.write(b"R pydantic>=3\nEND\n")
+    script.stdin.flush()
     deadline = time.time() + 30
     while not (fake_remote.layout / "env" / key).exists():
         assert time.time() < deadline, "no environment directory"
         assert script.poll() is None, script.stderr.read() if script.stderr else ""
         time.sleep(0.05)
     assert (fake_remote.layout / "locks" / f"env-{key}.lock").exists()
-    script.send_signal(signal.SIGTERM)
+    if ending == "signal":
+        script.send_signal(signal.SIGTERM)
+    else:
+        script.stdin.close()
     assert script.wait(timeout=30) == 143
     assert not (fake_remote.layout / "env" / key).exists()
     assert not list((fake_remote.layout / "locks").glob("*"))
@@ -619,9 +626,39 @@ def boot_environment(remote: FakeRemote, **extra: str) -> dict:
     }
 
 
-def run_boot(remote: FakeRemote, result: Provisioned, *args: str, stdin: bytes = b"", **env: str):
+def run_holding_input(command: List[str], stdin: bytes, env: dict, timeout: float = 60):
+    """Run `command` as the client of a provisioning step does: it writes `stdin`, keeps the input
+    open until the command has ended and then closes it. (The script stops when its input ends.)"""
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=out, stderr=err, env=env)
+        try:
+            assert process.stdin is not None
+            process.stdin.write(stdin)
+            process.stdin.flush()
+            code = process.wait(timeout=timeout)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            process.stdin and process.stdin.close()
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(command, code, out.read(), err.read())
+
+
+def run_boot(
+    remote: FakeRemote,
+    result: Provisioned,
+    *args: str,
+    stdin: bytes = b"",
+    hold_input: bool = False,
+    **env: str,
+):
+    command = ["sh", result.boot, args[0], result.env_hash, *args[1:]]
+    if hold_input:
+        return run_holding_input(command, stdin, boot_environment(remote, **env))
     return subprocess.run(
-        ["sh", result.boot, args[0], result.env_hash, *args[1:]],
+        command,
         input=stdin,
         capture_output=True,
         env=boot_environment(remote, **env),
@@ -684,7 +721,8 @@ def test_virtual_environment_variables_do_not_reach_uv(fake_remote, snapshot):
         UV_VERSION,
         fake_remote.uv_url,
         fake_remote.uv_sha256,
-        stdin=b"R pydantic>=2\n",
+        stdin=b"R pydantic>=2\nEND\n",
+        hold_input=True,
         VIRTUAL_ENV="/some/venv",
         CONDA_PREFIX="/some/conda",
     )
@@ -722,6 +760,24 @@ def test_stale_break_directory_is_removed(fake_remote, snapshot, written):
     assert not list(locks.glob("*"))
 
 
+def test_a_request_that_ends_before_its_last_line_is_refused(fake_remote, snapshot):
+    result, _ = provision_once(snapshot)
+    run = run_boot(
+        fake_remote,
+        result,
+        "provision",
+        "b" * 24,
+        python_choice("managed").request,
+        UV_VERSION,
+        fake_remote.uv_url,
+        fake_remote.uv_sha256,
+        stdin=b"R pydantic>=2\n",
+    )
+    assert run.returncode != 0
+    assert b"XEDA-ERROR bad-request The request ended before its last line." in run.stdout
+    assert not [call for call in fake_remote.calls("uv") if "venv" in call][1:]
+
+
 def _ownerless_uv_lock(fake_remote, owner: str | None, age: float):
     """Make the uv lock without a complete owner, `age` seconds old. Return the lock and the
     command of the provisioning step that takes it."""
@@ -754,12 +810,8 @@ def test_ownerless_lock_of_an_old_directory_is_broken(fake_remote, owner):
     # A process that stopped after it made the lock, and before it wrote the owner file.
     lock, command = _ownerless_uv_lock(fake_remote, owner, age=3600)
     # A script that never breaks the lock times out here.
-    run = subprocess.run(
-        command,
-        input=b"R pydantic>=2\nC pydantic==2.14.1\n",
-        capture_output=True,
-        env=boot_environment(fake_remote),
-        timeout=60,
+    run = run_holding_input(
+        command, b"R pydantic>=2\nC pydantic==2.14.1\nEND\n", boot_environment(fake_remote)
     )
     assert run.returncode == 0, run.stderr.decode(errors="replace")
     assert not list(lock.parent.glob("*"))
@@ -777,14 +829,15 @@ def test_young_ownerless_lock_is_waited_for(fake_remote):
     )
     try:
         assert step.stdin is not None
-        step.stdin.write(b"R pydantic>=2\nC pydantic==2.14.1\n")
-        step.stdin.close()
+        step.stdin.write(b"R pydantic>=2\nC pydantic==2.14.1\nEND\n")
+        step.stdin.flush()
         with pytest.raises(subprocess.TimeoutExpired):
             step.wait(timeout=3)
         assert lock.is_dir() and not (lock / "owner").exists()
     finally:
         step.kill()
         step.wait()
+        step.stdin.close()
 
 
 def test_leftovers_of_dead_processes_are_removed_and_others_are_kept(fake_remote, snapshot):

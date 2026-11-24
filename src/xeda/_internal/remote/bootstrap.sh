@@ -47,10 +47,14 @@ XEDA_BOOT_WORK=
 XEDA_BOOT_STAGE=
 XEDA_BOOT_ENV_BUILDING=
 XEDA_BOOT_CHILD=
+XEDA_BOOT_WATCHER=
 
 cleanup() {
     XEDA_BOOT_STATUS=$?
     trap - EXIT
+    if [ -n "$XEDA_BOOT_WATCHER" ]; then
+        kill "$XEDA_BOOT_WATCHER" 2>/dev/null || :
+    fi
     if [ -n "$XEDA_BOOT_CHILD" ]; then
         kill "$XEDA_BOOT_CHILD" 2>/dev/null || :
     fi
@@ -136,6 +140,23 @@ fail_step() {
             ;;
     esac
     die "$XEDA_BOOT_CODE" "$XEDA_BOOT_MESSAGE"
+}
+
+# The client keeps the standard input of a long command open until the command ends. When the
+# client goes (a cancel, Ctrl-C, a lost connection), the host closes the input, and the shell ends
+# at once, as on SIGTERM: its cleanup stops the running tool and removes its locks. Without this,
+# a command that waits for a tool or for a lock would run on, and keep its lock, with nobody to
+# read its answer. The watcher has no output, so it does not keep the session open.
+stop_when_the_client_goes() {
+    XEDA_BOOT_SHELL=$$
+    exec 3<&0
+    (
+        trap - EXIT HUP INT PIPE TERM
+        while IFS= read -r XEDA_BOOT_IGNORED <&3; do :; done
+        kill -TERM "$XEDA_BOOT_SHELL" 2>/dev/null || :
+    ) >/dev/null 2>&1 &
+    XEDA_BOOT_WATCHER=$!
+    exec 3<&-
 }
 
 # Run a tool with its output on the standard error and no standard input. The tool is a child
@@ -510,14 +531,23 @@ command_provision() {
     make_work
     : >"$XEDA_BOOT_WORK/requirements.txt"
     : >"$XEDA_BOOT_WORK/constraints.txt"
+    XEDA_BOOT_ENDED=
     while IFS= read -r XEDA_BOOT_LINE || [ -n "$XEDA_BOOT_LINE" ]; do
         case $XEDA_BOOT_LINE in
             'R '*) printf '%s\n' "${XEDA_BOOT_LINE#R }" >>"$XEDA_BOOT_WORK/requirements.txt" ;;
             'C '*) printf '%s\n' "${XEDA_BOOT_LINE#C }" >>"$XEDA_BOOT_WORK/constraints.txt" ;;
+            'END')
+                XEDA_BOOT_ENDED=yes
+                break
+                ;;
             '') ;;
             *) die bad-request "Not a requirement line: $XEDA_BOOT_LINE" ;;
         esac
     done
+    if [ -z "$XEDA_BOOT_ENDED" ]; then
+        die bad-request "The request ended before its last line."
+    fi
+    stop_when_the_client_goes
     if [ ! -s "$XEDA_BOOT_WORK/requirements.txt" ]; then
         die bad-request "The request has no requirements."
     fi

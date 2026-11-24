@@ -876,14 +876,15 @@ def test_a_canceled_token_stops_the_comparison_of_a_saved_plan(tmp_path, remote_
     _assert_gone(pids.get_nowait())
 
 
-def _blocked_start(tmp_path, remote_host, block, on_ready=lambda pid: None):
+def _blocked_start(tmp_path, remote_host, block, on_ready=lambda pid: None, release=True):
     """Make a step of the start of a remote run wait on a FIFO until the test lets it go.
 
     `block(ready, never)` installs the wait: the step writes its process id to the FIFO `ready` and
     then waits for a writer on the FIFO `never`. Return the call that runs a remote request with
     a `CancelToken` that the test cancels when the step reports that it waits. `on_ready(pid)` runs
-    first, while the step waits. The call lets the step go when the run has ended, and checks that
-    the step ends."""
+    first, while the step waits. With `release`, the call lets the step go when the run has ended,
+    and checks that the step ends. Without it, the call checks that the step ends by itself, and
+    lets it go only if it does not (so that the test leaves no process)."""
     from xeda._internal.cancel import CancelToken
     from xeda._internal.flow_runner.launch_options import LaunchOptions, WorkspaceOptions
     from xeda._internal.remote_value import Remote
@@ -928,9 +929,19 @@ def _blocked_start(tmp_path, remote_host, block, on_ready=lambda pid: None):
         finally:
             finished.set()
         assert not released.is_set(), "the token did not end the wait for the host"
-        os.close(os.open(never, os.O_WRONLY))  # the step still waits: let it go
-        thread.join()
-        _assert_gone(pids.get_nowait())
+        if release:
+            os.close(os.open(never, os.O_WRONLY))  # the step still waits: let it go
+            thread.join()
+            _assert_gone(pids.get_nowait())
+        else:
+            thread.join()
+            try:
+                _assert_gone(pids.get_nowait())
+            finally:
+                try:  # no process stays, whatever happened: a step that waits has a reader
+                    os.close(os.open(never, os.O_WRONLY | os.O_NONBLOCK))
+                except OSError:  # no reader: the step is gone
+                    pass
         return result
 
     return call
@@ -946,7 +957,8 @@ def _assert_canceled_before_the_launch(tmp_path, remote_host, result):
 def test_a_canceled_token_stops_the_provisioning_of_the_host(tmp_path, remote_host):
     """The host builds the environment of xeda under a lock, and `uv` waits there. The token ends
     the wait: the ssh client is killed and the call returns a canceled result. The script on the
-    host holds the lock while it waits. When `uv` goes on, the script ends and leaves no lock."""
+    host holds the lock while it waits. The host sees the end of the connection: the script stops
+    `uv`, ends, and leaves no lock, without any help from the test."""
     holders: list[int] = []
     locks = remote_host.remote.layout / "locks"
 
@@ -961,7 +973,7 @@ def test_a_canceled_token_stops_the_provisioning_of_the_host(tmp_path, remote_ho
         for owner in locks.glob("*.lock/owner"):  # `<host> <process id> <time>`
             holders.append(int(owner.read_text().split()[1]))
 
-    result = _blocked_start(tmp_path, remote_host, block, note_the_lock_holders)()
+    result = _blocked_start(tmp_path, remote_host, block, note_the_lock_holders, release=False)()
     _assert_canceled_before_the_launch(tmp_path, remote_host, result)
     assert holders, "the script of the host held no lock while it waited"
     for holder in holders:
