@@ -58,6 +58,7 @@ from .settings_fields import (
     assign,
     dotted,
     fields_of,
+    fits_bounds,
     follow,
     kind_of,
     nest,
@@ -531,8 +532,8 @@ DIFFERENT: dict[type, str] = {
 
 _kind_of = kind_of
 
-#: Time settings whose lower bound is 1 s, so the nanosecond samples do not fit them.
-AT_LEAST_ONE_SECOND = {"sby:timeout"}
+#: Spellings of one time in seconds, for a time setting whose bounds refuse the samples above.
+SECONDS = (["60 s", "1 min", "60000 ms"], "2 min")
 
 
 @pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
@@ -544,8 +545,9 @@ def test_equivalent_spellings_of_a_quantity_setting_give_one_hash(field):
         return flowrun_hash(cls.name, with_quantity(cls, path, text), "d")
 
     equivalent, different = EQUIVALENT[kind], DIFFERENT[kind]
-    if f"{cls.name}:{dotted(path)}" in AT_LEAST_ONE_SECOND:
-        equivalent, different = ["60 s", "1 min", "60000 ms"], "2 min"
+    if not all(fits_bounds(path, text) for text in [*equivalent, different]):
+        assert kind is Time, f"give {dotted(path)} spellings within its bounds"
+        equivalent, different = SECONDS
     hashes = {text: identity(text) for text in equivalent}
     assert len(set(hashes.values())) == 1, hashes
     assert identity(different) not in hashes.values()
