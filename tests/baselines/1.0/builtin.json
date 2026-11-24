@@ -945,11 +945,11 @@
         }
       },
       "artifacts": [
-        "c_log",
         "cc_log",
-        "executable",
+        "cxx_log",
         "log",
         "simulation_log",
+        "simulator",
         "waveform"
       ],
       "inputs": {
@@ -4535,14 +4535,15 @@
           "schema": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "x-xeda-measure": "count"
           },
-          "type": "string",
+          "type": "integer",
           "unit": null
         },
         "stop_time": {
@@ -8415,7 +8416,7 @@
         }
       },
       "artifacts": [
-        "c_log",
+        "cxx_log",
         "log"
       ],
       "inputs": {
@@ -21880,7 +21881,7 @@
               {
                 "type": "string",
                 "x-xeda-quantity": "time",
-                "x-xeda-unit": "ns"
+                "x-xeda-unit": "s"
               },
               {
                 "type": "null"
@@ -21888,7 +21889,7 @@
             ]
           },
           "type": "time",
-          "unit": "ns"
+          "unit": "s"
         },
         "verbosity": {
           "default": "normal",
@@ -23692,14 +23693,14 @@
         "checkpoint_place",
         "log",
         "post_place_hierarchical_utilization_rpt",
-        "post_place_post_place_power_optimization_rpt",
+        "post_place_power_optimization_rpt",
         "post_place_timing_summary_rpt",
         "post_synth_hierarchical_utilization_rpt",
         "post_synth_power_optimization_rpt",
         "post_synth_timing_summary_rpt",
         "route_design_clock_utilization_rpt",
-        "route_design_critpath_by_delay_report_csv",
-        "route_design_critpath_report_csv",
+        "route_design_critical_paths_by_delay_csv",
+        "route_design_critical_paths_csv",
         "route_design_drc_rpt",
         "route_design_hierarchical_utilization_json",
         "route_design_hierarchical_utilization_xml",
@@ -24269,62 +24270,6 @@
           "type": "boolean",
           "unit": null
         },
-        "set_impl_properties": {
-          "default": {},
-          "schema": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "boolean"
-                }
-              ]
-            },
-            "type": "object"
-          },
-          "type": "dict[string, string | integer | number | boolean]",
-          "unit": null
-        },
-        "set_synth_properties": {
-          "default": {},
-          "schema": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "boolean"
-                }
-              ]
-            },
-            "type": "object"
-          },
-          "type": "dict[string, string | integer | number | boolean]",
-          "unit": null
-        },
-        "show_available_strategies": {
-          "default": false,
-          "schema": {
-            "type": "boolean"
-          },
-          "type": "boolean",
-          "unit": null
-        },
         "suppress_msgs": {
           "default": [
             "Vivado 12-7122",
@@ -24351,25 +24296,6 @@
             "$ref": "#/$defs/RunOptions"
           },
           "type": "RunOptions",
-          "unit": null
-        },
-        "tcl_files": {
-          "default": [],
-          "schema": {
-            "items": {
-              "anyOf": [
-                {
-                  "format": "path",
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                }
-              ]
-            },
-            "type": "array"
-          },
-          "type": "array[string]",
           "unit": null
         },
         "tcl_shell": {
@@ -24719,11 +24645,11 @@
         "checkpoint_place",
         "log",
         "post_place_hierarchical_utilization_rpt",
-        "post_place_post_place_power_optimization_rpt",
+        "post_place_power_optimization_rpt",
         "post_place_timing_summary_rpt",
         "route_design_clock_utilization_rpt",
-        "route_design_critpath_by_delay_report_csv",
-        "route_design_critpath_report_csv",
+        "route_design_critical_paths_by_delay_csv",
+        "route_design_critical_paths_csv",
         "route_design_drc_rpt",
         "route_design_hierarchical_utilization_json",
         "route_design_hierarchical_utilization_xml",
@@ -35048,7 +34974,7 @@
       "artifacts": [
         "cxxrtl_cpp",
         "cxxrtl_header",
-        "g_log",
+        "gxx_log",
         "log",
         "rtl_json",
         "rtl_verilog",

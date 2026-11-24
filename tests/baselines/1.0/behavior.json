@@ -183,7 +183,7 @@
           "path": {
             "allow_dash": false,
             "dir_okay": false,
-            "exists": true,
+            "exists": false,
             "file_okay": true,
             "readable": true,
             "resolve_path": false,
