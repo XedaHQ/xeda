@@ -169,7 +169,7 @@ position, and a new argument is an addition only if it is optional and last.
 
 A mapping of a fixed shape that the API returns has a ``TypedDict`` class (``PlanOptions``,
 ``ExecutableCheck``, ``FlowInfo``, ...). Each key is an attribute of the class: a removed key, a
-changed type and a key that is no longer ``NotRequired`` are breaks, and a new key is an addition.
+changed type, and a key that gains or loses ``NotRequired``, are breaks. A new key is an addition.
 
 For a document that Xeda writes, a removed key, a wider or unrelated type, any change of an enum or
 a key that is no longer required is a break. A new optional key and a narrower type are additions. Other tests check the

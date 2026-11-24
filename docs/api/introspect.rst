@@ -17,8 +17,8 @@ These functions return plain data that can be serialized as JSON. They never tou
 
 .. autofunction:: xeda.introspect.platforms_info
 
-Each function returns a mapping, or a list of mappings, of a fixed shape. A class below
-describes each shape as a ``TypedDict``. A key marked ``NotRequired`` is absent from some entries.
+Except for ``design_schema``, which returns a JSON Schema, each function returns a mapping, or a
+list of mappings, of a fixed shape. A class below describes each shape as a ``TypedDict``. A key marked ``NotRequired`` is absent from some entries.
 
 .. autoclass:: xeda.introspect.FlowInfo
    :members:
