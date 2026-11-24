@@ -17,7 +17,9 @@ from xeda._internal.flow_runner.trace_inputs import (
     design_files,
     implicit_input_files,
     parse_depfile,
+    setting_file_keys,
     setting_files,
+    setting_locations,
 )
 from xeda._internal.listing import directory_files
 
@@ -69,17 +71,28 @@ def test_every_existing_file_a_setting_names_is_a_candidate_input(tmp_path, hook
     ]
 
 
-def test_a_relative_path_counts_under_both_the_design_root_and_the_start_directory(
-    tmp_path, hooked
-):
-    """Which one a tool opens depends on where it runs: both are recorded, not the first."""
+def test_a_relative_path_counts_under_the_design_root_only(tmp_path, hooked):
+    """A flow resolves a relative path against the design root, so the start directory is no
+    input, even where it holds a file of that name."""
     root, start = tmp_path / "design", tmp_path / "start"
     root.mkdir()
     start.mkdir()
     (root / "pre.tcl").write_text("puts design\n")
     (start / "pre.tcl").write_text("puts start\n")
-    settings = hooked.Settings.from_input({"hook": "pre.tcl"}, design_root=root, runner_cwd=start)
+    (start / "only_here.tcl").write_text("puts start\n")
+    settings = hooked.Settings.from_input(
+        {"hook": "pre.tcl", "hooks": ["only_here.tcl", "$PWD/pre.tcl"]},
+        design_root=root,
+        runner_cwd=start,
+    )
     assert setting_files(settings) == [(root / "pre.tcl").resolve(), (start / "pre.tcl").resolve()]
+    assert set(setting_file_keys(settings)[(start / "pre.tcl").resolve()]) == {"hooks[1]"}
+    assert setting_locations(settings, tmp_path / "run") == {
+        "hook": [str((root / "pre.tcl").resolve())],
+        "hooks[0]": [],
+        "hooks[1]": [str((start / "pre.tcl").resolve())],
+        "netlist": [],
+    }
 
 
 def test_lib_paths_only_the_path_half_of_each_tuple_is_a_setting_file(tmp_path, hooked):

@@ -2459,9 +2459,7 @@ def test_a_stray_compiled_package_added_to_a_search_folder_runs_the_flow_again(t
 
 def test_the_design_root_as_a_search_folder_with_the_run_root_inside_it(tmp_path):
     """The stage of a search folder that holds the run root leaves the run root out, and the
-    second launch reuses the first run. The folder is named by its absolute path: the trace looks
-    a relative setting path up under the start directory too, and the start directory of the test
-    process is the checkout, whose files other tests change."""
+    second launch reuses the first run."""
     require_bsc()
     root = tmp_path / "d"
     _helper_top(root)

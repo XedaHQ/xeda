@@ -219,43 +219,41 @@ def setting_path_leaves(
     return leaves
 
 
-def _setting_roots(settings: Flow.Settings) -> list[Path]:
-    """Return the directories under which a relative path in a setting is looked up.
+def _setting_root(settings: Flow.Settings) -> Path | None:
+    """Return the directory that a relative path in a setting is relative to: the design root.
 
-    These are the design root and the start directory."""
-    return [
-        Path(root)
-        for root in (settings.context.get("design_root"), settings.context.get("runner_cwd"))
-        if root is not None
-    ]
+    The start directory is no such root. A path under it is written `$PWD/...`, which is absolute
+    once expanded."""
+    root = settings.context.get("design_root")
+    return None if root is None else Path(root)
 
 
-def _candidates(leaf: Any, roots: Sequence[Path]) -> list[Path]:
+def _candidate(leaf: Any, root: Path | None) -> Path | None:
+    """Return the place that `leaf` names, or None for a relative path with no design root."""
     path = Path(leaf)
-    return [path] if path.is_absolute() else [root / path for root in roots]
+    if path.is_absolute():
+        return path
+    return None if root is None else root / path
 
 
 def setting_candidates(settings: Flow.Settings) -> list[tuple[str, Path]]:
     """Return every place that a path-typed setting the flow reads can name, with its key path.
 
     The paths are as written and not resolved (`setting_path_leaves`). An absolute path is taken
-    as itself. A relative path is looked up under the design root and under the start directory.
-    This is the one reading of "a path a setting names": the trace records and the mounts of a
+    as itself. A relative path is looked up under the design root only. This is the one reading of "a path a setting names": the trace records and the mounts of a
     container both start from it."""
-    roots = _setting_roots(settings)
-    return [
-        (key, candidate)
-        for key, leaf in setting_path_leaves(settings, written=False)
-        for candidate in _candidates(leaf, roots)
+    root = _setting_root(settings)
+    candidates = [
+        (key, _candidate(leaf, root)) for key, leaf in setting_path_leaves(settings, written=False)
     ]
+    return [(key, candidate) for key, candidate in candidates if candidate is not None]
 
 
 def setting_file_keys(settings: Flow.Settings) -> dict[Path, set[str]]:
     """Return every existing file named by a path-typed setting that the flow reads, resolved.
 
     Each file comes with the key paths of the settings that name it (`setting_path_leaves`). A
-    relative path is looked up under the design root and under the start directory, and each
-    candidate that exists counts. A setting that names what the flow writes (a role,
+    relative path is looked up under the design root only. A setting that names what the flow writes (a role,
     `xeda._internal.dataclass.written_role`) names no input."""
     found: dict[Path, set[str]] = {}
     for key, candidate in setting_candidates(settings):
@@ -284,7 +282,7 @@ def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[s
 
     Each directory comes with the key path of the first setting that names it
     (`setting_path_leaves`). An absolute path is taken as itself, and a relative one is looked
-    up under the design root and under the start directory (as `setting_files`). The run
+    up under the design root (as `setting_files`). The run
     directory and every directory in it are left out, because their files are outputs of the
     run already. A directory that the flow writes (`reports_dir`, `sim_dir`: a role,
     `xeda._internal.dataclass.written_role`) is no input."""
@@ -390,22 +388,21 @@ def setting_locations(settings: Flow.Settings, run_path: Path) -> dict[str, list
 
     An absolute path (a `$PWD` or `$DESIGN_ROOT` path is absolute once expanded) is its own
     location, resolved, whatever it names (a file, a directory, nothing yet), so that a run
-    that creates it changes nothing. A relative path points at each existing path it is looked
-    up as, under the design root and under the start directory (`setting_files`). The exception
-    is a path inside the run directory `run_path`, whose place belongs to the trace itself. A
-    relative path with no such path has no location."""
-    roots = _setting_roots(settings)
+    that creates it changes nothing. A relative path points at the existing path it names
+    under the design root (`setting_files`). The exception is a path inside the run directory
+    `run_path`, whose place belongs to the trace itself. A relative path with no such path has no
+    location."""
+    root = _setting_root(settings)
     run_dir = run_path.resolve()
     locations: dict[str, list[str]] = {}
     for key, leaf in setting_path_leaves(settings, written=False):
         found: list[str] = []
-        for candidate in _candidates(leaf, roots):
+        candidate = _candidate(leaf, root)
+        if candidate is not None:
             resolved = candidate.resolve()
-            if not Path(leaf).is_absolute() and (
-                not candidate.exists() or resolved.is_relative_to(run_dir)
+            if Path(leaf).is_absolute() or (
+                candidate.exists() and not resolved.is_relative_to(run_dir)
             ):
-                continue
-            if str(resolved) not in found:
                 found.append(str(resolved))
         locations[key] = found
     return locations
