@@ -731,7 +731,7 @@ def test_ctrl_c_during_an_install_gives_a_canceled_document(github, root, monkey
     def interrupted(*_arguments, **_keywords):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(tool_store, "install", interrupted)
+    monkeypatch.setattr(tool_store, "_download", interrupted)
     result = run_tools("install", "oss-cad-suite", "--root", str(root), *flag)
     assert result.exit_code == 1
     document = yaml.safe_load(result.stdout)
