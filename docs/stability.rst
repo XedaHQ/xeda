@@ -20,9 +20,21 @@ What is public
   artifact keys. A flow or setting marked ``experimental`` is the exception (see
   :ref:`experimental`).
 - The error codes.
+- Quantities: ``MetricInfo.unit`` in every record, ``RunRecord.quantity(path)``, and the input of a
+  quantity setting as text with a unit or as a ``pint`` quantity (see :doc:`python-api`).
 - The order of the settings layers, the grammars of the specification text, the names and keys of
   the private files and the session variables, and the layout of the run directories (see
   :doc:`run-directories`).
+
+Third-party types in public annotations
+=======================================
+
+Two third-party types appear in the annotations of the public API. ``pint.Quantity`` is in
+the annotation of ``RunRecord.quantity``. Xeda needs ``pint >= 0.25.3, < 1`` (the
+``pint`` requirement of ``pyproject.toml``) and installs it. ``pandas.DataFrame`` is the return
+type of ``SweepResult.to_pandas``. Xeda does not need pandas: ``to_pandas`` raises ``SpecError``
+(``missing_dependency``) when pandas is not installed. No other third-party type is in a public
+annotation (``tests/test_public_imports.py`` checks this).
 
 What is not public
 ==================
@@ -101,9 +113,6 @@ column are not breaking changes.
    * - Flow instances
      - ``@`` is reserved in chains and selectors.
      - ``flow@name`` selectors
-   * - Typed metric quantities
-     - ``MetricInfo.unit`` is in every record.
-     - ``RunRecord.quantity(path)``
    * - Run history
      - ``run_id``, ``producer_run_id``, ``RunReplacedError``, and ``RunRecord.run_dir`` as the
        place where the record is stored now
@@ -133,9 +142,6 @@ column are not breaking changes.
    * - Async
      - The synchronous calls are blocking, thread-safe and cancelable.
      - an async wrapper that bridges task cancellation to ``CancelToken``
-   * - Quantity objects as input
-     - Quantities are text with a unit.
-     - acceptance of a public quantity type
 
 How breaks are detected
 =======================

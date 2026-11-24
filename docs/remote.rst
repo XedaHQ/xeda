@@ -452,7 +452,7 @@ A normal remote run stops when you stop it or when the connection goes away:
   The host cancels the launch when the connection ends, or when it hears nothing for 30 seconds.
   If a process survives SIGKILL, the error names the number of survivors.
 * **Ctrl-C after the launch has finished**, while Xeda fetches or delivers, leaves the results on
-  the host. The error is ``RemoteInterrupted``.
+  the host. The error code is ``canceled``.
 
 To recover, run the same command again. The workspace persists, so the host finds the result of a
 run that finished and reuses it. Only the fetch happens again. A run that was canceled in the
@@ -468,7 +468,7 @@ Launches that keep running
     xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml --remote cluster --keep-running
 
 Xeda prints the launch id and follows the log. If you press Ctrl-C, or the connection drops, Xeda
-leaves the launch running and stops with the error ``RemoteDetached``. Then:
+leaves the launch running and stops with the error code ``remote_detached``. Then:
 
 * ``xeda remote attach HOST [LAUNCH_ID]`` shows the log from its start, waits for the end and
   fetches the result into the mirror. Without ``LAUNCH_ID`` it takes the launch that started last
@@ -541,7 +541,7 @@ Common problems
 ---------------
 
 Connection refused, "No route to host", "Could not resolve hostname" or "Permission denied"
-    These are messages of OpenSSH in a ``RemoteConnectionError``. Run ``ssh HOST`` by hand and fix
+    These are messages of OpenSSH in a ``remote_unreachable`` error. Run ``ssh HOST`` by hand and fix
     the destination, the network or your ``~/.ssh/config``. Xeda connects when ``ssh HOST`` does.
 
 A prompt for a password or a passphrase on every run
@@ -550,7 +550,7 @@ A prompt for a password or a passphrase on every run
 
 The login profile of the host prints text
     Xeda skips ordinary text before its own output, up to 1 MiB. A larger amount makes a
-    ``RemoteProtocolError``. Print only in an interactive shell.
+    ``remote_setup_failed`` error. Print only in an interactive shell.
 
 A tool is not found on the host
     Run ``xeda remote check HOST``. It lists the programs of the flows that a login shell finds.
@@ -571,13 +571,29 @@ The host is full
 Errors
 ------
 
-``RemoteConnectionError``
+A failure of the remote step has an error code (see :doc:`machine-readable`). Before Xeda sends the
+launch, a failure of the host or of the setup raises ``RemoteError`` in Python, with the code and
+the host in ``.host``, and ``xeda run`` exits with status 2. A request that Xeda refuses at planning
+raises ``SpecError`` with the code ``unsupported_with_remote``, also with exit status 2. After
+Xeda sends the launch, the failure is the launch-level error of the result. The message names the
+step and the cause. This section lists the causes by code. The commands
+``xeda remote check``, ``clean``, ``attach`` and ``cancel`` use the same codes, with these
+differences: a step on the host that does not finish in time has the code ``timeout``, a local
+file system error has the code ``storage_error``, an interrupt has the code ``canceled``, and any
+other cause that is not listed under ``remote_unreachable`` or ``remote_setup_failed`` has the code
+``remote_failed``. An exception of another kind has the code ``internal_error``.
+
+``remote_unreachable``
     OpenSSH could not connect or authenticate, or the connection ended. The message has the OpenSSH
     text and its exit status. Run ``ssh HOST`` by hand and fix the destination or your
-    ``~/.ssh/config``. The error also appears when ``ssh`` is not on the ``PATH``, when ``ssh -G``
-    cannot resolve the destination, and when the connection closes during a step.
+    ``~/.ssh/config``. The code also appears when ``ssh`` is not on the ``PATH``, when ``ssh -G``
+    cannot resolve the destination, and when the connection closes during a step before the launch is
+    sent.
 
-``RemoteProvisionError``
+``remote_setup_failed``
+    Xeda could not make the host ready, or could not start the request there. The cause is one of
+    these.
+
     The environment could not be made. The message starts with a code that names the step:
 
     ``not-linux``
@@ -620,52 +636,65 @@ Errors
     ``bad-request``
         The host got a command that it does not understand. Report it as a bug in Xeda.
 
-``RemoteDependencyError``
     A package of your Python environment cannot be installed on the host as it is here: it is an
     editable install, a local directory or a direct URL, or a package of ``tb.python_packages`` is
-    not installed here. The error also appears when your Python is not CPython. The message names
-    the package and the fix.
+    not installed here. The message also appears when your Python is not CPython. It names the
+    package and the fix.
 
-``RemoteIncompatible``
-    The host resolved another plan than your machine did. The message lists the flows whose
-    identity differs. Both sides run the same Xeda code on the same inputs, so their plans should
-    agree. Compare ``xeda run ... --remote HOST --dry-run --json`` with a local ``--dry-run
-    --json``. If the difference has no reason that you can see, report it as a bug.
-
-``RemoteCanceled``
-    The launch was canceled: by Ctrl-C, by ``xeda remote cancel`` or because the connection was
-    lost. If the message says that processes survived SIGKILL, they may still run on the host. Run
-    the command again to start over.
-
-``RemoteInterrupted``
-    Ctrl-C ended the run after the launch had finished. The results are on the host. Run the command
-    again to fetch them. If Ctrl-C came while Xeda delivered ``--outputs-to``, the results are in the
-    mirror, and the delivered files can be incomplete. Run the command again to deliver them.
-
-``RemoteDetached``
-    Xeda stopped following a launch that keeps running on the host (``--keep-running``). The
-    message and the ``launch`` key of the JSON document give its id. Use ``xeda remote attach`` or
-    ``xeda remote cancel``.
-
-``RemoteFetchError``
-    A file of the run was not fetched, or it did not match its digest, or a declared output is
-    missing or is not a regular file. Run the command again: the finished run is reused and only
-    the fetch repeats.
-
-``RemoteConfigError``
     One entry of ``remotes.yaml`` is not valid for ``xeda remote``, or the text of ``--remote``
     starts with ``-`` or has a space, or the host of ``xeda remote check``, ``attach`` or ``cancel``
     is empty. The message names the file, the host and the field. ``xeda run`` reports an invalid
     ``remotes.yaml`` as ``invalid_local_settings``, and an empty ``--remote`` as a usage error
-    (exit status 2).
-    The error also appears when the remote root has a character that Xeda cannot put in a command
-    line (a double quote, a backslash, ``$``, a backquote or ``!``). Set ``root`` to another path.
+    (exit status 2). The message also appears when the remote root has a character that Xeda
+    cannot put in a command line (a double quote, a backslash, ``$``, a backquote or ``!``). Set
+    ``root`` to another path.
 
-``RemoteProtocolError``
     The agent on the host did not start, or sent data that Xeda cannot read. The usual cause is a
     stream that ends before the agent marker, or more than 1 MiB of text before it. Ordinary text
     that a login profile prints is skipped and does no harm. The message includes the output of the
-    host, which tells why the agent did not start.
+    host, which tells why the agent did not start. When this happens after Xeda sent the launch,
+    the code is ``remote_failed``.
 
-A failure that is not one of these is a plain ``RemoteError`` with a message that says what to do.
-Examples are a host without ``bash``, a chain with a programmer flow, and a native Windows machine.
+    Another failure has a message that says what to do. Examples are a host without ``bash`` and a
+    native Windows machine.
+
+``unsupported_with_remote``
+    The chain has a programmer flow, such as ``openfpgaloader``. Its device is attached to your
+    machine, not to the host. Xeda refuses it at planning, before any remote step. Run the earlier
+    flows with ``--remote``, then run the programmer flow locally with a binding to the fetched
+    file.
+
+``remote_failed``
+    The launch failed on the host, or this side failed after it sent the launch. The message names
+    the step. A lost connection after the launch was sent has this code, or ``canceled``.
+
+    One cause is a host that resolved another plan than your machine did. The message lists the
+    flows whose identity differs. Both sides run the same Xeda code on the same inputs, so their
+    plans should agree. Compare ``xeda run ... --remote HOST --dry-run --json`` with a local
+    ``--dry-run --json``. If the difference has no reason that you can see, report it as a bug.
+
+``remote_fetch_failed``
+    A file of the run was not fetched, or it did not match its digest, or a declared output is
+    missing or is not a regular file. Run the command again: the finished run is reused and only
+    the fetch repeats.
+
+``delivery_failed``
+    Xeda could not deliver an output to the destination that a setting, ``--outputs-to`` or the
+    ``outputs_to`` of a generator named, after it fetched the results. The message names the
+    destination and the cause. Fix the destination, then run the command again: the finished run
+    is reused and only the fetch and the delivery repeat.
+
+``canceled``
+    The launch was canceled: by Ctrl-C, by ``xeda remote cancel`` or because the connection was
+    lost. If the message says that processes survived SIGKILL, they may still run on the host. Run
+    the command again to start over.
+
+    Ctrl-C can also end the run after the launch had finished. The results are on the host. Run
+    the command again to fetch them. If Ctrl-C came while Xeda delivered ``--outputs-to``, the
+    results are in the mirror, and the delivered files can be incomplete. Run the command again to
+    deliver them.
+
+``remote_detached``
+    Xeda stopped following a launch that keeps running on the host (``--keep-running``). The
+    message and the ``launch_id`` key of the JSON document give its id. Use ``xeda remote attach``
+    or ``xeda remote cancel``.

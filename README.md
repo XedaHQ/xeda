@@ -11,8 +11,9 @@ design file, the flows and the run directories.
 ## Installation
 
 Xeda supports every Python release series that has not reached end of life. Currently, that means
-Python 3.11 through 3.15. Xeda drives EDA tools but does not install them. The tools that a flow
-needs must be available locally, in Docker, or on the remote host.
+Python 3.11 through 3.15. Xeda drives EDA tools. A run installs none of them, so the tools that
+a flow needs must be available locally, in Docker, or on the remote host. The command `xeda tools
+install oss-cad-suite` installs the open-source tools into a tool store.
 
 For command-line use, install Xeda in an isolated [`uv`](https://docs.astral.sh/uv/) tool
 environment:

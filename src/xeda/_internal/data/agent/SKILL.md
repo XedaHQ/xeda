@@ -514,11 +514,11 @@ root `${XDG_CACHE_HOME:-~/.cache}/xeda/v1`, without administrator rights.
 Access:
 
 - `HOST` is an OpenSSH destination: an alias of `~/.ssh/config`, `user@host` or
-  `ssh://user@host:port`. Text that starts with `-` or has a space is `RemoteConfigError`.
+  `ssh://user@host:port`. Text that starts with `-` or has a space is refused with `remote_setup_failed`.
 - An unset or empty `XEDA_REMOTE` runs locally. A program that must run locally, whatever the
   environment, runs `XEDA_REMOTE= xeda run ...` or `env -u XEDA_REMOTE xeda run ...`. An empty
   `--remote ''` is a usage error (exit 2), and an empty `HOST` of `xeda remote check`, `attach` or
-  `cancel` is `RemoteConfigError`.
+  `cancel` is refused with `remote_setup_failed`.
 - The local client must be OpenSSH `ssh` (Xeda uses `ssh -G`, ControlMaster, `ssh -O check|exit`)
   on Linux or macOS. Native Windows is refused (use WSL). The local Python must be CPython.
 - Authentication is the user's `ssh` configuration: keys, agent, `ProxyJump`, certificates. Xeda
@@ -538,7 +538,7 @@ Access:
   of Xeda alone, without `tb.python_packages`.
 
 Profile `${XDG_CONFIG_HOME:-~/.config}/xeda/remotes.yaml` (optional; one invalid entry fails the
-load for every host with `RemoteConfigError`). The `hosts` table is keyed by the exact text of
+load for every host: `xeda remote` reports `remote_setup_failed`, `xeda run` `invalid_local_settings`). The `hosts` table is keyed by the exact text of
 `--remote`. Fields, all optional:
 
 - `root`: the remote root; `~/<path>` or an absolute path of `[A-Za-z0-9._/+-]`. Default
@@ -556,7 +556,7 @@ load for every host with `RemoteConfigError`). The `hosts` table is keyed by the
 
 A cocotb testbench names its Python packages in `tb.python_packages`. The host installs them at the
 local versions, and the key of the environment covers them. A package that is not installed locally
-is `RemoteDependencyError`, before any connection.
+is refused with `remote_setup_failed`, before any connection.
 
 Behavior:
 
@@ -634,6 +634,10 @@ their own documents: on failure they have `success: false` and an `error` with t
 | `invalid_design`, `design_file_not_found`, `unknown_target`, `target_required` (the project's `default_target` is no target of the design: pass `--target` or `--no-target`), `unknown_design`, `design_name_required`, `use_design_name` (a design file that the project lists: use `--design-name`), `several_project_files`, `invalid_project`, `removed_alias`, `removed_key` (a design or project key that was removed), `fetch_failed` (a Git dependency could not be resolved or fetched: pin its `commit`, or check the URL), `dependency_cycle` (the dependencies lead back to a design on the chain that the message names: remove one entry of the cycle) | The message names the key (`rtl.sources:`) or the file, and the key to write. Check the file against `xeda design-schema`. |
 | `flow_not_found`, `design_file_not_found`, `project_file_not_found`, `usage_error` (exit 2, `spec: null`) | Unknown flow, missing file, no design given, unknown option, removed option. The message suggests close matches. |
 | `invalid_chain`, `several_roots_unsupported`, `repeated_flow`, `no_edge`, `unknown_output`, `ambiguous_output`, `cardinality_mismatch`, `type_mismatch` | A chain that cannot be planned. Read the message. |
+| `stale_runtime` (the code of Xeda or of a plugin flow changed on disk after this process imported it; before a launch it is exit 2 with outcome `null`, during a run the node fails) | Restart the Python process (in Jupyter, restart the kernel). Nothing is reused and no trace is kept until then. |
+| `unguarded_main` (a script starts a launch at module level, and a sweep worker imports it) | Put the code that launches under `if __name__ == "__main__":`. |
+| `tool_download_failed`, `tool_checksum_failed`, `tool_archive_invalid` (`xeda tools install`; nothing is installed) | The release information or archive could not be read or was incomplete; the SHA-256 differs from the published digest, or the release has none; or the archive is not a safe suite. Read the message and run the install again. |
+| `tool_install_busy`, `tool_install_failed`, `tool_platform_unsupported` | Busy: another installation holds the lock of the tool store; try again later. Failed: the installation did not finish, or the store was not safe to write; the message names the cause. Unsupported: this machine, or this release, has no build of the tool; install the tool another way. |
 | `invalid_run_root`, `delivery_refused`, `delivery_failed`, `cleanup_failed` | The message names the directory or setting and the fix. |
 | `nonzero_exit` | The tool exited non-zero; read its log in `run_dir` of the node `error.node`. |
 | `timeout`, `executable_not_found` | Raise the limit. Install the tool (`xeda tools install oss-cad-suite` for the open-source tools; or add its directory to `path` in a private file), or add `-s <flow>.docker=true`. |
@@ -684,6 +688,11 @@ else:
 - `Workspace.run(spec)` returns a `Result`: `outcome`, `error`, `passed`, `nodes` (one `NodeResult`
   per node) and `record` (the `RunRecord` of the requested flow, the `results.json` of its run
   directory). `result.to_dict()` is the document of `xeda run --json`.
+- `record.metric(path)` returns the stored value; for the path of a group (`sim`) it returns the
+  table below it. `record.quantity(path)` returns a metric as a `pint` quantity with the unit
+  `record.metric_info[path].unit`; a metric of the type `numbers` gives a read-only table with a
+  quantity for each key. A group path raises `KeyError`, and a metric without a unit raises
+  `ValueError`: read it with `metric`.
 - `Workspace.plan(spec)` returns the `Plan` without a run. `Workspace.records()` lists the records
   of earlier runs, and `Workspace.load_record(run_dir)` reads one.
 - A `Design`, a `Spec` and everything in them is read-only (assigning raises an error). Make a

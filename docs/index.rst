@@ -10,8 +10,8 @@ New here? Start with the :doc:`quickstart`, then the :doc:`tutorial/index`.
 
 To use Xeda from Python, read :doc:`python-api`. To drive it from a shell or a coding agent, read
 :doc:`machine-readable`. The `notebooks <https://github.com/XedaHQ/xeda/tree/main/notebooks>`_ show
-the Python code with real output: a quickstart, the ways a simulation can end, sweeps, plans and
-generated variants.
+the Python code with real output: a quickstart, the ways a simulation can end, sweeps, plans,
+generated variants and the history of past runs.
 
 .. toctree::
    :maxdepth: 2

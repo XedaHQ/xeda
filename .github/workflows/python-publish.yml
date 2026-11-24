@@ -1,3 +1,5 @@
+# Build the sdist and the wheel once, check them, and publish those exact files when a release is
+# published. Pushes and pull requests only build and check.
 # For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
 
 name: Upload 📦 to PyPI
@@ -5,21 +7,39 @@ on:
   pull_request:
     branches:
       - 'main'
-      - 'releases/**'
+      - 'release/*'
   push:
     branches:
       - 'main'
-      - 'releases/**'
+      - 'release/*'
   release:
     types: [published]
+
+permissions:
+  contents: read
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
       with:
+        # The commit of the event, not the ref: a release tag that moves after the event must
+        # not change what this run builds.
+        ref: ${{ github.sha }}
         # setuptools_scm derives the version from the tags: a shallow clone has none
         fetch-depth: 0
+        persist-credentials: false
+    - name: Check that the release tag names the commit of the event
+      if: github.event_name == 'release'
+      env:
+        TAG: ${{ github.event.release.tag_name }}
+      run: |
+        tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+        if [ "$tagged" != "$GITHUB_SHA" ]; then
+          echo "the release tag ${TAG} is at ${tagged}, not at the release commit ${GITHUB_SHA}" >&2
+          exit 1
+        fi
     - name: Set up 🐍
       uses: actions/setup-python@v7
       with:
@@ -27,11 +47,60 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build
+        pip install build twine packaging
     - name: Build package
-      run: python -m build
+      run: python -m build --outdir dist
+    - name: Check the package metadata
+      run: twine check --strict dist/*
+    - name: Check the built version
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        TAG: ${{ github.event.release.tag_name }}
+      run: |
+        python - <<'EOF'
+        import os
+        import pathlib
+        from packaging.utils import parse_sdist_filename, parse_wheel_filename
+        from packaging.version import Version
+
+        versions = {}
+        for path in sorted(pathlib.Path("dist").iterdir()):
+            if path.name.endswith(".whl"):
+                versions[path.name] = parse_wheel_filename(path.name)[1]
+            elif path.name.endswith(".tar.gz"):
+                versions[path.name] = parse_sdist_filename(path.name)[1]
+            else:
+                raise SystemExit(f"unexpected file in dist: {path.name}")
+        if len(versions) != 2:
+            raise SystemExit(f"expected one sdist and one wheel, found: {sorted(versions)}")
+        print(versions)
+        if os.environ["EVENT_NAME"] == "release":
+            tag = os.environ["TAG"]
+            expected = Version(tag.removeprefix("v"))
+            wrong = {name: str(v) for name, v in versions.items() if v != expected}
+            if wrong:
+                raise SystemExit(f"the release tag {tag} does not match the built version: {wrong}")
+        EOF
+    - name: Upload the package files
+      uses: actions/upload-artifact@v7
+      with:
+        name: dist
+        path: dist/
+        if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Download the package files
+      uses: actions/download-artifact@v8
+      with:
+        name: dist
+        path: dist/
     - name: Publish 📦 to PyPI
-      if: github.event.pull_request.merged == true || startsWith(github.ref, 'refs/tags')
       uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
       with:
         user: __token__
