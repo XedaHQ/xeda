@@ -69,6 +69,7 @@ __all__ = [
     "plan_install",
     "store_holds",
     "locate",
+    "read_receipt",
     "git_checkout_directory",
     "orfs_checkout_directory",
     "resolve_corner",
@@ -686,6 +687,21 @@ def _receipt_path(root: Path, platform: str, version: str) -> Path:
     return root / "xeda" / "receipts" / f"{platform}-{version}.json"
 
 
+def read_receipt(root: Path, platform: str, version: str) -> Optional[dict[str, Any]]:
+    """Return the receipt of an install of `platform` at `version` in the store at `root`, as the
+    object that the install wrote, or `None` if the store has none. A receipt that cannot be read
+    as an object, and a receipt behind a symbolic link, count as none: the command that shows
+    the receipt reads nothing outside the store."""
+    path = _receipt_path(root, platform, version)
+    try:
+        if link_on_the_way(root, path) is not None:
+            return None
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return document if isinstance(document, dict) else None
+
+
 def _git_environment() -> dict[str, str]:
     """The environment of a `git` command: the variables that it needs to run and to reach the
     network, and settings that stop it from reading the configuration of the user or asking
@@ -906,13 +922,14 @@ def _write_receipt(plan: InstallPlan, directory: Path) -> Path:
     path = _receipt_path(plan.root, plan.platform, plan.version)
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
+        "schema_version": 1,
         "platform": plan.platform,
         "provider": plan.provider,
         "version": plan.version,
         "root": str(plan.root),
         "directory": str(directory),
         "commands": plan.commands,
-        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "installed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "xeda_version": __version__,
     }
     with replacing_file(path, encoding="utf-8") as out:

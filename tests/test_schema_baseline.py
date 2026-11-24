@@ -130,10 +130,21 @@ VALIDATED_ELSEWHERE = {
     "tools-path",
     "tools-install",
     "tool-receipt",
+    "pdk-receipt",
     "remote-check",
     "remote-clean",
     "remote-cancel",
 }
+
+
+@pytest.mark.parametrize("name", sorted(_schemas()))
+def test_every_document_has_a_schema_version(name: str) -> None:
+    schema = _schemas()[name]
+    if name == "design":  # the schema of a design file carries the version itself
+        assert schema["schema_version"] == 1
+        return
+    assert "schema_version" in schema["properties"]
+    assert "schema_version" in schema["required"]
 
 
 def test_every_document_has_a_producer() -> None:

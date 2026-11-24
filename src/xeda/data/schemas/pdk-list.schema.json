@@ -1,61 +1,73 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "items": {
-    "properties": {
-      "default": {
-        "type": "boolean"
-      },
-      "directory": {
-        "type": "string"
-      },
-      "installed": {
-        "type": "boolean"
-      },
-      "other_versions": {
-        "items": {
-          "properties": {
-            "directory": {
-              "type": "string"
-            },
-            "installed": {
-              "type": "boolean"
-            },
-            "version": {
-              "type": "string"
-            }
+  "properties": {
+    "platforms": {
+      "items": {
+        "properties": {
+          "default": {
+            "type": "boolean"
           },
-          "required": [
-            "directory",
-            "installed",
-            "version"
-          ],
-          "type": "object"
+          "directory": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "other_versions": {
+            "items": {
+              "properties": {
+                "directory": {
+                  "type": "string"
+                },
+                "installed": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "directory",
+                "installed",
+                "version"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
         },
-        "type": "array"
+        "required": [
+          "default",
+          "directory",
+          "installed",
+          "platform",
+          "provider",
+          "version"
+        ],
+        "type": "object"
       },
-      "platform": {
-        "type": "string"
-      },
-      "problem": {
-        "type": "string"
-      },
-      "provider": {
-        "type": "string"
-      },
-      "version": {
-        "type": "string"
-      }
+      "type": "array"
     },
-    "required": [
-      "default",
-      "directory",
-      "installed",
-      "platform",
-      "provider",
-      "version"
-    ],
-    "type": "object"
+    "schema_version": {
+      "type": "integer"
+    }
   },
+  "required": [
+    "platforms",
+    "schema_version"
+  ],
   "title": "xeda pdk list --json",
-  "type": "array"
+  "type": "object"
 }

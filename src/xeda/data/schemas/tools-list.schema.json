@@ -1,40 +1,70 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "items": {
-    "properties": {
-      "bin": {
-        "type": "string"
-      },
-      "directory": {
-        "type": "string"
-      },
-      "installed": {
-        "type": "boolean"
-      },
-      "platform": {
-        "type": "string"
-      },
-      "receipt": {
+  "properties": {
+    "schema_version": {
+      "type": "integer"
+    },
+    "tools": {
+      "items": {
         "properties": {
-          "asset_id": {
-            "type": "integer"
-          },
-          "installed_at": {
+          "bin": {
             "type": "string"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
           },
           "platform": {
             "type": "string"
           },
-          "schema_version": {
-            "const": 1
+          "receipt": {
+            "properties": {
+              "asset_id": {
+                "type": "integer"
+              },
+              "installed_at": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "schema_version": {
+                "const": 1
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "asset_id",
+              "installed_at",
+              "platform",
+              "schema_version",
+              "sha256",
+              "tool",
+              "url",
+              "version"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
           },
-          "sha256": {
-            "type": "string"
+          "selected": {
+            "type": "boolean"
           },
           "tool": {
-            "type": "string"
-          },
-          "url": {
             "type": "string"
           },
           "version": {
@@ -42,42 +72,24 @@
           }
         },
         "required": [
-          "asset_id",
-          "installed_at",
+          "bin",
+          "directory",
+          "installed",
           "platform",
-          "schema_version",
-          "sha256",
+          "receipt",
+          "selected",
           "tool",
-          "url",
           "version"
         ],
-        "type": [
-          "object",
-          "null"
-        ]
+        "type": "object"
       },
-      "selected": {
-        "type": "boolean"
-      },
-      "tool": {
-        "type": "string"
-      },
-      "version": {
-        "type": "string"
-      }
-    },
-    "required": [
-      "bin",
-      "directory",
-      "installed",
-      "platform",
-      "receipt",
-      "selected",
-      "tool",
-      "version"
-    ],
-    "type": "object"
+      "type": "array"
+    }
   },
+  "required": [
+    "schema_version",
+    "tools"
+  ],
   "title": "xeda tools list --json",
-  "type": "array"
+  "type": "object"
 }

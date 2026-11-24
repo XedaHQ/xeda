@@ -44,6 +44,9 @@
       },
       "type": "array"
     },
+    "schema_version": {
+      "type": "integer"
+    },
     "success": {
       "const": true
     }
@@ -52,6 +55,7 @@
     "host",
     "kept",
     "removed",
+    "schema_version",
     "success"
   ],
   "title": "xeda remote clean --json",

@@ -249,7 +249,7 @@ def tools_list(
     setting = local.tools.get(TOOL)
     rows = store_rows(store, setting)
     if fmt != "table":
-        emit_structured(rows, fmt)
+        emit_structured({"schema_version": 1, "tools": rows} if fmt == "json" else rows, fmt)
         return
     table = info_table(
         f"Tool store {store}",
@@ -335,7 +335,7 @@ def tools_path(
     if fmt == "table":
         click.echo(str(chosen.directory))
     else:
-        emit_structured(_description(chosen), fmt)
+        emit_structured({"schema_version": 1, **_description(chosen)}, fmt)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -440,6 +440,7 @@ def tools_install(
         return
     emit_structured(
         {
+            "schema_version": 1,
             "success": True,
             **_description(installation),
             "already_installed": result.already_installed,

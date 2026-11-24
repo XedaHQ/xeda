@@ -4,8 +4,11 @@
     "host": {
       "type": "string"
     },
-    "launch": {
+    "launch_id": {
       "type": "string"
+    },
+    "schema_version": {
+      "type": "integer"
     },
     "success": {
       "const": true
@@ -17,7 +20,8 @@
   },
   "required": [
     "host",
-    "launch",
+    "launch_id",
+    "schema_version",
     "success",
     "survivors"
   ],

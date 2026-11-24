@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commands": {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "directory": {
+      "type": "string"
+    },
+    "installed_at": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "xeda_version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "commands",
+    "directory",
+    "installed_at",
+    "platform",
+    "provider",
+    "root",
+    "schema_version",
+    "version",
+    "xeda_version"
+  ],
+  "title": "receipt of an install in the PDK store",
+  "type": "object"
+}

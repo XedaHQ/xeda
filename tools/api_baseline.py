@@ -1034,32 +1034,58 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     from xeda._internal.platforms.model import Located
     from xeda._internal.remote.environment import RemotePlatform
 
-    pdk_list = _array(
-        _object(
-            {
-                "platform": _STRING,
-                "provider": _STRING,
-                "default": _BOOLEAN,
-                "version": _STRING,
-                "installed": _BOOLEAN,
-                "directory": _STRING,
-                "problem": _STRING,
-                "other_versions": _array(
-                    _object({"version": _STRING, "directory": _STRING, "installed": _BOOLEAN})
-                ),
-            },
-            # `problem`: the files name another version. `other_versions`: a Git provider only.
-            optional=("problem", "other_versions"),
-        )
+    pdk_list = _object(
+        {
+            "schema_version": _INTEGER,
+            "platforms": _array(
+                _object(
+                    {
+                        "platform": _STRING,
+                        "provider": _STRING,
+                        "default": _BOOLEAN,
+                        "version": _STRING,
+                        "installed": _BOOLEAN,
+                        "directory": _STRING,
+                        "problem": _STRING,
+                        "other_versions": _array(
+                            _object(
+                                {"version": _STRING, "directory": _STRING, "installed": _BOOLEAN}
+                            )
+                        ),
+                    },
+                    # `problem`: the files name another version. `other_versions`: a Git provider
+                    # only.
+                    optional=("problem", "other_versions"),
+                )
+            ),
+        }
+    )
+    # The receipt of a PDK install is the object that the install wrote; `null` if the store has
+    # none. The receipt of a tool install is a different document (below).
+    pdk_receipt = _object(
+        {
+            "schema_version": {"const": 1},
+            "platform": _STRING,
+            "provider": _STRING,
+            "version": _STRING,
+            "root": _STRING,
+            "directory": _STRING,
+            "commands": _array(_array(_STRING)),
+            "installed_at": _STRING,
+            "xeda_version": _STRING,
+        }
     )
     pdk_path = _object(
         {
+            "schema_version": _INTEGER,
             "platform": _STRING,
             **{k: simple.of(v) for k, v in _class_fields(Located).items()},
+            "receipt": _nullable(pdk_receipt),
         }
     )
     pdk_install = _object(
         {
+            "schema_version": _INTEGER,
             "success": {"const": True},
             "platform": _STRING,
             "provider": _STRING,
@@ -1067,7 +1093,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
             "root": _STRING,
             "directory": _STRING,
             "already_installed": _BOOLEAN,
-            "receipt": _nullable(_STRING),
+            "receipt": _nullable(pdk_receipt),
             "commands": _array(_array(_STRING)),
         }
     )
@@ -1086,6 +1112,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         }
     )
     tools_installation = {
+        "schema_version": _INTEGER,
         "tool": _STRING,
         "version": _STRING,
         "platform": _STRING,
@@ -1094,19 +1121,24 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         "bin": _STRING,
         "receipt": tool_receipt,
     }
-    tools_list = _array(
-        _object(
-            {
-                "tool": _STRING,
-                "version": _STRING,
-                "platform": _STRING,
-                "installed": _BOOLEAN,
-                "selected": _BOOLEAN,
-                "directory": _STRING,
-                "bin": _STRING,
-                "receipt": _nullable(tool_receipt),
-            }
-        )
+    tools_list = _object(
+        {
+            "schema_version": _INTEGER,
+            "tools": _array(
+                _object(
+                    {
+                        "tool": _STRING,
+                        "version": _STRING,
+                        "platform": _STRING,
+                        "installed": _BOOLEAN,
+                        "selected": _BOOLEAN,
+                        "directory": _STRING,
+                        "bin": _STRING,
+                        "receipt": _nullable(tool_receipt),
+                    }
+                )
+            ),
+        }
     )
     tools_path = _object(tools_installation)
     tools_install = _object(
@@ -1118,6 +1150,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     kept = _object({"kind": _STRING, "path": _STRING, "reason": _STRING})
     remote_check = _object(
         {
+            "schema_version": _INTEGER,
             "success": {"const": True},
             "host": _STRING,
             "platform": simple.cls(RemotePlatform),
@@ -1148,6 +1181,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     )
     remote_clean = _object(
         {
+            "schema_version": _INTEGER,
             "success": {"const": True},
             "host": _STRING,
             "removed": _array(removed),
@@ -1156,15 +1190,16 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     )
     remote_cancel = _object(
         {
+            "schema_version": _INTEGER,
             "success": {"const": True},
             "host": _STRING,
-            "launch": _STRING,
+            "launch_id": _STRING,
             "survivors": {"type": "integer", "const": 0},
         }
     )
     listing_of_flow = {"schema_version": _INTEGER, "flow": _STRING}
     # `failure_document` fills a plain `dict`; the error has the keys of the error of a run.
-    failure = _object({"success": {"const": False}, "error": error})
+    failure = _object({"schema_version": _INTEGER, "success": {"const": False}, "error": error})
 
     return {
         "results": _document("results.json", results),
@@ -1205,6 +1240,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         "tool-receipt": _document(
             "receipt.json of an installation in the tool store", tool_receipt
         ),
+        "pdk-receipt": _document("receipt of an install in the PDK store", pdk_receipt),
         "remote-check": _document("xeda remote check --json", remote_check),
         "remote-clean": _document("xeda remote clean --json", remote_clean),
         "remote-cancel": _document("xeda remote cancel --json", remote_cancel),

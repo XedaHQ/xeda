@@ -55,6 +55,9 @@
     "root": {
       "type": "string"
     },
+    "schema_version": {
+      "type": "integer"
+    },
     "success": {
       "const": true
     },
@@ -72,6 +75,7 @@
     "platform",
     "receipt",
     "root",
+    "schema_version",
     "success",
     "tool",
     "version"

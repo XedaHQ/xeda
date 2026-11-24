@@ -37,12 +37,16 @@
       ],
       "type": "object"
     },
+    "schema_version": {
+      "type": "integer"
+    },
     "success": {
       "const": false
     }
   },
   "required": [
     "error",
+    "schema_version",
     "success"
   ],
   "title": "a failed query, pdk, tools or remote command",

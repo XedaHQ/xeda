@@ -142,6 +142,9 @@
       ],
       "type": "object"
     },
+    "schema_version": {
+      "type": "integer"
+    },
     "success": {
       "const": true
     },
@@ -164,6 +167,7 @@
     "kill_user_processes",
     "platform",
     "python",
+    "schema_version",
     "success",
     "warnings",
     "xeda"

@@ -204,8 +204,8 @@ def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
     proc = run_xeda(*command, "--json", home=tmp_path)
     assert proc.returncode == 0, proc.stderr
     result = json_stdout(proc)
-    rows = result["platforms"] if command == ["list-platforms"] else result
-    assert {row["platform"] for row in rows} == set(bundled_platform_names())
+    assert result["schema_version"] == 1
+    assert {row["platform"] for row in result["platforms"]} == set(bundled_platform_names())
 
 
 @pytest.mark.parametrize(
