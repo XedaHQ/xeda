@@ -193,6 +193,8 @@ PUBLIC_NAMES = {
         "Result", "NodeResult", "RunRecord", "OutputRecord", "InputRecord", "InputSource",
         "DeliveryRecord", "MetricInfo", "ErrorInfo", "Outcome", "Disposition", "OpenRun",
         "SweepResult", "SweepPoint", "RunListing", "RecordProblem", "ScrubResult",
+        "PlanOptions", "ExecutableCheck", "DependencyInfo", "DerivedDesign",
+        "DerivedGeneratedSource", "DerivedPassedSource",
         "UNSET", "Unset", "__version__",
     ],
     "xeda.errors": [
@@ -203,6 +205,9 @@ PUBLIC_NAMES = {
     "xeda.introspect": [
         "flows_info", "flow_info", "settings_info", "results_info", "design_schema",
         "boards_info", "platforms_info",
+        "FlowInfo", "FlowInputInfo", "FlowOutputInfo", "FlowRelation", "FlowBinding",
+        "SettingsInfo", "SettingInfo", "ResultsInfo", "MetricDescription", "ArtifactDescription",
+        "BoardInfo", "PlatformInfo",
     ],
 }  # fmt: skip
 #: Public names that the list above does not repeat: `confirm` gets a `Question`.
