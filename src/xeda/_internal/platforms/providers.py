@@ -699,7 +699,35 @@ def read_receipt(root: Path, platform: str, version: str) -> Optional[dict[str, 
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return document if isinstance(document, dict) else None
+    return _current_receipt(document)
+
+
+_RECEIPT_TEXT_KEYS = ("platform", "provider", "version", "root", "directory", "xeda_version")
+
+
+def _current_receipt(document: Any) -> Optional[dict[str, Any]]:
+    """The receipt `document` in the current shape, or `None` if it has neither shape. A receipt
+    that an earlier Xeda wrote has no `schema_version` and calls `installed_at` `time`; it reads as
+    the current shape. The file stays as it is."""
+    if not isinstance(document, dict):
+        return None
+    receipt = dict(document)
+    if "schema_version" not in receipt and "installed_at" not in receipt and "time" in receipt:
+        receipt["installed_at"] = receipt.pop("time")
+        receipt["schema_version"] = 1
+    commands = receipt.get("commands")
+    if (
+        receipt.get("schema_version") != 1
+        or not isinstance(receipt.get("installed_at"), str)
+        or not all(isinstance(receipt.get(key), str) for key in _RECEIPT_TEXT_KEYS)
+        or not isinstance(commands, list)
+        or not all(
+            isinstance(command, list) and all(isinstance(word, str) for word in command)
+            for command in commands
+        )
+    ):
+        return None
+    return receipt
 
 
 def _git_environment() -> dict[str, str]:

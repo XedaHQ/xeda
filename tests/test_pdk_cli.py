@@ -2081,6 +2081,37 @@ def test_pdk_path_gives_the_receipt_object_or_null(home, store, tmp_path):
     assert again["receipt"] is None
 
 
+def test_a_receipt_of_an_earlier_xeda_reads_in_the_current_shape(home, tmp_path):
+    """An earlier receipt has no `schema_version` and calls `installed_at` `time`. Both commands
+    show it in the current shape, and the file on disk stays as it was."""
+    root = tmp_path / "ciel"
+    install_sky130(root)
+    entry = load_residue("sky130hd").providers.ciel
+    assert entry is not None
+    written = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
+    current = json.loads(written.read_text())
+    earlier = {key: value for key, value in current.items() if key != "schema_version"}
+    earlier["time"] = earlier.pop("installed_at")
+    written.write_text(json.dumps(earlier))
+    before = written.read_bytes()
+    path = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert path["receipt"] == current
+    _validate(path, "pdk-path")
+    _validate(path["receipt"], "pdk-receipt")
+    proc = run_xeda("pdk", "install", "sky130hd", "--root", str(root), "--json", home=home)
+    assert proc.returncode == 0, proc.stderr
+    result = document(proc)
+    assert result["already_installed"] is True
+    assert result["receipt"] == current
+    _validate(result, "pdk-install")
+    assert written.read_bytes() == before
+    # A receipt of neither shape is no receipt, but the install still counts as installed.
+    written.write_text(json.dumps({"time": "now"}))
+    none = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert none["receipt"] is None
+    _validate(none, "pdk-path")
+
+
 def test_pdk_install_of_an_installed_store_validates(home, store):
     proc = run_xeda("pdk", "install", "nangate45", "--root", str(store), "--json", home=home)
     assert proc.returncode == 0, proc.stderr
