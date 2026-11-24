@@ -1,0 +1,1 @@
+- Document the keys of the `sim.evidence` metric in `xeda list-results`.

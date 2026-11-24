@@ -510,14 +510,26 @@ def builtin_contract() -> dict[str, Any]:
                 for name, d in declared_inputs(cls).items()
             },
             "outputs": {
-                name: {"kinds": [t.name for t in d.types], "cardinality": d.cardinality}
+                name: {
+                    "kinds": [t.name for t in d.types],
+                    "cardinality": d.cardinality,
+                    # The setting that switches an expensive output on; `None` for one that the
+                    # flow always writes.
+                    "enabled_by": d.enabled_by,
+                }
                 for name, d in declared_outputs(cls).items()
             },
             "metrics": {
-                name: {"type": spec.type, "unit": spec.unit}
+                name: {
+                    "type": spec.type,
+                    "unit": spec.unit,
+                    **({"schema": _plain_schema(spec.schema)} if spec.schema is not None else {}),
+                }
                 for name, spec in cls.results_description.items()
             },
-            "artifacts": sorted(cls.artifacts_description),
+            "artifacts": {
+                key: {"when": spec.when} for key, spec in sorted(cls.artifacts_description.items())
+            },
         }
     return {"flows": flows, "codes": {name: sorted(codes) for name, codes in ALL_CODES.items()}}
 
@@ -548,7 +560,6 @@ def behavior_snapshot() -> dict[str, Any]:
     from xeda._internal.flow_runner.chains import OUTPUT_NAME
     from xeda._internal.generation import SESSION_VARIABLES
     from xeda._internal.local_settings import LOCAL_FILES
-    from xeda._internal.project import PROJECT_KEYS
     from xeda._internal.cli_types import FlowChoice
     from xeda._internal.run_dir import DIR_NAME_HASH_LEN
 
@@ -638,7 +649,6 @@ def behavior_snapshot() -> dict[str, Any]:
         "private_files": [[name, place, list(keys)] for name, place, keys in LOCAL_FILES],
         "session_variables": sorted(SESSION_VARIABLES),
         "run_directory_hash_length": DIR_NAME_HASH_LEN,
-        "project_keys": sorted(PROJECT_KEYS),
         "cli": commands,
     }
 
@@ -784,6 +794,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     from xeda._internal.flow_runner.dse.dse_runner import DsePoint
     from xeda._internal.flow_runner.launch_options import LaunchOptions
     from xeda._internal.flow_runner.scrub import ScrubResult
+    from xeda._internal.introspect import project_schema
     from xeda.introspect import design_schema
     from xeda._internal.outcomes import NodeResult, Outcome
     from xeda._internal.mapping_types import DependencyInfo
@@ -1247,6 +1258,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         "scrub": _document("xeda scrub --json", scrub),
         "dse": _document("xeda dse --json", dse, defs),
         "design": design_schema(),
+        "project": project_schema(),
     }
 
 
@@ -1502,6 +1514,35 @@ def _classify_requirements(
             )
 
 
+def _classify_metric(
+    path: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    """Compare a metric, which Xeda writes: its type and unit stay as they are, and the keys of
+    an `object` follow the rule of a document that Xeda writes (see `_classify_schema`)."""
+    for field in ("type", "unit"):
+        if old.get(field) != new.get(field):
+            brk.append(f"{path}: {field} changed from {old.get(field)} to {new.get(field)}")
+    before, after = old.get("schema"), new.get("schema")
+    if before is not None and after is not None:
+        _schema_visitor(add, brk)(path, before, after, (before, after), False, frozenset())
+    elif (before is None) != (after is None):
+        brk.append(f"{path}: the keys of the value changed")
+
+
+def _classify_artifacts(
+    name: str, old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
+) -> None:
+    """Compare the artifacts of a flow: a new key is an addition. A removed key, and a changed
+    condition under which a run has the key, break a reader of the record."""
+    _diff_names(f"{name}.artifacts", "artifact", old.keys(), new.keys(), add, brk)
+    for key in sorted(old.keys() & new.keys()):
+        if old[key]["when"] != new[key]["when"]:
+            brk.append(
+                f"{name}.artifacts.{key}: condition changed from {old[key]['when']!r} "
+                f"to {new[key]['when']!r}"
+            )
+
+
 def _classify_contract(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
@@ -1513,6 +1554,8 @@ def _classify_contract(
             _check_keywords(f"{name}.$defs", {"$defs": flow.get("$defs", {})})
             for key, entry in flow["settings"].items():
                 _check_keywords(f"{name}.settings.{key}", entry.get("schema"))
+            for key, entry in flow["metrics"].items():
+                _check_keywords(f"{name}.metrics.{key}", entry.get("schema"))
     experimental_flows = {n for n, f in old["flows"].items() if f.get("experimental")}
     kept = {n for n in old["flows"] if n in new["flows"] or n not in experimental_flows}
     _diff_names("flows", "flow", kept, new["flows"].keys(), add, brk)
@@ -1574,10 +1617,12 @@ def _classify_contract(
                         add,
                         brk,
                     )
+                elif group == "metrics":
+                    _classify_metric(f"{name}.{group}.{key}", a[key], b[key], add, brk)
                 elif a[key] != b[key]:
                     brk.append(f"{name}.{group}.{key}: changed from {a[key]} to {b[key]}")
         _classify_requirements(name, before, after, add, brk)
-        _diff_names(name, "artifact", set(before["artifacts"]), set(after["artifacts"]), add, brk)
+        _classify_artifacts(name, before["artifacts"], after["artifacts"], add, brk)
     _diff_names("codes", "category", old["codes"].keys(), new["codes"].keys(), add, brk)
     for name in old["codes"].keys() & new["codes"].keys():
         _diff_names(name, "code", set(old["codes"][name]), set(new["codes"][name]), add, brk)
@@ -1672,11 +1717,8 @@ def _classify_behavior(
     old: dict[str, Any], new: dict[str, Any], add: list[str], brk: list[str]
 ) -> None:
     for key in old.keys() | new.keys():
-        if key not in ("cli", "project_keys", "private_files") and old.get(key) != new.get(key):
+        if key not in ("cli", "private_files") and old.get(key) != new.get(key):
             brk.append(f"{key}: changed from {old.get(key)} to {new.get(key)}")
-    # A project file is input: a new key is additive, a removed one breaks.
-    keys = [set(snapshot.get("project_keys", ())) for snapshot in (old, new)]
-    _diff_names("project", "key", keys[0], keys[1], add, brk)
     # A private settings file is input too: a new key is additive; a removed key, a key that
     # moves to another file, or a file that changes its place breaks.
     files = [
@@ -1709,7 +1751,7 @@ def _classify_behavior(
 
 
 #: The document whose schema describes what Xeda reads. The others describe what it writes.
-INPUT_DOCUMENTS = ("design",)
+INPUT_DOCUMENTS = ("design", "project")
 
 
 def _resolve(node: Any, root: dict[str, Any]) -> Any:

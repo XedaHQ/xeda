@@ -19,6 +19,7 @@ from ...dataclass import Field, extras, tier
 from ...design import SourceType
 from ...flow import AsicSynthFlow, Flow, In, MetricSpec, Out, describe_results
 from ...flow.asic import AsicPlatformSettings
+from ...flow.metrics import PLATFORM_SCHEMA
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import CellPort, PlatformModel, Track
 from ...units import Bounds, Time, ratio
@@ -357,6 +358,7 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
             "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
             "user) that gave each value of the platform model.",
             "object",
+            schema=PLATFORM_SCHEMA,
         ),
     )
     design_parts = frozenset({"rtl"})

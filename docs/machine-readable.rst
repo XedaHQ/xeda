@@ -292,8 +292,8 @@ its artifacts (see :ref:`artifact-keys`):
 
 ``type`` is one of ``number``, ``integer``, ``boolean``, ``text``, ``text_list`` (a list of text),
 ``counts`` (a table of text to integer), ``numbers`` (a table of text to number) and ``object`` (a
-JSON object that the description documents). ``unit`` is a unit text such as ``MHz``, ``ns`` or
-``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
+JSON object whose keys the description names; a later release may add a key, and it keeps the keys
+that it has). ``unit`` is a unit text such as ``MHz``, ``ns`` or ``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
 as a ``library_area.*`` area in the area unit of the Liberty files, has the unit ``null``, and its
 description says so. The keys that every flow reports (``runtime``, ...) are no metrics and are not listed. The
 table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
@@ -738,10 +738,14 @@ guessing its shape:
      - ``xeda/data/schemas/failure.schema.json``
    * - a design file (``xeda design-schema``)
      - ``xeda/data/schemas/design.schema.json``
+   * - a project file (``xedaproject.yaml``)
+     - ``xeda/data/schemas/project.schema.json``
 
 A schema lists every key that the writer always emits under ``required``. It does not forbid a key
 that it does not name: a later minor version can add one. The schema of a design file is the one
-that ``xeda design-schema`` prints. Its direction is the other way: it describes what Xeda accepts.
+that ``xeda design-schema`` prints. The schema of a project file is the same kind of document: it
+holds the design entries, with the schema of a design. Their direction is the other way: they
+describe what Xeda accepts.
 :doc:`stability` says what a release may change in a schema.
 
 Running a flow

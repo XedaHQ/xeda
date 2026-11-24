@@ -179,6 +179,7 @@ class Dc(AsicSynthFlow):
             "Per-timing-path-group QoR figures, keyed by path group name. The times in them "
             "(`PATH_GROUP_TIMES`) are in ns.",
             "object",
+            schema={"type": "object", "additionalProperties": {"type": "object"}},
         ),
         ports=MetricSpec("Number of ports in the mapped design.", "integer"),
         nets=MetricSpec("Number of nets in the mapped design.", "integer"),

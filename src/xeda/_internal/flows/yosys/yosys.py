@@ -20,6 +20,7 @@ from ...flow import (
     describe_artifacts,
 )
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
+from ...flow.metrics import PLATFORM_SCHEMA
 from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import SettingsGroup, render_flags
 from ...package_paths import impl_module
@@ -342,6 +343,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             "PDK `provider` and `version`, the `corner`, and `sources`, the layer (derived, "
             "upstream, residue or user) that gave each value of the platform model.",
             "object",
+            schema=PLATFORM_SCHEMA,
         ),
     )
 

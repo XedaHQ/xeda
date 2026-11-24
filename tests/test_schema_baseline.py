@@ -15,13 +15,17 @@ import jsonschema
 import pytest
 import yaml
 
-from .test_cli_json_contract import SQRT, run_xeda
+from xeda import Project
+from xeda.errors import ProjectError
+
+from .test_cli_json_contract import EXAMPLES_DIR, SQRT, run_xeda
 from .source_layout import SCHEMAS_DIR
 from .test_public_api import tool
 
 pytestmark = pytest.mark.python_compat
 
 DOCUMENTS = Path(__file__).parent / "resources" / "documents"
+PROJECT = SQRT.parents[1] / "xedaproject.yaml"
 FLOW = "vivado_synth"
 CLOCK = f"{FLOW}.clocks.main_clock.period=5.5ns"
 
@@ -70,7 +74,7 @@ def _closed(schema: Any) -> Any:
 
 def _validate(document: Any, name: str) -> None:
     schema = _schemas()[name]
-    jsonschema.validate(document, schema if name == "design" else _closed(schema))
+    jsonschema.validate(document, schema if name in tool.INPUT_DOCUMENTS else _closed(schema))
 
 
 def _json(*arguments: str, cwd: Path | None = None, fake_tools: bool = False) -> Any:
@@ -113,8 +117,9 @@ PRODUCERS = {
     "dry-run": lambda tmp_path: _run(tmp_path, "--dry-run"),
     "scrub": _scrub,
     "dse": _dse,
-    # The design schema validates a design file, not the output of a command.
+    # The design and project schemas validate a file, not the output of a command.
     "design": lambda tmp_path: yaml.safe_load(SQRT.read_text(encoding="utf-8")),
+    "project": lambda tmp_path: yaml.safe_load(PROJECT.read_text(encoding="utf-8")),
 }
 
 
@@ -845,3 +850,122 @@ def test_a_removed_property_that_a_new_pattern_replaces_is_judged_by_the_pattern
     # leaves only the pattern, which is wider
     kept = CLOSED | {"properties": {"ab": STRING}, "patternProperties": {"^a": NULLABLE}}
     assert _judge(kept, wide) == "adds"
+
+
+# ------------------------------------------------------------------------- the project file
+
+
+def test_the_project_schema_names_the_keys_that_the_loader_takes() -> None:
+    from xeda._internal.project import PROJECT_KEYS
+
+    assert set(_schemas()["project"]["properties"]) == set(PROJECT_KEYS)
+
+
+@pytest.mark.parametrize("file", sorted(EXAMPLES_DIR.rglob("xedaproject.yaml")), ids=str)
+def test_every_example_project_validates_against_the_project_schema(file: Path) -> None:
+    jsonschema.validate(yaml.safe_load(file.read_text(encoding="utf-8")), _schemas()["project"])
+
+
+#: A project file, and whether the loader takes it. The schema agrees with the loader on each one
+#: that it can judge: the types, the nesting and the required keys.
+PROJECTS = {
+    "a design file": ({"designs": [{"file": "d.yaml"}]}, True),
+    "a design in the file": ({"designs": [{"name": "x", "rtl": {"sources": []}}]}, True),
+    "a dotted key of a design": ({"designs": [{"name": "x", "rtl.top": "t"}]}, True),
+    "all keys": (
+        {
+            "designs": [{"file": "d.yaml"}],
+            "flows": {"yosys": {"flatten": True}},
+            "run_root": "out",
+            "default_target": "board",
+        },
+        True,
+    ),
+    "no designs": ({"flows": {"yosys": {}}}, True),
+    "nothing": ({}, False),
+    "designs as a table": ({"designs": {"name": "x"}}, False),
+    "a design entry that is no table": ({"designs": ["d.yaml"]}, False),
+    "an empty file name": ({"designs": [{"file": ""}]}, False),
+    "a design without a name": ({"designs": [{"rtl": {"sources": []}}]}, False),
+    "flows as a list": ({"flows": []}, False),
+    "the settings of a flow as text": ({"flows": {"yosys": "x"}}, False),
+    "a run root that is no text": ({"run_root": 3}, False),
+    "an empty run root": ({"run_root": ""}, False),
+    "a target name that is no name": ({"default_target": "1st"}, False),
+}
+
+
+@pytest.mark.parametrize("name", PROJECTS)
+def test_the_project_schema_and_the_loader_agree(name: str, tmp_path: Path) -> None:
+    document, loads = PROJECTS[name]
+    (tmp_path / "d.yaml").write_text("name: d\nrtl:\n  sources: []\n", encoding="utf-8")
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document) is loads
+    if loads:
+        Project.load(file)
+    else:
+        with pytest.raises(ProjectError):
+            Project.load(file)
+
+
+def _project_changed(mutate: Any) -> tuple[list[str], list[str]]:
+    old = _schemas()
+    new = copy.deepcopy(old)
+    mutate(new["project"])
+    return _classify(old, new)
+
+
+def test_a_new_optional_key_of_the_project_file_is_additive() -> None:
+    def add(project: dict) -> None:
+        project["properties"]["seed"] = {"type": "integer"}
+
+    assert _project_changed(add) == (["project.seed: new property"], [])
+
+
+def test_a_new_optional_key_of_a_design_in_the_project_file_is_additive() -> None:
+    def add(project: dict) -> None:
+        project["$defs"]["ProjectDesign"]["properties"]["seed"] = {"type": "integer"}
+
+    additive, breaking = _project_changed(add)
+    assert additive and not breaking
+
+
+@pytest.mark.parametrize("key", ["designs", "flows", "run_root", "default_target"])
+def test_a_removed_key_of_the_project_file_is_breaking(key: str) -> None:
+    def remove(project: dict) -> None:
+        del project["properties"][key]
+
+    additive, breaking = _project_changed(remove)
+    assert breaking == [f"project.{key}: property removed"] and not additive
+
+
+def test_a_required_key_of_the_project_file_is_breaking() -> None:
+    def require(project: dict) -> None:
+        project["required"] = ["designs"]
+
+    additive, breaking = _project_changed(require)
+    assert breaking == ["project.designs: now required"] and not additive
+
+
+def test_a_project_file_may_accept_more_and_never_less() -> None:
+    def narrow(project: dict) -> None:
+        project["properties"]["run_root"]["type"] = "string"
+
+    def retype(project: dict) -> None:
+        project["properties"]["default_target"]["type"] = "integer"
+
+    def entry(project: dict) -> None:
+        del project["properties"]["designs"]["items"]["anyOf"][0]
+
+    for mutate in (narrow, retype, entry):
+        additive, breaking = _project_changed(mutate)
+        assert breaking and not additive, mutate.__name__
+
+
+def test_a_removed_key_of_a_design_in_the_project_file_is_breaking() -> None:
+    def remove(project: dict) -> None:
+        del project["$defs"]["ProjectDesign"]["properties"]["rtl"]
+
+    additive, breaking = _project_changed(remove)
+    assert breaking and not additive

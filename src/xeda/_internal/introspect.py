@@ -76,6 +76,7 @@ from .introspect_types import (
     SettingsInfo,
     _Experimental,
 )
+from .project import PROJECT_KEYS
 from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit, verify_unit
 from .utils import json_encodable, unique, with_json_keys
 
@@ -87,6 +88,7 @@ __all__ = [
     "settings_info",
     "results_info",
     "design_schema",
+    "project_schema",
     "boards_info",
     "platforms_info",
 ]
@@ -1305,6 +1307,72 @@ def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
                 target_properties[name] = _widen(target_properties[name], extra)
     # Last: a target takes the properties of the root, including those that the steps above added.
     _add_targets(schema)
+    return schema
+
+
+def project_schema() -> Dict[str, Any]:
+    """Return the JSON Schema of a Xeda project file (YAML, TOML or JSON).
+
+    The schema describes the input syntax, as `design_schema()` does, and it is closed in the same
+    way: the loader refuses a key that no property names, after it expands the dotted keys. A
+    design entry is `{file: <path>}`, or a design table with a `name`, of which a design file
+    takes every key. The settings of a flow are an open table, as in a design file.
+
+    No command prints it. The package ships it as `xeda/data/schemas/project.schema.json`.
+    """
+    design = design_schema()
+    entry = {k: v for k, v in design.items() if k not in ("$defs", "$schema", "schema_version")}
+    flows = design.get("properties", {}).get("flows", {"type": "object"})
+    run_root = {"type": ["string", "null"], "minLength": 1}
+    schema: Dict[str, Any] = {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "schema_version": 1,
+        "title": "Xeda project file",
+        "type": "object",
+        "minProperties": 1,
+        CLOSED_KEY: True,
+        "properties": {
+            "designs": {
+                "description": "The designs of the project, in order. An entry is a design "
+                "file, `{file: <path>}`, which is the only key of the entry, or a design written "
+                "in the project file, which needs a `name`.",
+                "type": ["array", "null"],
+                "items": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {"file": {"type": "string", "minLength": 1}},
+                            "required": ["file"],
+                            CLOSED_KEY: True,
+                        },
+                        {"$ref": "#/$defs/ProjectDesign"},
+                    ]
+                },
+            },
+            "flows": {
+                **{k: v for k, v in flows.items() if k not in ("default", "title")},
+                "description": "The settings of the flows for every design of the project: each "
+                "key is the name of a flow, and each value is a table of its settings.",
+                "type": ["object", "null"],
+                "additionalProperties": {"type": ["object", "null"]},
+            },
+            "run_root": {
+                **run_root,
+                "description": "The directory of the run directories, relative to the project "
+                "file. The default is `xeda_run` beside the project file.",
+            },
+            "default_target": {
+                "description": "The target that a design uses when the command gives none.",
+                "type": ["string", "null"],
+                "pattern": f"^{DESIGN_NAME.pattern}$",
+            },
+        },
+    }
+    assert set(schema["properties"]) == set(PROJECT_KEYS)
+    schema["$defs"] = {
+        **design.get("$defs", {}),
+        "ProjectDesign": {**entry, "required": ["name"]},
+    }
     return schema
 
 

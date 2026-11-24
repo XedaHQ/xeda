@@ -19,6 +19,7 @@ from typing import List, Optional
 from ...dataclass import Field
 from ...design import SourceType
 from ...flow import Flow, In, MetricSpec, Out, describe_results
+from ...flow.metrics import PLATFORM_SCHEMA
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import PlatformModel
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
@@ -168,6 +169,7 @@ class OpenroadGrt(OpenroadStage):
             "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
             "user) that gave each value of the platform model.",
             "object",
+            schema=PLATFORM_SCHEMA,
         ),
     )
 

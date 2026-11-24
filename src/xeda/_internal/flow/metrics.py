@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional
 
@@ -23,6 +23,8 @@ __all__ = [
     "COMMON_ARTIFACTS",
     "COMMON_METRICS",
     "METRIC_PATH",
+    "PLATFORM_SCHEMA",
+    "SIM_EVIDENCE_SCHEMA",
     "ArtifactSpec",
     "MetricSpec",
     "MetricType",
@@ -61,11 +63,19 @@ class MetricSpec:
     `numbers`, it is the unit of every value. A metric that is not a physical measurement has no
     unit. A metric in the units of the platform (an area in the unit of the Liberty files) has no
     unit either, and its description says so.
+
+    `schema` is the JSON Schema of the value of a metric of the type `object`: its keys, each with
+    its type, and `required` for the keys that the flow always writes. The description names each
+    key too. A flow writes no key that the schema lacks. A table whose keys are data, such as a
+    name of the design, has `additionalProperties` instead of `properties`. The built-in flows give
+    one to every `object` metric, and `tools/api_baseline.py` records it in the baseline. No other
+    metric has one.
     """
 
     description: str
     type: MetricType
     unit: Optional[str] = None
+    schema: Optional[Mapping[str, Any]] = field(default=None, hash=False)
 
 
 def _is_integer(value: Any) -> bool:
@@ -129,6 +139,50 @@ def non_finite_in(value: Any) -> Optional[str]:
 def metric_unit_known(unit: str) -> bool:
     """Return whether `unit` is a unit text of the units table of `xeda._internal.units`."""
     return is_metric_unit(unit)
+
+
+def _keys(properties: Dict[str, Any]) -> Dict[str, Any]:
+    """The schema of an object that always has each of these keys and no other."""
+    return {"type": "object", "properties": properties, "required": sorted(properties)}
+
+
+_NULL_INTEGER: Dict[str, Any] = {"type": ["integer", "null"]}
+_NULL_TEXT: Dict[str, Any] = {"type": ["string", "null"]}
+
+#: The schema of the metric `sim.evidence`: `SimEvidence.model_dump()` of `flow/sim.py`. A
+#: set of values, such as the kinds of an event, is not part of it, so a new member is no break.
+SIM_EVIDENCE_SCHEMA: Dict[str, Any] = _keys(
+    {
+        "ended_by": {"type": "string"},
+        "time": _NULL_INTEGER,
+        "time_unit": _NULL_TEXT,
+        "cycles": _NULL_INTEGER,
+        "events": {
+            "type": "array",
+            "items": _keys(
+                {
+                    "kind": {"type": "string"},
+                    "time": _NULL_INTEGER,
+                    "location": _NULL_TEXT,
+                    "message": {"type": "string"},
+                }
+            ),
+        },
+        "exit_code": _NULL_INTEGER,
+    }
+)
+
+#: The schema of the metric `platform` of the ASIC flows: `AsicPlatformFlow.platform_result()`. `sources`
+#: maps each leaf key of the platform model to the layer that gave its value.
+PLATFORM_SCHEMA: Dict[str, Any] = _keys(
+    {
+        "name": {"type": "string"},
+        "provider": {"type": "string"},
+        "version": {"type": "string"},
+        "corner": _NULL_TEXT,
+        "sources": {"type": "object", "additionalProperties": {"type": "string"}},
+    }
+)
 
 
 #: Metrics that several flows report with the same meaning. A flow declares the subset it
@@ -252,9 +306,17 @@ COMMON_METRICS: Dict[str, MetricSpec] = {
     "clock_domains": MetricSpec("Number of clock domains the timing analysis reported.", "integer"),
     # simulation: how it ended, from the simulator's end record (`SimFlow.simulation_evidence`)
     "sim.evidence": MetricSpec(
-        "Normalized simulation end record, including measured cycles and events; preserved even "
-        "when the evidence fails the simulation verdict.",
+        "Normalized simulation end record, preserved even when the evidence fails the simulation "
+        "verdict. Its keys are `ended_by` (what ended the simulation, as `sim.ended_by` says), "
+        "`time` (the simulated time at the end, in `time_unit`; null when unknown), `time_unit` "
+        "(the unit of `time`, such as `1ps`; null when the ticks have no unit), `cycles` (the "
+        "clock cycles reached; null when not observed), `events` (a list of what the simulation "
+        "reported, in order) and `exit_code` (the exit status of the driver; null unless it "
+        "exited). Each event has `kind` (`finish`, `stop`, `error`, `fatal` or `warning`), "
+        "`time` (null when unknown), `location` (source file and line; null when unknown) and "
+        "`message`.",
         "object",
+        schema=SIM_EVIDENCE_SCHEMA,
     ),
     "sim.ended_by": MetricSpec(
         "What ended the simulation: `finish` ($finish), `stop_time` (the requested stop time, "

@@ -17,6 +17,7 @@ from typing import ClassVar, Dict
 from ...dataclass import Field, tier
 from ...design import SourceType
 from ...flow import In, MetricSpec, Out, describe_results
+from ...flow.metrics import PLATFORM_SCHEMA
 from ...platforms.model import PlatformModel
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
 from .cts_groups import (
@@ -107,6 +108,7 @@ class OpenroadCts(OpenroadStage):
             "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
             "user) that gave each value of the platform model.",
             "object",
+            schema=PLATFORM_SCHEMA,
         ),
     )
 
