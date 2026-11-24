@@ -143,7 +143,7 @@ def test_design_input_refuses_a_type_in_another_letter_case_or_an_ordinal(tmp_pa
         with pytest.raises(ValueError, match="unknown source type"):
             Source({"file": str(tmp_path / "f.v"), "type": typ})
         with pytest.raises(ValueError, match="unknown source type"):
-            Source(tmp_path / "f.v", typ)
+            Source(tmp_path / "f.v", type=typ)
     with pytest.raises(DesignValidationError, match="write `Vhdl`"):
         Design(
             name="d",
