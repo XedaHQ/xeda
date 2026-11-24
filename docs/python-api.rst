@@ -199,7 +199,8 @@ code ``invalid_value``). In particular:
 * An integer is an ``int``. The text ``"1"``, the number ``1.0`` and ``True`` are refused.
 * A boolean is ``True`` or ``False`` only.
 * A list is a list, or comma-separated text. Text in brackets is refused.
-* A relative path in a setting that the flow reads is relative to the design root.
+* A relative path in a setting that the flow reads is relative to the design root, never to the
+  start directory. Write ``$PWD/...`` for a path under the start directory.
 
 A setting that two flows of a chain share (``fpga``, ``board``, ``clocks`` and a few more) goes to
 every node that declares it. Set it once, on any node. If two nodes get different values, Xeda
