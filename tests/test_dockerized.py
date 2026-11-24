@@ -491,3 +491,39 @@ def test_bsc_reads_its_staged_files_in_a_container(work_dir) -> None:
     )
     assert flow is not None and flow.succeeded
     assert "mkTop" in flow.results["modules"]
+
+
+DIGEST = "sha256:" + "0123456789abcdef" * 4
+
+
+@pytest.mark.parametrize(
+    "text, image, tag, reference, recorded",
+    [
+        ("img", "img", None, "img", "img:latest"),
+        ("img:tag", "img", "tag", "img:tag", "img:tag"),
+        ("org/img:tag", "org/img", "tag", "org/img:tag", "org/img:tag"),
+        ("localhost:5000/img", "localhost:5000/img", None, None, "localhost:5000/img:latest"),
+        ("localhost:5000/img:tag", "localhost:5000/img", "tag", None, None),
+        (f"host:443/org/img@{DIGEST}", f"host:443/org/img@{DIGEST}", None, None, None),
+        (f"img:tag@{DIGEST}", f"img:tag@{DIGEST}", None, None, None),
+    ],
+)
+def test_a_docker_image_text_follows_the_reference_grammar(
+    monkeypatch, tmp_path, text, image, tag, reference, recorded
+) -> None:
+    """Not gated: a registry port is not a tag, and the trace records the reference that
+    `docker run` gets."""
+    ran, noted = [], []
+    monkeypatch.setattr(
+        xeda._internal.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd])
+    )
+    monkeypatch.setattr(xeda._internal.tool, "note_program", noted.append)
+    tool = Tool(executable="yosys", docker=text)
+    assert (tool.docker.image, tool.docker.tag) == (image, tag)
+    reference = reference or text
+    assert tool.docker.reference == reference
+    tool.dockerized = True
+    tool.run("-V", cwd=tmp_path)
+    (command,) = ran
+    assert reference in command
+    assert noted == [f"docker-image:{recorded or reference}"]
