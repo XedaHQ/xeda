@@ -879,7 +879,9 @@ def test_the_list_shows_a_row_for_the_provider_and_the_other_installed_commits(
     (partial / "libs/sky130hd/nldm/sky130_fd_sc_hd__ff_100C_1v95.lib.gz").unlink()
     result = command(monkeypatch, tmp_path, "list", "--json", "--root", str(store))
     assert result.exit_code == 0, result.output
-    rows = {(row["platform"], row["provider"]): row for row in json.loads(result.stdout)["platforms"]}
+    rows = {
+        (row["platform"], row["provider"]): row for row in json.loads(result.stdout)["platforms"]
+    }
     row = rows["sky130hd", "lambdapdk"]
     assert row["default"] is False and row["version"] == pin and row["installed"] is True
     assert {item["version"]: item["installed"] for item in row["other_versions"]} == {
