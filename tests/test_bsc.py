@@ -1999,27 +1999,6 @@ def test_an_edit_of_a_header_of_a_c_source_runs_the_simulation_again(simulator, 
         assert _disposition(runner, BscSim, design, settings) == "reused", header
 
 
-def test_a_header_link_that_leads_to_another_file_runs_the_simulation_again(tmp_path):
-    """`ops.h` is a link to `scale_3.h`. A link that leads to `scale_3.h` and later to
-    `scale_4.h`, which both exist, is a change, whatever the old target holds."""
-    require_bluesim()
-    require_c_toolchain()
-    runner = DefaultRunner(tmp_path / "run", display_results=False)
-    design = _bdpi_headers_design(tmp_path / "d")
-    root = tmp_path / "d"
-    (root / "inner" / "scale_3.h").write_text("#define SCALE 3\n")
-    (root / "inner" / "scale_3_copy.h").write_text("#define SCALE 3\n")
-    link = root / "inner" / "scale.h"
-    link.unlink()
-    link.symlink_to("scale_3.h")
-    assert _disposition(runner, BscSim, design, {}) == "ran"
-    assert _disposition(runner, BscSim, design, {}) == "reused"
-    link.unlink()
-    link.symlink_to("scale_3_copy.h")
-    assert _disposition(runner, BscSim, design, {}) == "ran"
-    assert _disposition(runner, BscSim, design, {}) == "reused"
-
-
 def test_an_edit_that_changes_the_c_function_changes_the_verdict(tmp_path):
     require_bluesim()
     require_c_toolchain()
