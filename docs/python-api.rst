@@ -212,7 +212,8 @@ path of the design file (a value of a target counts as a value of the design fil
 the project file, a text that names the user config file, the project-local file or the host
 profile (``--remote``), or the text that names the settings of the ``Spec`` (they are the layer of
 the command line). It is ``None`` when no layer
-gave the value: a default, or a rule that covers several settings.
+gave the value: a default, a rule that covers several settings, a value that two layers give, or a
+refusal that is about no setting.
 
 Xeda checks all settings when you plan or run. An error raises a subclass of ``SpecError`` before
 anything runs. ``SettingsError`` has the attributes ``code``, ``message``, ``node``, ``setting``,
@@ -372,10 +373,10 @@ returns a read-only table with a quantity for each key. The quantities belong to
 registry of pint (``pint.get_application_registry()``), so they add to the quantities of your own
 code. Both calls raise ``KeyError`` for a path that is no metric, and ``ValueError`` for a metric
 that has no unit (a count, a ratio, a text): read it with ``record.metric(path)``. ``quantity``
-also raises ``ValueError`` for a metric of the type ``numbers`` (use ``quantities``), and
-``quantities`` for any other metric. Each call returns new objects, and changing one does not
-change the record. The JSON documents do not change: they hold the number in ``metrics`` and the
-unit in ``metric_info``.
+also raises ``ValueError`` for a metric of the type ``numbers`` (use ``quantities``).
+``quantities`` raises ``ValueError`` for any other metric (use ``quantity``). Each call returns new
+objects, and changing one does not change the record. The JSON documents do not change: they hold
+the number in ``metrics`` and the unit in ``metric_info``.
 
 .. code-block:: python
 

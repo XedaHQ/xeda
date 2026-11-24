@@ -8,6 +8,7 @@ import pytest
 
 from xeda import Design, LocalSettings, Project, Spec, Workspace
 from xeda._internal.flow_runner import DefaultRunner
+from xeda._internal.flow_runner.default_runner import get_flow_class
 from xeda._internal.flow import FlowSettingsError
 from xeda.errors import SettingsError
 
@@ -124,3 +125,26 @@ def test_a_value_of_the_host_profile_names_the_host(tmp_path):
     with pytest.raises(FlowSettingsError) as raised:
         runner.prepare_request(FLOW, design, host_flows={FLOW: {"nosuch": 1}}, host="venona")
     assert set(raised.value.origins.values()) == {"the host profile of venona"}
+
+
+def _design_with_dependency(tmp_path: Path) -> Design:
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "t.v").write_text("module t; endmodule\n")
+    (tmp_path / "lib" / "lib.yaml").write_text("name: lib\nrtl:\n  sources: [t.v]\n  top: t\n")
+    return _design(tmp_path / "d", f"flows:\n  {FLOW}:\n    nosuch: 1\n", dependency=True)
+
+
+def test_the_early_check_of_a_built_design_names_the_design_file(tmp_path):
+    design = _design_with_dependency(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowSettingsError) as raised:
+        runner.resolve(get_flow_class(FLOW), design, {})
+    assert raised.value.origins == {"nosuch": str(tmp_path / "d" / "d.yaml")}
+
+
+def test_the_early_check_of_a_built_design_names_the_settings_it_was_given(tmp_path):
+    design = _design_with_dependency(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowSettingsError) as raised:
+        runner.resolve(get_flow_class(FLOW), design, {"other": 1})
+    assert raised.value.origins["other"] == "the API"

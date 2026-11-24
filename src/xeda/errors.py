@@ -93,9 +93,10 @@ class SettingsError(SpecError):
 
     `origin` names the layer that gave the refused value, as the text that the message of a
     layer uses: the path of the design file or of another settings file, the text of a user or
-    project-local file, or `the command line (`-s`) or `flow_settings`` for the settings of a
-    `Spec`. It is `None` when no layer gave the value: a default, a rule over several settings,
-    a value that two layers give, or a refusal that is about no setting."""
+    project-local file, the text of a host profile (``--remote``), or the command line (``-s``) or
+    ``flow_settings`` for the settings of a `Spec`. It is `None` when no layer gave the value: a
+    default, a rule over several settings, a value that two layers give, or a refusal that is about
+    no setting."""
 
     #: The node that the setting addresses, or `None` when the key addresses none.
     node: str | None
