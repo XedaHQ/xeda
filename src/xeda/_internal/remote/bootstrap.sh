@@ -164,6 +164,19 @@ stop_when_the_client_goes() {
 # command ends, but `wait` ends at once.
 run() {
     "$@" >&2 </dev/null &
+    wait_for_child
+}
+
+# Like `run`, with the standard output of the tool in the file $1.
+run_into() {
+    XEDA_BOOT_OUTPUT=$1
+    shift
+    "$@" >"$XEDA_BOOT_OUTPUT" </dev/null &
+    wait_for_child
+}
+
+# Wait for the tool that was just started in the background, and return its status.
+wait_for_child() {
     XEDA_BOOT_CHILD=$!
     XEDA_BOOT_RUN_STATUS=0
     wait "$XEDA_BOOT_CHILD" || XEDA_BOOT_RUN_STATUS=$?
@@ -497,7 +510,8 @@ build_env() {
         run "$XEDA_BOOT_UV" --no-config pip install --python "$XEDA_BOOT_ENV_DIR/bin/python" \
             -r "$XEDA_BOOT_WORK/requirements.txt" -c "$XEDA_BOOT_WORK/constraints.txt" \
             || fail_step env-failed "uv could not install the requirements of xeda."
-        "$XEDA_BOOT_UV" --no-config pip freeze --python "$XEDA_BOOT_ENV_DIR/bin/python" >"$XEDA_BOOT_ENV_DIR/xeda-lock.txt" </dev/null \
+        run_into "$XEDA_BOOT_ENV_DIR/xeda-lock.txt" "$XEDA_BOOT_UV" --no-config pip freeze \
+            --python "$XEDA_BOOT_ENV_DIR/bin/python" \
             || fail_step env-failed "uv could not list the installed packages."
         # The use lock: an agent holds a shared lock on this file while it runs from the
         # environment, and `xeda remote clean` removes the environment only while it holds the

@@ -954,11 +954,13 @@ def _assert_canceled_before_the_launch(tmp_path, remote_host, result):
     assert not _mirror(tmp_path).exists()
 
 
-def test_a_canceled_token_stops_the_provisioning_of_the_host(tmp_path, remote_host):
-    """The host builds the environment of xeda under a lock, and `uv` waits there. The token ends
-    the wait: the ssh client is killed and the call returns a canceled result. The script on the
-    host holds the lock while it waits. The host sees the end of the connection: the script stops
-    `uv`, ends, and leaves no lock, without any help from the test."""
+@pytest.mark.parametrize("step", ["uv_venv_wait", "uv_freeze_wait"])
+def test_a_canceled_token_stops_the_provisioning_of_the_host(tmp_path, remote_host, step):
+    """The host builds the environment of xeda under a lock, and `uv` waits there (when it makes
+    the environment, and when it lists the installed packages). The token ends the wait: the ssh
+    client is killed and the call returns a canceled result. The script on the host holds the
+    lock while it waits. The host sees the end of the connection: the script stops `uv`, ends,
+    and leaves no lock, without any help from the test."""
     holders: list[int] = []
     locks = remote_host.remote.layout / "locks"
 
@@ -966,7 +968,7 @@ def test_a_canceled_token_stops_the_provisioning_of_the_host(tmp_path, remote_ho
         once = tmp_path / "once"
         once.write_text("")
         remote_host.remote.configure(
-            uv_venv_wait={"once": str(once), "ready": str(ready), "never": str(never)}
+            **{step: {"once": str(once), "ready": str(ready), "never": str(never)}}
         )
 
     def note_the_lock_holders(_pid):

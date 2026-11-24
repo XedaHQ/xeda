@@ -173,6 +173,8 @@ def _communicate(
                 wait = CANCEL_POLL if deadline is None else min(CANCEL_POLL, deadline - monotonic())
                 try:
                     out, err = process.communicate(data, timeout=max(wait, 0))
+                    if launch_canceled():  # it ended between two checks: its result is no result
+                        raise Canceled("the launch was canceled while it waited for ssh")
                     return subprocess.CompletedProcess(command, process.returncode, out, err)
                 except subprocess.TimeoutExpired as expired:
                     data = None  # the input is sent already, or `communicate` keeps sending it
@@ -196,8 +198,8 @@ def stop_on_cancel(stop: Callable[[], None], doing: str) -> Iterator[None]:
     `stop` ends what the block waits for: it kills the ssh client of a step, so a read of its
     output ends. The request is asked every `CANCEL_POLL` seconds. `doing` names the step in the
     message: "the launch was canceled while <doing>". The block raises `Canceled` also when it
-    ended without noticing the stop. An exception of another kind that a stop did not cause is
-    raised as it is."""
+    ended without noticing the stop, and when the request came after the last check of the
+    watcher. An exception of another kind that a stop did not cause is raised as it is."""
     done = threading.Event()
     stopped = threading.Event()
     message = f"the launch was canceled while {doing}"
@@ -220,7 +222,7 @@ def stop_on_cancel(stop: Callable[[], None], doing: str) -> Iterator[None]:
     finally:
         done.set()
         watcher.join()
-    if stopped.is_set():
+    if stopped.is_set() or launch_canceled():  # a request after the last check of the watcher
         raise Canceled(message)
 
 
