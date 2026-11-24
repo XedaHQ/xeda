@@ -157,14 +157,14 @@ def test_an_invalid_explicit_type_never_falls_back_to_the_suffix(tmp_path, typ, 
         if form == "table":
             Source({"file": str(path), "type": typ})
         else:
-            Source(path, typ=typ)
+            Source(path, type=typ)
 
 
 def test_a_source_table_keeps_the_callers_table_and_round_trips_its_type(tmp_path):
     path = tmp_path / "top.bsv"
     path.write_text("x\n")
     table = {"file": str(path), "type": "Vhdl"}
-    source = Source(table, typ=SourceType.Bluespec)
+    source = Source(table, type=SourceType.Bluespec)
     assert source.type is SourceType.Bluespec
     assert table == {"file": str(path), "type": "Vhdl"}
 
@@ -191,3 +191,13 @@ def test_the_original_ordinals_still_name_the_original_members():
 
 def test_suffix_inference_needs_no_file_to_exist(tmp_path):
     assert source_type_of(tmp_path / "later.bs") is SourceType.Bluespec
+
+
+def test_the_source_type_is_a_keyword_with_the_name_of_the_field(tmp_path):
+    path = tmp_path / "top.txt"
+    path.write_text("x\n")
+    assert Source(path, type=SourceType.Verilog).type is SourceType.Verilog
+    with pytest.raises(TypeError):
+        Source(path, SourceType.Verilog)  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        Source(path, typ=SourceType.Verilog)  # type: ignore[call-arg]

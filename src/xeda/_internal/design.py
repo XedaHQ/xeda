@@ -1050,12 +1050,13 @@ class Source(FileResource):
     _dependency_place: str | None
 
     def __init__(
-        self, path: Union[str, os.PathLike, Dict[str, str]], typ: str | None = None
+        self, path: Union[str, os.PathLike, Dict[str, str]], *, type: str | None = None
     ) -> None:
         """Build a written source of the design from a path or a table (see `FileResource`).
 
-        `typ` is the name of the source type; without it, the suffix of the file gives the type."""
-        self._set_up(path, typ)
+        `type` is the name of the source type (the field `Source.type`); without it, the suffix
+        of the file gives the type."""
+        self._set_up(path, type)
 
     @classmethod
     def _create(
@@ -1763,7 +1764,7 @@ class DesignPart(XedaBaseModel):
 
         def ds(src: Union[str, Path], typ=None):
             """Create a design source from a path and optional source type."""
-            return Source(src, typ=typ)
+            return Source(src, type=typ)
 
         value = as_source_list(value)
         sources: List[Source] = []
