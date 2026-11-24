@@ -111,7 +111,8 @@ CONTRACT_VERBS = {
     ),
     "sweep": (
         [
-            "specs: Iterable[xeda.Spec]", "/", "*", *RUN_ROOT, TOOL_OUTPUT, *REMOTE,
+            "specs: Iterable[xeda.Spec]", "/", "*", *RUN_ROOT, TOOL_OUTPUT,
+            "local_settings: xeda.LocalSettings | None = None",
             "max_workers: int = 1", "rebuild_all: bool = False", "clean: bool = False",
             "post_cleanup: bool = False", "post_cleanup_purge: bool = False", *CANCEL,
         ],

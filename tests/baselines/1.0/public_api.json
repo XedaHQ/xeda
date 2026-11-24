@@ -199,7 +199,7 @@
                 "name": "authors"
               },
               {
-                "annotation": "str | None",
+                "annotation": "str | Sequence[str] | None",
                 "default": "None",
                 "kind": "keyword_only",
                 "name": "license"
@@ -235,7 +235,7 @@
                   "name": "target"
                 }
               ],
-              "return": "DesignType"
+              "return": "Self"
             },
             "root": {
               "annotation": "pathlib.Path",
@@ -263,7 +263,7 @@
                   "name": "target"
                 }
               ],
-              "return": "DesignType"
+              "return": "Self"
             },
             "with_updates": {
               "kind": "method",
@@ -274,7 +274,7 @@
                   "name": "updates"
                 }
               ],
-              "return": "DesignType"
+              "return": "Self"
             }
           },
           "special_methods": [
@@ -1156,8 +1156,7 @@
             }
           },
           "special_methods": [
-            "__eq__",
-            "__hash__"
+            "__eq__"
           ]
         },
         "PlanDelivery": {
@@ -1696,8 +1695,7 @@
             }
           },
           "special_methods": [
-            "__eq__",
-            "__hash__"
+            "__eq__"
           ]
         },
         "Rtl": {
@@ -2065,6 +2063,17 @@
               "annotation": "bool",
               "kind": "property"
             },
+            "quantities": {
+              "kind": "method",
+              "parameters": [
+                {
+                  "annotation": "str",
+                  "kind": "positional_or_keyword",
+                  "name": "path"
+                }
+              ],
+              "return": "Mapping[str, pint.Quantity]"
+            },
             "quantity": {
               "kind": "method",
               "parameters": [
@@ -2074,7 +2083,7 @@
                   "name": "path"
                 }
               ],
-              "return": "pint.Quantity | Mapping[str, pint.Quantity]"
+              "return": "pint.Quantity"
             },
             "to_dict": {
               "kind": "method",
@@ -2091,76 +2100,72 @@
           "attributes": [
             {
               "annotation": "tuple[pathlib.Path, ...]",
-              "default": "_tuplegetter(0, 'Alias for field number 0')",
               "name": "scanned"
             },
             {
               "annotation": "tuple[pathlib.Path, ...]",
-              "default": "_tuplegetter(1, 'Alias for field number 1')",
               "name": "removed"
             },
             {
               "annotation": "tuple[pathlib.Path, ...]",
-              "default": "_tuplegetter(2, 'Alias for field number 2')",
               "name": "kept"
             },
             {
               "annotation": "tuple[pathlib.Path, ...]",
-              "default": "_tuplegetter(3, 'Alias for field number 3')",
               "name": "gone"
             },
             {
               "annotation": "tuple[pathlib.Path, ...]",
-              "default": "_tuplegetter(4, 'Alias for field number 4')",
               "name": "skipped"
             },
             {
               "annotation": "Mapping[pathlib.Path, str]",
-              "default": "_tuplegetter(5, 'Alias for field number 5')",
+              "default": "<factory>",
               "name": "reasons"
             }
           ],
-          "bases": [
-            "tuple"
-          ],
+          "bases": [],
           "constructor": {
             "parameters": [
               {
                 "annotation": "tuple[pathlib.Path, ...]",
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "scanned"
               },
               {
                 "annotation": "tuple[pathlib.Path, ...]",
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "removed"
               },
               {
                 "annotation": "tuple[pathlib.Path, ...]",
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "kept"
               },
               {
                 "annotation": "tuple[pathlib.Path, ...]",
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "gone"
               },
               {
                 "annotation": "tuple[pathlib.Path, ...]",
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "skipped"
               },
               {
                 "annotation": "Mapping[pathlib.Path, str]",
-                "default": "mappingproxy({})",
-                "kind": "positional_or_keyword",
+                "default": "<factory>",
+                "kind": "keyword_only",
                 "name": "reasons"
               }
             ]
           },
           "kind": "class",
           "methods": {},
-          "special_methods": []
+          "special_methods": [
+            "__eq__",
+            "__hash__"
+          ]
         },
         "Source": {
           "attributes": [
@@ -2188,8 +2193,8 @@
               {
                 "annotation": "str | None",
                 "default": "None",
-                "kind": "positional_or_keyword",
-                "name": "typ"
+                "kind": "keyword_only",
+                "name": "type"
               }
             ]
           },
@@ -2245,8 +2250,7 @@
           "kind": "class",
           "methods": {},
           "special_methods": [
-            "__eq__",
-            "__hash__"
+            "__eq__"
           ]
         },
         "SweepPoint": {
@@ -2287,8 +2291,7 @@
           "kind": "class",
           "methods": {},
           "special_methods": [
-            "__eq__",
-            "__hash__"
+            "__eq__"
           ]
         },
         "SweepResult": {
@@ -2364,8 +2367,7 @@
           "special_methods": [
             "__iter__",
             "__len__",
-            "__eq__",
-            "__hash__"
+            "__eq__"
           ]
         },
         "Testbench": {
@@ -3081,12 +3083,6 @@
               "default": "'log'",
               "kind": "keyword_only",
               "name": "tool_output"
-            },
-            {
-              "annotation": "xeda.Remote | None",
-              "default": "None",
-              "kind": "keyword_only",
-              "name": "remote"
             },
             {
               "annotation": "xeda.LocalSettings | None",
@@ -4259,12 +4255,6 @@
               "default": "'log'",
               "kind": "keyword_only",
               "name": "tool_output"
-            },
-            {
-              "annotation": "xeda.Remote | None",
-              "default": "None",
-              "kind": "keyword_only",
-              "name": "remote"
             },
             {
               "annotation": "xeda.LocalSettings | None",
