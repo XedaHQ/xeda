@@ -37,6 +37,7 @@ from typing import (
     Optional,
     NamedTuple,
     NotRequired,
+    Self,
     Tuple,
     Type,
     TypeVar,
@@ -1049,12 +1050,13 @@ class Source(FileResource):
     _dependency_place: str | None
 
     def __init__(
-        self, path: Union[str, os.PathLike, Dict[str, str]], typ: str | None = None
+        self, path: Union[str, os.PathLike, Dict[str, str]], *, type: str | None = None
     ) -> None:
         """Build a written source of the design from a path or a table (see `FileResource`).
 
-        `typ` is the name of the source type; without it, the suffix of the file gives the type."""
-        self._set_up(path, typ)
+        `type` is the name of the source type (the field `Source.type`); without it, the suffix
+        of the file gives the type."""
+        self._set_up(path, type)
 
     @classmethod
     def _create(
@@ -1762,7 +1764,7 @@ class DesignPart(XedaBaseModel):
 
         def ds(src: Union[str, Path], typ=None):
             """Create a design source from a path and optional source type."""
-            return Source(src, typ=typ)
+            return Source(src, type=typ)
 
         value = as_source_list(value)
         sources: List[Source] = []
@@ -3790,7 +3792,7 @@ class Design(XedaBaseModel):
         dependencies: Sequence[Mapping[str, Any]] = (),
         description: str | None = None,
         authors: Sequence[str] = (),
-        license: str | None = None,
+        license: str | Sequence[str] | None = None,
         version: str | None = None,
         url: str | None = None,
     ) -> None:
@@ -4073,7 +4075,7 @@ class Design(XedaBaseModel):
                 [("flows", str(e), "", "value_error")], data=dict(data)
             ) from e
 
-    def with_updates(self: DesignType, updates: Mapping[str, Any]) -> DesignType:
+    def with_updates(self, updates: Mapping[str, Any]) -> Self:
         """Return this design with `updates` merged over it.
 
         Mappings merge key by key, and `sources` replace the design's. A dotted key is accepted.
@@ -4100,7 +4102,7 @@ class Design(XedaBaseModel):
             project_layer=self._project_layer,
         )
 
-    def with_target(self: DesignType, target: str | None) -> DesignType:
+    def with_target(self, target: str | None) -> Self:
         """Return the design with `target` selected, or with no target for `None`.
 
         The target folds into the design as the design declares it, and then each of `updates` is
@@ -4356,9 +4358,7 @@ class Design(XedaBaseModel):
             del data[key]
 
     @classmethod
-    def load(
-        cls: Type[DesignType], path: Union[str, os.PathLike], *, target: str | None = None
-    ) -> DesignType:
+    def load(cls, path: Union[str, os.PathLike], *, target: str | None = None) -> Self:
         """Load and validate a design from a TOML, JSON or YAML file.
 
         The root of the design is the directory of the file. The call reads the file, expands

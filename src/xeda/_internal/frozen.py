@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, TypeVar
 
 import pint
 from pydantic import BaseModel
@@ -18,7 +18,11 @@ from pydantic_core import core_schema
 __all__ = ["Frozen", "FrozenDict", "FrozenModel", "freeze", "thaw"]
 
 
-class FrozenDict(Mapping[str, Any]):
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+class FrozenDict(Mapping[_K, _V]):
     """A mapping that nobody can change.
 
     It reads like a `dict`. It has no method that changes it, so an assignment into it raises
@@ -27,15 +31,13 @@ class FrozenDict(Mapping[str, Any]):
 
     __slots__ = ("_data",)
 
-    def __init__(
-        self, data: Mapping[str, Any] | Iterator[tuple[str, Any]] | None = None, /
-    ) -> None:
-        self._data: dict[str, Any] = {} if data is None else dict(data)
+    def __init__(self, data: Mapping[_K, _V] | Iterator[tuple[_K, _V]] | None = None, /) -> None:
+        self._data: dict[_K, _V] = {} if data is None else dict(data)
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: _K) -> _V:
         return self._data[key]
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[_K]:
         return iter(self._data)
 
     def __len__(self) -> int:

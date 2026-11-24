@@ -402,6 +402,8 @@ def _put(values: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
 class _Location:
     label: str
     kind: str = "file"
+    #: The layer that gave the value, as `SettingsError.origin` names it.
+    layer: str | None = None
 
 
 @dataclass
@@ -421,7 +423,7 @@ def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
 
 def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> _Located:
     values = expand_forms(cls.Settings, merge_layers(_explicit(raw), settings_cls=cls.Settings))
-    locations = {path: _Location(label, kind) for path in _leaves(values)}
+    locations = {path: _Location(label, kind, label) for path in _leaves(values)}
     return _Located(values, locations)
 
 
@@ -429,7 +431,7 @@ def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: st
     own = _located(sections.get(cls.name, {}), cls, f"`flows.{cls.name}` in {origin}", kind)
     # Attach the original location to each leaf, before composition loses that route.
     own.locations = {
-        path: _Location(f"{loc.label} ({'.'.join(path)})", loc.kind)
+        path: _Location(f"{loc.label} ({'.'.join(path)})", loc.kind, origin)
         for path, loc in own.locations.items()
     }
     located = _overlay(_Located(), own, cls)
@@ -438,6 +440,32 @@ def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: st
     composed = compose_flow_settings(cls, [sections])
     located.values = _located(composed, cls, origin, kind).values
     return located
+
+
+def _layer_of(locations: Mapping[tuple[str, ...], _Location], path: tuple[str, ...]) -> str | None:
+    """Return the layer that gave the value at `path`, or `None` when no layer did.
+
+    A value that a layer gave at `path`, or whole above it (a table or a list that holds `path`),
+    has that layer. Without one, the leaves below `path` decide, when one layer gave all of them."""
+    for size in range(len(path), 0, -1):
+        found = locations.get(path[:size])
+        if found is not None:
+            return found.layer
+    layers = {
+        loc.layer for place, loc in locations.items() if place[: len(path)] == path and loc.layer
+    }
+    return layers.pop() if len(layers) == 1 else None
+
+
+def name_origins(error: FlowSettingsError, raw: _Located) -> None:
+    """Record in `error` the layer that gave the value of each finding, from where `raw` says each
+    leaf came from. A finding that no layer gave (a default, a rule over several settings, a
+    value that two layers disagree on) has no origin."""
+    for location, *_ in error.errors:
+        if location and location not in error.origins:
+            layer = _layer_of(raw.locations, tuple(location.split(" -> ")))
+            if layer is not None:
+                error.origins[location] = layer
 
 
 @dataclass
@@ -764,6 +792,9 @@ def check_settings_without_design(
     *,
     design_root: Path,
     runner_cwd: Path,
+    origins: Sequence[tuple[str, Mapping[str, Any]]] = (),
+    command_line: Mapping[str, Mapping[str, Any]] | None = None,
+    api_overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> None:
     """Check the settings of every flow that a request may use, before planning reads the design.
 
@@ -776,7 +807,10 @@ def check_settings_without_design(
     planning resolves. For the flows of the chain, if no neighbor can add a shared setting, they
     also run what the settings alone refuse: a path that a flow writes and cannot, and
     `Flow.check_settings_supported`. So a request that is wrong in itself is refused before
-    planning fetches a Git dependency. Resolution repeats the checks."""
+    planning fetches a Git dependency. Resolution repeats the checks.
+
+    `origins`, `command_line` and `api_overrides` are the layers of the request, as `resolve`
+    takes them. A refusal names the layer that gave the value of each finding."""
     requested = flow_request.requested
     chain = {element.flow_class.name for element in flow_request.elements}
     flows: dict[str, type[Flow]] = {}
@@ -808,6 +842,10 @@ def check_settings_without_design(
                     raise
         except FlowSettingsError as error:
             suggest_dependency_node(requested, design, error)
+            name_origins(
+                error,
+                _layered(flow_cls, _layers(sections, origins, command_line, api_overrides)),
+            )
             raise
 
 
@@ -821,6 +859,7 @@ def _shared_locations(
         settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
     except FlowSettingsError as error:
         suggest_dependency_node(cls, design, error)
+        name_origins(error, raw)
         raise
     request = _Request(cls, raw, cls.name)
     result = {}
@@ -1056,6 +1095,35 @@ def converting_flow(cls: type[Flow], design: Design) -> tuple[type[Flow], str, s
     )
 
 
+def _layers(
+    sections: Mapping[str, Any] | None,
+    origins: Sequence[tuple[str, Mapping[str, Any]]],
+    command_line: Mapping[str, Mapping[str, Any]] | None,
+    api_overrides: Mapping[str, Mapping[str, Any]] | None,
+) -> list[tuple[str, dict[str, Any], str]]:
+    """Return the layers of a request, lowest first, as `(origin, flow sections, kind)`."""
+    layers = [
+        (label, _sections(values), "cli" if label == COMMAND_LINE_ORIGIN else "file")
+        for label, values in origins
+    ]
+    if not layers:
+        layers.append((SUPPLIED_SECTIONS_ORIGIN, _sections(sections), "file"))
+    cli_sections = _sections(command_line) if command_line else {}
+    if cli_sections:
+        layers.append((COMMAND_LINE_ORIGIN, cli_sections, "cli"))
+    if api_overrides:
+        layers.append((API_ORIGIN, _sections(api_overrides), "api"))
+    return layers
+
+
+def _layered(flow_cls: type[Flow], layers: Sequence[tuple[str, dict[str, Any], str]]) -> _Located:
+    """Return the settings of `flow_cls` that `layers` give, and the layer of each leaf."""
+    raw = _Located()
+    for label, values, kind in layers:
+        raw = _overlay(raw, _compose(flow_cls, values, label, kind), flow_cls)
+    return raw
+
+
 def resolve(
     flow_cls: type[Flow],
     design: Design,
@@ -1086,21 +1154,9 @@ def resolve(
     context = dict(design_root=design.root, runner_cwd=runner_cwd)
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
-    layers = [
-        (label, _sections(values), "cli" if label == COMMAND_LINE_ORIGIN else "file")
-        for label, values in origins
-    ]
-    if not layers:
-        layers.append((SUPPLIED_SECTIONS_ORIGIN, _sections(sections), "file"))
+    layers = _layers(sections, origins, command_line, api_overrides)
     cli_sections = _sections(command_line) if command_line else {}
-    if cli_sections:
-        layers.append((COMMAND_LINE_ORIGIN, cli_sections, "cli"))
-    if api_overrides:
-        layers.append((API_ORIGIN, _sections(api_overrides), "api"))
-
-    root_raw = _Located()
-    for label, values, kind in layers:
-        root_raw = _overlay(root_raw, _compose(flow_cls, values, label, kind), flow_cls)
+    root_raw = _layered(flow_cls, layers)
     # `settings` is normally composed by `settings_layers` already. Preserve the locations of
     # identical leaves. Only additional edits by the caller form a final contribution of the
     # direct API.
@@ -1427,7 +1483,11 @@ def resolve(
             for shared in ("fpga", "board", "custom_boards_file"):
                 if shared in proposal.raw.values:
                     values[shared] = proposal.raw.values[shared]
-            settings = settings_in_context(proposal.cls, values, **context)
+            try:
+                settings = settings_in_context(proposal.cls, values, **context)
+            except FlowSettingsError as error:
+                name_origins(error, proposal.raw)
+                raise
             selected_inputs = []
             for declaration in declared_inputs(request.cls).values():
                 old = next((item for item in request.inputs if item.name == declaration.name), None)
@@ -1484,6 +1544,7 @@ def resolve(
             request.settings = settings_in_context(request.cls, request.raw.values, **context)
         except FlowSettingsError as error:
             suggest_dependency_node(request.cls, design, error)
+            name_origins(error, request.raw)
             raise
         switched = []
         for name in declared_outputs(request.cls):

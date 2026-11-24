@@ -503,7 +503,7 @@ def scrub_document(
     lists are empty without it."""
 
     def paths(name: str) -> List[str]:
-        return [str(path) for path in getattr(result, name)] if result else []
+        return [str(path) for path in getattr(result, name)] if result is not None else []
 
     return {
         "schema_version": 1,

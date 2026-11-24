@@ -129,6 +129,8 @@ OUTCOMES: Final = ("passed", "rejected", "failed", "canceled")
 #: The types of a metric value (`xeda._internal.flow.metrics.MetricType`).
 #: The metric types that hold numbers, which a unit makes quantities.
 _NUMERIC_METRIC_TYPES: Final = ("number", "integer", "numbers")
+#: The metric type of a table of numbers, which `RunRecord.quantities` reads.
+TABLE_METRIC_TYPE: Final = "numbers"
 _METRIC_TYPES: Final = (
     "number",
     "integer",
@@ -321,19 +323,37 @@ class RunRecord:
                 raise KeyError(path)
         return node
 
-    def quantity(self, path: str) -> pint.Quantity | Mapping[str, pint.Quantity]:
+    def quantity(self, path: str) -> pint.Quantity:
         """Return the metric at the dotted `path` as a pint quantity (`nextpnr.fmax`).
 
         The quantity comes from the application registry of pint (`pint.get_application_registry`),
         which the call looks up each time, so `pint.set_application_registry` applies. It has the
-        unit of the metric (`MetricInfo.unit`) and the stored number: an `int` stays an `int`. A
-        metric of the type `numbers` gives a read-only table with a quantity for each key. Each
+        unit of the metric (`MetricInfo.unit`) and the stored number: an `int` stays an `int`. Each
         call builds new objects.
 
         `path` must be the path of a metric, as for `metric`: another path raises `KeyError`, and
-        so does the path of a group. A metric that has no unit (a count, a ratio, a text) raises
-        `ValueError`: read it with `metric`. So does a unit that this version of Xeda does not
+        so does the path of a group. A metric that is not one number with a unit raises
+        `ValueError`: a count, a ratio or a text (read it with `metric`), and a metric of the type
+        `numbers` (read it with `quantities`). So does a unit that this version of Xeda does not
         know, or that the registry defines in another way."""
+        registry, unit, value = self._quantity_parts(path, table=False)
+        return registry.Quantity(value, unit)
+
+    def quantities(self, path: str) -> Mapping[str, pint.Quantity]:
+        """Return the metric of the type `numbers` at the dotted `path` as a read-only table with
+        a pint quantity for each key (`power.dynamic` is `quantities("power")["dynamic"]`).
+
+        Every value has the unit of the metric (`MetricInfo.unit`), and the quantities are as
+        `quantity` builds them. Each call builds new objects.
+
+        The errors are those of `quantity`. A metric of another type raises `ValueError`: read one
+        number with `quantity`, and anything else with `metric`."""
+        registry, unit, value = self._quantity_parts(path, table=True)
+        return FrozenDict({key: registry.Quantity(item, unit) for key, item in value.items()})
+
+    def _quantity_parts(self, path: str, *, table: bool) -> tuple[Any, str, Any]:
+        """Return the registry, the unit and the stored value of the metric at `path`, which must
+        be a table of numbers (`table`) or one number."""
         info = self.metric_info.get(path)
         if info is None:
             self.metric(path)  # `KeyError` for a path that is no metric
@@ -345,14 +365,21 @@ class RunRecord:
                 + ("" if info.unit is None else f" with the unit `{info.unit}`")
                 + " and has no quantity: read it with `metric`"
             )
+        if table and info.type != TABLE_METRIC_TYPE:
+            raise ValueError(
+                f"the metric `{path}` is of the type `{info.type}`, not a table of numbers: "
+                "read it with `quantity`"
+            )
+        if not table and info.type == TABLE_METRIC_TYPE:
+            raise ValueError(
+                f"the metric `{path}` is a table of numbers, not one number: "
+                "read it with `quantities`"
+            )
         if not is_metric_unit(unit):
             raise ValueError(f"the metric `{path}` has the unit `{unit}`, which is not known")
         registry = pint.get_application_registry()
         verify_unit(registry, unit)
-        value = self.metric(path)
-        if isinstance(value, Mapping):  # a table of numbers: the unit is the unit of every value
-            return FrozenDict({key: registry.Quantity(item, unit) for key, item in value.items()})
-        return registry.Quantity(value, unit)
+        return registry, unit, self.metric(path)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the `results.json` document of the record (`encode_record`)."""

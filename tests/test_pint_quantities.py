@@ -174,7 +174,7 @@ def test_a_unit_that_only_metrics_have_is_a_quantity_too(record, path, unit):
 
 
 def test_a_table_of_numbers_is_a_read_only_table_of_quantities(record):
-    power = record.quantity("power")
+    power = record.quantities("power")
     assert isinstance(power, FrozenDict)
     assert dict(power) == {"static": Q(1.5, "W"), "dynamic": Q(0.25, "W")}
     with pytest.raises(TypeError):
@@ -196,6 +196,23 @@ def test_a_table_of_numbers_is_a_read_only_table_of_quantities(record):
 def test_a_metric_that_has_no_unit_or_no_number_raises_value_error(record, path, problem):
     with pytest.raises(ValueError, match=rf"`{path}`.*{problem}.*`metric`"):
         record.quantity(path)
+
+
+def test_quantity_refuses_a_table_of_numbers_and_names_quantities(record):
+    with pytest.raises(ValueError, match=r"`power`.*table of numbers.*`quantities`"):
+        record.quantity("power")
+
+
+@pytest.mark.parametrize("path", ["fmax", "sim.time", "lut", "sim.ended_by", "cells"])
+def test_quantities_refuses_a_metric_that_is_no_table_of_numbers(record, path):
+    with pytest.raises(ValueError, match=rf"`{path}`.*`quantity`|`{path}`.*`metric`"):
+        record.quantities(path)
+
+
+@pytest.mark.parametrize("path", ["nosuch", "sim"])
+def test_quantities_raises_key_error_for_a_path_that_is_no_metric(record, path):
+    with pytest.raises(KeyError):
+        record.quantities(path)
 
 
 @pytest.mark.parametrize("path", ["nosuch", "sim.nosuch", "fmax.x", "sim.time.x"])
@@ -248,9 +265,9 @@ def test_each_call_builds_new_objects(record):
     first = record.quantity("fmax")
     first.ito("kHz")
     assert record.quantity("fmax") == Q(250.5, "MHz")
-    table = record.quantity("power")
+    table = record.quantities("power")
     table["static"].ito("mW")
-    assert record.quantity("power")["static"] == Q(1.5, "W")
+    assert record.quantities("power")["static"] == Q(1.5, "W")
 
 
 def test_a_quantity_pickles_and_adds_to_the_quantity_of_a_user(record):
@@ -278,7 +295,7 @@ def test_a_mixed_row_has_quantities_where_a_metric_has_a_unit(tmp_path, design):
     )
     assert row["nextpnr.timing_met"] is plain["nextpnr.timing_met"]
     assert result.rows(metrics=metrics) == result.rows(metrics=metrics, quantities=False)
-    for key in ("index", "flow", "design", "outcome", "settings.nextpnr.seed", "run_dir"):
+    for key in ("index", "flow", "design_name", "outcome", "settings.nextpnr.seed", "run_dir"):
         assert row[key] == plain[key]
     # the setting is the value of the field, not text and not a float of another unit
     period = row["settings.nextpnr.clocks.main_clock.period"]

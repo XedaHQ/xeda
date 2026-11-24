@@ -57,7 +57,7 @@ from .local_settings import check_launch_settings
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
 from .proc_utils import CANCEL_POLL
-from .records import ErrorInfo, RunRecord, has_quantity, read_record
+from .records import TABLE_METRIC_TYPE, ErrorInfo, RunRecord, has_quantity, read_record
 from .run_dir import RunDirectory
 from .spec import Spec
 from .utils import Canceled, expanding_from
@@ -85,11 +85,14 @@ __all__ = [
 
 @dataclass(frozen=True, kw_only=True)
 class SweepPoint:
-    """One spec of a sweep: its position in the input, the spec and what its launch did."""
+    """One spec of a sweep: its position in the input, the spec and what its launch did. A point
+    is not hashable, as its spec is not."""
 
     index: int
     spec: Spec = field(repr=False)
     result: Result
+
+    __hash__ = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -97,10 +100,13 @@ class SweepResult:
     """What a sweep did: one `SweepPoint` for each spec, in input order.
 
     `canceled` is true when the sweep stopped before every point finished. A point that did not
-    start has the outcome `canceled`, the error `canceled` and only `skipped` nodes."""
+    start has the outcome `canceled`, the error `canceled` and only `skipped` nodes. A sweep result is
+    not hashable, as its points are not."""
 
     points: tuple[SweepPoint, ...]
     canceled: bool
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "points", tuple(self.points))
@@ -121,7 +127,7 @@ class SweepResult:
     ) -> list[dict[str, Any]]:
         """Return one table row for each point, as a dict.
 
-        The keys are `index`, `flow` (the flow or chain of the spec), `design`, `target`,
+        The keys are `index`, `flow` (the flow or chain of the spec), `design_name`, `target`,
         `outcome`, `error_code` and `run_dir` (of the root node); then `design.<path>` for each
         leaf of the updates of the design (`Design.updates`, merged), then `settings.<node>.<path>`
         for each leaf of the settings of the spec, then one key for each of `metrics`. A metric is
@@ -173,7 +179,7 @@ class SweepResult:
         row: dict[str, Any] = {
             "index": point.index,
             "flow": spec.flow,
-            "design": spec.design.name,
+            "design_name": spec.design.name,
             "target": spec.design.target,
             "outcome": str(result.outcome),
             "error_code": None if result.error is None else result.error.code,
@@ -231,8 +237,9 @@ def _metric_quantities(record: RunRecord, path: str) -> Any:
     if path in record.metric_info:
         info = record.metric_info[path]
         if has_quantity(info):
-            quantity = record.quantity(path)
-            return dict(quantity) if isinstance(quantity, Mapping) else quantity
+            if info.type == TABLE_METRIC_TYPE:
+                return dict(record.quantities(path))
+            return record.quantity(path)
         return thaw(value)
     if isinstance(value, Mapping):
         return {key: _metric_quantities(record, f"{path}.{key}") for key in value}

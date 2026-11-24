@@ -12,7 +12,7 @@ import difflib
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
-from ..flow import Flow, FlowSettingsError
+from ..flow import Flow
 from ..flow.io import declared_inputs
 from ..utils import settings_to_dict
 from .settings_layers import (
@@ -21,6 +21,7 @@ from .settings_layers import (
     _has_clock_table,
     _repeated_leaves,
     check_flow_name,
+    command_line_error,
     merge_flow_sections,
     registered_flow,
 )
@@ -161,5 +162,5 @@ def split_node_sections(
     if not problems:
         problems = _repeated_leaves(_given_leaves(layer, requested, flow_class_for, scoped=True))
     if problems:
-        raise FlowSettingsError(problems, "flows")
+        raise command_line_error(problems, "flows")
     return merge_flow_sections(table, flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN)

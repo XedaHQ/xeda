@@ -196,8 +196,8 @@ class Result:
     """What one launch did: the verdict, and an outcome for every planned node.
 
     `outcome` is the aggregate and `error` is the cause (`aggregate`). `nodes` holds every
-    planned node by name, in plan order (producers first), as `Plan.nodes` does. `roots` are the nodes that the request asked for.
-    """
+    planned node by name, in plan order (producers first), as `Plan.nodes` does. `roots` are the
+    nodes that the request asked for. A result is not hashable, as its spec is not."""
 
     launch_id: str = field(repr=False)
     spec: Spec = field(repr=False)
@@ -205,6 +205,8 @@ class Result:
     outcome: Outcome
     error: ErrorInfo | None
     nodes: Mapping[str, NodeResult]
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roots", tuple(self.roots))

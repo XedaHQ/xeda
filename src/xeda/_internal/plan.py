@@ -122,7 +122,7 @@ class Plan:
     `roots` names the nodes that the spec asks for. `options` holds the seven launch options by
     name (`outputs_to` is an absolute path or `None`). `nodes` holds every node by name, in
     plan order: producers come before their consumers. The `nodes` list of the document has the
-    same order."""
+    same order. A plan is not hashable, as its spec is not."""
 
     spec: Spec = field(repr=False)
     roots: tuple[str, ...]
@@ -138,6 +138,8 @@ class Plan:
     #: The `code_fingerprint` of the code that made the plan, for the flows of its nodes. Running
     #: the plan compares it with the code of the process that runs it.
     _code: Mapping[str, str] = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "roots", tuple(self.roots))

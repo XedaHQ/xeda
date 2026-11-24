@@ -99,8 +99,8 @@ def _summary(design: Design) -> list[tuple[str, str]]:
 def test_a_conversion_names_what_it_converts_and_what_it_writes() -> None:
     conversion = DesignConversion(BLUESPEC, VERILOG)
     assert conversion.written_type is SourceType.Verilog
-    assert conversion.passes_through(Source({"path": "a.v"}, SourceType.Verilog))
-    assert not conversion.passes_through(Source({"path": "a.bsv"}, SourceType.Bluespec))
+    assert conversion.passes_through(Source({"path": "a.v"}, type=SourceType.Verilog))
+    assert not conversion.passes_through(Source({"path": "a.bsv"}, type=SourceType.Bluespec))
 
 
 @pytest.mark.parametrize(
@@ -728,7 +728,7 @@ def test_a_bluespec_header_is_read_by_the_converter_and_not_handed_on(tmp_path) 
     design = _design(tmp_path / "d")
     header = tmp_path / "d" / "Limit.bsvi"
     header.write_text("`define LIMIT 5\n")
-    sources = [*design.rtl.sources, Source(header, SourceType.BluespecHeader)]
+    sources = [*design.rtl.sources, Source(header, type=SourceType.BluespecHeader)]
     design = with_updates(design, rtl={"sources": tuple(sources)})
     conversion = Bsc.design_conversion(Bsc.Settings())
     assert conversion is not None

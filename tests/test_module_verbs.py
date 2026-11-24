@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERBS = {
     "plan": ("run_root", "hashed_run_dirs", "remote", "local_settings"),
     "run": ("run_root", "hashed_run_dirs", "tool_output", "confirm", "remote", "local_settings"),
-    "sweep": ("run_root", "hashed_run_dirs", "tool_output", "remote", "local_settings"),
+    "sweep": ("run_root", "hashed_run_dirs", "tool_output", "local_settings"),
     "load_record": (),
     "records": ("run_root",),
     "scrub": ("run_root", "confirm"),
@@ -113,7 +113,7 @@ def test_the_call_delegates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     cases = {
         "plan": ((spec,), {"run_root": tmp_path, "clean": True}),
         "run": ((spec,), {"hashed_run_dirs": True, "tool_output": "terminal", "clean": True}),
-        "sweep": (([spec],), {"remote": None, "max_workers": 2}),
+        "sweep": (([spec],), {"local_settings": None, "max_workers": 2}),
         "records": ((), {"run_root": tmp_path, "flow": "x"}),
         "scrub": ((), {"design_name": "d", "confirm": None, "run_root": tmp_path}),
     }
@@ -136,6 +136,13 @@ def test_the_call_delegates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     )
     assert xeda._internal.workspace_verbs.load_record(tmp_path) == "record"
     assert calls == [tmp_path]
+
+
+def test_the_module_level_sweep_has_no_remote_parameter() -> None:
+    """A sweep never runs on a remote host, so a parameter for one would only raise."""
+    assert "remote" not in inspect.signature(xeda.sweep).parameters
+    assert "remote" in inspect.signature(xeda.run).parameters
+    assert "remote" in inspect.signature(xeda.plan).parameters
 
 
 def test_the_module_level_run_takes_a_spec_only(monkeypatch: pytest.MonkeyPatch) -> None:

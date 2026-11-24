@@ -207,7 +207,13 @@ raises ``SettingsError`` with the code ``shared_setting_conflict``.
 
 Settings come from layers, and the last layer wins: the defaults of the flow, the user file, the
 host profile, the project, the design, the target, the project-local file and ``Spec.settings``
-(see :doc:`flows`). Every value remembers its layer, and ``SettingsError.origin`` names it.
+(see :doc:`flows`). ``SettingsError.origin`` names the layer that gave the refused value: the
+path of the design file (a value of a target counts as a value of the design file), the path of
+the project file, a text that names the user config file, the project-local file or the host
+profile (``--remote``), or the text that names the settings of the ``Spec`` (they are the layer of
+the command line). It is ``None`` when no layer
+gave the value: a default, a rule that covers several settings, a value that two layers give, or a
+refusal that is about no setting.
 
 Xeda checks all settings when you plan or run. An error raises a subclass of ``SpecError`` before
 anything runs. ``SettingsError`` has the attributes ``code``, ``message``, ``node``, ``setting``,
@@ -362,13 +368,15 @@ or ``sim.ended_by``. A unit is never part of the name: it is in
 not report the metric.
 
 ``record.quantity(path)`` returns the same metric as a ``pint`` quantity, with the unit from
-``metric_info``. A metric of the type ``numbers`` gives a read-only table of quantities. The
-quantity belongs to the application registry of pint (``pint.get_application_registry()``), so it
-adds to the quantities of your own code. The call raises ``KeyError`` for a path that is no metric,
-and ``ValueError`` for a metric that has no unit (a count, a ratio, a text): read it with
-``record.metric(path)``. Each call returns new objects, and changing one does not change the
-record. The JSON documents do not change: they hold the number in ``metrics`` and the unit in
-``metric_info``.
+``metric_info``. ``record.quantities(path)`` does the same for a metric of the type ``numbers``: it
+returns a read-only table with a quantity for each key. The quantities belong to the application
+registry of pint (``pint.get_application_registry()``), so they add to the quantities of your own
+code. Both calls raise ``KeyError`` for a path that is no metric, and ``ValueError`` for a metric
+that has no unit (a count, a ratio, a text): read it with ``record.metric(path)``. ``quantity``
+also raises ``ValueError`` for a metric of the type ``numbers`` (use ``quantities``).
+``quantities`` raises ``ValueError`` for any other metric (use ``quantity``). Each call returns new
+objects, and changing one does not change the record. The JSON documents do not change: they hold
+the number in ``metrics`` and the unit in ``metric_info``.
 
 .. code-block:: python
 
@@ -456,9 +464,9 @@ directory, and the sweep raises ``colliding_run_dirs`` before any point runs.
 * ``sweep.to_pandas(metrics=...)`` returns a pandas ``DataFrame``. Xeda does not install pandas:
   without it, the call raises ``SpecError`` with the code ``missing_dependency``.
 * ``rows`` and ``to_pandas`` take ``quantities=True``. A cell that holds a quantity is then a
-  ``pint`` quantity: a metric that has a unit (``record.quantity``), and a setting that is a
-  quantity, in the unit of its setting. Every other cell keeps its value. In a ``DataFrame``, the
-  quantities are objects in a column of the type ``object``.
+  ``pint`` quantity: a metric that has a unit (``record.quantity`` and ``record.quantities``), and
+  a setting that is a quantity, in the unit of its setting. Every other cell keeps its value. In a
+  ``DataFrame``, the quantities are objects in a column of the type ``object``.
 * ``max_workers`` above 1 starts worker processes with the ``spawn`` method. Each worker imports
   the main script again, so a script that does this puts every launch under
   ``if __name__ == "__main__":``. A launch that the script starts at module level is refused in the

@@ -350,6 +350,19 @@ class PlannedLaunch:
     executable_checks: dict[str, dict[str, str | None] | None] = field(default_factory=dict)
 
 
+def _design_origin(design: Design, given_file: Path | None = None) -> str:
+    """Return how messages name the layer of the `flows` table of `design`: the design file (the
+    one that the request gave, else the one that loaded the design), else the project file that
+    selected it, else the design itself."""
+    if given_file is not None:
+        return str(given_file.absolute())
+    if design._source_file is not None:
+        return str(design._source_file)
+    if design._project_layer is not None:
+        return f"{design._project_layer[0]}: design {design.name}"
+    return f"the design {design.name}"
+
+
 def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
     """Return the canonical names of registered flows most similar to `flow_name`."""
     canonical = unique([cls.name for _mod, cls in registered_flows.values()])
@@ -690,7 +703,7 @@ class FlowLauncher:
         recorded_settings = as_recorded(flow_settings or {})
         recorded_sections = as_recorded(all_flows_settings or {})
         direct = not origins
-        design_label = f"the design {design.name}"
+        design_label = _design_origin(design)
         # Capture reserved keys before settings composition: `inputs` is wiring the resolver
         # selects edges by, never a setting.
         layers: list[BindingLayer] = []
@@ -3271,6 +3284,9 @@ class FlowLauncher:
                 request.design,
                 design_root=request.design.root,
                 runner_cwd=self._start,
+                origins=request.origins,
+                command_line=request.command_line,
+                api_overrides=request.api_overrides,
             )
         if before_fetch is not None:
             before_fetch(request.design)
@@ -3292,7 +3308,8 @@ class FlowLauncher:
         and checks them in `_judged_request`."""
         if not design.dependencies:
             return
-        own, _ = split_bindings(thaw(design.flows), location=f"the design {design.name}")
+        own_label = _design_origin(design)
+        own, _ = split_bindings(thaw(design.flows), location=own_label)
         given, _ = split_bindings(sections or {}, location=SUPPLIED_SECTIONS_ORIGIN)
         requested: Mapping[str, Any] | Flow.Settings = (
             flow_settings
@@ -3306,6 +3323,12 @@ class FlowLauncher:
             design,
             design_root=design.root,
             runner_cwd=self._start,
+            origins=((own_label, own), (SUPPLIED_SECTIONS_ORIGIN, given)),
+            api_overrides=(
+                None
+                if isinstance(flow_settings, Flow.Settings) or not flow_settings
+                else {flow_class.name: flow_settings}
+            ),
         )
 
     def _merged(self, design: Design) -> Design:
@@ -3497,14 +3520,7 @@ class FlowLauncher:
         # has it.
         layer = design._project_layer
         project_label, flows_settings = (layer[0], thaw(layer[1])) if layer else ("", {})
-        if given_file is not None:
-            design_label = str(given_file.absolute())
-        elif design._source_file is not None:
-            design_label = str(design._source_file)
-        elif layer is not None:
-            design_label = f"{project_label}: design {design.name}"
-        else:
-            design_label = f"the design {design.name}"
+        design_label = _design_origin(design, given_file)
         host_label, host_table = host_layer if host_layer is not None else ("", {})
         host_sections, host_bindings = split_bindings(host_table, location=host_label)
         project_sections, project_bindings = split_bindings(flows_settings, location=project_label)

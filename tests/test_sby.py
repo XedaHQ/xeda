@@ -362,7 +362,7 @@ def test_a_dependency_outside_the_design_root_keeps_its_own_tree(tmp_path, fake_
 def test_a_source_named_like_a_file_of_the_task_is_refused(tmp_path, fake_sby, name):
     with pytest.raises(FlowSettingsException, match="writes a file of that name"):
         (tmp_path / name).write_text("{}")
-        source = Source(tmp_path / name, typ=SourceType.MemoryFile)
+        source = Source(tmp_path / name, type=SourceType.MemoryFile)
         staged_names(_design(tmp_path), [source])
 
 
@@ -417,7 +417,7 @@ def test_two_files_under_one_name_are_refused_and_one_file_twice_is_not(tmp_path
     (tmp_path / "gen" / "top.sv").write_text(SV_TOP)
     design = _generated_design(tmp_path, ["gen/top.sv"], TREE_FILES)
     assert list(staged_names(design, list(design.rtl.sources) * 2)) == ["gen/top.sv"]
-    written = Source(tmp_path / "gen" / "top.sv", typ=SourceType.SystemVerilog)
+    written = Source(tmp_path / "gen" / "top.sv", type=SourceType.SystemVerilog)
     with pytest.raises(FlowSettingsException, match="cannot stage both"):
         staged_names(design, [*design.rtl.sources, written])
 
@@ -441,7 +441,7 @@ def test_a_file_named_as_a_directory_of_another_is_refused(tmp_path, fake_sby):
     (tmp_path / "sub").write_text("")
     generated = Source._declaration("sub/top.sv", SourceType.SystemVerilog)
     with pytest.raises(FlowSettingsException, match="is a file of the design"):
-        staged_names(design, [Source(tmp_path / "sub", typ=SourceType.Verilog), generated])
+        staged_names(design, [Source(tmp_path / "sub", type=SourceType.Verilog), generated])
 
 
 @pytest.mark.parametrize("name", ["../top.sv", "gen/../../top.sv", "/top.sv"])
