@@ -1,0 +1,1 @@
+- `sby.timeout` below 1 s is now refused when the settings are read, as the schema states.

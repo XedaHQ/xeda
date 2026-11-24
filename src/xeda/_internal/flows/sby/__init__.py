@@ -727,7 +727,7 @@ class Sby(Flow):
             "When true, it still fails for logic that reads its own clock as data, or that reads "
             "the state behind a state-driven clock.",
         )
-        timeout: Optional[Annotated[Time, Unit("s"), Bounds(gt="0 s")]] = Field(
+        timeout: Optional[Annotated[Time, Unit("s"), Bounds(ge="1 s")]] = Field(
             None,
             description="The time limit of the SBY task, a whole number of seconds such as "
             "`10 min`. A task that reaches it ends with the status TIMEOUT, and the run fails. "

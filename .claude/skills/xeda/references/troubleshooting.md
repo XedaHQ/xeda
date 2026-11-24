@@ -30,7 +30,10 @@
 | Message | Fix |
 | --- | --- |
 | `<flow>.<name>: the flow has no such setting` (`unknown_setting`) | No such setting on this flow. A `did you mean` hint names the setting with the right case (settings are case-sensitive; a group leaf is `group.leaf`). `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s <producer>.<name>=...`. |
-| `` `<name>` was removed: non-project mode has no fileset for Tcl hooks; delete it `` | `vivado_alt_synth` has no `tcl_files`, `set_synth_properties`, `set_impl_properties` or `show_available_strategies`. Delete the setting, or use `vivado_synth` (project mode), which has all four. |
+| `` `tcl_files` was removed: non-project mode has no fileset for Tcl hooks; delete it `` | `vivado_alt_synth` has no `tcl_files`. Delete it, or use `vivado_synth` (project mode). |
+| `` `set_synth_properties` was removed: non-project mode has no synthesis run to set properties on; delete it `` | `vivado_alt_synth` has no `set_synth_properties`. Delete it, or use `vivado_synth`. |
+| `` `set_impl_properties` was removed: non-project mode has no implementation run to set properties on; delete it `` | `vivado_alt_synth` has no `set_impl_properties`. Delete it, or use `vivado_synth`. |
+| `` `show_available_strategies` was removed: non-project mode has no run whose strategies it could show; delete it `` | `vivado_alt_synth` has no `show_available_strategies`. Delete it, or use `vivado_synth`. |
 | `` `<name>` names no node of this run (<flow>) `` (`unknown_node`) | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
 | `` `seed` is not a node: write `nextpnr.seed` `` (`unscoped_setting`) | Start every `-s` key with the flow it addresses. The error gives the address. |
 | `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). For example, use `timeout` (on the simulators) for `timeout_seconds`. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |

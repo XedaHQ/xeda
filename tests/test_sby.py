@@ -271,11 +271,18 @@ def test_sby_refuses_library_paths(tmp_path, fake_sby):
         _run(tmp_path, _design(tmp_path), lib_paths=[["lib", str(tmp_path)]])
 
 
-@pytest.mark.parametrize("timeout", ["1500 ms", "0.5 s"])
-def test_the_task_timeout_is_a_whole_positive_number_of_seconds(tmp_path, fake_sby, timeout):
+@pytest.mark.parametrize("timeout", ["1500 ms", "2.5 s"])
+def test_the_task_timeout_is_a_whole_number_of_seconds(tmp_path, fake_sby, timeout):
     """SBY takes whole seconds; Xeda refuses another limit at planning rather than round it."""
     with pytest.raises(FlowSettingsException, match="whole number of seconds"):
         _run(tmp_path, _design(tmp_path), timeout=timeout)
+
+
+def test_the_timeout_bound_is_one_second():
+    """The model itself bounds `timeout` at 1 s, as the planning check does."""
+    assert Sby.Settings(timeout="1 s").timeout is not None
+    with pytest.raises(ValueError, match="1 s"):
+        Sby.Settings(timeout="0.5 s")
 
 
 def _generated_design(root: Path, entries: list, files: dict[str, str], **rtl: Any) -> Design:

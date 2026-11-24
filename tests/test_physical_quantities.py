@@ -56,6 +56,7 @@ from .flow_registry import preserved_flow_registry
 from .settings_fields import (
     FieldKey,
     assign,
+    dotted,
     fields_of,
     follow,
     kind_of,
@@ -530,6 +531,9 @@ DIFFERENT: dict[type, str] = {
 
 _kind_of = kind_of
 
+#: Time settings whose lower bound is 1 s, so the nanosecond samples do not fit them.
+AT_LEAST_ONE_SECOND = {"sby:timeout"}
+
 
 @pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
 def test_equivalent_spellings_of_a_quantity_setting_give_one_hash(field):
@@ -539,9 +543,12 @@ def test_equivalent_spellings_of_a_quantity_setting_give_one_hash(field):
     def identity(text: str) -> str:
         return flowrun_hash(cls.name, with_quantity(cls, path, text), "d")
 
-    hashes = {text: identity(text) for text in EQUIVALENT[kind]}
+    equivalent, different = EQUIVALENT[kind], DIFFERENT[kind]
+    if f"{cls.name}:{dotted(path)}" in AT_LEAST_ONE_SECOND:
+        equivalent, different = ["60 s", "1 min", "60000 ms"], "2 min"
+    hashes = {text: identity(text) for text in equivalent}
     assert len(set(hashes.values())) == 1, hashes
-    assert identity(DIFFERENT[kind]) not in hashes.values()
+    assert identity(different) not in hashes.values()
 
 
 CLOCK_FLOWS = [cls for cls, _ in flow_classes() if "clocks" in cls.Settings.model_fields]
