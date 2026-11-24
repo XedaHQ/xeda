@@ -459,5 +459,5 @@ def planned_destination(path: Path) -> Path:
 def dependency_entries(design: Any) -> tuple[DependencyInfo, ...]:
     """Return the dependencies that planning resolved in `design`, as the entries of
     `RunRecord.dependencies`: `repository` (with no user name and no password), `reference`,
-    `commit` and `design_file`. A local dependency has only its `design_file`."""
+    `commit` and `design_file`. A local dependency has `None` for all but `design_file`."""
     return tuple(d.as_mapping() for d in design.resolved_dependencies)

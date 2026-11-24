@@ -66,8 +66,8 @@ class ExecutableCheck(TypedDict):
 class DependencyInfo(TypedDict):
     """A dependency of a design as planning resolved it (`RunRecord.dependencies`).
 
-    A Git dependency has all four keys. A local dependency has only the `design_file`. The mapping
-    is read-only."""
+    Every entry has all four keys. A local dependency has `None` for `repository`, `reference` and
+    `commit`. The mapping is read-only."""
 
     #: The URL of the repository, with no user name and no password, or `None`.
     repository: ReadOnly[str | None]
