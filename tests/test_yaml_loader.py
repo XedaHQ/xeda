@@ -36,8 +36,6 @@ SCALARS = [
     ("-010", -10),
     (".5", 0.5),
     ("1.", 1.0),
-    ("-.Inf", -math.inf),
-    (".NAN", math.nan),
     ('"010"', "010"),
     ('"0x1F"', "0x1F"),
     ('"1e3"', "1e3"),
@@ -65,6 +63,26 @@ def test_core_scalars_in_real_files(tmp_path, token, expected, project):
         assert math.isnan(actual)
     else:
         assert actual == expected
+
+
+@pytest.mark.parametrize("token,expected", [("-.Inf", -math.inf), (".NAN", math.nan)])
+@pytest.mark.parametrize("project", [False, True], ids=["design", "project"])
+def test_a_non_finite_core_scalar_is_read_and_refused_as_a_parameter(
+    tmp_path, token, expected, project
+):
+    scalar = tmp_path / "scalar.yaml"
+    scalar.write_text(f"P: {token}\n")
+    actual = load_yaml(scalar)["P"]
+    assert type(actual) is float
+    assert math.isnan(actual) if math.isnan(expected) else actual == expected
+    body = f"name: probe\nrtl:\n  sources: []\n  parameters: {{P: {token}}}\n"
+    path = tmp_path / ("xedaproject.yaml" if project else "probe.yaml")
+    path.write_text(
+        "designs:\n- " + body.replace("\n", "\n  ").rstrip() + "\n" if project else body
+    )
+    with pytest.raises((DesignValidationError, ProjectError)) as raised:
+        Project.load(path).design() if project else Design.load(path)
+    assert "JSON cannot hold" in str(raised.value)
 
 
 @pytest.mark.parametrize("project", [False, True], ids=["design", "project"])
