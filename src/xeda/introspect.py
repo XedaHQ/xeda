@@ -18,6 +18,20 @@ from ._internal.introspect import (
     results_info,
     settings_info,
 )
+from ._internal.introspect_types import (
+    ArtifactDescription,
+    BoardInfo,
+    FlowBinding,
+    FlowInfo,
+    FlowInputInfo,
+    FlowOutputInfo,
+    FlowRelation,
+    MetricDescription,
+    PlatformInfo,
+    ResultsInfo,
+    SettingInfo,
+    SettingsInfo,
+)
 
 __all__ = [
     "flows_info",
@@ -27,4 +41,16 @@ __all__ = [
     "design_schema",
     "boards_info",
     "platforms_info",
+    "FlowInfo",
+    "FlowInputInfo",
+    "FlowOutputInfo",
+    "FlowRelation",
+    "FlowBinding",
+    "SettingsInfo",
+    "SettingInfo",
+    "ResultsInfo",
+    "MetricDescription",
+    "ArtifactDescription",
+    "BoardInfo",
+    "PlatformInfo",
 ]

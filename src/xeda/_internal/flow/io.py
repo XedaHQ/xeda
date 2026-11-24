@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from types import UnionType
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Final, Literal, Union, get_args, get_origin
 
 from ..dataclass import BaseModel, ConfigDict, Field
 from ..design import Design, SourceType
@@ -67,8 +67,14 @@ class _DesignKind:
 DESIGN = _DesignKind()
 
 #: The `value` of a declaration of files (the default) and of the design.
-FILES_VALUE = "files"
-DESIGN_VALUE = "design"
+FILES_VALUE: Final = "files"
+DESIGN_VALUE: Final = "design"
+
+#: What a declaration holds: files, or the design itself.
+ValueKind = Literal["files", "design"]
+#: How many files a declaration holds: exactly one (`Path`), zero or one (`Path | None`), or a
+#: list (`list[Path]`).
+Cardinality = Literal["one", "optional", "many"]
 
 
 class FlowInputs(BaseModel):
@@ -179,7 +185,7 @@ class InputDeclaration:
     name: str
     types: tuple[SourceType, ...]
     #: The cardinality: "one" (`Path`), "optional" (`Path | None`) or "many" (`list[Path]`).
-    cardinality: str
+    cardinality: Cardinality
     producer: str | None
     output: str | None
     optional: bool
@@ -195,7 +201,7 @@ class InputDeclaration:
     #: Whether the input compares the equivalence digest of its files (`xeda._internal.equivalence`).
     equivalence: bool = False
     #: "files", or "design" for the design input: the value is the design, not a file.
-    value: str = FILES_VALUE
+    value: ValueKind = FILES_VALUE
 
     @property
     def is_design(self) -> bool:
@@ -214,11 +220,11 @@ class OutputDeclaration:
 
     name: str
     types: tuple[SourceType, ...]
-    cardinality: str
+    cardinality: Cardinality
     enabled_by: str | None
     description: str
     #: "files", or "design" for the design a converter derives: the value is the design.
-    value: str = FILES_VALUE
+    value: ValueKind = FILES_VALUE
 
     @property
     def is_design(self) -> bool:
@@ -233,7 +239,7 @@ def kinds_text(declaration: InputDeclaration | OutputDeclaration) -> str:
     return "/".join(member.name for member in declaration.types)
 
 
-def _cardinality(owner: str, annotation: Any, *, design: type | None = None) -> str:
+def _cardinality(owner: str, annotation: Any, *, design: type | None = None) -> Cardinality:
     if design is not None:
         origin, args = get_origin(annotation), get_args(annotation)
         if origin in (Union, UnionType) and set(args) == {design, type(None)}:
@@ -263,8 +269,9 @@ def _markers(model: type[BaseModel], kind: str) -> dict[str, dict[str, Any]]:
     return found
 
 
-def _design_value(marker: dict[str, Any]) -> str:
-    return marker.get("value", FILES_VALUE)
+def _design_value(marker: dict[str, Any]) -> ValueKind:
+    value: ValueKind = marker.get("value", FILES_VALUE)
+    return value
 
 
 def _input_declarations(flow_cls: Any) -> dict[str, InputDeclaration]:

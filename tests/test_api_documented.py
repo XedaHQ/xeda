@@ -7,6 +7,7 @@ major version. Rename such a member with a leading underscore, or document it.
 """
 
 import enum
+import importlib
 import inspect
 import re
 from pathlib import Path
@@ -72,17 +73,14 @@ def _has_text(cls: type, member: str) -> bool:
 
 
 def test_every_frozen_member_is_documented() -> None:
-    import xeda
-    import xeda.errors
-
     snapshot = tool.public_api_snapshot()["modules"]
     rendered = _rendered()
     problems = []
-    for module in ("xeda", "xeda.errors"):
+    for module in ("xeda", "xeda.errors", "xeda.introspect"):
         for name, entry in snapshot[module]["names"].items():
             if entry["kind"] not in ("class", "enum"):
                 continue
-            cls = getattr(xeda if module == "xeda" else xeda.errors, name)
+            cls = getattr(importlib.import_module(module), name)
             frozen = set(entry["methods"]) | {a["name"] for a in entry["attributes"]}
             frozen |= set(entry.get("members", ()))  # the names of an enum
             # A member documented on a public base class counts for its subclasses.
