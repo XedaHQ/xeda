@@ -153,7 +153,7 @@ class DiamondSynth(FpgaSynthFlow):
 \s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?"""
         freq_pat = r"^\s*Preference:\s+FREQUENCY\s+PORT\s+\"(?P<clock_port>\w+)\"\s+(?P<clock_frequency>\d+\.\d+)\s+MHz\s*;\s*\n\s*\d+\s+items\s+\S+\s+(?P<_timing_errors>\d+)\s+timing\s+errors?"
         self.parse_report_regex(
-            reports_dir / f"{design_name}_{impl_name}.twr", [period_pat, freq_pat]
+            reports_dir / f"{design_name}_{impl_name}.twr", [period_pat, freq_pat], optional=True
         )
 
         # The timing report gives the period or the frequency of the clock constraint, or neither
