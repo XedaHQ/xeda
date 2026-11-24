@@ -561,8 +561,22 @@ A call of the API is a library call. It does not change the state of your progra
   ``xeda_node``.
 * **Input.** Xeda never prompts. A question (replace a file, prune, scrub) goes to the ``confirm``
   function of the workspace. Without it, the answer is no.
-* **Threads.** No call installs a signal handler. Every call blocks and is thread-safe. Several
-  threads, workspaces and processes can use one run root: Xeda locks each run directory.
+* **Threads.** Every call blocks and is thread-safe. Several threads, workspaces and processes can
+  use one run root: Xeda locks each run directory.
+* **Signals.** A call changes the signal handlers of your process only on the main thread, and
+  only in two cases. Other threads install no handler. In both cases, Xeda restores the previous
+  handler when the case ends.
+
+  - While a tool runs, Xeda replaces the handlers of ``SIGTERM`` and ``SIGHUP`` (POSIX only).
+    The new handler raises ``KeyboardInterrupt``, so that the stop ends the whole process group of
+    the tool, as Ctrl-C does. A signal that your process ignores (for example, under ``nohup``)
+    stays ignored.
+  - While a remote launch runs (``Workspace(remote=...)``), Xeda replaces the handler of
+    ``SIGINT``. The new handler sends the Ctrl-C to the launch on the host (see :doc:`remote`).
+    Here, a ``SIGINT`` that your process ignores is replaced too.
+
+  A sweep also starts worker processes. A worker ignores ``SIGINT`` in its own process and leaves
+  it to your process. This does not change your handlers.
 * **Leases.** A ``with record.open()`` block holds a shared lease. A launch, a sweep or a scrub
   inside the block raises ``LeaseHeldError`` before it plans. Finish the block first.
 
