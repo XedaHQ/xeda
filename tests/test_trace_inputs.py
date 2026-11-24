@@ -16,6 +16,7 @@ from xeda._internal.flow_runner.trace_inputs import (
     artifact_files,
     design_files,
     implicit_input_files,
+    links_on_the_way,
     parse_depfile,
     setting_files,
 )
@@ -170,6 +171,18 @@ def test_the_files_of_a_compiler_sdk_and_of_a_tool_installation_are_no_implicit_
         own.resolve(),
         (prefix / "include" / "tool.h").resolve(),
     }
+
+
+def test_the_links_on_the_way_to_a_file_are_named_as_the_tool_spelled_them(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "a.h").write_text("\n")
+    (tmp_path / "dir").symlink_to("real")
+    (tmp_path / "hop").symlink_to("dir/a.h")
+    (tmp_path / "plain.h").write_text("\n")
+    assert links_on_the_way(tmp_path / "plain.h", tmp_path) == []
+    assert links_on_the_way(tmp_path / "dir" / "a.h", tmp_path) == [tmp_path / "dir"]
+    # a link, then the folder link that it leads through; a relative name is under the base
+    assert links_on_the_way(Path("hop"), tmp_path) == [tmp_path / "hop", tmp_path / "dir"]
 
 
 def test_implicit_input_files_are_what_depfiles_and_the_flow_name(tmp_path, hooked):

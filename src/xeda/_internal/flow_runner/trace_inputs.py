@@ -572,7 +572,11 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
     include the files that the flow registered in `Flow.implicit_inputs` (including those that
     its `init()` registered, which are expected inputs already). Where a file lies decides
     whether it is an input or the run's own (`build_trace`). A file that a producer handed over
-    is neither: the edge records it."""
+    is neither: the edge records it.
+
+    A file is named by its resolved path. The result also holds each symbolic link that the
+    tool went through to read it (`links_on_the_way`), outside the run directory: a link that
+    leads to another file later is a change, even if the old target still exists."""
     prefixes = installation_prefixes(
         programs, path=flow.process_environment().get("PATH", os.defpath)
     )
@@ -587,11 +591,45 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
     ]
     # A file handed over by a producer is no file record of this flow, however it came to be read.
     handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
-    return [
-        path
-        for path in _existing_files([*named, *flow.implicit_inputs], flow.run_path)
-        if path not in handed
-    ]
+    named = [*named, *flow.implicit_inputs]
+    files = {path for path in _existing_files(named, flow.run_path) if path not in handed}
+    # A file is recorded by its resolved path. Each link on the way to it, as the tool named it,
+    # is recorded too, so a link that now leads to another existing file runs the flow again.
+    run_dir = flow.run_path.resolve()
+    links = {
+        link
+        for dep in named
+        if _resolved(dep, flow.run_path) in files
+        for link in links_on_the_way(dep, flow.run_path)
+        if not (link.parent.resolve() / link.name).is_relative_to(run_dir)
+    }
+    return sorted(files | links)
+
+
+def links_on_the_way(path: Path, base: Path, _depth: int = 0) -> list[Path]:
+    """Return the symbolic links that a lookup of `path` goes through, as places that name them.
+
+    A relative `path` is under `base`. The result holds a link in `path` itself, a link that a
+    folder of `path` is, and each link that such a link leads to in turn. A place is not
+    resolved: it is spelled as `path` spells it, so recording it records the link and not the
+    file at its end."""
+    parts = (path if path.is_absolute() else base / path).parts
+    found: list[Path] = []
+    current = Path(parts[0])
+    for part in parts[1:]:
+        if part == "..":
+            current = current.resolve().parent
+            continue
+        current = current / part
+        if _depth < 40 and current.is_symlink():
+            found.append(current)
+            target = Path(os.readlink(current))
+            found += links_on_the_way(
+                target if target.is_absolute() else current.parent.resolve() / target,
+                base,
+                _depth + 1,
+            )
+    return found
 
 
 def _resolved(path: Path, run_path: Path) -> Path:
