@@ -13,8 +13,14 @@ A test that has a stale settings value or design field fails at its own plan.
 What runs after the launch (checks of results, metrics and artifacts) is not run, and a test
 that needs a real tool before its launch fails here and has an entry in `NEEDS_THE_FILES`
 (`tests/test_optin_planning.py`).
+
+Every check passes, the private `_require` and `_require_command` too, so the result does not
+depend on the tools of the machine. With `--optin-outcomes <file>`, the plugin writes the outcome
+of each test to that file, one JSON line each, so that a test that skips for another reason is
+seen.
 """
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -57,10 +63,31 @@ def _opted_in(variable: str) -> bool:
     return not variable.startswith(SKIPPED_LAYERS)
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--optin-outcomes", help="the file of the outcome of each test")
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Write the outcome of a test: a phase that did not pass, or its call."""
+    path = getattr(pytest_runtest_logreport, "path", None)
+    if path is None or (report.passed and report.when != "call"):
+        return
+    reason = report.longrepr[2] if report.skipped and isinstance(report.longrepr, tuple) else ""
+    line = {"node": report.nodeid, "when": report.when, "outcome": report.outcome}
+    with open(path, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps({**line, "reason": reason}) + "\n")
+
+
 def pytest_configure(config: pytest.Config) -> None:
     """Make the checks pass and stop each launch at its plan. Importing this module for its
     names changes nothing; only a session that loads it as a plugin does."""
-    for name in [name for name in dir(tool_utils) if name.lstrip("_").startswith("require_")]:
+    pytest_runtest_logreport.path = config.getoption("optin_outcomes")  # type: ignore[attr-defined]
+    checks = [
+        name
+        for name in dir(tool_utils)
+        if name.lstrip("_").startswith("require") and callable(getattr(tool_utils, name))
+    ]
+    for name in checks:
         setattr(tool_utils, name, _pass_requirement(OPT_IN_REQUIREMENTS.get(name)))
     tool_utils._opted_in = _opted_in
     from xeda._internal.flow_runner import default_runner

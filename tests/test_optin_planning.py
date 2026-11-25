@@ -17,6 +17,7 @@ holds the checks that need no launch.
 """
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -31,6 +32,14 @@ pytestmark = pytest.mark.python_compat
 TESTS = Path(__file__).parent
 CHECKOUT = TESTS.parent
 THIS_FILE = Path(__file__).name
+
+#: Tests that the scan finds but that launch no real flow, with why. They pass here. The key is a
+#: node id without the parameters.
+NO_LAUNCH: dict[str, str] = {
+    "tests/test_yosys_asic_abc.py::test_yosys_mfs3_missing_obeys_require_tools": (
+        "it replaces the runner, to test how a missing ABC command is reported"
+    ),
+}
 
 #: Tests that need real files before their launch, so they cannot reach it here, with what they
 #: need. The key is a node id without the parameters.
@@ -130,6 +139,7 @@ def test_the_scan_finds_the_opt_in_tests_of_every_layer() -> None:
 
 def test_every_opt_in_test_plans_its_launch(tmp_path: Path) -> None:
     ids = opt_in_node_ids()
+    outcomes = tmp_path / "outcomes.jsonl"
     environment = dict(os.environ)
     environment["XEDA_TESTS_WORK_DIR"] = str(tmp_path / "work")
     # a `docker` that answers every query with success, and runs nothing: a test checks for its
@@ -144,6 +154,7 @@ def test_every_opt_in_test_plans_its_launch(tmp_path: Path) -> None:
             sys.executable,
             *("-m", "pytest", "-p", "tests.optin_plan_probe", "-p", "no:cacheprovider"),
             *("-o", "addopts=", "-q", "-rfEs", "--tb=short", "--basetemp", str(tmp_path / "bt")),
+            *("--optin-outcomes", str(outcomes)),
             *ids,
         ],
         cwd=CHECKOUT,
@@ -158,6 +169,21 @@ def test_every_opt_in_test_plans_its_launch(tmp_path: Path) -> None:
         if line.startswith(("FAILED ", "ERROR "))
     }
     assert PLANNED in done.stdout, done.stdout[-6000:] + done.stderr[-2000:]
+    # every test either reaches its plan or is a reviewed test that needs real files: a test that
+    # passes, or skips for another reason (a check that the probe does not make pass), is wrong
+    records = [json.loads(line) for line in outcomes.read_text(encoding="utf-8").splitlines()]
+    planned = {
+        r["node"] for r in records if r["outcome"] == "skipped" and r["reason"].endswith(PLANNED)
+    }
+    reviewed = set(NEEDS_THE_FILES) | set(NO_LAUNCH)
+    other = sorted(
+        f"{r['node']}: {r['outcome']} at {r['when']} {r['reason']}".strip()
+        for r in records
+        if r["node"] not in planned and r["node"].split("[")[0] not in reviewed
+    )
+    assert other == [], "\n".join(other)
+    passed = {r["node"].split("[")[0] for r in records if r["outcome"] == "passed"}
+    assert passed == set(NO_LAUNCH), f"pass, so launch nothing: {sorted(passed - set(NO_LAUNCH))}"
     assert failed == set(NEEDS_THE_FILES), (
         f"fail here, but need no real file: {sorted(failed - set(NEEDS_THE_FILES))}\n"
         f"need real files, but plan: {sorted(set(NEEDS_THE_FILES) - failed)}\n"
