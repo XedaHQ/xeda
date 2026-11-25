@@ -475,8 +475,8 @@ def test_vivado_impl_implements_the_yosys_netlist_of_a_design_with_an_assertion(
     )
     design = Design(
         name="top",
-        design_root=root,
-        rtl={"sources": ["top.sv"], "top": "top", "clock": {"port": "clk"}},
+        root=root,
+        rtl={"sources": ["top.sv"], "top": "top", "clocks": [{"port": "clk"}]},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(VivadoImpl, design, IMPL_SETTINGS)
     assert flow is not None and flow.succeeded

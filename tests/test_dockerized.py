@@ -91,12 +91,13 @@ def test_ghdl_sim_runs_in_its_default_image(work_dir) -> None:
     (root / "tb.vhd").write_text(
         "entity tb is end;\n"
         "architecture sim of tb is begin\n"
-        '  process begin report "tb done"; wait; end process;\n'
+        '  process begin report "tb done"; std.env.finish; end process;\n'
         "end;\n"
     )
     design = Design(
         name="sim",
         root=root,
+        language={"vhdl": {"standard": "2008"}},
         rtl={"sources": [], "top": "tb"},
         tb={"sources": ["tb.vhd"], "top": "tb"},
     )
