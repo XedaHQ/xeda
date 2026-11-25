@@ -87,7 +87,7 @@ write_checkpoint -force ${checkpoints_dir}/post_synth
 {%- endif %}
 report_timing_summary -file ${reports_dir}/post_synth/timing_summary.rpt
 report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarchical_utilization.rpt
-# reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv 100
+# reportCriticalPaths ${reports_dir}/post_synth/critical_paths.csv 100
 # report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
 {# Post-synthesis and post-placement power optimization are mutually exclusive. #}

@@ -21,7 +21,7 @@ Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulat
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `simulator`
 
-Artifacts: `log`, `simulation_log`, `waveform`, `c_log`, `cc_log`, `executable`
+Artifacts: `log`, `simulation_log`, `waveform`, `cxx_log`, `cc_log`, `simulator`
 
 ### `ghdl_sim`
 
@@ -69,7 +69,7 @@ Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end moni
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`, `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time`
 
-Artifacts: `log`, `c_log`
+Artifacts: `log`, `cxx_log`
 
 ### `vcs`
 
@@ -141,7 +141,7 @@ Simulate a design with a CXXRTL model that Yosys generates.
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.errors`, `sim.warnings`
 
-Artifacts: `log`, `simulation_log`, `rtl_json`, `rtl_verilog`, `g_log`, `cxxrtl_cpp`, `cxxrtl_header`, `simulator`
+Artifacts: `log`, `simulation_log`, `rtl_json`, `rtl_verilog`, `gxx_log`, `cxxrtl_cpp`, `cxxrtl_header`, `simulator`
 
 ## FPGA synthesis / implementation
 
@@ -235,11 +235,11 @@ Synthesize and implement a design for an FPGA with Vivado in non-project mode. A
 
 Required settings: `fpga`
 
-29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
+25 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
 Reports: `fmax`, `wns`, `whs`, `tns`, `ths`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `clock_period`, `clock_frequency`, `fmax_by_clock`, `lut_logic`, `lut_mem`, `latch`, `bram_sites.ramb36_fifo`, `bram_sites.ramb18`, `bram_tile`
 
-Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_synth_timing_summary_rpt`, `post_synth_hierarchical_utilization_rpt`, `post_synth_power_optimization_rpt`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
+Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_synth_timing_summary_rpt`, `post_synth_hierarchical_utilization_rpt`, `post_synth_power_optimization_rpt`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critical_paths_csv`, `route_design_critical_paths_by_delay_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
 ### `vivado_impl`
 
@@ -253,7 +253,7 @@ Required settings: `fpga`
 
 Reports: `fmax`, `wns`, `whs`, `tns`, `ths`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `clock_period`, `clock_frequency`, `fmax_by_clock`, `lut_logic`, `lut_mem`, `latch`, `bram_sites.ramb36_fifo`, `bram_sites.ramb18`, `bram_tile`
 
-Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critpath_report_csv`, `route_design_critpath_by_delay_report_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
+Artifacts: `log`, `xdc_exported`, `checkpoint_place`, `post_place_timing_summary_rpt`, `post_place_hierarchical_utilization_rpt`, `post_place_power_optimization_rpt`, `route_design_timing_summary_rpt`, `route_design_timing_rpt`, `route_design_utilization_rpt`, `route_design_utilization_xml`, `route_design_hierarchical_utilization_xml`, `route_design_hierarchical_utilization_json`, `route_design_critical_paths_csv`, `route_design_critical_paths_by_delay_csv`, `route_design_clock_utilization_rpt`, `route_design_power_rpt`, `route_design_drc_rpt`, `route_design_methodology_rpt`, `route_design_qor_suggestions_rpt`, `route_design_power_xml`
 
 ### `vivado_power`
 

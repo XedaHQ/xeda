@@ -10205,6 +10205,25 @@
         ],
         "help": "Write the routed design's timing Verilog netlist and its SDF timing annotation (`vivado_synth` writes the fast and the slow corner, the other flows the slow one). The `vivado_postsynth_sim` flow needs this netlist."
       },
+      "out_of_context": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Synthesize out of context: `synth_design` gets `-mode out_of_context`. The synthesis options may hold that mode, which the flow keeps once, but no other `-mode`. The flow refuses another mode before the run."
+      },
+      "flatten_hierarchy": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "full",
+          "none",
+          "rebuilt"
+        ],
+        "help": "How synthesis flattens the design hierarchy: `full` flattens and does not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` preserves it throughout."
+      },
       "synth": {
         "children": true,
         "assignable": false,
@@ -10224,15 +10243,6 @@
         "assignable": true,
         "dynamic": true
       },
-      "out_of_context": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Synthesize out of context: `synth_design` gets `-mode out_of_context`. The synthesis options may hold that mode, which the flow keeps once, but no other `-mode`. The flow refuses another mode before the run."
-      },
       "impl": {
         "children": true,
         "assignable": false,
@@ -10251,44 +10261,6 @@
         "children": true,
         "assignable": true,
         "dynamic": true
-      },
-      "tcl_files": {
-        "children": false,
-        "assignable": true,
-        "help": "List of user TCL files."
-      },
-      "flatten_hierarchy": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "full",
-          "none",
-          "rebuilt"
-        ],
-        "help": "How synthesis flattens the design hierarchy: `full` flattens and does not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` preserves it throughout."
-      },
-      "show_available_strategies": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Show the available synthesis and implementation strategies."
-      },
-      "set_synth_properties": {
-        "children": true,
-        "assignable": false,
-        "dynamic": true,
-        "opaque_keys": true,
-        "help": "Properties to set on the synthesis run (`synth_1`), by property name. A name with dots is one key. In YAML, write the setting as a block and each name as one key, for example `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0`. On the command line, write `-s vivado_synth.set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Values may be text, numbers or booleans."
-      },
-      "set_impl_properties": {
-        "children": true,
-        "assignable": false,
-        "dynamic": true,
-        "opaque_keys": true,
-        "help": "Properties to set on the implementation run (`impl_1`), by property name. A name with dots is one key, as in `set_synth_properties`. Values may be text, numbers or booleans."
       },
       "clock": {
         "children": true,
@@ -11619,6 +11591,25 @@
         ],
         "help": "Write the routed design's timing Verilog netlist and its SDF timing annotation (`vivado_synth` writes the fast and the slow corner, the other flows the slow one). The `vivado_postsynth_sim` flow needs this netlist."
       },
+      "out_of_context": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Synthesize out of context: `synth_design` gets `-mode out_of_context`. The synthesis options may hold that mode, which the flow keeps once, but no other `-mode`. The flow refuses another mode before the run."
+      },
+      "flatten_hierarchy": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "full",
+          "none",
+          "rebuilt"
+        ],
+        "help": "How synthesis flattens the design hierarchy: `full` flattens and does not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` preserves it throughout."
+      },
       "synth": {
         "children": true,
         "assignable": false,
@@ -11637,15 +11628,6 @@
         "children": true,
         "assignable": true,
         "dynamic": true
-      },
-      "out_of_context": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Synthesize out of context: `synth_design` gets `-mode out_of_context`. The synthesis options may hold that mode, which the flow keeps once, but no other `-mode`. The flow refuses another mode before the run."
       },
       "impl": {
         "children": true,
@@ -11670,16 +11652,6 @@
         "children": false,
         "assignable": true,
         "help": "List of user TCL files."
-      },
-      "flatten_hierarchy": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "full",
-          "none",
-          "rebuilt"
-        ],
-        "help": "How synthesis flattens the design hierarchy: `full` flattens and does not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` preserves it throughout."
       },
       "show_available_strategies": {
         "children": false,
@@ -12299,6 +12271,25 @@
         ],
         "help": "Write the routed design's timing Verilog netlist and its SDF timing annotation (`vivado_synth` writes the fast and the slow corner, the other flows the slow one). The `vivado_postsynth_sim` flow needs this netlist."
       },
+      "out_of_context": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "false",
+          "true"
+        ],
+        "help": "Synthesize out of context: `synth_design` gets `-mode out_of_context`. The synthesis options may hold that mode, which the flow keeps once, but no other `-mode`. The flow refuses another mode before the run."
+      },
+      "flatten_hierarchy": {
+        "children": false,
+        "assignable": true,
+        "values": [
+          "full",
+          "none",
+          "rebuilt"
+        ],
+        "help": "How synthesis flattens the design hierarchy: `full` flattens and does not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` preserves it throughout."
+      },
       "synth": {
         "children": true,
         "assignable": false,
@@ -12317,15 +12308,6 @@
         "children": true,
         "assignable": true,
         "dynamic": true
-      },
-      "out_of_context": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "false",
-          "true"
-        ],
-        "help": "Synthesize out of context: `synth_design` gets `-mode out_of_context`. The synthesis options may hold that mode, which the flow keeps once, but no other `-mode`. The flow refuses another mode before the run."
       },
       "impl": {
         "children": true,
@@ -12350,16 +12332,6 @@
         "children": false,
         "assignable": true,
         "help": "List of user TCL files."
-      },
-      "flatten_hierarchy": {
-        "children": false,
-        "assignable": true,
-        "values": [
-          "full",
-          "none",
-          "rebuilt"
-        ],
-        "help": "How synthesis flattens the design hierarchy: `full` flattens and does not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` preserves it throughout."
       },
       "show_available_strategies": {
         "children": false,

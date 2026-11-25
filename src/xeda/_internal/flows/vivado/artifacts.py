@@ -54,8 +54,6 @@ FILES: dict[str, tuple[str, str]] = {
     ),
     "critical_paths.csv": ("The critical paths, one for each endpoint.", _ALWAYS),
     "critical_paths_by_delay.csv": ("The critical paths, sorted by delay.", _ALWAYS),
-    "critpath_report.csv": ("The critical paths, one for each endpoint.", _ALWAYS),
-    "critpath_by_delay_report.csv": ("The critical paths, sorted by delay.", _ALWAYS),
     "drc.rpt": ("Design rule check.", _ALWAYS),
     "route_status.rpt": ("Routing status of the nets.", _ALWAYS),
     "datasheet.rpt": ("Timing of the ports of the design (datasheet).", _ALWAYS),
@@ -120,8 +118,8 @@ SCRIPT_REPORTS: dict[str, tuple[str, ...]] = {
         "utilization.xml",
         "hierarchical_utilization.xml",
         "hierarchical_utilization.json",
-        "critpath_report.csv",
-        "critpath_by_delay_report.csv",
+        "critical_paths.csv",
+        "critical_paths_by_delay.csv",
         "clock_utilization.rpt",
         "power.rpt",
         "drc.rpt",
@@ -143,8 +141,13 @@ ALT_SYNTH_REPORTS: dict[str, tuple[str, ...]] = {
 
 
 def report_key(step: str, name: str) -> str:
-    """Return the artifact key of the report with the file name `name` of the step `step`."""
-    return re.sub(r"[^a-z0-9]+", "_", f"{step}_{name}".lower()).strip("_")
+    """Return the artifact key of the report with the file name `name` of the step `step`: the
+    lower snake case of both. A file name that starts with the step does not repeat it, so the step
+    `post_place` and the file `post_place_power_optimization.rpt` give
+    `post_place_power_optimization_rpt`."""
+    words = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    stem = re.sub(r"[^a-z0-9]+", "_", step.lower()).strip("_")
+    return words if words.startswith(f"{stem}_") else f"{stem}_{words}"
 
 
 def _condition(step: str, name: str) -> str:

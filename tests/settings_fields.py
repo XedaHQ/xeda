@@ -252,6 +252,58 @@ def kind_of(path: FieldPath) -> type[Quantity]:
     return kind
 
 
+def _bounds_in(annotation: Any) -> list[Any]:
+    """Return the `Bounds` markers anywhere in `annotation`."""
+    from xeda._internal.units import Bounds
+
+    found = [item for item in getattr(annotation, "__metadata__", ()) if isinstance(item, Bounds)]
+    for arg in typing.get_args(annotation):
+        found += _bounds_in(arg)
+    return found
+
+
+def example_of(path: FieldPath) -> str:
+    """Return text that the quantity field at `path` accepts: the example of its kind, or, when
+    the bounds of the field refuse that, a value at a bound (`ge`, `le`) or twice a strict one
+    (`gt`)."""
+    kind = kind_of(path)
+    last = [step for step in path if step.model is not None][-1]
+    bounds = _bounds_in(last.model.model_fields[last.key].annotation)
+    candidates = [kind.example]
+    for marker in bounds:
+        limits = marker.limits
+        candidates += [limits[op] for op in ("ge", "le") if op in limits]
+        if "gt" in limits:
+            number, unit = limits["gt"].split(maxsplit=1)
+            candidates.append(f"{2 * float(number) or 1} {unit}")
+    for text in candidates:
+        value = kind(text)
+        if all(_within(value, marker) for marker in bounds):
+            return text
+    raise TypeError(f"no example satisfies the bounds of {dotted(path)}: give it a case here")
+
+
+def fits_bounds(path: FieldPath, text: str) -> bool:
+    """Return whether the quantity `text` is within the bounds of the field at `path`."""
+    last = [step for step in path if step.model is not None][-1]
+    value = kind_of(path)(text)
+    return all(
+        _within(value, marker)
+        for marker in _bounds_in(last.model.model_fields[last.key].annotation)
+    )
+
+
+def _within(value: Any, marker: Any) -> bool:
+    kind = type(value)
+    checks = {
+        "gt": lambda bound: value > bound,
+        "ge": lambda bound: value >= bound,
+        "lt": lambda bound: value < bound,
+        "le": lambda bound: value <= bound,
+    }
+    return all(checks[op](kind(text)) for op, text in marker.limits.items())
+
+
 def dotted(path: FieldPath) -> str:
     return ".".join(str(step.key) for step in path)
 

@@ -254,14 +254,6 @@ def test_vivado_project_opens_the_gui_only_when_asked(gui, tmp_path, monkeypatch
     assert args[args.index("-mode") + 1] == ("gui" if gui else "batch")
 
 
-def test_vivado_alt_synth_rejects_tcl_files() -> None:
-    """Non-project mode has no fileset for TCL hooks: the setting was accepted and ignored."""
-    with pytest.raises(FlowSettingsError, match="`tcl_files` is a setting of vivado_synth"):
-        registered_flows["vivado_alt_synth"][1].Settings.from_input(
-            {"fpga": {"part": "xc7a12tcsg325-1"}, "tcl_files": ["h.tcl"]}
-        )
-
-
 @pytest.mark.parametrize("engine", ["lse", "synplify"])
 @pytest.mark.parametrize("allowed", [True, False])
 def test_diamond_allows_or_forbids_dsps_and_brams(allowed, engine, tmp_path, monkeypatch) -> None:

@@ -56,7 +56,9 @@ from .flow_registry import preserved_flow_registry
 from .settings_fields import (
     FieldKey,
     assign,
+    dotted,
     fields_of,
+    fits_bounds,
     follow,
     kind_of,
     nest,
@@ -530,6 +532,9 @@ DIFFERENT: dict[type, str] = {
 
 _kind_of = kind_of
 
+#: Spellings of one time in seconds, for a time setting whose bounds refuse the samples above.
+SECONDS = (["60 s", "1 min", "60000 ms"], "2 min")
+
 
 @pytest.mark.parametrize("field", QUANTITY_FIELDS, ids=QUANTITY_FIELD_IDS)
 def test_equivalent_spellings_of_a_quantity_setting_give_one_hash(field):
@@ -539,9 +544,13 @@ def test_equivalent_spellings_of_a_quantity_setting_give_one_hash(field):
     def identity(text: str) -> str:
         return flowrun_hash(cls.name, with_quantity(cls, path, text), "d")
 
-    hashes = {text: identity(text) for text in EQUIVALENT[kind]}
+    equivalent, different = EQUIVALENT[kind], DIFFERENT[kind]
+    if not all(fits_bounds(path, text) for text in [*equivalent, different]):
+        assert kind is Time, f"give {dotted(path)} spellings within its bounds"
+        equivalent, different = SECONDS
+    hashes = {text: identity(text) for text in equivalent}
     assert len(set(hashes.values())) == 1, hashes
-    assert identity(DIFFERENT[kind]) not in hashes.values()
+    assert identity(different) not in hashes.values()
 
 
 CLOCK_FLOWS = [cls for cls, _ in flow_classes() if "clocks" in cls.Settings.model_fields]
@@ -707,3 +716,12 @@ def test_a_run_with_a_clock_prints_one_document_and_writes_the_clock_as_text(tmp
         "5.5 ns"
     )
     assert node["record"]["settings"]["clocks"]["main_clock"]["period"] == "5.5 ns"
+
+
+TIMEOUT_FLOWS = [cls for cls, _ in flow_classes() if "timeout" in cls.Settings.model_fields]
+
+
+@pytest.mark.parametrize("cls", TIMEOUT_FLOWS, ids=[cls.name for cls in TIMEOUT_FLOWS])
+def test_every_timeout_is_a_time_in_seconds(cls):
+    given = {**minimal_settings(cls), "timeout": "2 min"}
+    assert str(cls.Settings(**given).timeout) == "120 s"

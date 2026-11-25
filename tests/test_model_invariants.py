@@ -17,7 +17,7 @@ from xeda._internal.flow import FlowSettingsError
 from xeda._internal.tool import Tool
 from xeda._internal.utils import dump_json, semantic_hash
 
-from .settings_fields import assign, dotted, follow, kind_of
+from .settings_fields import assign, dotted, example_of, follow, kind_of
 from .settings_samples import (
     PROBES,
     QUANTITY_FIELD_IDS,
@@ -165,8 +165,8 @@ _kind_of = kind_of
 
 
 def _example_of(path) -> str:
-    """Text that the quantity field at `path` accepts."""
-    return _kind_of(path).example
+    """Text that the quantity field at `path` accepts, within its bounds."""
+    return example_of(path)
 
 
 def test_the_sweep_has_every_quantity_field_of_the_flows():

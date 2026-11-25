@@ -165,5 +165,5 @@ def test_the_testbench_catches_an_injected_bug(design_file, tmp_path, capfd):
     flow = _run(BscSim, design, tmp_path, simulator=simulator)
     out = capfd.readouterr().out
     assert not flow.succeeded
-    assert Path(flow.artifacts.executable).is_file()
+    assert Path(flow.artifacts.simulator).is_file()
     assert "FAIL" in out and "PASS" not in out

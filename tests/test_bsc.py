@@ -1219,7 +1219,7 @@ def test_bsc_sim_passes_and_fails(simulator, tmp_path, capfd):
     assert flow is not None and flow.succeeded
     assert "PASS" in capfd.readouterr().out
     assert flow.results["simulator"] == simulator
-    assert Path(flow.artifacts.executable).is_file()
+    assert Path(flow.artifacts.simulator).is_file()
     assert (flow.run_path / "waves" / "pass.vcd").is_file()
     # the testbench's macros reach every package it is compiled with, the RTL's too
     stepped = with_updates(design, rtl={"defines": {"STEP": 2}}, tb={"defines": {"STEP": 3}})
