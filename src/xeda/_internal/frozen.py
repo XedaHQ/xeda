@@ -26,9 +26,11 @@ _V = TypeVar("_V")
 class FrozenDict(Mapping[_K, _V]):
     """A mapping that nobody can change.
 
-    It reads like a `dict`. It has no method that changes it, so an assignment into it raises
-    `TypeError`. It has a hash when all its values have one, and it can be pickled. It equals
-    every mapping that has the same items."""
+    It reads like a `dict`: it has every `dict` operation that changes nothing, `copy()` and `|`
+    included, as a frozenset has those of a set. They give a new `FrozenDict` (`dict | frozen`
+    gives a `dict`, the type on the left, as `dict` does). It has no method that changes it, so an
+    assignment into it raises `TypeError`. It has a hash when all its values have one, and it can
+    be pickled. It equals every mapping that has the same items."""
 
     __slots__ = ("_data",)
 
@@ -52,6 +54,20 @@ class FrozenDict(Mapping[_K, _V]):
 
     def __reduce__(self) -> tuple[Any, ...]:
         return (FrozenDict, (dict(self),))
+
+    def copy(self) -> "FrozenDict[_K, _V]":
+        """Return a new `FrozenDict` with the same items (a shallow copy, as `dict.copy`)."""
+        return FrozenDict(self._data)
+
+    def __or__(self, other: Mapping[_K, _V]) -> "FrozenDict[_K, _V]":
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        return FrozenDict({**self._data, **other})
+
+    def __ror__(self, other: Mapping[_K, _V]) -> dict[_K, _V]:
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        return {**other, **self._data}
 
 
 _FROZEN_QUANTITY_CLASSES: dict[type, type] = {}

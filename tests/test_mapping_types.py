@@ -105,3 +105,41 @@ def test_every_public_class_of_introspect_is_a_typed_dict() -> None:
     ]
     assert classes
     assert all(typing_extensions.is_typeddict(cls) for cls in classes)
+
+
+#: The `dict` operations that change the mapping. A `FrozenDict` has none of them.
+MUTATING = {
+    "__setitem__",
+    "__delitem__",
+    "__ior__",
+    "clear",
+    "pop",
+    "popitem",
+    "setdefault",
+    "update",
+}
+
+
+def test_a_frozen_mapping_has_every_dict_operation_that_changes_nothing() -> None:
+    """A typed mapping (`PlanOptions`, `DependencyInfo`, ...) is a `FrozenDict` at run time. A
+    type checker accepts every `dict` operation that changes nothing on it, `copy()` and `|`
+    included, so the `FrozenDict` has each of them, and none that changes it."""
+    from xeda._internal.frozen import FrozenDict
+
+    reading = {name for name in dir(dict) if not name.startswith("_")} - MUTATING - {"fromkeys"}
+    missing = sorted(
+        name for name in reading | {"__or__", "__ror__"} if not hasattr(FrozenDict, name)
+    )
+    assert missing == []
+    assert not any(hasattr(FrozenDict, name) for name in MUTATING - {"__ior__"})
+
+    frozen = FrozenDict({"clean": False, "rebuild_all": False})
+    copied = frozen.copy()
+    assert isinstance(copied, FrozenDict) and copied == frozen and copied is not frozen
+    joined = frozen | {"clean": True}
+    assert isinstance(joined, FrozenDict) and joined["clean"] is True and frozen["clean"] is False
+    joined |= {"rebuild_all": True}  # a new value: the old one is unchanged
+    assert joined["rebuild_all"] is True and frozen["rebuild_all"] is False
+    assert ({"x": 1} | frozen) == {"x": 1, **frozen} and type({"x": 1} | frozen) is dict
+    with pytest.raises(TypeError):
+        frozen["clean"] = True  # type: ignore[index]
