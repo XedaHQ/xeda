@@ -390,7 +390,12 @@ class ArtifactSpec:
 
     An artifact is one file in the run directory that the run keeps about its process or its
     outputs: a log, a report, a waveform. `when` is a short condition, such as `always` or `when
-    the setting `sdf` is set`. A run that does not meet the condition has no such key."""
+    the setting `sdf` is set`. A run that does not meet the condition has no such key.
+
+    `always` has one exact meaning: a run that passes always writes the artifact. A run that
+    fails may lack any artifact, because it can stop before the step that writes it, so a
+    failure is never a condition. Any other text is documentation, and a flow gives it for an
+    artifact that a passing run can lack."""
 
     description: str
     when: str

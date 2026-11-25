@@ -182,7 +182,9 @@ that is an object, such as ``sim.evidence`` and ``platform``, and the nested key
 also keeps the type and unit of each metric and whether a run always writes each artifact (an
 artifact that a run always wrote and that becomes conditional is a break, and a new artifact is an
 addition; the text of a condition is documentation), and the setting that switches an output
-on (any change is a break). Other tests check the
+on (any change is a break). A run that passes always writes an artifact that a flow marks
+``always``. A run that fails may lack any artifact, so a failure is never a condition. Other tests
+check the
 rules on this page that a snapshot cannot hold, such as the order of the settings layers and the
 exit statuses.
 

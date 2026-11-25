@@ -507,6 +507,10 @@ Artifact keys
 ``{key, description, when}``. ``when`` is the condition under which a run has the key. The table of
 ``xeda list-results`` shows them under the metrics. A key is lower snake case.
 
+``always`` has one meaning: a run that passes always writes the artifact. A run that fails may lack
+any artifact, because it can stop before the step that writes it, so ``when`` never names a
+failure. Any other text of ``when`` is documentation: it says when a passing run has the key.
+
 - ``log`` is the output of the main tool of the flow, in ``logs/<program>.log``. Every flow that
   starts a tool has it. For ``nextpnr`` and ``fpga_pack`` the main tool is the program of the
   device family, and for ``dc`` it is the program that ``dc_shell_name`` names.
