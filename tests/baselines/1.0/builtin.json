@@ -144,9 +144,11 @@
   },
   "flows": {
     "bsc": {
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -169,6 +171,7 @@
       "outputs": {
         "design": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": []
         }
       },
@@ -946,14 +949,26 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "cc_log",
-        "cxx_log",
-        "log",
-        "simulation_log",
-        "simulator",
-        "waveform"
-      ],
+      "artifacts": {
+        "cc_log": {
+          "when": "when the simulator needs the compiler"
+        },
+        "cxx_log": {
+          "when": "when the simulator needs the compiler"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "simulation_log": {
+          "when": "when the flow starts the simulation program"
+        },
+        "simulator": {
+          "when": "when the compilation and link succeed"
+        },
+        "waveform": {
+          "when": "when the simulation writes a waveform"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -977,6 +992,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -2032,14 +2119,26 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "checkpoint",
-        "log",
-        "netlist",
-        "netlist_vhdl",
-        "sdc",
-        "sdf"
-      ],
+      "artifacts": {
+        "checkpoint": {
+          "when": "when the design has a top module"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "netlist": {
+          "when": "when the design has a top module"
+        },
+        "netlist_vhdl": {
+          "when": "when the design has a top module"
+        },
+        "sdc": {
+          "when": "when the design has a top module"
+        },
+        "sdf": {
+          "when": "when the design has a top module"
+        }
+      },
       "experimental": true,
       "inputs": {
         "design": {
@@ -2124,6 +2223,12 @@
           "unit": null
         },
         "path_groups": {
+          "schema": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -2975,13 +3080,23 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "bitstream",
-        "log",
-        "map_report",
-        "place_route_report",
-        "timing_report"
-      ],
+      "artifacts": {
+        "bitstream": {
+          "when": "always"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "map_report": {
+          "when": "when Diamond writes it"
+        },
+        "place_route_report": {
+          "when": "when Diamond writes it"
+        },
+        "timing_report": {
+          "when": "when Diamond writes it"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -3597,9 +3712,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "config": {
           "cardinality": "one",
@@ -3621,6 +3738,7 @@
       "outputs": {
         "bitstream": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "Bitstream"
           ]
@@ -4073,9 +4191,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -4123,6 +4243,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -4867,9 +5059,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -4887,6 +5081,7 @@
       "outputs": {
         "verilog": {
           "cardinality": "many",
+          "enabled_by": null,
           "kinds": [
             "Verilog"
           ]
@@ -5582,12 +5777,20 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "bitstream",
-        "log",
-        "place_route_report",
-        "synthesis_report"
-      ],
+      "artifacts": {
+        "bitstream": {
+          "when": "always"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "place_route_report": {
+          "when": "when ISE writes it"
+        },
+        "synthesis_report": {
+          "when": "when ISE writes it"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -6116,11 +6319,17 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "cc_log",
-        "log",
-        "vvp_log"
-      ],
+      "artifacts": {
+        "cc_log": {
+          "when": "when the flow builds the end monitor"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "vvp_log": {
+          "when": "when the design compiled"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -6168,6 +6377,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -6670,9 +6951,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -6696,6 +6979,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -7235,15 +7590,29 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "placed_svg",
-        "placement",
-        "report",
-        "routed_svg",
-        "sdf",
-        "write"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "placed_svg": {
+          "when": "when the setting `placed_svg` is set"
+        },
+        "placement": {
+          "when": "for a Xilinx 7-series device"
+        },
+        "report": {
+          "when": "when the setting `report` is set and nextpnr wrote the report"
+        },
+        "routed_svg": {
+          "when": "when the setting `routed_svg` is set"
+        },
+        "sdf": {
+          "when": "when the setting `sdf` is set"
+        },
+        "write": {
+          "when": "when the setting `write` is set"
+        }
+      },
       "inputs": {
         "constraints": {
           "cardinality": "many",
@@ -7365,6 +7734,7 @@
       "outputs": {
         "config": {
           "cardinality": "optional",
+          "enabled_by": null,
           "kinds": [
             "EcpConfig",
             "IceAsc",
@@ -8417,10 +8787,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "cxx_log",
-        "log"
-      ],
+      "artifacts": {
+        "cxx_log": {
+          "when": "when the flow builds the end monitor"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -8468,6 +8842,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -9311,9 +9757,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "bitstream": {
           "cardinality": "one",
@@ -9944,10 +10392,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "klayout_log",
-        "log"
-      ],
+      "artifacts": {
+        "klayout_log": {
+          "when": "when the setting `write_gds` is on"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "odb": {
           "cardinality": "one",
@@ -10050,6 +10502,39 @@
           "unit": null
         },
         "platform": {
+          "schema": {
+            "properties": {
+              "corner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "corner",
+              "name",
+              "provider",
+              "sources",
+              "version"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -10117,60 +10602,70 @@
       "outputs": {
         "abstract_lef": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "Data"
           ]
         },
         "cdl": {
           "cardinality": "optional",
+          "enabled_by": null,
           "kinds": [
             "Cdl"
           ]
         },
         "def_file": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "Def"
           ]
         },
         "gds": {
           "cardinality": "optional",
+          "enabled_by": "write_gds",
           "kinds": [
             "Gds"
           ]
         },
         "netlist": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "VerilogNetlist"
           ]
         },
         "odb": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadDbRouted"
           ]
         },
         "sdc": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadSdcRouted"
           ]
         },
         "sdf": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "Sdf"
           ]
         },
         "spef": {
           "cardinality": "optional",
+          "enabled_by": null,
           "kinds": [
             "Spef"
           ]
         },
         "timing_model": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_model",
           "kinds": [
             "Liberty"
           ]
@@ -11983,9 +12478,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "odb": {
           "cardinality": "one",
@@ -12036,6 +12533,39 @@
           "unit": "MHz"
         },
         "platform": {
+          "schema": {
+            "properties": {
+              "corner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "corner",
+              "name",
+              "provider",
+              "sources",
+              "version"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -12067,12 +12597,14 @@
       "outputs": {
         "odb": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadDbCts"
           ]
         },
         "sdc": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadSdcCts"
           ]
@@ -13620,9 +14152,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "odb": {
           "cardinality": "one",
@@ -13685,6 +14219,39 @@
           "unit": "MHz"
         },
         "platform": {
+          "schema": {
+            "properties": {
+              "corner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "corner",
+              "name",
+              "provider",
+              "sources",
+              "version"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -13724,18 +14291,21 @@
       "outputs": {
         "guides": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "Data"
           ]
         },
         "odb": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadDbGlobalRouted"
           ]
         },
         "sdc": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadSdcGlobalRouted"
           ]
@@ -16200,9 +16770,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "netlist": {
           "cardinality": "one",
@@ -16245,6 +16817,39 @@
           "unit": "MHz"
         },
         "platform": {
+          "schema": {
+            "properties": {
+              "corner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "corner",
+              "name",
+              "provider",
+              "sources",
+              "version"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -16276,12 +16881,14 @@
       "outputs": {
         "odb": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadDbPlaced"
           ]
         },
         "sdc": {
           "cardinality": "one",
+          "enabled_by": null,
           "kinds": [
             "OpenroadSdcPlaced"
           ]
@@ -21182,10 +21789,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "bitstream",
-        "log"
-      ],
+      "artifacts": {
+        "bitstream": {
+          "when": "always"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -21653,13 +22264,23 @@
       }
     },
     "sby": {
-      "artifacts": [
-        "config",
-        "evidence_archive",
-        "log",
-        "status",
-        "task_logfile"
-      ],
+      "artifacts": {
+        "config": {
+          "when": "always"
+        },
+        "evidence_archive": {
+          "when": "when SBY ended by itself"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "status": {
+          "when": "when SBY wrote it"
+        },
+        "task_logfile": {
+          "when": "when SBY wrote it"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -21970,14 +22591,26 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "fsdb2vcd_log",
-        "log",
-        "simulation_log",
-        "vhdlan_log",
-        "vlogan_log",
-        "vpd2vcd_log"
-      ],
+      "artifacts": {
+        "fsdb2vcd_log": {
+          "when": "when the setting `fsdb` is set"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "simulation_log": {
+          "when": "when the flow starts the simulation program"
+        },
+        "vhdlan_log": {
+          "when": "when the design has VHDL sources"
+        },
+        "vlogan_log": {
+          "when": "when the design has Verilog or SystemVerilog sources"
+        },
+        "vpd2vcd_log": {
+          "when": "when the setting `vpd` is set"
+        }
+      },
       "experimental": true,
       "inputs": {
         "design": {
@@ -22002,6 +22635,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -22782,10 +23487,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "simulation_log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "simulation_log": {
+          "when": "when the flow starts the simulation program"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -22833,6 +23542,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -23691,31 +24472,77 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "checkpoint_place",
-        "log",
-        "post_place_hierarchical_utilization_rpt",
-        "post_place_power_optimization_rpt",
-        "post_place_timing_summary_rpt",
-        "post_synth_hierarchical_utilization_rpt",
-        "post_synth_power_optimization_rpt",
-        "post_synth_timing_summary_rpt",
-        "route_design_clock_utilization_rpt",
-        "route_design_critical_paths_by_delay_csv",
-        "route_design_critical_paths_csv",
-        "route_design_drc_rpt",
-        "route_design_hierarchical_utilization_json",
-        "route_design_hierarchical_utilization_xml",
-        "route_design_methodology_rpt",
-        "route_design_power_rpt",
-        "route_design_power_xml",
-        "route_design_qor_suggestions_rpt",
-        "route_design_timing_rpt",
-        "route_design_timing_summary_rpt",
-        "route_design_utilization_rpt",
-        "route_design_utilization_xml",
-        "xdc_exported"
-      ],
+      "artifacts": {
+        "checkpoint_place": {
+          "when": "when the setting `write_checkpoint` is on"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "post_place_hierarchical_utilization_rpt": {
+          "when": "when the run reaches the step and the setting `write_checkpoint` is on"
+        },
+        "post_place_power_optimization_rpt": {
+          "when": "when the run reaches the step and the strategy of the step has `power_opt`"
+        },
+        "post_place_timing_summary_rpt": {
+          "when": "when the run reaches the step and the setting `write_checkpoint` is on"
+        },
+        "post_synth_hierarchical_utilization_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "post_synth_power_optimization_rpt": {
+          "when": "when the run reaches the step and the strategy of the step has `power_opt`"
+        },
+        "post_synth_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_clock_utilization_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_critical_paths_by_delay_csv": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_critical_paths_csv": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_drc_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_hierarchical_utilization_json": {
+          "when": "when the run reaches the step and the XML report of the utilization by module is read"
+        },
+        "route_design_hierarchical_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_methodology_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_power_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_power_xml": {
+          "when": "when the run reaches the step and the setting `report_power` is on"
+        },
+        "route_design_qor_suggestions_rpt": {
+          "when": "when the run reaches the step and the setting `qor_suggestions` is on"
+        },
+        "route_design_timing_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_utilization_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "xdc_exported": {
+          "when": "when the setting `write_netlist` is on"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -23814,36 +24641,42 @@
       "outputs": {
         "bitstream": {
           "cardinality": "optional",
+          "enabled_by": "bitstream",
           "kinds": [
             "Bitstream"
           ]
         },
         "checkpoint_route": {
           "cardinality": "optional",
+          "enabled_by": "write_checkpoint",
           "kinds": [
             "RoutedCheckpoint"
           ]
         },
         "checkpoint_synth": {
           "cardinality": "optional",
+          "enabled_by": "write_checkpoint",
           "kinds": [
             "SynthCheckpoint"
           ]
         },
         "netlist": {
           "cardinality": "optional",
+          "enabled_by": "write_netlist",
           "kinds": [
             "FpgaNetlist"
           ]
         },
         "netlist_timing": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "FpgaTimingNetlist"
           ]
         },
         "sdf": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "Sdf"
           ]
@@ -24643,28 +25476,68 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "checkpoint_place",
-        "log",
-        "post_place_hierarchical_utilization_rpt",
-        "post_place_power_optimization_rpt",
-        "post_place_timing_summary_rpt",
-        "route_design_clock_utilization_rpt",
-        "route_design_critical_paths_by_delay_csv",
-        "route_design_critical_paths_csv",
-        "route_design_drc_rpt",
-        "route_design_hierarchical_utilization_json",
-        "route_design_hierarchical_utilization_xml",
-        "route_design_methodology_rpt",
-        "route_design_power_rpt",
-        "route_design_power_xml",
-        "route_design_qor_suggestions_rpt",
-        "route_design_timing_rpt",
-        "route_design_timing_summary_rpt",
-        "route_design_utilization_rpt",
-        "route_design_utilization_xml",
-        "xdc_exported"
-      ],
+      "artifacts": {
+        "checkpoint_place": {
+          "when": "when the setting `write_checkpoint` is on"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "post_place_hierarchical_utilization_rpt": {
+          "when": "when the run reaches the step and the setting `write_checkpoint` is on"
+        },
+        "post_place_power_optimization_rpt": {
+          "when": "when the run reaches the step and the strategy of the step has `power_opt`"
+        },
+        "post_place_timing_summary_rpt": {
+          "when": "when the run reaches the step and the setting `write_checkpoint` is on"
+        },
+        "route_design_clock_utilization_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_critical_paths_by_delay_csv": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_critical_paths_csv": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_drc_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_hierarchical_utilization_json": {
+          "when": "when the run reaches the step and the XML report of the utilization by module is read"
+        },
+        "route_design_hierarchical_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_methodology_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_power_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_power_xml": {
+          "when": "when the run reaches the step and the setting `report_power` is on"
+        },
+        "route_design_qor_suggestions_rpt": {
+          "when": "when the run reaches the step and the setting `qor_suggestions` is on"
+        },
+        "route_design_timing_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_utilization_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "xdc_exported": {
+          "when": "when the setting `write_netlist` is on"
+        }
+      },
       "inputs": {
         "constraints": {
           "cardinality": "many",
@@ -24779,30 +25652,35 @@
       "outputs": {
         "bitstream": {
           "cardinality": "optional",
+          "enabled_by": "bitstream",
           "kinds": [
             "Bitstream"
           ]
         },
         "checkpoint_route": {
           "cardinality": "optional",
+          "enabled_by": "write_checkpoint",
           "kinds": [
             "RoutedCheckpoint"
           ]
         },
         "netlist": {
           "cardinality": "optional",
+          "enabled_by": "write_netlist",
           "kinds": [
             "FpgaNetlist"
           ]
         },
         "netlist_timing": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "FpgaTimingNetlist"
           ]
         },
         "sdf": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "Sdf"
           ]
@@ -25632,10 +26510,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "waveform"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "waveform": {
+          "when": "when the simulation writes a waveform"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -25698,6 +26580,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -25713,12 +26667,14 @@
       "outputs": {
         "saif": {
           "cardinality": "optional",
+          "enabled_by": "saif",
           "kinds": [
             "Saif"
           ]
         },
         "timing_saif": {
           "cardinality": "optional",
+          "enabled_by": "timing_sim",
           "kinds": [
             "Saif"
           ]
@@ -26494,9 +27450,11 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "inputs": {
         "activity": {
           "cardinality": "one",
@@ -27118,10 +28076,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "project"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "project": {
+          "when": "always"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -27859,11 +28821,17 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "saif",
-        "waveform"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "saif": {
+          "when": "when the setting `saif` is set"
+        },
+        "waveform": {
+          "when": "when the simulation writes a waveform"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -27887,6 +28855,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -28579,49 +29619,131 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "impl_1_log",
-        "log",
-        "phys_opt_design_critical_paths_by_delay_csv",
-        "phys_opt_design_critical_paths_csv",
-        "phys_opt_design_hierarchical_utilization_xml",
-        "phys_opt_design_timing_rpt",
-        "phys_opt_design_timing_summary_rpt",
-        "phys_opt_design_utilization_xml",
-        "place_design_critical_paths_by_delay_csv",
-        "place_design_critical_paths_csv",
-        "place_design_hierarchical_utilization_xml",
-        "place_design_timing_rpt",
-        "place_design_timing_summary_rpt",
-        "place_design_utilization_xml",
-        "route_design_clock_utilization_rpt",
-        "route_design_critical_paths_by_delay_csv",
-        "route_design_critical_paths_csv",
-        "route_design_datasheet_rpt",
-        "route_design_design_analysis_json",
-        "route_design_design_analysis_rpt",
-        "route_design_drc_rpt",
-        "route_design_hierarchical_utilization_json",
-        "route_design_hierarchical_utilization_rpt",
-        "route_design_hierarchical_utilization_xml",
-        "route_design_methodology_rpt",
-        "route_design_power_xml",
-        "route_design_qor_suggestions_rpt",
-        "route_design_qor_suggestions_rqs",
-        "route_design_route_status_rpt",
-        "route_design_timing_rpt",
-        "route_design_timing_summary_rpt",
-        "route_design_utilization_rpt",
-        "route_design_utilization_xml",
-        "synth_1_log",
-        "synth_design_critical_paths_by_delay_csv",
-        "synth_design_critical_paths_csv",
-        "synth_design_hierarchical_utilization_xml",
-        "synth_design_timing_rpt",
-        "synth_design_timing_summary_rpt",
-        "synth_design_utilization_xml",
-        "xdc_exported"
-      ],
+      "artifacts": {
+        "impl_1_log": {
+          "when": "when Vivado starts the run `impl_1`"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "phys_opt_design_critical_paths_by_delay_csv": {
+          "when": "when the run reaches the step"
+        },
+        "phys_opt_design_critical_paths_csv": {
+          "when": "when the run reaches the step"
+        },
+        "phys_opt_design_hierarchical_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "phys_opt_design_timing_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "phys_opt_design_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "phys_opt_design_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "place_design_critical_paths_by_delay_csv": {
+          "when": "when the run reaches the step"
+        },
+        "place_design_critical_paths_csv": {
+          "when": "when the run reaches the step"
+        },
+        "place_design_hierarchical_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "place_design_timing_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "place_design_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "place_design_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_clock_utilization_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_critical_paths_by_delay_csv": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_critical_paths_csv": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_datasheet_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_design_analysis_json": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_design_analysis_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_drc_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_hierarchical_utilization_json": {
+          "when": "when the run reaches the step and the XML report of the utilization by module is read"
+        },
+        "route_design_hierarchical_utilization_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_hierarchical_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_methodology_rpt": {
+          "when": "when the run reaches the step and the setting `extra_reports` is on"
+        },
+        "route_design_power_xml": {
+          "when": "when the run reaches the step and the setting `report_power` is on"
+        },
+        "route_design_qor_suggestions_rpt": {
+          "when": "when the run reaches the step and the setting `qor_suggestions` is on"
+        },
+        "route_design_qor_suggestions_rqs": {
+          "when": "when the run reaches the step and the setting `qor_suggestions` is on"
+        },
+        "route_design_route_status_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_timing_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_utilization_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "route_design_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "synth_1_log": {
+          "when": "when Vivado starts the run `synth_1`"
+        },
+        "synth_design_critical_paths_by_delay_csv": {
+          "when": "when the run reaches the step"
+        },
+        "synth_design_critical_paths_csv": {
+          "when": "when the run reaches the step"
+        },
+        "synth_design_hierarchical_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "synth_design_timing_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "synth_design_timing_summary_rpt": {
+          "when": "when the run reaches the step"
+        },
+        "synth_design_utilization_xml": {
+          "when": "when the run reaches the step"
+        },
+        "xdc_exported": {
+          "when": "when the setting `write_netlist` is on"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -28724,42 +29846,49 @@
       "outputs": {
         "bitstream": {
           "cardinality": "optional",
+          "enabled_by": "bitstream",
           "kinds": [
             "Bitstream"
           ]
         },
         "checkpoint_route": {
           "cardinality": "optional",
+          "enabled_by": "write_checkpoint",
           "kinds": [
             "RoutedCheckpoint"
           ]
         },
         "checkpoint_synth": {
           "cardinality": "optional",
+          "enabled_by": "write_checkpoint",
           "kinds": [
             "SynthCheckpoint"
           ]
         },
         "netlist": {
           "cardinality": "optional",
+          "enabled_by": "write_netlist",
           "kinds": [
             "FpgaNetlist"
           ]
         },
         "netlist_timing": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "FpgaTimingNetlist"
           ]
         },
         "sdf": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "Sdf"
           ]
         },
         "sdf_min": {
           "cardinality": "optional",
+          "enabled_by": "write_timing_netlist",
           "kinds": [
             "Sdf"
           ]
@@ -29426,10 +30555,14 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "coverage",
-        "log"
-      ],
+      "artifacts": {
+        "coverage": {
+          "when": "when the setting `code_coverage` is set"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        }
+      },
       "experimental": true,
       "inputs": {
         "design": {
@@ -29490,6 +30623,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
@@ -30379,14 +31584,26 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "netlist_json",
-        "rtl_json",
-        "rtl_verilog",
-        "timing_report",
-        "utilization_report"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "netlist_json": {
+          "when": "when the setting `netlist_json` is set"
+        },
+        "rtl_json": {
+          "when": "when the setting `rtl_json` is set"
+        },
+        "rtl_verilog": {
+          "when": "when the setting `rtl_verilog` is set"
+        },
+        "timing_report": {
+          "when": "when the setting `sta` is on"
+        },
+        "utilization_report": {
+          "when": "when the run reaches the synthesis stage (`stop_after` is not `rtl`)"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -30414,6 +31631,39 @@
           "unit": null
         },
         "platform": {
+          "schema": {
+            "properties": {
+              "corner": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "corner",
+              "name",
+              "provider",
+              "sources",
+              "version"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         }
@@ -30421,12 +31671,14 @@
       "outputs": {
         "netlist": {
           "cardinality": "optional",
+          "enabled_by": "netlist_verilog",
           "kinds": [
             "VerilogNetlist"
           ]
         },
         "netlist_generic": {
           "cardinality": "optional",
+          "enabled_by": "netlist_verilog",
           "kinds": [
             "GenericVerilogNetlist"
           ]
@@ -33221,14 +34473,26 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "log",
-        "netlist_verilog",
-        "rtl_json",
-        "rtl_verilog",
-        "timing_report",
-        "utilization_report"
-      ],
+      "artifacts": {
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "netlist_verilog": {
+          "when": "when the setting `netlist_verilog` is set"
+        },
+        "rtl_json": {
+          "when": "when the setting `rtl_json` is set"
+        },
+        "rtl_verilog": {
+          "when": "when the setting `rtl_verilog` is set"
+        },
+        "timing_report": {
+          "when": "when the setting `sta` is on"
+        },
+        "utilization_report": {
+          "when": "when the run reaches the synthesis stage (`stop_after` is not `rtl`)"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -33295,12 +34559,14 @@
       "outputs": {
         "netlist": {
           "cardinality": "optional",
+          "enabled_by": "netlist_json",
           "kinds": [
             "JsonNetlist"
           ]
         },
         "netlist_edif": {
           "cardinality": "optional",
+          "enabled_by": null,
           "kinds": [
             "Edif"
           ]
@@ -34973,16 +36239,32 @@
           "type": "object"
         }
       },
-      "artifacts": [
-        "cxxrtl_cpp",
-        "cxxrtl_header",
-        "gxx_log",
-        "log",
-        "rtl_json",
-        "rtl_verilog",
-        "simulation_log",
-        "simulator"
-      ],
+      "artifacts": {
+        "cxxrtl_cpp": {
+          "when": "always"
+        },
+        "cxxrtl_header": {
+          "when": "when the setting `cxxrtl.header` is set"
+        },
+        "gxx_log": {
+          "when": "always"
+        },
+        "log": {
+          "when": "when the flow starts its main tool"
+        },
+        "rtl_json": {
+          "when": "when the setting `rtl_json` is set"
+        },
+        "rtl_verilog": {
+          "when": "when the setting `rtl_verilog` is set"
+        },
+        "simulation_log": {
+          "when": "when the flow starts the simulation program"
+        },
+        "simulator": {
+          "when": "always"
+        }
+      },
       "inputs": {
         "design": {
           "cardinality": "one",
@@ -35006,6 +36288,78 @@
           "unit": null
         },
         "sim.evidence": {
+          "schema": {
+            "properties": {
+              "cycles": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ended_by": {
+                "type": "string"
+              },
+              "events": {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "time": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "message",
+                    "time"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "time_unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cycles",
+              "ended_by",
+              "events",
+              "exit_code",
+              "time",
+              "time_unit"
+            ],
+            "type": "object"
+          },
           "type": "object",
           "unit": null
         },
