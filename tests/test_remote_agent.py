@@ -7,6 +7,7 @@ blocks (`XEDA_FAKE_FPGA_READY`), so no test waits for a time to pass. Every test
 processes by process id.
 """
 
+import ast
 import contextlib
 import errno
 import fcntl
@@ -329,7 +330,11 @@ class BlockingTool:
 
 
 class Beats:
-    """Send heartbeats from a thread until stopped."""
+    """Send heartbeats from a thread until stopped.
+
+    Build the launch message before this. Building it takes time and can hold the interpreter lock
+    for longer than a short lease: no heartbeat goes out, and the agent ends the session
+    (`test_no_heartbeat_thread_runs_while_a_launch_message_is_built`)."""
 
     def __init__(self, agent: Agent, interval: float = 0.1) -> None:
         self._stop = threading.Event()
@@ -552,8 +557,9 @@ def test_missing_heartbeat_cancels_after_the_lease(tmp_path, toolchain, monkeypa
     agent = start_agent("--lease", "1", env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
+    message = launch_message(tmp_path, "run-1", path_setup(toolchain))
     beats = Beats(agent)  # the start of the launch takes longer than the lease
-    agent.send(launch_message(tmp_path, "run-1", path_setup(toolchain)))
+    agent.send(message)
     tool.wait(agent)
     beats.stop()
     found = descendants(agent)
@@ -563,6 +569,31 @@ def test_missing_heartbeat_cancels_after_the_lease(tmp_path, toolchain, monkeypa
     assert_gone(found)
 
 
+def test_no_heartbeat_thread_runs_while_a_launch_message_is_built():
+    """Building a launch message plans the launch. That takes time and can hold the interpreter
+    lock in long calls, so a heartbeat thread that already runs can send nothing for longer than a
+    short lease. Then the agent ends the session, and the test fails with a broken frame writer."""
+    tests = Path(__file__).parent
+    late = []
+    for path in sorted(tests.glob("test_remote_*.py")):
+        for function in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            calls = [
+                (node.lineno, node.func.id)
+                for node in ast.walk(function)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            ]
+            beats = [line for line, name in calls if name == "Beats"]
+            if beats:
+                late += [
+                    f"{path.name}:{line} in {function.name}"
+                    for line, name in calls
+                    if name == "launch_message" and line > min(beats)
+                ]
+    assert not late, f"a launch message is built after the heartbeats start: {late}"
+
+
 def test_heartbeats_keep_a_launch_alive_past_the_lease(
     tmp_path, toolchain, monkeypatch, start_agent
 ):
@@ -570,8 +601,9 @@ def test_heartbeats_keep_a_launch_alive_past_the_lease(
     agent = start_agent("--lease", "1", env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
+    message = launch_message(tmp_path, "run-1", path_setup(toolchain))
     beats = Beats(agent)
-    agent.send(launch_message(tmp_path, "run-1", path_setup(toolchain)))
+    agent.send(message)
     tool.wait(agent)
     try:
         time.sleep(2.5)  # more than twice the lease: the only test that waits for time to pass
