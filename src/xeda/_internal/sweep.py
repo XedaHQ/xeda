@@ -52,7 +52,7 @@ from .flow_runner.launch_result import (
     stops_consumers,
 )
 from .flow_runner.run_lock import LockRequest, acquire_all
-from .frozen import thaw
+from .frozen import quantity_texts, thaw
 from .local_settings import check_launch_settings
 from .outcomes import Disposition, NodeResult, Outcome, Result, aggregate
 from .plan import Plan, PlanNode
@@ -195,7 +195,10 @@ class SweepResult:
             node, _, rest = path.partition(".")
             record = result.nodes[node].record if node in result.nodes else None
             effective = _found(thaw(record.settings), rest) if record is not None else None
-            cells[path] = value if effective is None else effective
+            if effective is not None:
+                cells[path] = effective
+            else:  # a setting of a node that has no record: as the caller gave it
+                cells[path] = value if quantities else quantity_texts(value)
         if quantities:
             cells = _setting_quantities(cells, result, schemas)
         for path, value in cells.items():

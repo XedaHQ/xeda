@@ -410,6 +410,64 @@ def settings_as_quantities(
     return _in_field_units(schema, schema.get("$defs", {}), dict(settings), _pint_quantity)
 
 
+def _schema_at(schema: Any, definitions: Mapping[str, Any], address: str) -> Any:
+    """Return the schema of the setting at the dotted `address` below `schema`, or None.
+
+    A segment names a property, or an entry of a table. A reference, and a union such as
+    `Optional[Model]`, lead to the property of the first branch that has it."""
+    if not address:
+        return schema
+    if not isinstance(schema, dict):
+        return None
+    ref = schema.get("$ref")
+    if isinstance(ref, str):
+        return _schema_at(definitions.get(ref.rsplit("/", 1)[-1]), definitions, address)
+    head, _, rest = address.partition(".")
+    properties = schema.get("properties", {})
+    if head in properties:
+        return _schema_at(properties[head], definitions, rest)
+    for key in ("anyOf", "oneOf"):
+        for branch in schema.get(key, ()):
+            found = _schema_at(branch, definitions, address)
+            if found is not None:
+                return found
+    values = schema.get("additionalProperties")
+    return _schema_at(values, definitions, rest) if isinstance(values, dict) else None
+
+
+def _schema_of_key(
+    schema: Any,
+    definitions: Mapping[str, Any],
+    properties: Mapping[str, Any],
+    values: Any,
+    key: Any,
+) -> Any:
+    """Return the schema of the entry `key` of a table whose own schema is `schema`.
+
+    A declared property comes first. A dotted key that names a setting below the table comes next.
+    Any other key is an entry of the table, which `values` (`additionalProperties`) describes: a
+    table of quantities may have a dot in the name of an entry."""
+    if key in properties:
+        return properties[key]
+    found = _schema_at(schema, definitions, key) if "." in str(key) else None
+    return values if found is None else found
+
+
+def _unchanged(changed: Any, value: Any) -> bool:
+    """Whether a branch of a union left `value` as it is. A quantity equals its own conversion
+    to another unit, so a quantity counts as unchanged only when it is the same object: the
+    branch that reads it makes a new one."""
+    if isinstance(changed, pint.Quantity) or isinstance(value, pint.Quantity):
+        return changed is value
+    if isinstance(changed, Mapping) and isinstance(value, Mapping):
+        return changed.keys() == value.keys() and all(
+            _unchanged(item, value[key]) for key, item in changed.items()
+        )
+    if isinstance(changed, (list, tuple)) and isinstance(value, (list, tuple)):
+        return len(changed) == len(value) and all(map(_unchanged, changed, value))
+    return bool(changed == value)
+
+
 def _in_field_units(
     schema: Any,
     definitions: Mapping[str, Any],
@@ -420,7 +478,8 @@ def _in_field_units(
 
     `schema` is the JSON Schema of the setting. A quantity that does not read (a bare number, text
     that is no quantity) stays as it is: the launch reports it. Keys that the schema does not
-    know stay as they are. `render(quantity, given)` makes the result for each quantity that
+    know stay as they are. A key may be a dotted address (`clock.period`), which names the setting
+    below it. `render(quantity, given)` makes the result for each quantity that
     reads. By default it is the text of the quantity."""
     if not isinstance(schema, dict):
         return value
@@ -439,13 +498,18 @@ def _in_field_units(
     for key in ("anyOf", "oneOf"):
         for branch in schema.get(key, ()):
             changed = _in_field_units(branch, definitions, value, render)
-            if changed != value:
+            if not _unchanged(changed, value):
                 return changed
     if isinstance(value, Mapping):
         properties = schema.get("properties", {})
         values = schema.get("additionalProperties")
         return {
-            key: _in_field_units(properties.get(key, values), definitions, item, render)
+            key: _in_field_units(
+                _schema_of_key(schema, definitions, properties, values, key),
+                definitions,
+                item,
+                render,
+            )
             for key, item in value.items()
         }
     if isinstance(value, str) and schema.get("type") == "array":

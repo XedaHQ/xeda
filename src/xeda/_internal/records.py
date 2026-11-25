@@ -843,7 +843,25 @@ def _decode_metric_info(value: Any, metrics: Mapping[str, Any]) -> dict[str, Met
             type=metric_type,
             unit=unit,
         )
+    _require_described(metrics, info, "")
     return info
+
+
+def _require_described(
+    node: Mapping[str, Any], info: Mapping[str, MetricInfo], prefix: str
+) -> None:
+    """Raise `_Malformed` for a value in the `metrics` table that `metric_info` does not describe.
+
+    A metric is the value at a path that `metric_info` lists, even when it is a table (an
+    `object`). A table without such a path is a group: Xeda reads what is below it."""
+    for key, value in node.items():
+        path = f"{prefix}{key}"
+        if path in info:
+            continue
+        if isinstance(value, Mapping):
+            _require_described(value, info, f"{path}.")
+        else:
+            raise _Malformed(f"`metrics.{path}` has no entry in `metric_info`")
 
 
 def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRecord:

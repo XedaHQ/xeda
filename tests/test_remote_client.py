@@ -1851,3 +1851,20 @@ def test_the_debug_log_level_does_not_change_the_plan_of_the_host(tmp_path, remo
     result = _cli(tmp_path, _design(tmp_path), "nextpnr", "--log-level", "debug", "--json")
     assert result.exit_code == 0, result.stderr
     assert json.loads(result.stdout)["outcome"] == "passed"
+
+
+def test_a_quantity_in_the_settings_of_a_spec_is_written_as_quantity_text(tmp_path):
+    """The settings of a request go to the launch record of `--keep-running`, which is JSON."""
+    import pint
+
+    from xeda import Design
+    from xeda._internal.spec import Spec
+
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    design = Design(name="d", root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
+    timeout = pint.get_application_registry().Quantity(2, "min")
+    spec = Spec("ghdl_sim", design, settings={"ghdl_sim": {"timeout": timeout, "vcd": "w.vcd"}})
+    run = client._request_run(spec, "host")
+    assert json.loads(json.dumps(run.settings)) == {
+        "ghdl_sim": {"timeout": "2 min", "vcd": "w.vcd"}
+    }

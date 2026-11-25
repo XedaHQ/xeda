@@ -217,8 +217,17 @@ class Result:
     def record(self) -> RunRecord:
         """The record of the single root. Raise `RecordError` (`missing_record`) if it has none.
 
+        A result with no root (the launch ended before it planned a node) has none, and the `path`
+        of the error is then empty.
+
         A root that was blocked, skipped or detached, or whose record could not be stored, has
         none. To test for one without an exception, ask `result.nodes[root].record is not None`."""
+        if not self.roots:  # the launch ended before it planned a node
+            raise RecordError(
+                f"the result has no root node, so it has no record: it ended {self.outcome}",
+                code="missing_record",
+                path=Path(),
+            )
         node = self.nodes[self.roots[0]]
         if node.record is None:
             raise RecordError(
@@ -300,18 +309,24 @@ def _plain(value: Any) -> Any:
 
 def _in_field_units(settings: Any) -> Any:
     """Return `settings`, the settings of the flows by flow name, with each quantity written in
-    the unit of its field. The keys stay as given. A name that is no flow keeps its settings."""
+    the unit of its field. The keys stay as given, and a key may be a dotted address
+    (`ghdl_sim.timeout`, `nextpnr.clock.period`). A name that is no flow keeps its settings."""
     from .flow_runner import get_flow_class
     from .introspect import settings_in_field_units
 
     if not isinstance(settings, dict):
         return settings
     result = {}
-    for name, section in settings.items():
+    for key, section in settings.items():
+        name, dot, address = str(key).partition(".")
         try:
-            result[name] = settings_in_field_units(get_flow_class(name), section)
+            flow = get_flow_class(name)
+            if dot:  # `ghdl_sim.timeout`: the setting at an address, not a section
+                result[key] = settings_in_field_units(flow, {address: section})[address]
+            else:
+                result[key] = settings_in_field_units(flow, section)
         except Exception:  # pylint: disable=broad-exception-caught
-            result[name] = section
+            result[key] = section
     return result
 
 

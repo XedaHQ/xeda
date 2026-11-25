@@ -303,3 +303,200 @@ def test_a_binding_of_the_project_makes_its_producer_a_node_of_the_spec(tmp_path
     spec = Spec("vivado_postsynth_sim", design, settings={"vivado_alt_synth.nthreads": 4})
     sections, _layer = spec_sections(spec)
     assert sections["vivado_alt_synth"] == {"nthreads": 4}
+
+
+def test_a_quantity_in_a_spec_cannot_change_in_place(tmp_path):
+    import copy
+    import pickle
+
+    import pint
+
+    from xeda._internal.frozen import thaw
+
+    given = pint.get_application_registry().Quantity(2, "min")
+    spec = _spec(tmp_path, {"ghdl_sim": {"timeout": given}}, "ghdl_sim")
+    stored = spec.settings["ghdl_sim"]["timeout"]
+    assert isinstance(stored, pint.Quantity) and stored == given
+    for change in (
+        lambda: stored.ito("kilosecond"),
+        lambda: stored.ito_base_units(),
+        lambda: stored.ito_reduced_units(),
+    ):
+        with pytest.raises(TypeError, match="cannot change in place"):
+            change()
+    assert (stored.magnitude, str(stored.units)) == (2, "minute")
+    # `+=` makes a new quantity, and a conversion gives a quantity that the caller may change
+    total = stored
+    total += given
+    assert (total.magnitude, stored.magnitude) == (4, 2)
+    seconds = stored.to("s")
+    seconds.ito("ms")
+    assert (stored.magnitude, seconds.magnitude) == (2, 120000)
+    # the value stays frozen through a copy and a pickle, and `thaw` gives a plain quantity
+    for same in (copy.deepcopy(spec), pickle.loads(pickle.dumps(spec))):
+        with pytest.raises(TypeError):
+            same.settings["ghdl_sim"]["timeout"].ito("s")
+        assert same == spec
+    with pytest.raises(TypeError):
+        stored.magnitude = 3  # type: ignore[misc]
+    # a spec made from the settings of a spec freezes them again without a second layer
+    again = Spec("ghdl_sim", spec.design, settings=spec.settings)
+    assert type(again.settings["ghdl_sim"]["timeout"]) is type(stored)
+    thawed = thaw(again.settings)["ghdl_sim"]["timeout"]
+    thawed.ito("s")
+    assert thawed.magnitude == 120 and stored.magnitude == 2 and given.magnitude == 2
+
+
+@pytest.fixture
+def application():
+    """The application registry of pint, put back after the test."""
+    import pint
+
+    wrapper = pint.get_application_registry()
+    previous = wrapper.get()
+    yield wrapper
+    wrapper.set(previous)
+
+
+def test_a_frozen_quantity_keeps_its_registry(tmp_path, application):
+    import copy
+    import pickle
+
+    import pint
+
+    from xeda._internal.frozen import freeze, thaw
+
+    original = application.get()
+    spec = _spec(tmp_path, {"ghdl_sim": {"timeout": pint.Quantity(10, "ns")}}, "ghdl_sim")
+    stored = spec.settings["ghdl_sim"]["timeout"]
+    assert stored._REGISTRY is original
+    pint.set_application_registry(pint.UnitRegistry())  # a later change of the registry
+    assert application.get() is not original
+    assert thaw(spec.settings)["ghdl_sim"]["timeout"]._REGISTRY is original
+    assert freeze(spec.settings)["ghdl_sim"]["timeout"]._REGISTRY is original
+    assert copy.copy(stored)._REGISTRY is original
+    assert copy.deepcopy(stored)._REGISTRY is original
+    # a quantity of a registry of its own keeps it too
+    private = pint.UnitRegistry()
+    own = freeze({"x": private.Quantity(3, "MHz")})["x"]
+    assert own._REGISTRY is private and thaw({"x": own})["x"]._REGISTRY is private
+    assert pickle.loads(pickle.dumps(stored)) == stored
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{}, {"auto_reduce_dimensions": True}, {"autoconvert_to_preferred": True}],
+    ids=["default", "auto_reduce_dimensions", "autoconvert_to_preferred"],
+)
+def test_the_operators_work_on_a_frozen_quantity_and_leave_it_as_it_is(options):
+    import operator
+
+    import pint
+
+    from xeda._internal.frozen import freeze, thaw
+
+    registry = pint.UnitRegistry(**options)
+    stored = freeze({"x": registry.Quantity(3, "ns")})["x"]
+    plain = thaw({"x": stored})["x"]
+    other = registry.Quantity(2, "s")
+    frozen_other = freeze([registry.Quantity(2, "s")])[0]
+    for operation in (operator.neg, operator.pos, abs, round):
+        assert operation(stored) == operation(plain)
+    for operation in (operator.add, operator.sub, operator.mul, operator.truediv):
+        for second in (other, frozen_other):
+            assert operation(stored, second) == operation(plain, other)
+            assert operation(second, stored) == operation(other, plain)
+            assert str(operation(second, stored)) == str(operation(other, plain))
+    for operation in (lambda a: a * 2, lambda a: 2 * a, lambda a: a / 2, lambda a: 2 / a):
+        assert str(operation(stored)) == str(operation(plain))
+    result = stored * 2
+    result.ito("ps")  # a result is a new value that the caller may change
+    total = stored
+    total += other
+    assert total == plain + other and total is not stored
+    assert (stored.magnitude, str(stored.units)) == (3, "nanosecond")
+    assert hash(stored) == hash(plain) and stored == plain
+
+
+def _state(quantity):
+    return (type(quantity), quantity.magnitude, str(quantity.units), dict(vars(quantity)))
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_no_attribute_of_a_stored_quantity_can_change(application):
+    import pint
+
+    from xeda._internal.frozen import freeze
+
+    stored = freeze({"x": pint.Quantity(2, "min")})["x"]
+    before = _state(stored)
+    for name in (*vars(stored), "_magnitude", "_units", "_REGISTRY", "magnitude", "other"):
+        with pytest.raises(TypeError):
+            setattr(stored, name, 1)
+        with pytest.raises(TypeError):
+            delattr(stored, name)
+    # every method, called with the arguments that the in-place ones take, leaves it as it is
+    arguments = [(), (pint.Quantity(1, "s"),), ("s",), (1,), (pint.Quantity(1, "s"), "s")]
+    skipped = {"dump", "dumps", "tofile", "to_file"}  # these write files
+    for name in dir(stored):
+        method = getattr(stored, name, None)
+        if name.startswith("_") or name in skipped or not callable(method):
+            continue
+        for call_arguments in arguments:
+            try:
+                method(*call_arguments)
+            except Exception:  # pylint: disable=broad-except
+                pass
+            assert _state(stored) == before, f"{name}{call_arguments!r} changed the quantity"
+    for name in ("__setitem__", "__iadd__", "__imul__", "__ipow__"):
+        try:
+            getattr(stored, name)(*arguments[1])
+        except Exception:  # pylint: disable=broad-except
+            pass
+        assert _state(stored) == before
+
+
+def test_fill_cannot_change_a_stored_quantity(application):
+    import pint
+
+    from xeda._internal.frozen import freeze
+
+    stored = freeze({"x": pint.Quantity(2, "min")})["x"]
+    with pytest.raises((TypeError, AttributeError)):
+        stored.fill(pint.Quantity(1, "s"))
+    assert (stored.magnitude, str(stored.units)) == (2, "minute")
+
+
+def test_a_quantity_that_holds_an_array_is_refused_when_frozen(application):
+    np = pytest.importorskip("numpy")
+    import pint
+
+    from xeda._internal.frozen import freeze
+
+    with pytest.raises(ValueError, match="must hold a number, not ndarray"):
+        freeze({"x": pint.Quantity(np.array([1.0, 2.0]), "ns")})
+
+
+def test_a_forced_array_registry_does_not_turn_a_scalar_into_an_array(tmp_path, application):
+    pytest.importorskip("numpy")
+    import copy
+    import pickle
+
+    import pint
+
+    from xeda._internal.frozen import freeze, thaw
+
+    spec = _spec(tmp_path, {"ghdl_sim": {"timeout": pint.Quantity(10, "ns")}}, "ghdl_sim")
+    pint.set_application_registry(pint.UnitRegistry(force_ndarray=True))
+    stored = spec.settings["ghdl_sim"]["timeout"]
+    plain = thaw(spec.settings)["ghdl_sim"]["timeout"]
+    for same in (
+        stored,
+        plain,
+        freeze(spec.settings)["ghdl_sim"]["timeout"],
+        copy.copy(stored),
+        copy.deepcopy(stored),
+        pickle.loads(pickle.dumps(stored)),
+    ):
+        assert same.magnitude == 10 and isinstance(same.magnitude, int)
+    assert Spec("ghdl_sim", spec.design, settings=spec.settings) == spec

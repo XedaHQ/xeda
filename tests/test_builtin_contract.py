@@ -281,6 +281,37 @@ def test_all_literal_codes_are_in_the_inventory() -> None:
     assert found <= set().union(*ALL_CODES.values())
 
 
+def test_a_code_that_a_public_error_is_raised_with_is_in_the_row_of_that_error() -> None:
+    """`ALL_CODES` lists each code under the class that Xeda raises with it, not only somewhere."""
+    from xeda import errors
+    from xeda._internal.flow_runner.error_codes import ALL_CODES
+
+    # `_refuse(code, ...)` of the sweep raises a `SpecError` with its first argument as the code
+    missing = set()
+    for path in IMPL_DIR.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            name = function.id if isinstance(function, ast.Name) else getattr(function, "attr", "")
+            raised: dict[str, set[str]] = {}
+            if name == "_refuse" and node.args:
+                raised["SpecError"] = _literal_values(node.args[0])
+            elif name in errors.__all__:
+                raised[name] = {
+                    code
+                    for keyword in node.keywords
+                    if keyword.arg == "code"
+                    for code in _literal_values(keyword.value)
+                }
+            for owner, codes in raised.items():
+                missing.update(
+                    f"{owner}: {code} ({path.name}:{node.lineno})"
+                    for code in codes - ALL_CODES[owner]
+                )
+    assert not missing, sorted(missing)
+
+
 @pytest.mark.parametrize(
     "row, expected",
     [

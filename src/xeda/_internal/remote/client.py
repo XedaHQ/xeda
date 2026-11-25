@@ -87,6 +87,7 @@ from ..flow_runner.launch_result import (  # pylint: disable=protected-access
 )
 from ..flow_runner.run_lock import LockRequest, LockSet, acquire_all
 from ..frozen import thaw
+from ..introspect import json_safe
 from ..outcomes import (
     Disposition,
     NodeResult,
@@ -1455,7 +1456,7 @@ def _request_run(spec: Spec, host: str) -> _Run:
         target=design.target,
         host=host,
         design_name=design.name,
-        settings=thaw(spec.settings),
+        settings=json_safe(spec.settings),  # a pint quantity becomes quantity text
         spec=spec,
     )
 

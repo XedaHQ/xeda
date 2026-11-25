@@ -393,6 +393,10 @@ def test_a_record_that_cannot_be_read_says_why(tmp_path, text, code):
         lambda d: d["metrics"].update(count="3"),
         lambda d: d["metrics"]["group"].update(ratio=float("nan")),
         lambda d: d["metrics"]["delays"].update(x=float("inf")),
+        lambda d: d["metrics"].update(undescribed=1),
+        lambda d: d["metrics"].update(undescribed=float("inf")),
+        lambda d: d["metrics"].update(undescribed_group={"x": 1.5}),
+        lambda d: d["metrics"]["group"].update(undescribed=[1, float("-inf")]),
         lambda d: d.update(
             metric_info={"ghost": {"description": "", "type": "integer", "unit": None}}
         ),

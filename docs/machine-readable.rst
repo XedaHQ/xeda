@@ -1222,6 +1222,13 @@ command line gives ``delivery_refused`` and ``unsupported_with_remote`` too.
     ``if __name__ == "__main__":``. The worker ends with this error on its standard error, and the
     caller of the sweep in the parent gets ``reported_failure`` for each point, with a message that
     names the missing guard.
+``invalid_run_root``
+    A name that becomes part of a run directory path is not valid, for example a design name that
+    holds ``/``. The same code, as ``RunRootError``, reports a run root that Xeda cannot take.
+``flow_not_importable``
+    A sweep refuses a point whose flow a worker process could not import. ``points`` lists the
+    points. Move the flow into a module that Python can import, or sweep with ``max_workers=1``.
+    A node of a sweep that fails in a worker has the same code.
 
 A stale plan (``StalePlanError``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
