@@ -589,6 +589,9 @@ def damage(location: Path, how: str) -> None:
     elif how == "wrong schema":
         document = json.loads((location / "receipt.json").read_text())
         (location / "receipt.json").write_text(json.dumps({**document, "schema_version": 2}))
+    elif how == "boolean schema":
+        document = json.loads((location / "receipt.json").read_text())
+        (location / "receipt.json").write_text(json.dumps({**document, "schema_version": True}))
     elif how == "missing key":
         document = json.loads((location / "receipt.json").read_text())
         del document["sha256"]
@@ -598,7 +601,16 @@ def damage(location: Path, how: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "how", ["no receipt", "bad json", "wrong version", "wrong schema", "missing key", "no yosys"]
+    "how",
+    [
+        "no receipt",
+        "bad json",
+        "wrong version",
+        "wrong schema",
+        "boolean schema",
+        "missing key",
+        "no yosys",
+    ],
 )
 def test_only_a_complete_installation_counts(github, root, how):
     github.add(PIN)
@@ -660,8 +672,10 @@ def test_tools_documents_and_exit_statuses(github, root, tmp_path):
     # An empty store lists the pin, as not installed.
     result = run_tools("list", *root_arg, "--json")
     assert result.exit_code == 0, result.output
-    rows = json.loads(result.stdout)
-    _validate(rows, "tools-list")
+    listing = json.loads(result.stdout)
+    _validate(listing, "tools-list")
+    assert listing["schema_version"] == 1
+    rows = listing["tools"]
     assert [(r["version"], r["installed"], r["selected"], r["receipt"]) for r in rows] == [
         (PIN, False, False, None)
     ]
@@ -685,8 +699,9 @@ def test_tools_documents_and_exit_statuses(github, root, tmp_path):
     assert result.exit_code == 0 and json.loads(result.stdout)["already_installed"] is True
     assert github.calls == []
     # `list` and `path` agree with the install.
-    rows = json.loads(run_tools("list", *root_arg, "--json").stdout)
-    _validate(rows, "tools-list")
+    listing = json.loads(run_tools("list", *root_arg, "--json").stdout)
+    _validate(listing, "tools-list")
+    rows = listing["tools"]
     assert [(r["version"], r["installed"], r["selected"]) for r in rows] == [(PIN, True, True)]
     result = run_tools("path", "oss-cad-suite", *root_arg, "--json")
     path_document = json.loads(result.stdout)
@@ -694,6 +709,7 @@ def test_tools_documents_and_exit_statuses(github, root, tmp_path):
     assert path_document == {
         k: v for k, v in document.items() if k not in ("success", "already_installed")
     }
+    assert path_document["schema_version"] == 1
     assert run_tools("path", "oss-cad-suite", *root_arg).stdout.strip() == document["directory"]
     # An exact date that is not installed fails with a document.
     result = run_tools("path", "oss-cad-suite", *root_arg, "--version", OLD, "--json")
@@ -816,7 +832,9 @@ def test_the_private_tools_setting_changes_what_path_and_list_show(github, root,
         config.write_text(yaml.safe_dump({"tools": tools} if tools else {}))
         arguments = ["--root", str(root), "--config", str(config), "--json"]
         selected = [
-            r["version"] for r in json.loads(run_tools("list", *arguments).stdout) if r["selected"]
+            r["version"]
+            for r in json.loads(run_tools("list", *arguments).stdout)["tools"]
+            if r["selected"]
         ]
         path = run_tools("path", "oss-cad-suite", *arguments)
         return selected, path

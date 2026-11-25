@@ -585,7 +585,12 @@ def _interrupted(
 
 @contextmanager
 def _interrupt_handler(agent: _Agent) -> Iterator[None]:
-    if threading.current_thread() is not threading.main_thread():
+    if (
+        threading.current_thread() is not threading.main_thread()
+        or signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+    ):
+        # A SIGINT that the caller ignores (`nohup`, a worker) stays ignored, as the stop signals
+        # of a tool run do (`proc_utils._Deadline`).
         yield
         return
 

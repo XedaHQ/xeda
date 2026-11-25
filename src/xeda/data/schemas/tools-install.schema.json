@@ -25,7 +25,8 @@
           "type": "string"
         },
         "schema_version": {
-          "const": 1
+          "const": 1,
+          "type": "integer"
         },
         "sha256": {
           "type": "string"
@@ -55,6 +56,10 @@
     "root": {
       "type": "string"
     },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
     "success": {
       "const": true
     },
@@ -72,6 +77,7 @@
     "platform",
     "receipt",
     "root",
+    "schema_version",
     "success",
     "tool",
     "version"

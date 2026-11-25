@@ -23,13 +23,64 @@
       "type": "string"
     },
     "receipt": {
+      "properties": {
+        "commands": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "directory": {
+          "type": "string"
+        },
+        "installed_at": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        },
+        "xeda_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "commands",
+        "directory",
+        "installed_at",
+        "platform",
+        "provider",
+        "root",
+        "schema_version",
+        "version",
+        "xeda_version"
+      ],
       "type": [
-        "string",
+        "object",
         "null"
       ]
     },
     "root": {
       "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
     },
     "success": {
       "const": true
@@ -46,6 +97,7 @@
     "provider",
     "receipt",
     "root",
+    "schema_version",
     "success",
     "version"
   ],

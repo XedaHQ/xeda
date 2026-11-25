@@ -2388,7 +2388,7 @@
               "name": "defines"
             },
             {
-              "annotation": "tuple[str, ...] | tuple[str] | tuple[str, str]",
+              "annotation": "tuple[str, ...]",
               "default": "()",
               "name": "top"
             },
@@ -2432,7 +2432,7 @@
                 "name": "defines"
               },
               {
-                "annotation": "tuple[str, ...] | tuple[str] | tuple[str, str]",
+                "annotation": "tuple[str, ...]",
                 "default": "()",
                 "kind": "keyword_only",
                 "name": "top"

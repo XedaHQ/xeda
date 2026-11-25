@@ -678,9 +678,8 @@ class FileResource:
 class SourceType(str, Enum):
     """The type of a design source file.
 
-    Each value is the member name, so serialized settings and results describe themselves. The
-    declaration order matters (see `from_str`): new members are appended after the last one and
-    are never inserted or reordered.
+    Each value is the member name, so serialized settings and results describe themselves. New
+    members are appended after the last one and are never inserted or reordered.
     """
 
     Verilog = "Verilog"
@@ -696,8 +695,6 @@ class SourceType(str, Enum):
     Chisel = "Chisel"
     Cpp = "Cpp"
     Cocotb = "Cocotb"
-    # The ordinals 1 to 13 above are frozen, because old `settings.json` files record them. Every
-    # later member is appended.
     Lpf = "Lpf"
     Pcf = "Pcf"
     Pdc = "Pdc"
@@ -766,28 +763,6 @@ class SourceType(str, Enum):
 
     def __str__(self) -> str:
         return str(self.name)
-
-    @classmethod
-    def from_str(cls, source_type: str) -> Optional[SourceType]:
-        try:
-            return cls[source_type]
-        except KeyError:
-            pass
-        try:
-            return cls[source_type.capitalize()]
-        except KeyError:
-            pass
-        for k, v in cls.__members__.items():
-            if k.lower() == source_type.lower():
-                return v
-        # A `settings.json` file can record a 1-based ordinal ("5" for Vhdl) in place of a name.
-        # The declaration order above must not change while these files are supported.
-        if source_type.isdigit():
-            members = list(cls.__members__.values())
-            idx = int(source_type)
-            if 1 <= idx <= len(members):
-                return members[idx - 1]
-        return None
 
 
 #: The type that each suffix infers. The suffix is written without its dot and in its own letter
@@ -909,20 +884,25 @@ LANGUAGE_TYPES: frozenset[SourceType] = frozenset(
 
 
 def source_type_named(text: str) -> SourceType:
-    """Return the member that `text` names, as `SourceType.from_str` reads it.
+    """Return the member whose name is `text`.
 
-    `text` is a member name in any letter case, or the ordinal of an old `settings.json`. Raise a
-    `ValueError` that names the closest members when there is no such member."""
-    member = SourceType.from_str(text)
-    if member is not None:
-        return member
+    Design input names a type by the exact member name (`Vhdl`, never `vhdl` or an ordinal). Raise
+    a `ValueError` that gives the right spelling when `text` differs only in letter case, and the
+    closest members otherwise."""
+    try:
+        return SourceType[text]
+    except KeyError:
+        pass
     names = [m.name for m in SourceType]
     by_lower = {name.lower(): name for name in names}
-    close = [
-        by_lower[match]
-        for match in difflib.get_close_matches(text.lower(), list(by_lower), n=3, cutoff=0.6)
-    ]
-    hint = f"; did you mean {' or '.join(f'`{name}`' for name in close)}?" if close else ""
+    if text.lower() in by_lower:
+        hint = f"; write `{by_lower[text.lower()]}`"
+    else:
+        close = [
+            by_lower[match]
+            for match in difflib.get_close_matches(text.lower(), list(by_lower), n=3, cutoff=0.6)
+        ]
+        hint = f"; did you mean {' or '.join(f'`{name}`' for name in close)}?" if close else ""
     raise ValueError(f"unknown source type {text!r}{hint} (the types: {', '.join(names)})")
 
 
@@ -1261,9 +1241,9 @@ class Source(FileResource):
 
 DefineType = Any
 
-# A tuple of 0, 1 or 2 strings.
-Tuple012 = Union[Tuple[str, ...], Tuple[str], Tuple[str, str]]  # xtype: ignore
-
+# A tuple of 0, 1 or 2 strings. The type says only "strings": the field that holds it limits the
+# length (`max_length=2`), so that the schema and the loader agree.
+Tuple012 = Tuple[str, ...]
 
 _PARAMETERS_FORM_ERROR = (
     "parameters must be a dictionary or a list of objects with 'name' and 'value' attributes"
@@ -2760,6 +2740,7 @@ class Testbench(DesignPart):
     sources: Tuple[Source, ...] = Field((), description=SOURCES_DESCRIPTION)
     top: Tuple012 = Field(
         tuple(),
+        max_length=2,
         description="The testbench top modules: the primary top module and, optionally, a "
         "secondary one. Give one string, or a list of at most two.",
     )
@@ -3455,6 +3436,24 @@ class Design(XedaBaseModel):
         (), exclude=True, json_schema_extra={"hidden_from_schema": True}
     )
 
+    #: The fields that planning sets (`model_copy(update=...)`) and that no input gives.
+    _INTERNAL_FIELDS: ClassVar[tuple[str, ...]] = ("generation_units", "resolved_dependencies")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _internal_fields_are_refused(cls, values: Any, info: Any) -> Any:
+        """Refuse the keys of the fields that only planning sets, as any unknown key is refused."""
+        if not isinstance(values, Mapping) or (info.field_name is not None and info.data is None):
+            return values
+        problems = [
+            InitErrorDetails(type="extra_forbidden", loc=(name,), input=values[name])
+            for name in cls._INTERNAL_FIELDS
+            if name in values
+        ]
+        if problems:
+            raise ValidationError.from_exception_data(cls.__name__, problems)
+        return values
+
     @field_validator("resolved_dependencies")
     @classmethod
     def _resolved_are_records(cls, value):
@@ -3613,8 +3612,8 @@ class Design(XedaBaseModel):
         `target` the result is the design itself, with no overlay, and `target` stays unset.
 
         A target is an overlay: it takes the keys of the design file itself (all but
-        `TARGET_FORBIDDEN_KEYS`), checked as the design's own are and
-        merged over them. Mappings merge key by key at every depth; `rtl.sources` and
+        `TARGET_FORBIDDEN_KEYS` and the fields that only planning sets), checked as the design's
+        own are and merged over them. Mappings merge key by key at every depth; `rtl.sources` and
         `tb.sources` are appended after the design's; any other list replaces the design's.
 
         Targets are optional: with no `target` given, no target is selected, whatever the number
@@ -3754,7 +3753,7 @@ class Design(XedaBaseModel):
             overlay = expand_hierarchy(dict(overlay))
         except ConflictingKeys as e:
             raise invalid(None, str(e)) from e
-        known = {*input_names(cls)} - TARGET_FORBIDDEN_KEYS
+        known = {*input_names(cls)} - TARGET_FORBIDDEN_KEYS - set(cls._INTERNAL_FIELDS)
         for path, message, kind in removed_inputs_in(cls, overlay):
             raise invalid(".".join(path), message, kind)
         for key in overlay:

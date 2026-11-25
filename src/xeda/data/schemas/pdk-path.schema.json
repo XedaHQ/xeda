@@ -28,8 +28,65 @@
     "provider": {
       "type": "string"
     },
+    "receipt": {
+      "properties": {
+        "commands": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "directory": {
+          "type": "string"
+        },
+        "installed_at": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        },
+        "xeda_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "commands",
+        "directory",
+        "installed_at",
+        "platform",
+        "provider",
+        "root",
+        "schema_version",
+        "version",
+        "xeda_version"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
+    },
     "root": {
       "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
     },
     "upstream_files": {
       "items": {
@@ -48,7 +105,9 @@
     "library",
     "platform",
     "provider",
+    "receipt",
     "root",
+    "schema_version",
     "upstream_files",
     "version"
   ],

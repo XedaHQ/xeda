@@ -224,9 +224,10 @@ def cancel_launch(
         raise RemoteProtocolError(f"The agent on {host} sent a bad `stopped` record.")
     survivors = int(stopped.get("survivors") or 0)
     return {
+        "schema_version": 1,
         "success": survivors == 0,
         "host": host,
-        "launch": stopped.get("id"),
+        "launch_id": stopped.get("id"),
         "survivors": survivors,
     }
 

@@ -1868,3 +1868,39 @@ def test_a_quantity_in_the_settings_of_a_spec_is_written_as_quantity_text(tmp_pa
     assert json.loads(json.dumps(run.settings)) == {
         "ghdl_sim": {"timeout": "2 min", "vcd": "w.vcd"}
     }
+
+
+def test_a_remote_launch_keeps_an_ignored_sigint_ignored_and_restores_a_handler() -> None:
+    import signal
+    import threading
+
+    from xeda._internal.remote.client import _interrupt_handler
+
+    if threading.current_thread() is not threading.main_thread():
+        pytest.skip("signal handlers can only be set on the main thread")
+
+    class Agent:
+        interrupted = 0
+
+        def interrupt(self) -> None:
+            self.interrupted += 1
+
+    before = signal.getsignal(signal.SIGINT)
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        with _interrupt_handler(Agent()):  # type: ignore[arg-type]
+            assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+        assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+        agent = Agent()
+        with _interrupt_handler(agent):  # type: ignore[arg-type]
+            assert signal.getsignal(signal.SIGINT) not in (
+                signal.SIG_IGN,
+                signal.default_int_handler,
+            )
+            signal.raise_signal(signal.SIGINT)
+        assert agent.interrupted == 1
+        assert signal.getsignal(signal.SIGINT) == signal.default_int_handler
+    finally:
+        signal.signal(signal.SIGINT, before)

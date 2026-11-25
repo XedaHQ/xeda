@@ -896,9 +896,10 @@ def test_cancel_stops_the_launch_and_its_descendants(tmp_path, remote_host, monk
     )
 
     assert document == {
+        "schema_version": 1,
         "success": True,
         "host": "somewhere",
-        "launch": directory.name,
+        "launch_id": directory.name,
         "survivors": 0,
     }
     _validate(document, "remote-cancel")

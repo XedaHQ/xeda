@@ -104,7 +104,22 @@ def install_sky130(root: Path) -> None:
     assert entry is not None
     receipt = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
     receipt.parent.mkdir(parents=True, exist_ok=True)
-    receipt.write_text("{}\n")
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "platform": "sky130hd",
+                "provider": "ciel",
+                "version": entry.version,
+                "root": str(root),
+                "directory": str(directory),
+                "commands": [],
+                "installed_at": "2026-11-01T00:00:00+00:00",
+                "xeda_version": "1.0.0",
+            }
+        )
+        + "\n"
+    )
 
 
 def nangate_directory(root: Path, commit: Optional[str] = None) -> Path:
@@ -202,7 +217,7 @@ def test_list_platforms_table_gives_no_install_hint_when_everything_is_installed
 def listed(home: Path, *args: str) -> dict[tuple[str, str], dict[str, Any]]:
     proc = run_xeda("pdk", "list", "--json", *args, home=home)
     assert proc.returncode == 0, proc.stderr
-    return {(row["platform"], row["provider"]): row for row in document(proc)}
+    return {(row["platform"], row["provider"]): row for row in document(proc)["platforms"]}
 
 
 def test_pdk_list_gives_every_provider_of_a_platform_with_its_pin(home, store):
@@ -849,7 +864,8 @@ def test_an_orfs_install_writes_a_receipt(tmp_path, upstream):
     assert receipt["root"] == str(root)
     assert receipt["directory"] == str(result.located.directory)
     assert receipt["xeda_version"] == __version__
-    assert receipt["time"].endswith("+00:00")
+    assert receipt["schema_version"] == 1
+    assert receipt["installed_at"].endswith("+00:00")
     commands = receipt["commands"]
     work = commands[0][-1]
     assert Path(work).name.startswith(".partial-")
@@ -1253,9 +1269,11 @@ def test_json_installs_without_a_question_and_gives_one_document(
     assert answer["version"] == upstream.commit
     assert answer["directory"] == str(directory)
     assert answer["already_installed"] is False
-    receipt = Path(answer["receipt"])
-    assert receipt == root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
-    assert json.loads(receipt.read_text())["directory"] == str(directory)
+    written = root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
+    assert answer["receipt"] == json.loads(written.read_text())
+    assert answer["receipt"]["directory"] == str(directory)
+    _validate(answer, "pdk-install")
+    _validate(answer["receipt"], "pdk-receipt")
 
 
 def test_json_reports_an_installed_pin_without_running_anything(monkeypatch, home, store):
@@ -2008,17 +2026,18 @@ def test_a_file_check_that_fails_in_the_store_is_an_install_failure(
 
 
 def test_pdk_list_validates_with_and_without_the_optional_keys(home, store, tmp_path):
-    rows = document(run_xeda("pdk", "list", "--root", str(store), "--json", home=home))
-    _validate(rows, "pdk-list")
+    listing = document(run_xeda("pdk", "list", "--root", str(store), "--json", home=home))
+    _validate(listing, "pdk-list")
+    rows = listing["platforms"]
     assert any(row["installed"] for row in rows)  # a store that holds the pin
     assert any("other_versions" in row for row in rows)  # a Git provider
     assert any("other_versions" not in row for row in rows)  # another provider
 
     empty = tmp_path / "empty"
     empty.mkdir()
-    rows = document(run_xeda("pdk", "list", "--root", str(empty), "--json", home=home))
-    _validate(rows, "pdk-list")
-    assert not any(row["installed"] for row in rows)
+    listing = document(run_xeda("pdk", "list", "--root", str(empty), "--json", home=home))
+    _validate(listing, "pdk-list")
+    assert not any(row["installed"] for row in listing["platforms"])
 
 
 def test_pdk_list_validates_with_a_problem_and_other_versions(home, tmp_path):
@@ -2026,10 +2045,10 @@ def test_pdk_list_validates_with_a_problem_and_other_versions(home, tmp_path):
     install_sky130(root)
     (sky130_directory(root) / "SOURCES").write_text(f"open_pdks {OTHER_COMMIT}\n")
     touch_all(nangate_directory(root, OTHER_COMMIT), load_residue("nangate45"))
-    rows = document(run_xeda("pdk", "list", "--root", str(root), "--json", home=home))
-    _validate(rows, "pdk-list")
-    assert any("problem" in row for row in rows)
-    assert any(row.get("other_versions") for row in rows)
+    listing = document(run_xeda("pdk", "list", "--root", str(root), "--json", home=home))
+    _validate(listing, "pdk-list")
+    assert any("problem" in row for row in listing["platforms"])
+    assert any(row.get("other_versions") for row in listing["platforms"])
 
 
 def test_pdk_path_validates_with_and_without_a_library(home, store, tmp_path):
@@ -2044,12 +2063,77 @@ def test_pdk_path_validates_with_and_without_a_library(home, store, tmp_path):
     _validate(document(proc), "pdk-path")
 
 
+def test_pdk_path_gives_the_receipt_object_or_null(home, store, tmp_path):
+    """The receipt is the object that the install wrote, as `pdk install` gives it, else null."""
+    none = document(run_xeda("pdk", "path", "nangate45", "--root", str(store), "--json", home=home))
+    assert none["schema_version"] == 1 and none["receipt"] is None
+    root = tmp_path / "ciel"
+    install_sky130(root)
+    answer = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    entry = load_residue("sky130hd").providers.ciel
+    assert entry is not None
+    written = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
+    assert answer["receipt"] == json.loads(written.read_text())
+    _validate(answer["receipt"], "pdk-receipt")
+    # A receipt that is no object is no receipt.
+    written.write_text("[1]\n")
+    again = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert again["receipt"] is None
+
+
+@pytest.mark.parametrize("version", [True, 2, 1.0, "1"])
+def test_a_receipt_of_another_schema_version_is_no_receipt(home, tmp_path, version):
+    """Only the integer 1 is the version of a receipt: `true` equals 1 in Python and is no
+    version, and a later version is unknown."""
+    root = tmp_path / "ciel"
+    install_sky130(root)
+    entry = load_residue("sky130hd").providers.ciel
+    assert entry is not None
+    written = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
+    written.write_text(json.dumps({**json.loads(written.read_text()), "schema_version": version}))
+    answer = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert answer["receipt"] is None
+    _validate(answer, "pdk-path")
+
+
+def test_a_receipt_of_an_earlier_xeda_reads_in_the_current_shape(home, tmp_path):
+    """An earlier receipt has no `schema_version` and calls `installed_at` `time`. Both commands
+    show it in the current shape, and the file on disk stays as it was."""
+    root = tmp_path / "ciel"
+    install_sky130(root)
+    entry = load_residue("sky130hd").providers.ciel
+    assert entry is not None
+    written = root / "xeda" / "receipts" / f"sky130hd-{entry.version}.json"
+    current = json.loads(written.read_text())
+    earlier = {key: value for key, value in current.items() if key != "schema_version"}
+    earlier["time"] = earlier.pop("installed_at")
+    written.write_text(json.dumps(earlier))
+    before = written.read_bytes()
+    path = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert path["receipt"] == current
+    _validate(path, "pdk-path")
+    _validate(path["receipt"], "pdk-receipt")
+    proc = run_xeda("pdk", "install", "sky130hd", "--root", str(root), "--json", home=home)
+    assert proc.returncode == 0, proc.stderr
+    result = document(proc)
+    assert result["already_installed"] is True
+    assert result["receipt"] == current
+    _validate(result, "pdk-install")
+    assert written.read_bytes() == before
+    # A receipt of neither shape is no receipt, but the install still counts as installed.
+    written.write_text(json.dumps({"time": "now"}))
+    none = document(run_xeda("pdk", "path", "sky130hd", "--root", str(root), "--json", home=home))
+    assert none["receipt"] is None
+    _validate(none, "pdk-path")
+
+
 def test_pdk_install_of_an_installed_store_validates(home, store):
     proc = run_xeda("pdk", "install", "nangate45", "--root", str(store), "--json", home=home)
     assert proc.returncode == 0, proc.stderr
     result = document(proc)
     _validate(result, "pdk-install")
     assert result["already_installed"] is True
+    assert result["receipt"] is None
 
 
 @pytest.mark.parametrize(

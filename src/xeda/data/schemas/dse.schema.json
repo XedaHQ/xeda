@@ -447,6 +447,7 @@
           "type": "string"
         },
         "schema_version": {
+          "const": 1,
           "type": "integer"
         },
         "settings": {
@@ -654,6 +655,7 @@
       "type": "array"
     },
     "schema_version": {
+      "const": 1,
       "type": "integer"
     },
     "target": {

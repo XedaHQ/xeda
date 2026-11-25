@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 from xeda.errors import SettingsError, SpecError
+from .schema_version import is_version
 
 __all__ = [
     "DATE",
@@ -204,7 +205,7 @@ def _receipt_problem(receipt: Any, version: str, platform: str) -> str | None:
     missing = [key for key in RECEIPT_KEYS if key not in receipt]
     if missing:
         return f"it lacks {', '.join(missing)}"
-    if receipt["schema_version"] != SCHEMA_VERSION:
+    if not is_version(receipt["schema_version"], SCHEMA_VERSION):
         return f"its schema_version is {receipt['schema_version']!r}, not {SCHEMA_VERSION}"
     for key, expected in (("tool", TOOL), ("version", version), ("platform", platform)):
         if receipt[key] != expected:

@@ -156,7 +156,7 @@ def pdk_list(root: Optional[Path], output_format: str, json_flag: bool) -> None:
     store = _store_root(root)
     rows = store_rows(store)
     if fmt != "table":
-        emit_structured(rows, fmt)
+        emit_structured({"schema_version": 1, "platforms": rows} if fmt == "json" else rows, fmt)
         return
     table = info_table(
         f"PDK store {store}",
@@ -284,7 +284,7 @@ def pdk_path(
     from .cli_utils import emit_structured, resolve_format
     from .introspect import json_safe
     from .platforms import PdkNotInstalled, locate
-    from .platforms.providers import PdkVersionMismatch, verify_pin
+    from .platforms.providers import PdkVersionMismatch, read_receipt, verify_pin
 
     fmt = resolve_format(output_format, json_flag)
     residue = resolve_platform(platform, platform_file, provider)
@@ -300,7 +300,13 @@ def pdk_path(
     if fmt == "table":
         click.echo(str(located.directory))
     else:
-        emit_structured(json_safe({"platform": residue.name, **asdict(located)}), fmt)
+        document = {
+            "schema_version": 1,
+            "platform": residue.name,
+            **asdict(located),
+            "receipt": read_receipt(located.root, residue.name, located.version),
+        }
+        emit_structured(json_safe(document), fmt)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -376,6 +382,7 @@ def pdk_install(
         PdkInstallFailed,
         install,
         plan_install,
+        read_receipt,
         store_holds,
     )
 
@@ -407,6 +414,7 @@ def pdk_install(
         return
     emit_structured(
         {
+            "schema_version": 1,
             "success": True,
             "platform": residue.name,
             "provider": located.provider,
@@ -414,7 +422,7 @@ def pdk_install(
             "root": str(located.root),
             "directory": str(located.directory),
             "already_installed": result.already_installed,
-            "receipt": None if result.receipt is None else str(result.receipt),
+            "receipt": read_receipt(located.root, residue.name, located.version),
             "commands": result.commands,
         },
         fmt,

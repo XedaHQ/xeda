@@ -523,7 +523,13 @@ def test_an_agent_that_misses_its_deadline_is_a_timeout(remote_host, monkeypatch
 
 
 def test_a_cancel_that_stopped_the_launch_exits_with_status_0(remote_host, monkeypatch):
-    stopped = {"success": True, "host": "somewhere", "launch": "abc123", "survivors": 0}
+    stopped = {
+        "schema_version": 1,
+        "success": True,
+        "host": "somewhere",
+        "launch_id": "abc123",
+        "survivors": 0,
+    }
     monkeypatch.setattr("xeda._internal.remote.attach.cancel_launch", lambda *a, **k: stopped)
 
     result = _invoke("cancel", "somewhere", "--json")
@@ -535,14 +541,21 @@ def test_a_cancel_that_stopped_the_launch_exits_with_status_0(remote_host, monke
 
 
 def test_a_cancel_with_survivors_is_a_failure_envelope(remote_host, monkeypatch):
-    survived = {"success": False, "host": "somewhere", "launch": "abc123", "survivors": 2}
+    survived = {
+        "schema_version": 1,
+        "success": False,
+        "host": "somewhere",
+        "launch_id": "abc123",
+        "survivors": 2,
+    }
     monkeypatch.setattr("xeda._internal.remote.attach.cancel_launch", lambda *a, **k: survived)
 
     result = _invoke("cancel", "somewhere", "--json")
 
     document = _document(result)
     assert result.exit_code == 1
-    assert set(document) == {"success", "error"} and document["success"] is False
+    assert set(document) == {"schema_version", "success", "error"}
+    assert document["success"] is False
     _validate(document, "failure")
     assert document["error"]["code"] == "remote_failed"
     for part in ("somewhere", "abc123", "2"):

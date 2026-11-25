@@ -130,10 +130,39 @@ VALIDATED_ELSEWHERE = {
     "tools-path",
     "tools-install",
     "tool-receipt",
+    "pdk-receipt",
     "remote-check",
     "remote-clean",
     "remote-cancel",
 }
+
+
+@pytest.mark.parametrize("name", sorted(_schemas()))
+def test_every_document_has_a_schema_version(name: str) -> None:
+    schema = _schemas()[name]
+    if name == "design":  # the schema of a design file carries the version itself
+        assert type(schema["schema_version"]) is int and schema["schema_version"] == 1
+        return
+    assert "schema_version" in schema["properties"]
+    assert "schema_version" in schema["required"]
+
+
+@pytest.mark.parametrize("name", sorted(set(_schemas()) - {"design"}))
+def test_every_schema_states_its_schema_version_as_an_integer_constant(name: str) -> None:
+    """One way to state the version: `{"type": "integer", "const": <integer>}`, so a document of
+    another version and a Boolean do not validate."""
+    states = _schemas()[name]["properties"]["schema_version"]
+    assert set(states) == {"type", "const"} and states["type"] == "integer"
+    assert type(states["const"]) is int
+    validator = jsonschema.Draft202012Validator(_schemas()[name])
+
+    def refused(value: Any) -> bool:
+        errors = validator.iter_errors({"schema_version": value})
+        return any(list(error.path) == ["schema_version"] for error in errors)
+
+    assert not refused(states["const"])
+    for other in (True, False, states["const"] + 1, "1", None):
+        assert refused(other), other
 
 
 def test_every_document_has_a_producer() -> None:

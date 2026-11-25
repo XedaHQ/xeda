@@ -1235,6 +1235,16 @@ def _accept_single_items(schema: Dict[str, Any]) -> None:
                 properties[name] = _widen(spec, [spec["items"]])
 
 
+def _drop_excluded_fields(schema: Dict[str, Any]) -> None:
+    """Remove the fields that a design never gives and never dumps (`exclude=True`: the units of
+    generation and the resolved dependencies, which planning sets) from the schema of `Design`. Such a
+    field has a default, so it is never `required`."""
+    properties = schema.get("properties", {})
+    for name, field in Design.model_fields.items():
+        if field.exclude:
+            properties.pop(name, None)
+
+
 def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
     """Return the JSON Schema of a Xeda design file (YAML, TOML or JSON).
 
@@ -1257,6 +1267,7 @@ def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
     schema["$schema"] = JSON_SCHEMA_DIALECT
     # Every document has an integer `schema_version`. A JSON Schema validator ignores the keyword.
     schema["schema_version"] = 1
+    _drop_excluded_fields(schema)
     if not input_syntax:
         return schema
     _accept_clock_forms(schema)

@@ -16,6 +16,10 @@ Query commands print a document. They take ``--format {table,json,jsonl,yaml}``,
 ``table``. ``design-schema`` takes ``--format {json,yaml}`` and defaults to ``json``. ``--json`` is
 shorthand for ``--format json``:
 
+Only the JSON output is the versioned document, with its ``schema_version``. The ``jsonl`` and
+``yaml`` outputs are views of the same data. A view can leave out ``schema_version`` and the
+object that wraps a list, and it has no promise of stability: parse the JSON output.
+
 .. code-block:: bash
 
     xeda list-flows --json
@@ -28,8 +32,11 @@ shorthand for ``--format json``:
     xeda tools list --json
     xeda list-optimizers --json
 
+``xeda pdk list --json`` prints an object with ``schema_version`` and a ``platforms`` list, one entry
+for each provider of each platform.
+
 ``xeda pdk path <platform>`` prints the directory of a platform in the PDK store. With ``--json``, it
-gives the files of each role too. If the PDK files are not installed, it fails and the error says
+gives the files of each role too, and the ``receipt`` of the install (see below). If the PDK files are not installed, it fails and the error says
 how to install them. ``pdk list`` and ``pdk path`` only look at the files: they start no process
 and use no network.
 
@@ -37,9 +44,12 @@ and use no network.
 ``pdk`` command that uses the network and writes the PDK store. Every machine-readable format
 (``--json``, ``--format json``, ``--format jsonl`` and ``--format yaml``) installs without asking,
 as ``--yes`` does, because a program cannot answer a question. Tool output goes to stderr, and
-stdout carries one document: ``{"success": true, "directory": ..., "receipt": ...,
-"already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails (the ``error`` is the one of
-:ref:`failure-envelope`). A failed
+stdout carries one document: ``{"schema_version": 1, "success": true, "directory": ..., "receipt":
+..., "already_installed": ...}``, or ``{"schema_version": 1, "success": false, "error": ...}`` if the
+install fails (the ``error`` is the one of :ref:`failure-envelope`). In ``pdk path`` and ``pdk
+install``, ``receipt`` is the receipt of the install in the store, as an object, or ``null`` if the
+store has none. The receipt has ``schema_version``, ``platform``, ``provider``, ``version``, ``root``,
+``directory``, ``commands``, ``installed_at`` and ``xeda_version``. A failed
 ``orfs`` or ``lambdapdk`` install leaves the store as it was, and it keeps no ``.git`` in it:
 several platforms can share the directory of one commit. A failed ``ciel`` install may leave files
 of ``ciel`` in the store, so a ``ciel`` store counts as installed for this command only when its
@@ -47,11 +57,12 @@ receipt exists. The install refuses a symbolic link inside the store, in ``<root
 with ``"success": false`` before it writes. The root itself may be a link. The install writes only
 real directories inside the store, so that it never writes or deletes outside it.
 
-``xeda tools list`` lists the builds of the OSS CAD Suite in the tool store for this machine, and the
-build that Xeda pins when the store lacks it. Each row has ``tool``, ``version`` (the date of the
+``xeda tools list --json`` prints an object with ``schema_version`` and a ``tools`` list. It lists the
+builds of the OSS CAD Suite in the tool store for this machine, and the build that Xeda pins when
+the store lacks it. Each entry has ``tool``, ``version`` (the date of the
 build), ``platform``, ``installed``, ``selected`` (the build that a run would use), ``directory``,
-``bin`` and ``receipt`` (the receipt of the installation, or ``null`` for a build that is not
-installed). ``xeda tools path oss-cad-suite`` prints the directory of the suite that a run would use,
+``bin`` and ``receipt`` (the receipt of the installation as an object, or ``null`` for a build
+that is not installed). ``xeda tools path oss-cad-suite`` prints the directory of the suite that a run would use,
 or of the build that ``--version DATE`` names. With ``--json`` it gives ``tool``, ``version``,
 ``platform``, ``root``, ``directory``, ``bin`` and ``receipt``. Both commands read the private
 settings (``tools`` and ``env``, see :ref:`private-files`) and the store only: they start no process
@@ -713,6 +724,8 @@ guessing its shape:
      - ``xeda/data/schemas/tools-install.schema.json``
    * - ``receipt.json`` of an installation in the tool store
      - ``xeda/data/schemas/tool-receipt.schema.json``
+   * - the receipt of an install in the PDK store
+     - ``xeda/data/schemas/pdk-receipt.schema.json``
    * - ``xeda remote check <host> --json``
      - ``xeda/data/schemas/remote-check.schema.json``
    * - ``xeda remote clean <host> --json``
@@ -1358,7 +1371,8 @@ A failed ``list-*``, ``design-schema``, ``skill``, ``pdk``, ``tools`` or ``xeda 
 ``remote attach`` after it found a launch) prints one document on stdout with ``--json`` (or another
 machine-readable format)::
 
-    {"success": false,
+    {"schema_version": 1,
+     "success": false,
      "error": {"code": "pdk_not_installed", "message": "...", "node": null,
                "exit_status": null, "log": null}}
 
@@ -1398,8 +1412,10 @@ input files that the dry run uploaded to the host.
 commands of ``xeda remote`` print one document each. A failure has the form of :ref:`failure-envelope`
 and exit status 1. ``remote attach`` keeps the run document once it has found a launch.
 
+Each of them has ``schema_version`` and ``success`` too.
+
 ``check``
-    ``success``, ``host``, ``platform`` (``system``, ``machine``, ``libc``, ``libc_version``),
+    ``host``, ``platform`` (``system``, ``machine``, ``libc``, ``libc_version``),
     ``xeda`` (the version), ``python`` (``version``, ``implementation``, ``executable``),
     ``environment`` (``key``, ``code``, ``prefix``, ``lock_file``, ``lock``), ``disk`` (``path``,
     ``free`` and ``total`` in bytes), ``kill_user_processes`` (``yes``, ``no`` or ``unknown``),
@@ -1407,12 +1423,12 @@ and exit status 1. ``remote attach`` keeps the run document once it has found a 
     (``found`` and ``path``) and ``warnings``.
 
 ``clean``
-    ``success``, ``host``, ``removed`` and ``kept``. Each entry has ``kind`` (``env``, ``code`` or
+    ``host``, ``removed`` and ``kept``. Each entry has ``kind`` (``env``, ``code`` or
     ``workspace``) and ``path``, and an entry of ``kept`` has a ``reason``. ``--json`` removes
     without asking.
 
 ``cancel``
-    ``success``, ``host``, ``launch`` and ``survivors``, the number of processes that SIGKILL did
+    ``host``, ``launch_id`` and ``survivors``, the number of processes that SIGKILL did
     not stop. When ``survivors`` is not zero, the document is a failure with the code
     ``remote_failed``, and its message names the host, the launch and the number of survivors.
 

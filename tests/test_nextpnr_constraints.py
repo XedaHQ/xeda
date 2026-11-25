@@ -74,7 +74,7 @@ def test_ordered_pin_sources_and_sdc_setting_reach_tool_once(
     flow, calls = make_flow(
         tmp_path,
         monkeypatch,
-        sources=[a.name, {"file": b.name, "type": kind}, timing.name],
+        sources=[a.name, {"file": b.name, "type": kind.capitalize()}, timing.name],
         settings={"fpga": {"part": part}, "sdc": extra.name},
     )
     flow.prepare_inputs()

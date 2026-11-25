@@ -1063,6 +1063,25 @@ def test_an_unknown_disposition_is_a_corrupt_document():
     assert caught.value.code == "corrupt_record"
 
 
+@pytest.mark.parametrize("version", [True, 2, 1.0, "1", None])
+def test_a_run_document_of_another_schema_version_is_refused(version):
+    document = _fixture("run-1.0.json")
+    document["schema_version"] = version
+    with pytest.raises(ValueError, match="schema version"):
+        result_from_dict(document)
+
+
+@pytest.mark.parametrize("version", [True, 2, 1.0, "1", None])
+def test_a_plan_document_of_another_schema_version_is_refused(tmp_path, version):
+    from xeda._internal.plan import plan_from_dict
+
+    _design, plan = _plan_with_a_local_dependency(tmp_path)
+    document = plan.to_dict()
+    document["schema_version"] = version
+    with pytest.raises(ValueError, match="plan document"):
+        plan_from_dict(document, spec=plan.spec, workspace=None)
+
+
 def test_an_unknown_outcome_in_a_run_document_is_a_corrupt_document():
     document = _fixture("run-1.0.json")
     document["nodes"][0]["outcome"] = "an_outcome_of_the_future"

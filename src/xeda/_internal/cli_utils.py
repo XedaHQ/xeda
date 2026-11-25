@@ -573,13 +573,13 @@ def resolve_format(output_format: str, json_flag: bool) -> str:
 
 
 def failure_document(code: str, message: str) -> dict[str, Any]:
-    """Return the document of a failed command that has no result of its own: `success` false and
-    an `error` with the five keys of the error of a run (`node`, `exit_status` and `log` are null).
-    """
+    """Return the document of a failed command that has no result of its own: `schema_version`,
+    `success` false and an `error` with the five keys of the error of a run (`node`,
+    `exit_status` and `log` are null)."""
     from .records import ErrorInfo
 
     error = ErrorInfo(code=code, message=message, node=None, exit_status=None, log=None)
-    return {"success": False, "error": error.to_dict()}
+    return {"schema_version": 1, "success": False, "error": error.to_dict()}
 
 
 def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None) -> None:

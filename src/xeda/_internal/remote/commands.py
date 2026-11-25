@@ -240,6 +240,7 @@ def describe_host(
     if report.get("bash") is None:
         warnings.append("The host has no bash, so xeda cannot look for the executables.")
     return {
+        "schema_version": 1,
         "success": True,
         "host": host,
         "platform": {
@@ -375,12 +376,24 @@ def _clean_host(
     if not removable:
         if not json_flag:
             click.echo(f"Nothing to remove on {host}.")
-        return {"success": True, "host": host, "removed": [], "kept": listing.get("kept") or []}
+        return {
+            "schema_version": 1,
+            "success": True,
+            "host": host,
+            "removed": [],
+            "kept": listing.get("kept") or [],
+        }
     if not (yes or json_flag):
         try:
             if not click.confirm("Remove them?", default=False, err=True):
                 click.echo("Nothing was removed.")
-                return {"success": True, "host": host, "removed": [], "kept": listing["kept"]}
+                return {
+                    "schema_version": 1,
+                    "success": True,
+                    "host": host,
+                    "removed": [],
+                    "kept": listing["kept"],
+                }
         except click.Abort:
             _fail(
                 "canceled",
@@ -401,7 +414,7 @@ def _clean_host(
         _print_entries(f"Removed {len(removed)} entries on {host}:", removed, False, False)
         if kept:
             _print_entries("Kept:", kept, True, False)
-    return {"success": True, "host": host, "removed": removed, "kept": kept}
+    return {"schema_version": 1, "success": True, "host": host, "removed": removed, "kept": kept}
 
 
 @click.argument("host")
@@ -545,11 +558,11 @@ def remote_cancel(
 
             emit_structured(document, "json")
         else:
-            click.echo(f"Canceled the launch {document['launch']} on {host}.")
+            click.echo(f"Canceled the launch {document['launch_id']} on {host}.")
         sys.exit(0)
     _fail(
         "remote_failed",
-        f"Canceled the launch {document['launch']} on {host}, but {document['survivors']} "
+        f"Canceled the launch {document['launch_id']} on {host}, but {document['survivors']} "
         "process(es) of it did not stop after SIGKILL and may still run there.",
         json_flag,
     )
