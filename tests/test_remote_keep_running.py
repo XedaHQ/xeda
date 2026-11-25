@@ -392,8 +392,8 @@ def _keep_running_agent(
         agent = environment.start(start_agent, *arguments)
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
-    beating = Beats(agent) if beats else None
     message = launch_message(tmp_path, "run-1", path_setup(toolchain))
+    beating = Beats(agent) if beats else None
     agent.send({**message, "keep_running": keep_running})
     agent.tool_pids.append(tool.wait(agent))
     state = json.loads((workspace(tmp_path) / "launches" / "run-1" / "state.json").read_text())
