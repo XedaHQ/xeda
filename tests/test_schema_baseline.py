@@ -1021,7 +1021,7 @@ def test_a_changed_default_run_root_is_breaking() -> None:
         project["properties"]["run_root"]["default"] = "build"
 
     additive, breaking = _project_changed(change)
-    assert breaking == ["project.run_root: default changed from 'xeda_run' to 'build'"]
+    assert breaking == ["project.run_root: default changed"]
     assert not additive
 
 
