@@ -44,6 +44,8 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/_i
   `XEDA_TESTS_ORFS` (an OpenROAD-flow-scripts checkout), `XEDA_TESTS_REMOTE_HOST` (a Linux host
   that `ssh` reaches without a prompt; `tools/remote_test_sshd.py start` runs one in Docker) with
   `XEDA_TESTS_REMOTE_SSH_CONFIG` (its `ssh -F` file).
+- An opt-in test still plans, and its literal settings stay valid, without its tool
+  (`tests/test_optin_planning.py`, `tests/test_optin_literals.py`, both in CI).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
 
