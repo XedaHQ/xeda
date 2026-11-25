@@ -77,6 +77,8 @@
       "colliding_run_dirs",
       "delivery_refused",
       "equal_specs",
+      "flow_not_importable",
+      "invalid_run_root",
       "missing_dependency",
       "plan_options",
       "run_root_mismatch",
@@ -948,20 +950,20 @@
         }
       },
       "artifacts": {
-        "c_log": {
-          "when": "when the simulator needs the compiler"
-        },
         "cc_log": {
           "when": "when the simulator needs the compiler"
         },
-        "executable": {
-          "when": "when the compilation and link succeed"
+        "cxx_log": {
+          "when": "when the simulator needs the compiler"
         },
         "log": {
           "when": "when the flow starts its main tool"
         },
         "simulation_log": {
           "when": "when the flow starts the simulation program"
+        },
+        "simulator": {
+          "when": "when the compilation and link succeed"
         },
         "waveform": {
           "when": "when the simulation writes a waveform"
@@ -4727,14 +4729,15 @@
           "schema": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "x-xeda-measure": "count"
           },
-          "type": "string",
+          "type": "integer",
           "unit": null
         },
         "stop_time": {
@@ -8785,7 +8788,7 @@
         }
       },
       "artifacts": {
-        "c_log": {
+        "cxx_log": {
           "when": "when the flow builds the end monitor"
         },
         "log": {
@@ -22501,7 +22504,7 @@
               {
                 "type": "string",
                 "x-xeda-quantity": "time",
-                "x-xeda-unit": "ns"
+                "x-xeda-unit": "s"
               },
               {
                 "type": "null"
@@ -22509,7 +22512,7 @@
             ]
           },
           "type": "time",
-          "unit": "ns"
+          "unit": "s"
         },
         "verbosity": {
           "default": "normal",
@@ -24479,7 +24482,7 @@
         "post_place_hierarchical_utilization_rpt": {
           "when": "when the run reaches the step and the setting `write_checkpoint` is on"
         },
-        "post_place_post_place_power_optimization_rpt": {
+        "post_place_power_optimization_rpt": {
           "when": "when the run reaches the step and the strategy of the step has `power_opt`"
         },
         "post_place_timing_summary_rpt": {
@@ -24497,10 +24500,10 @@
         "route_design_clock_utilization_rpt": {
           "when": "when the run reaches the step and the setting `extra_reports` is on"
         },
-        "route_design_critpath_by_delay_report_csv": {
+        "route_design_critical_paths_by_delay_csv": {
           "when": "when the run reaches the step"
         },
-        "route_design_critpath_report_csv": {
+        "route_design_critical_paths_csv": {
           "when": "when the run reaches the step"
         },
         "route_design_drc_rpt": {
@@ -25102,62 +25105,6 @@
           "type": "boolean",
           "unit": null
         },
-        "set_impl_properties": {
-          "default": {},
-          "schema": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "boolean"
-                }
-              ]
-            },
-            "type": "object"
-          },
-          "type": "dict[string, string | integer | number | boolean]",
-          "unit": null
-        },
-        "set_synth_properties": {
-          "default": {},
-          "schema": {
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "boolean"
-                }
-              ]
-            },
-            "type": "object"
-          },
-          "type": "dict[string, string | integer | number | boolean]",
-          "unit": null
-        },
-        "show_available_strategies": {
-          "default": false,
-          "schema": {
-            "type": "boolean"
-          },
-          "type": "boolean",
-          "unit": null
-        },
         "suppress_msgs": {
           "default": [
             "Vivado 12-7122",
@@ -25184,25 +25131,6 @@
             "$ref": "#/$defs/RunOptions"
           },
           "type": "RunOptions",
-          "unit": null
-        },
-        "tcl_files": {
-          "default": [],
-          "schema": {
-            "items": {
-              "anyOf": [
-                {
-                  "format": "path",
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                }
-              ]
-            },
-            "type": "array"
-          },
-          "type": "array[string]",
           "unit": null
         },
         "tcl_shell": {
@@ -25558,7 +25486,7 @@
         "post_place_hierarchical_utilization_rpt": {
           "when": "when the run reaches the step and the setting `write_checkpoint` is on"
         },
-        "post_place_post_place_power_optimization_rpt": {
+        "post_place_power_optimization_rpt": {
           "when": "when the run reaches the step and the strategy of the step has `power_opt`"
         },
         "post_place_timing_summary_rpt": {
@@ -25567,10 +25495,10 @@
         "route_design_clock_utilization_rpt": {
           "when": "when the run reaches the step and the setting `extra_reports` is on"
         },
-        "route_design_critpath_by_delay_report_csv": {
+        "route_design_critical_paths_by_delay_csv": {
           "when": "when the run reaches the step"
         },
-        "route_design_critpath_report_csv": {
+        "route_design_critical_paths_csv": {
           "when": "when the run reaches the step"
         },
         "route_design_drc_rpt": {
@@ -36318,7 +36246,7 @@
         "cxxrtl_header": {
           "when": "when the setting `cxxrtl.header` is set"
         },
-        "g_log": {
+        "gxx_log": {
           "when": "always"
         },
         "log": {

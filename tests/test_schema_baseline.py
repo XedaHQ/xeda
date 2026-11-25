@@ -142,17 +142,22 @@ VALIDATED_ELSEWHERE = {
 }
 
 
+#: The schemas of the files a user writes. Such a file has no `schema_version` key: the schema
+#: carries the version itself.
+INPUT_SCHEMAS = {"design", "project"}
+
+
 @pytest.mark.parametrize("name", sorted(_schemas()))
 def test_every_document_has_a_schema_version(name: str) -> None:
     schema = _schemas()[name]
-    if name == "design":  # the schema of a design file carries the version itself
+    if name in INPUT_SCHEMAS:
         assert type(schema["schema_version"]) is int and schema["schema_version"] == 1
         return
     assert "schema_version" in schema["properties"]
     assert "schema_version" in schema["required"]
 
 
-@pytest.mark.parametrize("name", sorted(set(_schemas()) - {"design"}))
+@pytest.mark.parametrize("name", sorted(set(_schemas()) - INPUT_SCHEMAS))
 def test_every_schema_states_its_schema_version_as_an_integer_constant(name: str) -> None:
     """One way to state the version: `{"type": "integer", "const": <integer>}`, so a document of
     another version and a Boolean do not validate."""

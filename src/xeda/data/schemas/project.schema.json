@@ -386,13 +386,6 @@
           "title": "Flows",
           "type": "object"
         },
-        "generation_units": {
-          "default": [],
-          "hidden_from_schema": true,
-          "items": {},
-          "title": "Generation Units",
-          "type": "array"
-        },
         "language": {
           "$ref": "#/$defs/Language",
           "description": "HDL language settings"
@@ -419,13 +412,6 @@
           "description": "The unique name of the design. It starts with a letter and has only letters, digits, `_` and `-`. Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*.",
           "title": "Name",
           "type": "string"
-        },
-        "resolved_dependencies": {
-          "default": [],
-          "hidden_from_schema": true,
-          "items": {},
-          "title": "Resolved Dependencies",
-          "type": "array"
         },
         "rtl": {
           "$ref": "#/$defs/Rtl"
@@ -490,13 +476,6 @@
                 "title": "Flows",
                 "type": "object"
               },
-              "generation_units": {
-                "default": [],
-                "hidden_from_schema": true,
-                "items": {},
-                "title": "Generation Units",
-                "type": "array"
-              },
               "language": {
                 "$ref": "#/$defs/Language",
                 "description": "HDL language settings"
@@ -520,13 +499,6 @@
                 "title": "License"
               },
               "name": false,
-              "resolved_dependencies": {
-                "default": [],
-                "hidden_from_schema": true,
-                "items": {},
-                "title": "Resolved Dependencies",
-                "type": "array"
-              },
               "rtl": {
                 "$ref": "#/$defs/RtlOverlay"
               },
@@ -1688,29 +1660,7 @@
               "items": {
                 "type": "string"
               },
-              "type": "array"
-            },
-            {
-              "maxItems": 1,
-              "minItems": 1,
-              "prefixItems": [
-                {
-                  "type": "string"
-                }
-              ],
-              "type": "array"
-            },
-            {
               "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                }
-              ],
               "type": "array"
             },
             {
@@ -2032,29 +1982,7 @@
               "items": {
                 "type": "string"
               },
-              "type": "array"
-            },
-            {
-              "maxItems": 1,
-              "minItems": 1,
-              "prefixItems": [
-                {
-                  "type": "string"
-                }
-              ],
-              "type": "array"
-            },
-            {
               "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "string"
-                }
-              ],
               "type": "array"
             },
             {
