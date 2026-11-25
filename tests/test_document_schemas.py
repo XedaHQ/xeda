@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 
 import pytest
 
-from xeda import Design
+from xeda import DependencyInfo, Design, PlanOptions
 from xeda._internal.digest import content_digest
 from xeda._internal.design import SourceType
 from xeda.errors import RecordError
@@ -48,6 +48,7 @@ from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
 from .io_flows import TJoin, TMaker, TReader, TTaker
 from .record_documents import record_document
+from .typed_shapes import check_shape
 from xeda._internal.package_paths import impl_module
 
 KEYS = {
@@ -943,6 +944,23 @@ def test_an_output_whose_names_do_not_fit_it_is_a_corrupt_record(tmp_path, outpu
     assert caught.value.code == "corrupt_record"
 
 
+def test_a_dependency_of_a_record_always_names_its_design_file(tmp_path):
+    entry = {"repository": None, "reference": None, "commit": None, "design_file": "lib.yaml"}
+    record = decode_record(
+        record_document(dependencies=[entry]), run_dir=tmp_path / "d" / "flow", run_root=tmp_path
+    )
+    assert [dict(item) for item in record.dependencies] == [entry]
+    check_shape(DependencyInfo, record.dependencies[0])
+    for broken in ({**entry, "design_file": None}, {**entry, "commit": 3}):
+        with pytest.raises(RecordError, match="dependencies") as caught:
+            decode_record(
+                record_document(dependencies=[broken]),
+                run_dir=tmp_path / "d" / "flow",
+                run_root=tmp_path,
+            )
+        assert caught.value.code == "corrupt_record"
+
+
 @pytest.mark.parametrize("outcome", ["blocked", "skipped", "detached"])
 def test_a_record_cannot_hold_the_outcome_of_a_node_that_did_not_run(tmp_path, outcome):
     import dataclasses
@@ -987,6 +1005,9 @@ def test_the_plan_document_lists_the_dependencies_of_a_record(tmp_path):
     flow = _runner(tmp_path).launch_flow(TTaker, design, {})
     record = read_record(flow.run_path, run_root=flow.record.run_root)
     assert document["dependencies"] == thaw(record.dependencies)
+    for entry in (*record.dependencies, *plan._dependencies):
+        check_shape(DependencyInfo, entry)
+    check_shape(PlanOptions, plan.options)
 
 
 def test_the_dependencies_of_a_plan_cannot_change_and_survive_a_pickle(tmp_path):

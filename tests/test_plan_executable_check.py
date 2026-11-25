@@ -9,12 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from xeda import Design
+from xeda import Design, ExecutableCheck, PlanOptions
 from xeda._internal.flow_runner.plan_check import plan_difference
 from xeda._internal.local_settings import LocalSettings
 from xeda._internal.plan import plan_from_dict
 from xeda._internal.spec import Spec
 from xeda._internal.workspace import Workspace
+
+from .typed_shapes import check_shape
 
 pytestmark = pytest.mark.python_compat
 
@@ -72,6 +74,9 @@ def test_plan_checks_node_path(tmp_path, bare_path):
     assert missing == {"executable": "yosys", "state": "missing", "path": None, "reason": None}
     with pytest.raises(TypeError):
         found["state"] = "missing"  # type: ignore[index]  # the mapping is frozen
+    for check in (found, missing):
+        check_shape(ExecutableCheck, check)
+    check_shape(PlanOptions, _plan(tmp_path, spec, tools).options)
     # The check changes neither the state nor the identity of the node.
     assert _plan(tmp_path, spec, tools).nodes["yosys_fpga"].identity == (
         _plan(tmp_path, spec).nodes["yosys_fpga"].identity
@@ -116,6 +121,7 @@ def test_docker_check_is_unknown(tmp_path, bare_path, monkeypatch):
         "path": None,
         "reason": "container not inspected",
     }
+    check_shape(ExecutableCheck, check)
 
 
 def test_plan_check_roundtrip_and_stale_comparison(tmp_path, bare_path):

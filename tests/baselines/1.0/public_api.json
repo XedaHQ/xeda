@@ -71,6 +71,94 @@
             "__hash__"
           ]
         },
+        "DependencyInfo": {
+          "attributes": [
+            {
+              "annotation": "ReadOnly[str | None]",
+              "name": "repository"
+            },
+            {
+              "annotation": "ReadOnly[str | None]",
+              "name": "reference"
+            },
+            {
+              "annotation": "ReadOnly[str | None]",
+              "name": "commit"
+            },
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "design_file"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "DerivedDesign": {
+          "attributes": [
+            {
+              "annotation": "ReadOnly[str | None]",
+              "name": "top"
+            },
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "input_design"
+            },
+            {
+              "annotation": "ReadOnly[tuple[xeda.DerivedGeneratedSource | xeda.DerivedPassedSource, ...]]",
+              "name": "sources"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "DerivedGeneratedSource": {
+          "attributes": [
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "generated"
+            },
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "type"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "DerivedPassedSource": {
+          "attributes": [
+            {
+              "annotation": "ReadOnly[int]",
+              "name": "source"
+            },
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "file"
+            },
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "type"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
         "Design": {
           "attributes": [
             {
@@ -486,6 +574,32 @@
             "__eq__",
             "__hash__"
           ]
+        },
+        "ExecutableCheck": {
+          "attributes": [
+            {
+              "annotation": "ReadOnly[str]",
+              "name": "executable"
+            },
+            {
+              "annotation": "ReadOnly[Literal[\"found\", \"missing\", \"unknown\"]]",
+              "name": "state"
+            },
+            {
+              "annotation": "ReadOnly[str | None]",
+              "name": "path"
+            },
+            {
+              "annotation": "ReadOnly[str | None]",
+              "name": "reason"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
         },
         "InputRecord": {
           "attributes": [
@@ -1057,7 +1171,7 @@
               "name": "digests"
             },
             {
-              "annotation": "Mapping[str, Any] | None",
+              "annotation": "xeda.DerivedDesign | None",
               "name": "design"
             }
           ],
@@ -1090,7 +1204,7 @@
                 "name": "digests"
               },
               {
-                "annotation": "Mapping[str, Any] | None",
+                "annotation": "xeda.DerivedDesign | None",
                 "kind": "keyword_only",
                 "name": "design"
               }
@@ -1114,7 +1228,7 @@
               "name": "roots"
             },
             {
-              "annotation": "Mapping[str, Any]",
+              "annotation": "xeda.PlanOptions",
               "name": "options"
             },
             {
@@ -1136,7 +1250,7 @@
                 "name": "roots"
               },
               {
-                "annotation": "Mapping[str, Any]",
+                "annotation": "xeda.PlanOptions",
                 "kind": "keyword_only",
                 "name": "options"
               },
@@ -1325,7 +1439,7 @@
               "name": "deliveries"
             },
             {
-              "annotation": "Mapping[str, str | None] | None",
+              "annotation": "xeda.ExecutableCheck | None",
               "default": "None",
               "name": "executable_check"
             }
@@ -1399,7 +1513,7 @@
                 "name": "deliveries"
               },
               {
-                "annotation": "Mapping[str, str | None] | None",
+                "annotation": "xeda.ExecutableCheck | None",
                 "default": "None",
                 "kind": "keyword_only",
                 "name": "executable_check"
@@ -1412,6 +1526,44 @@
             "__eq__",
             "__hash__"
           ]
+        },
+        "PlanOptions": {
+          "attributes": [
+            {
+              "annotation": "ReadOnly[bool]",
+              "name": "rebuild_all"
+            },
+            {
+              "annotation": "ReadOnly[bool]",
+              "name": "clean"
+            },
+            {
+              "annotation": "ReadOnly[bool]",
+              "name": "prune_variants"
+            },
+            {
+              "annotation": "ReadOnly[pathlib.Path | None]",
+              "name": "outputs_to"
+            },
+            {
+              "annotation": "ReadOnly[bool]",
+              "name": "overwrite_outputs"
+            },
+            {
+              "annotation": "ReadOnly[bool]",
+              "name": "post_cleanup"
+            },
+            {
+              "annotation": "ReadOnly[bool]",
+              "name": "post_cleanup_purge"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
         },
         "Project": {
           "attributes": [
@@ -1915,7 +2067,7 @@
               "name": "inherited_variables"
             },
             {
-              "annotation": "tuple[Mapping[str, str | None], ...]",
+              "annotation": "tuple[xeda.DependencyInfo, ...]",
               "default": "()",
               "name": "dependencies"
             }
@@ -2034,7 +2186,7 @@
                 "name": "inherited_variables"
               },
               {
-                "annotation": "tuple[Mapping[str, str | None], ...]",
+                "annotation": "tuple[xeda.DependencyInfo, ...]",
                 "default": "()",
                 "kind": "keyword_only",
                 "name": "dependencies"
@@ -3912,10 +4064,454 @@
     },
     "xeda.introspect": {
       "names": {
+        "ArtifactDescription": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "key"
+            },
+            {
+              "annotation": "str",
+              "name": "description"
+            },
+            {
+              "annotation": "str",
+              "name": "when"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "BoardInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "board"
+            },
+            {
+              "annotation": "Mapping[str, Any]",
+              "name": "fpga"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "openfpgaloader_board"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "lpf"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "pcf"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "pdc"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "xdc"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "FlowBinding": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "flow"
+            },
+            {
+              "annotation": "str",
+              "name": "input"
+            },
+            {
+              "annotation": "str",
+              "name": "output"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "FlowInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "name"
+            },
+            {
+              "annotation": "str | None",
+              "name": "description"
+            },
+            {
+              "annotation": "Literal[\"simulation\", \"synthesis\", \"fpga_synthesis\", \"asic_synthesis\", \"other\"]",
+              "name": "category"
+            },
+            {
+              "annotation": "bool",
+              "name": "supports_cocotb"
+            },
+            {
+              "annotation": "NotRequired[bool]",
+              "name": "experimental"
+            },
+            {
+              "annotation": "list[str]",
+              "name": "dependencies"
+            },
+            {
+              "annotation": "str | None",
+              "name": "action_reason"
+            },
+            {
+              "annotation": "list[xeda.introspect.FlowInputInfo]",
+              "name": "inputs"
+            },
+            {
+              "annotation": "list[xeda.introspect.FlowOutputInfo]",
+              "name": "outputs"
+            },
+            {
+              "annotation": "list[xeda.introspect.FlowRelation]",
+              "name": "can_follow"
+            },
+            {
+              "annotation": "list[xeda.introspect.FlowRelation]",
+              "name": "can_precede"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "FlowInputInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "name"
+            },
+            {
+              "annotation": "Literal[\"files\", \"design\"]",
+              "name": "value"
+            },
+            {
+              "annotation": "list[str]",
+              "name": "types"
+            },
+            {
+              "annotation": "Literal[\"one\", \"optional\", \"many\"]",
+              "name": "cardinality"
+            },
+            {
+              "annotation": "bool",
+              "name": "required"
+            },
+            {
+              "annotation": "bool",
+              "name": "optional"
+            },
+            {
+              "annotation": "bool",
+              "name": "equivalence"
+            },
+            {
+              "annotation": "str | None",
+              "name": "producer"
+            },
+            {
+              "annotation": "str | None",
+              "name": "output"
+            },
+            {
+              "annotation": "str | None",
+              "name": "same_producer_as"
+            },
+            {
+              "annotation": "bool",
+              "name": "paired"
+            },
+            {
+              "annotation": "str | None",
+              "name": "via"
+            },
+            {
+              "annotation": "str",
+              "name": "description"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "FlowOutputInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "name"
+            },
+            {
+              "annotation": "Literal[\"files\", \"design\"]",
+              "name": "value"
+            },
+            {
+              "annotation": "list[str]",
+              "name": "types"
+            },
+            {
+              "annotation": "Literal[\"one\", \"optional\", \"many\"]",
+              "name": "cardinality"
+            },
+            {
+              "annotation": "str | None",
+              "name": "enabled_by"
+            },
+            {
+              "annotation": "str",
+              "name": "description"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "FlowRelation": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "flow"
+            },
+            {
+              "annotation": "str | None",
+              "name": "output"
+            },
+            {
+              "annotation": "list[str]",
+              "name": "through"
+            },
+            {
+              "annotation": "list[xeda.introspect.FlowBinding]",
+              "name": "binds"
+            },
+            {
+              "annotation": "bool",
+              "name": "target_dependent"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "MetricDescription": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "path"
+            },
+            {
+              "annotation": "str",
+              "name": "description"
+            },
+            {
+              "annotation": "Literal[\"number\", \"integer\", \"boolean\", \"text\", \"text_list\", \"counts\", \"numbers\", \"object\"]",
+              "name": "type"
+            },
+            {
+              "annotation": "str | None",
+              "name": "unit"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "PlatformInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "platform"
+            },
+            {
+              "annotation": "str | None",
+              "name": "description"
+            },
+            {
+              "annotation": "str",
+              "name": "provider"
+            },
+            {
+              "annotation": "str",
+              "name": "version"
+            },
+            {
+              "annotation": "bool",
+              "name": "installed"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "directory"
+            },
+            {
+              "annotation": "NotRequired[str]",
+              "name": "problem"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "ResultsInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "flow"
+            },
+            {
+              "annotation": "list[xeda.introspect.MetricDescription]",
+              "name": "metrics"
+            },
+            {
+              "annotation": "list[xeda.introspect.ArtifactDescription]",
+              "name": "artifacts"
+            },
+            {
+              "annotation": "str",
+              "name": "note"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "SettingInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "name"
+            },
+            {
+              "annotation": "str",
+              "name": "type"
+            },
+            {
+              "annotation": "bool",
+              "name": "required"
+            },
+            {
+              "annotation": "NotRequired[str | None]",
+              "name": "unit"
+            },
+            {
+              "annotation": "Any",
+              "name": "default"
+            },
+            {
+              "annotation": "str | None",
+              "name": "description"
+            },
+            {
+              "annotation": "list[Any] | None",
+              "name": "enum"
+            },
+            {
+              "annotation": "bool",
+              "name": "common"
+            },
+            {
+              "annotation": "str | None",
+              "name": "writes"
+            },
+            {
+              "annotation": "bool",
+              "name": "opaque_keys"
+            },
+            {
+              "annotation": "Any",
+              "name": "json_schema"
+            },
+            {
+              "annotation": "Literal[\"common\", \"advanced\", \"expert\"]",
+              "name": "tier"
+            },
+            {
+              "annotation": "str | None",
+              "name": "group"
+            },
+            {
+              "annotation": "NotRequired[bool]",
+              "name": "experimental"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
+        "SettingsInfo": {
+          "attributes": [
+            {
+              "annotation": "str",
+              "name": "flow"
+            },
+            {
+              "annotation": "list[xeda.introspect.SettingInfo]",
+              "name": "fields"
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "name": "definitions"
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "name": "json_schema"
+            }
+          ],
+          "bases": [
+            "dict"
+          ],
+          "kind": "class",
+          "methods": {},
+          "special_methods": []
+        },
         "boards_info": {
           "kind": "function",
           "parameters": [],
-          "return": "list[dict[str, Any]]"
+          "return": "list[xeda.introspect.BoardInfo]"
         },
         "design_schema": {
           "kind": "function",
@@ -3938,17 +4534,17 @@
               "name": "flow"
             }
           ],
-          "return": "dict[str, Any]"
+          "return": "xeda.introspect.FlowInfo"
         },
         "flows_info": {
           "kind": "function",
           "parameters": [],
-          "return": "list[dict[str, Any]]"
+          "return": "list[xeda.introspect.FlowInfo]"
         },
         "platforms_info": {
           "kind": "function",
           "parameters": [],
-          "return": "list[dict[str, Any]]"
+          "return": "list[xeda.introspect.PlatformInfo]"
         },
         "results_info": {
           "kind": "function",
@@ -3959,7 +4555,7 @@
               "name": "flow"
             }
           ],
-          "return": "dict[str, Any]"
+          "return": "xeda.introspect.ResultsInfo"
         },
         "settings_info": {
           "kind": "function",
@@ -3970,7 +4566,7 @@
               "name": "flow"
             }
           ],
-          "return": "dict[str, Any]"
+          "return": "xeda.introspect.SettingsInfo"
         }
       }
     },

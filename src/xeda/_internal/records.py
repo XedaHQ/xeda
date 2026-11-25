@@ -22,6 +22,7 @@ import pint
 
 from xeda.errors import RecordError, RunReplacedError
 from .frozen import FrozenDict, freeze, thaw
+from .mapping_types import DependencyInfo, DerivedDesign
 from .generation import generation_storage, stored_pattern
 from .outcomes import Outcome
 from .units import duration_text, is_metric_unit, seconds_text, verify_unit
@@ -187,10 +188,10 @@ class OutputRecord:
 
     `names` are the files the run wrote for it, relative to the run directory, and `digests` are
     their content digests, in the same order. Both are empty when the run wrote none. `design` is
-    the derived design, for the kind `design` when the run wrote it, else `None`: its top, the
-    design it came from, and its sources, in order. A source is a file that the converter
-    generated (`generated`, a name in `names`) or a source of the input design that passes
-    through (`source`, its index, and `file`).
+    the derived design (`DerivedDesign`), for the kind `design` when the run wrote it, else `None`:
+    its top, the design it came from, and its sources, in order. A source is a file that the
+    converter generated (`DerivedGeneratedSource`, a name in `names`) or a source of the input
+    design that passes through (`DerivedPassedSource`, its index and its file).
     """
 
     name: str
@@ -198,7 +199,7 @@ class OutputRecord:
     cardinality: Literal["one", "optional", "many"]
     names: tuple[str, ...]
     digests: tuple[str, ...]
-    design: Mapping[str, Any] | None
+    design: DerivedDesign | None
 
     def __post_init__(self) -> None:
         for name in ("names", "digests", "design"):
@@ -256,7 +257,8 @@ class RunRecord:
     nested by the dotted path of each metric, and `metric_info` is keyed by the same paths: its
     keys are exactly the leaf paths that hold a value. `outputs` has an entry for every declared
     output. `artifacts` maps a key to the name of a file written by the run, relative to the run
-    directory."""
+    directory. `dependencies` has a `DependencyInfo` for each dependency of the design, in the
+    order of the design."""
 
     schema_version: int = field(repr=False)
     run_id: str = field(repr=False)
@@ -280,7 +282,7 @@ class RunRecord:
     finished_at: datetime = field(repr=False)
     runtime: str = field(repr=False)
     inherited_variables: tuple[str, ...] = field(repr=False)
-    dependencies: tuple[Mapping[str, str | None], ...] = field(default=())
+    dependencies: tuple[DependencyInfo, ...] = field(default=())
 
     def __post_init__(self) -> None:
         outcome = Outcome(self.outcome)
@@ -730,7 +732,7 @@ def _moment(value: Any, label: str) -> datetime:
     return moment.astimezone(timezone.utc)
 
 
-def _decode_design(value: Any, label: str, names: tuple[str, ...]) -> Mapping[str, Any]:
+def _decode_design(value: Any, label: str, names: tuple[str, ...]) -> DerivedDesign:
     """Check the derived design of an output, and return it."""
     design = _mapping(value, label)
     _optional_text(design.get("top"), f"{label}.top")
@@ -746,7 +748,7 @@ def _decode_design(value: Any, label: str, names: tuple[str, ...]) -> Mapping[st
             _text(source.get("file"), f"{label}.sources[].file")
     if tuple(generated) != names:
         raise _Malformed(f"`{label}.sources` generate other files than `names` lists")
-    return design
+    return cast(DerivedDesign, design)
 
 
 def _decode_output(name: str, value: Any) -> OutputRecord:
@@ -882,13 +884,15 @@ def _decode(document: Mapping[str, Any], run_dir: Path, run_root: Path) -> RunRe
         runtime = seconds_text(_text(document.get("runtime"), "runtime"))
     except ValueError as problem:
         raise _Malformed(f"`runtime` is not a duration: {problem}") from None
-    dependencies = []
+    dependencies: list[DependencyInfo] = []
     for entry in _sequence(document.get("dependencies"), "dependencies"):
         item = _mapping(entry, "dependencies[]")
         dependencies.append(
             {
-                key: _optional_text(item.get(key), f"dependencies[].{key}")
-                for key in ("repository", "reference", "commit", "design_file")
+                "repository": _optional_text(item.get("repository"), "dependencies[].repository"),
+                "reference": _optional_text(item.get("reference"), "dependencies[].reference"),
+                "commit": _optional_text(item.get("commit"), "dependencies[].commit"),
+                "design_file": _text(item.get("design_file"), "dependencies[].design_file"),
             }
         )
     from .flow.metrics import ARTIFACT_KEY
@@ -1230,7 +1234,7 @@ def _outputs_of(flow: Flow) -> dict[str, OutputRecord]:
         recorded = held.get(name)
         names: list[str] = []
         digests: list[str] = []
-        design: dict[str, Any] | None = None
+        design: DerivedDesign | None = None
         if declaration.is_design:
             kind = DESIGN_KIND
             if recorded is not None:

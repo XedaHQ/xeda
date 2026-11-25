@@ -344,6 +344,9 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
 
 - A frozen member of a public class is documented in `docs/api` or it has a leading underscore
   (`tests/test_api_documented.py`); a base class that no public module exports is not frozen.
+- A mapping of a fixed shape in the public API is a `TypedDict` without `from __future__ import
+  annotations` (`mapping_types.py`, with `ReadOnly` keys; `introspect_types.py`) and a test checks it
+  against a real value (`tests/test_mapping_types.py`). Dynamic keys stay `Mapping`.
 - Never edit a released baseline in `tests/baselines/`. After a change to the public API, run
   `python tools/api_baseline.py`; an additive change passes, and a breaking one needs a new major
   version (`docs/stability.rst`, `tests/test_public_api.py`). Until 1.0.0 is released, the 1.0

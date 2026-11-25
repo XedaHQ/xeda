@@ -64,7 +64,9 @@ CONTRACT_XEDA = {
     "CancelToken", "Event", "plan", "run", "sweep", "load_record", "records", "scrub", "Result",
     "NodeResult", "RunRecord", "OutputRecord", "InputRecord", "InputSource", "DeliveryRecord",
     "MetricInfo", "ErrorInfo", "Outcome", "Disposition", "OpenRun", "SweepResult", "SweepPoint",
-    "RunListing", "RecordProblem", "ScrubResult", "UNSET", "Unset", "__version__",
+    "RunListing", "RecordProblem", "ScrubResult", "PlanOptions", "ExecutableCheck",
+    "DependencyInfo", "DerivedDesign", "DerivedGeneratedSource", "DerivedPassedSource", "UNSET",
+    "Unset", "__version__",
 }  # fmt: skip
 # `xeda` exports `Question` too: it is the type that `confirm` takes.
 ALSO_EXPORTED = {"Question"}
@@ -75,7 +77,9 @@ CONTRACT_ERRORS = {
 }  # fmt: skip
 CONTRACT_INTROSPECT = {
     "flows_info", "flow_info", "settings_info", "results_info", "design_schema", "boards_info",
-    "platforms_info",
+    "platforms_info", "FlowInfo", "FlowInputInfo", "FlowOutputInfo", "FlowRelation", "FlowBinding",
+    "SettingsInfo", "SettingInfo", "ResultsInfo", "MetricDescription", "ArtifactDescription",
+    "BoardInfo", "PlatformInfo",
 }  # fmt: skip
 
 PATH = "str | pathlib.Path | os.PathLike"

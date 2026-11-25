@@ -1,6 +1,7 @@
 """Plan a launch, read the plan, and run the plan with the workspace that made it."""
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Literal, assert_type
 
 import xeda
@@ -18,6 +19,16 @@ for node in plan.nodes.values():
     assert_type(node.name, str)
     assert_type(node.state, Literal["fresh", "rejected", "stale", "unknown", "blocked"])
     assert_type(node.inputs, tuple[xeda.PlanInput, ...])
+    check = node.executable_check
+    assert_type(check, xeda.ExecutableCheck | None)
+    if check is not None:
+        assert_type(check["executable"], str)
+        assert_type(check["state"], Literal["found", "missing", "unknown"])
+        assert_type(check["path"], str | None)
+
+assert_type(plan.options, xeda.PlanOptions)
+assert_type(plan.options["clean"], bool)
+assert_type(plan.options["outputs_to"], Path | None)
 
 result = ws.run(plan)
 assert_type(result, xeda.Result)

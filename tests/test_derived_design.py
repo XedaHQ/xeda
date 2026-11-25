@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda import Design
+from xeda import Design, DerivedDesign, DerivedGeneratedSource, DerivedPassedSource
 from xeda._internal.deliver import outputs_to_deliveries, recorded_artifacts
 from xeda._internal.design import Source, SourceType
 from xeda._internal.flow import FlowDependencyFailure, FlowSettingsException
@@ -42,6 +42,7 @@ from xeda._internal.flow_runner.outputs import (
 from xeda._internal.flows import Bsc, BscSim
 
 from .scoping import node_settings
+from .typed_shapes import check_shape
 from .design_edits import with_updates
 from .derived_flows import converter_flows
 from .flow_registry import preserved_flow_registry
@@ -286,6 +287,23 @@ def test_a_design_record_has_one_shape(tmp_path) -> None:
     for case in invalid:
         with pytest.raises(FlowDependencyFailure, match="invalid record"):
             recorded_entries(case, False, "bsc's output `design`", design=True)
+
+
+def test_the_stored_derived_design_has_the_keys_of_its_class(tmp_path) -> None:
+    flow = _launched(tmp_path, _design(tmp_path / "d"))
+    stored = read_record(flow.run_path, run_root=tmp_path / "run").outputs["design"]
+    assert stored.design is not None
+    check_shape(DerivedDesign, stored.design)
+    kinds = {"generated" in source for source in stored.design["sources"]}
+    assert kinds == {True, False}  # both kinds of source are there
+    for source in stored.design["sources"]:
+        check_shape(
+            DerivedGeneratedSource if "generated" in source else DerivedPassedSource, source
+        )
+    # The record that the launch made is the record that a reader decodes.
+    made = flow.record.outputs["design"].design
+    assert made is not None
+    check_shape(DerivedDesign, made)
 
 
 def test_ran_or_reused_the_derived_design_is_the_same(tmp_path) -> None:

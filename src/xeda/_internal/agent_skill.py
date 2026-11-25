@@ -10,12 +10,14 @@ import logging
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Dict, Iterator, List, Optional, cast
 
 from importlib_resources import as_file, files
 
 from .flow_runner import get_flow_class
 from .introspect import flows_info, results_info, settings_info
+from .introspect_types import FlowInfo
 from .package_paths import impl_module
 
 log = logging.getLogger(__name__)
@@ -72,7 +74,7 @@ def _edge_text(edge: dict[str, object], name: str, key: str) -> str:
     return text + (" (depends on the target)" if edge.get("target_dependent") else "")
 
 
-def _group_lines(flow: str, fields: List[Dict[str, object]]) -> List[str]:
+def _group_lines(flow: str, fields: Sequence[Mapping[str, object]]) -> List[str]:
     """Return the lines about the settings groups of a flow: for each top-level group, its
     `common` settings by dotted name and the number of the other settings it has. `fields` are
     the entries of `settings_info` that are specific to the flow."""
@@ -93,7 +95,7 @@ def _group_lines(flow: str, fields: List[Dict[str, object]]) -> List[str]:
     return lines
 
 
-def _flow_section(flow: Dict[str, object]) -> str:
+def _flow_section(flow: Mapping[str, object]) -> str:
     name = str(flow["name"])
     lines = [f"### `{name}`", ""]
 
@@ -178,7 +180,7 @@ def generate_flows_reference() -> str:
         "",
     ]
 
-    by_category: Dict[str, List[Dict[str, object]]] = {}
+    by_category: Dict[str, List[FlowInfo]] = {}
     for flow in flows:
         by_category.setdefault(str(flow["category"]), []).append(flow)
 

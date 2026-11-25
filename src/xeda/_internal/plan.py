@@ -13,9 +13,10 @@ import os
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from .frozen import FrozenDict, freeze, thaw
+from .mapping_types import DependencyInfo, ExecutableCheck, PlanOptions
 from .schema_version import is_version
 
 if TYPE_CHECKING:
@@ -88,11 +89,12 @@ class PlanNode:
     `settings` are the effective settings of the node. `name` identifies the node in the plan, and
     `flow` is the canonical name of its flow. `outputs_enabled` names the outputs that a consumer
     switches on. `executable_check` is information only: it says whether the main program of the
-    flow is on the `PATH` that the node would get. It is a mapping with the keys `executable`,
-    `state` (`found`, `missing` or `unknown`), `path` (the absolute path, for `found` only) and
-    `reason` (for `unknown` only). It is `None` when the flow has no main program, when its
-    settings are refused, or in a plan document that lacks it. It changes no `state` and no
-    identity, and a plan is not stale because it changed."""
+    flow is on the `PATH` that the node would get. It is an `ExecutableCheck`: a read-only mapping
+    with the keys `executable`, `state` (`found`, `missing` or `unknown`), `path` (the absolute
+    path for `found`, else `None`) and `reason` (for `unknown` only, else `None`). It is `None`
+    when the flow has no main program, when its settings are refused, or in a plan document that
+    lacks it. It changes no `state` and no identity, and a plan is not stale because it
+    changed."""
 
     name: str
     flow: str
@@ -107,7 +109,7 @@ class PlanNode:
     input_types: Mapping[str, tuple[str, ...]] = field(repr=False)
     output_types: Mapping[str, tuple[str, ...]] = field(repr=False)
     deliveries: tuple[PlanDelivery, ...] = field(repr=False)
-    executable_check: Mapping[str, str | None] | None = field(default=None, repr=False)
+    executable_check: ExecutableCheck | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for name in ("settings", "input_types", "output_types", "executable_check"):
@@ -120,20 +122,20 @@ class PlanNode:
 class Plan:
     """What a launch of `spec` would do: the nodes, and the options that the plan was made with.
 
-    `roots` names the nodes that the spec asks for. `options` holds the seven launch options by
-    name (`outputs_to` is an absolute path or `None`). `nodes` holds every node by name, in
+    `roots` names the nodes that the spec asks for. `options` is a read-only `PlanOptions` mapping that
+    holds the seven launch options by name (`outputs_to` is an absolute path or `None`). `nodes` holds every node by name, in
     plan order: producers come before their consumers. The `nodes` list of the document has the
     same order. A plan is not hashable, as its spec is not."""
 
     spec: Spec = field(repr=False)
     roots: tuple[str, ...]
-    options: Mapping[str, Any] = field(repr=False)
+    options: PlanOptions = field(repr=False)
     nodes: Mapping[str, PlanNode]
     #: The options of the workspace that made the plan. Running the plan compares them.
     _workspace: WorkspaceOptions | None = field(default=None, init=False, repr=False, compare=False)
     #: The dependencies as planning resolved them, as `RunRecord.dependencies` lists them: one
     #: entry for each element of `Design.resolved_dependencies`, in its order.
-    _dependencies: tuple[Mapping[str, str | None], ...] = field(
+    _dependencies: tuple[DependencyInfo, ...] = field(
         default=(), init=False, repr=False, compare=False
     )
     #: The `code_fingerprint` of the code that made the plan, for the flows of its nodes. Running
@@ -308,7 +310,7 @@ def plan_node(
     node: ResolvedNode,
     freshness: NodeFreshness,
     deliveries: Sequence[PlanDelivery],
-    executable_check: Mapping[str, str | None] | None = None,
+    executable_check: ExecutableCheck | None = None,
 ) -> PlanNode:
     """Return the public `PlanNode` of a node that the launcher resolved."""
     from .utils import plain_json
@@ -339,8 +341,8 @@ def plan_of(
     spec: Spec,
     options: LaunchOptions,
     workspace: WorkspaceOptions | None,
-    dependencies: Sequence[Mapping[str, str | None]] = (),
-    executable_checks: Mapping[str, Mapping[str, str | None] | None] | None = None,
+    dependencies: Sequence[DependencyInfo] = (),
+    executable_checks: Mapping[str, ExecutableCheck | None] | None = None,
 ) -> Plan:
     """Return the public `Plan` of the plan that the launcher resolved.
 
@@ -434,7 +436,7 @@ def plan_from_dict(
         plan = Plan(
             spec=spec,
             roots=tuple(document["roots"]),
-            options=options,
+            options=cast(PlanOptions, options),
             nodes={node.name: node for node in nodes},
         )
         return with_planning(plan, workspace=workspace, dependencies=dependencies, code=code)
@@ -454,8 +456,8 @@ def planned_destination(path: Path) -> Path:
     return Path(os.path.abspath(path))
 
 
-def dependency_entries(design: Any) -> tuple[Mapping[str, str | None], ...]:
+def dependency_entries(design: Any) -> tuple[DependencyInfo, ...]:
     """Return the dependencies that planning resolved in `design`, as the entries of
     `RunRecord.dependencies`: `repository` (with no user name and no password), `reference`,
-    `commit` and `design_file`. A local dependency has only its `design_file`."""
+    `commit` and `design_file`. A local dependency has `None` for all but `design_file`."""
     return tuple(d.as_mapping() for d in design.resolved_dependencies)

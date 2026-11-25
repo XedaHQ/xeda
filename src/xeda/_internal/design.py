@@ -74,6 +74,7 @@ from .dataclass import (
 from .digest import content_digest
 from xeda.errors import DesignError
 from .frozen import Frozen, FrozenDict, FrozenModel, freeze, thaw
+from .mapping_types import DependencyInfo
 from .package_paths import impl_module
 from .proc_utils import run_child
 from .setting_text import SettingTextError
@@ -3166,7 +3167,7 @@ class DependencyRecord:
         """The storage that holds the checkout of a Git dependency, or None. A launch leases it."""
         return None if self.checkout is None else self.checkout.parent
 
-    def as_mapping(self) -> dict[str, str | None]:
+    def as_mapping(self) -> DependencyInfo:
         """The record as a run record holds it (`RunRecord.dependencies`): no checkout."""
         return {
             "repository": self.repository,

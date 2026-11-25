@@ -31,6 +31,7 @@ import re
 import sys
 import types
 import typing
+import typing_extensions
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -728,6 +729,13 @@ class _Types:
             schemas = [self.of(a) for a in plain]
             schema = schemas[0] if len(schemas) == 1 else {"anyOf": schemas}
             return _nullable(schema) if len(plain) < len(args) else schema
+        if typing_extensions.is_typeddict(tp):
+            # `get_type_hints` drops `NotRequired` and `ReadOnly`: the first decides `required`.
+            hints = typing_extensions.get_type_hints(tp)
+            return _object(
+                {name: self.of(hint) for name, hint in hints.items()},
+                optional=tuple(tp.__optional_keys__),
+            )
         if origin in (tuple, list, set, frozenset) or origin is collections.abc.Sequence:
             return _array(self.of(args[0]))
         if origin in (dict, collections.abc.Mapping):
@@ -778,6 +786,7 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     from xeda._internal.flow_runner.scrub import ScrubResult
     from xeda.introspect import design_schema
     from xeda._internal.outcomes import NodeResult, Outcome
+    from xeda._internal.mapping_types import DependencyInfo
     from xeda._internal.plan import PlanNode
     from xeda._internal.records import OUTCOMES, ErrorInfo, MetricInfo, RunRecord
 
@@ -825,17 +834,13 @@ def document_schemas() -> dict[str, dict[str, Any]]:
         },
         optional=("rtl", "tb", "language", "converted_from", "transforms", "produces"),
     )
-    # `DependencyRecord.as_mapping` always writes these four keys.
-    dependency = _object(
-        {
-            "repository": _nullable(_STRING),
-            "reference": _nullable(_STRING),
-            "commit": _nullable(_STRING),
-            "design_file": _STRING,
-        }
-    )
+    dependency = simple.of(DependencyInfo)
     results["properties"]["configuration"] = configuration
     results["properties"]["dependencies"] = _array(dependency)
+    # The document of a derived design has always been an open object: its shape is no schema yet.
+    results["properties"]["outputs"]["additionalProperties"]["properties"]["design"] = _nullable(
+        _OBJECT
+    )
     # The record of a node, and `best` of an exploration, are a `results.json`.
     node = _Types({RunRecord: "results"}).cls(NodeResult)
     defs = {"results": results}
@@ -865,17 +870,6 @@ def document_schemas() -> dict[str, dict[str, Any]]:
     plan_node = simple.of(PlanNode)
     # A plan document of an earlier build lacks `executable_check`: a reader accepts that.
     plan_node["required"] = [k for k in plan_node["required"] if k != "executable_check"]
-    # `plan_freshness.executable_check` fills a plain mapping.
-    plan_node["properties"]["executable_check"] = _nullable(
-        _object(
-            {
-                "executable": _STRING,
-                "state": {"type": "string", "enum": ["found", "missing", "unknown"]},
-                "path": _nullable(_STRING),
-                "reason": _nullable(_STRING),
-            }
-        )
-    )
     dry_run = _object(
         {
             "schema_version": _SCHEMA_VERSION,

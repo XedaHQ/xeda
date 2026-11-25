@@ -76,6 +76,7 @@ from ..flow import (
     FlowSettingsException,
 )
 from ..flow.io import declared_inputs, declared_outputs
+from ..mapping_types import ExecutableCheck
 from ..proc_utils import ImageClient
 from ..records import RunRecord, read_record
 from ..run_dir import RunDirectory, RunDirectoryError
@@ -516,7 +517,7 @@ def executable_check(
     run_path: Callable[..., Path],
     debug: bool,
     environment: EnvironmentSnapshot,
-) -> dict[str, str | None] | None:
+) -> ExecutableCheck | None:
     """Return the `executable_check` of a node (`xeda.PlanNode`): whether the main program of its
     flow is on the `PATH` that the node would get. It informs only and refuses nothing.
 
@@ -539,7 +540,11 @@ def executable_check(
     if not executable:
         return None
 
-    def check(state: str, path: str | None = None, reason: str | None = None):
+    def check(
+        state: Literal["found", "missing", "unknown"],
+        path: str | None = None,
+        reason: str | None = None,
+    ) -> ExecutableCheck:
         return {"executable": executable, "state": state, "path": path, "reason": reason}
 
     if flow.settings.docker:
@@ -562,7 +567,7 @@ def executable_checks(
     run_path: Callable[..., Path],
     debug: bool = False,
     environment: EnvironmentSnapshot,
-) -> dict[str, dict[str, str | None] | None]:
+) -> dict[str, ExecutableCheck | None]:
     """Return `executable_check` of each node of `plan` by node name."""
     return {
         node.name: executable_check(

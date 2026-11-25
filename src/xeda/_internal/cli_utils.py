@@ -52,6 +52,7 @@ from .flow import Flow
 from .flow_runner import FlowNotFoundError, get_flow_class
 from .flow_runner.launch_report import results_of
 from .introspect import settings_class_info, type_str, unit_of
+from .introspect_types import SettingInfo
 from .outcomes import Result
 from .records import MetricInfo
 from .units import integer_with_unit, is_number_text, is_quantity_unit, number_text
@@ -801,12 +802,12 @@ def _fmt_default(value: Any, required: bool) -> str:
     return escape(str(value))
 
 
-def experimental_text(entry: Dict[str, Any], description: str) -> str:
+def experimental_text(entry: Mapping[str, object], description: str) -> str:
     """Return the description of a listing entry, with "Experimental." first for a marked one."""
     return f"Experimental. {description}".strip() if entry.get("experimental") else description
 
 
-def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
+def _settings_table(title: str, fields: Sequence[SettingInfo]) -> Table:
     table = Table(
         title=title,
         show_header=True,
@@ -825,8 +826,9 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
     for field in fields:
         name = escape(field["name"])
         description = experimental_text(field, field.get("description") or "")
-        if field.get("enum"):
-            choices = ", ".join(str(c) for c in field["enum"])
+        choices_of = field["enum"]
+        if choices_of:
+            choices = ", ".join(str(c) for c in choices_of)
             description = (description + f"\nOne of: {choices}").strip()
         table.add_row(
             name,
@@ -888,7 +890,7 @@ def print_flow_settings(
     flow_class = discover_flow_class(flow) if isinstance(flow, str) else flow
     info = settings_class_info(flow_class)
     shown = TIER_NAMES if tier is None else TIER_NAMES[: TIER_NAMES.index(tier) + 1]
-    fields: List[Dict[str, Any]] = [
+    fields: List[SettingInfo] = [
         f
         for f in info["fields"]
         if (include_common or not f.get("common")) and f.get("tier", "common") in shown

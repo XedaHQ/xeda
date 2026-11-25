@@ -26,6 +26,7 @@ from typing import (
     Optional,
     Type,
     Union,
+    cast,
     get_args,
     get_origin,
 )
@@ -61,6 +62,20 @@ from .flow.io import declared_inputs, declared_outputs
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
+from .introspect_types import (
+    BoardInfo,
+    Category,
+    FlowInfo,
+    FlowInputInfo,
+    FlowOutputInfo,
+    FlowRelation,
+    MetricDescription,
+    PlatformInfo,
+    ResultsInfo,
+    SettingInfo,
+    SettingsInfo,
+    _Experimental,
+)
 from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit, verify_unit
 from .utils import json_encodable, unique, with_json_keys
 
@@ -153,7 +168,7 @@ def _own_docstring(cls: type) -> Optional[str]:
     return inspect.cleandoc(doc) if isinstance(doc, str) and doc.strip() else None
 
 
-def _category(cls: Type[Flow]) -> str:
+def _category(cls: Type[Flow]) -> Category:
     if issubclass(cls, SimFlow):
         return "simulation"
     if issubclass(cls, FpgaSynthFlow):
@@ -165,7 +180,7 @@ def _category(cls: Type[Flow]) -> str:
     return "other"
 
 
-def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
+def _edge_info(edge: ChainEdge, other: type[Flow]) -> FlowRelation:
     """Return one follow relation as plain data, seen from the other end. `other` is the flow
     that the relation names. `output` is the producer output that a request must name, and None
     when the unqualified request is valid. `through` lists the flows that the link passes
@@ -187,7 +202,7 @@ def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     }
 
 
-def flow_info(flow: str) -> Dict[str, Any]:
+def flow_info(flow: str) -> FlowInfo:
     """Return everything known about a flow without instantiating it.
 
     `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
@@ -202,16 +217,17 @@ def flow_info(flow: str) -> Dict[str, Any]:
     return flow_class_info(_flow_named(flow))
 
 
-def flow_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+def flow_class_info(flow: Union[str, Type[Flow]]) -> FlowInfo:
     """Return `flow_info` for a flow class, also one that is not registered."""
     cls = _resolve(flow)
     candidates = all_flow_classes()
+    marker: _Experimental = {"experimental": True} if cls.experimental else {}
     return {
         "name": cls.name,
         "description": _own_docstring(cls),
         "category": _category(cls),
         "supports_cocotb": bool(getattr(cls, "cocotb_sim_name", None)),
-        **({"experimental": True} if cls.experimental else {}),
+        **marker,
         "dependencies": unique(
             [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
         ),
@@ -250,11 +266,11 @@ def flow_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     }
 
 
-def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
+def flow_chain_cells(info: FlowInfo) -> tuple[str, str, str]:
     """Return the three chain columns of the `list-flows` table for one `flow_info` document:
     what the flow takes, what it makes and what can follow it."""
 
-    def kinds(item: dict[str, Any]) -> str:
+    def kinds(item: FlowInputInfo | FlowOutputInfo) -> str:
         return item["value"] if item["value"] == "design" else "/".join(item["types"])
 
     takes = []
@@ -268,10 +284,10 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
             related += ", paired" if item["paired"] else ""
         takes.append(f"{name} ({kinds(item)}{related})")
     makes = []
-    for item in info["outputs"]:
-        name = item["name"] + ("..." if item["cardinality"] == "many" else "")
-        name = f"[{name}]" if item["enabled_by"] else name
-        makes.append(f"{name} ({kinds(item)})")
+    for made in info["outputs"]:
+        name = made["name"] + ("..." if made["cardinality"] == "many" else "")
+        name = f"[{name}]" if made["enabled_by"] else name
+        makes.append(f"{name} ({kinds(made)})")
     if info["action_reason"]:
         makes.append(f"action: {info['action_reason']} (ends a chain)")
     following = []
@@ -289,7 +305,7 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
     return "\n".join(takes) or "-", "\n".join(makes) or "-", "\n".join(following) or "-"
 
 
-def flows_info() -> List[Dict[str, Any]]:
+def flows_info() -> List[FlowInfo]:
     """Return `flow_info` for every registered flow, ordered by canonical name."""
     return [flow_class_info(cls) for cls in all_flow_classes()]
 
@@ -600,7 +616,7 @@ def _group_class(annotation: Any) -> Optional[type]:
 
 def _group_entries(
     group_class: type[BaseModel], prefix: str, top: str, common: bool
-) -> List[Dict[str, Any]]:
+) -> List[SettingInfo]:
     """Return the entries of the fields of a settings group, depth first in declaration order.
 
     `prefix` is the dotted name of the group, and `top` the name of the top-level field that
@@ -610,12 +626,13 @@ def _group_entries(
     schema = group_class.model_json_schema()
     properties = schema.get("properties", {})
     definitions = schema.get("$defs", {})
-    entries: List[Dict[str, Any]] = []
+    entries: List[SettingInfo] = []
     for name, info in group_class.model_fields.items():
         extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
         prop = properties.get(name, {})
+        marker: _Experimental = {"experimental": True} if is_experimental(group_class, name) else {}
         entries.append(
             {
                 "name": f"{prefix}.{name}",
@@ -631,7 +648,7 @@ def _group_entries(
                 "json_schema": json_safe(prop),
                 "tier": tier_of(group_class, name) or "common",
                 "group": top,
-                **({"experimental": True} if is_experimental(group_class, name) else {}),
+                **marker,
             }
         )
         sub_group = _group_class(info.annotation)
@@ -640,20 +657,23 @@ def _group_entries(
     return entries
 
 
-def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
+def _field_entries(cls: Type[Flow]) -> List[SettingInfo]:
     schema = cls.Settings.model_json_schema()
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
     definitions = schema.get("$defs", {})
     base_field_names = set(Flow.Settings.model_fields)
 
-    entries: List[Dict[str, Any]] = []
+    entries: List[SettingInfo] = []
     for name, model_field in cls.Settings.model_fields.items():
         info = model_field  # the mapping's values are `FieldInfo`s
         extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
         prop = properties.get(name, {})
+        marker: _Experimental = (
+            {"experimental": True} if is_experimental(cls.Settings, name) else {}
+        )
         entries.append(
             {
                 "name": name,
@@ -671,7 +691,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "json_schema": json_safe(prop),
                 "tier": tier_of(cls.Settings, name) or "common",
                 "group": None,
-                **({"experimental": True} if is_experimental(cls.Settings, name) else {}),
+                **marker,
             }
         )
         group_class = _group_class(model_field.annotation)
@@ -699,7 +719,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
     return entries
 
 
-def settings_info(flow: str) -> Dict[str, Any]:
+def settings_info(flow: str) -> SettingsInfo:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
@@ -714,7 +734,7 @@ def settings_info(flow: str) -> Dict[str, Any]:
     return settings_class_info(_flow_named(flow))
 
 
-def settings_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+def settings_class_info(flow: Union[str, Type[Flow]]) -> SettingsInfo:
     """Return `settings_info` for a flow class, also one that is not registered."""
     cls = _resolve(flow)
     schema = cls.Settings.model_json_schema(by_alias=True)
@@ -987,7 +1007,7 @@ def settings_completion_info(flow: Union[str, Type[Flow]]) -> dict[str, dict[str
     return entries
 
 
-def results_info(flow: str) -> Dict[str, Any]:
+def results_info(flow: str) -> ResultsInfo:
     """Return the metrics and the artifacts that a flow can write to `results.json`.
 
     Each metric is `{path, description, type, unit}`. The other fields of the record (`outcome`,
@@ -997,10 +1017,10 @@ def results_info(flow: str) -> Dict[str, Any]:
     return results_class_info(_flow_named(flow))
 
 
-def results_class_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
+def results_class_info(flow: Union[str, Type[Flow]]) -> ResultsInfo:
     """Return `results_info` for a flow class, also one that is not registered."""
     cls = _resolve(flow)
-    metrics = [
+    metrics: List[MetricDescription] = [
         {
             "path": path,
             "description": spec.description,
@@ -1288,7 +1308,7 @@ def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
     return schema
 
 
-def boards_info() -> List[Dict[str, Any]]:
+def boards_info() -> List[BoardInfo]:
     """Return the FPGA boards that ship with Xeda, by their lower-case names."""
     from .board import bundled_boards
 
@@ -1297,7 +1317,7 @@ def boards_info() -> List[Dict[str, Any]]:
     except (FileNotFoundError, ModuleNotFoundError) as e:  # pragma: no cover
         log.warning("Could not load bundled boards.toml: %s", e)
         return []
-    return [{"board": name, **json_safe(kv)} for name, kv in sorted(data.items())]
+    return [cast(BoardInfo, {"board": name, **json_safe(kv)}) for name, kv in sorted(data.items())]
 
 
 def provider_status(residue: Any, provider: str, root: Path) -> Dict[str, Any]:
@@ -1333,7 +1353,7 @@ def provider_status(residue: Any, provider: str, root: Path) -> Dict[str, Any]:
     return status
 
 
-def platforms_info() -> List[Dict[str, Any]]:
+def platforms_info() -> List[PlatformInfo]:
     """Return the ASIC platforms bundled with Xeda, which the `platform` setting of the ASIC
     flows (`yosys` today) takes by name.
 
@@ -1347,13 +1367,13 @@ def platforms_info() -> List[Dict[str, Any]]:
     from .platforms.providers import default_root
 
     root = default_root()
-    platforms: List[Dict[str, Any]] = []
+    platforms: List[PlatformInfo] = []
     for name in bundled_platform_names():
         residue = load_residue(name)
         provider = residue.providers.default
         assert provider is not None  # a bundled platform names its default provider
         status = provider_status(residue, provider, root)
-        entry: Dict[str, Any] = {
+        entry: PlatformInfo = {
             "platform": name,
             "description": residue.description,
             "provider": provider,
