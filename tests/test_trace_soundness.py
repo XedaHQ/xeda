@@ -73,6 +73,48 @@ def probes():
             _copy_to_output(self, source.read_text())
             _edit_during_run("setting")
 
+    class ProbeSettingFiles(Flow):
+        """Reads two constraints files named by settings and copies both to an output."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Settings(Flow.Settings):
+            first: Optional[Path] = Field(None, description="A constraints file.")
+            second: Optional[Path] = Field(None, description="Another constraints file.")
+
+        def run(self) -> None:
+            assert self.settings.first is not None and self.settings.second is not None
+            texts = [
+                (self.design.root / p).read_text()
+                for p in (self.settings.first, self.settings.second)
+            ]
+            _copy_to_output(self, "".join(texts))
+
+    class ProbeSources(Flow):
+        """Copies every design source to an output, in order."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        def run(self) -> None:
+            _copy_to_output(self, "".join(s.file.read_text() for s in self.design.rtl.sources))
+
+    class ProbeRegisteredLink(Flow):
+        """Registers files of the design root as inputs it read, and copies the first to an output."""
+
+        results_description: ClassVar[dict[str, MetricSpec]] = {}
+
+        class Settings(Flow.Settings):
+            names: list[str] = Field([], description="The files it registers.")
+
+        def locate_prepared_inputs(self):
+            return [self.design.root / name for name in self.settings.names]
+
+        def prepare_inputs(self) -> None:
+            self.implicit_inputs.extend(self.locate_prepared_inputs())
+
+        def run(self) -> None:
+            _copy_to_output(self, self.locate_prepared_inputs()[0].read_text())
+
     class ProbeSource(Flow):
         """Copies the first design source to an output."""
 
@@ -236,6 +278,9 @@ def probes():
     classes = (
         ProbeSettingFile,
         ProbeSource,
+        ProbeRegisteredLink,
+        ProbeSettingFiles,
+        ProbeSources,
         ProbeDepfile,
         ProbeLinkedDepfile,
         ProbeScript,
@@ -1060,3 +1105,137 @@ def test_a_record_read_after_its_racy_window_is_refreshed(probes, root, monkeypa
     hashed.clear()
     flow, _ = _launch(root, cls)
     assert flow.reused and hashed == [], "a settled record was read again"
+
+
+def test_a_setting_file_link_that_leads_to_another_existing_file_is_stale(probes, root):
+    """A setting names `link.xdc`, which leads to `c10.xdc`. A link that leads to `c5.xdc` later
+    is a change, though both files exist and none of them changed."""
+    cls = probes["ProbeSettingFile"]
+    (root / "c10.xdc").write_text("period 10\n")
+    (root / "c5.xdc").write_text("period 5\n")
+    link = root / "link.xdc"
+    link.symlink_to("c10.xdc")
+    settings = {"constraints": "link.xdc"}
+    flow, out = _launch(root, cls, settings)
+    assert out == "period 10\n"
+    flow, _ = _launch(root, cls, settings)
+    assert flow.reused
+    link.unlink()
+    link.symlink_to("c5.xdc")
+    flow, out = _launch(root, cls, settings)
+    assert not flow.reused and out == "period 5\n"
+    assert (
+        flow.stale_reason
+        == f"constraints now names {(root / 'c5.xdc').resolve()} (was {(root / 'c10.xdc').resolve()})"
+    )
+    flow, _ = _launch(root, cls, settings)
+    assert flow.reused
+    assert (root / "c10.xdc").read_text() == "period 10\n"  # no write went through a link
+
+
+def test_a_source_link_that_leads_to_another_existing_file_is_stale(probes, root):
+    cls = probes["ProbeSource"]
+    (root / "m1.v").write_text("module m1; endmodule\n")
+    (root / "m2.v").write_text("module m2; endmodule\n")
+    link = root / "top.v"
+    link.symlink_to("m1.v")
+    design = Design(name="p", rtl={"sources": ["top.v"], "top": "m1"}, root=root)
+    flow, out = _launch(root, cls, design=design)
+    assert out == "module m1; endmodule\n"
+    flow, _ = _launch(root, cls, design=design)
+    assert flow.reused
+    link.unlink()
+    link.symlink_to("m2.v")
+    design = Design(name="p", rtl={"sources": ["top.v"], "top": "m1"}, root=root)
+    flow, out = _launch(root, cls, design=design)
+    assert not flow.reused and out == "module m2; endmodule\n"
+    assert flow.stale_reason == f"new input: {(root / 'm2.v').resolve()}"
+    flow, _ = _launch(root, cls, design=design)
+    assert flow.reused
+
+
+def _swap(a: Path, b: Path) -> None:
+    ta, tb = os.readlink(a), os.readlink(b)
+    a.unlink()
+    b.unlink()
+    a.symlink_to(tb)
+    b.symlink_to(ta)
+
+
+def test_two_setting_file_links_that_swap_their_targets_are_stale(probes, root):
+    """The set of files that the settings name is the same after the swap: only the place of each
+    setting changed."""
+    cls = probes["ProbeSettingFiles"]
+    (root / "l1").symlink_to("c.xdc")
+    (root / "l2").symlink_to("inc.vh")
+    settings = {"first": "l1", "second": "l2"}
+    flow, out = _launch(root, cls, settings)
+    assert out == "period 10\n`define W 4\n"
+    flow, _ = _launch(root, cls, settings)
+    assert flow.reused
+    _swap(root / "l1", root / "l2")
+    flow, out = _launch(root, cls, settings)
+    assert not flow.reused, "a result built from the other order looked fresh"
+    assert (
+        flow.stale_reason
+        == f"first now names {(root / 'inc.vh').resolve()} (was {(root / 'c.xdc').resolve()})"
+    )
+    assert out == "`define W 4\nperiod 10\n"
+
+
+def test_two_source_links_that_swap_their_targets_are_stale(probes, root):
+    cls = probes["ProbeSources"]
+    (root / "m1.v").write_text("module m1; endmodule\n")
+    (root / "m2.v").write_text("module m2; endmodule\n")
+    (root / "s1.v").symlink_to("m1.v")
+    (root / "s2.v").symlink_to("m2.v")
+
+    def design() -> Design:
+        return Design(name="p", rtl={"sources": ["s1.v", "s2.v"], "top": "m1"}, root=root)
+
+    flow, out = _launch(root, cls, design=design())
+    assert out == "module m1; endmodule\nmodule m2; endmodule\n"
+    flow, _ = _launch(root, cls, design=design())
+    assert flow.reused
+    _swap(root / "s1.v", root / "s2.v")
+    flow, out = _launch(root, cls, design=design())
+    assert not flow.reused, "a result built from the other order looked fresh"
+    assert flow.stale_reason == "design changed (top, parameters, defines or other metadata)"
+    assert out == "module m2; endmodule\nmodule m1; endmodule\n"
+
+
+def test_a_parameter_file_link_retargeted_to_a_file_that_is_an_input_is_stale(probes, root):
+    cls = probes["ProbeRom"]
+    (root / "rom.link").symlink_to("rom.mem")
+
+    def design() -> Design:
+        return _design(root, parameters={"ROM": {"file": "rom.link"}})
+
+    flow, out = _launch(root, cls, design=design())
+    assert out == "00\n"
+    flow, _ = _launch(root, cls, design=design())
+    assert flow.reused
+    (root / "rom.link").unlink()
+    (root / "rom.link").symlink_to("a.v")  # a design source: already an input
+    flow, out = _launch(root, cls, design=design())
+    assert not flow.reused, "a result built from the old ROM looked fresh"
+    assert flow.stale_reason == "the design configuration changed"
+    assert out == "module a; endmodule\n"
+
+
+def test_two_registered_input_links_that_swap_their_targets_are_stale(probes, root):
+    """The files that the flow registered are the same after the swap, and only the first one is
+    read: the link records tell."""
+    cls = probes["ProbeRegisteredLink"]
+    (root / "r1").symlink_to("inc.vh")
+    (root / "r2").symlink_to("c.xdc")
+    settings = {"names": ["r1", "r2"]}
+    flow, out = _launch(root, cls, settings)
+    assert out == "`define W 4\n"
+    flow, _ = _launch(root, cls, settings)
+    assert flow.reused
+    _swap(root / "r1", root / "r2")
+    flow, out = _launch(root, cls, settings)
+    assert not flow.reused, "a result built from the other file looked fresh"
+    assert flow.stale_reason == f"input changed: {root / 'r1'}"
+    assert out == "period 10\n"

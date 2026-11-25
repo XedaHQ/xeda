@@ -539,3 +539,32 @@ def test_version_control_metadata_in_a_library_directory_is_not_an_input(tmp_pat
     (lib / "libs" / vcs / "objects" / "ab").write_text("new object\n")
     flow, _ = _launch(tmp_path / "run", design, settings)
     assert flow.reused, flow.stale_reason
+
+
+def test_a_library_link_that_leads_to_another_directory_is_stale(tmp_path):
+    """`libs` is a link to `libs_1`. A link that leads to `libs_2` later is a change, though both
+    directories exist and none of them changed. So is a link inside the library."""
+    root = tmp_path / "design"
+    for name, k in (("libs_1", 1), ("libs_2", 2), ("libs_3", 3)):
+        (root / name).mkdir(parents=True)
+        (root / name / "pkg.txt").write_text(f"K = {k}\n")
+    (root / "libs").symlink_to("libs_1")
+    design = Design(name="t", root=root, rtl={"sources": [], "top": "t"})
+    settings = {"lib_paths": [["mylib", "libs"]]}
+    flow, out = _launch(tmp_path / "run", design, settings)
+    assert out == "K = 1\n"
+    flow, _ = _launch(tmp_path / "run", design, settings)
+    assert flow.reused, flow.stale_reason
+    (root / "libs").unlink()
+    (root / "libs").symlink_to("libs_2")
+    flow, out = _launch(tmp_path / "run", design, settings)
+    assert not flow.reused and out == "K = 2\n"
+    flow, _ = _launch(tmp_path / "run", design, settings)
+    assert flow.reused, flow.stale_reason
+    # a link inside the library, retargeted
+    (root / "libs_2" / "pkg.txt").unlink()
+    (root / "libs_2" / "pkg.txt").symlink_to("../libs_3/pkg.txt")
+    flow, out = _launch(tmp_path / "run", design, settings)
+    assert not flow.reused and out == "K = 3\n"
+    flow, _ = _launch(tmp_path / "run", design, settings)
+    assert flow.reused, flow.stale_reason
