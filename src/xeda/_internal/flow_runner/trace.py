@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,7 +48,7 @@ from ..digest import (
     record_file,
 )
 from ..listing import directory_files
-from ..proc_utils import DOCKER_IMAGE_PREFIX
+from ..proc_utils import DOCKER_IMAGE_PREFIX, ImageClient, image_id
 from ..utils import json_encodable, with_json_keys
 
 TRACE_FILE = "trace.json"
@@ -92,11 +91,14 @@ class ProgramRecord(XedaBaseModel):
 
     The file is a `record_file` taken after the run and checked under the trust rule, so an
     edit given back its size and mtime is noticed, and a `touch` costs a hash, not another run.
-    A container image is recorded by its ID, with no file. A program written while the run went
-    on has an unknown file record, which never matches."""
+    A container image is recorded by its ID, with no file, and by the client that ran it: the
+    check asks that client for the ID again. A trace of an image without a client is from an
+    older Xeda, and the node runs again. A program written while the run went on has an unknown
+    file record, which never matches."""
 
     path: str
     file: Optional[FileRecord] = None
+    client: Optional[ImageClient] = None
 
 
 class OutputEntry(XedaBaseModel):
@@ -433,28 +435,13 @@ def remove_trace(run_dir: Path) -> None:
     (run_dir / TRACE_FILE).unlink(missing_ok=True)
 
 
-def _image_id(reference: str) -> Optional[str]:
-    try:
-        found = subprocess.run(
-            ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return None
-    if found.returncode != 0:
-        return None
-    return found.stdout.strip() or None
-
-
 def locate_program(name: str, path: Optional[str] = None) -> Optional[str]:
     """Return where `name` is now, or None if it cannot be found.
 
     A program is resolved through `path` (the caller's PATH by default), or taken as given if
-    absolute. A container image is located by its ID."""
+    absolute. A container image is located by its ID, as `docker` of this process has it."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
-        return _image_id(name[len(DOCKER_IMAGE_PREFIX) :])
+        return image_id(name[len(DOCKER_IMAGE_PREFIX) :], ImageClient.of("docker"))
     found = name if os.path.isabs(name) else shutil.which(name, path=path)
     if not found or not os.path.exists(found):
         return None
@@ -594,6 +581,7 @@ def check_trace(
     *,
     refresh: bool = True,
     edge: bool = True,
+    locate_image: Callable[[str, ImageClient], Optional[str]] = image_id,
 ) -> Freshness:
     """Re-verify the trace in `run_dir` against `expected`. The first failing check is the reason.
 
@@ -609,7 +597,8 @@ def check_trace(
     the file again. With `refresh=False`, validation is read-only, the clock probe included, so
     reusing a producer does not invalidate the pending completion evidence of another
     consumer. With `edge=False`, what the producers handed over is not compared (a dry run that
-    does not know it yet judges everything else)."""
+    does not know it yet judges everything else). A container image is located by
+    `locate_image(reference, recorded client)`."""
     found = read_trace(run_dir)
     if found is None:
         recorded = _recorded_format(run_dir)
@@ -668,7 +657,14 @@ def check_trace(
     #: The records taken by reading a file's content.
     read: list[FileRecord] = []
     for name, program in trace.programs.items():
-        where = locate(name)
+        if name.startswith(DOCKER_IMAGE_PREFIX):
+            if program is None:
+                return Freshness(False, f"{name} changed")  # its ID could not be read then
+            if program.client is None:
+                return Freshness(False, f"{name} was recorded without its client")
+            where = locate_image(name[len(DOCKER_IMAGE_PREFIX) :], program.client)
+        else:
+            where = locate(name)
         if program is None or where != program.path:
             if program is None and where is None:
                 continue  # not found then, nor now

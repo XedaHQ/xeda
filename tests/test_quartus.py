@@ -4,7 +4,11 @@ import logging
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from xeda import Design
+from xeda._internal.flow import FlowSettingsException
+from xeda._internal.records import collect_metrics
 from xeda._internal.flow import FPGA
 from xeda._internal.flow_runner import DefaultRunner
 from xeda._internal.flows import Quartus
@@ -229,3 +233,92 @@ def test_quartus_synth_py(monkeypatch) -> None:
 if __name__ == "__main__":
     _test_parse_reports()
     # test_quartus_synth_py()
+
+
+MULTICORNER = "reports/Timing_Analyzer/Multicorner_Timing_Analysis_Summary.csv"
+UTILIZATION = "reports/Fitter/Resource_Section/Fitter_Resource_Utilization_by_Entity.csv"
+
+
+def _quartus_run(tmp_path, monkeypatch, design=None):
+    use_fake_tools(monkeypatch)
+    design = design or Design.load(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clocks={"main_clock": dict(period="6 ns")})
+    flow = DefaultRunner(tmp_path / "run").run_flow(Quartus, design, settings)
+    assert flow is not None and flow.succeeded
+    return flow
+
+
+def _write_reports(flow, utilization: str, multicorner: str) -> None:
+    (flow.run_path / UTILIZATION).write_text(utilization)
+    (flow.run_path / MULTICORNER).write_text(multicorner)
+
+
+def test_an_alm_family_reports_its_luts_and_registers_directly(tmp_path, monkeypatch) -> None:
+    """The report of Cyclone V and later has no logic cell columns: the counts are the
+    combinational ALUTs and the dedicated logic registers. A slack that the report does not give
+    (`N/A`) leaves the metric out."""
+    flow = _quartus_run(tmp_path, monkeypatch)
+    utilization = (RESOURCES_DIR / "Fitter_Resource_Utilization_by_Entity.csv").read_text()
+    _write_reports(
+        flow,
+        utilization.replace("|full_adder_piped", f"|{flow.design.rtl.top}", 1),
+        "Clock,Setup,Hold\nWorst-case Slack,N/A,0.150\n",
+    )
+    assert flow.parse_reports()
+    assert flow.results["lut"] == 3
+    assert flow.results["ff"] == 2
+    assert flow.results["whs"] == 0.15
+    assert "wns" not in flow.results
+    assert not any(not isinstance(key, str) for key in flow.results)
+    _, _, problems = collect_metrics(flow.results, Quartus.results_description)
+    assert problems == []
+
+
+def test_a_logic_element_family_sums_its_logic_cells(tmp_path, monkeypatch) -> None:
+    flow = _quartus_run(tmp_path, monkeypatch)
+    top = flow.design.rtl.top
+    _write_reports(
+        flow,
+        "Compilation Hierarchy Node,LUT-Only LCs,Register-Only LCs,LUT/Register LCs\n"
+        f"|{top},10 (10),4 (4),6 (6)\n",
+        "Clock,Setup,Hold\nWorst-case Slack,1.5,0.1\n",
+    )
+    assert flow.parse_reports()
+    assert flow.results["lut"] == 16
+    assert flow.results["ff"] == 10
+    assert flow.results["wns"] == 1.5
+
+
+@pytest.mark.parametrize(
+    "standard, expected",
+    [("08", "VHDL_2008"), ("2008", "VHDL_2008"), ("93", "VHDL_1993"), ("1993", "VHDL_1993")],
+)
+def test_the_vhdl_standard_becomes_the_quartus_input_version(
+    standard, expected, tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "design"
+    root.mkdir()
+    design = Design(
+        name="sqrt",
+        root=root,
+        rtl={
+            "sources": [str(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.vhdl")],
+            "top": "sqrt",
+            "clock": {"port": "clk"},
+        },
+        language={"vhdl": {"standard": standard}},
+    )
+    flow = _quartus_run(tmp_path, monkeypatch, design)
+    script = (flow.run_path / "create_project.tcl").read_text()
+    assert f'VHDL_INPUT_VERSION "{expected}"\n' in script
+
+
+def test_a_vhdl_standard_without_a_quartus_input_version_is_refused_at_planning(tmp_path) -> None:
+    design = Design(
+        name="sqrt",
+        root=tmp_path,
+        rtl={"sources": [str(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.vhdl")], "top": "sqrt"},
+        language={"vhdl": {"standard": "19"}},
+    )
+    with pytest.raises(FlowSettingsException, match="no VHDL input version.* 19"):
+        Quartus.check_design_supported(design)

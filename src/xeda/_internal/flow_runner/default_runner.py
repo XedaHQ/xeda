@@ -2119,6 +2119,10 @@ class FlowLauncher:
                             programs.append(name)
                             if name in execution_programs.before:
                                 programs.before[name] = execution_programs.before[name]
+                            if name in execution_programs.clients:
+                                programs.clients[name] = execution_programs.clients[name]
+                            if name in execution_programs.image_ids:
+                                programs.image_ids[name] = execution_programs.image_ids[name]
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     flow.results.success = False
                     if isinstance(e, Canceled):

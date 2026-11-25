@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from xeda._internal.digest import MODIFIED_DURING_RUN, RACY_NS, FileRecord, record_file
+from xeda._internal.proc_utils import ImageClient
 from xeda._internal.flow_runner.trace import (
     TRACE_FILE,
     TRACE_FORMAT,
@@ -384,9 +385,9 @@ def test_a_changed_program_is_named(recorded):
     assert reason == "yosys changed"
 
 
-def _record_program(run_dir: Path, name: str, program: ProgramRecord) -> None:
+def _record_program(run_dir: Path, name: str, program: ProgramRecord | None) -> None:
     trace = json.loads((run_dir / "trace.json").read_text())
-    trace["programs"] = {name: program.model_dump(mode="json")}
+    trace["programs"] = {name: None if program is None else program.model_dump(mode="json")}
     (run_dir / "trace.json").write_text(json.dumps(trace))
 
 
@@ -413,10 +414,33 @@ def test_a_program_replaced_during_its_run_or_an_image_is_checked_by_what_it_is(
     reason = check_trace(run_dir, expected, lambda name: "/opt/bin/yosys").reason
     assert reason == "yosys changed during the last run"
     image = "docker-image:hdlc/ghdl:yosys"
-    _record_program(run_dir, image, ProgramRecord(path="sha256:0123"))
-    assert check_trace(run_dir, expected, lambda name: "sha256:0123").fresh
-    reason = check_trace(run_dir, expected, lambda name: "sha256:4567").reason
+    _record_program(run_dir, image, ProgramRecord(path="sha256:0123", client=ImageClient()))
+    asked = []
+
+    def image_is(found):
+        def locate_image(reference, client):
+            asked.append((reference, client))
+            return found
+
+        return locate_image
+
+    fresh = check_trace(run_dir, expected, lambda name: None, locate_image=image_is("sha256:0123"))
+    assert fresh.fresh and asked == [("hdlc/ghdl:yosys", ImageClient())]
+    reason = check_trace(
+        run_dir, expected, lambda name: None, locate_image=image_is("sha256:4567")
+    ).reason
     assert reason == f"{image} changed"
+
+
+def test_an_image_whose_id_cannot_be_read_is_not_fresh(recorded):
+    """An unreadable ID gives no evidence, so it must not count as the same image, then or now."""
+    run_dir, _, _, expected = recorded
+    image = "docker-image:hdlc/ghdl:yosys"
+    _record_program(run_dir, image, None)
+    unread = {"locate_image": lambda reference, client: None}
+    assert check_trace(run_dir, expected, lambda n: None, **unread).reason == f"{image} changed"
+    _record_program(run_dir, image, ProgramRecord(path="sha256:0123", client=ImageClient()))
+    assert check_trace(run_dir, expected, lambda n: None, **unread).reason == f"{image} changed"
 
 
 def test_metadata_only_design_changes_come_last(recorded):

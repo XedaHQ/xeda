@@ -27,8 +27,8 @@ set_global_assignment -name DEVICE $fpga_part
 
 set_global_assignment -name TOP_LEVEL_ENTITY ${top}
 
-{%- if design.language.vhdl.standard %}
-set_global_assignment -name VHDL_INPUT_VERSION {{("VHDL_" ~ design.language.vhdl.standard)|tcl_word}}
+{%- if vhdl_input_version %}
+set_global_assignment -name VHDL_INPUT_VERSION {{vhdl_input_version|tcl_word}}
 {%- endif %}
 
 {%- for src in sources_read() %}

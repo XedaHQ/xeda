@@ -25,6 +25,7 @@ import colorama
 import psutil
 
 from .cancel import inherited
+from .dataclass import XedaBaseModel
 from .console import console_target
 from .utils import Canceled, ExecutableNotFound, NonZeroExitCode, live_log
 
@@ -55,6 +56,73 @@ PROCESS_STOP_GRACE = 5.0
 ProgramState = Tuple[int, int, int, int, int]
 
 
+#: The environment variables that select the container client and the daemon it talks to: the
+#: daemon and context variables, `HOME` (where the client finds its configuration and context),
+#: and `PATH` (which finds the client). Only names that choose a client or a daemon: a credential (`DOCKER_AUTH_CONFIG`) is never
+#: recorded, because the trace keeps these values in the run directory.
+_CLIENT_ENV_NAMES = (
+    "DOCKER_HOST",
+    "DOCKER_CONTEXT",
+    "DOCKER_CONFIG",
+    "DOCKER_CERT_PATH",
+    "DOCKER_TLS_VERIFY",
+    "DOCKER_API_VERSION",
+    "CONTAINER_HOST",
+    "CONTAINER_CONNECTION",
+    "CONTAINERS_CONF",
+    "XDG_RUNTIME_DIR",
+    "HOME",
+    "PATH",
+)
+
+
+class ImageClient(XedaBaseModel):
+    """The container client that ran an image: its program and the environment variables that
+    select it and its daemon (`DOCKER_HOST`, `DOCKER_CONTEXT`, `HOME`, `PATH`, ...), as the
+    environment of the run had them. Asking the same client again names the same daemon."""
+
+    cli: str = "docker"
+    env: Dict[str, str] = {}
+
+    @classmethod
+    def of(cls, cli: str, environment: Optional[Dict[str, Any]] = None) -> "ImageClient":
+        """Return the client that `cli` is with `environment` (None: the one of this process)."""
+        source = os.environ if environment is None else environment
+        return cls(
+            cli=cli,
+            env={
+                k: str(v)
+                for k, v in sorted(source.items())
+                if k in _CLIENT_ENV_NAMES and v is not None
+            },
+        )
+
+    def process_environment(self) -> Dict[str, str]:
+        """Return the environment of a process of this client: that of this process, with the
+        variables that select the client and its daemon replaced by the recorded ones (a variable
+        that the run did not have is absent)."""
+        env = {k: v for k, v in os.environ.items() if k not in _CLIENT_ENV_NAMES}
+        env.update(self.env)
+        return env
+
+
+def image_id(reference: str, client: ImageClient) -> Optional[str]:
+    """Return the ID of the image `reference` as the daemon of `client` has it, or None."""
+    try:
+        found = subprocess.run(
+            [client.cli, "image", "inspect", "--format", "{{.Id}}", reference],
+            env=client.process_environment(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if found.returncode != 0:
+        return None
+    return found.stdout.strip() or None
+
+
 class StartedPrograms(List[str]):
     """The programs started while `recording_programs` is active, in order and once each.
     `before` holds the state of the file of each program when it was first started. The trace
@@ -64,6 +132,11 @@ class StartedPrograms(List[str]):
     def __init__(self) -> None:
         super().__init__()
         self.before: Dict[str, Optional[ProgramState]] = {}
+        #: The client that started each container image.
+        self.clients: Dict[str, ImageClient] = {}
+        #: The ID of each container image just before its first container started: the image the
+        #: run started from, even if the tag moves while it runs. None if it was not found then.
+        self.image_ids: Dict[str, Optional[str]] = {}
 
 
 def program_state(name: str, path: Optional[str] = None) -> Optional[ProgramState]:
@@ -93,14 +166,20 @@ def recording_programs() -> Iterator[StartedPrograms]:
         _programs.reset(token)
 
 
-def note_program(name: str, path: Optional[str] = None) -> None:
+def note_program(
+    name: str, path: Optional[str] = None, client: Optional[ImageClient] = None
+) -> None:
     """Record `name` and the state of its file as it is now, before the program starts, if a
-    recording is active."""
+    recording is active. A container image has the `client` that starts it and its ID now, instead
+    of a file."""
     names = _programs.get()
     if names is not None and name not in names:
         names.append(name)
         if not name.startswith(DOCKER_IMAGE_PREFIX):
             names.before[name] = program_state(name, path=path)
+        elif client is not None:
+            names.clients[name] = client
+            names.image_ids[name] = image_id(name[len(DOCKER_IMAGE_PREFIX) :], client)
 
 
 def tool_output_stream() -> TextIO:

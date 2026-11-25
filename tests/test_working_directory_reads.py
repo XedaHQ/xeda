@@ -105,7 +105,7 @@ REVIEWED_CWD_READS: dict[tuple[str, str], str] = {
 
 #: (module, function) -> why a process it starts needs no explicit working directory.
 REVIEWED_PROCESS_STARTS: dict[tuple[str, str], str] = {
-    ("flow_runner/trace.py", "_image_id"): "`docker image inspect` names no file",
+    ("proc_utils.py", "image_id"): "`docker image inspect` names no file",
     ("platforms/providers.py", "_check_ciel"): "`ciel --version` names no file",
     ("platforms/providers.py", "_run"): "an install command names absolute paths only",
     ("remote/agent.py", "_kill_user_processes"): "names processes, not files",

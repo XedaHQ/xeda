@@ -727,12 +727,15 @@ def _callees(cls: type, fn: types.FunctionType) -> Iterator[types.FunctionType]:
             if isinstance(func.value, ast.Call) and getattr(func.value.func, "id", "") == "super":
                 found += [base.__dict__.get(func.attr) for base in cls.__mro__]
             else:
-                found.append(getattr(cls, func.attr, None))
-                found.append(getattr(settings, func.attr, None))
-                if isinstance(func.value, ast.Name):  # `module.function(...)`
-                    module = fn.__globals__.get(func.value.id)
-                    if isinstance(module, types.ModuleType):
-                        found.append(getattr(module, func.attr, None))
+                owner = (
+                    fn.__globals__.get(func.value.id) if isinstance(func.value, ast.Name) else None
+                )
+                if isinstance(owner, types.ModuleType):  # `module.function(...)`
+                    # `subprocess.run(...)` is that module's function, never a method of the flow
+                    found.append(getattr(owner, func.attr, None))
+                else:
+                    found.append(getattr(cls, func.attr, None))
+                    found.append(getattr(settings, func.attr, None))
         for obj in found:
             callee = _function(obj)
             if callee is not None:

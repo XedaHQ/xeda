@@ -5,8 +5,10 @@ import logging
 from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
-from ...design import SourceType
+from ...design import Design, SourceType, language_of
 from ...flow import (
+    Flow,
+    FlowSettingsException,
     FpgaSynthFlow,
     MetricSpec,
     NoReplacement,
@@ -17,9 +19,18 @@ from ...flow import (
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...units import count, ratio
-from ...utils import try_convert_to_primitives
 
 log = logging.getLogger(__name__)
+
+#: The value of the Quartus `VHDL_INPUT_VERSION` assignment for each `language.vhdl.standard`.
+VHDL_INPUT_VERSIONS = {
+    "87": "VHDL_1987",
+    "1987": "VHDL_1987",
+    "93": "VHDL_1993",
+    "1993": "VHDL_1993",
+    "08": "VHDL_2008",
+    "2008": "VHDL_2008",
+}
 
 
 def identity(x: Any) -> Any:
@@ -216,6 +227,17 @@ class Quartus(FpgaSynthFlow):
             description="When to run the final placement optimization pass after routing.",
         )
 
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a VHDL standard that Quartus has no input version for."""
+        super().check_design_supported(design, settings)
+        standard = language_of(design).vhdl.standard
+        if standard is not None and standard not in VHDL_INPUT_VERSIONS:
+            raise FlowSettingsException(
+                f"Quartus has no VHDL input version for `language.vhdl.standard` {standard}: use "
+                f"one of {', '.join(VHDL_INPUT_VERSIONS)}"
+            )
+
     def init(self) -> None:
         self.quartus_sh = Tool(
             executable="quartus_sh",
@@ -274,6 +296,9 @@ class Quartus(FpgaSynthFlow):
             "create_project.tcl",
             sdc_files=[clock_sdc_path],
             project_settings=project_settings,
+            vhdl_input_version=VHDL_INPUT_VERSIONS.get(
+                language_of(self.design).vhdl.standard or ""
+            ),
             **kwargs,
         )
         self.quartus_sh.run("-t", script_path)
@@ -336,13 +361,22 @@ class Quartus(FpgaSynthFlow):
         assert self.design.rtl.top
         top_resources = resources.get(self.design.rtl.top)
         if top_resources:
-            top_resources.setdefault(0)
-            lut_only = top_resources.get("LUT-Only LCs", 0)
-            lut_reg = top_resources.get("LUT/Register LCs", 0)
-            top_resources["lut"] = lut_only + lut_reg
-            reg_only = top_resources.get("Register-Only LCs", 0)
-            top_resources["ff"] = reg_only + lut_reg
             self.results.update(top_resources)
+            # An ALM family (Cyclone V, Arria, Stratix) reports the counts directly. A family of
+            # logic elements reports logic cells, which are a LUT, a register or both.
+            lut_only = top_resources.get("LUT-Only LCs")
+            lut_reg = top_resources.get("LUT/Register LCs")
+            reg_only = top_resources.get("Register-Only LCs")
+            lut = top_resources.get("Combinational ALUTs")
+            ff = top_resources.get("Dedicated Logic Registers")
+            if lut_only is not None or lut_reg is not None or reg_only is not None:
+                if lut is None:
+                    lut = (lut_only or 0) + (lut_reg or 0)
+                if ff is None:
+                    ff = (reg_only or 0) + (lut_reg or 0)
+            for key, value in (("lut", lut), ("ff", ff)):
+                if isinstance(value, int):
+                    self.results[key] = value
 
         # WNS and WHS come from the "Worst-case Slack" row of the multicorner summary: it is the
         # worst slack over all timing models, so one report gives the slack the run must meet. Fmax
@@ -362,11 +396,10 @@ class Quartus(FpgaSynthFlow):
             wns = worst_slacks.get("Setup")
             log.debug("wns: %s", wns)
             whs = worst_slacks.get("Hold")
-            if wns is not None:
-                wns = try_convert_to_primitives(wns)
+            # A slack that the report does not give is `N/A`: the metric is unknown.
+            if isinstance(wns, float):
                 self.results["wns"] = wns
-            if whs is not None:
-                whs = try_convert_to_primitives(whs)
+            if isinstance(whs, float):
                 self.results["whs"] = whs
 
         # A design meets timing only if every clock passes in every timing model. So the Fmax of a

@@ -76,7 +76,7 @@ from ..flow import (
     FlowSettingsException,
 )
 from ..flow.io import declared_inputs, declared_outputs
-from ..proc_utils import DOCKER_IMAGE_PREFIX
+from ..proc_utils import ImageClient
 from ..records import RunRecord, read_record
 from ..run_dir import RunDirectory, RunDirectoryError
 from . import launch_generation, launch_input
@@ -123,13 +123,14 @@ class NeedsAProcess(Exception):
 
 
 def dry_locate(name: str, path: str | None = None) -> str | None:
-    """Return where the program `name` is now (`trace.locate_program`).
-
-    A container image is not looked up: `docker image inspect` is a process
-    (`NeedsAProcess`)."""
-    if name.startswith(DOCKER_IMAGE_PREFIX):
-        raise NeedsAProcess("its container image is checked when it runs")
+    """Return where the program `name` is now (`trace.locate_program`)."""
     return locate_program(name, path=path)
+
+
+def dry_image(reference: str, client: ImageClient) -> str | None:
+    """Refuse to look up a container image: `docker image inspect` is a process
+    (`NeedsAProcess`)."""
+    raise NeedsAProcess("its container image is checked when it runs")
 
 
 def _record(node: PlanNode, run_root: Path) -> RunRecord | None:
@@ -486,6 +487,7 @@ def judge_node(
             lambda name: dry_locate(name, path=flow.process_environment().get("PATH", os.defpath)),
             refresh=False,
             edge=waiting is None,
+            locate_image=dry_image,
         )
     except NeedsAProcess as why:
         return NodeFreshness("unknown", str(why))

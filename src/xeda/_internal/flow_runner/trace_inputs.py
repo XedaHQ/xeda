@@ -67,7 +67,7 @@ from ..flow.io import declared_inputs
 from ..deliver import ReadInputs
 from ..flow.flow import map_setting_leaves, setting_path_target
 from ..listing import VCS_METADATA, directory_files
-from ..proc_utils import DOCKER_IMAGE_PREFIX, program_state
+from ..proc_utils import DOCKER_IMAGE_PREFIX, ImageClient, image_id, program_state
 from ..records import ErrorInfo
 from ..version import __version__
 from .code_digest import CodeDigests
@@ -881,9 +881,21 @@ def _programs(
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
+        if name.startswith(DOCKER_IMAGE_PREFIX):
+            client = getattr(names, "clients", {}).get(name) or ImageClient.of("docker")
+            # The ID before the container started, also when that lookup found none: the tag
+            # may have moved since. Only a name that no start recorded is looked up now.
+            started = getattr(names, "image_ids", {})
+            where = (
+                started[name]
+                if name in started
+                else image_id(name[len(DOCKER_IMAGE_PREFIX) :], client)
+            )
+            programs[name] = None if where is None else ProgramRecord(path=where, client=client)
+            continue
         where = locate_program(name, path=search_path)
-        if where is None or name.startswith(DOCKER_IMAGE_PREFIX):
-            programs[name] = None if where is None else ProgramRecord(path=where)
+        if where is None:
+            programs[name] = None
             continue
         path = Path(where)
         prior = before.get(name)

@@ -19,6 +19,7 @@ from .flow import Flow
 from .flow.metrics import log_stem
 from .proc_utils import (
     DOCKER_IMAGE_PREFIX,
+    ImageClient,
     TOOL_OUTPUT,
     ProcessTimeout,
     note_program,
@@ -63,6 +64,24 @@ def _placed(directory: Path, path: OptionalBoolOrPath) -> OptionalBoolOrPath:
     return directory / path
 
 
+def image_names_version(image: str) -> bool:
+    """Whether an image text ends in a tag or a digest (`name:tag`, `name@sha256:...`).
+
+    The tag is the part after the last colon that follows the last slash. An earlier colon is the
+    port of a registry (`localhost:5000/image`)."""
+    return "@" in image or ":" in image.rsplit("/", 1)[-1]
+
+
+def split_image_tag(text: str) -> "tuple[str, Optional[str]]":
+    """Split an image text into the image and its separate tag.
+
+    A digest stays in the image, with the tag it may have."""
+    if "@" in text or not image_names_version(text):
+        return text, None
+    image, _, tag = text.rpartition(":")
+    return image, tag
+
+
 class Docker(XedaBaseModel):
     image: str = Field(description="Docker image name")
     command: List[str] = []
@@ -77,6 +96,16 @@ class Docker(XedaBaseModel):
     cli: str = "docker"
     mounts: Dict[str, str] = {}
     default_env: Dict[str, str] = {"DISPLAY": "host.docker.internal:0"}
+
+    @property
+    def reference(self) -> str:
+        """The image as `docker run` names it.
+
+        An image that has a tag or a digest keeps it. The `tag` setting applies only to an image
+        without one. The colon of a registry port (`localhost:5000/image`) is not a tag."""
+        if image_names_version(self.image) or not self.tag:
+            return self.image
+        return f"{self.image}:{self.tag}"
 
     # NOTE only works for Linux containers
     @cached_property
@@ -139,7 +168,12 @@ class Docker(XedaBaseModel):
         cwd = Path(os.path.realpath(cwd))
         stdout = _placed(cwd, stdout)
         tee = None if tee is None else cwd / tee
-        note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
+        image = self.reference
+        # An image without a tag or a digest is the `latest` one.
+        recorded = image if image_names_version(image) else f"{image}:latest"
+        note_program(
+            f"{DOCKER_IMAGE_PREFIX}{recorded}", client=ImageClient.of(self.cli, client_env)
+        )
         # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
         # stay out of `mounts`, because a later run would mount them again. A version probe's
         # temporary directory (`Tool.probe_stdout`) is gone by then, and Docker would create it
@@ -183,10 +217,6 @@ class Docker(XedaBaseModel):
             with replacing_file(env_file) as f:
                 f.write("\n".join(f"{k}={v}" for k, v in env.items()))
             docker_args.extend(["--env-file", str(env_file)])
-        image = self.image
-        image_sp = image.split(":")
-        if len(image_sp) < 2 and self.tag:
-            image = f"{image}:{self.tag}"
         if self.command:
             command = self.command
         else:
@@ -207,6 +237,7 @@ class Docker(XedaBaseModel):
                     check=False,
                     merge_stderr=True,
                     timeout=DOCKER_KILL_TIMEOUT,
+                    env=client_env,
                     cwd=cwd,
                     canceled=never_canceled,  # it runs because the launch was canceled
                 )
@@ -372,12 +403,8 @@ class Tool(XedaBaseModel):
             # filled in below, and `Docker.name` is derived from it.
             value.invalidate_cached_properties()
         if isinstance(value, str):
-            split = value.split(":")
-            value = Docker(
-                image=split[0],
-                tag=split[1] if len(split) > 1 else None,
-                command=command,
-            )  # type: ignore
+            image, tag = split_image_tag(value)
+            value = Docker(image=image, tag=tag, command=command)  # type: ignore
         if value and not value.command:
             value.command = command
         return value

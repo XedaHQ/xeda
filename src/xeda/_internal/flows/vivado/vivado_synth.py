@@ -836,15 +836,16 @@ def fmax_of_each_clock(text: str) -> Dict[str, float]:
 
     The Fmax of a clock is 1000 / (period - WNS), with the period from the Clock Summary table and
     the worst setup slack of the paths inside that clock from the Intra Clock Table. A clock that
-    is in only one of the two tables has no entry: it has no paths to time, or no period."""
+    is in only one of the two tables has no entry: it has no paths to time, or no period. Vivado
+    indents a generated clock under its master clock in the Clock Summary table."""
     periods: Dict[str, float] = {}
     for line in _report_section(text, "Clock Summary").splitlines():
-        row = re.match(r"(\S+)\s+\{[^}]*\}\s+(\d+(?:\.\d+)?)\s+\d+(?:\.\d+)?\s*$", line)
+        row = re.match(r"\s*(\S+)\s+\{[^}]*\}\s+(\d+(?:\.\d+)?)\s+\d+(?:\.\d+)?\s*$", line)
         if row:
             periods[row.group(1)] = float(row.group(2))
     result: Dict[str, float] = {}
     for line in _report_section(text, "Intra Clock Table").splitlines():
-        row = re.match(r"(\S+)\s+(-?\d+(?:\.\d+)?)\s", line)
+        row = re.match(r"\s*(\S+)\s+(-?\d+(?:\.\d+)?)\s", line)
         if not row or row.group(1) not in periods:
             continue
         period = periods[row.group(1)]

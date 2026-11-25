@@ -551,8 +551,7 @@ def test_only_reviewed_code_starts_a_process_other_than_through_run_process():
             ):
                 found.add(str(path.relative_to(root)))
     assert sorted(found) == [
-        "flow_runner/trace.py",  # `docker image inspect`, a quick query with no log
-        "proc_utils.py",
+        "proc_utils.py",  # also `docker image inspect` (`image_id`), a quick query with no log
         "remote/agent.py",  # runs on the host
         "remote/client.py",
         "remote/ssh.py",
