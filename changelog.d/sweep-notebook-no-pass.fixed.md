@@ -1,1 +1,0 @@
-- The sweep notebook stops with a clear message when no point passed, not with `StopIteration`.

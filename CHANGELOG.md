@@ -7,6 +7,223 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
 -->
 
 
+## [v1.0.0rc3] - 2026-11-25
+
+### Fixed
+- With `abc.mfs3: true`, the yosys ASIC flow writes `mfsmap`, the new name of the ABC command
+  `mfs3`, with `-a` for area strategies and `-d` for delay strategies. An ABC from before
+  2026-10-28 refuses it.
+- A node that a failed producer blocks no longer creates an empty run directory. `Workspace.records`
+  no longer reports a `missing_record` problem for it.
+- `bsc_sim` compiles the C and C++ sources of imported functions (`import "BDPI"`) in the run
+  directory. Before, bsc wrote each object file beside its source, and replaced a listed object
+  file of the same name there. The flow also runs again after an edit of a header that such a
+  source includes, even an unlisted one.
+- `bsc_sim` fails before the simulation when the module it simulates has methods, instead of
+  running without end. Simulate a testbench with an `Empty` interface (`tb.top`).
+- `dc` now writes and reads times in the library time unit that its new setting `library_time_unit`
+  sets (default `1 ns`). Before, a library in ps gave clock periods, slack and Fmax that were 1000
+  times off.
+- `dc` now reports the smallest slack of all path groups as `wns` and `whs`. It writes `fmax`,
+  `clock_period` and `clock_name` only when the timing report has one clock.
+- A design refuses a `parameters` or `defines` value that is not a JSON value (an object, a set,
+  a path, or a number that is not finite) when it loads, not when it writes its document.
+- The design file schema now accepts a flow section that is `null` and a dotted key such as
+  `flows: {yosys.flatten: true}`, and refuses a `tb.top` of three items, as the loader does. A
+  design file with `generation_units` or `resolved_dependencies` is refused as an unknown key.
+- `diamond_synth` fails with the missing report, not with an internal error, when the place and
+  route report lacks the run status. A missing clock constraint leaves the clock metrics unknown.
+- A Docker image with its own tag keeps it, and a changed image now reruns the flow. An image whose
+  ID cannot be read no longer counts as unchanged. A registry port in an image text, as in
+  `localhost:5000/img:tag`, is no longer taken for the tag. The image is checked through the same
+  client (`docker`, `podman`) and daemon that the run used.
+- `xeda dse` reports a design file that does not exist as `design_file_not_found`, as `xeda run`
+  does. A usage error in its `--json` document keeps the design of `--design-name`.
+- `XEDA_DSE_SETTINGS` and `XEDA_OPTIMIZER_SETTINGS` work: they take `KEY=VALUE` items separated by
+  spaces, with shell quoting. A malformed value is a usage error that does not repeat its text.
+- Quartus, Vivado and OpenROAD report `fmax` as the lowest value over the clocks and, for
+  Quartus, the slow timing models that the reports list. Quartus reports no `fmax` when a clock has
+  no value in one model, and keys `fmax_by_clock` by clock name only. `vivado_synth` counts a
+  generated clock too, which Vivado indents in the clock summary.
+- Every node of a result now has its `node_started` and `node_finished` events, except a `skipped`
+  or `detached` node, in a launch, a sweep and a remote launch alike. A sweep starts all its worker
+  processes before its first node, so a failure to start one runs no node.
+- A node that fails or is canceled before its run begins, such as a sweep task that a worker
+  refuses with `stale_runtime`, now has the disposition `not_run` instead of `ran`. `on_event` now
+  gets the events of every node that failed, and a remote launch tells the node events that the
+  launch on the host told.
+- `quartus` reports `lut` and `ff` for Cyclone V and other ALM families, and leaves out a slack
+  that the report gives as `N/A`. A `language.vhdl.standard` of `08` or `93` now gives a valid
+  input version, and a standard that Quartus does not know is refused at planning.
+- A `Question` that `Workspace.confirm` receives is read-only: setting `removal` or `undone` raises
+  `AttributeError`.
+- A `results.json` that holds a metric with no entry in `metric_info`, or a number that is not
+  finite, is now a `corrupt_record`.
+- A remote launch now keeps a `SIGINT` that your process ignores ignored, as a tool run does for
+  its stop signals.
+- A `CancelToken` now stops a remote run during its first steps (connect, provision, agent start,
+  sync, plan comparison) and returns a `canceled` result. A canceled or interrupted provisioning
+  also stops on the host and frees its lock.
+- A remote `Workspace.run(plan)` runs what the host compared with the saved plan. A Git branch that
+  moves after the comparison no longer changes the commit. A changed request or dependency file is
+  a stale plan.
+- A remote plan and a remote run no longer fail with "resolved another plan" when the design and a
+  dependency list one file, whichever lists it first or whatever the directory layout.
+- `Result.record` raises `RecordError` (`missing_record`) for a result with no root node, instead
+  of `IndexError`.
+- A `run_root` of a private settings file expands a leading `~` or `~/`, instead of making a
+  directory named `~` beside the file.
+- `nextpnr` no longer fails with `internal_error` when its source file changed after Xeda was
+  imported: a flag name no longer comes from reading the caller's source. Xeda no longer needs
+  `varname`.
+- `SettingsError.origin` names the layer that gave the refused value (a settings file or the
+  `Spec`). It was always `None`.
+- The `spec` of a run document now writes a setting in the unit of its field also for a dotted key
+  such as `ghdl_sim.timeout` or `nextpnr.clock.period`.
+- The list of `SpecError` codes now includes `invalid_run_root` and `flow_not_importable`, which
+  Xeda already raised.
+- A sweep with workers refuses a flow class that a function makes at run time, with
+  `flow_not_importable`. A worker that does not rebuild a flow as the sweep planned it fails that
+  node with the same code.
+- A `$VAR` in a path setting expands from the environment that the sweep took at its start. A
+  change of the environment during the sweep no longer makes the plan stale.
+- A sweep reads a producer that another launch ran again only when that run used the code that
+  planned the sweep. Otherwise the consumer fails, and its error says why.
+- The C reference of the Trivium testbench computes the last bytes of a keystream whose length is
+  not a multiple of 8 bytes correctly.
+- A flow class made with `type()` now always runs, as Xeda cannot find its code. Before, its code
+  digest covered the file of the `abc` module of Python instead of its own code.
+- `Spec`, `Plan`, `Result`, `SweepPoint` and `SweepResult` are explicitly not hashable: `hash()` on
+  them raised `TypeError` before, and now their class says so.
+- A script that starts a launch before `if __name__ == "__main__":` now fails in each sweep worker
+  with `unguarded_main`, and the error of every point names the missing guard. It no longer runs
+  the launch again in each worker, or ends with "process pool was terminated abruptly".
+- `yosys_fpga` refuses a device that yosys cannot synthesize for, or a setting that the synthesis
+  pass of the device never takes (such as `widemux` outside Xilinx), when it plans the run (also
+  with `--dry-run`), not when the run starts. It also refuses `abc_dff: true` with ABC9 for ECP5.
+- A metric whose value is 0 is now reported as 0 and no longer left out, such as `dsp` and `ff` of
+  `vivado_synth` and `yosys_fpga`, and `cells`, `cell_types` and `library_area.cells` of `yosys`.
+
+### Added
+- Put the newest installed OSS CAD Suite on `PATH` for every run. The `tools` key of the private
+  settings files turns it `off` or selects a date. A cocotb testbench uses a `cocotb-config` of your
+  own environment before the one of the suite.
+- A Bluespec include file is now a `BluespecHeader` source (`.bsvi`, or `type: BluespecHeader`).
+  The `bsc` and `bsc_sim` flows run again when it changes.
+- The `bsc` and `bsc_sim` flows have an `installed_libraries` setting. It names folders below the
+  `Libraries` folder of bsc's installation, such as `FPGA/Xilinx` for bsc-contrib installed into
+  bsc.
+- Every `--json` document of `xeda pdk` and `xeda remote check|clean|cancel`, and every `--json`
+  failure document, has `schema_version`.
+- `RunRecord.quantity(path)` returns a metric as a pint quantity, and `RunRecord.quantities(path)`
+  returns a metric of the type `numbers` as a table of quantities. `SweepResult.rows` and
+  `to_pandas` give pint quantities in the cells with `quantities=True`.
+- A quantity setting takes a pint quantity from Python, such as `pint.Quantity(10, "ns")`, and
+  gives the same run as the text `10 ns`. A `Spec` keeps the quantity read-only, and
+  `--remote --keep-running` accepts it.
+- `xeda run --dry-run` and `PlanNode.executable_check` show whether the main program of each node
+  is on the `PATH` that the node would get. The check never refuses a plan.
+- Add the `path` key to the private settings files. Its directories go in front of `PATH` for the
+  tools of every run.
+- Add a JSON Schema of the project file, `xeda/data/schemas/project.schema.json`, beside the schema
+  of the design file.
+- Add the notebook `06-qor-history`: it reads the records of past runs and plots a metric over
+  time.
+- `print(result)` and `print(listing)` now show the cause of a failed launch and the run
+  directories that Xeda could not read. `Result.require_passed()` names the failed node and its
+  error code.
+- Document the keys of the `sim.evidence` metric in `xeda list-results`.
+- A launching call raises the new `xeda.errors.StaleRuntimeError` (code `stale_runtime`) when the
+  code of Xeda or of a plugin flow changed on disk after the process imported it, such as in a
+  notebook kernel. It reuses nothing and keeps no trace: restart the process. A sweep worker
+  refuses a node from such a process the same way.
+- Add `xeda tools list|path|install`. `xeda tools install oss-cad-suite` downloads the OSS CAD Suite
+  (the build of 2026-11-10 by default) into a tool store, and checks its SHA-256 digest first.
+
+### Changed
+- `bsc_sim` with Bluesim no longer reports `sim.time`, because the Bluesim kernel counts unitless
+  ticks. `sim.evidence` keeps the cycle count, and its times are ticks with a null `time_unit`.
+- The error text of the `bsc` and `bsc_sim` flows names the real source files. The console and the
+  log show the names that bsc uses, such as `bsc_sources/Top.bsv`.
+- A missing `search_paths` or `installed_libraries` folder now fails the `bsc` and `bsc_sim` run,
+  whatever the warning settings. A missing `verilog_search_paths` folder fails a run with a Verilog
+  backend. Fix or remove the entry.
+- The `bsc` and `bsc_sim` flows refuse path flags such as `-p`, `-vsearch` and `-bdir` in
+  `extra_flags`, and `BSC_OPTIONS` in `env`. Use the matching settings, such as `search_paths` and
+  `bobj_dir`, and put bsc options in `extra_flags`.
+- The `bsc` and `bsc_sim` flows find a package, an include file or a Verilog module of the design
+  only in a listed source or in a folder of the settings. A design that uses an unlisted file now
+  fails: list the file, or name its folder in `search_paths` (`verilog_search_paths` for a Verilog
+  module). A stray compiled `.bo` in a `search_paths` folder is no longer read.
+- The `xezim` metrics `coverage.statement`, `coverage.branch` and `coverage.toggle` are ratios
+  from 0 to 1, not percentages.
+- `Design.load`, `with_updates` and `with_target` are annotated as returning `Self`, and the
+  `license` argument of `Design(...)` is annotated `str | Sequence[str] | None`.
+- The setting `stop_delta` of `ghdl_sim` is a whole number of delta cycles, as in `nvc`. Write `20`,
+  not `"20"`.
+- `xeda pdk list --json` prints an object with `schema_version` and a `platforms` list, as the
+  other list commands do. It was a bare list: read the list from that key.
+- In `xeda pdk install --json` and `xeda pdk path --json`, `receipt` is the receipt object of the
+  install, or `null` if the store has none. It was the path of the receipt file. The receipt file
+  has `schema_version` and `installed_at` (it was `time`).
+- Built-in metric names now mean one quantity in every flow, such as `area.stdcells` (OpenROAD
+  `area`) and `library_area.cells` (yosys `area`). New keys are `fmax_by_clock`, `ths` and
+  `bel_types`. The docs list every old and new name.
+- The results tables of `xeda run` and `xeda dse` show each metric with its unit, and a time such
+  as `sim.time` in the largest exact unit (`30 us`). "Best so far" of `xeda dse` now shows zero
+  values too.
+- The artifact keys of the logs of `c++` and `g++` are `cxx_log` and `gxx_log`, not `c_log` and
+  `g_log`: a `+` in a program name becomes `x`.
+- A relative path in a flow setting is now read from the design root in every flow. Before, some
+  flows (for example `nvc.cover_spec`, `tcl_files` of Vivado and `extraction.rules_file` of
+  OpenROAD) read it from the run directory, and the trace also looked under the start directory.
+  If you relied on the start directory, write `$PWD/...`.
+- `xeda remote cancel --json` names the launch `launch_id`, as every other document does. It was
+  `launch`.
+- The setting `timeout` of `sby` is shown in seconds (`60 s`), as in every other flow, and a value
+  below 1 s is refused when the settings are read. A value in another unit of time still works.
+- `ScrubResult` is now a frozen dataclass with keyword-only fields, not a named tuple. Read its
+  fields by name: it no longer unpacks or indexes.
+- The built simulation program of `bsc_sim` is the artifact `simulator`, as in `yosys_sim`. It was
+  `executable`.
+- A source `type` in a design takes only the exact name of the type, such as `Vhdl`. A name in
+  another letter case, or a number, is refused, and the message gives the right spelling.
+- `Source(path, type=...)` takes the source type as the keyword `type`, the name of the field
+  `Source.type`. The positional second argument and the keyword `typ` are gone.
+- The sweep notebook synthesizes `examples/sv/trivium`, a new SystemVerilog port of the Trivium
+  example, so it no longer needs the GHDL plugin of Yosys. It also varies `nowidelut`, draws the
+  Pareto front over every run, and stops with a clear message when no point passed.
+- The `design` column of `SweepResult.rows()` and `to_pandas()` is now `design_name`, as in every
+  other document. Rename it in code that reads the column.
+- The fixed mappings of the API have `TypedDict` types: `Plan.options`, the entries of
+  `RunRecord.dependencies`, `OutputRecord.design` and each listing of `xeda.introspect`. A type
+  checker now knows their keys. A record with no `design_file` in a dependency is refused.
+- The non-project Vivado flows write `critical_paths.csv` and `critical_paths_by_delay.csv` instead
+  of `critpath_report.csv` and `critpath_by_delay_report.csv`. The artifact keys
+  `route_design_critpath_report_csv` and `route_design_critpath_by_delay_report_csv` are now
+  `route_design_critical_paths_csv` and `route_design_critical_paths_by_delay_csv`, and
+  `post_place_post_place_power_optimization_rpt` is now `post_place_power_optimization_rpt`.
+- The full recipe of `yosys_fpga` maps ECP5 designs without wide LUTs (`nowidelut`), which saved 11%
+  of the LUTs on average. Set `nowidelut: false` for the previous mapping.
+- `yosys_fpga` no longer gives ABC9 a delay target from the clock period, which cost about 13
+  percent fmax on ECP5. The new `abc9_delay_target` setting sets a target explicitly.
+
+### Removed
+- The `bsc` and `bsc_sim` setting `cleanup_bobjs` is removed. Every run now compiles every package
+  again, so delete the setting.
+- OpenROAD no longer reports `worst_slack`: read `wns`, now the signed worst setup slack. `dc` no
+  longer reports its `area` object (use the `library_area.*` metrics), and `ise_synth` no longer
+  reports `minimum_period`: compute it from `fmax` as `1000 / fmax`.
+- The unused dependencies `cattrs`, `attrs_strict`, `pathvalidate`, `simpleeval`, `overrides`,
+  `devtools` and `pyvcd` are removed. Xeda no longer installs them.
+- Remove the `remote` parameter of `xeda.sweep`: a sweep never ran on a remote host, so the
+  parameter only raised. Use `xeda.run` with a `Remote` to launch on a host.
+- `vivado_alt_synth` no longer has `tcl_files`, `set_synth_properties`, `set_impl_properties` and
+  `show_available_strategies`, which it always refused. Delete them, or use `vivado_synth`.
+- `yosys_fpga` no longer has the `flow3` setting: use `abc9_script: flow3` or
+  `abc9_script: default`.
+
+
 ## [v1.0.0rc2] - 2026-11-06
 
 ### Fixed
