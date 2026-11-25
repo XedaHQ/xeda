@@ -45,6 +45,7 @@ from .remote_fixtures import (
 )
 from .test_remote_agent import (
     DESIGN,
+    TEST_LEASE,
     USE_LOCK,
     Beats,
     BlockingTool,
@@ -612,7 +613,14 @@ def test_the_agent_leaves_a_launch_that_keeps_running_when_the_lease_ends(
     tmp_path, toolchain, monkeypatch, start_agent, leftovers
 ):
     agent, state, beats = _keep_running_agent(
-        tmp_path, toolchain, monkeypatch, start_agent, leftovers, "--lease", "1", beats=True
+        tmp_path,
+        toolchain,
+        monkeypatch,
+        start_agent,
+        leftovers,
+        "--lease",
+        str(TEST_LEASE),
+        beats=True,
     )
     assert beats is not None
     beats.stop()  # no heartbeat any more: the lease ends

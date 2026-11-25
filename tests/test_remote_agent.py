@@ -329,6 +329,12 @@ class BlockingTool:
         pytest.fail(f"the tool did not start\n{agent.diagnostics()}")
 
 
+#: The lease of an agent in a test that waits for the lease to end or to pass. A stall of the
+#: test process shorter than this does not end the session by accident. The exact rule of the lease
+#: is tested on a clock that the test sets (`test_every_heartbeat_renews_the_lease`).
+TEST_LEASE = 4
+
+
 class Beats:
     """Send heartbeats from a thread until stopped.
 
@@ -554,7 +560,7 @@ def test_eof_on_stdin_cancels(tmp_path, toolchain, monkeypatch, start_agent):
 
 def test_missing_heartbeat_cancels_after_the_lease(tmp_path, toolchain, monkeypatch, start_agent):
     tool = BlockingTool(tmp_path, monkeypatch)
-    agent = start_agent("--lease", "1", env=dict(os.environ))
+    agent = start_agent("--lease", str(TEST_LEASE), env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
     message = launch_message(tmp_path, "run-1", path_setup(toolchain))
@@ -565,7 +571,7 @@ def test_missing_heartbeat_cancels_after_the_lease(tmp_path, toolchain, monkeypa
     found = descendants(agent)
     result = agent.get("result", whole=True)  # no heartbeat comes after this
     assert result["canceled"] is True
-    assert any("lease" in line for line in agent.lines), agent.lines
+    assert any("the lease is" in line for line in agent.lines), agent.lines
     assert_gone(found)
 
 
@@ -594,11 +600,86 @@ def test_no_heartbeat_thread_runs_while_a_launch_message_is_built():
     assert not late, f"a launch message is built after the heartbeats start: {late}"
 
 
+class SetClock:
+    """The `time` module of the agent, with a `monotonic` clock that a test sets."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(time, name)
+
+
+def beat_and_wait(writer: FrameWriter, client: Any, clock: SetClock) -> None:
+    """Send one heartbeat and wait until the reader of the client has counted it."""
+    writer.send(BEAT)
+    deadline = time.monotonic() + TIMEOUT
+    while client.last_seen != clock.now:
+        assert time.monotonic() < deadline, "the agent did not read the heartbeat"
+        threading.Event().wait(0.005)
+
+
+def test_every_heartbeat_renews_the_lease(tmp_path, monkeypatch):
+    """The lease counts the time since the last frame of the client, and only when a launch runs
+    or the client has sent a heartbeat. The test sets the clock, so that no delay of the test or
+    of the reader thread changes the result."""
+    clock = SetClock()
+    monkeypatch.setattr(agent_module, "time", clock)
+    reader, writer_end = os.pipe()
+    stream = os.fdopen(reader, "rb")
+    sender_stream = os.fdopen(writer_end, "wb")
+    sender = FrameWriter(sender_stream)
+    client = agent_module._Client(stream)
+    client.start()
+    out = agent_module._Output(FrameWriter(io.BytesIO()), 1e9)
+    out.start()
+    session = agent_module.Session(tmp_path / "remote", KEY, client, out, lease=10)
+    try:
+        clock.now += 1000  # no frame yet, and no heartbeat: the lease does not count
+        assert session.lost(launching=False) is None
+        assert "the lease is 10 s" in (session.lost(launching=True) or "")
+        client.last_seen = clock.now
+        for _ in range(5):  # the time between the heartbeats is 9 s: 45 s in all, over 4 leases
+            clock.now += 9
+            beat_and_wait(sender, client, clock)
+            assert session.lost(launching=False) is None
+            assert session.lost(launching=True) is None
+        clock.now += 10.5
+        assert "the lease is 10 s" in (session.lost(launching=False) or "")
+    finally:
+        sender_stream.close()
+        client.stop()
+        out.close()
+
+
+def test_a_test_agent_runs_with_the_test_lease():
+    """A lease of a few seconds ends a session when the test process stalls for that long, as the
+    process of a loaded runner can. Only the argument tests of the lease limit use another lease."""
+    allowed = {"str(TEST_LEASE)", "str(LEASE + 1)"}
+    wrong = []
+    for path in sorted(Path(__file__).parent.glob("test_remote_*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.List):
+                items = node.elts
+            elif isinstance(node, ast.Call):
+                items = node.args
+            else:
+                continue
+            for index, item in enumerate(items[:-1]):
+                if isinstance(item, ast.Constant) and item.value == "--lease":
+                    if ast.unparse(items[index + 1]) not in allowed:
+                        wrong.append(f"{path.name}:{item.lineno}")
+    assert not wrong, f"an agent runs with a lease other than TEST_LEASE: {wrong}"
+
+
 def test_heartbeats_keep_a_launch_alive_past_the_lease(
     tmp_path, toolchain, monkeypatch, start_agent
 ):
     tool = BlockingTool(tmp_path, monkeypatch)
-    agent = start_agent("--lease", "1", env=dict(os.environ))
+    agent = start_agent("--lease", str(TEST_LEASE), env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
     message = launch_message(tmp_path, "run-1", path_setup(toolchain))
@@ -606,8 +687,11 @@ def test_heartbeats_keep_a_launch_alive_past_the_lease(
     agent.send(message)
     tool.wait(agent)
     try:
-        time.sleep(2.5)  # more than twice the lease: the only test that waits for time to pass
-        assert all(frame is not None and frame[0] == LOG for frame in list(agent._frames.queue))
+        time.sleep(TEST_LEASE + 0.5)  # the launch outlives the lease: the heartbeats renew it
+        frames = list(agent._frames.queue)
+        assert all(
+            frame is not None and frame[0] == LOG for frame in frames
+        ), f"the agent sent more than log lines: {frames}\n{agent.diagnostics()}"
         agent.writer.send(CANCEL)
         assert agent.get("result", whole=True)["canceled"] is True
     finally:
@@ -1407,7 +1491,7 @@ def test_a_client_that_stops_reading_is_treated_as_gone(
 ):
     monkeypatch.setenv("XEDA_FAKE_FPGA_FLOOD", "1")
     tool = BlockingTool(tmp_path, monkeypatch)
-    agent = start_agent("--lease", "2", "--grace", "1,1", env=dict(os.environ))
+    agent = start_agent("--lease", str(TEST_LEASE), "--grace", "1,1", env=dict(os.environ))
     agent.get("hello")
     agent.sync(DESIGN, "run-1")
     message = launch_message(tmp_path, "run-1", path_setup(toolchain))
