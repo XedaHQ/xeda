@@ -33,8 +33,12 @@ pytestmark = pytest.mark.python_compat
 
 TESTS = Path(__file__).parent
 LAUNCH_CALLS = {"run_flow", "launch_flow"}
-#: The statements that end a simulation, in VHDL and in SystemVerilog.
-END_STATEMENT = re.compile(r"std\.env\.(finish|stop)|\bfinish\s*;|\bstop\s*;|\$(finish|stop|fatal)")
+#: The statements that end a simulation. VHDL is not case-sensitive; SystemVerilog is.
+VHDL_END = re.compile(r"\bstd\.env\.(finish|stop)\b|\b(finish|stop)\s*(\(|;)", re.IGNORECASE)
+VERILOG_END = re.compile(r"\$(finish|stop|fatal)\b")
+#: Comments and string literals, which hold no statement: VHDL and SystemVerilog.
+VHDL_NOT_CODE = re.compile(r'--[^\n]*|"(?:[^"\n]|"")*"')
+VERILOG_NOT_CODE = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:[^"\\\n]|\\.)*"', re.DOTALL)
 #: A VHDL process without a sensitivity list runs from the start of the simulation.
 END_PROCESS = re.compile(r"\bend\s+process\b", re.IGNORECASE)
 FREE_PROCESS = re.compile(r"\bprocess\b(?!\s*\()", re.IGNORECASE)
@@ -169,13 +173,14 @@ def string_text(node: ast.expr, constants: dict[str, ast.expr]) -> str | None:
     if isinstance(node, ast.JoinedStr):
         parts = [string_text(part, constants) for part in node.values]
         return None if None in parts else "".join(parts)  # type: ignore[arg-type]
-    if isinstance(node, ast.FormattedValue):
-        return "x"
+    if isinstance(node, ast.FormattedValue) and node.conversion == -1 and node.format_spec is None:
+        return string_text(node.value, constants)  # `{TEXT}` of a literal text; else `None`
     return None
 
 
-def bench_texts(path: Path) -> list[tuple[int, str]]:
-    """The VHDL and SystemVerilog testbench texts of `path` that are fully literal: line, text.
+def bench_texts(path: Path) -> list[tuple[int, str, str]]:
+    """The VHDL and SystemVerilog testbench texts of `path` that are fully literal: line,
+    language (`vhdl` or `verilog`), text.
 
     A VHDL text is a testbench if it has a process without a sensitivity list; a SystemVerilog
     text is one if it has an `initial` block. A string expression is read whole: a part of one
@@ -194,21 +199,30 @@ def bench_texts(path: Path) -> list[tuple[int, str]]:
         vhdl = "architecture" in text and FREE_PROCESS.search(END_PROCESS.sub("", text))
         verilog = re.search(r"\bmodule\b", text) and re.search(r"\binitial\b", text)
         if vhdl or verilog:
-            found.append((node.lineno, text))
+            found.append((node.lineno, "vhdl" if vhdl else "verilog", text))
     return found
+
+
+def ends_the_simulation(language: str, text: str) -> bool:
+    """Whether `text` has a statement that ends the simulation, outside comments and strings."""
+    if language == "vhdl":
+        return bool(VHDL_END.search(VHDL_NOT_CODE.sub(" ", text)))
+    return bool(VERILOG_END.search(VERILOG_NOT_CODE.sub(" ", text)))
 
 
 def bench_cases() -> list:
     return [
-        pytest.param(text, id=f"{path.name}:{line}")
+        pytest.param(language, text, id=f"{path.name}:{line}")
         for path in opt_in_modules()
-        for line, text in bench_texts(path)
+        for line, language, text in bench_texts(path)
     ]
 
 
-@pytest.mark.parametrize("text", bench_cases())
-def test_a_testbench_of_an_opt_in_test_ends_the_simulation_with_a_statement(text: str) -> None:
-    assert END_STATEMENT.search(text), text
+@pytest.mark.parametrize(("language", "text"), bench_cases())
+def test_a_testbench_of_an_opt_in_test_ends_the_simulation_with_a_statement(
+    language: str, text: str
+) -> None:
+    assert ends_the_simulation(language, text), text
 
 
 def test_the_scan_finds_the_testbenches_of_the_opt_in_layers() -> None:
@@ -217,4 +231,33 @@ def test_the_scan_finds_the_testbenches_of_the_opt_in_layers() -> None:
 
 def test_a_testbench_that_ends_by_an_empty_event_queue_is_found() -> None:
     text = 'entity tb is end; architecture a of tb is begin process begin report "x"; wait; end process; end;'
-    assert not END_STATEMENT.search(text)
+    assert not ends_the_simulation("vhdl", text)
+
+
+@pytest.mark.parametrize(
+    ("language", "text", "ends"),
+    [
+        ("vhdl", 'process begin report "std.env.finish"; wait; end process;', False),
+        ("vhdl", "process begin -- std.env.finish;\n wait; end process;", False),
+        ("vhdl", "process begin STD.ENV.FINISH; end process;", True),
+        ("vhdl", "use std.env.all; process begin Finish; end process;", True),
+        ("verilog", 'initial begin $display("$finish"); end', False),
+        ("verilog", "initial begin // $finish;\n end", False),
+        ("verilog", "initial begin /* $finish; */ end", False),
+        ("verilog", "initial begin #1 $finish; end", True),
+        ("verilog", "initial begin $FINISH; end", False),
+    ],
+)
+def test_only_a_statement_outside_comments_and_strings_ends_a_simulation(
+    language: str, text: str, ends: bool
+) -> None:
+    assert ends_the_simulation(language, text) is ends
+
+
+def test_a_text_built_from_a_variable_is_not_read() -> None:
+    tree = ast.parse('BODY = "$finish;"\nf"module tb; initial {body} endmodule"\nf"{BODY}"')
+    constants = module_constants(tree)
+    built = tree.body[1].value  # type: ignore[attr-defined]
+    literal = tree.body[2].value  # type: ignore[attr-defined]
+    assert string_text(built, constants) is None
+    assert string_text(literal, constants) == "$finish;"

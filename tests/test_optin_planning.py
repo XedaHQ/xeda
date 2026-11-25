@@ -141,6 +141,10 @@ def test_every_opt_in_test_plans_its_launch(tmp_path: Path) -> None:
     ids = opt_in_node_ids()
     outcomes = tmp_path / "outcomes.jsonl"
     environment = dict(os.environ)
+    # the child selects exactly `ids`: options of the environment, such as a `--deselect` in
+    # `PYTEST_ADDOPTS`, would drop a test without a word
+    for variable in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS"):
+        environment.pop(variable, None)
     environment["XEDA_TESTS_WORK_DIR"] = str(tmp_path / "work")
     # a `docker` that answers every query with success, and runs nothing: a test checks for its
     # images with `docker image inspect` before it launches
@@ -172,6 +176,8 @@ def test_every_opt_in_test_plans_its_launch(tmp_path: Path) -> None:
     # every test either reaches its plan or is a reviewed test that needs real files: a test that
     # passes, or skips for another reason (a check that the probe does not make pass), is wrong
     records = [json.loads(line) for line in outcomes.read_text(encoding="utf-8").splitlines()]
+    unrecorded = sorted(set(ids) - {r["node"].split("[")[0] for r in records})
+    assert unrecorded == [], f"have no outcome: {unrecorded}"
     planned = {
         r["node"] for r in records if r["outcome"] == "skipped" and r["reason"].endswith(PLANNED)
     }
