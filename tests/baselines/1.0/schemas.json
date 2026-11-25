@@ -1394,29 +1394,7 @@
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
-              },
-              {
-                "maxItems": 1,
-                "minItems": 1,
-                "prefixItems": [
-                  {
-                    "type": "string"
-                  }
-                ],
-                "type": "array"
-              },
-              {
                 "maxItems": 2,
-                "minItems": 2,
-                "prefixItems": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ],
                 "type": "array"
               },
               {
@@ -1738,29 +1716,7 @@
                 "items": {
                   "type": "string"
                 },
-                "type": "array"
-              },
-              {
-                "maxItems": 1,
-                "minItems": 1,
-                "prefixItems": [
-                  {
-                    "type": "string"
-                  }
-                ],
-                "type": "array"
-              },
-              {
                 "maxItems": 2,
-                "minItems": 2,
-                "prefixItems": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ],
                 "type": "array"
               },
               {
@@ -1929,13 +1885,6 @@
         "title": "Flows",
         "type": "object"
       },
-      "generation_units": {
-        "default": [],
-        "hidden_from_schema": true,
-        "items": {},
-        "title": "Generation Units",
-        "type": "array"
-      },
       "language": {
         "$ref": "#/$defs/Language",
         "description": "HDL language settings"
@@ -1962,13 +1911,6 @@
         "description": "The unique name of the design. It starts with a letter and has only letters, digits, `_` and `-`. Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*.",
         "title": "Name",
         "type": "string"
-      },
-      "resolved_dependencies": {
-        "default": [],
-        "hidden_from_schema": true,
-        "items": {},
-        "title": "Resolved Dependencies",
-        "type": "array"
       },
       "rtl": {
         "$ref": "#/$defs/Rtl"
@@ -2033,13 +1975,6 @@
               "title": "Flows",
               "type": "object"
             },
-            "generation_units": {
-              "default": [],
-              "hidden_from_schema": true,
-              "items": {},
-              "title": "Generation Units",
-              "type": "array"
-            },
             "language": {
               "$ref": "#/$defs/Language",
               "description": "HDL language settings"
@@ -2063,13 +1998,6 @@
               "title": "License"
             },
             "name": false,
-            "resolved_dependencies": {
-              "default": [],
-              "hidden_from_schema": true,
-              "items": {},
-              "title": "Resolved Dependencies",
-              "type": "array"
-            },
             "rtl": {
               "$ref": "#/$defs/RtlOverlay"
             },
@@ -2437,6 +2365,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       },
       "spec": {
@@ -2937,6 +2866,7 @@
             "type": "string"
           },
           "schema_version": {
+            "const": 1,
             "type": "integer"
           },
           "settings": {
@@ -3144,6 +3074,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       },
       "target": {
@@ -3207,12 +3138,17 @@
         ],
         "type": "object"
       },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
       "success": {
         "const": false
       }
     },
     "required": [
       "error",
+      "schema_version",
       "success"
     ],
     "title": "a failed query, pdk, tools or remote command",
@@ -3254,6 +3190,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       }
     },
@@ -3542,6 +3479,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       }
     },
@@ -3616,6 +3554,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       }
     },
@@ -3669,6 +3608,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       }
     },
@@ -3750,6 +3690,7 @@
         "type": "string"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       }
     },
@@ -3854,6 +3795,7 @@
         "type": "object"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       }
     },
@@ -3892,13 +3834,64 @@
         "type": "string"
       },
       "receipt": {
+        "properties": {
+          "commands": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "installed_at": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "xeda_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "commands",
+          "directory",
+          "installed_at",
+          "platform",
+          "provider",
+          "root",
+          "schema_version",
+          "version",
+          "xeda_version"
+        ],
         "type": [
-          "string",
+          "object",
           "null"
         ]
       },
       "root": {
         "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
       },
       "success": {
         "const": true
@@ -3915,6 +3908,7 @@
       "provider",
       "receipt",
       "root",
+      "schema_version",
       "success",
       "version"
     ],
@@ -3923,64 +3917,77 @@
   },
   "pdk-list": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "items": {
-      "properties": {
-        "default": {
-          "type": "boolean"
-        },
-        "directory": {
-          "type": "string"
-        },
-        "installed": {
-          "type": "boolean"
-        },
-        "other_versions": {
-          "items": {
-            "properties": {
-              "directory": {
-                "type": "string"
-              },
-              "installed": {
-                "type": "boolean"
-              },
-              "version": {
-                "type": "string"
-              }
+    "properties": {
+      "platforms": {
+        "items": {
+          "properties": {
+            "default": {
+              "type": "boolean"
             },
-            "required": [
-              "directory",
-              "installed",
-              "version"
-            ],
-            "type": "object"
+            "directory": {
+              "type": "string"
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "other_versions": {
+              "items": {
+                "properties": {
+                  "directory": {
+                    "type": "string"
+                  },
+                  "installed": {
+                    "type": "boolean"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "directory",
+                  "installed",
+                  "version"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "problem": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
           },
-          "type": "array"
+          "required": [
+            "default",
+            "directory",
+            "installed",
+            "platform",
+            "provider",
+            "version"
+          ],
+          "type": "object"
         },
-        "platform": {
-          "type": "string"
-        },
-        "problem": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
+        "type": "array"
       },
-      "required": [
-        "default",
-        "directory",
-        "installed",
-        "platform",
-        "provider",
-        "version"
-      ],
-      "type": "object"
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      }
     },
+    "required": [
+      "platforms",
+      "schema_version"
+    ],
     "title": "xeda pdk list --json",
-    "type": "array"
+    "type": "object"
   },
   "pdk-path": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4012,8 +4019,65 @@
       "provider": {
         "type": "string"
       },
+      "receipt": {
+        "properties": {
+          "commands": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "installed_at": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "xeda_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "commands",
+          "directory",
+          "installed_at",
+          "platform",
+          "provider",
+          "root",
+          "schema_version",
+          "version",
+          "xeda_version"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
       "root": {
         "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
       },
       "upstream_files": {
         "items": {
@@ -4032,11 +4096,65 @@
       "library",
       "platform",
       "provider",
+      "receipt",
       "root",
+      "schema_version",
       "upstream_files",
       "version"
     ],
     "title": "xeda pdk path --json",
+    "type": "object"
+  },
+  "pdk-receipt": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "commands": {
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "array"
+      },
+      "directory": {
+        "type": "string"
+      },
+      "installed_at": {
+        "type": "string"
+      },
+      "platform": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "root": {
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
+      "version": {
+        "type": "string"
+      },
+      "xeda_version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "commands",
+      "directory",
+      "installed_at",
+      "platform",
+      "provider",
+      "root",
+      "schema_version",
+      "version",
+      "xeda_version"
+    ],
+    "title": "receipt of an install in the PDK store",
     "type": "object"
   },
   "remote-cancel": {
@@ -4045,8 +4163,12 @@
       "host": {
         "type": "string"
       },
-      "launch": {
+      "launch_id": {
         "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
       },
       "success": {
         "const": true
@@ -4058,7 +4180,8 @@
     },
     "required": [
       "host",
-      "launch",
+      "launch_id",
+      "schema_version",
       "success",
       "survivors"
     ],
@@ -4209,6 +4332,10 @@
         ],
         "type": "object"
       },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
       "success": {
         "const": true
       },
@@ -4231,6 +4358,7 @@
       "kill_user_processes",
       "platform",
       "python",
+      "schema_version",
       "success",
       "warnings",
       "xeda"
@@ -4284,6 +4412,10 @@
         },
         "type": "array"
       },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
       "success": {
         "const": true
       }
@@ -4292,6 +4424,7 @@
       "host",
       "kept",
       "removed",
+      "schema_version",
       "success"
     ],
     "title": "xeda remote clean --json",
@@ -4745,6 +4878,7 @@
         "type": "string"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       },
       "settings": {
@@ -5239,6 +5373,7 @@
             "type": "string"
           },
           "schema_version": {
+            "const": 1,
             "type": "integer"
           },
           "settings": {
@@ -5488,6 +5623,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       },
       "spec": {
@@ -5643,6 +5779,7 @@
         "type": "array"
       },
       "schema_version": {
+        "const": 1,
         "type": "integer"
       },
       "skipped": {
@@ -5688,7 +5825,8 @@
         "type": "string"
       },
       "schema_version": {
-        "const": 1
+        "const": 1,
+        "type": "integer"
       },
       "sha256": {
         "type": "string"
@@ -5743,7 +5881,8 @@
             "type": "string"
           },
           "schema_version": {
-            "const": 1
+            "const": 1,
+            "type": "integer"
           },
           "sha256": {
             "type": "string"
@@ -5773,6 +5912,10 @@
       "root": {
         "type": "string"
       },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
       "success": {
         "const": true
       },
@@ -5790,6 +5933,7 @@
       "platform",
       "receipt",
       "root",
+      "schema_version",
       "success",
       "tool",
       "version"
@@ -5799,41 +5943,73 @@
   },
   "tools-list": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "items": {
-      "properties": {
-        "bin": {
-          "type": "string"
-        },
-        "directory": {
-          "type": "string"
-        },
-        "installed": {
-          "type": "boolean"
-        },
-        "platform": {
-          "type": "string"
-        },
-        "receipt": {
+    "properties": {
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
+      "tools": {
+        "items": {
           "properties": {
-            "asset_id": {
-              "type": "integer"
-            },
-            "installed_at": {
+            "bin": {
               "type": "string"
+            },
+            "directory": {
+              "type": "string"
+            },
+            "installed": {
+              "type": "boolean"
             },
             "platform": {
               "type": "string"
             },
-            "schema_version": {
-              "const": 1
+            "receipt": {
+              "properties": {
+                "asset_id": {
+                  "type": "integer"
+                },
+                "installed_at": {
+                  "type": "string"
+                },
+                "platform": {
+                  "type": "string"
+                },
+                "schema_version": {
+                  "const": 1,
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "asset_id",
+                "installed_at",
+                "platform",
+                "schema_version",
+                "sha256",
+                "tool",
+                "url",
+                "version"
+              ],
+              "type": [
+                "object",
+                "null"
+              ]
             },
-            "sha256": {
-              "type": "string"
+            "selected": {
+              "type": "boolean"
             },
             "tool": {
-              "type": "string"
-            },
-            "url": {
               "type": "string"
             },
             "version": {
@@ -5841,44 +6017,26 @@
             }
           },
           "required": [
-            "asset_id",
-            "installed_at",
+            "bin",
+            "directory",
+            "installed",
             "platform",
-            "schema_version",
-            "sha256",
+            "receipt",
+            "selected",
             "tool",
-            "url",
             "version"
           ],
-          "type": [
-            "object",
-            "null"
-          ]
+          "type": "object"
         },
-        "selected": {
-          "type": "boolean"
-        },
-        "tool": {
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "bin",
-        "directory",
-        "installed",
-        "platform",
-        "receipt",
-        "selected",
-        "tool",
-        "version"
-      ],
-      "type": "object"
+        "type": "array"
+      }
     },
+    "required": [
+      "schema_version",
+      "tools"
+    ],
     "title": "xeda tools list --json",
-    "type": "array"
+    "type": "object"
   },
   "tools-path": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5904,7 +6062,8 @@
             "type": "string"
           },
           "schema_version": {
-            "const": 1
+            "const": 1,
+            "type": "integer"
           },
           "sha256": {
             "type": "string"
@@ -5934,6 +6093,10 @@
       "root": {
         "type": "string"
       },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
       "tool": {
         "type": "string"
       },
@@ -5947,6 +6110,7 @@
       "platform",
       "receipt",
       "root",
+      "schema_version",
       "tool",
       "version"
     ],
