@@ -76,6 +76,8 @@ from .introspect_types import (
     SettingsInfo,
     _Experimental,
 )
+from .project import PROJECT_KEYS
+from .run_root import DEFAULT_RUN_ROOT
 from .units import QUANTITY_KEY, UNIT_KEY, Quantity, quantity_in_unit, verify_unit
 from .utils import json_encodable, unique, with_json_keys
 
@@ -87,6 +89,7 @@ __all__ = [
     "settings_info",
     "results_info",
     "design_schema",
+    "project_schema",
     "boards_info",
     "platforms_info",
 ]
@@ -1093,6 +1096,19 @@ def _make_rtl_and_name_optional(schema: Dict[str, Any]) -> None:
             schema.pop("required", None)
 
 
+def _accept_flow_sections(schema: Dict[str, Any]) -> None:
+    """Describe the sections of `flows` as the loader reads them (`flows_table_problems`).
+
+    A section is a table of settings, and `null` is an empty one. A key with a dot is not a flow
+    name: the loader expands it into the section it names (`yosys.flatten: true` is
+    `yosys: {flatten: true}`), so its value is a setting of any type. The loader checks the type of
+    that setting later, and the section is still a table, never a scalar."""
+    flows = schema.get("properties", {}).get("flows")
+    if flows is not None:
+        flows["additionalProperties"] = {"type": ["object", "null"], "additionalProperties": True}
+        flows["patternProperties"] = {r"\.": {}}
+
+
 def _add_generator_class(schema: Dict[str, Any]) -> None:
     """Describe `class` in a generator table. The loader reads it before the model validates the
     table, so the model has no field for it."""
@@ -1293,6 +1309,7 @@ def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
     _accept_clock_forms(schema)
     _accept_single_items(schema)
     _make_rtl_and_name_optional(schema)
+    _accept_flow_sections(schema)
     _add_generator_class(schema)
     _open_property_sets(schema)
     for definition, properties in _EXTRA_INPUT_FORMS.items():
@@ -1305,6 +1322,97 @@ def design_schema(*, input_syntax: bool = True) -> Dict[str, Any]:
                 target_properties[name] = _widen(target_properties[name], extra)
     # Last: a target takes the properties of the root, including those that the steps above added.
     _add_targets(schema)
+    return schema
+
+
+def project_schema() -> Dict[str, Any]:
+    """Return the JSON Schema of a Xeda project file (YAML, TOML or JSON).
+
+    The schema describes the input syntax, as `design_schema()` does. It accepts what the loader
+    accepts, wherever the rule is the same for every installation: the root is closed, as the
+    loader closes it after it expands the dotted keys, and a dotted key `flows.<flow>...` is
+    described as the loader expands it. A design entry is `{file: <path>}`, or a design table with
+    a `name`, of which a design file takes every key. The settings of a flow are an open table, as
+    in a design file. A rule that depends on the installed flows (the name of a flow is no target
+    name) or on other files (a design file, a dependency) is not part of the schema: the loader
+    checks it, and the description of the key says so.
+
+    No command prints it. The package ships it as `xeda/data/schemas/project.schema.json`.
+    """
+    design = design_schema()
+    entry = {k: v for k, v in design.items() if k not in ("$defs", "$schema", "schema_version")}
+    # An inline design needs a `name` of the grammar that every design name has.
+    entry["properties"] = {
+        **entry.get("properties", {}),
+        "name": {
+            **entry.get("properties", {}).get("name", {"type": "string"}),
+            "pattern": f"^{DESIGN_NAME.pattern}$",
+        },
+    }
+    flows = design.get("properties", {}).get("flows", {"type": "object"})
+    section: Dict[str, Any] = {"type": ["object", "null"], "additionalProperties": True}
+    run_root = {"type": ["string", "null"], "minLength": 1}
+    schema: Dict[str, Any] = {
+        "$schema": JSON_SCHEMA_DIALECT,
+        "schema_version": 1,
+        "title": "Xeda project file",
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+            "designs": {
+                "description": "The designs of the project, in order. An entry is a design "
+                "file, `{file: <path>}`, which is the only key of the entry, or a design written "
+                "in the project file, which needs a `name` and has no `file`. The loader reads "
+                "a design file, so it checks the file and its name, and not this schema.",
+                "type": ["array", "null"],
+                "items": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {"file": {"type": "string", "minLength": 1}},
+                            "required": ["file"],
+                            "additionalProperties": False,
+                        },
+                        {"$ref": "#/$defs/ProjectDesign"},
+                    ]
+                },
+            },
+            "flows": {
+                **{k: v for k, v in flows.items() if k not in ("default", "title")},
+                "description": "The settings of the flows for every design of the project: each "
+                "key is the name of a flow, and each value is a table of its settings. A key with "
+                "a dot, such as `yosys.flatten`, sets one setting of a flow. A flow section is "
+                "never a scalar.",
+                "type": ["object", "null"],
+            },
+            "run_root": {
+                **run_root,
+                "default": DEFAULT_RUN_ROOT,
+                "description": "The directory of the run directories, relative to the project "
+                f"file. The default is `{DEFAULT_RUN_ROOT}` beside the project file.",
+            },
+            "default_target": {
+                "description": "The target that a design uses when the command gives none. A "
+                "target name starts with a letter and has only letters, digits, `_` and `-`. "
+                "The name of a flow is no target name. The loader checks that against the "
+                "installed flows, plugins included, and this schema does not.",
+                "type": ["string", "null"],
+                "pattern": f"^{DESIGN_NAME.pattern}$",
+            },
+        },
+        # The loader expands a dotted key before it checks the keys. Only `flows` can have one:
+        # the key of a section is a flow, and a key below it is a setting.
+        "patternProperties": {
+            r"^flows\.[^.]*$": section,
+            r"^flows\.[^.]*\.": {},
+        },
+        "additionalProperties": False,
+    }
+    assert set(schema["properties"]) == set(PROJECT_KEYS)
+    schema["$defs"] = {
+        **design.get("$defs", {}),
+        "ProjectDesign": {**entry, "required": ["name"], "not": {"required": ["file"]}},
+    }
     return schema
 
 

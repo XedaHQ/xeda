@@ -292,8 +292,8 @@ its artifacts (see :ref:`artifact-keys`):
 
 ``type`` is one of ``number``, ``integer``, ``boolean``, ``text``, ``text_list`` (a list of text),
 ``counts`` (a table of text to integer), ``numbers`` (a table of text to number) and ``object`` (a
-JSON object that the description documents). ``unit`` is a unit text such as ``MHz``, ``ns`` or
-``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
+JSON object whose keys the description names; a later release may add a key, and it keeps the keys
+that it has). ``unit`` is a unit text such as ``MHz``, ``ns`` or ``W``. For ``numbers``, it is the unit of every value. A metric in the units of the platform, such
 as a ``library_area.*`` area in the area unit of the Liberty files, has the unit ``null``, and its
 description says so. The keys that every flow reports (``runtime``, ...) are no metrics and are not listed. The
 table of ``xeda list-results`` has the columns Path, Type, Unit and Description.
@@ -506,6 +506,10 @@ Artifact keys
 ``xeda list-results <flow> --json`` lists the artifacts of a flow in ``artifacts``, each as
 ``{key, description, when}``. ``when`` is the condition under which a run has the key. The table of
 ``xeda list-results`` shows them under the metrics. A key is lower snake case.
+
+``always`` has one meaning: a run that passes always writes the artifact. A run that fails may lack
+any artifact, because it can stop before the step that writes it, so ``when`` never names a
+failure. Any other text of ``when`` is documentation: it says when a passing run has the key.
 
 - ``log`` is the output of the main tool of the flow, in ``logs/<program>.log``. Every flow that
   starts a tool has it. For ``nextpnr`` and ``fpga_pack`` the main tool is the program of the
@@ -738,10 +742,14 @@ guessing its shape:
      - ``xeda/data/schemas/failure.schema.json``
    * - a design file (``xeda design-schema``)
      - ``xeda/data/schemas/design.schema.json``
+   * - a project file (``xedaproject.yaml``)
+     - ``xeda/data/schemas/project.schema.json``
 
 A schema lists every key that the writer always emits under ``required``. It does not forbid a key
 that it does not name: a later minor version can add one. The schema of a design file is the one
-that ``xeda design-schema`` prints. Its direction is the other way: it describes what Xeda accepts.
+that ``xeda design-schema`` prints. The schema of a project file is the same kind of document: it
+holds the design entries, with the schema of a design. Their direction is the other way: they
+describe what Xeda accepts.
 :doc:`stability` says what a release may change in a schema.
 
 Running a flow

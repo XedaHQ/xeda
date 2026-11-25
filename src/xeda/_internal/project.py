@@ -27,6 +27,7 @@ from .design import (
 )
 from xeda.errors import DesignError, ProjectError
 from .frozen import freeze, thaw
+from .run_root import DEFAULT_RUN_ROOT
 from .types import UNSET, PathLike, Unset
 from .utils import ConflictingKeys, expand_hierarchy, flows_table_problems, tomllib
 from .yaml_loader import load_yaml
@@ -269,7 +270,7 @@ def _read(file: Path) -> dict[str, Any]:
 
 def _run_root(file: Path, root: Path, given: Any) -> Path:
     if given is None:
-        return root / "xeda_run"
+        return root / DEFAULT_RUN_ROOT
     if not isinstance(given, str) or not given:
         raise _invalid(file, f"`run_root` is a path, not {given!r:.60}")
     return Path(os.path.normpath(root / given))

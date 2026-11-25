@@ -15,13 +15,18 @@ import jsonschema
 import pytest
 import yaml
 
-from .test_cli_json_contract import SQRT, run_xeda
+from xeda import Project
+from xeda._internal.frozen import thaw
+from xeda.errors import DesignError, ProjectError
+
+from .test_cli_json_contract import EXAMPLES_DIR, SQRT, run_xeda
 from .source_layout import SCHEMAS_DIR
 from .test_public_api import tool
 
 pytestmark = pytest.mark.python_compat
 
 DOCUMENTS = Path(__file__).parent / "resources" / "documents"
+PROJECT = SQRT.parents[1] / "xedaproject.yaml"
 FLOW = "vivado_synth"
 CLOCK = f"{FLOW}.clocks.main_clock.period=5.5ns"
 
@@ -70,7 +75,7 @@ def _closed(schema: Any) -> Any:
 
 def _validate(document: Any, name: str) -> None:
     schema = _schemas()[name]
-    jsonschema.validate(document, schema if name == "design" else _closed(schema))
+    jsonschema.validate(document, schema if name in tool.INPUT_DOCUMENTS else _closed(schema))
 
 
 def _json(*arguments: str, cwd: Path | None = None, fake_tools: bool = False) -> Any:
@@ -113,8 +118,9 @@ PRODUCERS = {
     "dry-run": lambda tmp_path: _run(tmp_path, "--dry-run"),
     "scrub": _scrub,
     "dse": _dse,
-    # The design schema validates a design file, not the output of a command.
+    # The design and project schemas validate a file, not the output of a command.
     "design": lambda tmp_path: yaml.safe_load(SQRT.read_text(encoding="utf-8")),
+    "project": lambda tmp_path: yaml.safe_load(PROJECT.read_text(encoding="utf-8")),
 }
 
 
@@ -137,17 +143,22 @@ VALIDATED_ELSEWHERE = {
 }
 
 
+#: The schemas of the files a user writes. Such a file has no `schema_version` key: the schema
+#: carries the version itself.
+INPUT_SCHEMAS = {"design", "project"}
+
+
 @pytest.mark.parametrize("name", sorted(_schemas()))
 def test_every_document_has_a_schema_version(name: str) -> None:
     schema = _schemas()[name]
-    if name == "design":  # the schema of a design file carries the version itself
+    if name in INPUT_SCHEMAS:
         assert type(schema["schema_version"]) is int and schema["schema_version"] == 1
         return
     assert "schema_version" in schema["properties"]
     assert "schema_version" in schema["required"]
 
 
-@pytest.mark.parametrize("name", sorted(set(_schemas()) - {"design"}))
+@pytest.mark.parametrize("name", sorted(set(_schemas()) - INPUT_SCHEMAS))
 def test_every_schema_states_its_schema_version_as_an_integer_constant(name: str) -> None:
     """One way to state the version: `{"type": "integer", "const": <integer>}`, so a document of
     another version and a Boolean do not validate."""
@@ -845,3 +856,232 @@ def test_a_removed_property_that_a_new_pattern_replaces_is_judged_by_the_pattern
     # leaves only the pattern, which is wider
     kept = CLOSED | {"properties": {"ab": STRING}, "patternProperties": {"^a": NULLABLE}}
     assert _judge(kept, wide) == "adds"
+
+
+# ------------------------------------------------------------------------- the project file
+
+
+def test_the_project_schema_names_the_keys_that_the_loader_takes() -> None:
+    from xeda._internal.project import PROJECT_KEYS
+
+    assert set(_schemas()["project"]["properties"]) == set(PROJECT_KEYS)
+
+
+@pytest.mark.parametrize("file", sorted(EXAMPLES_DIR.rglob("xedaproject.yaml")), ids=str)
+def test_every_example_project_validates_against_the_project_schema(file: Path) -> None:
+    jsonschema.validate(yaml.safe_load(file.read_text(encoding="utf-8")), _schemas()["project"])
+
+
+#: A project file, and whether the loader takes it. The schema agrees with the loader on each one
+#: that it can judge: the types, the nesting and the required keys.
+PROJECTS = {
+    "a design file": ({"designs": [{"file": "d.yaml"}]}, True),
+    "a design in the file": ({"designs": [{"name": "x", "rtl": {"sources": []}}]}, True),
+    "a dotted key of a design": ({"designs": [{"name": "x", "rtl.top": "t"}]}, True),
+    "all keys": (
+        {
+            "designs": [{"file": "d.yaml"}],
+            "flows": {"yosys": {"flatten": True}},
+            "run_root": "out",
+            "default_target": "board",
+        },
+        True,
+    ),
+    "no designs": ({"flows": {"yosys": {}}}, True),
+    "nothing": ({}, False),
+    "designs as a table": ({"designs": {"name": "x"}}, False),
+    "a design entry that is no table": ({"designs": ["d.yaml"]}, False),
+    "an empty file name": ({"designs": [{"file": ""}]}, False),
+    "a design without a name": ({"designs": [{"rtl": {"sources": []}}]}, False),
+    "flows as a list": ({"flows": []}, False),
+    "the settings of a flow as text": ({"flows": {"yosys": "x"}}, False),
+    "a run root that is no text": ({"run_root": 3}, False),
+    "an empty run root": ({"run_root": ""}, False),
+    "a target name that is no name": ({"default_target": "1st"}, False),
+    "an empty target name": ({"default_target": ""}, False),
+    # A flow section may be null (the loader drops it), and it is never a scalar.
+    "a null flow section": ({"flows": {"yosys": None}}, True),
+    # A key with a dot reaches into the flow section, in `flows` and at the root of the file.
+    "a dotted key in flows": ({"flows": {"yosys.flatten": True}}, True),
+    "a dotted key of a flow at the root": ({"flows.yosys.flatten": True}, True),
+    "a dotted key of a flow section at the root": ({"flows.yosys": {"flatten": True}}, True),
+    "a null flow section at the root": ({"flows.yosys": None}, True),
+    "a scalar flow section at the root": ({"flows.yosys": 3}, False),
+    "a dotted key of another key at the root": ({"run_root.x": "out"}, False),
+    "an unknown key at the root": ({"seed": 1}, False),
+    "a dotted unknown key at the root": ({"seed.x": 1}, False),
+    "a file entry with a name": ({"designs": [{"file": "d.yaml", "name": "x"}]}, False),
+    "an inline design with a file": (
+        {"designs": [{"name": "x", "file": "d.yaml", "rtl": {"sources": []}}]},
+        False,
+    ),
+    "an empty design name": ({"designs": [{"name": ""}]}, False),
+    "a dotted key of a design with sources": (
+        {"designs": [{"name": "x", "rtl.top": "t", "rtl.sources": []}]},
+        True,
+    ),
+}
+
+#: An inline design is built when it is selected, not when the project is read. These documents
+#: load, and the schema refuses what the selection refuses.
+SELECTED = {
+    "a null flow section in a design": (
+        {"designs": [{"name": "x", "rtl.sources": [], "flows": {"yosys": None}}]},
+        True,
+    ),
+    "a scalar flow section in a design": (
+        {"designs": [{"name": "x", "rtl.sources": [], "flows": {"yosys": 3}}]},
+        False,
+    ),
+    "a dotted key in flows of a design": (
+        {"designs": [{"name": "x", "rtl.sources": [], "flows": {"yosys.flatten": True}}]},
+        True,
+    ),
+    "a name of the grammar": ({"designs": [{"name": "x", "rtl.sources": []}]}, True),
+    "a name that starts with a digit": ({"designs": [{"name": "1st", "rtl.sources": []}]}, False),
+    "a name with a space": ({"designs": [{"name": "a b", "rtl.sources": []}]}, False),
+}
+
+
+@pytest.mark.parametrize("name", PROJECTS)
+def test_the_project_schema_and_the_loader_agree(name: str, tmp_path: Path) -> None:
+    document, loads = PROJECTS[name]
+    (tmp_path / "d.yaml").write_text("name: d\nrtl:\n  sources: []\n", encoding="utf-8")
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document) is loads
+    if loads:
+        Project.load(file)
+    else:
+        with pytest.raises(ProjectError):
+            Project.load(file)
+
+
+@pytest.mark.parametrize("name", SELECTED)
+def test_the_project_schema_and_the_selection_of_a_design_agree(name: str, tmp_path: Path) -> None:
+    document, selectable = SELECTED[name]
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document) is selectable
+    project = Project.load(file)
+    if selectable:
+        assert project.design().name == "x"
+    else:
+        with pytest.raises(DesignError):
+            project.design()
+
+
+def test_a_dotted_key_reaches_a_selected_design(tmp_path: Path) -> None:
+    document = {"designs": [{"name": "x", "rtl.top": "t", "rtl.sources": []}]}
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document)
+    assert Project.load(file).design().rtl.top == "t"
+
+
+def test_a_dotted_flow_key_gives_the_same_flows_table_as_the_nested_form(tmp_path: Path) -> None:
+    nested = {"flows": {"yosys": {"flatten": True}}}
+    forms = [nested, {"flows": {"yosys.flatten": True}}, {"flows.yosys.flatten": True}]
+    tables = []
+    for number, document in enumerate(forms):
+        file = tmp_path / f"p{number}" / "xedaproject.yaml"
+        file.parent.mkdir()
+        file.write_text(json.dumps(document), encoding="utf-8")
+        assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document)
+        tables.append(thaw(Project.load(file).flows))
+    assert tables == [{"yosys": {"flatten": True}}] * len(forms)
+
+
+def test_a_flow_name_is_no_target_name_and_the_schema_says_the_loader_judges_it(
+    tmp_path: Path,
+) -> None:
+    """The names of the flows depend on the installation (plugins), so they are no part of the
+    schema. The schema accepts the name, the loader refuses it, and the description says so."""
+    document = {"default_target": "yosys"}
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    schema = _schemas()["project"]
+    assert jsonschema.Draft202012Validator(schema).is_valid(document)
+    with pytest.raises(ProjectError, match="name of a flow"):
+        Project.load(file)
+    key = schema["properties"]["default_target"]
+    assert "name of a flow" in key["description"] and "loader" in key["description"]
+    assert "enum" not in key and "not" not in key
+
+
+def test_the_default_run_root_is_one_value_of_the_loader_and_the_schema(tmp_path: Path) -> None:
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps({"flows": {"yosys": {}}}), encoding="utf-8")
+    default = _schemas()["project"]["properties"]["run_root"]["default"]
+    assert Project.load(file).run_root == tmp_path.resolve() / default
+
+
+def test_a_changed_default_run_root_is_breaking() -> None:
+    def change(project: dict) -> None:
+        project["properties"]["run_root"]["default"] = "build"
+
+    additive, breaking = _project_changed(change)
+    assert breaking == ["project.run_root: default changed"]
+    assert not additive
+
+
+def _project_changed(mutate: Any) -> tuple[list[str], list[str]]:
+    old = _schemas()
+    new = copy.deepcopy(old)
+    mutate(new["project"])
+    return _classify(old, new)
+
+
+def test_a_new_optional_key_of_the_project_file_is_additive() -> None:
+    def add(project: dict) -> None:
+        project["properties"]["seed"] = {"type": "integer"}
+
+    assert _project_changed(add) == (["project.seed: new property"], [])
+
+
+def test_a_new_optional_key_of_a_design_in_the_project_file_is_additive() -> None:
+    def add(project: dict) -> None:
+        project["$defs"]["ProjectDesign"]["properties"]["seed"] = {"type": "integer"}
+
+    additive, breaking = _project_changed(add)
+    assert additive and not breaking
+
+
+@pytest.mark.parametrize("key", ["designs", "flows", "run_root", "default_target"])
+def test_a_removed_key_of_the_project_file_is_breaking(key: str) -> None:
+    def remove(project: dict) -> None:
+        del project["properties"][key]
+
+    additive, breaking = _project_changed(remove)
+    assert breaking == [f"project.{key}: property removed"] and not additive
+
+
+def test_a_required_key_of_the_project_file_is_breaking() -> None:
+    def require(project: dict) -> None:
+        project["required"] = ["designs"]
+
+    additive, breaking = _project_changed(require)
+    assert breaking == ["project.designs: now required"] and not additive
+
+
+def test_a_project_file_may_accept_more_and_never_less() -> None:
+    def narrow(project: dict) -> None:
+        project["properties"]["run_root"]["type"] = "string"
+
+    def retype(project: dict) -> None:
+        project["properties"]["default_target"]["type"] = "integer"
+
+    def entry(project: dict) -> None:
+        del project["properties"]["designs"]["items"]["anyOf"][0]
+
+    for mutate in (narrow, retype, entry):
+        additive, breaking = _project_changed(mutate)
+        assert breaking and not additive, mutate.__name__
+
+
+def test_a_removed_key_of_a_design_in_the_project_file_is_breaking() -> None:
+    def remove(project: dict) -> None:
+        del project["$defs"]["ProjectDesign"]["properties"]["rtl"]
+
+    additive, breaking = _project_changed(remove)
+    assert breaking and not additive

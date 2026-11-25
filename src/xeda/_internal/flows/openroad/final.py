@@ -24,7 +24,7 @@ from ...flow import (
     describe_results,
     describe_artifacts,
 )
-from ...flow.metrics import program_logs
+from ...flow.metrics import PLATFORM_SCHEMA, program_logs
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...package_paths import impl_module
 from ...platforms.model import PlatformModel
@@ -466,6 +466,7 @@ class Openroad(OpenroadStage):
             "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or "
             "user) that gave each value of the platform model.",
             "object",
+            schema=PLATFORM_SCHEMA,
         ),
     )
 

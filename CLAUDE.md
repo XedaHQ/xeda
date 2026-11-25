@@ -166,8 +166,10 @@ and only for a passed or rejected run (`tests/test_rejected_verdicts.py`).
   header; state the `.odb` stores has one owner (`openroad_place`); the header re-applies the rest
   (`tests/test_openroad_templates.py`).
 - Each flow needs its own docstring, a `results_description` from `describe_results(...)` (`{}`
-  if none), each entry a `MetricSpec` with a type, and a unit when it is a physical quantity, and
-  `description=` on every settings field (`tests/test_documentation.py`).
+  if none), each entry a `MetricSpec` with a type, and a unit when it is a physical quantity (an
+  `object` metric has a `schema` of its keys, and its description names each,
+  `tests/test_object_metrics.py`), and `description=` on every settings field
+  (`tests/test_documentation.py`).
 - An artifact is one file in the run directory under a documented key: each flow has an
   `artifacts_description` from `describe_artifacts(...)` (`{}` if none), and registers a key only
   for a file the run wrote. `log` is the log of `Flow.main_executable()`, `<name>_log` that of

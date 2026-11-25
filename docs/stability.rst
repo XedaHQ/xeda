@@ -16,12 +16,14 @@ What is public
 - The documents that Xeda writes and reads (see :doc:`machine-readable`): ``results.json``,
   the output of ``xeda run --json``, and the other JSON documents of the commands.
 - The built-in flows: their names, the names, types and defaults of their settings, the names,
-  kinds and cardinality of their outputs, the paths, types and units of their metrics, and their
-  artifact keys. A flow or setting marked ``experimental`` is the exception (see
+  kinds and cardinality of their outputs and the setting that switches an output on, the paths,
+  types and units of their metrics and the keys of a metric that is an object, and their artifact
+  keys, with whether a run always writes each. A flow or setting marked ``experimental`` is the exception (see
   :ref:`experimental`).
 - The error codes.
 - Quantities: ``MetricInfo.unit`` in every record, ``RunRecord.quantity(path)``, and the input of a
   quantity setting as text with a unit or as a ``pint`` quantity (see :doc:`python-api`).
+- The keys and values that a project file takes (``xeda/data/schemas/project.schema.json``).
 - The order of the settings layers, the grammars of the specification text, the names and keys of
   the private files and the session variables, and the layout of the run directories (see
   :doc:`run-directories`).
@@ -50,7 +52,8 @@ These changes can happen in any release:
 - a new public name, method, optional field, or keyword-only parameter with a default;
 - a new error subclass;
 - a new member of an open set (see below);
-- a new built-in flow, or a new setting with a default, output, metric or artifact of a flow;
+- a new built-in flow, or a new setting with a default, output, metric or artifact of a flow, or a
+  new key in a metric that is an object;
 - acceptance of a syntax that is reserved now (``,`` and ``@`` in specifications).
 
 These changes happen only in a major release:
@@ -121,8 +124,8 @@ column are not breaking changes.
      - An action precedes another element only through a declared output.
      - a programming receipt output of ``openfpgaloader`` and a tester flow that reads it
    * - Report channel
-     - Reports are artifacts. Artifact keys and their conditions are documented and fixed for each
-       flow. A record lists the artifacts that a run wrote.
+     - Reports are artifacts. Artifact keys, and whether a run always writes each, are documented
+       and fixed for each flow. A record lists the artifacts that a run wrote.
      - a flow declares the reports that it reads, each by producer node and artifact key
    * - DSE strategies
      - the internal optimizer loop over ``sweep``
@@ -149,7 +152,8 @@ How breaks are detected
 The test suite compares four snapshots with the release baseline in
 ``tests/baselines/<major>.<minor>/``: the public Python API; the built-in flows and the error
 codes; the name grammars, the private files, the session variables, the length of the run hash and
-the CLI; and the JSON Schema of each document that Xeda writes or reads (:ref:`document-schemas`).
+the CLI; and the JSON Schema of each document that Xeda writes or reads (:ref:`document-schemas`),
+which includes the schema of a project file.
 A test fails when a snapshot has a breaking difference from the baseline. Nobody rewrites a
 baseline after its release.
 
@@ -158,7 +162,8 @@ an addition and accepting less is a break. A setting keeps its name, unit and de
 default (a settings group may add a key together with a new leaf), a removed table key in a
 default, a removed choice, a narrower bound or type, a new constraint on keys that an object
 accepted before, a new required setting and a new required nested field are breaks. A new choice,
-a wider type or bound, a new optional nested field and a new optional setting are additions. A flow keeps its declared
+a wider type or bound, a new optional nested field and a new optional setting are additions. The
+project file follows the same rules: its schema is the one of the input. A flow keeps its declared
 inputs: a removed input, a removed kind, a new required input, a list input that becomes a single
 file and a changed default producer or binding are breaks. A CLI option keeps its names (a
 ``--x/--no-x`` pair keeps each name on its side), choices, environment variables, type, ``nargs``
@@ -172,7 +177,14 @@ A mapping of a fixed shape that the API returns has a ``TypedDict`` class (``Pla
 changed type, and a key that gains or loses ``NotRequired``, are breaks. A new key is an addition.
 
 For a document that Xeda writes, a removed key, a wider or unrelated type, any change of an enum or
-a key that is no longer required is a break. A new optional key and a narrower type are additions. Other tests check the
+a key that is no longer required is a break. A new optional key and a narrower type are additions. The same rules judge the keys of a metric
+that is an object, such as ``sim.evidence`` and ``platform``, and the nested keys of each. A flow
+also keeps the type and unit of each metric and whether a run always writes each artifact (an
+artifact that a run always wrote and that becomes conditional is a break, and a new artifact is an
+addition; the text of a condition is documentation), and the setting that switches an output
+on (any change is a break). A run that passes always writes an artifact that a flow marks
+``always``. A run that fails may lack any artifact, so a failure is never a condition. Other tests
+check the
 rules on this page that a snapshot cannot hold, such as the order of the settings layers and the
 exit statuses.
 

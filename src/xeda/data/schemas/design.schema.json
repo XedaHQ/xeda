@@ -1877,10 +1877,16 @@
     "flows": {
       "additionalProperties": {
         "additionalProperties": true,
-        "type": "object"
+        "type": [
+          "object",
+          "null"
+        ]
       },
       "default": {},
       "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+      "patternProperties": {
+        "\\.": {}
+      },
       "title": "Flows",
       "type": "object"
     },
@@ -1967,10 +1973,16 @@
           "flows": {
             "additionalProperties": {
               "additionalProperties": true,
-              "type": "object"
+              "type": [
+                "object",
+                "null"
+              ]
             },
             "default": {},
             "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+            "patternProperties": {
+              "\\.": {}
+            },
             "title": "Flows",
             "type": "object"
           },

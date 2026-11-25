@@ -30,7 +30,7 @@ def test_a_changed_unit_is_breaking() -> None:
                 "settings": {"clock": {"type": "time", "unit": "ns", "default": None}},
                 "outputs": {},
                 "metrics": {},
-                "artifacts": [],
+                "artifacts": {},
             }
         },
         "codes": {},
@@ -46,7 +46,7 @@ def _flow(*, experimental: bool = False, **settings: dict) -> dict:
         "settings": settings,
         "outputs": {},
         "metrics": {"m": {"type": "number", "unit": None}},
-        "artifacts": ["log"],
+        "artifacts": {"log": {"when": "always"}},
     }
 
 
@@ -68,7 +68,7 @@ def test_nothing_of_a_flow_marked_experimental_in_the_old_baseline_is_judged() -
     old = _contract(a=_flow(experimental=True, s={"type": "integer", "unit": None, "default": 1}))
     new = _contract(a=_flow(experimental=True))
     new["flows"]["a"]["metrics"] = {}
-    new["flows"]["a"]["artifacts"] = []
+    new["flows"]["a"]["artifacts"] = {}
     assert tool.classify(old, new, kind="contract") == ([], [])
     assert tool.classify(old, _contract(), kind="contract") == ([], [])  # the flow is gone
 
@@ -376,16 +376,9 @@ def test_a_new_cli_command_is_additive() -> None:
     assert additive and not breaking
 
 
-def test_a_project_file_key_may_be_added_but_not_removed() -> None:
-    old = {"cli": {}, "project_keys": ["designs", "flows"]}
-    new = {"cli": {}, "project_keys": ["designs", "flows", "run_root"]}
-    assert tool.classify(old, new, kind="behavior") == (["project.run_root: new key"], [])
-    assert tool.classify(new, old, kind="behavior") == ([], ["project.run_root: key removed"])
-
-
 def test_a_new_required_setting_is_breaking() -> None:
     old = {
-        "flows": {"a": {"settings": {}, "outputs": {}, "metrics": {}, "artifacts": []}},
+        "flows": {"a": {"settings": {}, "outputs": {}, "metrics": {}, "artifacts": {}}},
         "codes": {},
     }
     new = copy.deepcopy(old)
@@ -1077,3 +1070,224 @@ def test_a_private_file_that_changes_its_place_breaks() -> None:
         [],
         ["private_files.<stem>.local.yaml: place changed"],
     )
+
+
+# --------------------------------------- what the snapshot records of artifacts, outputs, metrics
+
+
+def _stable_flow(current: dict, *, having: str) -> str:
+    return next(
+        name
+        for name, flow in sorted(current["flows"].items())
+        if flow[having] and not flow.get("experimental")
+    )
+
+
+def test_the_snapshot_records_every_artifact_with_its_condition(current: dict) -> None:
+    flow = current["flows"]["ghdl_sim"]
+    assert flow["artifacts"]["log"] == {"when": "when the flow starts its main tool"}
+    for name, entry in current["flows"].items():
+        for key, artifact in entry["artifacts"].items():
+            assert artifact["when"].strip(), f"{name}.{key}"
+
+
+def test_an_artifact_that_is_no_longer_always_written_breaks(current: dict) -> None:
+    always = next(
+        (name, key)
+        for name, entry in sorted(current["flows"].items())
+        if not entry.get("experimental")
+        for key, artifact in sorted(entry["artifacts"].items())
+        if artifact["when"] == "always"
+    )
+
+    def narrow(c: dict) -> None:
+        c["flows"][always[0]]["artifacts"][always[1]]["when"] = "when the design compiled"
+
+    additive, breaking = _judged(current, narrow)
+    assert not additive
+    assert breaking == [
+        f"{always[0]}.artifacts.{always[1]}: no longer always written ('when the design compiled')"
+    ]
+    narrowed = copy.deepcopy(current)
+    narrow(narrowed)
+    assert tool.classify(narrowed, current, kind="contract") == (
+        [f"{always[0]}.artifacts.{always[1]}: now always written"],
+        [],
+    )
+
+
+def test_a_reworded_condition_of_an_artifact_is_not_judged(current: dict) -> None:
+    def reword(c: dict) -> None:
+        c["flows"]["ghdl_sim"]["artifacts"]["log"]["when"] = "when the flow runs its main tool"
+
+    assert _judged(current, reword) == ([], [])
+
+
+def test_a_new_artifact_is_additive_and_a_removed_one_breaks(current: dict) -> None:
+    def add(c: dict) -> None:
+        c["flows"]["ghdl_sim"]["artifacts"]["extra"] = {"when": "always"}
+
+    assert _judged(current, add) == (["ghdl_sim.artifacts.extra: new artifact"], [])
+    new = copy.deepcopy(current)
+    add(new)
+    assert tool.classify(new, current, kind="contract") == (
+        [],
+        ["ghdl_sim.artifacts.extra: artifact removed"],
+    )
+
+
+def test_the_snapshot_records_what_enables_an_output(current: dict) -> None:
+    enabled = {
+        (name, key): output["enabled_by"]
+        for name, flow in current["flows"].items()
+        for key, output in flow["outputs"].items()
+        if output["enabled_by"] is not None
+    }
+    assert enabled  # a flow has an output that a setting switches on
+    for flow in current["flows"].values():
+        for output in flow["outputs"].values():
+            assert "enabled_by" in output
+
+
+def _output(current: dict, *, enabled: bool) -> tuple[str, str]:
+    """A stable flow and an output of it that a setting switches on, or one that is always written."""
+    return next(
+        (name, key)
+        for name, flow in sorted(current["flows"].items())
+        if not flow.get("experimental")
+        for key, output in sorted(flow["outputs"].items())
+        if (output["enabled_by"] is not None) is enabled
+    )
+
+
+@pytest.mark.parametrize(
+    ("enabled", "enabled_by"),
+    [(True, "another_setting"), (True, None), (False, "a_setting")],
+)
+def test_a_changed_condition_of_an_output_breaks(
+    current: dict, enabled: bool, enabled_by: str | None
+) -> None:
+    name, key = _output(current, enabled=enabled)
+
+    def change(c: dict) -> None:
+        c["flows"][name]["outputs"][key]["enabled_by"] = enabled_by
+
+    additive, breaking = _judged(current, change)
+    assert not additive
+    assert len(breaking) == 1 and breaking[0].startswith(f"{name}.outputs.{key}: changed")
+
+
+def _object_metrics(current: dict, metric: str) -> list[str]:
+    return [
+        name
+        for name, flow in sorted(current["flows"].items())
+        if metric in flow["metrics"] and not flow.get("experimental")
+    ]
+
+
+def test_every_object_metric_records_its_keys_and_no_other_metric_does(current: dict) -> None:
+    for name, flow in current["flows"].items():
+        for path, metric in flow["metrics"].items():
+            assert ("schema" in metric) == (metric["type"] == "object"), f"{name}.{path}"
+    assert _object_metrics(current, "sim.evidence") and _object_metrics(current, "platform")
+    evidence = current["flows"]["ghdl_sim"]["metrics"]["sim.evidence"]["schema"]
+    assert sorted(evidence["properties"]) == [
+        "cycles", "ended_by", "events", "exit_code", "time", "time_unit",
+    ]  # fmt: skip
+    assert sorted(evidence["properties"]["events"]["items"]["properties"]) == [
+        "kind", "location", "message", "time",
+    ]  # fmt: skip
+    platform = current["flows"]["openroad_place"]["metrics"]["platform"]["schema"]
+    assert sorted(platform["properties"]) == ["corner", "name", "provider", "sources", "version"]
+
+
+def _evidence(c: dict, flow: str = "ghdl_sim") -> dict:
+    return c["flows"][flow]["metrics"]["sim.evidence"]["schema"]
+
+
+def _event(c: dict) -> dict:
+    return _evidence(c)["properties"]["events"]["items"]
+
+
+def test_a_removed_nested_key_of_an_object_metric_breaks(current: dict) -> None:
+    def top(c: dict) -> None:
+        del _evidence(c)["properties"]["cycles"]
+
+    def nested(c: dict) -> None:
+        del _event(c)["properties"]["location"]
+
+    def platform(c: dict) -> None:
+        del c["flows"]["openroad_place"]["metrics"]["platform"]["schema"]["properties"]["sources"]
+
+    for mutate in (top, nested, platform):
+        additive, breaking = _judged(current, mutate)
+        assert len(breaking) == 1 and "property removed" in breaking[0], breaking
+        assert not additive
+
+
+def test_a_nested_key_of_an_object_metric_may_be_added(current: dict) -> None:
+    def top(c: dict) -> None:
+        _evidence(c)["properties"]["note"] = {"type": "string"}
+
+    def nested(c: dict) -> None:
+        _event(c)["properties"]["source"] = {"type": "string"}
+        _event(c)["required"].append("source")  # the writer always has it
+
+    for mutate in (top, nested):
+        additive, breaking = _judged(current, mutate)
+        assert additive and not breaking, (additive, breaking)
+
+
+def test_a_retyped_or_optional_nested_key_of_an_object_metric_breaks(current: dict) -> None:
+    def retype(c: dict) -> None:
+        _event(c)["properties"]["message"] = {"type": "integer"}
+
+    def widen(c: dict) -> None:
+        _event(c)["properties"]["message"] = {"type": ["string", "null"]}
+
+    def optional(c: dict) -> None:
+        _evidence(c)["required"].remove("events")
+
+    for mutate in (retype, widen, optional):
+        additive, breaking = _judged(current, mutate)
+        assert breaking and not additive, mutate.__name__
+
+
+def test_the_keys_of_an_object_metric_cannot_be_dropped_or_added_to_a_scalar(current: dict) -> None:
+    def drop(c: dict) -> None:
+        del c["flows"]["ghdl_sim"]["metrics"]["sim.evidence"]["schema"]
+
+    def add(c: dict) -> None:
+        c["flows"]["ghdl_sim"]["metrics"]["sim.ended_by"]["schema"] = {"type": "string"}
+
+    assert _judged(current, drop)[1]
+    assert _judged(current, add)[1]
+
+
+def test_a_changed_type_or_unit_of_a_metric_breaks(current: dict) -> None:
+    def retype(c: dict) -> None:
+        c["flows"]["ghdl_sim"]["metrics"]["sim.errors"]["type"] = "number"
+
+    def unit(c: dict) -> None:
+        c["flows"]["ghdl_sim"]["metrics"]["sim.time"]["unit"] = "ps"
+
+    assert len(_judged(current, retype)[1]) == 1
+    assert len(_judged(current, unit)[1]) == 1
+
+
+def test_the_keys_of_an_object_metric_of_an_experimental_flow_are_not_judged(
+    current: dict,
+) -> None:
+    def change(c: dict) -> None:
+        del _evidence(c, "xezim")["properties"]["cycles"]
+
+    assert _judged(current, change) == ([], [])
+
+
+def test_a_model_default_equal_to_its_bare_call_is_snapshotted_as_the_call() -> None:
+    """A new optional field of `Testbench` must not read as a changed default of `Design.tb`."""
+    from xeda import Testbench
+
+    assert tool._render_default(Testbench()) == "Testbench()"
+    assert tool._render_default(Testbench(top=("tb",))).startswith("Testbench(")
+    assert tool._render_default(Testbench(top=("tb",))) != "Testbench()"

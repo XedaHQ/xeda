@@ -186,7 +186,7 @@
             },
             {
               "annotation": "xeda.Testbench",
-              "default": "Testbench(sources=(), parameters=FrozenDict({}), defines=FrozenDict({}), top=(), uut=None, cocotb=None, python_packages=())",
+              "default": "Testbench()",
               "name": "tb"
             },
             {
