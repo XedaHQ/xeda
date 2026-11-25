@@ -1878,10 +1878,16 @@
       "flows": {
         "additionalProperties": {
           "additionalProperties": true,
-          "type": "object"
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "default": {},
         "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+        "patternProperties": {
+          "\\.": {}
+        },
         "title": "Flows",
         "type": "object"
       },
@@ -1968,10 +1974,16 @@
             "flows": {
               "additionalProperties": {
                 "additionalProperties": true,
-                "type": "object"
+                "type": [
+                  "object",
+                  "null"
+                ]
               },
               "default": {},
               "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+              "patternProperties": {
+                "\\.": {}
+              },
               "title": "Flows",
               "type": "object"
             },
@@ -4487,6 +4499,11 @@
         "x-xeda-closed": true
       },
       "ProjectDesign": {
+        "not": {
+          "required": [
+            "file"
+          ]
+        },
         "properties": {
           "authors": {
             "anyOf": [
@@ -4538,10 +4555,16 @@
           "flows": {
             "additionalProperties": {
               "additionalProperties": true,
-              "type": "object"
+              "type": [
+                "object",
+                "null"
+              ]
             },
             "default": {},
             "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+            "patternProperties": {
+              "\\.": {}
+            },
             "title": "Flows",
             "type": "object"
           },
@@ -4569,6 +4592,7 @@
           },
           "name": {
             "description": "The unique name of the design. It starts with a letter and has only letters, digits, `_` and `-`. Name regex: [a-zA-Z][a-zA-Z0-9_\\-]*.",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
             "title": "Name",
             "type": "string"
           },
@@ -4628,10 +4652,16 @@
                 "flows": {
                   "additionalProperties": {
                     "additionalProperties": true,
-                    "type": "object"
+                    "type": [
+                      "object",
+                      "null"
+                    ]
                   },
                   "default": {},
                   "description": "Design-specific flow settings. Each key is the name of a flow, and each value is the design's settings for that flow.",
+                  "patternProperties": {
+                    "\\.": {}
+                  },
                   "title": "Flows",
                   "type": "object"
                 },
@@ -6252,10 +6282,21 @@
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
     "minProperties": 1,
+    "patternProperties": {
+      "^flows\\.[^.]*$": {
+        "additionalProperties": true,
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "^flows\\.[^.]*\\.": {}
+    },
     "properties": {
       "default_target": {
-        "description": "The target that a design uses when the command gives none.",
+        "description": "The target that a design uses when the command gives none. A target name starts with a letter and has only letters, digits, `_` and `-`. The name of a flow is no target name. The loader checks that against the installed flows, plugins included, and this schema does not.",
         "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
         "type": [
           "string",
@@ -6263,10 +6304,11 @@
         ]
       },
       "designs": {
-        "description": "The designs of the project, in order. An entry is a design file, `{file: <path>}`, which is the only key of the entry, or a design written in the project file, which needs a `name`.",
+        "description": "The designs of the project, in order. An entry is a design file, `{file: <path>}`, which is the only key of the entry, or a design written in the project file, which needs a `name` and has no `file`. The loader reads a design file, so it checks the file and its name, and not this schema.",
         "items": {
           "anyOf": [
             {
+              "additionalProperties": false,
               "properties": {
                 "file": {
                   "minLength": 1,
@@ -6276,8 +6318,7 @@
               "required": [
                 "file"
               ],
-              "type": "object",
-              "x-xeda-closed": true
+              "type": "object"
             },
             {
               "$ref": "#/$defs/ProjectDesign"
@@ -6291,18 +6332,23 @@
       },
       "flows": {
         "additionalProperties": {
+          "additionalProperties": true,
           "type": [
             "object",
             "null"
           ]
         },
-        "description": "The settings of the flows for every design of the project: each key is the name of a flow, and each value is a table of its settings.",
+        "description": "The settings of the flows for every design of the project: each key is the name of a flow, and each value is a table of its settings. A key with a dot, such as `yosys.flatten`, sets one setting of a flow. A flow section is never a scalar.",
+        "patternProperties": {
+          "\\.": {}
+        },
         "type": [
           "object",
           "null"
         ]
       },
       "run_root": {
+        "default": "xeda_run",
         "description": "The directory of the run directories, relative to the project file. The default is `xeda_run` beside the project file.",
         "minLength": 1,
         "type": [
@@ -6313,8 +6359,7 @@
     },
     "schema_version": 1,
     "title": "Xeda project file",
-    "type": "object",
-    "x-xeda-closed": true
+    "type": "object"
   },
   "remote-cancel": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -16,7 +16,8 @@ import pytest
 import yaml
 
 from xeda import Project
-from xeda.errors import ProjectError
+from xeda._internal.frozen import thaw
+from xeda.errors import DesignError, ProjectError
 
 from .test_cli_json_contract import EXAMPLES_DIR, SQRT, run_xeda
 from .source_layout import SCHEMAS_DIR
@@ -897,6 +898,48 @@ PROJECTS = {
     "a run root that is no text": ({"run_root": 3}, False),
     "an empty run root": ({"run_root": ""}, False),
     "a target name that is no name": ({"default_target": "1st"}, False),
+    "an empty target name": ({"default_target": ""}, False),
+    # A flow section may be null (the loader drops it), and it is never a scalar.
+    "a null flow section": ({"flows": {"yosys": None}}, True),
+    # A key with a dot reaches into the flow section, in `flows` and at the root of the file.
+    "a dotted key in flows": ({"flows": {"yosys.flatten": True}}, True),
+    "a dotted key of a flow at the root": ({"flows.yosys.flatten": True}, True),
+    "a dotted key of a flow section at the root": ({"flows.yosys": {"flatten": True}}, True),
+    "a null flow section at the root": ({"flows.yosys": None}, True),
+    "a scalar flow section at the root": ({"flows.yosys": 3}, False),
+    "a dotted key of another key at the root": ({"run_root.x": "out"}, False),
+    "an unknown key at the root": ({"seed": 1}, False),
+    "a dotted unknown key at the root": ({"seed.x": 1}, False),
+    "a file entry with a name": ({"designs": [{"file": "d.yaml", "name": "x"}]}, False),
+    "an inline design with a file": (
+        {"designs": [{"name": "x", "file": "d.yaml", "rtl": {"sources": []}}]},
+        False,
+    ),
+    "an empty design name": ({"designs": [{"name": ""}]}, False),
+    "a dotted key of a design with sources": (
+        {"designs": [{"name": "x", "rtl.top": "t", "rtl.sources": []}]},
+        True,
+    ),
+}
+
+#: An inline design is built when it is selected, not when the project is read. These documents
+#: load, and the schema refuses what the selection refuses.
+SELECTED = {
+    "a null flow section in a design": (
+        {"designs": [{"name": "x", "rtl.sources": [], "flows": {"yosys": None}}]},
+        True,
+    ),
+    "a scalar flow section in a design": (
+        {"designs": [{"name": "x", "rtl.sources": [], "flows": {"yosys": 3}}]},
+        False,
+    ),
+    "a dotted key in flows of a design": (
+        {"designs": [{"name": "x", "rtl.sources": [], "flows": {"yosys.flatten": True}}]},
+        True,
+    ),
+    "a name of the grammar": ({"designs": [{"name": "x", "rtl.sources": []}]}, True),
+    "a name that starts with a digit": ({"designs": [{"name": "1st", "rtl.sources": []}]}, False),
+    "a name with a space": ({"designs": [{"name": "a b", "rtl.sources": []}]}, False),
 }
 
 
@@ -912,6 +955,74 @@ def test_the_project_schema_and_the_loader_agree(name: str, tmp_path: Path) -> N
     else:
         with pytest.raises(ProjectError):
             Project.load(file)
+
+
+@pytest.mark.parametrize("name", SELECTED)
+def test_the_project_schema_and_the_selection_of_a_design_agree(name: str, tmp_path: Path) -> None:
+    document, selectable = SELECTED[name]
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document) is selectable
+    project = Project.load(file)
+    if selectable:
+        assert project.design().name == "x"
+    else:
+        with pytest.raises(DesignError):
+            project.design()
+
+
+def test_a_dotted_key_reaches_a_selected_design(tmp_path: Path) -> None:
+    document = {"designs": [{"name": "x", "rtl.top": "t", "rtl.sources": []}]}
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document)
+    assert Project.load(file).design().rtl.top == "t"
+
+
+def test_a_dotted_flow_key_gives_the_same_flows_table_as_the_nested_form(tmp_path: Path) -> None:
+    nested = {"flows": {"yosys": {"flatten": True}}}
+    forms = [nested, {"flows": {"yosys.flatten": True}}, {"flows.yosys.flatten": True}]
+    tables = []
+    for number, document in enumerate(forms):
+        file = tmp_path / f"p{number}" / "xedaproject.yaml"
+        file.parent.mkdir()
+        file.write_text(json.dumps(document), encoding="utf-8")
+        assert jsonschema.Draft202012Validator(_schemas()["project"]).is_valid(document)
+        tables.append(thaw(Project.load(file).flows))
+    assert tables == [{"yosys": {"flatten": True}}] * len(forms)
+
+
+def test_a_flow_name_is_no_target_name_and_the_schema_says_the_loader_judges_it(
+    tmp_path: Path,
+) -> None:
+    """The names of the flows depend on the installation (plugins), so they are no part of the
+    schema. The schema accepts the name, the loader refuses it, and the description says so."""
+    document = {"default_target": "yosys"}
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    schema = _schemas()["project"]
+    assert jsonschema.Draft202012Validator(schema).is_valid(document)
+    with pytest.raises(ProjectError, match="name of a flow"):
+        Project.load(file)
+    key = schema["properties"]["default_target"]
+    assert "name of a flow" in key["description"] and "loader" in key["description"]
+    assert "enum" not in key and "not" not in key
+
+
+def test_the_default_run_root_is_one_value_of_the_loader_and_the_schema(tmp_path: Path) -> None:
+    file = tmp_path / "xedaproject.yaml"
+    file.write_text(json.dumps({"flows": {"yosys": {}}}), encoding="utf-8")
+    default = _schemas()["project"]["properties"]["run_root"]["default"]
+    assert Project.load(file).run_root == tmp_path.resolve() / default
+
+
+def test_a_changed_default_run_root_is_breaking() -> None:
+    def change(project: dict) -> None:
+        project["properties"]["run_root"]["default"] = "build"
+
+    additive, breaking = _project_changed(change)
+    assert breaking == ["project.run_root: default changed from 'xeda_run' to 'build'"]
+    assert not additive
 
 
 def _project_changed(mutate: Any) -> tuple[list[str], list[str]]:
